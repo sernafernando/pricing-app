@@ -32,6 +32,13 @@ import ClaimsDashboard from './pages/ClaimsDashboard';
 import Traza from './pages/Traza';
 import FreeShippingAlerts from './pages/FreeShippingAlerts';
 import SeguimientoEnvios from './pages/SeguimientoEnvios';
+import Empleados from './pages/Empleados';
+import RRHHPresentismo from './pages/RRHHPresentismo';
+import RRHHSanciones from './pages/RRHHSanciones';
+import RRHHVacaciones from './pages/RRHHVacaciones';
+import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
+import RRHHHorarios from './pages/RRHHHorarios';
+import RRHHReportes from './pages/RRHHReportes';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -216,6 +223,41 @@ function App() {
             <Route path="/seguimiento-envios" element={
               <ProtectedRoute permiso="seguimiento_envios.ver">
                 <SeguimientoEnvios />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/empleados" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <Empleados />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/presentismo" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHPresentismo />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/sanciones" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHSanciones />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/vacaciones" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHVacaciones />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/cuenta-corriente" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHCuentaCorriente />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/horarios" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHHorarios />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/reportes" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHReportes />
               </ProtectedRoute>
             } />
           </Route>

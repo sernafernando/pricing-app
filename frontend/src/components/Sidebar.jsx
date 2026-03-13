@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import SidebarSection from './SidebarSection';
-import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck } from 'lucide-react';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
@@ -111,6 +111,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Cálculos', path: '/calculos', permiso: 'reportes.ver_calculadora' },
         { label: 'Últimos Cambios', path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
         { label: 'Cuentas Corrientes', path: '/cuentas-corrientes', permiso: 'reportes.ver_cuentas_corrientes' },
+      ],
+    },
+    {
+      id: 'rrhh',
+      title: 'RRHH',
+      icon: Users,
+      defaultOpen: false,
+      items: [
+        { label: 'Empleados', path: '/rrhh/empleados', permiso: 'rrhh.ver' },
+        { label: 'Presentismo', path: '/rrhh/presentismo', permiso: 'rrhh.ver' },
+        { label: 'Sanciones', path: '/rrhh/sanciones', permiso: 'rrhh.ver' },
+        { label: 'Vacaciones', path: '/rrhh/vacaciones', permiso: 'rrhh.ver' },
+        { label: 'Cuenta Corriente', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
+        { label: 'Horarios', path: '/rrhh/horarios', permiso: 'rrhh.ver' },
+        { label: 'Reportes', path: '/rrhh/reportes', permiso: 'rrhh.ver' },
       ],
     },
     {

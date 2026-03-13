@@ -24,6 +24,7 @@ class CategoriaPermiso(str, enum.Enum):
     CONFIGURACION = "configuracion"
     ALERTAS = "alertas"
     ENVIOS_FLEX = "envios_flex"
+    RRHH = "rrhh"
 
 
 class Permiso(Base):
@@ -685,6 +686,31 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.ENVIOS_FLEX,
         "orden": 112,
     },
+    # =========================================================================
+    # RRHH
+    # =========================================================================
+    {
+        "codigo": "rrhh.ver",
+        "nombre": "Ver módulo RRHH",
+        "descripcion": "Acceso de lectura al módulo de Recursos Humanos: empleados, legajos, documentos",
+        "categoria": CategoriaPermiso.RRHH,
+        "orden": 120,
+    },
+    {
+        "codigo": "rrhh.gestionar",
+        "nombre": "Gestionar empleados",
+        "descripcion": "Crear, editar y dar de baja empleados. Subir y eliminar documentos del legajo",
+        "categoria": CategoriaPermiso.RRHH,
+        "orden": 121,
+    },
+    {
+        "codigo": "rrhh.config",
+        "nombre": "Configurar RRHH",
+        "descripcion": "Administrar tipos de documento y campos custom del legajo",
+        "categoria": CategoriaPermiso.RRHH,
+        "orden": 122,
+        "es_critico": True,
+    },
 ]
 
 
@@ -727,6 +753,7 @@ PERMISOS_POR_ROL = {
         "config.*",
         "alertas.*",
         "envios_flex.*",
+        "rrhh.*",
     ],
     "GERENTE": [
         "productos.ver",

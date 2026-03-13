@@ -1,0 +1,337 @@
+/* RRHHReportes - Reportes RRHH */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.headerTitle h1 {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+  padding-bottom: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.tab {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.tab:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.tabActive {
+  composes: tab;
+  background: var(--cf-bg-card);
+  color: var(--cf-accent-blue);
+  border-bottom: 2px solid var(--cf-accent-blue);
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Buttons */
+.btnPrimary {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+}
+
+.btnSecondary {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+}
+
+.btnExport {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+  border: 1px solid var(--cf-accent-green);
+  border-radius: var(--radius-md);
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-weight: 500;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnExport:hover {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.btnExport:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Summary cards */
+.summaryCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.summaryCard {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  text-align: center;
+}
+
+.summaryValue {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.summaryLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summaryBlue {
+  composes: summaryValue;
+  color: var(--cf-accent-blue);
+}
+
+.summaryGreen {
+  composes: summaryValue;
+  color: var(--cf-accent-green);
+}
+
+.summaryRed {
+  composes: summaryValue;
+  color: var(--cf-accent-red);
+}
+
+.summaryOrange {
+  composes: summaryValue;
+  color: var(--cf-accent-orange);
+}
+
+/* Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.textRight {
+  text-align: right;
+}
+
+.textCenter {
+  text-align: center;
+}
+
+/* Status badges */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.badgeGreen {
+  composes: statusBadge;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.badgeRed {
+  composes: statusBadge;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--cf-accent-red);
+}
+
+.badgeOrange {
+  composes: statusBadge;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.badgeBlue {
+  composes: statusBadge;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+/* Subtables */
+.subSection {
+  margin-top: var(--spacing-lg);
+}
+
+.subSection h3 {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Loading / Empty */
+.loading {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Detalle toggle */
+.detailToggle {
+  padding: 2px 6px;
+  font-size: var(--font-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.detailToggle:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.detailRow {
+  background: var(--cf-bg-app);
+}
+
+.detailRow td {
+  padding: var(--spacing-xs) var(--spacing-md);
+}
+
+.miniTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-xs);
+  margin: var(--spacing-xs) 0;
+}
+
+.miniTable th,
+.miniTable td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.miniTable th {
+  color: var(--cf-text-tertiary);
+  font-weight: 600;
+}
+
+/* Row highlights */
+.rowWarning {
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.rowDanger {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+/* Responsive */
+.tableWrap {
+  overflow-x: auto;
+}

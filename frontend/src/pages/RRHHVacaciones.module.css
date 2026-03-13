@@ -1,0 +1,401 @@
+/* RRHHVacaciones - Gestión de períodos y solicitudes de vacaciones */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.headerTitle h1 {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+.badge {
+  background: var(--cf-accent-blue);
+  color: white;
+  font-size: var(--font-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: 500;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tab {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.tab:hover {
+  color: var(--cf-text-primary);
+}
+
+.tabActive {
+  composes: tab;
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* Status badges */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.statusPendiente {
+  composes: statusBadge;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.statusAprobada {
+  composes: statusBadge;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.statusRechazada {
+  composes: statusBadge;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--cf-accent-red);
+}
+
+.statusCancelada {
+  composes: statusBadge;
+  background: rgba(107, 114, 128, 0.15);
+  color: var(--cf-text-tertiary);
+}
+
+.statusGozada {
+  composes: statusBadge;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+/* Days progress */
+.daysProgress {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.daysBar {
+  flex: 1;
+  height: 6px;
+  background: var(--cf-border-default);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.daysBarFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--cf-accent-blue);
+  transition: width var(--duration-200) var(--ease-out);
+}
+
+.daysText {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+/* Buttons */
+.btnPrimary {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+}
+
+.btnSecondary {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+}
+
+.btnSmall {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnSmall:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+}
+
+.btnSuccess {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnSuccess:hover {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: var(--cf-accent-green);
+}
+
+.btnDanger {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnDanger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--cf-accent-red);
+}
+
+.btnWarning {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnWarning:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--cf-accent-orange);
+}
+
+/* Loading / Empty */
+.loading {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-tertiary);
+}
+
+/* Modal */
+.modal {
+  composes: modal from '../styles/modals-tesla.css';
+}
+
+.modalOverlay {
+  composes: modal-overlay from '../styles/modals-tesla.css';
+}
+
+.modalContent {
+  composes: modal-content from '../styles/modals-tesla.css';
+  max-width: 600px;
+}
+
+.modalHeader {
+  composes: modal-header from '../styles/modals-tesla.css';
+}
+
+.modalBody {
+  composes: modal-body from '../styles/modals-tesla.css';
+}
+
+.modalFooter {
+  composes: modal-footer from '../styles/modals-tesla.css';
+}
+
+/* Form */
+.formGroup {
+  margin-bottom: var(--spacing-md);
+}
+
+.formGroup label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  min-height: 80px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.errorMsg {
+  padding: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Generate card */
+.generateCard {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.generateCard label {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.generateResult {
+  font-size: var(--font-sm);
+  color: var(--cf-accent-green);
+  font-weight: 500;
+}

@@ -61,6 +61,13 @@ from app.routers import (
     alertas,
     claims_dashboard,
     free_shipping_alerts,
+    rrhh_empleados,
+    rrhh_presentismo,
+    rrhh_sanciones,
+    rrhh_vacaciones,
+    rrhh_cuenta_corriente,
+    rrhh_horarios,
+    rrhh_reportes,
     seriales,
     sse,
     rma_seguimiento,
@@ -210,6 +217,13 @@ app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboa
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
+app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])
+app.include_router(rrhh_presentismo.router, prefix="/api", tags=["rrhh-presentismo"])
+app.include_router(rrhh_sanciones.router, prefix="/api", tags=["rrhh-sanciones"])
+app.include_router(rrhh_vacaciones.router, prefix="/api", tags=["rrhh-vacaciones"])
+app.include_router(rrhh_cuenta_corriente.router, prefix="/api", tags=["rrhh-cuenta-corriente"])
+app.include_router(rrhh_horarios.router, prefix="/api", tags=["rrhh-horarios"])
+app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
 
 

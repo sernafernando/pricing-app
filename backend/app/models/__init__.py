@@ -70,6 +70,30 @@ from app.models.rma_claim_ml_message import RmaClaimMLMessage
 from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.weather_history import WeatherHistory
 
+# RRHH — Recursos Humanos
+from app.models.rrhh_empleado import RRHHEmpleado, EstadoEmpleado
+from app.models.rrhh_schema_legajo import RRHHSchemaLegajo
+from app.models.rrhh_tipo_documento import RRHHTipoDocumento
+from app.models.rrhh_documento import RRHHDocumento
+from app.models.rrhh_legajo_historial import RRHHLegajoHistorial
+from app.models.rrhh_presentismo import RRHHPresentismoDiario, EstadoPresentismo
+from app.models.rrhh_art_caso import RRHHArtCaso, EstadoArt
+from app.models.rrhh_art_documento import RRHHArtDocumento
+from app.models.rrhh_sancion import RRHHTipoSancion, RRHHSancion
+from app.models.rrhh_vacaciones import (
+    RRHHVacacionesPeriodo,
+    RRHHVacacionesSolicitud,
+    EstadoSolicitudVacaciones,
+)
+from app.models.rrhh_herramienta import RRHHAsignacionHerramienta
+from app.models.rrhh_cuenta_corriente import (
+    RRHHCuentaCorriente,
+    RRHHCuentaCorrienteMovimiento,
+    TipoMovimientoCC,
+)
+from app.models.rrhh_fichada import RRHHFichada, OrigenFichada, TipoFichada
+from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -154,4 +178,35 @@ __all__ = [
     "RmaClaimMLMessage",
     "EtiquetaColecta",
     "WeatherHistory",
+    # RRHH
+    "RRHHEmpleado",
+    "EstadoEmpleado",
+    "RRHHSchemaLegajo",
+    "RRHHTipoDocumento",
+    "RRHHDocumento",
+    "RRHHLegajoHistorial",
+    # RRHH — Presentismo + ART
+    "RRHHPresentismoDiario",
+    "EstadoPresentismo",
+    "RRHHArtCaso",
+    "EstadoArt",
+    "RRHHArtDocumento",
+    # RRHH — Sanciones
+    "RRHHTipoSancion",
+    "RRHHSancion",
+    # RRHH — Vacaciones
+    "RRHHVacacionesPeriodo",
+    "RRHHVacacionesSolicitud",
+    "EstadoSolicitudVacaciones",
+    # RRHH — Cuenta Corriente + Herramientas
+    "RRHHAsignacionHerramienta",
+    "RRHHCuentaCorriente",
+    "RRHHCuentaCorrienteMovimiento",
+    "TipoMovimientoCC",
+    # RRHH — Horarios + Fichadas
+    "RRHHFichada",
+    "OrigenFichada",
+    "TipoFichada",
+    "RRHHHorarioConfig",
+    "RRHHHorarioExcepcion",
 ]
