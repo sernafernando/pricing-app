@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Truck } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -22,36 +22,49 @@ export default function FreeShippingBadge() {
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const { isDegraded } = useSSE();
+  const inFlightRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
 
   const canView = tienePermiso('alertas.ver_free_shipping');
 
-  const fetchCount = async () => {
+  const fetchCount = useCallback(async (options = {}) => {
+    const { force = false } = options;
+    const now = Date.now();
+    const MIN_FETCH_INTERVAL_MS = 10000;
+
+    if (inFlightRef.current) return;
+    if (!force && now - lastFetchAtRef.current < MIN_FETCH_INTERVAL_MS) return;
+
+    inFlightRef.current = true;
+
     try {
       const { data } = await api.get('/free-shipping-alerts/count');
       setCount(data.count);
+      lastFetchAtRef.current = Date.now();
     } catch {
       setCount(0);
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
-  };
+  }, []);
 
   // Initial fetch
   useEffect(() => {
     if (!canView) return;
-    fetchCount();
-  }, [canView]);
+    fetchCount({ force: true });
+  }, [canView, fetchCount]);
 
   // SSE-driven reload: instant update when ml-webhook detects free_shipping_error changes
-  useSSEChannel('free-shipping:count', fetchCount, { enabled: canView });
+  useSSEChannel('free-shipping:count', () => fetchCount(), { enabled: canView });
 
   // Fallback polling: re-activate 60s polling when SSE is degraded
   useEffect(() => {
     if (!canView || !isDegraded()) return;
 
-    const interval = setInterval(fetchCount, 60000);
+    const interval = setInterval(() => fetchCount({ force: true }), 60000);
     return () => clearInterval(interval);
-  }, [canView, isDegraded]);
+  }, [canView, isDegraded, fetchCount]);
 
   if (!canView || loading || count === 0) return null;
 
