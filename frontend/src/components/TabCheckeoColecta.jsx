@@ -367,7 +367,7 @@ export default function TabCheckeoColecta() {
   const erpStatesMap = new Map();
   const erpColorMap = new Map(); // name → ssos_color
   for (const e of etiquetas) {
-    if (e.ssos_id && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
+    if (e.ssos_id != null && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
       erpStatesMap.set(e.ssos_id, e.ssos_name);
     }
     if (e.ssos_name && e.ssos_color && !erpColorMap.has(e.ssos_name)) {
