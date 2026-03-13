@@ -278,20 +278,18 @@ def listar_fichadas(
     """Lista fichadas con filtros opcionales y paginación."""
     _check_permiso(db, current_user, "rrhh.ver")
 
-    query = db.query(RRHHFichada).options(
-        joinedload(RRHHFichada.empleado),
-        joinedload(RRHHFichada.registrado_por),
-    )
+    # Build base query with filters (WITHOUT joinedload for accurate count)
+    base_query = db.query(RRHHFichada)
 
     if empleado_id:
-        query = query.filter(RRHHFichada.empleado_id == empleado_id)
+        base_query = base_query.filter(RRHHFichada.empleado_id == empleado_id)
     if fecha_desde:
-        query = query.filter(RRHHFichada.timestamp >= datetime.combine(fecha_desde, time.min))
+        base_query = base_query.filter(RRHHFichada.timestamp >= datetime.combine(fecha_desde, time.min))
     if fecha_hasta:
-        query = query.filter(RRHHFichada.timestamp <= datetime.combine(fecha_hasta, time(23, 59, 59)))
+        base_query = base_query.filter(RRHHFichada.timestamp <= datetime.combine(fecha_hasta, time(23, 59, 59)))
     if tipo:
         _validate_tipo_fichada(tipo)
-        query = query.filter(RRHHFichada.tipo == tipo)
+        base_query = base_query.filter(RRHHFichada.tipo == tipo)
     if origen:
         valores_origen = [e.value for e in OrigenFichada]
         if origen not in valores_origen:
@@ -299,11 +297,20 @@ def listar_fichadas(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Origen inválido. Opciones: {', '.join(valores_origen)}",
             )
-        query = query.filter(RRHHFichada.origen == origen)
+        base_query = base_query.filter(RRHHFichada.origen == origen)
 
-    total = query.count()
+    total = base_query.count()
     offset = (page - 1) * page_size
-    fichadas = query.order_by(RRHHFichada.timestamp.desc()).offset(offset).limit(page_size).all()
+    fichadas = (
+        base_query.options(
+            joinedload(RRHHFichada.empleado),
+            joinedload(RRHHFichada.registrado_por),
+        )
+        .order_by(RRHHFichada.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
 
     items = []
     for f in fichadas:
