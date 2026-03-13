@@ -1980,13 +1980,16 @@ export default function TabEnviosFlex({ operador = null }) {
           </select>
 
           {(() => {
-            const erpOptions = [];
-            const seen = new Set();
+            const erpOptions = [{ id: '0', name: 'Cancelado' }];
+            const seen = new Set(['0']);
             for (const e of etiquetas) {
-              if (e.ssos_id != null && !seen.has(e.ssos_id)) {
-                seen.add(e.ssos_id);
-                const isCancelado = String(e.ssos_id) === '0';
-                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || (isCancelado ? 'Cancelado' : `Estado ${e.ssos_id}`) });
+              const ssosId = e.ssos_id;
+              if (ssosId == null) continue;
+              const ssosKey = String(ssosId);
+              if (!seen.has(ssosKey)) {
+                seen.add(ssosKey);
+                const isCancelado = ssosKey === '0';
+                erpOptions.push({ id: ssosKey, name: e.ssos_name || (isCancelado ? 'Cancelado' : `Estado ${ssosKey}`) });
               }
             }
             erpOptions.sort((a, b) => a.name.localeCompare(b.name));
