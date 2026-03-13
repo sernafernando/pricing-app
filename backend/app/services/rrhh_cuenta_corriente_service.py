@@ -21,7 +21,6 @@ from app.models.rrhh_cuenta_corriente import (
     RRHHCuentaCorrienteMovimiento,
     TipoMovimientoCC,
 )
-from app.models.rrhh_empleado import RRHHEmpleado
 
 
 class CuentaCorrienteService:
