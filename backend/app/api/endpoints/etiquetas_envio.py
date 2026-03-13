@@ -2938,9 +2938,9 @@ def toggle_turbo(
     """
     Marca o desmarca una etiqueta como turbo (mlshipping_method_id = '515282').
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.asignar_turbo.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.asignar_turbo")
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
@@ -2973,9 +2973,9 @@ def toggle_turbo_masivo(
     """
     Marca o desmarca múltiples etiquetas como turbo en una sola operación.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.asignar_turbo.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.asignar_turbo")
 
     updated = (
         db.query(EtiquetaEnvio)
@@ -3008,9 +3008,9 @@ def toggle_lluvia(
     Marca o desmarca una etiqueta como lluvia (offset sobre costo turbo).
 
     Solo aplica cuando la etiqueta también es turbo.
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.asignar_lluvia.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.asignar_lluvia")
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
@@ -3043,9 +3043,9 @@ def toggle_lluvia_masivo(
     """
     Marca o desmarca múltiples etiquetas como lluvia en una sola operación.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.asignar_lluvia.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.asignar_lluvia")
 
     updated = (
         db.query(EtiquetaEnvio)
