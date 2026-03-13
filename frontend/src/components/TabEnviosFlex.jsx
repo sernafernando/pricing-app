@@ -1985,7 +1985,8 @@ export default function TabEnviosFlex({ operador = null }) {
             for (const e of etiquetas) {
               if (e.ssos_id != null && !seen.has(e.ssos_id)) {
                 seen.add(e.ssos_id);
-                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || `Estado ${e.ssos_id}` });
+                const isCancelado = String(e.ssos_id) === '0';
+                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || (isCancelado ? 'Cancelado' : `Estado ${e.ssos_id}`) });
               }
             }
             erpOptions.sort((a, b) => a.name.localeCompare(b.name));
