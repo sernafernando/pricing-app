@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import {
-  RefreshCw, MapPin, Calendar, Flag, Search, X, Building,
+  RefreshCw, MapPin, Calendar, Flag, Search, X, Building, RotateCcw,
 } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
@@ -74,6 +74,7 @@ export default function EnviosVistaFlag() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [soloFlag, setSoloFlag] = useState(false);
+  const [soloRetornado, setSoloRetornado] = useState(false);
   const [sinCordon, setSinCordon] = useState(false);
 
   // Selección
@@ -93,10 +94,13 @@ export default function EnviosVistaFlag() {
   // Smart polling ref
   const pollingRef = useRef({ count: null, lastUpdated: null });
 
-  // Filtro client-side por flag
-  const etiquetasFiltradas = soloFlag
-    ? etiquetas.filter(e => e.flag_envio)
-    : etiquetas;
+  // Filtro client-side por flag / retornado
+  const etiquetasFiltradas = (() => {
+    let result = etiquetas;
+    if (soloFlag) result = result.filter(e => e.flag_envio);
+    if (soloRetornado) result = result.filter(e => e.retornado);
+    return result;
+  })();
 
   // ── Date quick filter logic ──────────────────────────────────
 
@@ -369,6 +373,72 @@ export default function EnviosVistaFlag() {
     }
   };
 
+  // ── Retornado envío ─────────────────────────────────────────
+
+  const marcarRetornado = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkActualizando(true);
+    try {
+      await api.put('/etiquetas-envio/retornado-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        retornado: true,
+      });
+
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, retornado: true }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+
+      try {
+        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+        setEstadisticas(statsData);
+      } catch {
+        // silencioso
+      }
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
+  const quitarRetornadoSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkActualizando(true);
+    try {
+      await api.put('/etiquetas-envio/retornado-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        retornado: false,
+      });
+
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, retornado: null }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+
+      try {
+        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+        setEstadisticas(statsData);
+      } catch {
+        // silencioso
+      }
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────
 
   return (
@@ -413,6 +483,18 @@ export default function EnviosVistaFlag() {
                 {estadisticas.flagged}
               </div>
               <div className={styles.statLabel}>Flaggeadas</div>
+            </button>
+          )}
+          {(estadisticas.retornados > 0 || soloRetornado) && (
+            <button
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${styles.statCardRetornado} ${soloRetornado ? styles.statCardActive : ''}`}
+              onClick={() => setSoloRetornado(prev => !prev)}
+            >
+              <div className={`${styles.statValue} ${styles.statValueRetornado}`}>
+                {estadisticas.retornados}
+              </div>
+              <div className={styles.statLabel}>Retornados</div>
             </button>
           )}
         </div>
@@ -701,6 +783,15 @@ export default function EnviosVistaFlag() {
                           {FLAG_LABELS[e.flag_envio] || e.flag_envio}
                         </span>
                       )}
+                      {e.retornado && (
+                        <span
+                          className={styles.retornadoBadge}
+                          title={e.retornado_usuario_nombre ? `Retornado por ${e.retornado_usuario_nombre}` : 'Retornado'}
+                        >
+                          <RotateCcw size={10} />
+                          Retornado
+                        </span>
+                      )}
                     </td>
                     {/* Destinatario + nickname + comment */}
                     <td className={styles.destinatario}>
@@ -871,7 +962,7 @@ export default function EnviosVistaFlag() {
       {/* Footer */}
       {!loading && etiquetasFiltradas.length > 0 && (
         <div className={styles.footer}>
-          <span>Mostrando {etiquetasFiltradas.length} etiquetas{soloFlag ? ' (flaggeadas)' : ''}</span>
+          <span>Mostrando {etiquetasFiltradas.length} etiquetas{soloFlag ? ' (flaggeadas)' : ''}{soloRetornado ? ' (retornados)' : ''}</span>
         </div>
       )}
 
@@ -909,6 +1000,36 @@ export default function EnviosVistaFlag() {
                 >
                   <Flag size={16} />
                   Quitar flag
+                </button>
+              );
+            })()}
+
+            <button
+              onClick={marcarRetornado}
+              disabled={bulkActualizando}
+              className={styles.selectionBtnRetornado}
+              title="Marcar como retornado"
+              aria-label="Marcar como retornado"
+            >
+              <RotateCcw size={16} />
+              Retornado
+            </button>
+
+            {(() => {
+              const algunaRetornada = etiquetasFiltradas
+                .filter(e => selectedIds.has(e.shipping_id))
+                .some(e => e.retornado);
+              if (!algunaRetornada) return null;
+              return (
+                <button
+                  onClick={quitarRetornadoSeleccionados}
+                  disabled={bulkActualizando}
+                  className={styles.selectionBtnQuitarRetornado}
+                  title="Quitar retornado de las seleccionadas"
+                  aria-label="Quitar retornado de las seleccionadas"
+                >
+                  <RotateCcw size={16} />
+                  Quitar retornado
                 </button>
               );
             })()}

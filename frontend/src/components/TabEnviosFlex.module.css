@@ -1851,6 +1851,33 @@
   color: #6b7280;
 }
 
+/* ── Retornado badge (paquete devuelto a oficina) — purple ────── */
+
+.retornadoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  margin-left: 4px;
+  background: rgba(147, 51, 234, 0.12);
+  color: #9333ea;
+}
+
+/* Stat card — retornado variant */
+.statCardRetornado {
+  border-color: transparent;
+}
+
+.statValueRetornado {
+  color: #9333ea;
+}
+
 /* Stat card — flag variant */
 .statCardFlag {
   border-color: transparent;
@@ -1910,6 +1937,60 @@
 }
 
 .selectionBtnQuitarFlag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Selection bar — retornado button (purple) */
+.selectionBtnRetornado {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(147, 51, 234, 0.5);
+  background: rgba(147, 51, 234, 0.15);
+  color: #c084fc;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnRetornado:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.3);
+  border-color: rgba(147, 51, 234, 0.7);
+}
+
+.selectionBtnRetornado:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Selection bar — quitar retornado button (muted purple) */
+.selectionBtnQuitarRetornado {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(147, 51, 234, 0.4);
+  background: rgba(147, 51, 234, 0.1);
+  color: #d8b4fe;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnQuitarRetornado:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.25);
+  border-color: rgba(147, 51, 234, 0.6);
+}
+
+.selectionBtnQuitarRetornado:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

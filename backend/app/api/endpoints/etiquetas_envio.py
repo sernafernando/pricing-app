@@ -310,6 +310,11 @@ class EtiquetaEnvioResponse(BaseModel):
     flag_envio_at: Optional[str] = None
     flag_envio_usuario_nombre: Optional[str] = None
 
+    # Retornado (paquete devuelto físicamente a la oficina)
+    retornado: Optional[bool] = None
+    retornado_at: Optional[str] = None
+    retornado_usuario_nombre: Optional[str] = None
+
     # Creado por usuario del sistema (cuando viene de Pedidos Pendientes)
     creado_por_usuario_nombre: Optional[str] = None
 
@@ -339,6 +344,7 @@ class EstadisticasEnvioResponse(BaseModel):
     costo_total: float = 0.0
     costo_por_logistica: dict[str, float] = {}
     flagged: int = 0
+    retornados: int = 0
 
 
 class EstadisticaDiaItem(BaseModel):
@@ -498,6 +504,18 @@ class FlagEnvioMasivoRequest(BaseModel):
         None,
         max_length=500,
         description="Observación libre",
+    )
+
+
+# ── Schemas Retornado ────────────────────────────────────────────────
+
+
+class RetornadoMasivoRequest(BaseModel):
+    """Payload para marcar o desmarcar envíos como retornados."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    retornado: bool = Field(
+        description="True para marcar como retornado, False para desmarcar",
     )
 
 
@@ -1038,6 +1056,8 @@ def listar_etiquetas(
 
     # Alias para segundo join a Usuario (flag_envio_usuario)
     FlagUsuario = aliased(Usuario)
+    # Alias para tercer join a Usuario (retornado_usuario)
+    RetornadoUsuario = aliased(Usuario)
 
     query = (
         db.query(
@@ -1065,6 +1085,8 @@ def listar_etiquetas(
             EtiquetaEnvio.flag_envio,
             EtiquetaEnvio.flag_envio_motivo,
             EtiquetaEnvio.flag_envio_at,
+            EtiquetaEnvio.retornado,
+            EtiquetaEnvio.retornado_at,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -1099,6 +1121,7 @@ def listar_etiquetas(
             MercadoLibreOrderHeader.mlorder_id.label("ml_order_id"),
             Usuario.nombre.label("creado_por_usuario_nombre"),
             FlagUsuario.nombre.label("flag_envio_usuario_nombre"),
+            RetornadoUsuario.nombre.label("retornado_usuario_nombre"),
         )
         .outerjoin(
             Logistica,
@@ -1151,6 +1174,10 @@ def listar_etiquetas(
         .outerjoin(
             FlagUsuario,
             EtiquetaEnvio.flag_envio_usuario_id == FlagUsuario.id,
+        )
+        .outerjoin(
+            RetornadoUsuario,
+            EtiquetaEnvio.retornado_usuario_id == RetornadoUsuario.id,
         )
         .outerjoin(
             costo_sub,
@@ -1262,6 +1289,9 @@ def listar_etiquetas(
             flag_envio_motivo=row.flag_envio_motivo,
             flag_envio_at=str(row.flag_envio_at) if row.flag_envio_at else None,
             flag_envio_usuario_nombre=row.flag_envio_usuario_nombre,
+            retornado=row.retornado,
+            retornado_at=str(row.retornado_at) if row.retornado_at else None,
+            retornado_usuario_nombre=row.retornado_usuario_nombre,
             creado_por_usuario_nombre=row.creado_por_usuario_nombre,
             transporte_id=row.transporte_id,
             transporte_nombre=row.transporte_nombre,
@@ -1431,6 +1461,9 @@ def estadisticas_etiquetas(
 
     # Flaggeadas (mal pasado, cancelado, etc.)
     flagged = db.query(EtiquetaEnvio).filter(ids_filter, EtiquetaEnvio.flag_envio.isnot(None)).count()
+
+    # Retornados (paquetes devueltos físicamente a la oficina)
+    retornados = db.query(EtiquetaEnvio).filter(ids_filter, EtiquetaEnvio.retornado.is_(True)).count()
 
     # Por cordón
     cordon_rows = (
@@ -1638,6 +1671,7 @@ def estadisticas_etiquetas(
         costo_total=costo_total,
         costo_por_logistica=costo_por_logistica,
         flagged=flagged,
+        retornados=retornados,
     )
 
 
@@ -3173,6 +3207,100 @@ def toggle_flag_envio_masivo(
     return {
         "ok": True,
         "flag_envio": payload.flag_envio,
+        "actualizados": updated,
+        "solicitados": len(payload.shipping_ids),
+    }
+
+
+# ── Retornado (paquete devuelto a la oficina) ────────────────────
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/retornado",
+    response_model=dict,
+    summary="Marcar o desmarcar un envío como retornado",
+)
+def toggle_retornado(
+    shipping_id: str,
+    retornado: bool = True,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca un envío como retornado (paquete devuelto físicamente a la oficina)
+    o lo desmarca. Independiente del sistema de flags.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    valor_anterior = etiqueta.retornado
+
+    if retornado:
+        etiqueta.retornado = True
+        etiqueta.retornado_at = datetime.now(UTC)
+        etiqueta.retornado_usuario_id = current_user.id
+    else:
+        etiqueta.retornado = None
+        etiqueta.retornado_at = None
+        etiqueta.retornado_usuario_id = None
+
+    db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "retornado": etiqueta.retornado,
+        "valor_anterior": valor_anterior,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/retornado-masivo",
+    response_model=dict,
+    summary="Marcar o desmarcar múltiples envíos como retornados",
+)
+def toggle_retornado_masivo(
+    payload: RetornadoMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca múltiples etiquetas como retornadas en una sola operación.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    if payload.retornado:
+        update_values = {
+            EtiquetaEnvio.retornado: True,
+            EtiquetaEnvio.retornado_at: datetime.now(UTC),
+            EtiquetaEnvio.retornado_usuario_id: current_user.id,
+        }
+    else:
+        update_values = {
+            EtiquetaEnvio.retornado: None,
+            EtiquetaEnvio.retornado_at: None,
+            EtiquetaEnvio.retornado_usuario_id: None,
+        }
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update(update_values, synchronize_session="fetch")
+    )
+    db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
+    return {
+        "ok": True,
+        "retornado": payload.retornado,
         "actualizados": updated,
         "solicitados": len(payload.shipping_ids),
     }

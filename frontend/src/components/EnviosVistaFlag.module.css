@@ -43,6 +43,9 @@
 .flagBadgeCancelado { composes: flagBadgeCancelado from './TabEnviosFlex.module.css'; }
 .flagBadgeDuplicado { composes: flagBadgeDuplicado from './TabEnviosFlex.module.css'; }
 .flagBadgeOtro { composes: flagBadgeOtro from './TabEnviosFlex.module.css'; }
+.retornadoBadge { composes: retornadoBadge from './TabEnviosFlex.module.css'; }
+.statCardRetornado { composes: statCardRetornado from './TabEnviosFlex.module.css'; }
+.statValueRetornado { composes: statValueRetornado from './TabEnviosFlex.module.css'; }
 .destinatario { composes: destinatario from './TabEnviosFlex.module.css'; }
 .buyerNickname { composes: buyerNickname from './TabEnviosFlex.module.css'; }
 .manualComment { composes: manualComment from './TabEnviosFlex.module.css'; }
@@ -80,6 +83,8 @@
 .selectionBtnFlag { composes: selectionBtnFlag from './TabEnviosFlex.module.css'; }
 .selectionBtnQuitarFlag { composes: selectionBtnQuitarFlag from './TabEnviosFlex.module.css'; }
 .selectionBtnCancelar { composes: selectionBtnCancelar from './TabEnviosFlex.module.css'; }
+.selectionBtnRetornado { composes: selectionBtnRetornado from './TabEnviosFlex.module.css'; }
+.selectionBtnQuitarRetornado { composes: selectionBtnQuitarRetornado from './TabEnviosFlex.module.css'; }
 .modalOverlay { composes: modalOverlay from './TabEnviosFlex.module.css'; }
 .modalContent { composes: modalContent from './TabEnviosFlex.module.css'; }
 .modalHeader { composes: modalHeader from './TabEnviosFlex.module.css'; }

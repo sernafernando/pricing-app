@@ -95,6 +95,13 @@ class EtiquetaEnvio(Base):
     flag_envio_at = Column(DateTime(timezone=True), nullable=True)
     flag_envio_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
+    # ── Retornado (paquete devuelto físicamente a la oficina) ────
+    # Independiente de flags: un envío puede estar flaggeado Y retornado.
+    # Se marca desde Seguimiento Envíos (EnviosVistaFlag) con operación bulk.
+    retornado = Column(Boolean, nullable=True, index=True)
+    retornado_at = Column(DateTime(timezone=True), nullable=True)
+    retornado_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
     # Bultos — para tracking de pistoleado por bulto
     total_bultos = Column(Integer, nullable=True)  # Cantidad de bultos del envío
     pistoleado_bultos = Column(
