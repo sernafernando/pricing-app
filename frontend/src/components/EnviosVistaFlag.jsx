@@ -70,7 +70,6 @@ export default function EnviosVistaFlag() {
   const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
-  const [erpCatalogOptions, setErpCatalogOptions] = useState([]);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [soloFlag, setSoloFlag] = useState(false);
@@ -181,26 +180,9 @@ export default function EnviosVistaFlag() {
     }
   }, [buildFilterParams]);
 
-  const cargarEstadosErp = useCallback(async () => {
-    try {
-      const { data } = await api.get('/sale-order-status?only_active=true');
-      const options = (data || [])
-        .filter((s) => s?.ssos_id != null && s?.ssos_name)
-        .map((s) => ({ id: String(s.ssos_id), name: s.ssos_name }));
-      options.sort((a, b) => a.name.localeCompare(b.name));
-      setErpCatalogOptions(options);
-    } catch {
-      setErpCatalogOptions([]);
-    }
-  }, []);
-
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
-
-  useEffect(() => {
-    cargarEstadosErp();
-  }, [cargarEstadosErp]);
 
   // ── SSE-driven reload: replace 60s polling with event-driven updates ──
 
@@ -548,16 +530,17 @@ export default function EnviosVistaFlag() {
             const seen = new Set();
             for (const e of etiquetas) {
               const ssosId = e.ssos_id;
+              const ssosName = e.ssos_name;
+              if (!ssosName) continue;
               if (ssosId == null) continue;
               const ssosKey = String(ssosId);
               if (!seen.has(ssosKey)) {
                 seen.add(ssosKey);
-                const isCancelado = ssosKey === '0';
-                erpOptions.push({ id: ssosKey, name: e.ssos_name || (isCancelado ? 'Cancelado' : `Estado ${ssosKey}`) });
+                erpOptions.push({ id: ssosKey, name: ssosName });
               }
             }
-            const options = erpCatalogOptions.length > 0 ? erpCatalogOptions : erpOptions.sort((a, b) => a.name.localeCompare(b.name));
-            if (options.length === 0) return null;
+            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (erpOptions.length === 0) return null;
             return (
               <select
                 value={filtroSsosId}
@@ -565,7 +548,7 @@ export default function EnviosVistaFlag() {
                 className={styles.selectSm}
               >
                 <option value="">Estado ERP</option>
-                {options.map(opt => (
+                {erpOptions.map(opt => (
                   <option key={opt.id} value={opt.id}>{opt.name}</option>
                 ))}
               </select>
