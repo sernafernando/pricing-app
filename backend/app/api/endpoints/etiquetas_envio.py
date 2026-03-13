@@ -3306,7 +3306,8 @@ def pistolear_etiqueta(
             raise HTTPException(
                 422,
                 detail={
-                    "detail": "Logística no coincide",
+                    "code": "LOGISTICA_NO_COINCIDE",
+                    "message": "Logística no coincide",
                     "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
                     "etiqueta_logistica_id": etiqueta.logistica_id,
                     "pistoleando_logistica": logistica_pistoleando.nombre,
@@ -3327,7 +3328,8 @@ def pistolear_etiqueta(
             raise HTTPException(
                 422,
                 detail={
-                    "detail": "Etiqueta sin logística asignada",
+                    "code": "SIN_LOGISTICA",
+                    "message": "Etiqueta sin logística asignada",
                     "etiqueta_logistica": "Sin asignar",
                     "etiqueta_logistica_id": None,
                     "pistoleando_logistica": logistica_pistoleando.nombre,
@@ -3361,7 +3363,8 @@ def pistolear_etiqueta(
             raise HTTPException(
                 409,
                 detail={
-                    "detail": f"Bulto {payload.bulto}/{payload.total_bultos} ya pistoleado",
+                    "code": "YA_PISTOLEADA",
+                    "message": f"Bulto {payload.bulto}/{payload.total_bultos} ya pistoleado",
                     "pistoleado_por": nombre_previo,
                     "pistoleado_at": entry_previo.get("at", "") if entry_previo else "",
                     "pistoleado_caja": entry_previo.get("caja", "") if entry_previo else "",
@@ -3397,7 +3400,8 @@ def pistolear_etiqueta(
             raise HTTPException(
                 409,
                 detail={
-                    "detail": "Ya pistoleada",
+                    "code": "YA_PISTOLEADA",
+                    "message": "Ya pistoleada",
                     "pistoleado_por": nombre_previo,
                     "pistoleado_at": str(etiqueta.pistoleado_at),
                     "pistoleado_caja": etiqueta.pistoleado_caja or "",
