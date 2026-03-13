@@ -68,6 +68,7 @@ export default function EnviosVistaFlag() {
   const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
   const [fechaTemporal, setFechaTemporal] = useState({ desde: todayStr(), hasta: todayStr() });
   const [filtroCordon, setFiltroCordon] = useState('');
+  const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [search, setSearch] = useState('');
@@ -147,12 +148,13 @@ export default function EnviosVistaFlag() {
     if (fechaDesde) p.append('fecha_desde', fechaDesde);
     if (fechaHasta) p.append('fecha_hasta', fechaHasta);
     if (filtroCordon) p.append('cordon', filtroCordon);
+    if (filtroLogistica) p.append('logistica_id', filtroLogistica);
     if (sinCordon) p.append('sin_cordon', 'true');
     if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
     if (filtroSsosId) p.append('ssos_id', filtroSsosId);
     if (debouncedSearch) p.append('search', debouncedSearch);
     return p;
-  }, [fechaDesde, fechaHasta, filtroCordon, sinCordon, filtroMlStatus, filtroSsosId, debouncedSearch]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinCordon, filtroMlStatus, filtroSsosId, debouncedSearch]);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -512,6 +514,36 @@ export default function EnviosVistaFlag() {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+
+          {/* Logística filter — built from data */}
+          {(() => {
+            const logOptions = [];
+            const seen = new Set();
+            for (const e of etiquetas) {
+              const logId = e.logistica_id;
+              const logName = e.logistica_nombre;
+              if (!logName || logId == null) continue;
+              const key = String(logId);
+              if (!seen.has(key)) {
+                seen.add(key);
+                logOptions.push({ id: key, name: logName });
+              }
+            }
+            logOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (logOptions.length === 0) return null;
+            return (
+              <select
+                value={filtroLogistica}
+                onChange={(e) => setFiltroLogistica(e.target.value)}
+                className={styles.selectSm}
+              >
+                <option value="">Logística</option>
+                {logOptions.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.name}</option>
+                ))}
+              </select>
+            );
+          })()}
 
           <select
             value={filtroMlStatus}
