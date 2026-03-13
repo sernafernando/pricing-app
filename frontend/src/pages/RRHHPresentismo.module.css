@@ -1,0 +1,489 @@
+/* RRHHPresentismo - Grilla de asistencia diaria */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.headerTitle h1 {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Tab bar */
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+  padding-bottom: var(--spacing-xs);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.tab:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.tabActive {
+  composes: tab;
+  color: var(--cf-accent-blue);
+  border-bottom: 2px solid var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+}
+
+/* Grid de presentismo */
+.gridWrapper {
+  overflow-x: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.grid {
+  min-width: 800px;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-sm);
+}
+
+.grid th,
+.grid td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-align: center;
+  border: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
+.grid th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  font-size: var(--font-xs);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.grid th:first-child,
+.grid td:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--cf-bg-card);
+  min-width: 200px;
+  font-weight: 500;
+}
+
+.grid th:first-child {
+  background: var(--cf-bg-hover);
+  z-index: 3;
+}
+
+.empleadoCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empleadoNombre {
+  color: var(--cf-text-primary);
+  font-weight: 500;
+}
+
+.empleadoLegajo {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
+/* Estado badges */
+.estadoCell {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  transition: all var(--duration-200) var(--ease-out);
+  min-width: 28px;
+  display: inline-block;
+}
+
+.estadoCell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.estadoPresente {
+  composes: estadoCell;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.estadoHomeOffice {
+  composes: estadoCell;
+  background: rgba(20, 184, 166, 0.15);
+  color: #14b8a6;
+}
+
+.estadoAusente {
+  composes: estadoCell;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--cf-accent-red);
+}
+
+.estadoVacaciones {
+  composes: estadoCell;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+.estadoArt {
+  composes: estadoCell;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.estadoLicencia {
+  composes: estadoCell;
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.estadoFranco {
+  composes: estadoCell;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+.estadoFeriado {
+  composes: estadoCell;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.estadoEmpty {
+  composes: estadoCell;
+  background: transparent;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+}
+
+.estadoEmpty:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.dotPresente { background: var(--cf-accent-green); }
+.dotAusente { background: var(--cf-accent-red); }
+.dotVacaciones { background: var(--cf-accent-blue); }
+.dotArt { background: var(--cf-accent-orange); }
+.dotLicencia { background: #a855f7; }
+.dotFranco { background: var(--cf-text-tertiary); }
+.dotFeriado { background: var(--cf-text-secondary); }
+
+/* Marcación rápida dropdown */
+.dropdown {
+  position: absolute;
+  z-index: 10;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--spacing-xs);
+  min-width: 160px;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  text-align: left;
+}
+
+.dropdownItem:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* ART section */
+.artSection {
+  margin-top: var(--spacing-xl);
+}
+
+.artHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.artHeader h2 {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+/* Table styles */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* Status badges */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.statusAbierto {
+  composes: statusBadge;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.statusEnTratamiento {
+  composes: statusBadge;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+.statusAltaMedica {
+  composes: statusBadge;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.statusCerrado {
+  composes: statusBadge;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+/* Buttons */
+.btnPrimary {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+}
+
+.btnSecondary {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+}
+
+.btnSmall {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnSmall:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+}
+
+/* Loading / Empty */
+.loading {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-tertiary);
+}
+
+/* Modal */
+.modal {
+  composes: modal from '../styles/modals-tesla.css';
+}
+
+.modalOverlay {
+  composes: modal-overlay from '../styles/modals-tesla.css';
+}
+
+.modalContent {
+  composes: modal-content from '../styles/modals-tesla.css';
+  max-width: 600px;
+}
+
+.modalHeader {
+  composes: modal-header from '../styles/modals-tesla.css';
+}
+
+.modalBody {
+  composes: modal-body from '../styles/modals-tesla.css';
+}
+
+.modalFooter {
+  composes: modal-footer from '../styles/modals-tesla.css';
+}
+
+.formGroup {
+  margin-bottom: var(--spacing-md);
+}
+
+.formGroup label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  min-height: 80px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.formError {
+  color: var(--cf-accent-red);
+  font-size: var(--font-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}

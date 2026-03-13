@@ -1,0 +1,436 @@
+/* RRHHHorarios - Fichadas, horarios y excepciones */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.headerTitle h1 {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-default);
+  margin-bottom: var(--spacing-lg);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.tab:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.tabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  min-height: 60px;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Table */
+.tableContainer {
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--cf-border-default);
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-app);
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+}
+
+.badgeEntrada {
+  composes: badge;
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+}
+
+.badgeSalida {
+  composes: badge;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+}
+
+.badgeHikvision {
+  composes: badge;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--cf-accent-blue);
+}
+
+.badgeManual {
+  composes: badge;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+}
+
+.badgeActivo {
+  composes: badge;
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+}
+
+.badgeInactivo {
+  composes: badge;
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--cf-text-tertiary);
+}
+
+.badgeFeriado {
+  composes: badge;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+}
+
+.badgeDiaEspecial {
+  composes: badge;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+}
+
+/* Horario card layout */
+.horariosGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.horarioCard {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.horarioCard:hover {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.horarioCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-md);
+}
+
+.horarioCardTitle {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.horarioCardDetail {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.horarioTime {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--cf-accent-blue);
+  margin-bottom: var(--spacing-sm);
+}
+
+.horarioCardActions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+/* Sync result panel */
+.syncResult {
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.syncResult p {
+  margin: var(--spacing-xs) 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.syncResult strong {
+  font-weight: 600;
+}
+
+/* Loading & Empty */
+.loading {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.05);
+  border-radius: var(--radius-md);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.paginationInfo {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.paginationButtons {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+/* Modals */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--cf-border-default);
+  padding: var(--spacing-lg);
+  width: 90%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.modalTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.formGroup {
+  margin-bottom: var(--spacing-md);
+}
+
+.formGroup label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.formGroup .input,
+.formGroup .select,
+.formGroup .textarea {
+  width: 100%;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
+.formError {
+  padding: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Buttons */
+.btnPrimary {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+}
+
+.btnSecondary {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+}
+
+.btnDanger {
+  composes: btn-danger from '../styles/buttons-tesla.css';
+}
+
+.btnSmall {
+  composes: btn-sm from '../styles/buttons-tesla.css';
+}
+
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnIcon:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}

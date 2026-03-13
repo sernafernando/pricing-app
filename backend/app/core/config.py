@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     OPENWEATHER_LAT: float = -34.61684231394052
     OPENWEATHER_LON: float = -58.456197873190796
 
+    # RRHH — Recursos Humanos
+    RRHH_UPLOADS_DIR: str = "uploads/rrhh"
+    RRHH_MAX_FILE_SIZE_MB: int = 10
+
+    # Hikvision DS-K1T804 (access control terminal — ISAPI over HTTP + Digest Auth)
+    HIKVISION_HOST: Optional[str] = None
+    HIKVISION_PORT: int = 80
+    HIKVISION_USERNAME: Optional[str] = None
+    HIKVISION_PASSWORD: Optional[str] = None
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 
