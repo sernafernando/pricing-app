@@ -24,16 +24,20 @@ if __name__ == "__main__":
     env_path = Path(backend_path) / ".env"
     load_dotenv(dotenv_path=env_path)
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.core.database import SessionLocal
-from app.services.rrhh_hikvision_client import HikvisionClient
+from app.services.rrhh_hikvision_client import ART_TZ, HikvisionClient
 
 
 def main() -> None:
-    """Backfill fichadas desde 2026-01-01 hasta hoy, semana por semana."""
-    start_date = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    end_date = datetime.now(timezone.utc)
+    """Backfill fichadas desde 2026-01-01 hasta hoy, semana por semana.
+
+    Usa hora local Argentina (ART, UTC-3) porque el dispositivo Hikvision
+    opera en hora local y rechaza timestamps UTC con HTTP 400.
+    """
+    start_date = datetime(2026, 1, 1, tzinfo=ART_TZ)
+    end_date = datetime.now(ART_TZ)
 
     print(f"[{datetime.now()}] Backfill Hikvision: {start_date.date()} → {end_date.date()}")
 

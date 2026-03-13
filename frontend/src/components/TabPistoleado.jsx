@@ -408,19 +408,20 @@ export default function TabPistoleado({ operador = null }) {
       cargarStats();
     } catch (err) {
       const status = err.response?.status;
-      const detail = err.response?.data?.detail;
+      // El exception handler normaliza a { error: { code, message, ...extras } }
+      // Fallback a .detail para compatibilidad con responses no normalizados
+      const errBody = err.response?.data?.error || err.response?.data?.detail;
+      const info = typeof errBody === 'object' ? errBody : {};
 
       if (status === 409) {
         // Ya pistoleada
-        const info = typeof detail === 'object' ? detail : {};
         addLog('duplicate', `Ya pistoleada: ${parsed.shippingId} por ${info.pistoleado_por || '?'} en ${info.pistoleado_caja || '?'}`, {
           shippingId: parsed.shippingId,
         });
         if (ttsEnabled) playSound('scan_duplicate');
       } else if (status === 422) {
         // Logística no coincide o sin asignar
-        const info = typeof detail === 'object' ? detail : {};
-        const sinAsignar = info.etiqueta_logistica_id === null;
+        const sinAsignar = info.code === 'SIN_LOGISTICA' || info.etiqueta_logistica_id === null;
 
         if (sinAsignar) {
           // Agregar al buffer para doble escaneo (máx 5 entradas, 1 min TTL)
@@ -446,7 +447,8 @@ export default function TabPistoleado({ operador = null }) {
         addLog('error', `No encontrada: ${parsed.shippingId}`);
         if (ttsEnabled) playSound('invalid_scan');
       } else {
-        addLog('error', `Error: ${typeof detail === 'string' ? detail : 'Error desconocido'}`);
+        const msg = info.message || (typeof errBody === 'string' ? errBody : 'Error desconocido');
+        addLog('error', `Error: ${msg}`);
         if (ttsEnabled) playSound('upload_error');
       }
     } finally {

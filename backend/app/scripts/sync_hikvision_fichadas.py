@@ -27,22 +27,26 @@ if __name__ == "__main__":
     env_path = Path(backend_path) / ".env"
     load_dotenv(dotenv_path=env_path)
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.core.database import SessionLocal
-from app.services.rrhh_hikvision_client import HikvisionClient
+from app.services.rrhh_hikvision_client import ART_TZ, HikvisionClient
 
 
 def main() -> None:
-    """Sync fichadas del día desde Hikvision."""
+    """Sync fichadas del día desde Hikvision.
+
+    Usa hora local Argentina (ART, UTC-3) porque el dispositivo Hikvision
+    opera en hora local y rechaza timestamps UTC con HTTP 400.
+    """
     print(f"[{datetime.now()}] Iniciando sync Hikvision fichadas...")
 
     db = SessionLocal()
     try:
         client = HikvisionClient(db)
 
-        # Sync desde las 00:00 del día
-        desde = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Sync desde las 00:00 del día en hora Argentina
+        desde = datetime.now(ART_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
 
         result = client.sync_fichadas(desde)
         db.commit()
