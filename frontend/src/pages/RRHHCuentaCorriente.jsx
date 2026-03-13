@@ -42,6 +42,12 @@ export default function RRHHCuentaCorriente() {
   const [loadingCuentas, setLoadingCuentas] = useState(true);
   const [soloConSaldo, setSoloConSaldo] = useState(false);
   const [searchCuentas, setSearchCuentas] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchCuentas), 400);
+    return () => clearTimeout(timer);
+  }, [searchCuentas]);
 
   // ── Detail view ──
   const [detalle, setDetalle] = useState(null);
@@ -78,6 +84,10 @@ export default function RRHHCuentaCorriente() {
   const [herrEmpleadoId, setHerrEmpleadoId] = useState('');
   const [empleados, setEmpleados] = useState([]);
 
+  // ── Confirmation modal ──
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   // ── Herramienta modal ──
   const [herrModalOpen, setHerrModalOpen] = useState(false);
   const [herrForm, setHerrForm] = useState({
@@ -110,7 +120,7 @@ export default function RRHHCuentaCorriente() {
     try {
       const params = {};
       if (soloConSaldo) params.solo_con_saldo = true;
-      if (searchCuentas) params.search = searchCuentas;
+      if (debouncedSearch) params.search = debouncedSearch;
       const { data } = await rrhhAPI.listarCuentasCorrientes(params);
       setCuentas(Array.isArray(data) ? data : []);
     } catch {
@@ -118,7 +128,7 @@ export default function RRHHCuentaCorriente() {
     } finally {
       setLoadingCuentas(false);
     }
-  }, [soloConSaldo, searchCuentas]);
+  }, [soloConSaldo, debouncedSearch]);
 
   useEffect(() => {
     if (activeTab === 'cuentas' && !detalleEmpleadoId) {
@@ -279,13 +289,21 @@ export default function RRHHCuentaCorriente() {
     }
   };
 
-  const handleDevolverHerr = async (herrId) => {
-    try {
-      await rrhhAPI.devolverHerramienta(herrId, {});
-      cargarHerramientas();
-    } catch {
-      // silent — user sees no change
-    }
+  const handleDevolverHerr = (herrId, descripcion) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Devolver herramienta',
+      message: `¿Confirmar la devolución de "${descripcion}"?`,
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.devolverHerramienta(herrId, {});
+          setConfirmAction(null);
+          cargarHerramientas();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al devolver herramienta');
+        }
+      },
+    });
   };
 
   // ── Navigate to detail ──
@@ -313,7 +331,11 @@ export default function RRHHCuentaCorriente() {
           {puedeGestionar && activeTab === 'cuentas' && !detalleEmpleadoId && (
             <button
               className={styles.btnLiquidacion}
-              onClick={() => setLiquidacionModalOpen(true)}
+              onClick={() => {
+                setLiquidacionResult(null);
+                setLiquidacionError(null);
+                setLiquidacionModalOpen(true);
+              }}
             >
               <Calendar size={16} /> Liquidación Mensual
             </button>
@@ -594,7 +616,7 @@ export default function RRHHCuentaCorriente() {
                           {h.estado === 'asignado' && (
                             <button
                               className={styles.btnDevolver}
-                              onClick={() => handleDevolverHerr(h.id)}
+                              onClick={() => handleDevolverHerr(h.id, h.descripcion)}
                             >
                               Devolver
                             </button>
@@ -905,6 +927,28 @@ export default function RRHHCuentaCorriente() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Confirmación ─── */}
+      {confirmAction && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmAction(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{confirmAction.title}</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmAction(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                {confirmAction.message}
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmAction(null)}>Cancelar</button>
+              <button className={styles.btnDevolver} onClick={confirmAction.onConfirm}>Confirmar</button>
+            </div>
           </div>
         </div>
       )}

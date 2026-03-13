@@ -67,6 +67,10 @@ export default function RRHHVacaciones() {
   const [rechazarMotivo, setRechazarMotivo] = useState('');
   const [rechazarSaving, setRechazarSaving] = useState(false);
 
+  // ── Cancel confirmation + action error ──
+  const [confirmCancel, setConfirmCancel] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   // ── Fetch empleados (for selects) ──
   useEffect(() => {
     const fetchEmpleados = async () => {
@@ -178,12 +182,13 @@ export default function RRHHVacaciones() {
 
   // ── Approve ──
   const handleAprobar = async (id) => {
+    setActionError(null);
     try {
       await rrhhAPI.aprobarSolicitud(id);
       fetchSolicitudes();
       fetchPeriodos();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al aprobar solicitud');
     }
   };
 
@@ -201,21 +206,28 @@ export default function RRHHVacaciones() {
       await rrhhAPI.rechazarSolicitud(rechazarSolicitudId, { motivo: rechazarMotivo });
       setRechazarModalOpen(false);
       fetchSolicitudes();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al rechazar solicitud');
     } finally {
       setRechazarSaving(false);
     }
   };
 
   // ── Cancel ──
-  const handleCancelar = async (id) => {
+  const openCancelar = (solicitud) => {
+    setActionError(null);
+    setConfirmCancel(solicitud);
+  };
+
+  const handleConfirmCancelar = async () => {
+    if (!confirmCancel) return;
     try {
-      await rrhhAPI.cancelarSolicitud(id);
+      await rrhhAPI.cancelarSolicitud(confirmCancel.id);
+      setConfirmCancel(null);
       fetchSolicitudes();
       fetchPeriodos();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al cancelar solicitud');
     }
   };
 
@@ -256,13 +268,13 @@ export default function RRHHVacaciones() {
       <div className={styles.tabs}>
         <button
           className={activeTab === 'periodos' ? styles.tabActive : styles.tab}
-          onClick={() => setActiveTab('periodos')}
+          onClick={() => { setActiveTab('periodos'); setActionError(null); }}
         >
           <Calendar size={14} /> Periodos
         </button>
         <button
           className={activeTab === 'solicitudes' ? styles.tabActive : styles.tab}
-          onClick={() => setActiveTab('solicitudes')}
+          onClick={() => { setActiveTab('solicitudes'); setActionError(null); }}
         >
           <Palmtree size={14} /> Solicitudes
           {totalSolicitudes > 0 && <span className={styles.badge}>{totalSolicitudes}</span>}
@@ -364,6 +376,8 @@ export default function RRHHVacaciones() {
       {/* ── TAB: Solicitudes ── */}
       {activeTab === 'solicitudes' && (
         <>
+          {actionError && <div className={styles.errorMsg}>{actionError}</div>}
+
           {/* Solicitudes filters */}
           <div className={styles.filters}>
             <select
@@ -446,7 +460,7 @@ export default function RRHHVacaciones() {
                               {(s.estado === 'pendiente' || s.estado === 'aprobada') && (
                                 <button
                                   className={styles.btnCancelAction}
-                                  onClick={() => handleCancelar(s.id)}
+                                  onClick={() => openCancelar(s)}
                                   title="Cancelar"
                                 >
                                   <Ban size={14} /> Cancelar
@@ -601,6 +615,29 @@ export default function RRHHVacaciones() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Confirmar Cancelación ── */}
+      {confirmCancel && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmCancel(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Confirmar cancelación</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmCancel(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                ¿Cancelar la solicitud de vacaciones de <strong>{confirmCancel.empleado_nombre || `#${confirmCancel.empleado_id}`}</strong>?
+                ({confirmCancel.fecha_desde} - {confirmCancel.fecha_hasta})
+              </p>
+              {actionError && <div className={styles.errorMsg}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmCancel(null)}>Volver</button>
+              <button className={styles.btnCancelAction} onClick={handleConfirmCancelar}>Confirmar cancelación</button>
+            </div>
           </div>
         </div>
       )}

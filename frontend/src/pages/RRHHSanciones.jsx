@@ -97,6 +97,10 @@ export default function RRHHSanciones() {
 
   // ── Create sancion ──
   const handleCrear = async () => {
+    if (!crearForm.empleado_id || !crearForm.tipo_sancion_id) {
+      setCrearError('Empleado y tipo de sanción son obligatorios');
+      return;
+    }
     if (!crearForm.motivo.trim()) {
       setCrearError('El motivo es obligatorio');
       return;
@@ -120,8 +124,8 @@ export default function RRHHSanciones() {
       setCrearModalOpen(false);
       setCrearForm(INITIAL_FORM);
       cargarSanciones();
-    } catch {
-      setCrearError('Error al crear la sancion');
+    } catch (err) {
+      setCrearError(err.response?.data?.detail || 'Error al crear la sancion');
     } finally {
       setCrearSaving(false);
     }
@@ -140,8 +144,8 @@ export default function RRHHSanciones() {
       setAnularTarget(null);
       setAnularMotivo('');
       cargarSanciones();
-    } catch {
-      setAnularError('Error al anular la sancion');
+    } catch (err) {
+      setAnularError(err.response?.data?.detail || 'Error al anular la sancion');
     } finally {
       setAnularSaving(false);
     }
@@ -149,7 +153,7 @@ export default function RRHHSanciones() {
 
   // ── Open create modal ──
   const openCrear = () => {
-    setCrearForm(INITIAL_FORM);
+    setCrearForm({ ...INITIAL_FORM, fecha: new Date().toISOString().slice(0, 10) });
     setCrearError(null);
     setCrearModalOpen(true);
   };

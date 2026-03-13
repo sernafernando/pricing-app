@@ -47,6 +47,10 @@ export default function Empleados() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
 
+  // Delete confirmation state
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   const PAGE_SIZE = 50;
 
   // --- Debounce search ---
@@ -77,10 +81,10 @@ export default function Empleados() {
     cargarEmpleados();
   }, [cargarEmpleados]);
 
-  // Reset page when filters change
+  // Reset page when debounced search changes
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, estado]);
+  }, [debouncedSearch]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -94,6 +98,7 @@ export default function Empleados() {
       cuil: '',
       legajo: '',
       fecha_ingreso: new Date().toISOString().split('T')[0],
+      fecha_egreso: '',
       puesto: '',
       area: '',
       estado: 'activo',
@@ -147,13 +152,21 @@ export default function Empleados() {
     }
   };
 
-  const handleEliminar = async (emp) => {
+  const handleEliminar = (emp) => {
     if (!puedeGestionar) return;
+    setActionError(null);
+    setConfirmDelete(emp);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    setActionError(null);
     try {
-      await rrhhAPI.eliminarEmpleado(emp.id);
+      await rrhhAPI.eliminarEmpleado(confirmDelete.id);
+      setConfirmDelete(null);
       cargarEmpleados();
-    } catch {
-      // silently handled
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al desactivar empleado');
     }
   };
 
@@ -192,7 +205,7 @@ export default function Empleados() {
         </div>
         <select
           value={estado}
-          onChange={(e) => setEstado(e.target.value)}
+          onChange={(e) => { setEstado(e.target.value); setPage(1); }}
           className={styles.select}
         >
           {ESTADOS.map((e) => (
@@ -302,6 +315,29 @@ export default function Empleados() {
           >
             <ChevronRight size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Confirm Delete Modal */}
+      {confirmDelete && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Confirmar desactivación</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                ¿Desactivar a <strong>{confirmDelete.apellido}, {confirmDelete.nombre}</strong> (Legajo: {confirmDelete.legajo})?
+                Esta acción cambiará su estado a baja.
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmDelete(null)}>Cancelar</button>
+              <button className={styles.btnDanger} onClick={handleConfirmDelete}>Confirmar</button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -10,8 +10,6 @@ import {
   Eye,
   Edit3,
   Download,
-  Trash2,
-  X,
   FileText,
 } from 'lucide-react';
 import styles from './RRHHPresentismo.module.css';
@@ -84,12 +82,31 @@ export default function RRHHPresentismo() {
   // --- ART state ---
   const [artCasos, setArtCasos] = useState([]);
   const [loadingArt, setLoadingArt] = useState(false);
-  const [artPage] = useState(1);
+  const [artPage, setArtPage] = useState(1);
   const [artModalOpen, setArtModalOpen] = useState(false);
   const [artForm, setArtForm] = useState({});
   const [artSaving, setArtSaving] = useState(false);
   const [artFormError, setArtFormError] = useState(null);
   const [artDetalle, setArtDetalle] = useState(null);
+
+  // --- Error feedback ---
+  const [markError, setMarkError] = useState(null);
+
+  // --- Empleados for ART select ---
+  const [empleados, setEmpleados] = useState([]);
+
+  // ── Fetch empleados for ART form ──
+  useEffect(() => {
+    const fetchEmpleados = async () => {
+      try {
+        const { data } = await rrhhAPI.listarEmpleados({ page_size: 200, estado: 'activo' });
+        setEmpleados(Array.isArray(data) ? data : data.items || []);
+      } catch {
+        setEmpleados([]);
+      }
+    };
+    fetchEmpleados();
+  }, []);
 
   // ── Fetch presentismo grid ──
   const cargarGrilla = useCallback(async () => {
@@ -168,7 +185,8 @@ export default function RRHHPresentismo() {
         ),
       }));
     } catch {
-      // Silent fail — user can retry
+      setMarkError('Error al marcar presentismo. Intentá de nuevo.');
+      setTimeout(() => setMarkError(null), 4000);
     }
   };
 
@@ -214,8 +232,9 @@ export default function RRHHPresentismo() {
     try {
       const { data } = await rrhhAPI.obtenerArtCaso(casoId);
       setArtDetalle(data);
-    } catch {
-      // noop
+    } catch (err) {
+      setMarkError(err.response?.data?.detail || 'Error al cargar detalle del caso');
+      setTimeout(() => setMarkError(null), 4000);
     }
   };
 
@@ -349,6 +368,18 @@ export default function RRHHPresentismo() {
             </table>
           </div>
         )}
+
+        {artCasos.length > 0 && (
+          <div className={styles.filters} style={{ justifyContent: 'center', marginTop: 'var(--spacing-md)' }}>
+            <button className={styles.btnRefresh} onClick={() => setArtPage((p) => Math.max(1, p - 1))} disabled={artPage <= 1}>
+              Anterior
+            </button>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)' }}>Página {artPage}</span>
+            <button className={styles.btnRefresh} onClick={() => setArtPage((p) => p + 1)} disabled={artCasos.length < 50}>
+              Siguiente
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -476,14 +507,20 @@ export default function RRHHPresentismo() {
 
               {!artForm.id && (
                 <div className={styles.formGroup}>
-                  <label>Empleado ID *</label>
-                  <input
-                    className={styles.input}
-                    type="number"
+                  <label>Empleado *</label>
+                  <select
+                    className={styles.select}
                     value={artForm.empleado_id || ''}
                     onChange={(e) => setArtForm({ ...artForm, empleado_id: parseInt(e.target.value) || '' })}
                     required
-                  />
+                  >
+                    <option value="">Seleccionar empleado...</option>
+                    {empleados.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.legajo} - {emp.apellido}, {emp.nombre}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -679,6 +716,7 @@ export default function RRHHPresentismo() {
               <RotateCcw size={14} />
             </button>
           </div>
+          {markError && <div className={styles.formError} style={{ marginBottom: 'var(--spacing-sm)' }}>{markError}</div>}
           {renderPresentismoGrid()}
         </>
       )}

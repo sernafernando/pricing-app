@@ -100,10 +100,18 @@ export default function RRHHHorarios() {
   const [hikUsers, setHikUsers] = useState([]);
   const [loadingHik, setLoadingHik] = useState(false);
   const [hikError, setHikError] = useState(null);
-  const [mappingEmpleadoId, setMappingEmpleadoId] = useState('');
+  const [mappingSelections, setMappingSelections] = useState({});
 
   // ── Empleados list (for selects) ──
   const [empleados, setEmpleados] = useState([]);
+
+  // ── Confirmation modal ──
+  const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
+  const [actionError, setActionError] = useState(null);
+
+  const updateMappingSelection = (employeeNo, value) => {
+    setMappingSelections((prev) => ({ ...prev, [employeeNo]: value }));
+  };
 
   useEffect(() => {
     const fetchEmpleados = async () => {
@@ -225,13 +233,21 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteFichada = async (fichadaId) => {
-    try {
-      await rrhhAPI.eliminarFichada(fichadaId);
-      cargarFichadas();
-    } catch {
-      // silent
-    }
+  const handleDeleteFichada = (fichadaId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Eliminar fichada',
+      message: '¿Eliminar esta fichada manual? Esta acción no se puede deshacer.',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarFichada(fichadaId);
+          setConfirmAction(null);
+          cargarFichadas();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al eliminar fichada');
+        }
+      },
+    });
   };
 
   // ── Handler: Hikvision sync ──
@@ -299,13 +315,21 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteHorario = async (horarioId) => {
-    try {
-      await rrhhAPI.eliminarHorario(horarioId);
-      cargarHorarios();
-    } catch {
-      // silent
-    }
+  const handleDeleteHorario = (horarioId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Desactivar horario',
+      message: '¿Desactivar este horario? Los empleados asignados quedarán sin horario.',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarHorario(horarioId);
+          setConfirmAction(null);
+          cargarHorarios();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al desactivar horario');
+        }
+      },
+    });
   };
 
   // ── Handler: Excepción CRUD ──
@@ -357,37 +381,58 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteExcep = async (excepId) => {
-    try {
-      await rrhhAPI.eliminarExcepcion(excepId);
-      cargarExcepciones();
-    } catch {
-      // silent
-    }
+  const handleDeleteExcep = (excepId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Eliminar excepción',
+      message: '¿Eliminar esta excepción del calendario?',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarExcepcion(excepId);
+          setConfirmAction(null);
+          cargarExcepciones();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al eliminar excepción');
+        }
+      },
+    });
   };
 
   // ── Handler: Hikvision mapping ──
   const handleMapearHikvision = async (hikEmployeeNo) => {
-    if (!mappingEmpleadoId) return;
+    const selectedId = mappingSelections[hikEmployeeNo];
+    if (!selectedId) return;
     try {
       await rrhhAPI.mapearEmpleadoHikvision({
-        empleado_id: parseInt(mappingEmpleadoId, 10),
+        empleado_id: parseInt(selectedId, 10),
         hikvision_employee_no: hikEmployeeNo,
       });
-      setMappingEmpleadoId('');
+      setMappingSelections((prev) => {
+        const next = { ...prev };
+        delete next[hikEmployeeNo];
+        return next;
+      });
       cargarHikUsers();
     } catch (err) {
       setHikError(err.response?.data?.detail || 'Error al vincular');
     }
   };
 
-  const handleDesmapearHikvision = async (empleadoId) => {
-    try {
-      await rrhhAPI.desmapearEmpleadoHikvision(empleadoId);
-      cargarHikUsers();
-    } catch {
-      // silent
-    }
+  const handleDesmapearHikvision = (empleadoId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Desvincular empleado',
+      message: '¿Desvincular este empleado del dispositivo Hikvision?',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.desmapearEmpleadoHikvision(empleadoId);
+          setConfirmAction(null);
+          cargarHikUsers();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al desvincular');
+        }
+      },
+    });
   };
 
   // ── RENDER ──
@@ -795,8 +840,8 @@ export default function RRHHHorarios() {
                           <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
                             <select
                               className={styles.select}
-                              value={mappingEmpleadoId}
-                              onChange={(e) => setMappingEmpleadoId(e.target.value)}
+                              value={mappingSelections[u.employee_no] || ''}
+                              onChange={(e) => updateMappingSelection(u.employee_no, e.target.value)}
                               style={{ minWidth: '200px' }}
                             >
                               <option value="">Seleccionar empleado...</option>
@@ -811,7 +856,7 @@ export default function RRHHHorarios() {
                             <button
                               className={styles.btnLink}
                               onClick={() => handleMapearHikvision(u.employee_no)}
-                              disabled={!mappingEmpleadoId}
+                              disabled={!mappingSelections[u.employee_no]}
                               title="Vincular"
                             >
                               <Link size={12} /> Vincular
@@ -1069,6 +1114,28 @@ export default function RRHHHorarios() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Confirmación ─── */}
+      {confirmAction && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmAction(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{confirmAction.title}</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmAction(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                {confirmAction.message}
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmAction(null)}>Cancelar</button>
+              <button className={styles.btnDeactivate} onClick={confirmAction.onConfirm}>Confirmar</button>
+            </div>
           </div>
         </div>
       )}
