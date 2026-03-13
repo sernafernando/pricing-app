@@ -41,7 +41,7 @@ class FichadaResponse(BaseModel):
     """Registro de fichada (clock-in/out)."""
 
     id: int
-    empleado_id: int
+    empleado_id: Optional[int] = None
     empleado_nombre: str = ""
     empleado_legajo: str = ""
     timestamp: datetime
