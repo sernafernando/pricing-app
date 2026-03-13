@@ -16,6 +16,7 @@ Mapeo empleado: employeeNoString → rrhh_empleados.hikvision_employee_no.
 
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 import httpx
 from sqlalchemy.orm import Session
@@ -77,6 +78,9 @@ class HikvisionClient:
         except httpx.ConnectError:
             logger.error("Hikvision: dispositivo no alcanzable en %s", url)
             raise ConnectionError(f"No se puede conectar al dispositivo Hikvision en {self.host}:{self.port}")
+        except httpx.TimeoutException:
+            logger.error("Hikvision: timeout en %s", url)
+            raise ConnectionError(f"Timeout conectando al dispositivo Hikvision en {self.host}:{self.port}")
         except httpx.HTTPStatusError as e:
             logger.error(
                 "Hikvision: HTTP error %s en %s",
@@ -105,11 +109,12 @@ class HikvisionClient:
         # DS-K1T804AMF: maxResults estable en 10 por request para UserInfo/Search.
         # Valores mayores pueden generar errores/intermitencia en algunos firmwares.
         page_size = 10
+        search_id = f"pricing-app-users-{uuid4().hex[:8]}"
 
         while True:
             body = {
                 "UserInfoSearchCond": {
-                    "searchID": "pricing-app-sync",
+                    "searchID": search_id,
                     "searchResultPosition": position,
                     "maxResults": page_size,
                 }

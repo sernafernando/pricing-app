@@ -38,6 +38,17 @@ const formatDiasSemana = (dias) => {
 
 const PAGE_SIZE = 50;
 
+const getErrorMessage = (err, fallback) => {
+  const data = err?.response?.data;
+  if (typeof data === 'string' && data.trim()) return data;
+  if (data && typeof data === 'object') {
+    if (typeof data.detail === 'string' && data.detail.trim()) return data.detail;
+    if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  }
+  if (typeof err?.message === 'string' && err.message.trim()) return err.message;
+  return fallback;
+};
+
 export default function RRHHHorarios() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rrhh.gestionar');
@@ -193,7 +204,7 @@ export default function RRHHHorarios() {
       const { data } = await rrhhAPI.listarUsuariosHikvision();
       setHikUsers(Array.isArray(data) ? data : []);
     } catch (err) {
-      setHikError(err.response?.data?.detail || 'Error al conectar con Hikvision');
+      setHikError(getErrorMessage(err, 'Error al conectar con Hikvision'));
       setHikUsers([]);
     } finally {
       setLoadingHik(false);
@@ -259,7 +270,7 @@ export default function RRHHHorarios() {
       setSyncResult(data);
       cargarFichadas();
     } catch (err) {
-      setSyncResult({ error: err.response?.data?.detail || 'Error de conexión con Hikvision' });
+      setSyncResult({ error: getErrorMessage(err, 'Error de conexión con Hikvision') });
     } finally {
       setSyncing(false);
     }
