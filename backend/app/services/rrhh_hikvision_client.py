@@ -22,7 +22,8 @@ from uuid import uuid4
 # Los timestamps en ISAPI deben enviarse SIN timezone info, en hora local.
 ART_TZ = timezone(timedelta(hours=-3))
 
-import httpx
+import requests
+from requests.auth import HTTPDigestAuth
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -61,6 +62,11 @@ class HikvisionClient:
         """
         Hace request HTTP al dispositivo con Digest Auth.
 
+        Usa `requests` (no httpx) porque httpx 0.25.x tiene un bug con
+        Digest Auth donde el body no se reenvía correctamente en el segundo
+        request del handshake, causando "Server disconnected" o 400 en
+        algunos entornos.
+
         Siempre usa ?format=json (requerido por firmware V1.3.43).
         """
         url = f"{self._get_base_url()}{path}"
@@ -69,36 +75,39 @@ class HikvisionClient:
         elif "format=" not in path:
             url += "&format=json"
 
+        auth = HTTPDigestAuth(self.username or "", self.password or "")
+
         try:
-            with httpx.Client(timeout=30.0) as client:
-                response = client.request(
-                    method,
-                    url,
-                    json=json_body,
-                    auth=httpx.DigestAuth(self.username or "", self.password or ""),
-                )
-                response.raise_for_status()
-                return response.json()
-        except httpx.ConnectError:
+            response = requests.request(
+                method,
+                url,
+                json=json_body,
+                auth=auth,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.ConnectionError:
             logger.error("Hikvision: dispositivo no alcanzable en %s", url)
             raise ConnectionError(f"No se puede conectar al dispositivo Hikvision en {self.host}:{self.port}")
-        except httpx.TimeoutException:
+        except requests.Timeout:
             logger.error("Hikvision: timeout en %s", url)
             raise ConnectionError(f"Timeout conectando al dispositivo Hikvision en {self.host}:{self.port}")
-        except httpx.HTTPStatusError as e:
-            # Log response body para diagnosticar 400/401 (ej: timestamps en UTC)
+        except requests.HTTPError as e:
+            # Log response body para diagnosticar 400/401
             body_text = ""
             try:
-                body_text = e.response.text[:500]
+                body_text = (e.response.text or "")[:500]
             except Exception:
                 body_text = "<no se pudo leer body>"
             logger.error(
                 "Hikvision: HTTP error %s en %s — body: %s",
-                e.response.status_code,
+                e.response.status_code if e.response is not None else "?",
                 url,
                 body_text,
             )
-            raise ConnectionError(f"Hikvision respondió con error HTTP {e.response.status_code}: {body_text}")
+            status = e.response.status_code if e.response is not None else "?"
+            raise ConnectionError(f"Hikvision respondió con error HTTP {status}: {body_text}")
 
     # ──────────────────────────────────────────────
     # Usuarios registrados en el dispositivo
