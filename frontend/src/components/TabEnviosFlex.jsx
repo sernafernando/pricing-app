@@ -120,6 +120,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
+  const [erpCatalogOptions, setErpCatalogOptions] = useState([]);
   const [sinLogistica, setSinLogistica] = useState(false);
   const [sinCordon, setSinCordon] = useState(false);
   const [filtroPistoleado, setFiltroPistoleado] = useState('');
@@ -410,10 +411,24 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   }, [buildFilterParams]);
 
+  const cargarEstadosErp = useCallback(async () => {
+    try {
+      const { data } = await api.get('/sale-order-status?only_active=true');
+      const options = (data || [])
+        .filter((s) => s?.ssos_id != null && s?.ssos_name)
+        .map((s) => ({ id: String(s.ssos_id), name: s.ssos_name }));
+      options.sort((a, b) => a.name.localeCompare(b.name));
+      setErpCatalogOptions(options);
+    } catch {
+      setErpCatalogOptions([]);
+    }
+  }, []);
+
   useEffect(() => {
     cargarLogisticas();
     cargarTransportes();
-  }, [cargarLogisticas, cargarTransportes]);
+    cargarEstadosErp();
+  }, [cargarLogisticas, cargarTransportes, cargarEstadosErp]);
 
   useEffect(() => {
     cargarDatos();
@@ -1980,8 +1995,8 @@ export default function TabEnviosFlex({ operador = null }) {
           </select>
 
           {(() => {
-            const erpOptions = [{ id: '0', name: 'Cancelado' }];
-            const seen = new Set(['0']);
+            const erpOptions = [];
+            const seen = new Set();
             for (const e of etiquetas) {
               const ssosId = e.ssos_id;
               if (ssosId == null) continue;
@@ -1992,8 +2007,8 @@ export default function TabEnviosFlex({ operador = null }) {
                 erpOptions.push({ id: ssosKey, name: e.ssos_name || (isCancelado ? 'Cancelado' : `Estado ${ssosKey}`) });
               }
             }
-            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
-            if (erpOptions.length === 0) return null;
+            const options = erpCatalogOptions.length > 0 ? erpCatalogOptions : erpOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (options.length === 0) return null;
             return (
               <select
                 value={filtroSsosId}
@@ -2001,7 +2016,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 className={styles.selectSm}
               >
                 <option value="">Estado ERP</option>
-                {erpOptions.map(opt => (
+                {options.map(opt => (
                   <option key={opt.id} value={opt.id}>{opt.name}</option>
                 ))}
               </select>
