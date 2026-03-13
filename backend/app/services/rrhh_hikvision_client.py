@@ -14,9 +14,13 @@ Dedup fichadas: serialNo → event_id (unique index en rrhh_fichadas).
 Mapeo empleado: employeeNoString → rrhh_empleados.hikvision_employee_no.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
+
+# Hikvision DS-K1T804AMF opera en hora local Argentina (UTC-3).
+# Los timestamps en ISAPI deben enviarse SIN timezone info, en hora local.
+ART_TZ = timezone(timedelta(hours=-3))
 
 import httpx
 from sqlalchemy.orm import Session
@@ -82,12 +86,19 @@ class HikvisionClient:
             logger.error("Hikvision: timeout en %s", url)
             raise ConnectionError(f"Timeout conectando al dispositivo Hikvision en {self.host}:{self.port}")
         except httpx.HTTPStatusError as e:
+            # Log response body para diagnosticar 400/401 (ej: timestamps en UTC)
+            body_text = ""
+            try:
+                body_text = e.response.text[:500]
+            except Exception:
+                body_text = "<no se pudo leer body>"
             logger.error(
-                "Hikvision: HTTP error %s en %s",
+                "Hikvision: HTTP error %s en %s — body: %s",
                 e.response.status_code,
                 url,
+                body_text,
             )
-            raise ConnectionError(f"Hikvision respondió con error HTTP {e.response.status_code}")
+            raise ConnectionError(f"Hikvision respondió con error HTTP {e.response.status_code}: {body_text}")
 
     # ──────────────────────────────────────────────
     # Usuarios registrados en el dispositivo
@@ -151,23 +162,40 @@ class HikvisionClient:
         """
         Obtiene eventos de acceso del dispositivo Hikvision.
 
-        Pagina automáticamente (max 1000 resultados por request).
+        Pagina automáticamente (max 100 resultados por request).
+
+        IMPORTANTE: El DS-K1T804AMF requiere timestamps en hora local Argentina
+        (UTC-3), SIN info de timezone. Si se envían timestamps UTC, el dispositivo
+        responde 400 Bad Request.
 
         Args:
-            desde: Fecha/hora desde la cual buscar eventos.
-                   Si None, busca desde las 00:00 del día.
-            hasta: Fecha/hora hasta la cual buscar eventos.
-                   Si None, usa el momento actual.
+            desde: Fecha/hora desde la cual buscar eventos (cualquier tz, se convierte a ART).
+                   Si None, busca desde las 00:00 del día en hora Argentina.
+            hasta: Fecha/hora hasta la cual buscar eventos (cualquier tz, se convierte a ART).
+                   Si None, usa el momento actual en hora Argentina.
 
         Returns:
             Lista de eventos raw del dispositivo.
         """
         self._check_configured()
 
+        # Defaults en hora local Argentina (el dispositivo opera en ART)
         if desde is None:
-            desde = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            desde = datetime.now(ART_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         if hasta is None:
-            hasta = datetime.now(timezone.utc)
+            hasta = datetime.now(ART_TZ)
+
+        # Convertir a hora local Argentina si vienen en otro timezone
+        if desde.tzinfo is not None:
+            desde = desde.astimezone(ART_TZ)
+        if hasta.tzinfo is not None:
+            hasta = hasta.astimezone(ART_TZ)
+
+        # Formatear como naive local (el dispositivo no acepta offset)
+        start_time_str = desde.strftime("%Y-%m-%dT%H:%M:%S")
+        end_time_str = hasta.strftime("%Y-%m-%dT%H:%M:%S")
+
+        logger.info("Hikvision fetch_events: %s → %s (ART local)", start_time_str, end_time_str)
 
         all_events: list[dict] = []
         position = 0
@@ -183,8 +211,8 @@ class HikvisionClient:
                     "maxResults": page_size,
                     "major": 0,
                     "minor": 0,
-                    "startTime": desde.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "endTime": hasta.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "startTime": start_time_str,
+                    "endTime": end_time_str,
                 }
             }
 
