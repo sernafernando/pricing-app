@@ -102,7 +102,9 @@ class HikvisionClient:
 
         all_users: list[dict] = []
         position = 0
-        page_size = 30
+        # DS-K1T804AMF: maxResults estable en 10 por request para UserInfo/Search.
+        # Valores mayores pueden generar errores/intermitencia en algunos firmwares.
+        page_size = 10
 
         while True:
             body = {
