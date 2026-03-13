@@ -33,17 +33,12 @@ class RRHHHorarioConfig(Base):
     hora_entrada = Column(Time, nullable=False)
     hora_salida = Column(Time, nullable=False)
     tolerancia_minutos = Column(Integer, nullable=False, default=15)
-    dias_semana = Column(
-        String(20), nullable=False, default="1,2,3,4,5"
-    )  # 1=Lun ... 7=Dom
+    dias_semana = Column(String(20), nullable=False, default="1,2,3,4,5")  # 1=Lun ... 7=Dom
     activo = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self) -> str:
-        return (
-            f"<RRHHHorarioConfig(nombre='{self.nombre}', "
-            f"{self.hora_entrada}-{self.hora_salida})>"
-        )
+        return f"<RRHHHorarioConfig(nombre='{self.nombre}', {self.hora_entrada}-{self.hora_salida})>"
 
 
 class RRHHHorarioExcepcion(Base):
@@ -55,13 +50,8 @@ class RRHHHorarioExcepcion(Base):
     fecha = Column(Date, nullable=False, unique=True, index=True)
     tipo = Column(String(30), nullable=False)  # feriado, dia_especial
     descripcion = Column(String(255), nullable=False)  # "Día del Trabajador"
-    es_laborable = Column(
-        Boolean, nullable=False, default=False
-    )  # True si se trabaja igual
+    es_laborable = Column(Boolean, nullable=False, default=False)  # True si se trabaja igual
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self) -> str:
-        return (
-            f"<RRHHHorarioExcepcion(fecha='{self.fecha}', "
-            f"tipo='{self.tipo}', desc='{self.descripcion}')>"
-        )
+        return f"<RRHHHorarioExcepcion(fecha='{self.fecha}', tipo='{self.tipo}', desc='{self.descripcion}')>"
