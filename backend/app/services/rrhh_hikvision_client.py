@@ -171,12 +171,14 @@ class HikvisionClient:
 
         all_events: list[dict] = []
         position = 0
-        page_size = 1000
+        # DS-K1T804AMF: page size conservador para evitar 401/intermitencia.
+        page_size = 100
+        search_id = f"pricing-app-events-{uuid4().hex[:8]}"
 
         while True:
             search_body = {
                 "AcsEventCond": {
-                    "searchID": "pricing-app-sync",
+                    "searchID": search_id,
                     "searchResultPosition": position,
                     "maxResults": page_size,
                     "major": 0,
