@@ -50,11 +50,9 @@ ROL_PERMISOS = {
 
 
 def upgrade():
-    # 0. Add 'rrhh' to the PostgreSQL categoriapermiso enum
-    op.execute("ALTER TYPE categoriapermiso ADD VALUE IF NOT EXISTS 'rrhh'")
-    # Must COMMIT so the new enum value is visible to subsequent INSERTs
-    op.execute("COMMIT")
-
+    # categoria is String(50), not a PG enum — no ALTER TYPE needed.
+    # Just insert permissions directly.
+    
     # 1. Insert permissions into catalog
     for codigo, nombre, desc, cat, orden, critico in PERMISOS:
         critico_str = "true" if critico else "false"
