@@ -60,7 +60,7 @@ def main() -> None:
                 flush=True,
             )
 
-            result = client.sync_fichadas(current)
+            result = client.sync_fichadas(current, week_end)
             db.commit()
 
             total_nuevas += result["nuevas"]

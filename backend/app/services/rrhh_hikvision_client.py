@@ -147,7 +147,7 @@ class HikvisionClient:
     # Eventos de fichaje (AcsEvent)
     # ──────────────────────────────────────────────
 
-    def fetch_events(self, desde: Optional[datetime] = None) -> list[dict]:
+    def fetch_events(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> list[dict]:
         """
         Obtiene eventos de acceso del dispositivo Hikvision.
 
@@ -156,6 +156,8 @@ class HikvisionClient:
         Args:
             desde: Fecha/hora desde la cual buscar eventos.
                    Si None, busca desde las 00:00 del día.
+            hasta: Fecha/hora hasta la cual buscar eventos.
+                   Si None, usa el momento actual.
 
         Returns:
             Lista de eventos raw del dispositivo.
@@ -164,6 +166,8 @@ class HikvisionClient:
 
         if desde is None:
             desde = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        if hasta is None:
+            hasta = datetime.now(timezone.utc)
 
         all_events: list[dict] = []
         position = 0
@@ -178,7 +182,7 @@ class HikvisionClient:
                     "major": 0,
                     "minor": 0,
                     "startTime": desde.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "endTime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                    "endTime": hasta.strftime("%Y-%m-%dT%H:%M:%S"),
                 }
             }
 
@@ -209,7 +213,7 @@ class HikvisionClient:
     # Sync fichadas a DB
     # ──────────────────────────────────────────────
 
-    def sync_fichadas(self, desde: Optional[datetime] = None) -> dict:
+    def sync_fichadas(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> dict:
         """
         Sincroniza eventos del dispositivo Hikvision a rrhh_fichadas.
 
@@ -222,7 +226,7 @@ class HikvisionClient:
         Returns:
             { "nuevas": int, "duplicadas": int, "sin_empleado": int, "errores": int }
         """
-        events = self.fetch_events(desde)
+        events = self.fetch_events(desde, hasta)
 
         # Pre-cargar mapeo hikvision_employee_no → empleado_id
         empleados = (
