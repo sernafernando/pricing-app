@@ -171,12 +171,14 @@ class HikvisionClient:
 
         all_events: list[dict] = []
         position = 0
-        page_size = 1000
+        # DS-K1T804AMF: page size conservador para evitar 401/intermitencia.
+        page_size = 100
+        search_id = f"pricing-app-events-{uuid4().hex[:8]}"
 
         while True:
             search_body = {
                 "AcsEventCond": {
-                    "searchID": "pricing-app-sync",
+                    "searchID": search_id,
                     "searchResultPosition": position,
                     "maxResults": page_size,
                     "major": 0,
@@ -271,14 +273,11 @@ class HikvisionClient:
                 except (ValueError, AttributeError):
                     ts = datetime.now(timezone.utc)
 
-                # Tipo: siempre "entrada" — el dispositivo no distingue.
-                tipo = "entrada"
-
                 fichada = RRHHFichada(
                     empleado_id=empleado_id,  # None si no mapeado
                     hikvision_employee_no=employee_no or None,
                     timestamp=ts,
-                    tipo=tipo,
+                    tipo="entrada",  # Placeholder — se reclasifica abajo
                     origen="hikvision",
                     device_serial=event.get("deviceName", "") or None,
                     event_id=serial_no,
@@ -292,6 +291,8 @@ class HikvisionClient:
 
         if nuevas > 0:
             self.db.flush()
+            # Reclasificar entrada/salida para los días afectados
+            self._classify_entry_exit(desde, hasta)
 
         logger.info(
             "Hikvision sync: nuevas=%d, duplicadas=%d, sin_empleado=%d, errores=%d",
@@ -307,6 +308,59 @@ class HikvisionClient:
             "sin_empleado": sin_empleado,
             "errores": errores,
         }
+
+    def _classify_entry_exit(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> None:
+        """
+        Reclasifica fichadas Hikvision como entrada/salida por empleado por día.
+
+        Lógica: el dispositivo no distingue entrada de salida (un solo lector).
+        Cada fichada alterna entre entrada y salida cronológicamente:
+        - 1ª fichada del día → entrada (llegó)
+        - 2ª fichada del día → salida  (salió a almorzar / ART / etc.)
+        - 3ª fichada del día → entrada (volvió)
+        - 4ª fichada del día → salida  (se fue)
+        - etc.
+
+        Esto preserva los fichajes intermedios (ej: salir al mediodía por ART)
+        y permite calcular horas trabajadas por tramos.
+
+        Solo toca fichadas de origen "hikvision" en el rango de fechas dado.
+        """
+        query = self.db.query(RRHHFichada).filter(
+            RRHHFichada.origen == "hikvision",
+        )
+        if desde:
+            query = query.filter(RRHHFichada.timestamp >= desde)
+        if hasta:
+            query = query.filter(RRHHFichada.timestamp <= hasta)
+
+        fichadas = query.order_by(RRHHFichada.timestamp.asc()).all()
+
+        if not fichadas:
+            return
+
+        # Agrupar por (empleado_key, fecha) — usamos hikvision_employee_no como key
+        # porque empleado_id puede ser NULL (no mapeado aún).
+        from collections import defaultdict
+
+        groups: dict[tuple[str, str], list[RRHHFichada]] = defaultdict(list)
+        for f in fichadas:
+            key = f.hikvision_employee_no or f"emp-{f.empleado_id}"
+            day = f.timestamp.strftime("%Y-%m-%d") if f.timestamp else "unknown"
+            groups[(key, day)].append(f)
+
+        updated = 0
+        for (_key, _day), day_fichadas in groups.items():
+            # Alternar: entrada (0), salida (1), entrada (2), salida (3)...
+            for i, f in enumerate(day_fichadas):
+                new_tipo = "entrada" if i % 2 == 0 else "salida"
+                if f.tipo != new_tipo:
+                    f.tipo = new_tipo
+                    updated += 1
+
+        if updated > 0:
+            self.db.flush()
+            logger.info("Hikvision: reclasificadas %d fichadas (entrada/salida)", updated)
 
     @staticmethod
     def vincular_fichadas_retroactivas(db: Session, hikvision_employee_no: str, empleado_id: int) -> int:
