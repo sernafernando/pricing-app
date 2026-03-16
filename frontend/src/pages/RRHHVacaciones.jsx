@@ -315,7 +315,7 @@ export default function RRHHVacaciones() {
               value={filtroPeriodoAnio}
               onChange={(e) => setFiltroPeriodoAnio(e.target.value ? Number(e.target.value) : '')}
             >
-              <option value="">Todos los anos</option>
+              <option value="">Todos los años</option>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
@@ -349,7 +349,7 @@ export default function RRHHVacaciones() {
                     <tr key={p.id}>
                       <td>{p.empleado_nombre || `#${p.empleado_id}`}</td>
                       <td>{p.anio}</td>
-                      <td>{p.antiguedad_anios} {p.antiguedad_anios === 1 ? 'ano' : 'anos'}</td>
+                      <td>{p.antiguedad_anios} {p.antiguedad_anios === 1 ? 'año' : 'años'}</td>
                       <td>{p.dias_correspondientes}</td>
                       <td>{p.dias_gozados}</td>
                       <td>{p.dias_pendientes}</td>
@@ -385,7 +385,7 @@ export default function RRHHVacaciones() {
               value={filtroSolAnio}
               onChange={(e) => { setFiltroSolAnio(e.target.value ? Number(e.target.value) : ''); setSolPage(1); }}
             >
-              <option value="">Todos los anos</option>
+              <option value="">Todos los años</option>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
