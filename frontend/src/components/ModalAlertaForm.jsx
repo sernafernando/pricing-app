@@ -126,12 +126,13 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     try {
       setLoading(true);
 
-      // Convertir fechas desde datetime-local (sin timezone) a ISO con UTC
-      // El input datetime-local NO incluye timezone, entonces interpretamos como UTC directamente
+      // Convertir fechas desde datetime-local (hora LOCAL) a ISO UTC
+      // El input datetime-local devuelve "YYYY-MM-DDTHH:mm" en hora LOCAL del browser.
+      // Creamos un Date con esa hora local y usamos toISOString() para que JS la convierta a UTC.
       const payload = {
         ...formData,
-        fecha_desde: formData.fecha_desde ? formData.fecha_desde + ':00.000Z' : new Date().toISOString(),
-        fecha_hasta: formData.fecha_hasta ? formData.fecha_hasta + ':00.000Z' : null
+        fecha_desde: formData.fecha_desde ? new Date(formData.fecha_desde).toISOString() : new Date().toISOString(),
+        fecha_hasta: formData.fecha_hasta ? new Date(formData.fecha_hasta).toISOString() : null
       };
 
       if (isEdit) {
