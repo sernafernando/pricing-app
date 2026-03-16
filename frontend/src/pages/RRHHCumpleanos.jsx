@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { rrhhAPI } from '../services/api';
-import { usePermisos } from '../contexts/PermisosContext';
 import styles from './RRHHCumpleanos.module.css';
 import { ChevronLeft, ChevronRight, Cake, Gift, PartyPopper } from 'lucide-react';
 
@@ -12,9 +11,6 @@ const MESES = [
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 export default function RRHHCumpleanos() {
-  const { tienePermiso } = usePermisos();
-  const puedeVer = tienePermiso('rrhh.ver');
-
   const hoy = new Date();
   const [mes, setMes] = useState(hoy.getMonth() + 1);
   const [anio, setAnio] = useState(hoy.getFullYear());
@@ -22,7 +18,6 @@ export default function RRHHCumpleanos() {
   const [loading, setLoading] = useState(false);
 
   const cargarCumpleanos = useCallback(async () => {
-    if (!puedeVer) return;
     setLoading(true);
     try {
       const { data } = await rrhhAPI.listarCumpleanosMes({ mes, anio });
@@ -32,7 +27,7 @@ export default function RRHHCumpleanos() {
     } finally {
       setLoading(false);
     }
-  }, [mes, anio, puedeVer]);
+  }, [mes, anio]);
 
   useEffect(() => {
     cargarCumpleanos();
@@ -78,10 +73,6 @@ export default function RRHHCumpleanos() {
 
   const esHoy = (dia) =>
     dia === hoy.getDate() && mes === hoy.getMonth() + 1 && anio === hoy.getFullYear();
-
-  if (!puedeVer) {
-    return <div className={styles.container}><p>Sin permiso para ver esta sección.</p></div>;
-  }
 
   return (
     <div className={styles.container}>

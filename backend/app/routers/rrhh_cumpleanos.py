@@ -19,7 +19,6 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.usuario import Usuario
-from app.services.permisos_service import PermisosService
 
 router = APIRouter(prefix="/rrhh", tags=["rrhh-cumpleanos"])
 
@@ -83,13 +82,10 @@ def listar_cumpleanos_mes(
     """
     Lista empleados activos que cumplen años en el mes indicado.
     Si no se pasa mes, usa el mes actual.
+
+    No requiere permiso especial — es info social accesible
+    para cualquier usuario logueado.
     """
-    svc = PermisosService(db)
-    if not svc.tiene_permiso(current_user, "rrhh.ver"):
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
-
     hoy = date.today()
     if mes is None:
         mes = hoy.month

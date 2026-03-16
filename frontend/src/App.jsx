@@ -258,11 +258,7 @@ function App() {
                 <RRHHHorarios />
               </ProtectedRoute>
             } />
-            <Route path="/rrhh/cumpleanos" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHCumpleanos />
-              </ProtectedRoute>
-            } />
+            <Route path="/cumpleanos" element={<RRHHCumpleanos />} />
             <Route path="/rrhh/reportes" element={
               <ProtectedRoute permiso="rrhh.ver">
                 <RRHHReportes />

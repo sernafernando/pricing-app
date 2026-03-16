@@ -87,6 +87,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       items: [
         { label: 'Traza', path: '/traza', permiso: 'traza.ver' },
         { label: 'Seguimiento Envíos', path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
+        { label: 'Cumpleaños', path: '/cumpleanos' },
       ],
     },
     {
@@ -125,7 +126,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Vacaciones', path: '/rrhh/vacaciones', permiso: 'rrhh.ver' },
         { label: 'Cuenta Corriente', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
         { label: 'Horarios', path: '/rrhh/horarios', permiso: 'rrhh.ver' },
-        { label: 'Cumpleaños', path: '/rrhh/cumpleanos', permiso: 'rrhh.ver' },
         { label: 'Reportes', path: '/rrhh/reportes', permiso: 'rrhh.ver' },
       ],
     },
@@ -198,6 +198,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         {menuSections.map((section) => {
           // Filtrar ítems con permisos
           const visibleItems = section.items.filter((item) => {
+            // Sin permiso definido → visible para todos
+            if (!item.permiso) return true;
             if (item.multiple) {
               // Si tiene múltiples permisos separados por coma
               const permisos = item.permiso.split(',');
