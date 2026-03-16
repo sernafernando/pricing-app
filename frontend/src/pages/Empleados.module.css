@@ -468,6 +468,62 @@
   flex-shrink: 0;
 }
 
+/* Dirección section */
+.direccionSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.direccionGrid {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.direccionGrid .formGroup {
+  min-width: 0;
+}
+
+.geoActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.btnGeocodificar {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.geoCoords {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.btnGoogleMaps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.btnGoogleMaps:hover {
+  opacity: 0.7;
+}
+
+.mapContainer {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 /* Baja section */
 .bajaSection {
   /* tab content */

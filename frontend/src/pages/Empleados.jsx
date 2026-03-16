@@ -21,7 +21,21 @@ import {
   Settings,
   Check,
   X,
+  MapPin,
+  Navigation,
+  ExternalLink,
 } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 import styles from './Empleados.module.css';
 
 const ESTADOS = [
@@ -86,6 +100,10 @@ export default function Empleados() {
 
   // Modal tab (solo en edición)
   const [modalTab, setModalTab] = useState('datos');
+
+  // --- Geocodificación ---
+  const [geocoding, setGeocoding] = useState(false);
+  const [geoError, setGeoError] = useState(null);
 
   // --- Motivos de baja ---
   const [motivosBaja, setMotivosBaja] = useState([]);
@@ -157,9 +175,18 @@ export default function Empleados() {
       puesto: '',
       area: '',
       estado: 'activo',
+      calle: '',
+      numero: '',
+      piso_depto: '',
+      entre_calles: '',
+      localidad: '',
+      provincia: '',
+      codigo_postal: '',
+      domicilio: '',
+      latitud: null,
+      longitud: null,
       telefono: '',
       email_personal: '',
-      domicilio: '',
       observaciones: '',
     });
     setFormError(null);
@@ -181,9 +208,18 @@ export default function Empleados() {
       estado: emp.estado || 'activo',
       motivo_baja_id: emp.motivo_baja_id || null,
       detalle_baja: emp.detalle_baja || '',
+      calle: emp.calle || '',
+      numero: emp.numero || '',
+      piso_depto: emp.piso_depto || '',
+      entre_calles: emp.entre_calles || '',
+      localidad: emp.localidad || '',
+      provincia: emp.provincia || '',
+      codigo_postal: emp.codigo_postal || '',
+      domicilio: emp.domicilio || '',
+      latitud: emp.latitud || null,
+      longitud: emp.longitud || null,
       telefono: emp.telefono || '',
       email_personal: emp.email_personal || '',
-      domicilio: emp.domicilio || '',
       observaciones: emp.observaciones || '',
     });
     setFormError(null);
@@ -406,6 +442,33 @@ export default function Empleados() {
     if (!dateStr) return '-';
     const d = new Date(dateStr + 'T12:00:00');
     return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const handleGeocodificar = async () => {
+    if (!editando) return;
+    setGeocoding(true);
+    setGeoError(null);
+    try {
+      // Primero guardar la dirección actual
+      await rrhhAPI.actualizarEmpleado(editando.id, {
+        calle: formData.calle || null,
+        numero: formData.numero || null,
+        piso_depto: formData.piso_depto || null,
+        entre_calles: formData.entre_calles || null,
+        localidad: formData.localidad || null,
+        provincia: formData.provincia || null,
+        codigo_postal: formData.codigo_postal || null,
+        domicilio: formData.domicilio || null,
+      });
+      // Luego geocodificar
+      const { data } = await rrhhAPI.geocodificarEmpleado(editando.id);
+      handleField('latitud', data.latitud);
+      handleField('longitud', data.longitud);
+    } catch (err) {
+      setGeoError(err.response?.data?.detail || 'Error al geocodificar');
+    } finally {
+      setGeocoding(false);
+    }
   };
 
   const isVencido = (fechaVenc) => {
@@ -950,6 +1013,12 @@ export default function Empleados() {
                   <User size={14} /> Datos
                 </button>
                 <button
+                  className={`${styles.modalTab} ${modalTab === 'direccion' ? styles.modalTabActive : ''}`}
+                  onClick={() => setModalTab('direccion')}
+                >
+                  <MapPin size={14} /> Dirección
+                </button>
+                <button
                   className={`${styles.modalTab} ${modalTab === 'turnos' ? styles.modalTabActive : ''}`}
                   onClick={() => setModalTab('turnos')}
                 >
@@ -1104,6 +1173,138 @@ export default function Empleados() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* ─── TAB: Dirección ─── */}
+              {editando && modalTab === 'direccion' && (
+                <div className={styles.direccionSection}>
+                  {geoError && <div className={styles.formError}>{geoError}</div>}
+
+                  <div className={styles.direccionGrid}>
+                    <div className={styles.formGroup} style={{ flex: 3 }}>
+                      <label>Calle</label>
+                      <input
+                        className={styles.input}
+                        value={formData.calle}
+                        onChange={(e) => handleField('calle', e.target.value)}
+                        placeholder="Av. Corrientes"
+                      />
+                    </div>
+                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                      <label>Número</label>
+                      <input
+                        className={styles.input}
+                        value={formData.numero}
+                        onChange={(e) => handleField('numero', e.target.value)}
+                        placeholder="1234"
+                      />
+                    </div>
+                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                      <label>Piso/Depto</label>
+                      <input
+                        className={styles.input}
+                        value={formData.piso_depto}
+                        onChange={(e) => handleField('piso_depto', e.target.value)}
+                        placeholder="3° B"
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.direccionGrid}>
+                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                      <label>Entre calles</label>
+                      <input
+                        className={styles.input}
+                        value={formData.entre_calles}
+                        onChange={(e) => handleField('entre_calles', e.target.value)}
+                        placeholder="Entre Av. Callao y Riobamba"
+                      />
+                    </div>
+                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                      <label>Localidad</label>
+                      <input
+                        className={styles.input}
+                        value={formData.localidad}
+                        onChange={(e) => handleField('localidad', e.target.value)}
+                        placeholder="CABA / Quilmes / etc."
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.direccionGrid}>
+                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                      <label>Provincia</label>
+                      <input
+                        className={styles.input}
+                        value={formData.provincia}
+                        onChange={(e) => handleField('provincia', e.target.value)}
+                        placeholder="Buenos Aires"
+                      />
+                    </div>
+                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                      <label>Código Postal</label>
+                      <input
+                        className={styles.input}
+                        value={formData.codigo_postal}
+                        onChange={(e) => handleField('codigo_postal', e.target.value)}
+                        placeholder="C1043"
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.geoActions}>
+                    {puedeGestionar && (
+                      <button
+                        className={styles.btnGeocodificar}
+                        onClick={handleGeocodificar}
+                        disabled={geocoding || (!formData.calle && !formData.domicilio)}
+                      >
+                        <Navigation size={14} />
+                        {geocoding ? 'Geocodificando...' : 'Geocodificar'}
+                      </button>
+                    )}
+
+                    {formData.latitud && formData.longitud && (
+                      <>
+                        <span className={styles.geoCoords}>
+                          <MapPin size={12} />
+                          {Number(formData.latitud).toFixed(6)}, {Number(formData.longitud).toFixed(6)}
+                        </span>
+                        <a
+                          href={`https://www.google.com/maps?q=${formData.latitud},${formData.longitud}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.btnGoogleMaps}
+                        >
+                          <ExternalLink size={12} /> Abrir en Google Maps
+                        </a>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Mapa */}
+                  {formData.latitud && formData.longitud && (
+                    <div className={styles.mapContainer}>
+                      <MapContainer
+                        center={[Number(formData.latitud), Number(formData.longitud)]}
+                        zoom={15}
+                        style={{ height: '250px', width: '100%', borderRadius: 'var(--radius-md)' }}
+                        key={`${formData.latitud}-${formData.longitud}`}
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <Marker position={[Number(formData.latitud), Number(formData.longitud)]}>
+                          <Popup>
+                            {editando.apellido}, {editando.nombre}<br />
+                            {formData.calle} {formData.numero}
+                          </Popup>
+                        </Marker>
+                      </MapContainer>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* ─── TAB: Turnos ─── */}
