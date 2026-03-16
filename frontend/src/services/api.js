@@ -363,6 +363,10 @@ export const sectoresAPI = {
   // Tipos de ticket de un sector
   listarTiposTicket: (sectorId) =>
     api.get(`/tickets/sectores/${sectorId}/tipos-ticket`),
+  crearTipoTicket: (sectorId, data) =>
+    api.post(`/tickets/sectores/${sectorId}/tipos-ticket`, data),
+  actualizarTipoTicket: (sectorId, tipoId, data) =>
+    api.patch(`/tickets/sectores/${sectorId}/tipos-ticket/${tipoId}`, data),
 };
 
 export const workflowsAPI = {

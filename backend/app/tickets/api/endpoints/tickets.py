@@ -60,6 +60,25 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
         raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
 
 
+def _tiene_permiso(db: Session, user: Usuario, permiso: str) -> bool:
+    """Check if user has a permission without raising."""
+    return PermisosService(db).tiene_permiso(user, permiso)
+
+
+def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
+    """
+    Verifica que el usuario puede acceder a un ticket.
+    - Si tiene tickets.ver → acceso a todos
+    - Si es el creador → acceso a su ticket
+    - Sino → 403
+    """
+    if _tiene_permiso(db, user, "tickets.ver"):
+        return
+    if ticket.creador_id == user.id:
+        return
+    raise HTTPException(status_code=403, detail="No tenés acceso a este ticket")
+
+
 # ── Badge count (MUST be before /{ticket_id} to avoid path capture) ──
 
 
@@ -77,9 +96,26 @@ async def badge_count(
       POSTERIOR al último cambio de estado
 
     Usado por TicketBadge en el TopBar.
-    Requiere: tickets.ver
+
+    - Si tiene tickets.ver → cuenta tickets asignados sin revisar (gestores)
+    - Si no tiene tickets.ver → cuenta sus tickets propios con cambios sin leer
     """
-    _check_permiso(db, current_user, "tickets.ver")
+    puede_ver_todos = PermisosService(db).tiene_permiso(current_user, "tickets.ver")
+
+    if not puede_ver_todos:
+        # Para usuarios normales: contar sus tickets con actividad nueva
+        from sqlalchemy import func
+
+        pendientes = (
+            db.query(func.count(Ticket.id))
+            .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+            .filter(
+                Ticket.creador_id == current_user.id,
+                EstadoTicket.es_final.is_(False),
+            )
+            .scalar()
+        ) or 0
+        return TicketBadgeCount(pendientes=pendientes)
 
     # Sub-query: tickets asignados al usuario activamente
     from sqlalchemy import and_, func
@@ -177,9 +213,8 @@ async def crear_ticket(
     """
     Crea un nuevo ticket.
 
-    Requiere: tickets.crear
+    Cualquier usuario logueado puede crear tickets.
     """
-    _check_permiso(db, current_user, "tickets.crear")
 
     # Validar sector
     sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
@@ -273,11 +308,16 @@ async def listar_tickets(
     """
     Lista tickets con filtros opcionales y paginación completa.
 
-    Requiere: tickets.ver
+    - Usuarios con tickets.ver → ven todos los tickets
+    - Usuarios sin tickets.ver → solo ven los tickets que ellos crearon
     """
-    _check_permiso(db, current_user, "tickets.ver")
+    puede_ver_todos = _tiene_permiso(db, current_user, "tickets.ver")
 
     query = db.query(Ticket)
+
+    # Sin tickets.ver, solo puede ver sus propios tickets
+    if not puede_ver_todos:
+        query = query.filter(Ticket.creador_id == current_user.id)
 
     # Aplicar filtros
     if sector_id:
@@ -337,14 +377,15 @@ async def obtener_ticket(
     """
     Obtiene un ticket por ID con todas sus relaciones cargadas.
 
-    Requiere: tickets.ver
+    - Usuarios con tickets.ver → acceso a cualquier ticket
+    - Creador del ticket → acceso a su ticket
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    _check_acceso_ticket(db, current_user, ticket)
 
     return ticket
 
@@ -359,16 +400,18 @@ async def actualizar_ticket(
     """
     Actualiza campos de un ticket.
 
-    Requiere: tickets.crear (creator can edit) o tickets.gestionar
+    - Creador puede editar su propio ticket
+    - Usuarios con tickets.gestionar pueden editar cualquier ticket
     """
-    svc = PermisosService(db)
-    if not svc.tiene_algun_permiso(current_user, ["tickets.crear", "tickets.gestionar"]):
-        raise HTTPException(status_code=403, detail="Sin permiso: tickets.crear o tickets.gestionar")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    es_creador = ticket.creador_id == current_user.id
+    puede_gestionar = _tiene_permiso(db, current_user, "tickets.gestionar")
+    if not es_creador and not puede_gestionar:
+        raise HTTPException(status_code=403, detail="No tenés acceso a este ticket")
 
     # Registrar cambios en historial
     cambios_realizados = {}
@@ -556,14 +599,20 @@ async def agregar_comentario(
     """
     Agrega un comentario a un ticket.
 
-    Requiere: tickets.ver
+    - Creador puede comentar en su propio ticket (solo comentarios públicos)
+    - Usuarios con tickets.ver pueden comentar en cualquier ticket
+    - Comentarios internos requieren tickets.gestionar
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    _check_acceso_ticket(db, current_user, ticket)
+
+    # Solo gestores pueden crear comentarios internos
+    if comentario_data.es_interno and not _tiene_permiso(db, current_user, "tickets.gestionar"):
+        raise HTTPException(status_code=403, detail="Solo gestores pueden crear comentarios internos")
 
     nuevo_comentario = ComentarioTicket(
         ticket_id=ticket.id,
@@ -601,18 +650,21 @@ async def listar_comentarios(
     """
     Lista los comentarios de un ticket.
 
-    Requiere: tickets.ver
+    - Creador ve solo comentarios públicos de su ticket
+    - Usuarios con tickets.ver ven todos (internos según parámetro)
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
 
+    _check_acceso_ticket(db, current_user, ticket)
+
     query = db.query(ComentarioTicket).filter(ComentarioTicket.ticket_id == ticket_id)
 
-    if not incluir_internos:
+    # Creadores sin tickets.gestionar nunca ven comentarios internos
+    puede_ver_internos = _tiene_permiso(db, current_user, "tickets.gestionar")
+    if not incluir_internos or not puede_ver_internos:
         query = query.filter(ComentarioTicket.es_interno == False)
 
     comentarios = query.order_by(ComentarioTicket.created_at.asc()).all()
@@ -632,14 +684,15 @@ async def obtener_historial(
     """
     Obtiene el historial completo de cambios de un ticket.
 
-    Requiere: tickets.ver
+    - Creador puede ver historial de su ticket
+    - Usuarios con tickets.ver pueden ver historial de cualquier ticket
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    _check_acceso_ticket(db, current_user, ticket)
 
     historial = (
         db.query(HistorialTicket)
@@ -667,13 +720,14 @@ async def subir_adjunto(
     MIME types permitidos: imágenes, PDF, documentos Office.
     Tamaño máximo: TICKETS_MAX_FILE_SIZE_MB (default 5MB).
 
-    Requiere: tickets.crear
+    Cualquier usuario logueado puede subir adjuntos a sus propios tickets.
+    Usuarios con tickets.ver pueden subir a cualquier ticket.
     """
-    _check_permiso(db, current_user, "tickets.crear")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    _check_acceso_ticket(db, current_user, ticket)
 
     # Validar MIME type
     if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
@@ -730,13 +784,14 @@ async def listar_adjuntos(
     """
     Lista los adjuntos de un ticket.
 
-    Requiere: tickets.ver
+    - Creador puede ver adjuntos de su ticket
+    - Usuarios con tickets.ver pueden ver adjuntos de cualquier ticket
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    _check_acceso_ticket(db, current_user, ticket)
 
     adjuntos = (
         db.query(AdjuntoTicket)

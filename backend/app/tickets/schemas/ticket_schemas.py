@@ -63,6 +63,29 @@ class TipoTicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TipoTicketCreate(BaseModel):
+    """Schema para crear un tipo de ticket"""
+
+    codigo: str = Field(..., min_length=1, max_length=50, description="Código único dentro del sector")
+    nombre: str = Field(..., min_length=1, max_length=100, description="Nombre visible")
+    descripcion: Optional[str] = None
+    icono: Optional[str] = None
+    color: Optional[str] = None
+    workflow_id: Optional[int] = None
+    schema_campos: Dict[str, Any] = Field(default_factory=dict, description="Schema de campos dinámicos")
+
+
+class TipoTicketUpdate(BaseModel):
+    """Schema para actualizar un tipo de ticket"""
+
+    nombre: Optional[str] = Field(default=None, max_length=100)
+    descripcion: Optional[str] = None
+    icono: Optional[str] = None
+    color: Optional[str] = None
+    workflow_id: Optional[int] = None
+    schema_campos: Optional[Dict[str, Any]] = None
+
+
 class AsignacionSimple(BaseModel):
     """Asignación simplificada para responses"""
 

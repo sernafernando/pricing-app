@@ -10,7 +10,13 @@ from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import Workflow
 from app.tickets.schemas.sector_schemas import SectorCreate, SectorUpdate, SectorResponse
-from app.tickets.schemas.ticket_schemas import SectorUsuarioCreate, SectorUsuarioResponse, TipoTicketResponse
+from app.tickets.schemas.ticket_schemas import (
+    SectorUsuarioCreate,
+    SectorUsuarioResponse,
+    TipoTicketCreate,
+    TipoTicketResponse,
+    TipoTicketUpdate,
+)
 from app.tickets.schemas.workflow_schemas import WorkflowResponse
 
 
@@ -33,9 +39,8 @@ async def listar_sectores(
     """
     Lista todos los sectores disponibles.
 
-    Requiere: tickets.ver
+    Cualquier usuario logueado puede ver sectores (necesario para crear tickets).
     """
-    _check_permiso(db, current_user, "tickets.ver")
 
     query = db.query(Sector)
 
@@ -304,9 +309,8 @@ async def listar_tipos_ticket_sector(
 
     Cada tipo incluye schema_campos para generar formularios dinámicos.
 
-    Requiere: tickets.ver
+    Cualquier usuario logueado puede ver los tipos (necesario para crear tickets).
     """
-    _check_permiso(db, current_user, "tickets.ver")
 
     sector = db.query(Sector).filter(Sector.id == sector_id).first()
     if not sector:
@@ -315,3 +319,99 @@ async def listar_tipos_ticket_sector(
     tipos = db.query(TipoTicket).filter(TipoTicket.sector_id == sector_id).order_by(TipoTicket.nombre).all()
 
     return tipos
+
+
+@router.post("/sectores/{sector_id}/tipos-ticket", response_model=TipoTicketResponse, status_code=201)
+async def crear_tipo_ticket(
+    sector_id: int,
+    tipo_data: TipoTicketCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TipoTicketResponse:
+    """
+    Crea un nuevo tipo de ticket para un sector.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    sector = db.query(Sector).filter(Sector.id == sector_id).first()
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"Sector {sector_id} no encontrado")
+
+    # Verificar código único dentro del sector
+    existente = (
+        db.query(TipoTicket).filter(TipoTicket.sector_id == sector_id, TipoTicket.codigo == tipo_data.codigo).first()
+    )
+    if existente:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ya existe un tipo de ticket con código '{tipo_data.codigo}' en este sector",
+        )
+
+    # Validar workflow_id si se proporcionó
+    if tipo_data.workflow_id:
+        workflow = (
+            db.query(Workflow).filter(Workflow.id == tipo_data.workflow_id, Workflow.sector_id == sector_id).first()
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow no encontrado para este sector")
+
+    nuevo_tipo = TipoTicket(
+        sector_id=sector_id,
+        codigo=tipo_data.codigo,
+        nombre=tipo_data.nombre,
+        descripcion=tipo_data.descripcion,
+        icono=tipo_data.icono,
+        color=tipo_data.color,
+        workflow_id=tipo_data.workflow_id,
+        schema_campos=tipo_data.schema_campos,
+    )
+    db.add(nuevo_tipo)
+    db.commit()
+    db.refresh(nuevo_tipo)
+
+    return nuevo_tipo
+
+
+@router.patch("/sectores/{sector_id}/tipos-ticket/{tipo_id}", response_model=TipoTicketResponse)
+async def actualizar_tipo_ticket(
+    sector_id: int,
+    tipo_id: int,
+    tipo_data: TipoTicketUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TipoTicketResponse:
+    """
+    Actualiza un tipo de ticket existente.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    tipo = db.query(TipoTicket).filter(TipoTicket.id == tipo_id, TipoTicket.sector_id == sector_id).first()
+    if not tipo:
+        raise HTTPException(status_code=404, detail="Tipo de ticket no encontrado en este sector")
+
+    if tipo_data.nombre is not None:
+        tipo.nombre = tipo_data.nombre
+    if tipo_data.descripcion is not None:
+        tipo.descripcion = tipo_data.descripcion
+    if tipo_data.icono is not None:
+        tipo.icono = tipo_data.icono
+    if tipo_data.color is not None:
+        tipo.color = tipo_data.color
+    if tipo_data.workflow_id is not None:
+        workflow = (
+            db.query(Workflow).filter(Workflow.id == tipo_data.workflow_id, Workflow.sector_id == sector_id).first()
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow no encontrado para este sector")
+        tipo.workflow_id = tipo_data.workflow_id
+    if tipo_data.schema_campos is not None:
+        tipo.schema_campos = tipo_data.schema_campos
+
+    db.commit()
+    db.refresh(tipo)
+
+    return tipo
