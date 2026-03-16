@@ -122,6 +122,16 @@
   font-weight: var(--font-semibold);
 }
 
+.formError {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  border: 1px solid var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
 @media (max-width: 768px) {
   .formRow {
     grid-template-columns: 1fr;

@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import api from '../services/api';
+import { useToast } from '../hooks/useToast';
+import Toast from './Toast';
 import { toLocalDateTimeString } from '../utils/dateUtils';
 import styles from './ModalAlertaForm.module.css';
 import AlertBanner from './AlertBanner';
@@ -29,6 +32,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const { toast, showToast, hideToast } = useToast();
 
   useEffect(() => {
     cargarRoles();
@@ -70,8 +75,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     try {
       const response = await api.get('/roles');
       setRoles(response.data);
-    } catch (error) {
-      console.error('Error al cargar roles:', error);
+    } catch {
+      showToast('Error al cargar roles', 'error');
     }
   };
 
@@ -79,8 +84,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     try {
       const response = await api.get('/usuarios');
       setUsuarios(response.data);
-    } catch (error) {
-      console.error('Error al cargar usuarios:', error);
+    } catch {
+      showToast('Error al cargar usuarios', 'error');
     }
   };
 
@@ -112,14 +117,15 @@ export default function ModalAlertaForm({ alerta, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError(null);
 
     if (!formData.titulo || !formData.mensaje) {
-      alert('Título y mensaje son obligatorios');
+      setFormError('Título y mensaje son obligatorios');
       return;
     }
 
     if (formData.roles_destinatarios.length === 0 && formData.usuarios_destinatarios_ids.length === 0) {
-      alert('Debe seleccionar al menos un rol o usuario destinatario');
+      setFormError('Debe seleccionar al menos un rol o usuario destinatario');
       return;
     }
 
@@ -137,16 +143,16 @@ export default function ModalAlertaForm({ alerta, onClose }) {
 
       if (isEdit) {
         await api.put(`/alertas/${alerta.id}`, payload);
-        alert('✅ Alerta actualizada');
+        showToast('Alerta actualizada', 'success');
       } else {
         await api.post('/alertas', payload);
-        alert('✅ Alerta creada');
+        showToast('Alerta creada', 'success');
       }
 
-      onClose(true); // true = actualizado
-    } catch (error) {
-      console.error('Error al guardar alerta:', error);
-      alert('Error al guardar alerta: ' + (error.response?.data?.detail || error.message));
+      // Pequeño delay para que el usuario vea el toast antes de cerrar
+      setTimeout(() => onClose(true), 800);
+    } catch (err) {
+      showToast(`Error al guardar alerta: ${err.response?.data?.detail || err.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -383,7 +389,7 @@ export default function ModalAlertaForm({ alerta, onClose }) {
               className="btn-tesla secondary sm"
               onClick={() => setShowPreview(!showPreview)}
             >
-              {showPreview ? '🙈 Ocultar Preview' : '👁️ Ver Preview'}
+              {showPreview ? <><EyeOff size={14} /> Ocultar Preview</> : <><Eye size={14} /> Ver Preview</>}
             </button>
 
             {showPreview && (
@@ -395,7 +401,7 @@ export default function ModalAlertaForm({ alerta, onClose }) {
                   message={formData.mensaje}
                   action={formData.action_label && formData.action_url ? {
                     label: formData.action_label,
-                    onClick: () => alert('Preview: redirigiría a ' + formData.action_url)
+                    onClick: () => showToast(`Preview: redirigiría a ${formData.action_url}`, 'info')
                   } : null}
                   dismissible={formData.dismissible}
                   persistent={false} // En preview nunca es persistent
@@ -403,6 +409,9 @@ export default function ModalAlertaForm({ alerta, onClose }) {
               </div>
             )}
           </div>
+
+          {/* Error de validación inline */}
+          {formError && <div className={styles.formError}>{formError}</div>}
 
           {/* Botones */}
           <div className="modal-footer-tesla">
@@ -424,6 +433,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
           </div>
         </form>
       </div>
+
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
