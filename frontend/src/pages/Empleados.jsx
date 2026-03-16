@@ -1098,17 +1098,6 @@ export default function Empleados() {
                         onChange={(e) => handleField('fecha_ingreso', e.target.value)}
                       />
                     </div>
-                    {editando && (
-                      <div className={styles.formGroup}>
-                        <label>Fecha Egreso</label>
-                        <input
-                          type="date"
-                          className={styles.input}
-                          value={formData.fecha_egreso || ''}
-                          onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
-                        />
-                      </div>
-                    )}
                     <div className={styles.formGroup}>
                       <label>Puesto</label>
                       <input
