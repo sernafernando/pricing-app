@@ -25,6 +25,7 @@ class CategoriaPermiso(str, enum.Enum):
     ALERTAS = "alertas"
     ENVIOS_FLEX = "envios_flex"
     RRHH = "rrhh"
+    TICKETS = "tickets"
 
 
 class Permiso(Base):
@@ -735,6 +736,38 @@ PERMISOS_SISTEMA = [
         "orden": 122,
         "es_critico": True,
     },
+    # =========================================================================
+    # TICKETS
+    # =========================================================================
+    {
+        "codigo": "tickets.ver",
+        "nombre": "Ver tickets",
+        "descripcion": "Acceso de lectura a tickets: listar, ver detalle, comentarios, historial",
+        "categoria": CategoriaPermiso.TICKETS,
+        "orden": 130,
+    },
+    {
+        "codigo": "tickets.crear",
+        "nombre": "Crear tickets",
+        "descripcion": "Crear nuevos tickets y subir adjuntos",
+        "categoria": CategoriaPermiso.TICKETS,
+        "orden": 131,
+    },
+    {
+        "codigo": "tickets.gestionar",
+        "nombre": "Gestionar tickets",
+        "descripcion": "Cambiar estado, asignar tickets, transiciones de workflow",
+        "categoria": CategoriaPermiso.TICKETS,
+        "orden": 132,
+    },
+    {
+        "codigo": "tickets.admin",
+        "nombre": "Administrar tickets",
+        "descripcion": "Configurar sectores, workflows, asignar usuarios a sectores",
+        "categoria": CategoriaPermiso.TICKETS,
+        "orden": 133,
+        "es_critico": True,
+    },
 ]
 
 
@@ -778,6 +811,7 @@ PERMISOS_POR_ROL = {
         "alertas.*",
         "envios_flex.*",
         "rrhh.*",
+        "tickets.*",
     ],
     "GERENTE": [
         "productos.ver",
@@ -819,6 +853,9 @@ PERMISOS_POR_ROL = {
         "seguimiento_envios.ver",
         "seguimiento_envios.flag",
         "seguimiento_envios.marcar_retornado",
+        "tickets.ver",
+        "tickets.crear",
+        "tickets.gestionar",
     ],
     "PRICING": [
         "productos.ver",
@@ -847,6 +884,8 @@ PERMISOS_POR_ROL = {
         "config.ver_comisiones",
         "config.ver_constantes",
         "config.ver_tipo_cambio",
+        "tickets.ver",
+        "tickets.crear",
     ],
     "VENTAS": [
         "productos.ver",
@@ -865,5 +904,7 @@ PERMISOS_POR_ROL = {
         "seguimiento_envios.ver",
         "seguimiento_envios.flag",
         "seguimiento_envios.marcar_retornado",
+        "tickets.ver",
+        "tickets.crear",
     ],
 }

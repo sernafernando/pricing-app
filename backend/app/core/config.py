@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     RRHH_UPLOADS_DIR: str = "uploads/rrhh"
     RRHH_MAX_FILE_SIZE_MB: int = 10
 
+    # Tickets — Adjuntos
+    TICKETS_UPLOADS_DIR: str = "uploads/tickets"
+    TICKETS_MAX_FILE_SIZE_MB: int = 5
+
     # Hikvision DS-K1T804 (access control terminal — ISAPI over HTTP + Digest Auth)
     HIKVISION_HOST: Optional[str] = None
     HIKVISION_PORT: int = 80

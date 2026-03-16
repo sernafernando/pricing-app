@@ -74,6 +74,11 @@ from app.routers import (
     rma_proveedores,
     weather,
 )
+from app.tickets.api.endpoints import (
+    tickets as tickets_ep,
+    sectores as sectores_ep,
+    workflows as workflows_ep,
+)
 from app.core.config import settings
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
@@ -225,6 +230,11 @@ app.include_router(rrhh_cuenta_corriente.router, prefix="/api", tags=["rrhh-cuen
 app.include_router(rrhh_horarios.router, prefix="/api", tags=["rrhh-horarios"])
 app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
+
+# ── Tickets module ────────────────────────────────────────────────
+app.include_router(tickets_ep.router, prefix="/api/tickets", tags=["tickets"])
+app.include_router(sectores_ep.router, prefix="/api/tickets", tags=["tickets-sectores"])
+app.include_router(workflows_ep.router, prefix="/api/tickets", tags=["tickets-workflows"])
 
 
 @app.get("/")

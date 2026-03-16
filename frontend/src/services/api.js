@@ -300,4 +300,83 @@ export const rrhhAPI = {
     api.get(`/rrhh/reportes/exportar/${tipo}`, { params, responseType: 'blob' }),
 };
 
+// ── Tickets API ───────────────────────────────────────────
+export const ticketsAPI = {
+  // Tickets CRUD
+  listar: (params) => api.get('/tickets/tickets', { params }),
+  obtener: (id) => api.get(`/tickets/tickets/${id}`),
+  crear: (data) => api.post('/tickets/tickets', data),
+  actualizar: (id, data) => api.patch(`/tickets/tickets/${id}`, data),
+
+  // Badge count
+  badgeCount: () => api.get('/tickets/tickets/mis-pendientes/count'),
+  marcarRevisado: (id) => api.post(`/tickets/marcar-revisado/${id}`),
+
+  // Transiciones & asignación
+  transicion: (id, data) => api.post(`/tickets/tickets/${id}/transicion`, data),
+  asignar: (id, data) => api.post(`/tickets/tickets/${id}/asignar`, data),
+
+  // Comentarios
+  listarComentarios: (id, params) =>
+    api.get(`/tickets/tickets/${id}/comentarios`, { params }),
+  agregarComentario: (id, data) =>
+    api.post(`/tickets/tickets/${id}/comentarios`, data),
+
+  // Historial
+  obtenerHistorial: (id) => api.get(`/tickets/tickets/${id}/historial`),
+
+  // Adjuntos
+  listarAdjuntos: (id) => api.get(`/tickets/tickets/${id}/adjuntos`),
+  subirAdjunto: (id, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/tickets/tickets/${id}/adjuntos`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  descargarAdjunto: (ticketId, adjuntoId) =>
+    api.get(`/tickets/tickets/${ticketId}/adjuntos/${adjuntoId}/descargar`, {
+      responseType: 'blob',
+    }),
+  eliminarAdjunto: (ticketId, adjuntoId) =>
+    api.delete(`/tickets/tickets/${ticketId}/adjuntos/${adjuntoId}`),
+};
+
+export const sectoresAPI = {
+  listar: (params) => api.get('/tickets/sectores', { params }),
+  obtener: (id) => api.get(`/tickets/sectores/${id}`),
+  crear: (data) => api.post('/tickets/sectores', data),
+  actualizar: (id, data) => api.patch(`/tickets/sectores/${id}`, data),
+
+  // Sector-usuario M2M
+  listarUsuarios: (sectorId) =>
+    api.get(`/tickets/sectores/${sectorId}/usuarios`),
+  agregarUsuario: (sectorId, data) =>
+    api.post(`/tickets/sectores/${sectorId}/usuarios`, data),
+  removerUsuario: (sectorId, usuarioId) =>
+    api.delete(`/tickets/sectores/${sectorId}/usuarios/${usuarioId}`),
+
+  // Workflows de un sector
+  listarWorkflows: (sectorId, params) =>
+    api.get(`/tickets/sectores/${sectorId}/workflows`, { params }),
+
+  // Tipos de ticket de un sector
+  listarTiposTicket: (sectorId) =>
+    api.get(`/tickets/sectores/${sectorId}/tipos-ticket`),
+};
+
+export const workflowsAPI = {
+  obtener: (id) => api.get(`/tickets/workflows/${id}`),
+  crear: (data) => api.post('/tickets/workflows', data),
+  actualizar: (id, data) => api.patch(`/tickets/workflows/${id}`, data),
+
+  // Estados
+  crearEstado: (workflowId, data) =>
+    api.post(`/tickets/workflows/${workflowId}/estados`, data),
+
+  // Transiciones
+  crearTransicion: (workflowId, data) =>
+    api.post(`/tickets/workflows/${workflowId}/transiciones`, data),
+};
+
 export default api;

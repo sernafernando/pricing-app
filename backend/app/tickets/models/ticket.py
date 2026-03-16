@@ -45,7 +45,9 @@ class Ticket(Base):
     creador_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
 
     # Campos dinámicos (JSONB para flexibilidad)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    # NOTE: The Python attribute is 'campos_metadata' because 'metadata' is reserved
+    # by SQLAlchemy's Declarative API. The DB column name stays 'metadata'.
+    campos_metadata = Column("metadata", JSONB, nullable=False, default=dict)
     """
     Campos específicos según el tipo de ticket:
     
@@ -85,6 +87,12 @@ class Ticket(Base):
     historial = relationship("HistorialTicket", back_populates="ticket", order_by="HistorialTicket.fecha.desc()")
     comentarios = relationship(
         "ComentarioTicket", back_populates="ticket", order_by="ComentarioTicket.created_at.asc()"
+    )
+    adjuntos = relationship(
+        "AdjuntoTicket",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="AdjuntoTicket.created_at.asc()",
     )
 
     @property

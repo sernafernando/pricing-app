@@ -65,6 +65,7 @@ class Sector(Base):
     workflows = relationship("Workflow", back_populates="sector", cascade="all, delete-orphan")
     tipos_ticket = relationship("TipoTicket", back_populates="sector", cascade="all, delete-orphan")
     tickets = relationship("Ticket", back_populates="sector")
+    usuarios_sector = relationship("SectorUsuario", back_populates="sector", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Sector {self.codigo}: {self.nombre}>"

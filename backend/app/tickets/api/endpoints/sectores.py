@@ -4,30 +4,39 @@ from typing import List
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
+from app.services.permisos_service import PermisosService
 from app.tickets.models.sector import Sector
+from app.tickets.models.sector_usuario import SectorUsuario
+from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import Workflow
 from app.tickets.schemas.sector_schemas import SectorCreate, SectorUpdate, SectorResponse
+from app.tickets.schemas.ticket_schemas import SectorUsuarioCreate, SectorUsuarioResponse, TipoTicketResponse
 from app.tickets.schemas.workflow_schemas import WorkflowResponse
+
 
 router = APIRouter()
 
 
+def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
+    """Raise 403 if user lacks the required permission."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(user, permiso):
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
+
+
 @router.get("/sectores", response_model=List[SectorResponse])
 async def listar_sectores(
-    activos_solo: bool = True, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+    activos_solo: bool = True,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[SectorResponse]:
     """
     Lista todos los sectores disponibles.
 
-    Por defecto solo muestra sectores activos.
-    Los sectores definen las áreas que manejan tickets (Pricing, Soporte, Ventas, etc).
-
-    Args:
-        activos_solo: Si True, solo devuelve sectores activos
-
-    Returns:
-        Lista de sectores con su configuración
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     query = db.query(Sector)
 
     if activos_solo:
@@ -40,25 +49,16 @@ async def listar_sectores(
 
 @router.post("/sectores", response_model=SectorResponse, status_code=201)
 async def crear_sector(
-    sector_data: SectorCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+    sector_data: SectorCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> SectorResponse:
     """
     Crea un nuevo sector.
 
-    REQUIERE: Permiso de administrador del sistema.
-
-    Un sector define:
-    - Área de la empresa que maneja tickets
-    - Configuración de asignación automática
-    - Configuración de notificaciones
-    - SLAs (tiempos de respuesta/resolución)
-    - Campos requeridos en metadata
-
-    Ejemplo: Crear sector "Pricing" para manejar solicitudes de cambio de precio.
+    Requiere: tickets.admin
     """
-    # TODO: Verificar que el usuario sea administrador
-    # if not current_user.tiene_permiso("tickets.sectores.crear"):
-    #     raise HTTPException(status_code=403, detail="No tienes permisos para crear sectores")
+    _check_permiso(db, current_user, "tickets.admin")
 
     # Validar que no exista un sector con el mismo código
     sector_existente = db.query(Sector).filter(Sector.codigo == sector_data.codigo).first()
@@ -89,9 +89,10 @@ async def obtener_sector(
     """
     Obtiene un sector por ID con su configuración completa.
 
-    Returns:
-        Sector con toda su configuración de asignación, notificaciones, SLA, etc.
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     sector = db.query(Sector).filter(Sector.id == sector_id).first()
 
     if not sector:
@@ -106,22 +107,13 @@ async def actualizar_sector(
     sector_data: SectorUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> SectorResponse:
     """
     Actualiza la configuración de un sector.
 
-    REQUIERE: Permiso de administrador del sistema.
-
-    Permite actualizar:
-    - Nombre y descripción
-    - Configuración de asignación
-    - Configuración de notificaciones
-    - SLAs
-    - Estado activo/inactivo
+    Requiere: tickets.admin
     """
-    # TODO: Verificar permisos de admin
-    # if not current_user.tiene_permiso("tickets.sectores.actualizar"):
-    #     raise HTTPException(status_code=403, detail="No tienes permisos")
+    _check_permiso(db, current_user, "tickets.admin")
 
     sector = db.query(Sector).filter(Sector.id == sector_id).first()
 
@@ -192,3 +184,134 @@ async def listar_workflows_sector(
     workflows = query.order_by(Workflow.es_default.desc(), Workflow.nombre).all()
 
     return workflows
+
+
+# ── Sector-User management endpoints ─────────────────────────────
+
+
+@router.get("/sectores/{sector_id}/usuarios", response_model=List[SectorUsuarioResponse])
+async def listar_usuarios_sector(
+    sector_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[SectorUsuarioResponse]:
+    """
+    Lista los usuarios asignados a un sector.
+
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    sector = db.query(Sector).filter(Sector.id == sector_id).first()
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"Sector {sector_id} no encontrado")
+
+    usuarios = db.query(SectorUsuario).filter(SectorUsuario.sector_id == sector_id, SectorUsuario.activo == True).all()
+
+    return usuarios
+
+
+@router.post("/sectores/{sector_id}/usuarios", response_model=SectorUsuarioResponse, status_code=201)
+async def agregar_usuario_sector(
+    sector_id: int,
+    data: SectorUsuarioCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> SectorUsuarioResponse:
+    """
+    Agrega un usuario a un sector.
+
+    Si ya existe la relación pero está inactiva, la reactiva.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    sector = db.query(Sector).filter(Sector.id == sector_id).first()
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"Sector {sector_id} no encontrado")
+
+    usuario = db.query(Usuario).filter(Usuario.id == data.usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail=f"Usuario {data.usuario_id} no encontrado")
+
+    # Check if already exists (possibly inactive)
+    existente = (
+        db.query(SectorUsuario)
+        .filter(SectorUsuario.sector_id == sector_id, SectorUsuario.usuario_id == data.usuario_id)
+        .first()
+    )
+
+    if existente:
+        if existente.activo:
+            raise HTTPException(status_code=400, detail="El usuario ya pertenece a este sector")
+        existente.activo = True
+        db.commit()
+        db.refresh(existente)
+        return existente
+
+    nuevo = SectorUsuario(
+        sector_id=sector_id,
+        usuario_id=data.usuario_id,
+        activo=True,
+    )
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    return nuevo
+
+
+@router.delete("/sectores/{sector_id}/usuarios/{usuario_id}", status_code=204)
+async def remover_usuario_sector(
+    sector_id: int,
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Remueve un usuario de un sector (soft-delete: activo=False).
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    relacion = (
+        db.query(SectorUsuario)
+        .filter(
+            SectorUsuario.sector_id == sector_id,
+            SectorUsuario.usuario_id == usuario_id,
+            SectorUsuario.activo == True,
+        )
+        .first()
+    )
+
+    if not relacion:
+        raise HTTPException(status_code=404, detail="Relación sector-usuario no encontrada")
+
+    relacion.activo = False
+    db.commit()
+
+
+@router.get("/sectores/{sector_id}/tipos-ticket", response_model=List[TipoTicketResponse])
+async def listar_tipos_ticket_sector(
+    sector_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[TipoTicketResponse]:
+    """
+    Lista los tipos de ticket disponibles para un sector.
+
+    Cada tipo incluye schema_campos para generar formularios dinámicos.
+
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    sector = db.query(Sector).filter(Sector.id == sector_id).first()
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"Sector {sector_id} no encontrado")
+
+    tipos = db.query(TipoTicket).filter(TipoTicket.sector_id == sector_id).order_by(TipoTicket.nombre).all()
+
+    return tipos

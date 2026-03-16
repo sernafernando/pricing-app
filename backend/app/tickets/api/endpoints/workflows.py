@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
+from app.services.permisos_service import PermisosService
 from app.tickets.models.sector import Sector
 from app.tickets.models.workflow import Workflow, EstadoTicket, TransicionEstado
 from app.tickets.schemas.workflow_schemas import (
@@ -18,6 +19,13 @@ from app.tickets.schemas.workflow_schemas import (
 router = APIRouter()
 
 
+def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
+    """Raise 403 if user lacks the required permission."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(user, permiso):
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
+
+
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
 async def obtener_workflow(
     workflow_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
@@ -31,9 +39,10 @@ async def obtener_workflow(
     - Validaciones y permisos para cada transición
     - Acciones automáticas al cambiar de estado
 
-    Returns:
-        Workflow completo con estados ordenados y todas sus transiciones
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
 
     if not workflow:
@@ -56,11 +65,9 @@ async def crear_workflow(
     1. Estados (POST /workflows/{id}/estados)
     2. Transiciones entre estados (POST /workflows/{id}/transiciones)
 
-    Ejemplo: Crear workflow "Cambio de Precio" para sector Pricing
+    Requiere: tickets.admin
     """
-    # TODO: Verificar permisos
-    # if not current_user.tiene_permiso("tickets.workflows.crear"):
-    #     raise HTTPException(status_code=403, detail="No tienes permisos")
+    _check_permiso(db, current_user, "tickets.admin")
 
     # Validar que el sector existe
     sector = db.query(Sector).filter(Sector.id == workflow_data.sector_id).first()
@@ -98,9 +105,9 @@ async def actualizar_workflow(
     """
     Actualiza un workflow existente.
 
-    REQUIERE: Permiso de administrador del sistema o del sector.
+    Requiere: tickets.admin
     """
-    # TODO: Verificar permisos
+    _check_permiso(db, current_user, "tickets.admin")
 
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
 
@@ -153,8 +160,10 @@ async def crear_estado(
     Flags importantes:
     - es_inicial: Solo debe haber un estado inicial por workflow (se crea automáticamente con este estado)
     - es_final: Estados terminales (cerrado, resuelto, rechazado). Al llegar aquí, el ticket se marca como cerrado
+
+    Requiere: tickets.admin
     """
-    # TODO: Verificar permisos
+    _check_permiso(db, current_user, "tickets.admin")
 
     # Validar que el workflow existe
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
@@ -220,8 +229,10 @@ async def crear_transicion(
     - requiere_permiso: "tickets.pricing.aprobar"
     - solo_asignado: True (solo quien está asignado puede aprobar)
     - acciones: [{"tipo": "ejecutar_callback", "funcion": "apply_price_change"}]
+
+    Requiere: tickets.admin
     """
-    # TODO: Verificar permisos
+    _check_permiso(db, current_user, "tickets.admin")
 
     # Validar que el workflow existe
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()

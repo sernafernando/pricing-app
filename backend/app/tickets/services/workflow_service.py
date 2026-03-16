@@ -77,9 +77,11 @@ class WorkflowService:
 
         # Validar permiso si está configurado
         if transicion.requiere_permiso:
-            # TODO: Implementar verificación de permisos usando el sistema de permisos existente
-            # Por ahora asumimos que tiene permiso
-            pass
+            from app.services.permisos_service import PermisosService
+
+            svc = PermisosService(self.db)
+            if not svc.tiene_permiso(usuario, transicion.requiere_permiso):
+                return False, f"Requiere permiso: {transicion.requiere_permiso}"
 
         # Validar si solo el asignado puede hacer esta transición
         if transicion.solo_asignado:
@@ -134,7 +136,7 @@ class WorkflowService:
 
         # Actualizar metadata si se proveyó
         if metadata_actualizada:
-            ticket.metadata = {**ticket.metadata, **metadata_actualizada}
+            ticket.campos_metadata = {**ticket.campos_metadata, **metadata_actualizada}
 
         # Cambiar estado
         ticket.estado_id = nuevo_estado_id
@@ -222,7 +224,7 @@ class WorkflowService:
             if not campo:
                 return False, "Validación mal configurada: falta 'campo'"
 
-            valor = ticket.metadata.get(campo)
+            valor = ticket.campos_metadata.get(campo)
             if not valor:
                 mensaje = validacion.get("mensaje", f"El campo '{campo}' es requerido")
                 return False, mensaje

@@ -1,0 +1,166 @@
+/* TicketCreateModal */
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.formGroupFull {
+  grid-column: 1 / -1;
+}
+
+.formGroup label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.required::after {
+  content: ' *';
+  color: var(--cf-accent-red);
+}
+
+/* Form inputs */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Dynamic fields section */
+.dynamicFields {
+  border-top: 1px solid var(--cf-border-default);
+  padding-top: var(--spacing-md);
+}
+
+.dynamicFieldsTitle {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--spacing-sm);
+}
+
+.checkboxGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.checkboxGroup label {
+  text-transform: none;
+  font-weight: 400;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+/* File upload */
+.fileSection {
+  border-top: 1px solid var(--cf-border-default);
+  padding-top: var(--spacing-md);
+}
+
+.fileInput {
+  display: none;
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-base);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.fileName {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buttons */
+.btnUpload {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+.btnRemoveFile {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+  min-width: auto;
+  padding: 2px 4px;
+}
+
+.btnCancel {
+  composes: btn-tesla ghost from '../styles/buttons-tesla.css';
+}
+
+.btnSubmit {
+  composes: btn-tesla outline-subtle-primary from '../styles/buttons-tesla.css';
+}
+
+/* Error */
+.formError {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.loadingHint {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) 0;
+}
