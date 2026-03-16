@@ -172,6 +172,11 @@ export const rrhhAPI = {
   crearTipoDocumento: (data) => api.post('/rrhh/tipos-documento', data),
   actualizarTipoDocumento: (id, data) => api.put(`/rrhh/tipos-documento/${id}`, data),
 
+  // Motivos de baja
+  listarMotivosBaja: (params) => api.get('/rrhh/motivos-baja', { params }),
+  crearMotivoBaja: (data) => api.post('/rrhh/motivos-baja', data),
+  actualizarMotivoBaja: (id, data) => api.put(`/rrhh/motivos-baja/${id}`, data),
+
   // Schema legajo (campos custom)
   listarSchemaLegajo: (params) => api.get('/rrhh/schema-legajo', { params }),
   crearCampoLegajo: (data) => api.post('/rrhh/schema-legajo', data),

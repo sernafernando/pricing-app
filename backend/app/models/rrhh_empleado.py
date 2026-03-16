@@ -67,6 +67,15 @@ class RRHHEmpleado(Base):
     area = Column(String(100), nullable=True)
     estado = Column(String(20), nullable=False, default="activo", index=True)
 
+    # --- Datos de baja ---
+    motivo_baja_id = Column(
+        Integer,
+        ForeignKey("rrhh_motivo_baja.id"),
+        nullable=True,
+        index=True,
+    )
+    detalle_baja = Column(Text, nullable=True)
+
     # --- Hikvision mapping (employeeNo del dispositivo, asignación manual) ---
     hikvision_employee_no = Column(String(20), unique=True, nullable=True, index=True)
 
@@ -97,6 +106,7 @@ class RRHHEmpleado(Base):
     # --- Relaciones ---
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
+    motivo_baja = relationship("RRHHMotivoBaja")
     documentos = relationship("RRHHDocumento", back_populates="empleado", cascade="all, delete-orphan")
     historial = relationship(
         "RRHHLegajoHistorial",
