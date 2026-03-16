@@ -47,6 +47,22 @@ class TipoTicketSimple(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TipoTicketResponse(BaseModel):
+    """Tipo de ticket con schema_campos para formulario dinámico"""
+
+    id: int
+    codigo: str
+    nombre: str
+    descripcion: Optional[str] = None
+    icono: Optional[str] = None
+    color: Optional[str] = None
+    sector_id: int
+    workflow_id: Optional[int] = None
+    schema_campos: Dict[str, Any] = {}
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AsignacionSimple(BaseModel):
     """Asignación simplificada para responses"""
 
@@ -64,7 +80,15 @@ class TicketBase(BaseModel):
     titulo: str = Field(..., min_length=5, max_length=255, description="Título del ticket")
     descripcion: Optional[str] = Field(default=None, description="Descripción detallada")
     prioridad: PrioridadTicket = Field(default=PrioridadTicket.MEDIA, description="Prioridad del ticket")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Campos dinámicos según tipo de ticket")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Campos dinámicos según tipo de ticket",
+        alias="campos_metadata",
+        validation_alias="campos_metadata",
+        serialization_alias="metadata",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TicketCreate(TicketBase):
@@ -167,3 +191,51 @@ class AsignarTicketRequest(BaseModel):
 
     usuario_id: int = Field(..., description="ID del usuario a asignar")
     motivo: Optional[str] = Field(default=None, max_length=500, description="Motivo de la asignación")
+
+
+class SectorUsuarioCreate(BaseModel):
+    """Schema para agregar un usuario a un sector"""
+
+    usuario_id: int = Field(..., description="ID del usuario a agregar al sector")
+
+
+class SectorUsuarioResponse(BaseModel):
+    """Schema de respuesta para usuario de sector"""
+
+    id: int
+    sector_id: int
+    usuario: UsuarioSimple
+    activo: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdjuntoResponse(BaseModel):
+    """Schema de respuesta para adjunto de ticket"""
+
+    id: int
+    ticket_id: int
+    nombre_archivo: str
+    mime_type: Optional[str] = None
+    tamano_bytes: int
+    subido_por: UsuarioSimple
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TicketBadgeCount(BaseModel):
+    """Schema de respuesta para badge count"""
+
+    pendientes: int = Field(..., description="Tickets sin revisar por el usuario actual")
+
+
+class TicketListPaginatedResponse(BaseModel):
+    """Schema de respuesta paginada para listado de tickets"""
+
+    items: list[TicketListResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int

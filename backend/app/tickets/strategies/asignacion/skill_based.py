@@ -24,7 +24,7 @@ class SkillBasedStrategy(AsignacionStrategy):
     4. Si no encuentra, hace fallback a la estrategia configurada
 
     Ejemplo: Para sector Pricing con skill_field="marca_id":
-    - Lee marca_id de ticket.metadata
+    - Lee marca_id de ticket.campos_metadata
     - Busca en MarcaPM el PM asignado a esa marca
     - Si no hay, usa fallback (default: carga_balanceada)
     """
@@ -40,7 +40,7 @@ class SkillBasedStrategy(AsignacionStrategy):
             return self._fallback(ticket, sector, fallback_strategy_name)
 
         # Leer el valor del skill desde metadata
-        skill_value = ticket.metadata.get(skill_field)
+        skill_value = ticket.campos_metadata.get(skill_field)
 
         if not skill_value:
             # No hay valor, usar fallback

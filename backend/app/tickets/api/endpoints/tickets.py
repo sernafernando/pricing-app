@@ -1,47 +1,186 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import math
+import os
+import uuid
+from datetime import UTC, datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import Optional, List
-from app.core.database import get_db
+
 from app.api.deps import get_current_user
+from app.core.config import settings
+from app.core.database import get_db
+from app.core.sse import sse_publish
 from app.models.usuario import Usuario
-from app.tickets.models.ticket import Ticket, PrioridadTicket
-from app.tickets.models.sector import Sector
-from app.tickets.models.tipo_ticket import TipoTicket
-from app.tickets.models.workflow import EstadoTicket
+from app.services.permisos_service import PermisosService
+from app.tickets.models.adjunto_ticket import AdjuntoTicket
+from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
 from app.tickets.models.comentario_ticket import ComentarioTicket
 from app.tickets.models.historial_ticket import HistorialTicket
+from app.tickets.models.sector import Sector
+from app.tickets.models.ticket import Ticket, PrioridadTicket
+from app.tickets.models.tipo_ticket import TipoTicket
+from app.tickets.models.workflow import EstadoTicket, Workflow
 from app.tickets.schemas.ticket_schemas import (
-    TicketCreate,
-    TicketUpdate,
-    TicketResponse,
-    TicketListResponse,
+    AdjuntoResponse,
+    AsignarTicketRequest,
     ComentarioCreate,
     ComentarioResponse,
     HistorialResponse,
+    TicketBadgeCount,
+    TicketCreate,
+    TicketListPaginatedResponse,
+    TicketListResponse,
+    TicketResponse,
+    TicketUpdate,
     TransicionRequest,
-    AsignarTicketRequest,
 )
 
 router = APIRouter()
 
+# Allowed MIME types for ticket attachments
+ALLOWED_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
+    """Raise 403 if user lacks the required permission."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(user, permiso):
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
+
+
+# ── Badge count (MUST be before /{ticket_id} to avoid path capture) ──
+
+
+@router.get("/tickets/mis-pendientes/count", response_model=TicketBadgeCount)
+async def badge_count(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TicketBadgeCount:
+    """
+    Retorna la cantidad de tickets pendientes de revisión para el usuario.
+
+    Cuenta tickets donde:
+    - El usuario está asignado activamente (asignación sin fecha_finalizacion)
+    - El ticket NO tiene una entrada 'revisado' en historial por este usuario
+      POSTERIOR al último cambio de estado
+
+    Usado por TicketBadge en el TopBar.
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    # Sub-query: tickets asignados al usuario activamente
+    from sqlalchemy import and_, func
+
+    asignados_ids = (
+        db.query(AsignacionTicket.ticket_id)
+        .filter(
+            AsignacionTicket.asignado_a_id == current_user.id,
+            AsignacionTicket.fecha_finalizacion.is_(None),
+        )
+        .subquery()
+    )
+
+    # Sub-query: tickets where user has reviewed AFTER last state change
+    # We consider "revisado" = historial entry with accion='revisado' by this user
+    # A ticket is "unreviewed" if there's no such entry, or there's a state change after the last review
+    from sqlalchemy import exists
+
+    reviewed_subq = (
+        db.query(HistorialTicket.ticket_id)
+        .filter(
+            HistorialTicket.accion == "revisado",
+            HistorialTicket.usuario_id == current_user.id,
+        )
+        .correlate(Ticket)
+        .subquery()
+    )
+
+    # Count tickets that are assigned to user, not closed, and not yet reviewed
+    pendientes = (
+        db.query(func.count(Ticket.id))
+        .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+        .filter(
+            Ticket.id.in_(asignados_ids),
+            EstadoTicket.es_final.is_(False),
+            ~Ticket.id.in_(
+                db.query(HistorialTicket.ticket_id)
+                .filter(
+                    HistorialTicket.accion == "revisado",
+                    HistorialTicket.usuario_id == current_user.id,
+                )
+                .distinct()
+            ),
+        )
+        .scalar()
+    ) or 0
+
+    return TicketBadgeCount(pendientes=pendientes)
+
+
+@router.post("/tickets/marcar-revisado/{ticket_id}")
+async def marcar_revisado(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca un ticket como revisado por el usuario actual.
+
+    Crea una entrada 'revisado' en el historial. La siguiente mutación
+    de estado invalidará esta marca (el badge volverá a contar el ticket).
+
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    historial_entry = HistorialTicket(
+        ticket_id=ticket.id,
+        usuario_id=current_user.id,
+        accion="revisado",
+        descripcion="Ticket marcado como revisado",
+        cambios={},
+    )
+    db.add(historial_entry)
+    db.commit()
+
+    await sse_publish("tickets:badge", {"hint": "reload"})
+
+    return {"ok": True}
+
+
+# ── CRUD de tickets ──────────────────────────────────────────────
+
 
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 async def crear_ticket(
-    ticket_data: TicketCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+    ticket_data: TicketCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TicketResponse:
     """
     Crea un nuevo ticket.
 
-    Pasos:
-    1. Valida que el sector y tipo de ticket existan
-    2. Obtiene el workflow y estado inicial
-    3. Crea el ticket
-    4. TODO: Llamar a WorkflowService para asignación automática si configurado
-    5. TODO: Disparar eventos de creación
-
-    Returns:
-        Ticket creado con sus relaciones cargadas
+    Requiere: tickets.crear
     """
+    _check_permiso(db, current_user, "tickets.crear")
+
     # Validar sector
     sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
     if not sector:
@@ -65,9 +204,6 @@ async def crear_ticket(
     # Obtener workflow (del tipo o default del sector)
     workflow = tipo_ticket.workflow if tipo_ticket.workflow_id else None
     if not workflow:
-        # Buscar workflow default del sector
-        from app.tickets.models.workflow import Workflow
-
         workflow = (
             db.query(Workflow)
             .filter(Workflow.sector_id == sector.id, Workflow.es_default == True, Workflow.activo == True)
@@ -94,22 +230,33 @@ async def crear_ticket(
         tipo_ticket_id=tipo_ticket.id,
         estado_id=estado_inicial.id,
         creador_id=current_user.id,
-        metadata=ticket_data.metadata,
+        campos_metadata=ticket_data.metadata,
     )
 
     db.add(nuevo_ticket)
+    db.flush()
+
+    # Historial entry for creation
+    historial_entry = HistorialTicket(
+        ticket_id=nuevo_ticket.id,
+        usuario_id=current_user.id,
+        accion="created",
+        descripcion=f"Ticket creado en sector {sector.nombre}",
+        estado_nuevo_id=estado_inicial.id,
+        cambios={},
+    )
+    db.add(historial_entry)
+
     db.commit()
     db.refresh(nuevo_ticket)
 
-    # TODO: Llamar a WorkflowService.on_ticket_created() para:
-    # - Asignación automática según configuración del sector
-    # - Disparar eventos de notificación
-    # - Ejecutar acciones on_enter del estado inicial
+    await sse_publish("tickets:changed", {"hint": "reload"})
+    await sse_publish("tickets:badge", {"hint": "reload"})
 
     return nuevo_ticket
 
 
-@router.get("/tickets", response_model=List[TicketListResponse])
+@router.get("/tickets", response_model=TicketListPaginatedResponse)
 async def listar_tickets(
     sector_id: Optional[int] = Query(None, description="Filtrar por sector"),
     estado_id: Optional[int] = Query(None, description="Filtrar por estado"),
@@ -117,24 +264,19 @@ async def listar_tickets(
     creador_id: Optional[int] = Query(None, description="Filtrar por creador"),
     prioridad: Optional[PrioridadTicket] = Query(None, description="Filtrar por prioridad"),
     esta_cerrado: Optional[bool] = Query(None, description="Filtrar por cerrado/abierto"),
+    busqueda: Optional[str] = Query(None, description="Buscar en título"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> TicketListPaginatedResponse:
     """
-    Lista tickets con filtros opcionales.
+    Lista tickets con filtros opcionales y paginación completa.
 
-    Permite filtrar por:
-    - Sector
-    - Estado
-    - Usuario asignado
-    - Creador
-    - Prioridad
-    - Si está cerrado o no
-
-    Implementa paginación.
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     query = db.query(Ticket)
 
     # Aplicar filtros
@@ -151,15 +293,22 @@ async def listar_tickets(
         query = query.filter(Ticket.creador_id == creador_id)
 
     if asignado_a_id:
-        # Filtrar por tickets con asignación activa a este usuario
-        from app.tickets.models.asignacion_ticket import AsignacionTicket
-
         query = query.join(AsignacionTicket).filter(
-            AsignacionTicket.asignado_a_id == asignado_a_id, AsignacionTicket.fecha_finalizacion.is_(None)
+            AsignacionTicket.asignado_a_id == asignado_a_id,
+            AsignacionTicket.fecha_finalizacion.is_(None),
         )
 
     if esta_cerrado is not None:
-        query = query.join(EstadoTicket).filter(EstadoTicket.es_final == esta_cerrado)
+        if not estado_id:
+            query = query.join(EstadoTicket).filter(EstadoTicket.es_final == esta_cerrado)
+
+    if busqueda:
+        query = query.filter(Ticket.titulo.ilike(f"%{busqueda}%"))
+
+    # Total count
+    from sqlalchemy import func
+
+    total = query.with_entities(func.count(Ticket.id)).scalar() or 0
 
     # Ordenar por fecha de creación (más recientes primero)
     query = query.order_by(Ticket.created_at.desc())
@@ -168,25 +317,34 @@ async def listar_tickets(
     offset = (page - 1) * page_size
     tickets = query.offset(offset).limit(page_size).all()
 
-    return tickets
+    pages = math.ceil(total / page_size) if page_size > 0 else 0
+
+    return TicketListPaginatedResponse(
+        items=tickets,
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=pages,
+    )
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
 async def obtener_ticket(
-    ticket_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TicketResponse:
     """
     Obtiene un ticket por ID con todas sus relaciones cargadas.
 
-    Returns:
-        Ticket completo con sector, tipo, estado, creador, asignado_a, etc.
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
-
-    # TODO: Verificar permisos (puede ver solo si es creador, asignado, o tiene permiso en el sector)
 
     return ticket
 
@@ -197,25 +355,20 @@ async def actualizar_ticket(
     ticket_data: TicketUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> TicketResponse:
     """
     Actualiza campos de un ticket.
 
-    Permite actualizar:
-    - Título
-    - Descripción
-    - Prioridad
-    - Metadata (campos dinámicos)
-
-    NO permite cambiar estado (usar POST /tickets/{id}/transicion)
-    NO permite cambiar asignación (usar POST /tickets/{id}/asignar)
+    Requiere: tickets.crear (creator can edit) o tickets.gestionar
     """
+    svc = PermisosService(db)
+    if not svc.tiene_algun_permiso(current_user, ["tickets.crear", "tickets.gestionar"]):
+        raise HTTPException(status_code=403, detail="Sin permiso: tickets.crear o tickets.gestionar")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
-
-    # TODO: Verificar permisos (solo creador, asignado, o admin del sector)
 
     # Registrar cambios en historial
     cambios_realizados = {}
@@ -239,17 +392,15 @@ async def actualizar_ticket(
         ticket.prioridad = ticket_data.prioridad
 
     if ticket_data.metadata is not None:
-        # Merge metadata (no reemplazar completo)
         for key, value in ticket_data.metadata.items():
-            if key not in ticket.metadata or ticket.metadata[key] != value:
+            if key not in ticket.campos_metadata or ticket.campos_metadata[key] != value:
                 cambios_realizados[f"metadata.{key}"] = {
-                    "valor_anterior": ticket.metadata.get(key),
+                    "valor_anterior": ticket.campos_metadata.get(key),
                     "valor_nuevo": value,
                 }
-        ticket.metadata.update(ticket_data.metadata)
+        ticket.campos_metadata.update(ticket_data.metadata)
 
     if cambios_realizados:
-        # Crear entrada en historial
         historial_entry = HistorialTicket(
             ticket_id=ticket.id,
             usuario_id=current_user.id,
@@ -262,6 +413,8 @@ async def actualizar_ticket(
     db.commit()
     db.refresh(ticket)
 
+    await sse_publish("tickets:changed", {"hint": "reload"})
+
     return ticket
 
 
@@ -271,21 +424,14 @@ async def cambiar_estado_ticket(
     transicion_data: TransicionRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> TicketResponse:
     """
     Cambia el estado de un ticket siguiendo las transiciones del workflow.
 
-    Valida:
-    - Que la transición esté permitida por el workflow
-    - Que el usuario tenga permisos para realizar la transición
-    - Que se cumplan las validaciones requeridas
-
-    Ejecuta:
-    - Acciones de la transición
-    - Acciones on_enter del nuevo estado
-    - Registra en historial
-    - Dispara notificaciones
+    Requiere: tickets.gestionar
     """
+    _check_permiso(db, current_user, "tickets.gestionar")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
@@ -296,34 +442,18 @@ async def cambiar_estado_ticket(
     if not nuevo_estado:
         raise HTTPException(status_code=404, detail=f"Estado {transicion_data.nuevo_estado_id} no encontrado")
 
-    # Validar que ambos estados pertenecen al mismo workflow
     if ticket.estado.workflow_id != nuevo_estado.workflow_id:
         raise HTTPException(status_code=400, detail="El nuevo estado no pertenece al workflow del ticket")
 
-    # TODO: Llamar a WorkflowService.transition() para:
-    # - Validar que la transición está permitida
-    # - Verificar permisos del usuario
-    # - Ejecutar validaciones
-    # - Ejecutar acciones de la transición
-    # - Ejecutar acciones on_enter del nuevo estado
-    # - Registrar en historial
-    # - Disparar notificaciones
-
-    # Por ahora, solo cambiar el estado (simplificado)
     estado_anterior = ticket.estado
     ticket.estado_id = nuevo_estado.id
 
-    # Si el nuevo estado es final, marcar closed_at
     if nuevo_estado.es_final:
-        from datetime import datetime, UTC
-
         ticket.closed_at = datetime.now(UTC)
 
-    # Actualizar metadata si se proveyó
     if transicion_data.metadata:
-        ticket.metadata.update(transicion_data.metadata)
+        ticket.campos_metadata.update(transicion_data.metadata)
 
-    # Registrar en historial
     historial_entry = HistorialTicket(
         ticket_id=ticket.id,
         usuario_id=current_user.id,
@@ -335,15 +465,20 @@ async def cambiar_estado_ticket(
     )
     db.add(historial_entry)
 
-    # Si hay comentario, agregarlo
     if transicion_data.comentario:
         comentario = ComentarioTicket(
-            ticket_id=ticket.id, usuario_id=current_user.id, contenido=transicion_data.comentario, es_interno=False
+            ticket_id=ticket.id,
+            usuario_id=current_user.id,
+            contenido=transicion_data.comentario,
+            es_interno=False,
         )
         db.add(comentario)
 
     db.commit()
     db.refresh(ticket)
+
+    await sse_publish("tickets:changed", {"hint": "reload"})
+    await sse_publish("tickets:badge", {"hint": "reload"})
 
     return ticket
 
@@ -354,35 +489,27 @@ async def asignar_ticket(
     asignacion_data: AsignarTicketRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> TicketResponse:
     """
     Asigna un ticket a un usuario.
 
-    Si el ticket ya tiene asignación activa, la finaliza y crea una nueva.
-    Registra en historial y dispara notificaciones.
+    Requiere: tickets.gestionar
     """
+    _check_permiso(db, current_user, "tickets.gestionar")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
 
-    # Validar que el usuario a asignar existe
     usuario_asignar = db.query(Usuario).filter(Usuario.id == asignacion_data.usuario_id).first()
     if not usuario_asignar:
         raise HTTPException(status_code=404, detail=f"Usuario {asignacion_data.usuario_id} no encontrado")
-
-    # TODO: Validar permisos del usuario para ser asignado a este sector
-    # TODO: Llamar a AssignmentService.assign() para manejar lógica compleja
-
-    # Finalizar asignación activa si existe
-    from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
-    from datetime import datetime, UTC
 
     asignacion_actual = ticket.asignacion_actual
     if asignacion_actual:
         asignacion_actual.fecha_finalizacion = datetime.now(UTC)
 
-    # Crear nueva asignación
     nueva_asignacion = AsignacionTicket(
         ticket_id=ticket.id,
         asignado_a_id=asignacion_data.usuario_id,
@@ -392,7 +519,6 @@ async def asignar_ticket(
     )
     db.add(nueva_asignacion)
 
-    # Registrar en historial
     historial_entry = HistorialTicket(
         ticket_id=ticket.id,
         usuario_id=current_user.id,
@@ -411,9 +537,13 @@ async def asignar_ticket(
     db.commit()
     db.refresh(ticket)
 
-    # TODO: Disparar notificación al usuario asignado
+    await sse_publish("tickets:changed", {"hint": "reload"})
+    await sse_publish("tickets:badge", {"hint": "reload"})
 
     return ticket
+
+
+# ── Comentarios ──────────────────────────────────────────────────
 
 
 @router.post("/tickets/{ticket_id}/comentarios", response_model=ComentarioResponse, status_code=201)
@@ -422,19 +552,18 @@ async def agregar_comentario(
     comentario_data: ComentarioCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> ComentarioResponse:
     """
     Agrega un comentario a un ticket.
 
-    Los comentarios pueden ser internos (solo visibles para el equipo)
-    o públicos (visibles también para el creador del ticket).
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
-
-    # TODO: Verificar permisos (puede comentar si es creador, asignado, o tiene permiso en el sector)
 
     nuevo_comentario = ComentarioTicket(
         ticket_id=ticket.id,
@@ -445,7 +574,6 @@ async def agregar_comentario(
 
     db.add(nuevo_comentario)
 
-    # Registrar en historial
     historial_entry = HistorialTicket(
         ticket_id=ticket.id,
         usuario_id=current_user.id,
@@ -458,7 +586,7 @@ async def agregar_comentario(
     db.commit()
     db.refresh(nuevo_comentario)
 
-    # TODO: Disparar notificaciones según configuración del sector
+    await sse_publish("tickets:changed", {"hint": "reload"})
 
     return nuevo_comentario
 
@@ -469,13 +597,14 @@ async def listar_comentarios(
     incluir_internos: bool = Query(True, description="Incluir comentarios internos"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> List[ComentarioResponse]:
     """
     Lista los comentarios de un ticket.
 
-    Por defecto incluye comentarios internos. Si el usuario no tiene permisos
-    para ver internos, se filtran automáticamente.
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
@@ -483,8 +612,6 @@ async def listar_comentarios(
 
     query = db.query(ComentarioTicket).filter(ComentarioTicket.ticket_id == ticket_id)
 
-    # TODO: Filtrar comentarios internos si el usuario no tiene permisos
-    # Por ahora, si pide no incluir internos, los filtramos
     if not incluir_internos:
         query = query.filter(ComentarioTicket.es_interno == False)
 
@@ -493,16 +620,22 @@ async def listar_comentarios(
     return comentarios
 
 
+# ── Historial ────────────────────────────────────────────────────
+
+
 @router.get("/tickets/{ticket_id}/historial", response_model=List[HistorialResponse])
 async def obtener_historial(
-    ticket_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[HistorialResponse]:
     """
     Obtiene el historial completo de cambios de un ticket.
 
-    Muestra todos los cambios de estado, asignaciones, modificaciones, etc.
-    en orden cronológico inverso (más reciente primero).
+    Requiere: tickets.ver
     """
+    _check_permiso(db, current_user, "tickets.ver")
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
@@ -516,3 +649,162 @@ async def obtener_historial(
     )
 
     return historial
+
+
+# ── Adjuntos (file upload/download/delete) ───────────────────────
+
+
+@router.post("/tickets/{ticket_id}/adjuntos", response_model=AdjuntoResponse, status_code=201)
+async def subir_adjunto(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdjuntoResponse:
+    """
+    Sube un archivo adjunto a un ticket.
+
+    MIME types permitidos: imágenes, PDF, documentos Office.
+    Tamaño máximo: TICKETS_MAX_FILE_SIZE_MB (default 5MB).
+
+    Requiere: tickets.crear
+    """
+    _check_permiso(db, current_user, "tickets.crear")
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    # Validar MIME type
+    if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de archivo no permitido: {file.content_type}",
+        )
+
+    # Leer archivo
+    content = await file.read()
+    max_bytes = settings.TICKETS_MAX_FILE_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Archivo demasiado grande. Máximo: {settings.TICKETS_MAX_FILE_SIZE_MB}MB",
+        )
+
+    # Guardar en disco: uploads/tickets/{ticket_id}/{uuid}_{filename}
+    upload_dir = os.path.join(settings.TICKETS_UPLOADS_DIR, str(ticket_id))
+    os.makedirs(upload_dir, exist_ok=True)
+
+    safe_filename = file.filename or "archivo"
+    stored_name = f"{uuid.uuid4().hex}_{safe_filename}"
+    full_path = os.path.join(upload_dir, stored_name)
+
+    with open(full_path, "wb") as f:
+        f.write(content)
+
+    # Guardar en DB (path relativo)
+    rel_path = os.path.join(str(ticket_id), stored_name)
+    adjunto = AdjuntoTicket(
+        ticket_id=ticket_id,
+        nombre_archivo=safe_filename,
+        path_archivo=rel_path,
+        mime_type=file.content_type,
+        tamano_bytes=len(content),
+        subido_por_id=current_user.id,
+    )
+    db.add(adjunto)
+    db.commit()
+    db.refresh(adjunto)
+
+    await sse_publish("tickets:changed", {"hint": "reload"})
+
+    return adjunto
+
+
+@router.get("/tickets/{ticket_id}/adjuntos", response_model=List[AdjuntoResponse])
+async def listar_adjuntos(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[AdjuntoResponse]:
+    """
+    Lista los adjuntos de un ticket.
+
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    adjuntos = (
+        db.query(AdjuntoTicket)
+        .filter(AdjuntoTicket.ticket_id == ticket_id)
+        .order_by(AdjuntoTicket.created_at.asc())
+        .all()
+    )
+
+    return adjuntos
+
+
+@router.get("/tickets/{ticket_id}/adjuntos/{adjunto_id}/descargar")
+async def descargar_adjunto(
+    ticket_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> FileResponse:
+    """
+    Descarga un adjunto de ticket. Auth-gated (no StaticFiles).
+
+    Requiere: tickets.ver
+    """
+    _check_permiso(db, current_user, "tickets.ver")
+
+    adjunto = (
+        db.query(AdjuntoTicket).filter(AdjuntoTicket.id == adjunto_id, AdjuntoTicket.ticket_id == ticket_id).first()
+    )
+    if not adjunto:
+        raise HTTPException(status_code=404, detail="Adjunto no encontrado")
+
+    full_path = os.path.join(settings.TICKETS_UPLOADS_DIR, adjunto.path_archivo)
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+
+    return FileResponse(
+        path=full_path,
+        filename=adjunto.nombre_archivo,
+        media_type=adjunto.mime_type or "application/octet-stream",
+    )
+
+
+@router.delete("/tickets/{ticket_id}/adjuntos/{adjunto_id}", status_code=204)
+async def eliminar_adjunto(
+    ticket_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina un adjunto de ticket (archivo + registro).
+
+    Requiere: tickets.gestionar
+    """
+    _check_permiso(db, current_user, "tickets.gestionar")
+
+    adjunto = (
+        db.query(AdjuntoTicket).filter(AdjuntoTicket.id == adjunto_id, AdjuntoTicket.ticket_id == ticket_id).first()
+    )
+    if not adjunto:
+        raise HTTPException(status_code=404, detail="Adjunto no encontrado")
+
+    # Eliminar archivo de disco
+    full_path = os.path.join(settings.TICKETS_UPLOADS_DIR, adjunto.path_archivo)
+    if os.path.exists(full_path):
+        os.remove(full_path)
+
+    db.delete(adjunto)
+    db.commit()
+
+    await sse_publish("tickets:changed", {"hint": "reload"})

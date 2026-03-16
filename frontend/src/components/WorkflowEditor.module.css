@@ -1,0 +1,405 @@
+/* WorkflowEditor - Visual workflow management */
+
+.container {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.sectionTitle {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+/* Selector */
+.selectorRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.selectorRow label {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+/* Form inputs */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.selectorRow .select {
+  width: auto;
+  min-width: 250px;
+}
+
+/* Buttons */
+.btnCreate {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.btnSave {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+}
+
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+/* Messages */
+.message {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.messageError {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.messageSuccess {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+/* Workflow card */
+.workflowCard {
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.workflowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.workflowName {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.workflowDesc {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Badges */
+.badgeDefault {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.badgeActivo {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.badgeInicial {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+.badgeFinal {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+/* Sub section */
+.subSection {
+  margin-top: var(--spacing-md);
+}
+
+.subSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.subSectionTitle {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* States table */
+.statesList {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.stateItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+}
+
+.stateItem:last-child {
+  border-bottom: none;
+}
+
+.colorDot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.stateCode {
+  font-family: monospace;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.stateName {
+  font-weight: 500;
+  color: var(--cf-text-primary);
+}
+
+.stateOrder {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin-left: auto;
+}
+
+.stateBadges {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+/* Transitions */
+.transitionItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.transitionItem:last-child {
+  border-bottom: none;
+}
+
+.transitionArrow {
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
+
+.transitionName {
+  font-weight: 500;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  margin-left: var(--spacing-xs);
+}
+
+.transitionPermiso {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-orange);
+  margin-left: auto;
+}
+
+/* Forms */
+.formCard {
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.formField label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.formActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+/* Toggle */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleTrack {
+  position: absolute;
+  inset: 0;
+  background: var(--cf-border-default);
+  border-radius: 11px;
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.toggle input:checked + .toggleTrack {
+  background: var(--cf-accent-blue);
+}
+
+.toggleTrack::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--duration-200) var(--ease-out);
+}
+
+.toggle input:checked + .toggleTrack::before {
+  transform: translateX(18px);
+}
+
+/* Color picker */
+.colorField {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.colorPicker {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  cursor: pointer;
+  background: transparent;
+}
+
+.colorPicker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.colorPicker::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+/* Empty/loading */
+.loadingState,
+.emptyState {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+}
+
+/* Create workflow form */
+.createWorkflowForm {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-md);
+}
+
+.createWorkflowForm .formField {
+  flex: 1;
+  min-width: 160px;
+}

@@ -22,8 +22,13 @@ from app.tickets.schemas.ticket_schemas import (
     TicketUpdate,
     TicketResponse,
     TicketListResponse,
+    TicketListPaginatedResponse,
     ComentarioCreate,
     ComentarioResponse,
+    SectorUsuarioCreate,
+    SectorUsuarioResponse,
+    AdjuntoResponse,
+    TicketBadgeCount,
 )
 
 __all__ = [
@@ -49,6 +54,14 @@ __all__ = [
     "TicketUpdate",
     "TicketResponse",
     "TicketListResponse",
+    "TicketListPaginatedResponse",
     "ComentarioCreate",
     "ComentarioResponse",
+    # Sector-Usuario
+    "SectorUsuarioCreate",
+    "SectorUsuarioResponse",
+    # Adjuntos
+    "AdjuntoResponse",
+    # Badge
+    "TicketBadgeCount",
 ]
