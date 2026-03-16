@@ -200,9 +200,10 @@ export default function TabPistoleado({ operador = null }) {
       });
       setStats(data);
 
-      // Check 100% completion
-      if (data.total_etiquetas > 0 && data.pistoleadas === data.total_etiquetas) {
-        const logNombre = logisticas.find((l) => l.id === Number(logisticaId))?.nombre || '';
+      // Check 100% completion (skip for "asigna" logistics — their total is a moving target)
+      const logActiva = logisticas.find((l) => l.id === Number(logisticaId));
+      if (data.total_etiquetas > 0 && data.pistoleadas === data.total_etiquetas && !logActiva?.pistoleado_asigna) {
+        const logNombre = logActiva?.nombre || '';
         const prepMsg = data.en_preparacion > 0
           ? ` — ${data.en_preparacion} en preparación`
           : '';
