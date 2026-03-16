@@ -489,7 +489,9 @@ function TabTiposTicket() {
   const [tipos, setTipos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingTipo, setEditingTipo] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     codigo: '',
@@ -541,13 +543,34 @@ function TabTiposTicket() {
   const resetForm = () => {
     setFormData({ codigo: '', nombre: '', descripcion: '', color: '#3b82f6', schema_campos: '' });
     setShowForm(false);
+    setEditingTipo(null);
     setError(null);
   };
 
-  const handleCrear = async (e) => {
+  const startEdit = (tipo) => {
+    setEditingTipo(tipo);
+    setFormData({
+      codigo: tipo.codigo,
+      nombre: tipo.nombre,
+      descripcion: tipo.descripcion || '',
+      color: tipo.color || '#3b82f6',
+      schema_campos: tipo.schema_campos && Object.keys(tipo.schema_campos).length > 0
+        ? JSON.stringify(tipo.schema_campos, null, 2)
+        : '',
+    });
+    setShowForm(true);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.codigo.trim() || !formData.nombre.trim()) {
-      setError('Código y nombre son obligatorios');
+    if (!formData.nombre.trim()) {
+      setError('El nombre es obligatorio');
+      return;
+    }
+    if (!editingTipo && !formData.codigo.trim()) {
+      setError('El código es obligatorio');
       return;
     }
 
@@ -563,20 +586,44 @@ function TabTiposTicket() {
 
     setSaving(true);
     setError(null);
+    setSuccess(null);
     try {
-      await sectoresAPI.crearTipoTicket(sectorId, {
-        codigo: formData.codigo.trim(),
-        nombre: formData.nombre.trim(),
-        descripcion: formData.descripcion.trim() || null,
-        color: formData.color || null,
-        schema_campos: schemaParsed,
-      });
+      if (editingTipo) {
+        await sectoresAPI.actualizarTipoTicket(sectorId, editingTipo.id, {
+          nombre: formData.nombre.trim(),
+          descripcion: formData.descripcion.trim() || null,
+          color: formData.color || null,
+          schema_campos: schemaParsed,
+        });
+        setSuccess('Tipo de ticket actualizado');
+      } else {
+        await sectoresAPI.crearTipoTicket(sectorId, {
+          codigo: formData.codigo.trim(),
+          nombre: formData.nombre.trim(),
+          descripcion: formData.descripcion.trim() || null,
+          color: formData.color || null,
+          schema_campos: schemaParsed,
+        });
+        setSuccess('Tipo de ticket creado');
+      }
       resetForm();
       fetchTipos();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al crear tipo de ticket');
+      setError(err.response?.data?.detail || 'Error al guardar tipo de ticket');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (tipo) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      await sectoresAPI.eliminarTipoTicket(sectorId, tipo.id);
+      setSuccess(`Tipo "${tipo.nombre}" eliminado`);
+      fetchTipos();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al eliminar tipo de ticket');
     }
   };
 
@@ -584,8 +631,8 @@ function TabTiposTicket() {
     <div className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Tipos de Ticket</h2>
-        {sectorId && (
-          <button className={styles.btnCreate} onClick={() => setShowForm(!showForm)}>
+        {sectorId && !showForm && (
+          <button className={styles.btnCreate} onClick={() => { resetForm(); setShowForm(true); }}>
             <Plus size={14} />
             Nuevo Tipo
           </button>
@@ -593,6 +640,7 @@ function TabTiposTicket() {
       </div>
 
       {error && <div className={`${styles.message} ${styles.messageError}`}>{error}</div>}
+      {success && <div className={`${styles.message} ${styles.messageSuccess}`}>{success}</div>}
 
       <div className={styles.selectorRow}>
         <label htmlFor="sector-tipo-sel">Sector</label>
@@ -600,7 +648,7 @@ function TabTiposTicket() {
           id="sector-tipo-sel"
           className={styles.select}
           value={sectorId}
-          onChange={(e) => setSectorId(e.target.value)}
+          onChange={(e) => { setSectorId(e.target.value); resetForm(); }}
         >
           <option value="">Seleccionar sector...</option>
           {sectores.map((s) => (
@@ -612,14 +660,15 @@ function TabTiposTicket() {
       </div>
 
       {showForm && sectorId && (
-        <form className={styles.inlineForm} onSubmit={handleCrear}>
+        <form className={styles.inlineForm} onSubmit={handleSubmit}>
           <div className={styles.formRow}>
             <input
               className={styles.input}
               placeholder="Código (ej: bug, consulta)"
               value={formData.codigo}
               onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
-              required
+              required={!editingTipo}
+              disabled={!!editingTipo}
             />
             <input
               className={styles.input}
@@ -651,9 +700,11 @@ function TabTiposTicket() {
           />
           <div className={styles.formActions}>
             <button type="submit" className={styles.btnSave} disabled={saving}>
-              {saving ? 'Guardando...' : 'Crear Tipo'}
+              <Save size={14} />
+              {saving ? 'Guardando...' : editingTipo ? 'Guardar Cambios' : 'Crear Tipo'}
             </button>
             <button type="button" className={styles.btnCancel} onClick={resetForm}>
+              <X size={14} />
               Cancelar
             </button>
           </div>
@@ -678,6 +729,7 @@ function TabTiposTicket() {
                 <th>Color</th>
                 <th>Workflow</th>
                 <th>Campos</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -708,6 +760,26 @@ function TabTiposTicket() {
                     <span className={styles.fieldCount}>
                       {countFields(t.schema_campos)} campos
                     </span>
+                  </td>
+                  <td>
+                    <div className={styles.actionBtns}>
+                      <button
+                        className={styles.btnIcon}
+                        onClick={() => startEdit(t)}
+                        title="Editar"
+                        aria-label={`Editar ${t.nombre}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        className={`${styles.btnIcon} ${styles.btnDanger}`}
+                        onClick={() => handleDelete(t)}
+                        title="Eliminar"
+                        aria-label={`Eliminar ${t.nombre}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

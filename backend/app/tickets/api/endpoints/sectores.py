@@ -415,3 +415,36 @@ async def actualizar_tipo_ticket(
     db.refresh(tipo)
 
     return tipo
+
+
+@router.delete("/sectores/{sector_id}/tipos-ticket/{tipo_id}", status_code=204)
+async def eliminar_tipo_ticket(
+    sector_id: int,
+    tipo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina un tipo de ticket.
+
+    No se puede eliminar si tiene tickets asociados.
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    tipo = db.query(TipoTicket).filter(TipoTicket.id == tipo_id, TipoTicket.sector_id == sector_id).first()
+    if not tipo:
+        raise HTTPException(status_code=404, detail="Tipo de ticket no encontrado en este sector")
+
+    # Verificar que no tenga tickets asociados
+    from app.tickets.models.ticket import Ticket
+
+    tickets_count = db.query(Ticket).filter(Ticket.tipo_ticket_id == tipo_id).count()
+    if tickets_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: tiene {tickets_count} ticket(s) asociado(s)",
+        )
+
+    db.delete(tipo)
+    db.commit()

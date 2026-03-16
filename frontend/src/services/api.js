@@ -367,6 +367,8 @@ export const sectoresAPI = {
     api.post(`/tickets/sectores/${sectorId}/tipos-ticket`, data),
   actualizarTipoTicket: (sectorId, tipoId, data) =>
     api.patch(`/tickets/sectores/${sectorId}/tipos-ticket/${tipoId}`, data),
+  eliminarTipoTicket: (sectorId, tipoId) =>
+    api.delete(`/tickets/sectores/${sectorId}/tipos-ticket/${tipoId}`),
 };
 
 export const workflowsAPI = {

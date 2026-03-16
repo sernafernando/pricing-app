@@ -7,21 +7,16 @@ import { ticketsAPI } from '../services/api';
 import styles from './TicketBadge.module.css';
 
 /**
- * TicketBadge - Badge en el TopBar que muestra la cantidad de
- * tickets pendientes para el usuario.
+ * TicketBadge - Acceso directo a tickets en el TopBar.
  *
- * Visible para TODOS los usuarios logueados:
- * - Gestores (tickets.ver): cuenta tickets asignados sin revisar
- * - Usuarios normales: cuenta sus tickets abiertos
- *
- * Clickeable: navega a /tickets.
+ * Siempre visible para todos los usuarios logueados.
+ * Muestra un badge con la cantidad de tickets pendientes si hay alguno.
  *
  * SSE-driven: re-fetches count when tickets:badge is published.
  * Falls back to 60s polling when SSE is degraded.
  */
 export default function TicketBadge() {
   const [count, setCount] = useState(0);
-  const [loading, setLoading] = useState(true);
   const { isDegraded } = useSSE();
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -44,7 +39,6 @@ export default function TicketBadge() {
       setCount(0);
     } finally {
       inFlightRef.current = false;
-      setLoading(false);
     }
   }, []);
 
@@ -64,16 +58,14 @@ export default function TicketBadge() {
     return () => clearInterval(interval);
   }, [isDegraded, fetchCount]);
 
-  if (loading || count === 0) return null;
-
   return (
     <Link
       to="/tickets"
-      className={styles.badge}
-      title={`${count} ticket${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''}`}
+      className={`${styles.badge} ${count > 0 ? styles.hasCount : ''}`}
+      title={count > 0 ? `${count} ticket${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''}` : 'Tickets'}
     >
       <Ticket size={18} className={styles.icon} />
-      <span className={styles.count}>{count}</span>
+      {count > 0 && <span className={styles.count}>{count}</span>}
     </Link>
   );
 }
