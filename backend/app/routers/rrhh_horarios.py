@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.rrhh_empleado import RRHHEmpleado
+from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_fichada import OrigenFichada, RRHHFichada, TipoFichada
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
 from app.models.usuario import Usuario
@@ -51,6 +52,7 @@ class FichadaResponse(BaseModel):
     event_id: Optional[str] = None
     registrado_por_nombre: str = ""
     motivo_manual: Optional[str] = None
+    horas_dia: Optional[float] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -62,6 +64,12 @@ class FichadaManualCreate(BaseModel):
     empleado_id: int
     timestamp: datetime
     tipo: str = Field(description="entrada o salida")
+    motivo_manual: str = Field(min_length=1, max_length=500)
+
+
+class FichadaMotivoUpdate(BaseModel):
+    """Datos para actualizar el motivo de una fichada."""
+
     motivo_manual: str = Field(min_length=1, max_length=500)
 
 
@@ -270,6 +278,7 @@ def listar_fichadas(
     fecha_hasta: Optional[date] = None,
     tipo: Optional[str] = None,
     origen: Optional[str] = None,
+    orden: str = Query("desc", regex="^(asc|desc)$", description="Orden por timestamp: asc o desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -301,20 +310,54 @@ def listar_fichadas(
 
     total = base_query.count()
     offset = (page - 1) * page_size
+    order_clause = RRHHFichada.timestamp.asc() if orden == "asc" else RRHHFichada.timestamp.desc()
     fichadas = (
         base_query.options(
             joinedload(RRHHFichada.empleado),
             joinedload(RRHHFichada.registrado_por),
         )
-        .order_by(RRHHFichada.timestamp.desc())
+        .order_by(order_clause)
         .offset(offset)
         .limit(page_size)
         .all()
     )
 
+    # ── Calculate horas_dia per employee+day ──
+    # Collect all unique employee+day combos from current page
+    emp_day_pairs: set[tuple[int, date]] = set()
+    for f in fichadas:
+        if f.empleado_id and hasattr(f.timestamp, "date"):
+            emp_day_pairs.add((f.empleado_id, f.timestamp.date()))
+
+    # Query ALL fichadas for those employee+day combos to calculate full-day hours
+    horas_dia_map: dict[tuple[int, date], float] = {}
+    if emp_day_pairs:
+        for emp_id, dia in emp_day_pairs:
+            dia_fichadas = (
+                db.query(RRHHFichada)
+                .filter(
+                    RRHHFichada.empleado_id == emp_id,
+                    RRHHFichada.timestamp >= datetime.combine(dia, time.min),
+                    RRHHFichada.timestamp <= datetime.combine(dia, time(23, 59, 59)),
+                )
+                .order_by(RRHHFichada.timestamp.asc())
+                .all()
+            )
+            entradas = [ff for ff in dia_fichadas if ff.tipo == "entrada"]
+            salidas = [ff for ff in dia_fichadas if ff.tipo == "salida"]
+            pares = min(len(entradas), len(salidas))
+            minutos = 0.0
+            for i in range(pares):
+                delta = salidas[i].timestamp - entradas[i].timestamp
+                minutos += max(delta.total_seconds() / 60, 0)
+            horas_dia_map[(emp_id, dia)] = round(minutos / 60, 2)
+
     items = []
     for f in fichadas:
         emp = f.empleado
+        horas = None
+        if f.empleado_id and hasattr(f.timestamp, "date"):
+            horas = horas_dia_map.get((f.empleado_id, f.timestamp.date()))
         items.append(
             FichadaResponse(
                 id=f.id,
@@ -328,6 +371,7 @@ def listar_fichadas(
                 event_id=f.event_id,
                 registrado_por_nombre=(f.registrado_por.nombre if f.registrado_por else ""),
                 motivo_manual=f.motivo_manual,
+                horas_dia=horas,
                 created_at=f.created_at,
             )
         )
@@ -445,6 +489,53 @@ def eliminar_fichada(
 
     db.delete(fichada)
     db.commit()
+
+
+@router.patch(
+    "/fichadas/{fichada_id}/motivo",
+    response_model=FichadaResponse,
+    summary="Actualizar motivo/detalle de una fichada",
+)
+def actualizar_motivo_fichada(
+    fichada_id: int,
+    data: FichadaMotivoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> FichadaResponse:
+    """Actualiza el motivo/detalle de cualquier fichada (manual o hikvision)."""
+    _check_permiso(db, current_user, "rrhh.gestionar")
+
+    fichada = (
+        db.query(RRHHFichada)
+        .options(joinedload(RRHHFichada.empleado), joinedload(RRHHFichada.registrado_por))
+        .filter(RRHHFichada.id == fichada_id)
+        .first()
+    )
+    if not fichada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fichada {fichada_id} no encontrada",
+        )
+
+    fichada.motivo_manual = data.motivo_manual
+    db.commit()
+    db.refresh(fichada)
+
+    emp = fichada.empleado
+    return FichadaResponse(
+        id=fichada.id,
+        empleado_id=fichada.empleado_id,
+        empleado_nombre=f"{emp.apellido}, {emp.nombre}" if emp else "",
+        empleado_legajo=emp.legajo if emp else "",
+        timestamp=fichada.timestamp,
+        tipo=fichada.tipo,
+        origen=fichada.origen,
+        device_serial=fichada.device_serial,
+        event_id=fichada.event_id,
+        registrado_por_nombre=(fichada.registrado_por.nombre if fichada.registrado_por else ""),
+        motivo_manual=fichada.motivo_manual,
+        created_at=fichada.created_at,
+    )
 
 
 # ──────────────────────────────────────────────
@@ -910,3 +1001,214 @@ def eliminar_excepcion(
 
     db.delete(excepcion)
     db.commit()
+
+
+# ──────────────────────────────────────────────
+# SCHEMAS — Empleado ↔ Horario (Turnos)
+# ──────────────────────────────────────────────
+
+
+class EmpleadoHorarioResponse(BaseModel):
+    """Asignación de turno a empleado."""
+
+    id: int
+    empleado_id: int
+    horario_config_id: int
+    horario_nombre: str = ""
+    hora_entrada: Optional[time] = None
+    hora_salida: Optional[time] = None
+    dias_semana: str = ""
+    prioridad: int = 1
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmpleadoHorarioCreate(BaseModel):
+    """Datos para asignar un turno a un empleado."""
+
+    horario_config_id: int
+    prioridad: int = Field(default=1, ge=1, le=10)
+
+
+class HorarioEmpleadoResponse(BaseModel):
+    """Empleado asignado a un turno (vista desde el horario)."""
+
+    asignacion_id: int
+    empleado_id: int
+    legajo: str = ""
+    nombre_completo: str = ""
+    prioridad: int = 1
+
+
+# ──────────────────────────────────────────────
+# ENDPOINTS — Empleado ↔ Horario (Turnos)
+# ──────────────────────────────────────────────
+
+
+@router.get(
+    "/empleados/{empleado_id}/horarios",
+    response_model=list[EmpleadoHorarioResponse],
+    summary="Listar turnos asignados a un empleado",
+)
+def listar_horarios_empleado(
+    empleado_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[EmpleadoHorarioResponse]:
+    """Lista todos los turnos/horarios asignados a un empleado, ordenados por prioridad."""
+    _check_permiso(db, current_user, "rrhh.ver")
+    _get_empleado_or_404(db, empleado_id)
+
+    asignaciones = (
+        db.query(RRHHEmpleadoHorario)
+        .options(joinedload(RRHHEmpleadoHorario.horario_config))
+        .filter(RRHHEmpleadoHorario.empleado_id == empleado_id)
+        .order_by(RRHHEmpleadoHorario.prioridad)
+        .all()
+    )
+
+    return [
+        EmpleadoHorarioResponse(
+            id=a.id,
+            empleado_id=a.empleado_id,
+            horario_config_id=a.horario_config_id,
+            horario_nombre=a.horario_config.nombre if a.horario_config else "",
+            hora_entrada=a.horario_config.hora_entrada if a.horario_config else None,
+            hora_salida=a.horario_config.hora_salida if a.horario_config else None,
+            dias_semana=a.horario_config.dias_semana if a.horario_config else "",
+            prioridad=a.prioridad,
+            created_at=a.created_at,
+        )
+        for a in asignaciones
+    ]
+
+
+@router.post(
+    "/empleados/{empleado_id}/horarios",
+    response_model=EmpleadoHorarioResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Asignar un turno a un empleado",
+)
+def asignar_horario_empleado(
+    empleado_id: int,
+    data: EmpleadoHorarioCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> EmpleadoHorarioResponse:
+    """Asigna un turno/horario a un empleado."""
+    _check_permiso(db, current_user, "rrhh.gestionar")
+    _get_empleado_or_404(db, empleado_id)
+
+    # Verificar que el horario existe y está activo
+    horario = db.query(RRHHHorarioConfig).filter(RRHHHorarioConfig.id == data.horario_config_id).first()
+    if not horario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Horario {data.horario_config_id} no encontrado",
+        )
+    if not horario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede asignar un horario inactivo",
+        )
+
+    # Verificar duplicado
+    existing = (
+        db.query(RRHHEmpleadoHorario)
+        .filter(
+            RRHHEmpleadoHorario.empleado_id == empleado_id,
+            RRHHEmpleadoHorario.horario_config_id == data.horario_config_id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este turno ya está asignado a este empleado",
+        )
+
+    asignacion = RRHHEmpleadoHorario(
+        empleado_id=empleado_id,
+        horario_config_id=data.horario_config_id,
+        prioridad=data.prioridad,
+    )
+    db.add(asignacion)
+    db.commit()
+    db.refresh(asignacion)
+
+    return EmpleadoHorarioResponse(
+        id=asignacion.id,
+        empleado_id=asignacion.empleado_id,
+        horario_config_id=asignacion.horario_config_id,
+        horario_nombre=horario.nombre,
+        hora_entrada=horario.hora_entrada,
+        hora_salida=horario.hora_salida,
+        dias_semana=horario.dias_semana,
+        prioridad=asignacion.prioridad,
+        created_at=asignacion.created_at,
+    )
+
+
+@router.delete(
+    "/empleado-horarios/{asignacion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Desasignar un turno de un empleado",
+)
+def desasignar_horario_empleado(
+    asignacion_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """Elimina la asignación de un turno a un empleado."""
+    _check_permiso(db, current_user, "rrhh.gestionar")
+
+    asignacion = db.query(RRHHEmpleadoHorario).filter(RRHHEmpleadoHorario.id == asignacion_id).first()
+    if not asignacion:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Asignación {asignacion_id} no encontrada",
+        )
+
+    db.delete(asignacion)
+    db.commit()
+
+
+@router.get(
+    "/horarios/{horario_id}/empleados",
+    response_model=list[HorarioEmpleadoResponse],
+    summary="Listar empleados asignados a un turno",
+)
+def listar_empleados_horario(
+    horario_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[HorarioEmpleadoResponse]:
+    """Lista todos los empleados asignados a un turno/horario específico."""
+    _check_permiso(db, current_user, "rrhh.ver")
+
+    horario = db.query(RRHHHorarioConfig).filter(RRHHHorarioConfig.id == horario_id).first()
+    if not horario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Horario {horario_id} no encontrado",
+        )
+
+    asignaciones = (
+        db.query(RRHHEmpleadoHorario)
+        .options(joinedload(RRHHEmpleadoHorario.empleado))
+        .filter(RRHHEmpleadoHorario.horario_config_id == horario_id)
+        .order_by(RRHHEmpleadoHorario.prioridad)
+        .all()
+    )
+
+    return [
+        HorarioEmpleadoResponse(
+            asignacion_id=a.id,
+            empleado_id=a.empleado_id,
+            legajo=a.empleado.legajo if a.empleado else "",
+            nombre_completo=a.empleado.nombre_completo if a.empleado else "",
+            prioridad=a.prioridad,
+        )
+        for a in asignaciones
+    ]

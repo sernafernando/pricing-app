@@ -4,15 +4,24 @@ import { rrhhAPI } from '../services/api';
 import {
   Clock, Plus, RefreshCw, Trash2, Edit2, Link, Unlink,
   Fingerprint, Settings, CalendarOff, LogIn, LogOut,
+  ArrowUpDown, Check, X, Timer, Users, UserPlus, UserMinus,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import styles from './RRHHHorarios.module.css';
 
-const formatDateTime = (ts) => {
+const formatFichadaDate = (ts) => {
   if (!ts) return '-';
   const d = new Date(ts);
-  return d.toLocaleString('es-AR', {
+  return d.toLocaleDateString('es-AR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+  });
+};
+
+const formatFichadaTime = (ts) => {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  return d.toLocaleTimeString('es-AR', {
+    hour: '2-digit', minute: '2-digit', hour12: false,
   });
 };
 
@@ -25,6 +34,13 @@ const formatDate = (dateStr) => {
 const formatTime = (timeStr) => {
   if (!timeStr) return '-';
   return timeStr.slice(0, 5);
+};
+
+const formatHorasDia = (horas) => {
+  if (horas == null) return '-';
+  const h = Math.floor(horas);
+  const m = Math.round((horas - h) * 60);
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
 };
 
 const DIAS_SEMANA_MAP = {
@@ -66,6 +82,12 @@ export default function RRHHHorarios() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroOrigen, setFiltroOrigen] = useState('');
+  const [fichadasOrden, setFichadasOrden] = useState('desc');
+
+  // ── Inline motivo editing ──
+  const [editingMotivoId, setEditingMotivoId] = useState(null);
+  const [editingMotivoValue, setEditingMotivoValue] = useState('');
+  const [savingMotivo, setSavingMotivo] = useState(false);
 
   // ── Manual fichada modal ──
   const [fichadaModalOpen, setFichadaModalOpen] = useState(false);
@@ -92,6 +114,15 @@ export default function RRHHHorarios() {
   });
   const [horarioSaving, setHorarioSaving] = useState(false);
   const [horarioError, setHorarioError] = useState(null);
+
+  // ── Empleados por horario (asignación de turnos) ──
+  const [expandedHorarioId, setExpandedHorarioId] = useState(null);
+  const [empleadosHorario, setEmpleadosHorario] = useState([]);
+  const [loadingEmpleadosHorario, setLoadingEmpleadosHorario] = useState(false);
+  const [asignandoEmpleado, setAsignandoEmpleado] = useState(false);
+  const [nuevoEmpleadoHorario, setNuevoEmpleadoHorario] = useState('');
+  const [nuevaPrioridad, setNuevaPrioridad] = useState('1');
+  const [asignacionError, setAsignacionError] = useState(null);
 
   // ── Excepciones ──
   const [excepciones, setExcepciones] = useState([]);
@@ -140,7 +171,7 @@ export default function RRHHHorarios() {
   const cargarFichadas = useCallback(async () => {
     setLoadingFichadas(true);
     try {
-      const params = { page: fichadasPage, page_size: PAGE_SIZE };
+      const params = { page: fichadasPage, page_size: PAGE_SIZE, orden: fichadasOrden };
       if (filtroEmpleadoId) params.empleado_id = filtroEmpleadoId;
       if (filtroFechaDesde) params.fecha_desde = filtroFechaDesde;
       if (filtroFechaHasta) params.fecha_hasta = filtroFechaHasta;
@@ -154,7 +185,7 @@ export default function RRHHHorarios() {
     } finally {
       setLoadingFichadas(false);
     }
-  }, [fichadasPage, filtroEmpleadoId, filtroFechaDesde, filtroFechaHasta, filtroOrigen]);
+  }, [fichadasPage, fichadasOrden, filtroEmpleadoId, filtroFechaDesde, filtroFechaHasta, filtroOrigen]);
 
   useEffect(() => {
     if (activeTab === 'fichadas') cargarFichadas();
@@ -261,6 +292,39 @@ export default function RRHHHorarios() {
     });
   };
 
+  // ── Handler: Inline motivo edit ──
+  const handleStartEditMotivo = (fichada) => {
+    setEditingMotivoId(fichada.id);
+    setEditingMotivoValue(fichada.motivo_manual || '');
+  };
+
+  const handleCancelEditMotivo = () => {
+    setEditingMotivoId(null);
+    setEditingMotivoValue('');
+  };
+
+  const handleSaveMotivo = async (fichadaId) => {
+    if (!editingMotivoValue.trim()) return;
+    setSavingMotivo(true);
+    try {
+      await rrhhAPI.actualizarMotivoFichada(fichadaId, {
+        motivo_manual: editingMotivoValue.trim(),
+      });
+      setEditingMotivoId(null);
+      setEditingMotivoValue('');
+      cargarFichadas();
+    } catch {
+      setActionError('Error al actualizar motivo');
+    } finally {
+      setSavingMotivo(false);
+    }
+  };
+
+  const handleToggleOrden = () => {
+    setFichadasOrden((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    setFichadasPage(1);
+  };
+
   // ── Handler: Hikvision sync ──
   const handleSyncHikvision = async () => {
     setSyncing(true);
@@ -338,6 +402,69 @@ export default function RRHHHorarios() {
           cargarHorarios();
         } catch (err) {
           setActionError(err.response?.data?.detail || 'Error al desactivar horario');
+        }
+      },
+    });
+  };
+
+  // ── Handler: Empleados ↔ Horario (Turnos asignados) ──
+  const cargarEmpleadosHorario = useCallback(async (horarioId) => {
+    setLoadingEmpleadosHorario(true);
+    setAsignacionError(null);
+    try {
+      const { data } = await rrhhAPI.listarEmpleadosHorario(horarioId);
+      setEmpleadosHorario(Array.isArray(data) ? data : []);
+    } catch {
+      setEmpleadosHorario([]);
+    } finally {
+      setLoadingEmpleadosHorario(false);
+    }
+  }, []);
+
+  const handleToggleEmpleadosHorario = (horarioId) => {
+    if (expandedHorarioId === horarioId) {
+      setExpandedHorarioId(null);
+      setEmpleadosHorario([]);
+      setAsignacionError(null);
+    } else {
+      setExpandedHorarioId(horarioId);
+      setNuevoEmpleadoHorario('');
+      setNuevaPrioridad('1');
+      cargarEmpleadosHorario(horarioId);
+    }
+  };
+
+  const handleAsignarEmpleado = async (horarioId) => {
+    if (!nuevoEmpleadoHorario) return;
+    setAsignandoEmpleado(true);
+    setAsignacionError(null);
+    try {
+      await rrhhAPI.asignarHorarioEmpleado(parseInt(nuevoEmpleadoHorario, 10), {
+        horario_config_id: horarioId,
+        prioridad: parseInt(nuevaPrioridad, 10),
+      });
+      setNuevoEmpleadoHorario('');
+      setNuevaPrioridad('1');
+      cargarEmpleadosHorario(horarioId);
+    } catch (err) {
+      setAsignacionError(getErrorMessage(err, 'Error al asignar empleado'));
+    } finally {
+      setAsignandoEmpleado(false);
+    }
+  };
+
+  const handleDesasignarEmpleado = (asignacionId, nombreEmpleado, horarioId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Desasignar empleado',
+      message: `¿Quitar a ${nombreEmpleado} de este turno?`,
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.desasignarHorarioEmpleado(asignacionId);
+          setConfirmAction(null);
+          cargarEmpleadosHorario(horarioId);
+        } catch (err) {
+          setActionError(getErrorMessage(err, 'Error al desasignar'));
         }
       },
     });
@@ -571,6 +698,14 @@ export default function RRHHHorarios() {
               <option value="hikvision">Hikvision</option>
               <option value="manual">Manual</option>
             </select>
+            <button
+              className={styles.btnSort}
+              onClick={handleToggleOrden}
+              title={`Orden: ${fichadasOrden === 'desc' ? 'Más recientes primero' : 'Más antiguas primero'}`}
+            >
+              <ArrowUpDown size={14} />
+              {fichadasOrden === 'desc' ? 'Recientes' : 'Antiguas'}
+            </button>
             <button className={styles.btnRefresh} onClick={cargarFichadas} title="Refrescar">
               <RefreshCw size={16} />
             </button>
@@ -585,37 +720,97 @@ export default function RRHHHorarios() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Fecha/Hora</th>
-                    <th>Legajo</th>
+                    <th>Fecha</th>
+                    <th>Fichada</th>
                     <th>Empleado</th>
-                    <th>Tipo</th>
                     <th>Origen</th>
-                    <th>Motivo/Detalle</th>
+                    <th>Hs Día</th>
+                    <th>Motivo</th>
                     {puedeGestionar && <th>Acciones</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {fichadas.map((f) => (
                     <tr key={f.id}>
-                      <td>{formatDateTime(f.timestamp)}</td>
-                      <td>{f.empleado_legajo}</td>
-                      <td>{f.empleado_nombre}</td>
+                      <td className={styles.cellFecha}>{formatFichadaDate(f.timestamp)}</td>
                       <td>
-                        <span className={f.tipo === 'entrada' ? styles.badgeEntrada : styles.badgeSalida}>
-                          {f.tipo === 'entrada' ? <LogIn size={12} /> : <LogOut size={12} />}
-                          {' '}{f.tipo}
-                        </span>
+                        <div className={styles.fichadaCell}>
+                          <span className={f.tipo === 'entrada' ? styles.badgeEntrada : styles.badgeSalida}>
+                            {f.tipo === 'entrada' ? <LogIn size={12} /> : <LogOut size={12} />}
+                            {' '}{f.tipo}
+                          </span>
+                          <span className={styles.fichadaHora}>{formatFichadaTime(f.timestamp)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className={styles.empleadoCell}>
+                          <span>{f.empleado_nombre}</span>
+                          <span className={styles.empleadoLegajo}>{f.empleado_legajo}</span>
+                        </div>
                       </td>
                       <td>
                         <span className={f.origen === 'hikvision' ? styles.badgeHikvision : styles.badgeManual}>
                           {f.origen}
                         </span>
                       </td>
-                      <td>
-                        {f.motivo_manual || (f.device_serial ? `Device: ${f.device_serial}` : '-')}
-                        {f.registrado_por_nombre && (
-                          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--cf-text-tertiary)' }}>
-                            Por: {f.registrado_por_nombre}
+                      <td className={styles.cellHoras}>
+                        {f.horas_dia != null ? (
+                          <span className={styles.horasValue}>
+                            <Timer size={12} />
+                            {formatHorasDia(f.horas_dia)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={styles.cellMotivo}>
+                        {editingMotivoId === f.id ? (
+                          <div className={styles.motivoEditRow}>
+                            <input
+                              className={styles.motivoInput}
+                              type="text"
+                              value={editingMotivoValue}
+                              onChange={(e) => setEditingMotivoValue(e.target.value)}
+                              maxLength={500}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveMotivo(f.id);
+                                if (e.key === 'Escape') handleCancelEditMotivo();
+                              }}
+                            />
+                            <button
+                              className={styles.btnMotivoSave}
+                              onClick={() => handleSaveMotivo(f.id)}
+                              disabled={savingMotivo || !editingMotivoValue.trim()}
+                              title="Guardar"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              className={styles.btnMotivoCancel}
+                              onClick={handleCancelEditMotivo}
+                              title="Cancelar"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className={styles.motivoDisplay}>
+                            <span className={styles.motivoText}>
+                              {f.motivo_manual || (f.device_serial ? `Device: ${f.device_serial}` : '-')}
+                            </span>
+                            {puedeGestionar && (
+                              <button
+                                className={styles.btnMotivoEdit}
+                                onClick={() => handleStartEditMotivo(f)}
+                                title="Editar motivo"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                            )}
+                            {f.registrado_por_nombre && (
+                              <div className={styles.motivoMeta}>
+                                Por: {f.registrado_por_nombre}
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>
@@ -692,22 +887,113 @@ export default function RRHHHorarios() {
                     <CalendarOff size={14} />
                     Días: {formatDiasSemana(h.dias_semana)}
                   </div>
-                  {puedeConfig && (
-                    <div className={styles.horarioCardActions}>
-                      <button
-                        className={styles.btnEdit}
-                        onClick={() => handleOpenHorarioModal(h)}
-                      >
-                        <Edit2 size={12} /> Editar
-                      </button>
-                      {h.activo && (
+                  <div className={styles.horarioCardActions}>
+                    <button
+                      className={styles.btnEmpleados}
+                      onClick={() => handleToggleEmpleadosHorario(h.id)}
+                    >
+                      <Users size={12} />
+                      {expandedHorarioId === h.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      Empleados
+                    </button>
+                    {puedeConfig && (
+                      <>
                         <button
-                          className={styles.btnDeactivate}
-                          onClick={() => handleDeleteHorario(h.id)}
-                          title="Desactivar horario"
+                          className={styles.btnEdit}
+                          onClick={() => handleOpenHorarioModal(h)}
                         >
-                          <Trash2 size={12} /> Desactivar
+                          <Edit2 size={12} /> Editar
                         </button>
+                        {h.activo && (
+                          <button
+                            className={styles.btnDeactivate}
+                            onClick={() => handleDeleteHorario(h.id)}
+                            title="Desactivar horario"
+                          >
+                            <Trash2 size={12} /> Desactivar
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Empleados asignados (expandible) */}
+                  {expandedHorarioId === h.id && (
+                    <div className={styles.empleadosSection}>
+                      {asignacionError && (
+                        <div className={styles.formError}>{asignacionError}</div>
+                      )}
+
+                      {loadingEmpleadosHorario ? (
+                        <div className={styles.empleadosLoading}>Cargando empleados...</div>
+                      ) : empleadosHorario.length === 0 ? (
+                        <div className={styles.empleadosEmpty}>
+                          Sin empleados asignados a este turno
+                        </div>
+                      ) : (
+                        <ul className={styles.empleadosList}>
+                          {empleadosHorario.map((a) => (
+                            <li key={a.asignacion_id} className={styles.empleadoItem}>
+                              <div className={styles.empleadoItemInfo}>
+                                <span className={styles.empleadoItemLegajo}>{a.legajo}</span>
+                                <span className={styles.empleadoItemNombre}>{a.nombre_completo}</span>
+                                {a.prioridad > 1 && (
+                                  <span className={styles.empleadoItemPrioridad}>
+                                    P{a.prioridad}
+                                  </span>
+                                )}
+                              </div>
+                              {puedeGestionar && (
+                                <button
+                                  className={styles.btnDesasignar}
+                                  onClick={() => handleDesasignarEmpleado(a.asignacion_id, a.nombre_completo, h.id)}
+                                  title="Desasignar"
+                                >
+                                  <UserMinus size={12} />
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {puedeGestionar && h.activo && (
+                        <div className={styles.asignarRow}>
+                          <select
+                            className={styles.select}
+                            value={nuevoEmpleadoHorario}
+                            onChange={(e) => setNuevoEmpleadoHorario(e.target.value)}
+                          >
+                            <option value="">Asignar empleado...</option>
+                            {empleados
+                              .filter((emp) => !empleadosHorario.some((a) => a.empleado_id === emp.id))
+                              .map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  {emp.legajo} - {emp.apellido}, {emp.nombre}
+                                </option>
+                              ))}
+                          </select>
+                          <select
+                            className={styles.select}
+                            value={nuevaPrioridad}
+                            onChange={(e) => setNuevaPrioridad(e.target.value)}
+                            title="Prioridad (1 = principal)"
+                            style={{ width: '70px' }}
+                          >
+                            <option value="1">P1</option>
+                            <option value="2">P2</option>
+                            <option value="3">P3</option>
+                          </select>
+                          <button
+                            className={styles.btnAsignar}
+                            onClick={() => handleAsignarEmpleado(h.id)}
+                            disabled={!nuevoEmpleadoHorario || asignandoEmpleado}
+                            title="Asignar"
+                          >
+                            <UserPlus size={14} />
+                            {asignandoEmpleado ? '...' : 'Asignar'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}

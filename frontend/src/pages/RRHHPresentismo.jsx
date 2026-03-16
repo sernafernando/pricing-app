@@ -175,12 +175,12 @@ export default function RRHHPresentismo() {
     setDropdown(null);
     try {
       await rrhhAPI.marcarPresentismo(empleadoId, fecha, { estado });
-      // Update local grilla
+      // Update local grilla (marcación manual → siempre origen "manual")
       setGrilla((prev) => ({
         ...prev,
         empleados: prev.empleados.map((emp) =>
           emp.empleado_id === empleadoId
-            ? { ...emp, dias: { ...emp.dias, [fecha]: estado } }
+            ? { ...emp, dias: { ...emp.dias, [fecha]: { estado, origen: 'manual' } } }
             : emp
         ),
       }));
@@ -265,17 +265,24 @@ export default function RRHHPresentismo() {
                     </div>
                   </td>
                   {grilla.fechas.map((f) => {
-                    const estado = emp.dias[f];
+                    const dia = emp.dias[f];
+                    const estado = dia?.estado || null;
+                    const origen = dia?.origen || null;
                     const styleName = estado ? ESTADO_STYLE_MAP[estado] : 'estadoEmpty';
+                    const isAuto = origen === 'auto';
                     const label = estado
                       ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.label || estado
                       : '-';
+                    const fullLabel = estado
+                      ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.fullLabel
+                      : 'Sin marcar';
+                    const title = isAuto ? `${fullLabel} (auto)` : fullLabel;
                     return (
                       <td key={f}>
                         <span
-                          className={styles[styleName]}
+                          className={`${styles[styleName]} ${isAuto ? styles.autoCalc : ''}`}
                           onClick={(e) => handleCellClick(emp.empleado_id, f, e)}
-                          title={estado ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.fullLabel : 'Sin marcar'}
+                          title={title}
                         >
                           {label}
                         </span>
@@ -296,6 +303,10 @@ export default function RRHHPresentismo() {
               {e.fullLabel}
             </div>
           ))}
+          <div className={styles.legendItem}>
+            <span className={styles.legendAutoSample} />
+            Auto-calculado
+          </div>
         </div>
       </>
     );
