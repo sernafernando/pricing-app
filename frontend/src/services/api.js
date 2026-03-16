@@ -248,6 +248,8 @@ export const rrhhAPI = {
 
   // ── Hikvision Users & Mapping ──────────────
   listarUsuariosHikvision: () => api.get('/rrhh/hikvision/usuarios'),
+  listarUsuariosHikvisionCache: () => api.get('/rrhh/hikvision/users-cache'),
+  syncUsuariosHikvision: () => api.post('/rrhh/hikvision/sync-users'),
   mapearEmpleadoHikvision: (data) => api.post('/rrhh/hikvision/mapear', data),
   desmapearEmpleadoHikvision: (empleadoId) =>
     api.delete(`/rrhh/hikvision/mapear/${empleadoId}`),

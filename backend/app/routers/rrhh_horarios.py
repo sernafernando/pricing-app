@@ -25,6 +25,7 @@ from app.core.deps import get_current_user
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_fichada import OrigenFichada, RRHHFichada, TipoFichada
+from app.models.rrhh_hikvision_user import RRHHHikvisionUser
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -599,6 +600,104 @@ def listar_usuarios_hikvision(
         )
 
     return result
+
+
+# ──────────────────────────────────────────────
+# Hikvision Users Cache (local DB)
+# ──────────────────────────────────────────────
+
+
+@router.get(
+    "/hikvision/users-cache",
+    response_model=list[HikvisionUserResponse],
+    summary="Leer usuarios Hikvision desde cache local",
+)
+def get_hikvision_users_cache(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[HikvisionUserResponse]:
+    """Lee usuarios Hikvision desde la tabla cache (no consulta el dispositivo)."""
+    _check_permiso(db, current_user, "rrhh.ver")
+
+    cached = db.query(RRHHHikvisionUser).order_by(RRHHHikvisionUser.employee_no).all()
+
+    # Enrich with empleado mapping
+    empleados = db.query(RRHHEmpleado).filter(RRHHEmpleado.hikvision_employee_no.isnot(None)).all()
+    hik_to_emp = {emp.hikvision_employee_no: emp for emp in empleados}
+
+    return [
+        HikvisionUserResponse(
+            employee_no=u.employee_no,
+            name=u.name,
+            user_type=u.user_type,
+            valid_begin=u.valid_begin,
+            valid_end=u.valid_end,
+            empleado_id=hik_to_emp[u.employee_no].id if u.employee_no in hik_to_emp else None,
+            empleado_nombre=(hik_to_emp[u.employee_no].nombre_completo if u.employee_no in hik_to_emp else None),
+        )
+        for u in cached
+    ]
+
+
+@router.post(
+    "/hikvision/sync-users",
+    summary="Sincronizar usuarios Hikvision al cache local",
+)
+def sync_hikvision_users_cache(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Consulta la ISAPI del Hikvision, obtiene todos los usuarios registrados
+    y los guarda/actualiza en la tabla cache local.
+
+    Se ejecuta manualmente cuando se registra un empleado nuevo en el dispositivo.
+    """
+    _check_permiso(db, current_user, "rrhh.gestionar")
+
+    client = HikvisionClient(db)
+    try:
+        hik_users = client.fetch_users()
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ConnectionError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+    # Upsert: por cada usuario, crear o actualizar en cache
+    nuevos = 0
+    actualizados = 0
+    for u in hik_users:
+        employee_no = str(u.get("employeeNo", ""))
+        if not employee_no:
+            continue
+
+        valid_info = u.get("Valid", {})
+        existing = db.query(RRHHHikvisionUser).filter(RRHHHikvisionUser.employee_no == employee_no).first()
+        if existing:
+            existing.name = u.get("name", "")
+            existing.user_type = u.get("userType", "")
+            existing.valid_begin = valid_info.get("beginTime")
+            existing.valid_end = valid_info.get("endTime")
+            actualizados += 1
+        else:
+            db.add(
+                RRHHHikvisionUser(
+                    employee_no=employee_no,
+                    name=u.get("name", ""),
+                    user_type=u.get("userType", ""),
+                    valid_begin=valid_info.get("beginTime"),
+                    valid_end=valid_info.get("endTime"),
+                )
+            )
+            nuevos += 1
+
+    db.commit()
+
+    return {
+        "total_dispositivo": len(hik_users),
+        "nuevos": nuevos,
+        "actualizados": actualizados,
+    }
 
 
 @router.post(
