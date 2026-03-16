@@ -129,7 +129,8 @@ class HikvisionClient:
         # DS-K1T804AMF: maxResults estable en 10 por request para UserInfo/Search.
         # Valores mayores pueden generar errores/intermitencia en algunos firmwares.
         page_size = 10
-        search_id = f"pricing-app-users-{uuid4().hex[:8]}"
+        # DS-K1T804AMF: searchID max 16 chars (24+ causa 400 badParameters)
+        search_id = f"usr-{uuid4().hex[:8]}"
 
         while True:
             body = {
@@ -210,7 +211,8 @@ class HikvisionClient:
         position = 0
         # DS-K1T804AMF: page size conservador para evitar 401/intermitencia.
         page_size = 100
-        search_id = f"pricing-app-events-{uuid4().hex[:8]}"
+        # DS-K1T804AMF: searchID max 16 chars (24+ causa 400 badParameters)
+        search_id = f"evt-{uuid4().hex[:8]}"
 
         while True:
             search_body = {
