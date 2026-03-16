@@ -7,6 +7,7 @@ import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
+import { usePermisos } from '../contexts/PermisosContext';
 import styles from './EnviosVistaFlag.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -55,6 +56,10 @@ const getMlStatusClass = (status) => {
 // ────────────────────────────────────────────────────────────────
 
 export default function EnviosVistaFlag() {
+  const { tienePermiso } = usePermisos();
+  const puedeFlag = tienePermiso('seguimiento_envios.flag') || tienePermiso('envios_flex.config');
+  const puedeRetornado = tienePermiso('seguimiento_envios.marcar_retornado') || tienePermiso('envios_flex.config');
+
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
@@ -974,18 +979,20 @@ export default function EnviosVistaFlag() {
           </span>
 
           <div className={styles.selectionActions}>
-            <button
-              onClick={abrirFlagModal}
-              disabled={bulkActualizando}
-              className={styles.selectionBtnFlag}
-              title="Flaggear etiquetas seleccionadas"
-              aria-label="Flaggear etiquetas seleccionadas"
-            >
-              <Flag size={16} />
-              Flaggear
-            </button>
+            {puedeFlag && (
+              <button
+                onClick={abrirFlagModal}
+                disabled={bulkActualizando}
+                className={styles.selectionBtnFlag}
+                title="Flaggear etiquetas seleccionadas"
+                aria-label="Flaggear etiquetas seleccionadas"
+              >
+                <Flag size={16} />
+                Flaggear
+              </button>
+            )}
 
-            {(() => {
+            {puedeFlag && (() => {
               const algunaConFlag = etiquetasFiltradas
                 .filter(e => selectedIds.has(e.shipping_id))
                 .some(e => e.flag_envio);
@@ -1004,18 +1011,20 @@ export default function EnviosVistaFlag() {
               );
             })()}
 
-            <button
-              onClick={marcarRetornado}
-              disabled={bulkActualizando}
-              className={styles.selectionBtnRetornado}
-              title="Marcar como retornado"
-              aria-label="Marcar como retornado"
-            >
-              <RotateCcw size={16} />
-              Retornado
-            </button>
+            {puedeRetornado && (
+              <button
+                onClick={marcarRetornado}
+                disabled={bulkActualizando}
+                className={styles.selectionBtnRetornado}
+                title="Marcar como retornado"
+                aria-label="Marcar como retornado"
+              >
+                <RotateCcw size={16} />
+                Retornado
+              </button>
+            )}
 
-            {(() => {
+            {puedeRetornado && (() => {
               const algunaRetornada = etiquetasFiltradas
                 .filter(e => selectedIds.has(e.shipping_id))
                 .some(e => e.retornado);

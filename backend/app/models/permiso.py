@@ -687,6 +687,30 @@ PERMISOS_SISTEMA = [
         "orden": 112,
     },
     # =========================================================================
+    # SEGUIMIENTO DE ENVÍOS (vista readonly para ventas/gerentes)
+    # =========================================================================
+    {
+        "codigo": "seguimiento_envios.ver",
+        "nombre": "Ver seguimiento de envíos",
+        "descripcion": "Vista readonly de etiquetas de envío con capacidad de flaggeo y checkeo de colecta",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 115,
+    },
+    {
+        "codigo": "seguimiento_envios.flag",
+        "nombre": "Flaggear envíos (seguimiento)",
+        "descripcion": "Marcar/desmarcar envíos con flag desde la vista de seguimiento de envíos",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 116,
+    },
+    {
+        "codigo": "seguimiento_envios.marcar_retornado",
+        "nombre": "Marcar envíos como retornado (seguimiento)",
+        "descripcion": "Marcar/desmarcar envíos como retornado desde la vista de seguimiento de envíos",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 117,
+    },
+    # =========================================================================
     # RRHH
     # =========================================================================
     {
@@ -792,6 +816,9 @@ PERMISOS_POR_ROL = {
         "envios_flex.ver",
         "envios_flex.ver_codigos_postales",
         "envios_flex.exportar",
+        "seguimiento_envios.ver",
+        "seguimiento_envios.flag",
+        "seguimiento_envios.marcar_retornado",
     ],
     "PRICING": [
         "productos.ver",
@@ -835,5 +862,8 @@ PERMISOS_POR_ROL = {
         "pedidos.ver_pendientes",
         "pedidos.crear_envio_flex",
         "envios_flex.ver",
+        "seguimiento_envios.ver",
+        "seguimiento_envios.flag",
+        "seguimiento_envios.marcar_retornado",
     ],
 }
