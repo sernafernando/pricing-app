@@ -10,16 +10,16 @@ Permissions:
 
 Assigned to: ADMIN, GERENTE, VENTAS
 
-Revision ID: 20260316c1
-Revises: 20260316b1
+Revision ID: 20260316d1
+Revises: 20260316c1
 Create Date: 2026-03-16
 
 """
 
 from alembic import op
 
-revision = "20260316c1"
-down_revision = "20260316b1"
+revision = "20260316d1"
+down_revision = "20260316c1"
 branch_labels = None
 depends_on = None
 
