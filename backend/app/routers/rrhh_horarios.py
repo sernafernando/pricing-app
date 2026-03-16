@@ -45,6 +45,7 @@ class FichadaResponse(BaseModel):
     empleado_id: Optional[int] = None
     empleado_nombre: str = ""
     empleado_legajo: str = ""
+    hikvision_employee_no: Optional[str] = None
     timestamp: datetime
     tipo: str
     origen: str
@@ -364,6 +365,7 @@ def listar_fichadas(
                 empleado_id=f.empleado_id,
                 empleado_nombre=f"{emp.apellido}, {emp.nombre}" if emp else "",
                 empleado_legajo=emp.legajo if emp else "",
+                hikvision_employee_no=f.hikvision_employee_no,
                 timestamp=f.timestamp,
                 tipo=f.tipo,
                 origen=f.origen,

@@ -55,6 +55,7 @@ export default function SmartRedirect() {
     { path: '/rma', permiso: 'rma.ver' },
     { path: '/claims', permiso: 'rma.ver' },
     { path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
+    { path: '/rrhh/empleados', permiso: 'rrhh.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso

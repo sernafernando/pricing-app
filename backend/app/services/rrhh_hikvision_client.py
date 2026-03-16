@@ -287,6 +287,10 @@ class HikvisionClient:
         # Track serialNos ya vistos en este batch (el dispositivo puede devolver
         # eventos duplicados con distinto major/minor pero mismo serialNo)
         seen_serial_nos: set[str] = set()
+        # Proximity dedup: track (employee_no, timestamp_truncated) en este batch
+        # para descartar múltiples eventos de la misma autenticación física
+        PROXIMITY_SECONDS = 120
+        seen_employee_times: dict[str, list[datetime]] = {}
 
         for event in events:
             try:
@@ -310,15 +314,43 @@ class HikvisionClient:
                 employee_no = str(event.get("employeeNoString", ""))
                 empleado_id = hik_map.get(employee_no)
 
-                if not empleado_id:
-                    sin_empleado += 1
-
-                # Parse timestamp — ej: "2026-03-12T08:01:32-03:00"
+                # Parse timestamp early for proximity check
                 time_str = event.get("time", "")
                 try:
                     ts = datetime.fromisoformat(time_str)
                 except (ValueError, AttributeError):
                     ts = datetime.now(timezone.utc)
+
+                # Proximity dedup: mismo employee_no dentro de PROXIMITY_SECONDS
+                # El DS-K1T804AMF genera múltiples eventos (distintos serialNo)
+                # para una sola autenticación física (ej: face + card sub-events)
+                if employee_no:
+                    prev_times = seen_employee_times.get(employee_no, [])
+                    is_near = any(abs((ts - pt).total_seconds()) < PROXIMITY_SECONDS for pt in prev_times)
+                    if not is_near and empleado_id:
+                        # Also check DB for recently saved fichadas
+                        db_near = (
+                            self.db.query(RRHHFichada)
+                            .filter(
+                                RRHHFichada.hikvision_employee_no == employee_no,
+                                RRHHFichada.timestamp.between(
+                                    ts - timedelta(seconds=PROXIMITY_SECONDS),
+                                    ts + timedelta(seconds=PROXIMITY_SECONDS),
+                                ),
+                            )
+                            .first()
+                        )
+                        if db_near:
+                            is_near = True
+                    if is_near:
+                        duplicadas += 1
+                        continue
+                    if employee_no not in seen_employee_times:
+                        seen_employee_times[employee_no] = []
+                    seen_employee_times[employee_no].append(ts)
+
+                if not empleado_id:
+                    sin_empleado += 1
 
                 fichada = RRHHFichada(
                     empleado_id=empleado_id,  # None si no mapeado

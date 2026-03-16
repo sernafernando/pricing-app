@@ -269,6 +269,73 @@
   margin-bottom: var(--spacing-md);
 }
 
+/* Header actions */
+.headerActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* Page tabs */
+.pageTabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-default);
+  margin-bottom: var(--spacing-lg);
+}
+
+.pageTab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.pageTab:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.pageTabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+/* Tipos de documento section */
+.tiposSection {
+  margin-bottom: var(--spacing-lg);
+}
+
+.tipoFormRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.tipoFormRow .input {
+  flex: 1;
+  min-width: 150px;
+}
+
+.tipoCheckLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 /* Modal actions use .modal-footer-tesla global class */
 
 /* Modal tabs */
