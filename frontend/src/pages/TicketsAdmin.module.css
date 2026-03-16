@@ -212,6 +212,36 @@
   composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
 }
 
+.actionBtns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+}
+
+.btnIcon:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnIcon.btnDanger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+}
+
 /* Forms */
 .input,
 .select,
