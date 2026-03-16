@@ -1,14 +1,15 @@
-/* TicketBadge - Badge de tickets pendientes en TopBar */
+/* TicketBadge - Acceso directo a tickets en TopBar */
 
 .badge {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
-  color: var(--cf-accent-blue);
+  color: var(--cf-text-secondary);
   text-decoration: none;
   font-size: 13px;
   font-weight: var(--font-semibold);
@@ -19,6 +20,19 @@
 }
 
 .badge:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+/* Con tickets pendientes: resaltado */
+.hasCount {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: var(--cf-accent-blue);
+}
+
+.hasCount:hover {
   background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.4);
   transform: translateY(-1px);
@@ -30,7 +44,6 @@
 
 .icon {
   flex-shrink: 0;
-  opacity: 0.9;
 }
 
 .count {
@@ -39,18 +52,18 @@
 }
 
 /* Light mode */
-:global([data-theme="light"]) .badge {
+:global([data-theme="light"]) .hasCount {
   background: rgba(59, 130, 246, 0.08);
   border-color: rgba(59, 130, 246, 0.2);
   color: #2563eb;
 }
 
-:global([data-theme="light"]) .badge:hover {
+:global([data-theme="light"]) .hasCount:hover {
   background: rgba(59, 130, 246, 0.15);
   border-color: rgba(59, 130, 246, 0.35);
 }
 
-/* Responsive - ocultar texto en mobile */
+/* Responsive */
 @media (max-width: 768px) {
   .badge {
     padding: 6px 8px;
