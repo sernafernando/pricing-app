@@ -39,6 +39,7 @@ import RRHHVacaciones from './pages/RRHHVacaciones';
 import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
 import RRHHHorarios from './pages/RRHHHorarios';
 import RRHHReportes from './pages/RRHHReportes';
+import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import Tickets from './pages/Tickets';
 import TicketsAdmin from './pages/TicketsAdmin';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -255,6 +256,11 @@ function App() {
             <Route path="/rrhh/horarios" element={
               <ProtectedRoute permiso="rrhh.ver">
                 <RRHHHorarios />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/cumpleanos" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHCumpleanos />
               </ProtectedRoute>
             } />
             <Route path="/rrhh/reportes" element={

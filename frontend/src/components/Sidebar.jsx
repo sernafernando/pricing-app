@@ -125,6 +125,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Vacaciones', path: '/rrhh/vacaciones', permiso: 'rrhh.ver' },
         { label: 'Cuenta Corriente', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
         { label: 'Horarios', path: '/rrhh/horarios', permiso: 'rrhh.ver' },
+        { label: 'Cumpleaños', path: '/rrhh/cumpleanos', permiso: 'rrhh.ver' },
         { label: 'Reportes', path: '/rrhh/reportes', permiso: 'rrhh.ver' },
       ],
     },
