@@ -234,6 +234,12 @@
   background: var(--cf-bg-hover);
 }
 
+/* Auto-calculado: borde punteado + opacidad reducida para distinguir de manual */
+.autoCalc {
+  opacity: 0.65;
+  border: 1px dashed currentColor;
+}
+
 /* Legend */
 .legend {
   display: flex;
@@ -263,6 +269,16 @@
 .dotLicencia { background: #a855f7; }
 .dotFranco { background: var(--cf-text-tertiary); }
 .dotFeriado { background: var(--cf-text-secondary); }
+.dotHomeOffice { background: #14b8a6; }
+
+.legendAutoSample {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--cf-text-tertiary);
+  opacity: 0.65;
+  border: 1px dashed var(--cf-text-secondary);
+}
 
 /* Marcación rápida dropdown */
 .dropdown {

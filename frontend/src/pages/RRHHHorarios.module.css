@@ -206,6 +206,125 @@
   color: var(--cf-accent-orange);
 }
 
+/* Fichada table cells */
+.cellFecha {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.fichadaCell {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.fichadaHora {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.empleadoCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empleadoLegajo {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.cellHoras {
+  white-space: nowrap;
+}
+
+.horasValue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-accent-blue);
+  font-size: var(--font-sm);
+}
+
+/* Inline motivo editing */
+.cellMotivo {
+  min-width: 180px;
+}
+
+.motivoDisplay {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.motivoText {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.motivoMeta {
+  width: 100%;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.motivoEditRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.motivoInput {
+  flex: 1;
+  padding: 4px var(--spacing-sm);
+  border: 1px solid var(--cf-accent-blue);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  min-width: 120px;
+}
+
+.motivoInput:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btnMotivoEdit {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+  opacity: 0.4;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.btnMotivoEdit:hover {
+  opacity: 1;
+}
+
+.btnMotivoSave {
+  composes: btn-tesla outline-subtle-success icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+}
+
+.btnMotivoCancel {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+}
+
+/* Sort button */
+.btnSort {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
 /* Horario card layout */
 .horariosGrid {
   display: grid;
@@ -261,6 +380,107 @@
   display: flex;
   gap: var(--spacing-xs);
   margin-top: var(--spacing-sm);
+}
+
+/* Empleados asignados en horario card */
+.btnEmpleados {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+.empleadosSection {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.empleadosLoading,
+.empleadosEmpty {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  padding: var(--spacing-sm) 0;
+  text-align: center;
+}
+
+.empleadosList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--spacing-sm) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.empleadoItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-app);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.empleadoItemInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.empleadoItemLegajo {
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  flex-shrink: 0;
+}
+
+.empleadoItemNombre {
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empleadoItemPrioridad {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-accent-orange);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.btnDesasignar {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+  opacity: 0.4;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.btnDesasignar:hover {
+  opacity: 1;
+}
+
+.asignarRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  margin-top: var(--spacing-xs);
+}
+
+.asignarRow .select {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.btnAsignar {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Sync result panel */

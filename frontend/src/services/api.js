@@ -243,6 +243,8 @@ export const rrhhAPI = {
   registrarFichadaManual: (data) => api.post('/rrhh/fichadas/manual', data),
   syncHikvision: (data) => api.post('/rrhh/fichadas/sync-hikvision', data),
   eliminarFichada: (id) => api.delete(`/rrhh/fichadas/${id}`),
+  actualizarMotivoFichada: (id, data) =>
+    api.patch(`/rrhh/fichadas/${id}/motivo`, data),
 
   // ── Hikvision Users & Mapping ──────────────
   listarUsuariosHikvision: () => api.get('/rrhh/hikvision/usuarios'),
@@ -255,6 +257,16 @@ export const rrhhAPI = {
   crearHorario: (data) => api.post('/rrhh/horarios', data),
   actualizarHorario: (id, data) => api.put(`/rrhh/horarios/${id}`, data),
   eliminarHorario: (id) => api.delete(`/rrhh/horarios/${id}`),
+
+  // ── Empleado ↔ Horario (Turnos asignados) ───
+  listarHorariosEmpleado: (empleadoId) =>
+    api.get(`/rrhh/empleados/${empleadoId}/horarios`),
+  asignarHorarioEmpleado: (empleadoId, data) =>
+    api.post(`/rrhh/empleados/${empleadoId}/horarios`, data),
+  desasignarHorarioEmpleado: (asignacionId) =>
+    api.delete(`/rrhh/empleado-horarios/${asignacionId}`),
+  listarEmpleadosHorario: (horarioId) =>
+    api.get(`/rrhh/horarios/${horarioId}/empleados`),
 
   // ── Excepciones (feriados) ──────────────────
   listarExcepciones: (params) => api.get('/rrhh/horarios/excepciones', { params }),

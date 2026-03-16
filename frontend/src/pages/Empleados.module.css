@@ -271,6 +271,257 @@
 
 /* Modal actions use .modal-footer-tesla global class */
 
+/* Modal tabs */
+.modalTabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.modalTab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.modalTab:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.modalTabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+.tabBadge {
+  background: var(--cf-accent-blue);
+  color: white;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Turnos section (tab content) */
+.turnosSection {
+  /* no extra margin needed — tab content has its own padding */
+}
+
+.turnosLoading,
+.turnosEmpty {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  padding: var(--spacing-sm) 0;
+}
+
+.turnosList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.turnoItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-app);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.turnoItemInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.turnoItemNombre {
+  font-weight: 500;
+  color: var(--cf-text-primary);
+}
+
+.turnoItemHora {
+  font-size: var(--font-xs);
+  color: var(--cf-accent-blue);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.turnoItemPrioridad {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-accent-orange);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.btnDesasignar {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+  opacity: 0.4;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.btnDesasignar:hover {
+  opacity: 1;
+}
+
+.turnosAsignarRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.turnosAsignarRow .select {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.btnAsignar {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Documentos section */
+.docsSection {
+  /* tab content container */
+}
+
+.docUploadForm {
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.docUploadRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.docUploadRow .select,
+.docUploadRow .input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.btnUpload {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.docsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.docItem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--spacing-sm);
+  background: var(--cf-bg-app);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--cf-border-default);
+  gap: var(--spacing-sm);
+}
+
+.docItemInfo {
+  display: flex;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  flex: 1;
+}
+
+.docIcon {
+  flex-shrink: 0;
+  color: var(--cf-accent-blue);
+  margin-top: 2px;
+}
+
+.docItemDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docItemName {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-primary);
+  word-break: break-all;
+}
+
+.docItemMeta {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.docItemDesc {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  font-style: italic;
+}
+
+.docVencimiento {
+  font-size: var(--font-xs);
+  color: var(--cf-accent-orange);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.docVencido {
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.docItemActions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.btnDownload {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
+  padding: 2px;
+  min-width: auto;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .filters {

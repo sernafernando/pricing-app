@@ -93,6 +93,7 @@ from app.models.rrhh_cuenta_corriente import (
 )
 from app.models.rrhh_fichada import RRHHFichada, OrigenFichada, TipoFichada
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
+from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 
 __all__ = [
     "ProductoERP",
@@ -209,4 +210,5 @@ __all__ = [
     "TipoFichada",
     "RRHHHorarioConfig",
     "RRHHHorarioExcepcion",
+    "RRHHEmpleadoHorario",
 ]
