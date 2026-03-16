@@ -1,7 +1,7 @@
 """Add tickets_sectores_usuarios M2M, tickets_adjuntos, and 4 ticket permissions
 
 Revision ID: 20260316t1
-Revises: 20260316c1
+Revises: 20260316d1
 Create Date: 2026-03-16
 """
 
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20260316t1"
-down_revision = "20260316c1"
+down_revision = "20260316d1"
 branch_labels = None
 depends_on = None
 
