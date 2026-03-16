@@ -9,6 +9,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
 
+
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();

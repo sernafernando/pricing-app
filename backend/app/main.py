@@ -67,6 +67,7 @@ from app.routers import (
     rrhh_vacaciones,
     rrhh_cuenta_corriente,
     rrhh_horarios,
+    rrhh_cumpleanos,
     rrhh_reportes,
     seriales,
     sse,
@@ -228,6 +229,7 @@ app.include_router(rrhh_sanciones.router, prefix="/api", tags=["rrhh-sanciones"]
 app.include_router(rrhh_vacaciones.router, prefix="/api", tags=["rrhh-vacaciones"])
 app.include_router(rrhh_cuenta_corriente.router, prefix="/api", tags=["rrhh-cuenta-corriente"])
 app.include_router(rrhh_horarios.router, prefix="/api", tags=["rrhh-horarios"])
+app.include_router(rrhh_cumpleanos.router, prefix="/api", tags=["rrhh-cumpleanos"])
 app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
 
