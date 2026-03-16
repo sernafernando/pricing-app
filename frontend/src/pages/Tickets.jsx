@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { usePermisos } from '../contexts/PermisosContext';
+
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { ticketsAPI, sectoresAPI } from '../services/api';
 import {
@@ -50,8 +50,8 @@ const formatDate = (dateStr) => {
 };
 
 export default function Tickets() {
-  const { tienePermiso } = usePermisos();
-  const puedeCrear = tienePermiso('tickets.crear');
+  // Cualquier usuario logueado puede crear tickets
+  const puedeCrear = true;
 
   // Data
   const [tickets, setTickets] = useState([]);

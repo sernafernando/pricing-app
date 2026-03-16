@@ -489,6 +489,15 @@ function TabTiposTicket() {
   const [tipos, setTipos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    codigo: '',
+    nombre: '',
+    descripcion: '',
+    color: '#3b82f6',
+    schema_campos: '',
+  });
 
   useEffect(() => {
     const fetchSectores = async () => {
@@ -502,24 +511,25 @@ function TabTiposTicket() {
     fetchSectores();
   }, []);
 
-  useEffect(() => {
+  const fetchTipos = async () => {
     if (!sectorId) {
       setTipos([]);
       return;
     }
-    const fetchTipos = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const { data } = await sectoresAPI.listarTiposTicket(sectorId);
-        setTipos(Array.isArray(data) ? data : []);
-      } catch {
-        setError('Error al cargar tipos de ticket');
-        setTipos([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await sectoresAPI.listarTiposTicket(sectorId);
+      setTipos(Array.isArray(data) ? data : []);
+    } catch {
+      setError('Error al cargar tipos de ticket');
+      setTipos([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchTipos();
   }, [sectorId]);
 
@@ -528,10 +538,58 @@ function TabTiposTicket() {
     return Object.keys(schema).length;
   };
 
+  const resetForm = () => {
+    setFormData({ codigo: '', nombre: '', descripcion: '', color: '#3b82f6', schema_campos: '' });
+    setShowForm(false);
+    setError(null);
+  };
+
+  const handleCrear = async (e) => {
+    e.preventDefault();
+    if (!formData.codigo.trim() || !formData.nombre.trim()) {
+      setError('Código y nombre son obligatorios');
+      return;
+    }
+
+    let schemaParsed = {};
+    if (formData.schema_campos.trim()) {
+      try {
+        schemaParsed = JSON.parse(formData.schema_campos);
+      } catch {
+        setError('El JSON de schema_campos no es válido');
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await sectoresAPI.crearTipoTicket(sectorId, {
+        codigo: formData.codigo.trim(),
+        nombre: formData.nombre.trim(),
+        descripcion: formData.descripcion.trim() || null,
+        color: formData.color || null,
+        schema_campos: schemaParsed,
+      });
+      resetForm();
+      fetchTipos();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al crear tipo de ticket');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Tipos de Ticket</h2>
+        {sectorId && (
+          <button className={styles.btnCreate} onClick={() => setShowForm(!showForm)}>
+            <Plus size={14} />
+            Nuevo Tipo
+          </button>
+        )}
       </div>
 
       {error && <div className={`${styles.message} ${styles.messageError}`}>{error}</div>}
@@ -553,15 +611,64 @@ function TabTiposTicket() {
         </select>
       </div>
 
+      {showForm && sectorId && (
+        <form className={styles.inlineForm} onSubmit={handleCrear}>
+          <div className={styles.formRow}>
+            <input
+              className={styles.input}
+              placeholder="Código (ej: bug, consulta)"
+              value={formData.codigo}
+              onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+              required
+            />
+            <input
+              className={styles.input}
+              placeholder="Nombre (ej: Reporte de Bug)"
+              value={formData.nombre}
+              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              required
+            />
+            <input
+              type="color"
+              className={styles.colorInput}
+              value={formData.color}
+              onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+            />
+          </div>
+          <textarea
+            className={styles.textarea}
+            placeholder="Descripción (opcional)"
+            value={formData.descripcion}
+            onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+            rows={2}
+          />
+          <textarea
+            className={styles.textarea}
+            placeholder='Schema de campos dinámicos (JSON, opcional). Ej: {"motivo": {"tipo": "text", "requerido": true, "label": "Motivo"}}'
+            value={formData.schema_campos}
+            onChange={(e) => setFormData({ ...formData, schema_campos: e.target.value })}
+            rows={4}
+          />
+          <div className={styles.formActions}>
+            <button type="submit" className={styles.btnSave} disabled={saving}>
+              {saving ? 'Guardando...' : 'Crear Tipo'}
+            </button>
+            <button type="button" className={styles.btnCancel} onClick={resetForm}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
       {!sectorId ? (
         <div className={styles.emptyState}>Seleccioná un sector para ver sus tipos de ticket</div>
       ) : loading ? (
         <div className={styles.loadingState}>Cargando tipos...</div>
-      ) : tipos.length === 0 ? (
+      ) : tipos.length === 0 && !showForm ? (
         <div className={styles.emptyState}>
           No hay tipos de ticket para este sector
         </div>
-      ) : (
+      ) : tipos.length > 0 ? (
         <div className={styles.tableWrapper}>
           <table className={styles.table}>
             <thead>
@@ -607,7 +714,7 @@ function TabTiposTicket() {
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

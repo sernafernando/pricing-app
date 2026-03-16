@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Ticket } from 'lucide-react';
-import { usePermisos } from '../contexts/PermisosContext';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
 import { ticketsAPI } from '../services/api';
@@ -9,23 +8,23 @@ import styles from './TicketBadge.module.css';
 
 /**
  * TicketBadge - Badge en el TopBar que muestra la cantidad de
- * tickets pendientes de revisión asignados al usuario.
+ * tickets pendientes para el usuario.
  *
- * Solo visible si el usuario tiene permiso 'tickets.ver'.
+ * Visible para TODOS los usuarios logueados:
+ * - Gestores (tickets.ver): cuenta tickets asignados sin revisar
+ * - Usuarios normales: cuenta sus tickets abiertos
+ *
  * Clickeable: navega a /tickets.
  *
  * SSE-driven: re-fetches count when tickets:badge is published.
  * Falls back to 60s polling when SSE is degraded.
  */
 export default function TicketBadge() {
-  const { tienePermiso } = usePermisos();
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const { isDegraded } = useSSE();
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
-
-  const canView = tienePermiso('tickets.ver');
 
   const fetchCount = useCallback(async (options = {}) => {
     const { force = false } = options;
@@ -51,28 +50,27 @@ export default function TicketBadge() {
 
   // Initial fetch
   useEffect(() => {
-    if (!canView) return;
     fetchCount({ force: true });
-  }, [canView, fetchCount]);
+  }, [fetchCount]);
 
   // SSE-driven reload
-  useSSEChannel('tickets:badge', () => fetchCount(), { enabled: canView });
+  useSSEChannel('tickets:badge', () => fetchCount());
 
   // Fallback polling when SSE is degraded
   useEffect(() => {
-    if (!canView || !isDegraded()) return;
+    if (!isDegraded()) return;
 
     const interval = setInterval(() => fetchCount({ force: true }), 60000);
     return () => clearInterval(interval);
-  }, [canView, isDegraded, fetchCount]);
+  }, [isDegraded, fetchCount]);
 
-  if (!canView || loading || count === 0) return null;
+  if (loading || count === 0) return null;
 
   return (
     <Link
       to="/tickets"
       className={styles.badge}
-      title={`${count} ticket${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''} de revisión`}
+      title={`${count} ticket${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''}`}
     >
       <Ticket size={18} className={styles.icon} />
       <span className={styles.count}>{count}</span>
