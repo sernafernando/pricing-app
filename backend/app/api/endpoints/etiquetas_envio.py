@@ -80,6 +80,17 @@ def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
         )
 
 
+def _check_any_permiso(db: Session, user: Usuario, codigos: list[str]) -> None:
+    """Verifica que el usuario tenga AL MENOS UNO de los permisos listados."""
+    for codigo in codigos:
+        if verificar_permiso(db, user, codigo):
+            return
+    raise HTTPException(
+        status_code=403,
+        detail=f"No tenés ninguno de estos permisos: {', '.join(codigos)}",
+    )
+
+
 def _get_lluvia_config(db: Session) -> tuple[str, float]:
     """Lee la configuración de offset por lluvia desde la tabla configuracion.
 
@@ -3118,9 +3129,9 @@ def toggle_flag_envio(
     Los envíos flaggeados se muestran con badge visual en TabEnviosFlex
     y se contabilizan separados en las estadísticas.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.config O seguimiento_envios.flag.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_any_permiso(db, current_user, ["envios_flex.config", "seguimiento_envios.flag"])
 
     if payload.flag_envio and payload.flag_envio not in FLAG_ENVIO_VALIDOS:
         raise HTTPException(
@@ -3170,9 +3181,9 @@ def toggle_flag_envio_masivo(
     """
     Marca o desmarca múltiples etiquetas con un flag en una sola operación.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.config O seguimiento_envios.flag.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_any_permiso(db, current_user, ["envios_flex.config", "seguimiento_envios.flag"])
 
     if payload.flag_envio and payload.flag_envio not in FLAG_ENVIO_VALIDOS:
         raise HTTPException(
@@ -3230,9 +3241,9 @@ def toggle_retornado(
     Marca un envío como retornado (paquete devuelto físicamente a la oficina)
     o lo desmarca. Independiente del sistema de flags.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.config O seguimiento_envios.marcar_retornado.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_any_permiso(db, current_user, ["envios_flex.config", "seguimiento_envios.marcar_retornado"])
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
@@ -3273,9 +3284,9 @@ def toggle_retornado_masivo(
     """
     Marca o desmarca múltiples etiquetas como retornadas en una sola operación.
 
-    Requiere permiso envios_flex.config.
+    Requiere permiso envios_flex.config O seguimiento_envios.marcar_retornado.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_any_permiso(db, current_user, ["envios_flex.config", "seguimiento_envios.marcar_retornado"])
 
     if payload.retornado:
         update_values = {
