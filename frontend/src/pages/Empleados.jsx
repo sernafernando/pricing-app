@@ -232,16 +232,11 @@ export default function Empleados() {
     setSaving(true);
     setFormError(null);
     try {
-      // Limpiar strings vacíos → null para campos opcionales (dates, ints, floats)
-      const cleanData = { ...formData };
-      const nullIfEmpty = [
-        'fecha_nacimiento', 'fecha_ingreso', 'fecha_egreso',
-        'motivo_baja_id', 'latitud', 'longitud',
-      ];
-      for (const key of nullIfEmpty) {
-        if (cleanData[key] === '' || cleanData[key] === undefined) {
-          cleanData[key] = null;
-        }
+      // Limpiar formData antes de enviar al backend
+      const cleanData = {};
+      for (const [key, value] of Object.entries(formData)) {
+        // Convertir strings vacíos a null (Pydantic no parsea '' como date/int/float)
+        cleanData[key] = value === '' ? null : value;
       }
 
       if (editando) {
