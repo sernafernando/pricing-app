@@ -8,7 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
-import BirthdayBadge from './BirthdayBadge';
+
 
 export default function Navbar() {
   const location = useLocation();
@@ -328,7 +328,6 @@ export default function Navbar() {
               </span>
             </div>
           )}
-          <BirthdayBadge />
           <NotificationBell />
           <ThemeToggle />
           <button onClick={handleLogout} className="btn-tesla danger sm">
