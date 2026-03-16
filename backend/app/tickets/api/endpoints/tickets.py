@@ -15,6 +15,7 @@ from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.tickets.models.adjunto_ticket import AdjuntoTicket
+from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
 from app.tickets.models.comentario_ticket import ComentarioTicket
 from app.tickets.models.historial_ticket import HistorialTicket
@@ -308,15 +309,35 @@ async def listar_tickets(
     """
     Lista tickets con filtros opcionales y paginación completa.
 
-    - Usuarios con tickets.ver → ven todos los tickets
-    - Usuarios sin tickets.ver → solo ven los tickets que ellos crearon
+    - Sin tickets.ver → solo ve tickets que creó
+    - Con tickets.ver → ve tickets de sus sectores asignados + los que creó
+    - Con tickets.admin → ve todos los tickets
     """
-    puede_ver_todos = _tiene_permiso(db, current_user, "tickets.ver")
+    puede_ver_sector = _tiene_permiso(db, current_user, "tickets.ver")
+    es_admin = _tiene_permiso(db, current_user, "tickets.admin")
 
     query = db.query(Ticket)
 
-    # Sin tickets.ver, solo puede ver sus propios tickets
-    if not puede_ver_todos:
+    if es_admin:
+        # Admin ve todo
+        pass
+    elif puede_ver_sector:
+        # Ve tickets de sus sectores + los que creó
+        from sqlalchemy import or_
+
+        mis_sectores = (
+            db.query(SectorUsuario.sector_id)
+            .filter(SectorUsuario.usuario_id == current_user.id, SectorUsuario.activo.is_(True))
+            .subquery()
+        )
+        query = query.filter(
+            or_(
+                Ticket.sector_id.in_(mis_sectores),
+                Ticket.creador_id == current_user.id,
+            )
+        )
+    else:
+        # Solo ve sus propios tickets
         query = query.filter(Ticket.creador_id == current_user.id)
 
     # Aplicar filtros
