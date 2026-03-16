@@ -744,8 +744,21 @@ export default function RRHHHorarios() {
                       </td>
                       <td>
                         <div className={styles.empleadoCell}>
-                          <span>{f.empleado_nombre}</span>
-                          <span className={styles.empleadoLegajo}>{f.empleado_legajo}</span>
+                          {f.empleado_nombre ? (
+                            <>
+                              <span>{f.empleado_nombre}</span>
+                              <span className={styles.empleadoLegajo}>{f.empleado_legajo}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className={styles.empleadoSinMapear}>Sin mapear</span>
+                              {f.hikvision_employee_no && (
+                                <span className={styles.empleadoLegajo}>
+                                  Hik #{f.hikvision_employee_no}
+                                </span>
+                              )}
+                            </>
+                          )}
                         </div>
                       </td>
                       <td>

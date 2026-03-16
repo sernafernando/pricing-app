@@ -18,6 +18,9 @@ import {
   Upload,
   Download,
   AlertCircle,
+  Settings,
+  Check,
+  X,
 } from 'lucide-react';
 import styles from './Empleados.module.css';
 
@@ -37,6 +40,10 @@ const ESTADO_COLORS = {
 export default function Empleados() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rrhh.gestionar');
+  const puedeConfig = tienePermiso('rrhh.config');
+
+  // --- Page tab ---
+  const [pageTab, setPageTab] = useState('empleados');
 
   // --- State ---
   const [empleados, setEmpleados] = useState([]);
@@ -79,6 +86,14 @@ export default function Empleados() {
 
   // Modal tab (solo en edición)
   const [modalTab, setModalTab] = useState('datos');
+
+  // --- Tipos de documento CRUD (page tab) ---
+  const [tiposConfig, setTiposConfig] = useState([]);
+  const [loadingTipos, setLoadingTipos] = useState(false);
+  const [tipoForm, setTipoForm] = useState({ nombre: '', descripcion: '', requiere_vencimiento: false });
+  const [editandoTipo, setEditandoTipo] = useState(null);
+  const [savingTipo, setSavingTipo] = useState(false);
+  const [tipoError, setTipoError] = useState(null);
 
   const PAGE_SIZE = 50;
 
@@ -370,6 +385,68 @@ export default function Empleados() {
     return new Date(fechaVenc + 'T23:59:59') < new Date();
   };
 
+  // ── Tipos de documento CRUD ──
+  const cargarTiposConfig = useCallback(async () => {
+    setLoadingTipos(true);
+    try {
+      const { data } = await rrhhAPI.listarTiposDocumento({});
+      setTiposConfig(Array.isArray(data) ? data : []);
+    } catch {
+      setTiposConfig([]);
+    } finally {
+      setLoadingTipos(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pageTab === 'tipos') cargarTiposConfig();
+  }, [pageTab, cargarTiposConfig]);
+
+  const handleTipoSubmit = async () => {
+    if (!tipoForm.nombre.trim()) return;
+    setSavingTipo(true);
+    setTipoError(null);
+    try {
+      if (editandoTipo) {
+        await rrhhAPI.actualizarTipoDocumento(editandoTipo.id, tipoForm);
+      } else {
+        await rrhhAPI.crearTipoDocumento(tipoForm);
+      }
+      setTipoForm({ nombre: '', descripcion: '', requiere_vencimiento: false });
+      setEditandoTipo(null);
+      cargarTiposConfig();
+    } catch (err) {
+      setTipoError(err.response?.data?.detail || 'Error al guardar tipo');
+    } finally {
+      setSavingTipo(false);
+    }
+  };
+
+  const handleEditTipo = (tipo) => {
+    setEditandoTipo(tipo);
+    setTipoForm({
+      nombre: tipo.nombre,
+      descripcion: tipo.descripcion || '',
+      requiere_vencimiento: tipo.requiere_vencimiento,
+    });
+    setTipoError(null);
+  };
+
+  const handleCancelEditTipo = () => {
+    setEditandoTipo(null);
+    setTipoForm({ nombre: '', descripcion: '', requiere_vencimiento: false });
+    setTipoError(null);
+  };
+
+  const handleToggleTipoActivo = async (tipo) => {
+    try {
+      await rrhhAPI.actualizarTipoDocumento(tipo.id, { activo: !tipo.activo });
+      cargarTiposConfig();
+    } catch {
+      setTipoError('Error al cambiar estado');
+    }
+  };
+
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -379,14 +456,135 @@ export default function Empleados() {
           <h1>Empleados</h1>
           <span className={styles.badge}>{total}</span>
         </div>
-        {puedeGestionar && (
-          <button className={styles.btnCreate} onClick={handleNuevo}>
-            <Plus size={16} />
-            Nuevo Empleado
-          </button>
-        )}
+        <div className={styles.headerActions}>
+          {puedeGestionar && pageTab === 'empleados' && (
+            <button className={styles.btnCreate} onClick={handleNuevo}>
+              <Plus size={16} />
+              Nuevo Empleado
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Page tabs */}
+      {puedeConfig && (
+        <div className={styles.pageTabs}>
+          <button
+            className={`${styles.pageTab} ${pageTab === 'empleados' ? styles.pageTabActive : ''}`}
+            onClick={() => setPageTab('empleados')}
+          >
+            <Users size={14} /> Empleados
+          </button>
+          <button
+            className={`${styles.pageTab} ${pageTab === 'tipos' ? styles.pageTabActive : ''}`}
+            onClick={() => setPageTab('tipos')}
+          >
+            <Settings size={14} /> Tipos de Documento
+          </button>
+        </div>
+      )}
+
+      {/* ─── PAGE TAB: Tipos de Documento ─── */}
+      {pageTab === 'tipos' && puedeConfig && (
+        <div className={styles.tiposSection}>
+          {tipoError && <div className={styles.formError}>{tipoError}</div>}
+
+          {/* Create/Edit form */}
+          <div className={styles.tipoFormRow}>
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Nombre del tipo (ej: DNI Frente)"
+              value={tipoForm.nombre}
+              onChange={(e) => setTipoForm({ ...tipoForm, nombre: e.target.value })}
+              maxLength={100}
+            />
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Descripción (opcional)"
+              value={tipoForm.descripcion}
+              onChange={(e) => setTipoForm({ ...tipoForm, descripcion: e.target.value })}
+              maxLength={500}
+            />
+            <label className={styles.tipoCheckLabel}>
+              <input
+                type="checkbox"
+                checked={tipoForm.requiere_vencimiento}
+                onChange={(e) => setTipoForm({ ...tipoForm, requiere_vencimiento: e.target.checked })}
+              />
+              Vence
+            </label>
+            <button
+              className={styles.btnSave}
+              onClick={handleTipoSubmit}
+              disabled={savingTipo || !tipoForm.nombre.trim()}
+            >
+              {savingTipo ? '...' : editandoTipo ? 'Actualizar' : 'Crear'}
+            </button>
+            {editandoTipo && (
+              <button className={styles.btnCancel} onClick={handleCancelEditTipo}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* List */}
+          {loadingTipos ? (
+            <div className={styles.loadingCell}>Cargando tipos...</div>
+          ) : tiposConfig.length === 0 ? (
+            <div className={styles.emptyCell}>No hay tipos de documento configurados</div>
+          ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Descripción</th>
+                    <th>Vencimiento</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tiposConfig.map((t) => (
+                    <tr key={t.id}>
+                      <td><strong>{t.nombre}</strong></td>
+                      <td>{t.descripcion || '-'}</td>
+                      <td>{t.requiere_vencimiento ? 'Sí' : 'No'}</td>
+                      <td>
+                        <span className={`${styles.statusBadge} ${t.activo ? styles.statusActive : styles.statusBaja}`}>
+                          {t.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className={styles.actions}>
+                        <button
+                          className={styles.btnEdit}
+                          onClick={() => handleEditTipo(t)}
+                          title="Editar"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          className={t.activo ? styles.btnDanger : styles.btnEdit}
+                          onClick={() => handleToggleTipoActivo(t)}
+                          title={t.activo ? 'Desactivar' : 'Activar'}
+                        >
+                          {t.activo ? <X size={14} /> : <Check size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── PAGE TAB: Empleados ─── */}
+      {pageTab === 'empleados' && (
+      <>
       {/* Filters */}
       <div className={styles.filters}>
         <div className={styles.searchBox}>
@@ -514,6 +712,9 @@ export default function Empleados() {
         </div>
       )}
 
+      </>
+      )}
+
       {/* Confirm Delete Modal */}
       {confirmDelete && (
         <div className="modal-overlay-tesla" onClick={() => setConfirmDelete(null)}>
@@ -538,6 +739,7 @@ export default function Empleados() {
       )}
 
       {/* Modal */}
+      {/* Modals (always rendered, not inside pageTab conditional) */}
       {modalOpen && (
         <div className="modal-overlay-tesla" onClick={() => setModalOpen(false)}>
           <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
