@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 from app.tickets.models.ticket import Ticket
 from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
 from app.models.usuario import Usuario
-from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.strategies.asignacion import RoundRobinStrategy, CargaBalanceadaStrategy, SkillBasedStrategy
 from app.tickets.events.event_bus import EventBus
 

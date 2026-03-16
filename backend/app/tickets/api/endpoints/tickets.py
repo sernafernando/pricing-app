@@ -32,7 +32,6 @@ from app.tickets.schemas.ticket_schemas import (
     TicketBadgeCount,
     TicketCreate,
     TicketListPaginatedResponse,
-    TicketListResponse,
     TicketResponse,
     TicketUpdate,
     TransicionRequest,
@@ -119,7 +118,7 @@ async def badge_count(
         return TicketBadgeCount(pendientes=pendientes)
 
     # Sub-query: tickets asignados al usuario activamente
-    from sqlalchemy import and_, func
+    from sqlalchemy import func
 
     asignados_ids = (
         db.query(AsignacionTicket.ticket_id)
@@ -127,21 +126,6 @@ async def badge_count(
             AsignacionTicket.asignado_a_id == current_user.id,
             AsignacionTicket.fecha_finalizacion.is_(None),
         )
-        .subquery()
-    )
-
-    # Sub-query: tickets where user has reviewed AFTER last state change
-    # We consider "revisado" = historial entry with accion='revisado' by this user
-    # A ticket is "unreviewed" if there's no such entry, or there's a state change after the last review
-    from sqlalchemy import exists
-
-    reviewed_subq = (
-        db.query(HistorialTicket.ticket_id)
-        .filter(
-            HistorialTicket.accion == "revisado",
-            HistorialTicket.usuario_id == current_user.id,
-        )
-        .correlate(Ticket)
         .subquery()
     )
 
