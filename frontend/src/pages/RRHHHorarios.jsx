@@ -227,7 +227,41 @@ export default function RRHHHorarios() {
     if (activeTab === 'excepciones') cargarExcepciones();
   }, [activeTab, cargarExcepciones]);
 
-  // ── Fetch Hikvision users ──
+  // ── Fetch Hikvision users from LOCAL CACHE (fast, no ISAPI call) ──
+  const cargarHikUsersCache = useCallback(async () => {
+    try {
+      const { data } = await rrhhAPI.listarUsuariosHikvisionCache();
+      setHikUsers(Array.isArray(data) ? data : []);
+    } catch {
+      setHikUsers([]);
+    }
+  }, []);
+
+  // Cargar cache al montar (nombres Hikvision para fichadas + tab mapeo)
+  useEffect(() => {
+    cargarHikUsersCache();
+  }, [cargarHikUsersCache]);
+
+  // ── Fetch Hikvision users from DEVICE (ISAPI call — manual only) ──
+  const [syncingUsers, setSyncingUsers] = useState(false);
+  const [syncUsersResult, setSyncUsersResult] = useState(null);
+
+  const handleSyncHikUsers = async () => {
+    setSyncingUsers(true);
+    setHikError(null);
+    setSyncUsersResult(null);
+    try {
+      const { data } = await rrhhAPI.syncUsuariosHikvision();
+      setSyncUsersResult(data);
+      cargarHikUsersCache();
+    } catch (err) {
+      setHikError(getErrorMessage(err, 'Error al sincronizar con Hikvision'));
+    } finally {
+      setSyncingUsers(false);
+    }
+  };
+
+  // Legacy: cargarHikUsers for tab that needs fresh ISAPI data for mapping
   const cargarHikUsers = useCallback(async () => {
     setLoadingHik(true);
     setHikError(null);
@@ -241,11 +275,6 @@ export default function RRHHHorarios() {
       setLoadingHik(false);
     }
   }, []);
-
-  // Cargar al montar para tener nombres Hikvision disponibles en fichadas
-  useEffect(() => {
-    cargarHikUsers();
-  }, [cargarHikUsers]);
 
   // Mapa employee_no → nombre Hikvision (para fichadas sin mapear)
   const hikNameMap = {};
@@ -1106,13 +1135,28 @@ export default function RRHHHorarios() {
         <>
           <p style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)', marginBottom: 'var(--spacing-md)' }}>
             Vincular usuarios del dispositivo Hikvision con empleados de la app.
-            El mapeo permite sincronizar fichadas automáticamente.
+            Usá &quot;Sync dispositivo&quot; cuando registres un empleado nuevo en el Hikvision.
           </p>
 
           {hikError && <div className={styles.error}>{hikError}</div>}
+          {syncUsersResult && (
+            <div className={styles.syncResultPanel}>
+              Sync completado: {syncUsersResult.total_dispositivo} usuarios en dispositivo,
+              {' '}{syncUsersResult.nuevos} nuevos, {syncUsersResult.actualizados} actualizados.
+            </div>
+          )}
 
           <div className={styles.filters}>
-            <button className={styles.btnRefresh} onClick={cargarHikUsers} title="Refrescar desde dispositivo">
+            <button
+              className={styles.btnCreate}
+              onClick={handleSyncHikUsers}
+              disabled={syncingUsers}
+              title="Consultar dispositivo Hikvision y actualizar cache local"
+            >
+              <RefreshCw size={16} className={syncingUsers ? styles.spinning : ''} />
+              {syncingUsers ? 'Sincronizando...' : 'Sync dispositivo'}
+            </button>
+            <button className={styles.btnRefresh} onClick={cargarHikUsers} title="Refrescar desde dispositivo (ISAPI directo)">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -1120,7 +1164,7 @@ export default function RRHHHorarios() {
           {loadingHik ? (
             <div className={styles.loading}>Conectando con Hikvision...</div>
           ) : hikUsers.length === 0 && !hikError ? (
-            <div className={styles.empty}>No se encontraron usuarios en el dispositivo</div>
+            <div className={styles.empty}>No hay usuarios en cache. Usá &quot;Sync dispositivo&quot; para cargar.</div>
           ) : (
             <div className={styles.tableContainer}>
               <table className={styles.table}>
