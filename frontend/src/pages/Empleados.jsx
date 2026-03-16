@@ -232,10 +232,22 @@ export default function Empleados() {
     setSaving(true);
     setFormError(null);
     try {
+      // Limpiar strings vacíos → null para campos opcionales (dates, ints, floats)
+      const cleanData = { ...formData };
+      const nullIfEmpty = [
+        'fecha_nacimiento', 'fecha_ingreso', 'fecha_egreso',
+        'motivo_baja_id', 'latitud', 'longitud',
+      ];
+      for (const key of nullIfEmpty) {
+        if (cleanData[key] === '' || cleanData[key] === undefined) {
+          cleanData[key] = null;
+        }
+      }
+
       if (editando) {
-        await rrhhAPI.actualizarEmpleado(editando.id, formData);
+        await rrhhAPI.actualizarEmpleado(editando.id, cleanData);
       } else {
-        await rrhhAPI.crearEmpleado(formData);
+        await rrhhAPI.crearEmpleado(cleanData);
       }
       setModalOpen(false);
       cargarEmpleados();
