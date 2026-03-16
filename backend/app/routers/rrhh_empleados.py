@@ -107,7 +107,16 @@ class EmpleadoUpdate(BaseModel):
     dni: Optional[str] = Field(default=None, max_length=20)
     cuil: Optional[str] = Field(default=None, max_length=20)
     fecha_nacimiento: Optional[date] = None
+    calle: Optional[str] = Field(default=None, max_length=200)
+    numero: Optional[str] = Field(default=None, max_length=20)
+    piso_depto: Optional[str] = Field(default=None, max_length=50)
+    entre_calles: Optional[str] = Field(default=None, max_length=200)
+    localidad: Optional[str] = Field(default=None, max_length=100)
+    provincia: Optional[str] = Field(default=None, max_length=100)
+    codigo_postal: Optional[str] = Field(default=None, max_length=20)
     domicilio: Optional[str] = Field(default=None, max_length=500)
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
     telefono: Optional[str] = Field(default=None, max_length=50)
     email_personal: Optional[str] = Field(default=None, max_length=255)
     contacto_emergencia: Optional[str] = Field(default=None, max_length=255)
@@ -133,7 +142,16 @@ class EmpleadoResponse(BaseModel):
     dni: str
     cuil: Optional[str] = None
     fecha_nacimiento: Optional[date] = None
+    calle: Optional[str] = None
+    numero: Optional[str] = None
+    piso_depto: Optional[str] = None
+    entre_calles: Optional[str] = None
+    localidad: Optional[str] = None
+    provincia: Optional[str] = None
+    codigo_postal: Optional[str] = None
     domicilio: Optional[str] = None
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
     telefono: Optional[str] = None
     email_personal: Optional[str] = None
     contacto_emergencia: Optional[str] = None
@@ -1101,3 +1119,86 @@ def actualizar_motivo_baja(
     db.commit()
     db.refresh(motivo)
     return motivo
+
+
+# ═══════════════════════════════════════════════
+# ENDPOINTS — Geocodificación de dirección
+# ═══════════════════════════════════════════════
+
+
+@router.post(
+    "/empleados/{empleado_id}/geocodificar",
+    summary="Geocodificar la dirección del empleado",
+)
+async def geocodificar_empleado(
+    empleado_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Geocodifica la dirección del empleado usando Mapbox (con cache).
+
+    Arma la dirección a partir de los campos estructurados
+    (calle, numero, localidad, provincia, CP) y la geocodifica.
+    Guarda lat/lng en el empleado.
+    """
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.gestionar"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.gestionar")
+
+    empleado = db.query(RRHHEmpleado).filter(RRHHEmpleado.id == empleado_id).first()
+    if not empleado:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+
+    # Armar dirección completa desde campos estructurados
+    partes = []
+    if empleado.calle:
+        dir_str = str(empleado.calle)
+        if empleado.numero:
+            dir_str += f" {empleado.numero}"
+        partes.append(dir_str)
+    if empleado.localidad:
+        partes.append(str(empleado.localidad))
+    if empleado.provincia:
+        partes.append(str(empleado.provincia))
+
+    if not partes:
+        if empleado.domicilio:
+            partes.append(str(empleado.domicilio))
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="El empleado no tiene dirección cargada",
+            )
+
+    direccion_completa = ", ".join(partes)
+    ciudad = str(empleado.localidad) if empleado.localidad else "Buenos Aires"
+    zip_code = str(empleado.codigo_postal) if empleado.codigo_postal else None
+
+    from app.services.geocoding_service import geocode_address
+
+    coords = await geocode_address(
+        direccion=direccion_completa,
+        ciudad=ciudad,
+        pais="Argentina",
+        zip_code=zip_code,
+        db=db,
+        usar_cache=True,
+    )
+
+    if not coords:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No se pudo geocodificar: {direccion_completa}",
+        )
+
+    lat, lng = coords
+    empleado.latitud = lat
+    empleado.longitud = lng
+    db.commit()
+
+    return {
+        "latitud": float(lat),
+        "longitud": float(lng),
+        "direccion_geocodificada": direccion_completa,
+    }

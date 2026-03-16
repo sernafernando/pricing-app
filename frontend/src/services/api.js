@@ -172,6 +172,10 @@ export const rrhhAPI = {
   crearTipoDocumento: (data) => api.post('/rrhh/tipos-documento', data),
   actualizarTipoDocumento: (id, data) => api.put(`/rrhh/tipos-documento/${id}`, data),
 
+  // Geocodificación empleado
+  geocodificarEmpleado: (empleadoId) =>
+    api.post(`/rrhh/empleados/${empleadoId}/geocodificar`),
+
   // Motivos de baja
   listarMotivosBaja: (params) => api.get('/rrhh/motivos-baja', { params }),
   crearMotivoBaja: (data) => api.post('/rrhh/motivos-baja', data),

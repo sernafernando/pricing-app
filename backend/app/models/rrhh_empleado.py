@@ -14,6 +14,7 @@ import enum
 from sqlalchemy import (
     Column,
     Integer,
+    Numeric,
     String,
     Boolean,
     Date,
@@ -53,7 +54,18 @@ class RRHHEmpleado(Base):
     dni = Column(String(20), unique=True, nullable=False, index=True)
     cuil = Column(String(20), nullable=True, index=True)
     fecha_nacimiento = Column(Date, nullable=True)
-    domicilio = Column(String(500), nullable=True)
+    # --- Dirección estructurada ---
+    calle = Column(String(200), nullable=True)
+    numero = Column(String(20), nullable=True)
+    piso_depto = Column(String(50), nullable=True)
+    entre_calles = Column(String(200), nullable=True)
+    localidad = Column(String(100), nullable=True)
+    provincia = Column(String(100), nullable=True)
+    codigo_postal = Column(String(20), nullable=True)
+    domicilio = Column(String(500), nullable=True)  # legacy + texto libre completo
+    latitud = Column(Numeric(10, 8), nullable=True)
+    longitud = Column(Numeric(11, 8), nullable=True)
+
     telefono = Column(String(50), nullable=True)
     email_personal = Column(String(255), nullable=True)
     contacto_emergencia = Column(String(255), nullable=True)
