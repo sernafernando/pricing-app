@@ -242,9 +242,16 @@ export default function RRHHHorarios() {
     }
   }, []);
 
+  // Cargar al montar para tener nombres Hikvision disponibles en fichadas
   useEffect(() => {
-    if (activeTab === 'hikvision') cargarHikUsers();
-  }, [activeTab, cargarHikUsers]);
+    cargarHikUsers();
+  }, [cargarHikUsers]);
+
+  // Mapa employee_no → nombre Hikvision (para fichadas sin mapear)
+  const hikNameMap = {};
+  for (const u of hikUsers) {
+    if (u.employee_no && u.name) hikNameMap[u.employee_no] = u.name;
+  }
 
   // ── Handler: Fichada manual ──
   const handleOpenFichadaModal = () => {
@@ -751,7 +758,11 @@ export default function RRHHHorarios() {
                             </>
                           ) : (
                             <>
-                              <span className={styles.empleadoSinMapear}>Sin mapear</span>
+                              <span className={styles.empleadoSinMapear}>
+                                {f.hikvision_employee_no && hikNameMap[f.hikvision_employee_no]
+                                  ? hikNameMap[f.hikvision_employee_no]
+                                  : 'Sin mapear'}
+                              </span>
                               {f.hikvision_employee_no && (
                                 <span className={styles.empleadoLegajo}>
                                   Hik #{f.hikvision_employee_no}
