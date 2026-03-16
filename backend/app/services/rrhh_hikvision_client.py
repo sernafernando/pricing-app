@@ -284,6 +284,9 @@ class HikvisionClient:
         duplicadas = 0
         sin_empleado = 0
         errores = 0
+        # Track serialNos ya vistos en este batch (el dispositivo puede devolver
+        # eventos duplicados con distinto major/minor pero mismo serialNo)
+        seen_serial_nos: set[str] = set()
 
         for event in events:
             try:
@@ -292,11 +295,16 @@ class HikvisionClient:
                     errores += 1
                     continue
 
-                # Check dedup
+                # Check dedup: en memoria (batch actual) + en DB (batches previos)
+                if serial_no in seen_serial_nos:
+                    duplicadas += 1
+                    continue
                 existing = self.db.query(RRHHFichada).filter(RRHHFichada.event_id == serial_no).first()
                 if existing:
                     duplicadas += 1
+                    seen_serial_nos.add(serial_no)
                     continue
+                seen_serial_nos.add(serial_no)
 
                 # Map employee (puede ser None si no está mapeado aún)
                 employee_no = str(event.get("employeeNoString", ""))
