@@ -87,6 +87,9 @@ export default function Empleados() {
   // Modal tab (solo en edición)
   const [modalTab, setModalTab] = useState('datos');
 
+  // --- Motivos de baja ---
+  const [motivosBaja, setMotivosBaja] = useState([]);
+
   // --- Tipos de documento CRUD (page tab) ---
   const [tiposConfig, setTiposConfig] = useState([]);
   const [loadingTipos, setLoadingTipos] = useState(false);
@@ -94,6 +97,14 @@ export default function Empleados() {
   const [editandoTipo, setEditandoTipo] = useState(null);
   const [savingTipo, setSavingTipo] = useState(false);
   const [tipoError, setTipoError] = useState(null);
+
+  // --- Motivos de baja CRUD (page tab) ---
+  const [motivosConfig, setMotivosConfig] = useState([]);
+  const [loadingMotivos, setLoadingMotivos] = useState(false);
+  const [motivoForm, setMotivoForm] = useState({ nombre: '', descripcion: '', requiere_documentacion: false });
+  const [editandoMotivo, setEditandoMotivo] = useState(null);
+  const [savingMotivo, setSavingMotivo] = useState(false);
+  const [motivoError, setMotivoError] = useState(null);
 
   const PAGE_SIZE = 50;
 
@@ -168,6 +179,8 @@ export default function Empleados() {
       puesto: emp.puesto || '',
       area: emp.area || '',
       estado: emp.estado || 'activo',
+      motivo_baja_id: emp.motivo_baja_id || null,
+      detalle_baja: emp.detalle_baja || '',
       telefono: emp.telefono || '',
       email_personal: emp.email_personal || '',
       domicilio: emp.domicilio || '',
@@ -311,6 +324,21 @@ export default function Empleados() {
     }
   }, [modalOpen, editando, modalTab, cargarDocumentos]);
 
+  // Load motivos de baja when baja tab opens
+  useEffect(() => {
+    if (modalOpen && editando && modalTab === 'baja') {
+      const fetchMotivos = async () => {
+        try {
+          const { data } = await rrhhAPI.listarMotivosBaja({ activo: true });
+          setMotivosBaja(Array.isArray(data) ? data : []);
+        } catch {
+          setMotivosBaja([]);
+        }
+      };
+      fetchMotivos();
+    }
+  }, [modalOpen, editando, modalTab]);
+
   // Reset modal tab when opening
   useEffect(() => {
     if (modalOpen) {
@@ -447,6 +475,68 @@ export default function Empleados() {
     }
   };
 
+  // ── Motivos de baja CRUD ──
+  const cargarMotivosConfig = useCallback(async () => {
+    setLoadingMotivos(true);
+    try {
+      const { data } = await rrhhAPI.listarMotivosBaja({});
+      setMotivosConfig(Array.isArray(data) ? data : []);
+    } catch {
+      setMotivosConfig([]);
+    } finally {
+      setLoadingMotivos(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pageTab === 'motivos') cargarMotivosConfig();
+  }, [pageTab, cargarMotivosConfig]);
+
+  const handleMotivoSubmit = async () => {
+    if (!motivoForm.nombre.trim()) return;
+    setSavingMotivo(true);
+    setMotivoError(null);
+    try {
+      if (editandoMotivo) {
+        await rrhhAPI.actualizarMotivoBaja(editandoMotivo.id, motivoForm);
+      } else {
+        await rrhhAPI.crearMotivoBaja(motivoForm);
+      }
+      setMotivoForm({ nombre: '', descripcion: '', requiere_documentacion: false });
+      setEditandoMotivo(null);
+      cargarMotivosConfig();
+    } catch (err) {
+      setMotivoError(err.response?.data?.detail || 'Error al guardar motivo');
+    } finally {
+      setSavingMotivo(false);
+    }
+  };
+
+  const handleEditMotivo = (m) => {
+    setEditandoMotivo(m);
+    setMotivoForm({
+      nombre: m.nombre,
+      descripcion: m.descripcion || '',
+      requiere_documentacion: m.requiere_documentacion,
+    });
+    setMotivoError(null);
+  };
+
+  const handleCancelEditMotivo = () => {
+    setEditandoMotivo(null);
+    setMotivoForm({ nombre: '', descripcion: '', requiere_documentacion: false });
+    setMotivoError(null);
+  };
+
+  const handleToggleMotivoActivo = async (m) => {
+    try {
+      await rrhhAPI.actualizarMotivoBaja(m.id, { activo: !m.activo });
+      cargarMotivosConfig();
+    } catch {
+      setMotivoError('Error al cambiar estado');
+    }
+  };
+
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -480,6 +570,12 @@ export default function Empleados() {
             onClick={() => setPageTab('tipos')}
           >
             <Settings size={14} /> Tipos de Documento
+          </button>
+          <button
+            className={`${styles.pageTab} ${pageTab === 'motivos' ? styles.pageTabActive : ''}`}
+            onClick={() => setPageTab('motivos')}
+          >
+            <Settings size={14} /> Motivos de Baja
           </button>
         </div>
       )}
@@ -571,6 +667,102 @@ export default function Empleados() {
                           title={t.activo ? 'Desactivar' : 'Activar'}
                         >
                           {t.activo ? <X size={14} /> : <Check size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── PAGE TAB: Motivos de Baja ─── */}
+      {pageTab === 'motivos' && puedeConfig && (
+        <div className={styles.tiposSection}>
+          {motivoError && <div className={styles.formError}>{motivoError}</div>}
+
+          <div className={styles.tipoFormRow}>
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Nombre del motivo (ej: Renuncia)"
+              value={motivoForm.nombre}
+              onChange={(e) => setMotivoForm({ ...motivoForm, nombre: e.target.value })}
+              maxLength={100}
+            />
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Descripción (opcional)"
+              value={motivoForm.descripcion}
+              onChange={(e) => setMotivoForm({ ...motivoForm, descripcion: e.target.value })}
+              maxLength={500}
+            />
+            <label className={styles.tipoCheckLabel}>
+              <input
+                type="checkbox"
+                checked={motivoForm.requiere_documentacion}
+                onChange={(e) => setMotivoForm({ ...motivoForm, requiere_documentacion: e.target.checked })}
+              />
+              Req. doc
+            </label>
+            <button
+              className={styles.btnSave}
+              onClick={handleMotivoSubmit}
+              disabled={savingMotivo || !motivoForm.nombre.trim()}
+            >
+              {savingMotivo ? '...' : editandoMotivo ? 'Actualizar' : 'Crear'}
+            </button>
+            {editandoMotivo && (
+              <button className={styles.btnCancel} onClick={handleCancelEditMotivo}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {loadingMotivos ? (
+            <div className={styles.loadingCell}>Cargando motivos...</div>
+          ) : motivosConfig.length === 0 ? (
+            <div className={styles.emptyCell}>No hay motivos de baja configurados</div>
+          ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Descripción</th>
+                    <th>Req. Doc</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {motivosConfig.map((m) => (
+                    <tr key={m.id}>
+                      <td><strong>{m.nombre}</strong></td>
+                      <td>{m.descripcion || '-'}</td>
+                      <td>{m.requiere_documentacion ? 'Sí' : 'No'}</td>
+                      <td>
+                        <span className={`${styles.statusBadge} ${m.activo ? styles.statusActive : styles.statusBaja}`}>
+                          {m.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className={styles.actions}>
+                        <button
+                          className={styles.btnEdit}
+                          onClick={() => handleEditMotivo(m)}
+                          title="Editar"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          className={m.activo ? styles.btnDanger : styles.btnEdit}
+                          onClick={() => handleToggleMotivoActivo(m)}
+                          title={m.activo ? 'Desactivar' : 'Activar'}
+                        >
+                          {m.activo ? <X size={14} /> : <Check size={14} />}
                         </button>
                       </td>
                     </tr>
@@ -771,6 +963,12 @@ export default function Empleados() {
                   {documentos.length > 0 && (
                     <span className={styles.tabBadge}>{documentos.length}</span>
                   )}
+                </button>
+                <button
+                  className={`${styles.modalTab} ${modalTab === 'baja' ? styles.modalTabActive : ''} ${editando?.estado === 'baja' ? styles.modalTabBaja : ''}`}
+                  onClick={() => setModalTab('baja')}
+                >
+                  <AlertCircle size={14} /> Baja
                 </button>
               </div>
             )}
@@ -1100,6 +1298,75 @@ export default function Empleados() {
                 </div>
               )}
 
+              {/* ─── TAB: Baja ─── */}
+              {editando && modalTab === 'baja' && (
+                <div className={styles.bajaSection}>
+                  {formError && <div className={styles.formError}>{formError}</div>}
+
+                  <div className={styles.bajaGrid}>
+                    <div className={styles.formGroup}>
+                      <label>Estado</label>
+                      <select
+                        className={styles.select}
+                        value={formData.estado}
+                        onChange={(e) => handleField('estado', e.target.value)}
+                        disabled={!puedeGestionar}
+                      >
+                        <option value="activo">Activo</option>
+                        <option value="licencia">Licencia</option>
+                        <option value="baja">Baja</option>
+                      </select>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label>Fecha de Egreso</label>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={formData.fecha_egreso || ''}
+                        onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
+                        disabled={!puedeGestionar}
+                      />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label>Motivo de Baja</label>
+                      <select
+                        className={styles.select}
+                        value={formData.motivo_baja_id || ''}
+                        onChange={(e) => handleField('motivo_baja_id', e.target.value ? parseInt(e.target.value, 10) : null)}
+                        disabled={!puedeGestionar}
+                      >
+                        <option value="">Sin motivo</option>
+                        {motivosBaja.map((m) => (
+                          <option key={m.id} value={m.id}>{m.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                      <label>Detalle / Observaciones de la Baja</label>
+                      <textarea
+                        className={styles.textarea}
+                        value={formData.detalle_baja || ''}
+                        onChange={(e) => handleField('detalle_baja', e.target.value)}
+                        rows={4}
+                        disabled={!puedeGestionar}
+                        placeholder="Detalles adicionales sobre la baja, acuerdos, etc."
+                      />
+                    </div>
+                  </div>
+
+                  {formData.estado === 'baja' && (
+                    <p className={styles.bajaNote}>
+                      <AlertCircle size={14} />
+                      Recordá adjuntar la documentación de la baja en el tab Documentos
+                      (telegrama, acta, acuerdo, etc.)
+                    </p>
+                  )}
+                </div>
+              )}
+
             </div>
 
             <div className="modal-footer-tesla">
@@ -1107,9 +1374,9 @@ export default function Empleados() {
                 className={styles.btnCancel}
                 onClick={() => setModalOpen(false)}
               >
-                {editando && modalTab !== 'datos' ? 'Cerrar' : 'Cancelar'}
+                {editando && modalTab !== 'datos' && modalTab !== 'baja' ? 'Cerrar' : 'Cancelar'}
               </button>
-              {(modalTab === 'datos' || !editando) && (
+              {(modalTab === 'datos' || modalTab === 'baja' || !editando) && (
                 <button
                   className={styles.btnSave}
                   onClick={handleGuardar}

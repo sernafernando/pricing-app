@@ -95,6 +95,7 @@ from app.models.rrhh_fichada import RRHHFichada, OrigenFichada, TipoFichada
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
 from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_hikvision_user import RRHHHikvisionUser
+from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 
 __all__ = [
     "ProductoERP",
@@ -213,4 +214,5 @@ __all__ = [
     "RRHHHorarioExcepcion",
     "RRHHEmpleadoHorario",
     "RRHHHikvisionUser",
+    "RRHHMotivoBaja",
 ]

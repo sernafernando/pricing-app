@@ -26,6 +26,7 @@ from app.core.deps import get_current_user
 from app.models.rrhh_documento import RRHHDocumento
 from app.models.rrhh_empleado import EstadoEmpleado, RRHHEmpleado
 from app.models.rrhh_legajo_historial import RRHHLegajoHistorial
+from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 from app.models.rrhh_schema_legajo import RRHHSchemaLegajo
 from app.models.rrhh_tipo_documento import RRHHTipoDocumento
 from app.models.usuario import Usuario
@@ -117,6 +118,8 @@ class EmpleadoUpdate(BaseModel):
     puesto: Optional[str] = Field(default=None, max_length=100)
     area: Optional[str] = Field(default=None, max_length=100)
     estado: Optional[str] = Field(default=None, max_length=20)
+    motivo_baja_id: Optional[int] = None
+    detalle_baja: Optional[str] = None
     usuario_id: Optional[int] = None
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
@@ -141,6 +144,9 @@ class EmpleadoResponse(BaseModel):
     puesto: Optional[str] = None
     area: Optional[str] = None
     estado: str
+    motivo_baja_id: Optional[int] = None
+    motivo_baja_nombre: Optional[str] = None
+    detalle_baja: Optional[str] = None
     usuario_id: Optional[int] = None
     hikvision_employee_no: Optional[str] = None
     foto_path: Optional[str] = None
@@ -178,6 +184,36 @@ class DocumentoResponse(BaseModel):
     numero_documento: Optional[str] = None
     subido_por_id: int
     subido_por_nombre: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ──────────────────────────────────────────────
+# SCHEMAS — Motivos de baja
+# ──────────────────────────────────────────────
+
+
+class MotivoBajaCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+    descripcion: Optional[str] = Field(default=None, max_length=500)
+    requiere_documentacion: bool = False
+
+
+class MotivoBajaUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, max_length=100)
+    descripcion: Optional[str] = Field(default=None, max_length=500)
+    requiere_documentacion: Optional[bool] = None
+    activo: Optional[bool] = None
+
+
+class MotivoBajaResponse(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+    requiere_documentacion: bool
+    activo: bool
+    orden: int
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -323,10 +359,23 @@ def listar_empleados(
 
     total = query.count()
     offset = (page - 1) * page_size
-    empleados = query.order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre).offset(offset).limit(page_size).all()
+    empleados = (
+        query.options(selectinload(RRHHEmpleado.motivo_baja))
+        .order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre)
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    items = []
+    for e in empleados:
+        resp = EmpleadoResponse.model_validate(e)
+        if e.motivo_baja:
+            resp.motivo_baja_nombre = e.motivo_baja.nombre
+        items.append(resp)
 
     return EmpleadoListResponse(
-        items=[EmpleadoResponse.model_validate(e) for e in empleados],
+        items=items,
         total=total,
         page=page,
         page_size=page_size,
@@ -346,13 +395,16 @@ def obtener_empleado(
 
     empleado = (
         db.query(RRHHEmpleado)
-        .options(selectinload(RRHHEmpleado.documentos))
+        .options(selectinload(RRHHEmpleado.documentos), selectinload(RRHHEmpleado.motivo_baja))
         .filter(RRHHEmpleado.id == empleado_id)
         .first()
     )
     if not empleado:
         raise HTTPException(status_code=404, detail="Empleado no encontrado")
-    return EmpleadoResponse.model_validate(empleado)
+    resp = EmpleadoResponse.model_validate(empleado)
+    if empleado.motivo_baja:
+        resp.motivo_baja_nombre = empleado.motivo_baja.nombre
+    return resp
 
 
 @router.post(
@@ -971,3 +1023,81 @@ def listar_historial(
         resp.usuario_nombre = h.usuario.nombre if h.usuario else None
         result.append(resp)
     return result
+
+
+# ═══════════════════════════════════════════════
+# ENDPOINTS — Motivos de baja
+# ═══════════════════════════════════════════════
+
+
+@router.get("/motivos-baja", response_model=list[MotivoBajaResponse])
+def listar_motivos_baja(
+    activo: Optional[bool] = Query(default=None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[MotivoBajaResponse]:
+    """Lista motivos de baja. Requiere rrhh.ver."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    query = db.query(RRHHMotivoBaja)
+    if activo is not None:
+        query = query.filter(RRHHMotivoBaja.activo == activo)
+    return query.order_by(RRHHMotivoBaja.orden, RRHHMotivoBaja.nombre).all()
+
+
+@router.post(
+    "/motivos-baja",
+    response_model=MotivoBajaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_motivo_baja(
+    data: MotivoBajaCreate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MotivoBajaResponse:
+    """Crea un motivo de baja. Requiere rrhh.config."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    existing = db.query(RRHHMotivoBaja).filter(RRHHMotivoBaja.nombre == data.nombre).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Ya existe el motivo '{data.nombre}'")
+
+    motivo = RRHHMotivoBaja(**data.model_dump())
+    db.add(motivo)
+    db.commit()
+    db.refresh(motivo)
+    return motivo
+
+
+@router.put("/motivos-baja/{motivo_id}", response_model=MotivoBajaResponse)
+def actualizar_motivo_baja(
+    motivo_id: int,
+    data: MotivoBajaUpdate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MotivoBajaResponse:
+    """Actualiza un motivo de baja. Requiere rrhh.config."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    motivo = db.query(RRHHMotivoBaja).filter(RRHHMotivoBaja.id == motivo_id).first()
+    if not motivo:
+        raise HTTPException(status_code=404, detail="Motivo no encontrado")
+
+    update_data = data.model_dump(exclude_unset=True)
+    if "nombre" in update_data and update_data["nombre"] != motivo.nombre:
+        dup = db.query(RRHHMotivoBaja).filter(RRHHMotivoBaja.nombre == update_data["nombre"]).first()
+        if dup:
+            raise HTTPException(status_code=400, detail=f"Ya existe el motivo '{update_data['nombre']}'")
+
+    for key, value in update_data.items():
+        setattr(motivo, key, value)
+
+    db.commit()
+    db.refresh(motivo)
+    return motivo
