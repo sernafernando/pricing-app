@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -101,6 +101,13 @@ class EmpleadoCreate(BaseModel):
     hikvision_employee_no: Optional[str] = Field(default=None, max_length=20)
 
 
+def _empty_to_none(v: object) -> object:
+    """Convierte '' a None (el frontend manda strings vacíos para campos no completados)."""
+    if v == "":
+        return None
+    return v
+
+
 class EmpleadoUpdate(BaseModel):
     nombre: Optional[str] = Field(default=None, max_length=100)
     apellido: Optional[str] = Field(default=None, max_length=100)
@@ -133,6 +140,14 @@ class EmpleadoUpdate(BaseModel):
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
     hikvision_employee_no: Optional[str] = Field(default=None, max_length=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def empty_strings_to_none(cls, data: dict) -> dict:
+        """El frontend manda '' para campos vacíos. Pydantic no los parsea como date/int/float."""
+        if isinstance(data, dict):
+            return {k: _empty_to_none(v) for k, v in data.items()}
+        return data
 
 
 class EmpleadoResponse(BaseModel):

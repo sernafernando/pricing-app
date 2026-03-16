@@ -232,10 +232,17 @@ export default function Empleados() {
     setSaving(true);
     setFormError(null);
     try {
+      // Limpiar formData antes de enviar al backend
+      const cleanData = {};
+      for (const [key, value] of Object.entries(formData)) {
+        // Convertir strings vacíos a null (Pydantic no parsea '' como date/int/float)
+        cleanData[key] = value === '' ? null : value;
+      }
+
       if (editando) {
-        await rrhhAPI.actualizarEmpleado(editando.id, formData);
+        await rrhhAPI.actualizarEmpleado(editando.id, cleanData);
       } else {
-        await rrhhAPI.crearEmpleado(formData);
+        await rrhhAPI.crearEmpleado(cleanData);
       }
       setModalOpen(false);
       cargarEmpleados();
