@@ -1155,14 +1155,6 @@ export default function Empleados() {
                       />
                     </div>
                     <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
-                      <label>Domicilio</label>
-                      <input
-                        className={styles.input}
-                        value={formData.domicilio}
-                        onChange={(e) => handleField('domicilio', e.target.value)}
-                      />
-                    </div>
-                    <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
                       <label>Observaciones</label>
                       <textarea
                         className={styles.textarea}
