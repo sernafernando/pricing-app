@@ -170,6 +170,7 @@ export default function Empleados() {
       dni: '',
       cuil: '',
       legajo: '',
+      fecha_nacimiento: '',
       fecha_ingreso: new Date().toISOString().split('T')[0],
       fecha_egreso: '',
       puesto: '',
@@ -201,6 +202,7 @@ export default function Empleados() {
       dni: emp.dni || '',
       cuil: emp.cuil || '',
       legajo: emp.legajo || '',
+      fecha_nacimiento: emp.fecha_nacimiento || '',
       fecha_ingreso: emp.fecha_ingreso || '',
       fecha_egreso: emp.fecha_egreso || '',
       puesto: emp.puesto || '',
@@ -1087,6 +1089,15 @@ export default function Empleados() {
                         className={styles.input}
                         value={formData.legajo}
                         onChange={(e) => handleField('legajo', e.target.value)}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Fecha Nacimiento</label>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={formData.fecha_nacimiento}
+                        onChange={(e) => handleField('fecha_nacimiento', e.target.value)}
                       />
                     </div>
                     <div className={styles.formGroup}>
