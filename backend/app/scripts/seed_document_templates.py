@@ -31,6 +31,7 @@ def _text(name, x, y, w, h, **kwargs):
     field = {
         "name": name,
         "type": "text",
+        "content": kwargs.get("content", ""),
         "position": {"x": x, "y": y},
         "width": w,
         "height": h,
@@ -43,20 +44,27 @@ def _text(name, x, y, w, h, **kwargs):
         field["fontName"] = "Arial Bold"
     if kwargs.get("backgroundColor"):
         field["backgroundColor"] = kwargs["backgroundColor"]
+    if kwargs.get("readOnly"):
+        field["readOnly"] = True
     return field
+
+
+def _label(name, x, y, w, h, text, **kwargs):
+    """Helper para un label estático (readOnly, con content fijo)."""
+    return _text(name, x, y, w, h, content=text, readOnly=True, **kwargs)
 
 
 def _header_block(title, y_start=MARGIN):
     """Bloque de encabezado reutilizable: título + fecha."""
     y = y_start
     fields = [
-        # Título del documento
-        _text(
+        _label(
             "__titulo__",
             MARGIN,
             y,
             CONTENT_W,
             12,
+            title,
             fontSize=18,
             bold=True,
             alignment="center",
@@ -102,12 +110,13 @@ def _firma_block(y_start, labels=None):
         )
         # Label bajo la línea
         fields.append(
-            _text(
+            _label(
                 f"__firma_label_{i}__",
                 x + 10,
                 y_start + 1,
                 col_w - 20,
                 6,
+                label,
                 fontSize=8,
                 alignment="center",
                 fontColor="#666666",
@@ -121,53 +130,55 @@ def _firma_block(y_start, labels=None):
 # =============================================================================
 def template_pedidos():
     fields = []
-    # Header
     header, y = _header_block("REMITO DE PEDIDO")
     fields.extend(header)
 
-    # Nro pedido + fecha
     y += 2
-    fields.append(_text("pedido_id", MARGIN, y, 60, 8, bold=True, fontSize=12))
-    fields.append(_text("fecha_pedido", MARGIN + 120, y, 60, 8, alignment="right"))
+    fields.append(_text("pedido_id", MARGIN, y, 60, 8, content="Nro. Pedido", bold=True, fontSize=12))
+    fields.append(_text("fecha_pedido", MARGIN + 120, y, 60, 8, content="dd/mm/aaaa", alignment="right"))
     y += 12
 
     # Sección cliente
-    fields.append(_text("__sec_cliente__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_cliente__", MARGIN, y, 60, 7, "CLIENTE", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("cliente_nombre", MARGIN, y, CONTENT_W, 7, bold=True, fontSize=11))
+    fields.append(
+        _text("cliente_nombre", MARGIN, y, CONTENT_W, 7, content="Nombre del cliente", bold=True, fontSize=11)
+    )
     y += 8
-    fields.append(_text("cliente_cuit", MARGIN, y, 90, 6))
-    fields.append(_text("cliente_telefono", MARGIN + 90, y, 90, 6))
+    fields.append(_text("cliente_cuit", MARGIN, y, 90, 6, content="CUIT"))
+    fields.append(_text("cliente_telefono", MARGIN + 90, y, 90, 6, content="Teléfono"))
     y += 7
-    fields.append(_text("cliente_direccion", MARGIN, y, CONTENT_W, 6))
+    fields.append(_text("cliente_direccion", MARGIN, y, CONTENT_W, 6, content="Dirección"))
     y += 7
-    fields.append(_text("cliente_ciudad", MARGIN, y, 60, 6))
-    fields.append(_text("cliente_cp", MARGIN + 60, y, 30, 6))
-    fields.append(_text("cliente_email", MARGIN + 100, y, 80, 6))
+    fields.append(_text("cliente_ciudad", MARGIN, y, 60, 6, content="Ciudad"))
+    fields.append(_text("cliente_cp", MARGIN + 60, y, 30, 6, content="CP"))
+    fields.append(_text("cliente_email", MARGIN + 100, y, 80, 6, content="Email"))
     y += 10
 
     # Sección envío
-    fields.append(_text("__sec_envio__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_envio__", MARGIN, y, 60, 7, "ENVÍO", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("destinatario", MARGIN, y, 90, 7, bold=True))
-    fields.append(_text("bultos", MARGIN + 130, y, 50, 7, alignment="right", bold=True, fontSize=12))
+    fields.append(_text("destinatario", MARGIN, y, 90, 7, content="Destinatario", bold=True))
+    fields.append(_text("bultos", MARGIN + 130, y, 50, 7, content="0", alignment="right", bold=True, fontSize=12))
     y += 8
-    fields.append(_text("direccion_envio", MARGIN, y, CONTENT_W, 6))
+    fields.append(_text("direccion_envio", MARGIN, y, CONTENT_W, 6, content="Dirección de envío"))
     y += 8
-    fields.append(_text("ml_id", MARGIN, y, 90, 6, fontSize=9))
-    fields.append(_text("ml_guia", MARGIN + 90, y, 90, 6, fontSize=9))
+    fields.append(_text("ml_id", MARGIN, y, 90, 6, content="ML ID", fontSize=9))
+    fields.append(_text("ml_guia", MARGIN + 90, y, 90, 6, content="Guía ML", fontSize=9))
     y += 10
 
     # Observaciones
-    fields.append(_text("__sec_obs__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_obs__", MARGIN, y, 80, 7, "OBSERVACIONES", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("observacion", MARGIN, y, CONTENT_W, 20))
+    fields.append(_text("observacion", MARGIN, y, CONTENT_W, 20, content=""))
     y += 24
 
     # Total
-    fields.append(_text("total", MARGIN + 100, y, 80, 10, bold=True, fontSize=14, alignment="right"))
+    fields.append(_text("total", MARGIN + 100, y, 80, 10, content="$ 0,00", bold=True, fontSize=14, alignment="right"))
     y += 14
-    fields.append(_text("fecha_entrega", MARGIN, y, 90, 6, fontSize=9, fontColor="#555555"))
+    fields.append(
+        _text("fecha_entrega", MARGIN, y, 90, 6, content="Entrega: dd/mm/aaaa", fontSize=9, fontColor="#555555")
+    )
 
     # Firmas
     y = A4_H - MARGIN - 15
@@ -188,49 +199,59 @@ def template_rrhh():
     fields.extend(header)
 
     y += 2
-    # Legajo + estado
-    fields.append(_text("legajo", MARGIN, y, 60, 8, bold=True, fontSize=12))
-    fields.append(_text("estado", MARGIN + 130, y, 50, 8, alignment="right", bold=True))
+    fields.append(_text("legajo", MARGIN, y, 60, 8, content="Legajo", bold=True, fontSize=12))
+    fields.append(_text("estado", MARGIN + 130, y, 50, 8, content="activo", alignment="right", bold=True))
     y += 12
 
-    # Datos personales
-    fields.append(_text("__sec_personal__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label("__sec_personal__", MARGIN, y, 120, 7, "DATOS PERSONALES", fontSize=9, bold=True, fontColor="#555555")
+    )
     y += 8
-    fields.append(_text("nombre_completo", MARGIN, y, CONTENT_W, 8, bold=True, fontSize=13))
+    fields.append(_text("nombre_completo", MARGIN, y, CONTENT_W, 8, content="Apellido, Nombre", bold=True, fontSize=13))
     y += 10
-    fields.append(_text("dni", MARGIN, y, 60, 6))
-    fields.append(_text("cuil", MARGIN + 60, y, 60, 6))
-    fields.append(_text("fecha_nacimiento", MARGIN + 120, y, 60, 6))
+    fields.append(_text("dni", MARGIN, y, 60, 6, content="DNI"))
+    fields.append(_text("cuil", MARGIN + 60, y, 60, 6, content="CUIL"))
+    fields.append(_text("fecha_nacimiento", MARGIN + 120, y, 60, 6, content="Nacimiento"))
     y += 8
-    fields.append(_text("domicilio", MARGIN, y, CONTENT_W, 6))
+    fields.append(_text("domicilio", MARGIN, y, CONTENT_W, 6, content="Domicilio"))
     y += 8
-    fields.append(_text("telefono", MARGIN, y, 90, 6))
-    fields.append(_text("email_personal", MARGIN + 90, y, 90, 6))
-    y += 10
-
-    # Contacto emergencia
-    fields.append(_text("__sec_emergencia__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
-    y += 8
-    fields.append(_text("contacto_emergencia", MARGIN, y, 90, 6))
-    fields.append(_text("contacto_emergencia_tel", MARGIN + 90, y, 90, 6))
+    fields.append(_text("telefono", MARGIN, y, 90, 6, content="Teléfono"))
+    fields.append(_text("email_personal", MARGIN + 90, y, 90, 6, content="Email"))
     y += 10
 
-    # Datos laborales
-    fields.append(_text("__sec_laboral__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label(
+            "__sec_emergencia__",
+            MARGIN,
+            y,
+            120,
+            7,
+            "CONTACTO DE EMERGENCIA",
+            fontSize=9,
+            bold=True,
+            fontColor="#555555",
+        )
+    )
     y += 8
-    fields.append(_text("puesto", MARGIN, y, 90, 7, bold=True))
-    fields.append(_text("area", MARGIN + 90, y, 90, 7, bold=True))
-    y += 8
-    fields.append(_text("fecha_ingreso", MARGIN, y, 60, 6))
-    fields.append(_text("fecha_egreso", MARGIN + 60, y, 60, 6))
+    fields.append(_text("contacto_emergencia", MARGIN, y, 90, 6, content="Contacto"))
+    fields.append(_text("contacto_emergencia_tel", MARGIN + 90, y, 90, 6, content="Teléfono"))
     y += 10
 
-    # Observaciones
-    fields.append(_text("__sec_obs__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label("__sec_laboral__", MARGIN, y, 120, 7, "DATOS LABORALES", fontSize=9, bold=True, fontColor="#555555")
+    )
     y += 8
-    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 30))
+    fields.append(_text("puesto", MARGIN, y, 90, 7, content="Puesto", bold=True))
+    fields.append(_text("area", MARGIN + 90, y, 90, 7, content="Área", bold=True))
+    y += 8
+    fields.append(_text("fecha_ingreso", MARGIN, y, 60, 6, content="Ingreso"))
+    fields.append(_text("fecha_egreso", MARGIN + 60, y, 60, 6, content="Egreso"))
+    y += 10
 
-    # Firmas
+    fields.append(_label("__sec_obs__", MARGIN, y, 80, 7, "OBSERVACIONES", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 30, content=""))
+
     y = A4_H - MARGIN - 15
     fields.extend(_firma_block(y, ["Empleado", "RRHH"]))
 
@@ -249,32 +270,57 @@ def template_envios():
     fields.extend(header)
 
     y += 2
-    fields.append(_text("fecha_envio", MARGIN, y, 60, 8, bold=True, fontSize=12))
+    fields.append(_text("fecha_envio", MARGIN, y, 60, 8, content="dd/mm/aaaa", bold=True, fontSize=12))
     y += 12
 
-    # Transporte / Logística
-    fields.append(_text("__sec_transporte__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label(
+            "__sec_transporte__",
+            MARGIN,
+            y,
+            120,
+            7,
+            "LOGÍSTICA / TRANSPORTE",
+            fontSize=9,
+            bold=True,
+            fontColor="#555555",
+        )
+    )
     y += 8
-    fields.append(_text("logistica", MARGIN, y, 90, 7, bold=True, fontSize=11))
-    fields.append(_text("transporte", MARGIN + 90, y, 90, 7, bold=True, fontSize=11))
+    fields.append(_text("logistica", MARGIN, y, 90, 7, content="Logística", bold=True, fontSize=11))
+    fields.append(_text("transporte", MARGIN + 90, y, 90, 7, content="Transporte", bold=True, fontSize=11))
     y += 8
-    fields.append(_text("transporte_direccion", MARGIN, y, 90, 6))
-    fields.append(_text("transporte_telefono", MARGIN + 90, y, 90, 6))
+    fields.append(_text("transporte_direccion", MARGIN, y, 90, 6, content="Dirección"))
+    fields.append(_text("transporte_telefono", MARGIN + 90, y, 90, 6, content="Teléfono"))
     y += 10
 
-    # Totales (bien grandes — es lo que importa)
-    fields.append(_text("__sec_totales__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_totales__", MARGIN, y, 80, 7, "TOTALES", fontSize=9, bold=True, fontColor="#555555"))
     y += 10
-    fields.append(_text("total_envios", MARGIN, y, 80, 16, bold=True, fontSize=28))
-    fields.append(_text("total_bultos", MARGIN + 90, y, 90, 16, bold=True, fontSize=28))
+    fields.append(_label("__lbl_envios__", MARGIN, y, 80, 6, "Envíos:", fontSize=9, fontColor="#555555"))
+    fields.append(_label("__lbl_bultos__", MARGIN + 90, y, 80, 6, "Bultos:", fontSize=9, fontColor="#555555"))
+    y += 7
+    fields.append(_text("total_envios", MARGIN, y, 80, 16, content="0", bold=True, fontSize=28))
+    fields.append(_text("total_bultos", MARGIN + 90, y, 90, 16, content="0", bold=True, fontSize=28))
     y += 22
 
-    # Resumen por cordón
-    fields.append(_text("__sec_cordones__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label(
+            "__sec_cordones__", MARGIN, y, 140, 7, "DISTRIBUCIÓN POR CORDÓN", fontSize=9, bold=True, fontColor="#555555"
+        )
+    )
     y += 8
-    fields.append(_text("resumen_cordones", MARGIN, y, CONTENT_W, 8, fontSize=11))
+    fields.append(
+        _text(
+            "resumen_cordones",
+            MARGIN,
+            y,
+            CONTENT_W,
+            8,
+            content="CABA: 0 | Cordón 1: 0 | Cordón 2: 0 | Cordón 3: 0",
+            fontSize=11,
+        )
+    )
 
-    # Firmas
     y = A4_H - MARGIN - 15
     fields.extend(_firma_block(y, ["Despachó", "Logística"]))
 
@@ -293,33 +339,32 @@ def template_productos():
     fields.extend(header)
 
     y += 2
-    fields.append(_text("codigo", MARGIN, y, 90, 8, bold=True, fontSize=12))
+    fields.append(_text("codigo", MARGIN, y, 90, 8, content="Código", bold=True, fontSize=12))
     y += 12
 
-    # Datos del producto
-    fields.append(_text("__sec_producto__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_producto__", MARGIN, y, 80, 7, "PRODUCTO", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("descripcion", MARGIN, y, CONTENT_W, 8, bold=True, fontSize=12))
+    fields.append(
+        _text("descripcion", MARGIN, y, CONTENT_W, 8, content="Descripción del producto", bold=True, fontSize=12)
+    )
     y += 10
-    fields.append(_text("marca", MARGIN, y, 90, 7))
-    fields.append(_text("categoria", MARGIN + 90, y, 90, 7))
-    y += 10
-
-    # Precios
-    fields.append(_text("__sec_precios__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
-    y += 8
-    fields.append(_text("costo", MARGIN, y, 60, 7))
-    fields.append(_text("moneda_costo", MARGIN + 60, y, 30, 7))
-    y += 8
-    fields.append(_text("precio_lista_ml", MARGIN, y, 60, 7))
-    fields.append(_text("precio_pvp", MARGIN + 60, y, 60, 7))
-    fields.append(_text("precio_web_transferencia", MARGIN + 120, y, 60, 7))
+    fields.append(_text("marca", MARGIN, y, 90, 7, content="Marca"))
+    fields.append(_text("categoria", MARGIN + 90, y, 90, 7, content="Categoría"))
     y += 10
 
-    # Stock
-    fields.append(_text("__sec_stock__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_precios__", MARGIN, y, 80, 7, "PRECIOS", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("stock", MARGIN, y, 60, 10, bold=True, fontSize=16))
+    fields.append(_text("costo", MARGIN, y, 60, 7, content="Costo"))
+    fields.append(_text("moneda_costo", MARGIN + 60, y, 30, 7, content="ARS"))
+    y += 8
+    fields.append(_text("precio_lista_ml", MARGIN, y, 60, 7, content="ML"))
+    fields.append(_text("precio_pvp", MARGIN + 60, y, 60, 7, content="PVP"))
+    fields.append(_text("precio_web_transferencia", MARGIN + 120, y, 60, 7, content="Web"))
+    y += 10
+
+    fields.append(_label("__sec_stock__", MARGIN, y, 80, 7, "STOCK", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(_text("stock", MARGIN, y, 60, 10, content="0", bold=True, fontSize=16))
 
     return {
         "basePdf": {"width": A4_W, "height": A4_H, "padding": [MARGIN, MARGIN, MARGIN, MARGIN]},
@@ -336,35 +381,35 @@ def template_ventas():
     fields.extend(header)
 
     y += 2
-    fields.append(_text("id_venta", MARGIN, y, 60, 8, bold=True, fontSize=12))
-    fields.append(_text("fecha", MARGIN + 120, y, 60, 8, alignment="right"))
+    fields.append(_text("id_venta", MARGIN, y, 60, 8, content="Nro. Venta", bold=True, fontSize=12))
+    fields.append(_text("fecha", MARGIN + 120, y, 60, 8, content="dd/mm/aaaa", alignment="right"))
     y += 12
 
-    # Operación
-    fields.append(_text("__sec_operacion__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(
+        _label("__sec_operacion__", MARGIN, y, 80, 7, "OPERACIÓN", fontSize=9, bold=True, fontColor="#555555")
+    )
     y += 8
-    fields.append(_text("id_operacion", MARGIN, y, 90, 7, fontSize=9))
+    fields.append(_text("id_operacion", MARGIN, y, 90, 7, content="ID Operación ML", fontSize=9))
     y += 10
 
-    # Producto
-    fields.append(_text("__sec_producto__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_producto__", MARGIN, y, 80, 7, "PRODUCTO", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("descripcion", MARGIN, y, CONTENT_W, 7, bold=True))
+    fields.append(_text("descripcion", MARGIN, y, CONTENT_W, 7, content="Descripción", bold=True))
     y += 8
-    fields.append(_text("codigo_item", MARGIN, y, 60, 6))
-    fields.append(_text("marca", MARGIN + 60, y, 60, 6))
-    fields.append(_text("categoria", MARGIN + 120, y, 60, 6))
+    fields.append(_text("codigo_item", MARGIN, y, 60, 6, content="Código"))
+    fields.append(_text("marca", MARGIN + 60, y, 60, 6, content="Marca"))
+    fields.append(_text("categoria", MARGIN + 120, y, 60, 6, content="Categoría"))
     y += 10
 
-    # Montos
-    fields.append(_text("__sec_montos__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_montos__", MARGIN, y, 80, 7, "MONTOS", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("cantidad", MARGIN, y, 40, 7))
-    fields.append(_text("monto_unitario", MARGIN + 60, y, 60, 7, alignment="right"))
+    fields.append(_text("cantidad", MARGIN, y, 40, 7, content="Cant."))
+    fields.append(_text("monto_unitario", MARGIN + 60, y, 60, 7, content="$ 0,00", alignment="right"))
     y += 8
-    fields.append(_text("monto_total", MARGIN + 60, y, 60, 10, bold=True, fontSize=14, alignment="right"))
+    fields.append(
+        _text("monto_total", MARGIN + 60, y, 60, 10, content="$ 0,00", bold=True, fontSize=14, alignment="right")
+    )
 
-    # Firmas
     y = A4_H - MARGIN - 15
     fields.extend(_firma_block(y, ["Vendedor", "Cliente"]))
 
@@ -383,32 +428,30 @@ def template_rma():
     fields.extend(header)
 
     y += 2
-    fields.append(_text("numero_caso", MARGIN, y, 90, 8, bold=True, fontSize=12))
-    fields.append(_text("fecha_caso", MARGIN + 120, y, 60, 8, alignment="right"))
+    fields.append(_text("numero_caso", MARGIN, y, 90, 8, content="Caso RMA-0000", bold=True, fontSize=12))
+    fields.append(_text("fecha_caso", MARGIN + 120, y, 60, 8, content="dd/mm/aaaa", alignment="right"))
     y += 12
 
-    # Cliente
-    fields.append(_text("__sec_cliente__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_cliente__", MARGIN, y, 80, 7, "CLIENTE", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("cliente_nombre", MARGIN, y, CONTENT_W, 7, bold=True, fontSize=11))
+    fields.append(
+        _text("cliente_nombre", MARGIN, y, CONTENT_W, 7, content="Nombre del cliente", bold=True, fontSize=11)
+    )
     y += 8
-    fields.append(_text("cliente_dni", MARGIN, y, 60, 6))
-    fields.append(_text("ml_id", MARGIN + 60, y, 90, 6, fontSize=9))
+    fields.append(_text("cliente_dni", MARGIN, y, 60, 6, content="DNI"))
+    fields.append(_text("ml_id", MARGIN + 60, y, 90, 6, content="ML ID", fontSize=9))
     y += 10
 
-    # Caso
-    fields.append(_text("__sec_caso__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_caso__", MARGIN, y, 80, 7, "CASO", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("origen", MARGIN, y, 60, 7))
-    fields.append(_text("estado", MARGIN + 90, y, 90, 7, bold=True))
+    fields.append(_text("origen", MARGIN, y, 60, 7, content="Origen"))
+    fields.append(_text("estado", MARGIN + 90, y, 90, 7, content="Estado", bold=True))
     y += 10
 
-    # Observaciones
-    fields.append(_text("__sec_obs__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
+    fields.append(_label("__sec_obs__", MARGIN, y, 80, 7, "OBSERVACIONES", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 40))
+    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 40, content=""))
 
-    # Firmas
     y = A4_H - MARGIN - 15
     fields.extend(_firma_block(y, ["Responsable", "Cliente"]))
 
