@@ -403,15 +403,15 @@ export const workflowsAPI = {
 // =============================================================================
 export const documentTemplatesAPI = {
   // Consulta (documentos.imprimir)
-  listar: (params) => api.get('/api/document-templates', { params }),
-  obtener: (id) => api.get(`/api/document-templates/${id}`),
-  contextos: () => api.get('/api/document-templates/contextos'),
-  variables: (contexto) => api.get(`/api/document-templates/variables/${contexto}`),
+  listar: (params) => api.get('/document-templates', { params }),
+  obtener: (id) => api.get(`/document-templates/${id}`),
+  contextos: () => api.get('/document-templates/contextos'),
+  variables: (contexto) => api.get(`/document-templates/variables/${contexto}`),
 
   // Gestión (documentos.disenar)
-  crear: (data) => api.post('/api/document-templates', data),
-  actualizar: (id, data) => api.put(`/api/document-templates/${id}`, data),
-  eliminar: (id) => api.delete(`/api/document-templates/${id}`),
+  crear: (data) => api.post('/document-templates', data),
+  actualizar: (id, data) => api.put(`/document-templates/${id}`, data),
+  eliminar: (id) => api.delete(`/document-templates/${id}`),
 };
 
 export default api;

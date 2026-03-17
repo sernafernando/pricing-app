@@ -59,7 +59,7 @@
 }
 
 .input {
-  padding: 4px 8px;
+  padding: var(--spacing-xs) var(--spacing-sm);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
   background: var(--cf-bg-app);
@@ -78,7 +78,7 @@
 }
 
 .select {
-  padding: 4px 24px 4px 8px;
+  padding: var(--spacing-xs) var(--spacing-lg) var(--spacing-xs) var(--spacing-sm);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
   background: var(--cf-bg-app);
@@ -95,59 +95,11 @@
 
 .selectIcon {
   position: absolute;
-  right: 6px;
+  right: var(--spacing-xs);
   top: 50%;
   transform: translateY(-50%);
   color: var(--cf-text-tertiary);
   pointer-events: none;
-}
-
-/* Buttons */
-.btnNew,
-.btnSave,
-.btnDelete {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
-}
-
-.btnNew {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
-}
-
-.btnNew:hover {
-  background: var(--cf-border-default);
-}
-
-.btnSave {
-  background: var(--cf-accent-blue);
-  color: #fff;
-}
-
-.btnSave:hover {
-  opacity: 0.9;
-}
-
-.btnSave:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btnDelete {
-  background: transparent;
-  color: var(--cf-accent-red);
-  padding: 6px;
-}
-
-.btnDelete:hover {
-  background: rgba(239, 68, 68, 0.1);
 }
 
 .spin {
@@ -171,15 +123,15 @@
 }
 
 .errorBanner {
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
   color: var(--cf-accent-red);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--cf-accent-red) 20%, transparent);
 }
 
 .successBanner {
-  background: rgba(34, 197, 94, 0.1);
+  background: color-mix(in srgb, var(--cf-accent-green) 10%, transparent);
   color: var(--cf-accent-green);
-  border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--cf-accent-green) 20%, transparent);
 }
 
 .dismissBtn {
@@ -232,11 +184,11 @@
   color: var(--cf-text-tertiary);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 .sidebarHint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
   margin: 0 0 var(--spacing-xs) 0;
 }
@@ -249,15 +201,19 @@
 }
 
 .templateItem {
-  padding: 6px 8px;
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  background: transparent;
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: var(--spacing-xs);
+  cursor: pointer;
+  text-align: left;
   transition: background var(--duration-200) var(--ease-out);
 }
 
@@ -266,7 +222,7 @@
 }
 
 .templateItemActive {
-  background: rgba(59, 130, 246, 0.15);
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
   color: var(--cf-accent-blue);
 }
 
@@ -281,9 +237,9 @@
 }
 
 .inactiveBadge {
-  font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-size: var(--font-xs);
+  padding: 1px var(--spacing-xs);
+  border-radius: var(--radius-sm);
   background: var(--cf-bg-hover);
   color: var(--cf-text-tertiary);
   flex-shrink: 0;
@@ -297,9 +253,13 @@
 }
 
 .variableItem {
-  padding: 4px 6px;
+  width: 100%;
+  padding: var(--spacing-xs);
+  border: none;
   border-radius: var(--radius-sm);
+  background: transparent;
   cursor: pointer;
+  text-align: left;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -311,13 +271,13 @@
 }
 
 .variableCode {
-  font-size: 12px;
+  font-size: var(--font-xs);
   color: var(--cf-accent-blue);
   font-family: monospace;
 }
 
 .variableDesc {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;

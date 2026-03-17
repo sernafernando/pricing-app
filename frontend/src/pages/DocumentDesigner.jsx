@@ -15,7 +15,7 @@ const BLANK_PDF =
 export default function DocumentDesigner() {
   const designerRef = useRef(null);
   const containerRef = useRef(null);
-  const [, setDesignerInstance] = useState(null);
+
 
   // Templates state
   const [templates, setTemplates] = useState([]);
@@ -80,17 +80,20 @@ export default function DocumentDesigner() {
     fetchVariables();
   }, [contexto]);
 
+  // Track template ID separately to avoid re-initializing Designer on every
+  // currentTemplate object reference change (e.g., after save refreshes the list).
+  const currentTemplateId = currentTemplate?.id ?? null;
+  const currentTemplateJson = currentTemplate?.template_json ?? null;
+
   // Initialize/update pdfme Designer
   useEffect(() => {
     if (!containerRef.current || !contexto) return;
-
-    let designer = null;
 
     const initDesigner = async () => {
       const { Designer } = await import('@pdfme/ui');
       const { plugins } = await import('../utils/pdfmePlugins');
 
-      const template = currentTemplate?.template_json || {
+      const template = currentTemplateJson || {
         basePdf: BLANK_PDF,
         schemas: [[]],
       };
@@ -104,14 +107,11 @@ export default function DocumentDesigner() {
       // Clear container
       containerRef.current.innerHTML = '';
 
-      designer = new Designer({
+      designerRef.current = new Designer({
         domContainer: containerRef.current,
         template,
         plugins,
       });
-
-      designerRef.current = designer;
-      setDesignerInstance(designer);
     };
 
     initDesigner();
@@ -122,8 +122,7 @@ export default function DocumentDesigner() {
         designerRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contexto, currentTemplate?.id]);
+  }, [contexto, currentTemplateId, currentTemplateJson]);
 
   // Save handler
   const handleSave = useCallback(async () => {
@@ -287,7 +286,7 @@ export default function DocumentDesigner() {
 
         <div className={styles.toolbarRight}>
           <button
-            className={styles.btnNew}
+            className="btn-tesla outline-subtle-primary sm"
             onClick={handleNew}
             title="Nuevo template"
           >
@@ -295,7 +294,7 @@ export default function DocumentDesigner() {
             Nuevo
           </button>
           <button
-            className={styles.btnSave}
+            className="btn-tesla outline-subtle-success sm"
             onClick={handleSave}
             disabled={saving}
             title="Guardar (Ctrl+S)"
@@ -305,9 +304,10 @@ export default function DocumentDesigner() {
           </button>
           {currentTemplate && (
             <button
-              className={styles.btnDelete}
+              className="btn-tesla outline-subtle-danger sm icon-only"
               onClick={() => setShowDeleteConfirm(true)}
               title="Eliminar template"
+              aria-label="Eliminar template"
             >
               <Trash2 size={16} />
             </button>
@@ -343,13 +343,15 @@ export default function DocumentDesigner() {
             ) : (
               <ul className={styles.templateList}>
                 {templates.map((t) => (
-                  <li
-                    key={t.id}
-                    className={`${styles.templateItem} ${currentTemplate?.id === t.id ? styles.templateItemActive : ''} ${!t.activo ? styles.templateItemInactive : ''}`}
-                    onClick={() => handleLoadTemplate(t)}
-                  >
-                    <span className={styles.templateName}>{t.nombre}</span>
-                    {!t.activo && <span className={styles.inactiveBadge}>inactivo</span>}
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className={`${styles.templateItem} ${currentTemplate?.id === t.id ? styles.templateItemActive : ''} ${!t.activo ? styles.templateItemInactive : ''}`}
+                      onClick={() => handleLoadTemplate(t)}
+                    >
+                      <span className={styles.templateName}>{t.nombre}</span>
+                      {!t.activo && <span className={styles.inactiveBadge}>inactivo</span>}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -362,14 +364,16 @@ export default function DocumentDesigner() {
             <p className={styles.sidebarHint}>Click para copiar. Usar como nombre de campo en el Designer.</p>
             <ul className={styles.variableList}>
               {variables.map((v) => (
-                <li
-                  key={v.nombre}
-                  className={styles.variableItem}
-                  onClick={() => handleCopyVariable(v.nombre)}
-                  title={`${v.descripcion} (${v.tipo}) — Ejemplo: ${v.ejemplo || 'N/A'}`}
-                >
-                  <code className={styles.variableCode}>{v.nombre}</code>
-                  <span className={styles.variableDesc}>{v.descripcion}</span>
+                <li key={v.nombre}>
+                  <button
+                    type="button"
+                    className={styles.variableItem}
+                    onClick={() => handleCopyVariable(v.nombre)}
+                    title={`${v.descripcion} (${v.tipo}) — Ejemplo: ${v.ejemplo || 'N/A'}`}
+                  >
+                    <code className={styles.variableCode}>{v.nombre}</code>
+                    <span className={styles.variableDesc}>{v.descripcion}</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -388,10 +392,10 @@ export default function DocumentDesigner() {
         size="sm"
         footer={
           <div className={styles.modalFooter}>
-            <button className="btn-tesla-secondary" onClick={() => setShowDeleteConfirm(false)}>
+            <button className="btn-tesla secondary sm" onClick={() => setShowDeleteConfirm(false)}>
               Cancelar
             </button>
-            <button className="btn-tesla-danger" onClick={handleDelete}>
+            <button className="btn-tesla outline-subtle-danger sm" onClick={handleDelete}>
               Eliminar
             </button>
           </div>

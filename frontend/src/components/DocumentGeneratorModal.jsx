@@ -88,7 +88,7 @@ export default function DocumentGeneratorModal({ isOpen, onClose, contexto, enti
                   </div>
                 </div>
                 <button
-                  className={styles.btnGenerate}
+                  className="btn-tesla outline-subtle-primary sm"
                   onClick={() => handleGenerate(t.id)}
                   disabled={generating}
                 >
