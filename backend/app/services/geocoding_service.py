@@ -124,15 +124,25 @@ async def geocode_address(
         logger.error("MAPBOX_ACCESS_TOKEN no configurado en .env")
         return None
 
-    # Si el CP indica CABA pero la ciudad es un barrio (no "Buenos Aires"),
-    # corregir para que Mapbox no se confunda con nombres de barrio
-    if _es_cp_caba(zip_code) and ciudad.lower() not in (
-        "buenos aires",
+    # Normalizar variantes de CABA → "Buenos Aires" (Mapbox no entiende "CABA")
+    _CABA_ALIASES = {
         "caba",
         "capital federal",
+        "cap. fed.",
+        "cap fed",
+        "c.a.b.a.",
+        "c.a.b.a",
         "ciudad autónoma de buenos aires",
         "ciudad autonoma de buenos aires",
-    ):
+        "cdad de buenos aires",
+    }
+    if ciudad.lower().strip() in _CABA_ALIASES:
+        logger.info("Normalizing ciudad '%s' → 'Buenos Aires'", ciudad)
+        ciudad = "Buenos Aires"
+
+    # Si el CP indica CABA pero la ciudad es un barrio/localidad,
+    # corregir para que Mapbox no se confunda
+    if _es_cp_caba(zip_code) and ciudad.lower() != "buenos aires":
         logger.info(
             "CP %s indica CABA, overriding ciudad '%s' → 'Buenos Aires'",
             zip_code,
