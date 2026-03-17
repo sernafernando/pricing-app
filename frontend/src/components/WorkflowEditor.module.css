@@ -167,7 +167,7 @@
   font-size: var(--font-xs);
   font-weight: 500;
   background: rgba(139, 92, 246, 0.15);
-  color: #a78bfa;
+  color: var(--cf-accent-purple, #a78bfa);
 }
 
 /* Sub section */
@@ -347,7 +347,7 @@
   width: 18px;
   left: 2px;
   bottom: 2px;
-  background: white;
+  background: var(--cf-bg-card, white);
   border-radius: 50%;
   transition: transform var(--duration-200) var(--ease-out);
 }
@@ -382,6 +382,27 @@
   border-radius: 4px;
 }
 
+/* Hints / help text */
+.formHint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  line-height: 1.4;
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(59, 130, 246, 0.05);
+  border-left: 2px solid var(--cf-accent-blue);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.fieldHint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-top: 2px;
+}
+
 /* Empty/loading */
 .loadingState,
 .emptyState {
@@ -390,16 +411,4 @@
   color: var(--cf-text-secondary);
 }
 
-/* Create workflow form */
-.createWorkflowForm {
-  display: flex;
-  gap: var(--spacing-md);
-  align-items: flex-end;
-  flex-wrap: wrap;
-  margin-bottom: var(--spacing-md);
-}
 
-.createWorkflowForm .formField {
-  flex: 1;
-  min-width: 160px;
-}

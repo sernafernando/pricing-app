@@ -8,7 +8,6 @@ import {
   ArrowRight,
   CircleDot,
   Flag,
-  Star,
   Lock,
 } from 'lucide-react';
 import styles from './WorkflowEditor.module.css';
@@ -217,15 +216,20 @@ export default function WorkflowEditor() {
       {/* Create Workflow Form */}
       {creatingWorkflow && (
         <div className={styles.formCard}>
+          <div className={styles.formHint}>
+            Un workflow define los <strong>estados</strong> por los que pasa un ticket
+            (ej: Abierto &rarr; En revisión &rarr; Resuelto) y las <strong>transiciones</strong> permitidas entre ellos.
+            Después se asigna a uno o más tipos de ticket.
+          </div>
           <div className={styles.formGrid}>
             <div className={styles.formField}>
-              <label htmlFor="wf-name">Nombre</label>
+              <label htmlFor="wf-name">Nombre del flujo</label>
               <input
                 id="wf-name"
                 className={styles.input}
                 value={newWorkflow.nombre}
                 onChange={(e) => setNewWorkflow({ ...newWorkflow, nombre: e.target.value })}
-                placeholder="Ej: Cambio de Precio"
+                placeholder="Ej: Soporte Técnico, Aprobación Pricing"
               />
             </div>
             <div className={styles.formField}>
@@ -235,11 +239,11 @@ export default function WorkflowEditor() {
                 className={styles.input}
                 value={newWorkflow.descripcion}
                 onChange={(e) => setNewWorkflow({ ...newWorkflow, descripcion: e.target.value })}
-                placeholder="Descripción opcional"
+                placeholder="Ej: Flujo para tickets de bugs y soporte"
               />
             </div>
             <div className={styles.formField}>
-              <label>Default</label>
+              <label>Default del sector</label>
               <label className={styles.toggle}>
                 <input
                   type="checkbox"
@@ -248,6 +252,9 @@ export default function WorkflowEditor() {
                 />
                 <span className={styles.toggleTrack} />
               </label>
+              <span className={styles.fieldHint}>
+                Si está activo, los tipos de ticket sin workflow propio usarán este
+              </span>
             </div>
           </div>
           <div className={styles.formActions}>
@@ -318,26 +325,34 @@ export default function WorkflowEditor() {
               {/* Add Estado Form */}
               {addingEstadoFor === wf.id && (
                 <div className={styles.formCard}>
+                  <div className={styles.formHint}>
+                    Cada estado representa una <strong>etapa</strong> del ticket.
+                    Marcá uno como &quot;Inicial&quot; (donde arranca el ticket) y al menos uno como
+                    &quot;Final&quot; (donde se cierra).
+                  </div>
                   <div className={styles.formGrid}>
                     <div className={styles.formField}>
-                      <label htmlFor={`est-nombre-${wf.id}`}>Nombre</label>
+                      <label htmlFor={`est-nombre-${wf.id}`}>Nombre del estado</label>
                       <input
                         id={`est-nombre-${wf.id}`}
                         className={styles.input}
                         value={newEstado.nombre}
                         onChange={(e) => setNewEstado({ ...newEstado, nombre: e.target.value })}
-                        placeholder="Ej: Abierto"
+                        placeholder="Ej: Abierto, En revisión, Resuelto"
                       />
                     </div>
                     <div className={styles.formField}>
-                      <label htmlFor={`est-codigo-${wf.id}`}>Código</label>
+                      <label htmlFor={`est-codigo-${wf.id}`}>Código interno</label>
                       <input
                         id={`est-codigo-${wf.id}`}
                         className={styles.input}
                         value={newEstado.codigo}
                         onChange={(e) => setNewEstado({ ...newEstado, codigo: e.target.value })}
-                        placeholder="Ej: abierto"
+                        placeholder="Ej: abierto, en_revision, resuelto"
                       />
+                      <span className={styles.fieldHint}>
+                        Identificador único, en minúsculas y sin espacios
+                      </span>
                     </div>
                     <div className={styles.formField}>
                       <label htmlFor={`est-orden-${wf.id}`}>Orden</label>
@@ -349,6 +364,9 @@ export default function WorkflowEditor() {
                         onChange={(e) => setNewEstado({ ...newEstado, orden: e.target.value })}
                         min="0"
                       />
+                      <span className={styles.fieldHint}>
+                        Posición en la lista (0, 1, 2...)
+                      </span>
                     </div>
                     <div className={styles.formField}>
                       <label>Color</label>
@@ -362,7 +380,7 @@ export default function WorkflowEditor() {
                       </div>
                     </div>
                     <div className={styles.formField}>
-                      <label>Inicial</label>
+                      <label>Estado inicial</label>
                       <label className={styles.toggle}>
                         <input
                           type="checkbox"
@@ -373,9 +391,12 @@ export default function WorkflowEditor() {
                         />
                         <span className={styles.toggleTrack} />
                       </label>
+                      <span className={styles.fieldHint}>
+                        El ticket arranca en este estado al crearse
+                      </span>
                     </div>
                     <div className={styles.formField}>
-                      <label>Final</label>
+                      <label>Estado final</label>
                       <label className={styles.toggle}>
                         <input
                           type="checkbox"
@@ -386,6 +407,9 @@ export default function WorkflowEditor() {
                         />
                         <span className={styles.toggleTrack} />
                       </label>
+                      <span className={styles.fieldHint}>
+                        El ticket se considera cerrado en este estado
+                      </span>
                     </div>
                   </div>
                   <div className={styles.formActions}>
@@ -468,9 +492,14 @@ export default function WorkflowEditor() {
               {/* Add Transicion Form */}
               {addingTransicionFor === wf.id && (
                 <div className={styles.formCard}>
+                  <div className={styles.formHint}>
+                    Una transición define un <strong>movimiento permitido</strong> entre dos estados.
+                    Por ejemplo: de &quot;Abierto&quot; a &quot;En revisión&quot;.
+                    Sin transiciones, el ticket queda trabado en su estado inicial.
+                  </div>
                   <div className={styles.formGrid}>
                     <div className={styles.formField}>
-                      <label htmlFor={`tr-origen-${wf.id}`}>Origen</label>
+                      <label htmlFor={`tr-origen-${wf.id}`}>Estado origen</label>
                       <select
                         id={`tr-origen-${wf.id}`}
                         className={styles.select}
@@ -482,7 +511,7 @@ export default function WorkflowEditor() {
                           })
                         }
                       >
-                        <option value="">Seleccionar...</option>
+                        <option value="">Desde qué estado...</option>
                         {wf.estados?.map((e) => (
                           <option key={e.id} value={e.id}>
                             {e.nombre}
@@ -491,7 +520,7 @@ export default function WorkflowEditor() {
                       </select>
                     </div>
                     <div className={styles.formField}>
-                      <label htmlFor={`tr-destino-${wf.id}`}>Destino</label>
+                      <label htmlFor={`tr-destino-${wf.id}`}>Estado destino</label>
                       <select
                         id={`tr-destino-${wf.id}`}
                         className={styles.select}
@@ -503,7 +532,7 @@ export default function WorkflowEditor() {
                           })
                         }
                       >
-                        <option value="">Seleccionar...</option>
+                        <option value="">Hacia qué estado...</option>
                         {wf.estados?.map((e) => (
                           <option key={e.id} value={e.id}>
                             {e.nombre}
@@ -512,7 +541,7 @@ export default function WorkflowEditor() {
                       </select>
                     </div>
                     <div className={styles.formField}>
-                      <label htmlFor={`tr-nombre-${wf.id}`}>Nombre</label>
+                      <label htmlFor={`tr-nombre-${wf.id}`}>Nombre de la acción</label>
                       <input
                         id={`tr-nombre-${wf.id}`}
                         className={styles.input}
@@ -520,8 +549,11 @@ export default function WorkflowEditor() {
                         onChange={(e) =>
                           setNewTransicion({ ...newTransicion, nombre: e.target.value })
                         }
-                        placeholder="Ej: Aprobar"
+                        placeholder="Ej: Tomar, Resolver, Rechazar, Reabrir"
                       />
+                      <span className={styles.fieldHint}>
+                        El texto del botón que verá el usuario para mover el ticket
+                      </span>
                     </div>
                     <div className={styles.formField}>
                       <label htmlFor={`tr-permiso-${wf.id}`}>Permiso requerido</label>
@@ -535,8 +567,11 @@ export default function WorkflowEditor() {
                             requiere_permiso: e.target.value,
                           })
                         }
-                        placeholder="Ej: tickets.pricing.aprobar"
+                        placeholder="Ej: tickets.gestionar"
                       />
+                      <span className={styles.fieldHint}>
+                        Dejar vacío si cualquier usuario puede hacer esta transición
+                      </span>
                     </div>
                     <div className={styles.formField}>
                       <label>Solo asignado</label>
@@ -553,6 +588,9 @@ export default function WorkflowEditor() {
                         />
                         <span className={styles.toggleTrack} />
                       </label>
+                      <span className={styles.fieldHint}>
+                        Solo quien tiene el ticket asignado puede ejecutar esta acción
+                      </span>
                     </div>
                     <div className={styles.formField}>
                       <label>Solo creador</label>
@@ -569,6 +607,9 @@ export default function WorkflowEditor() {
                         />
                         <span className={styles.toggleTrack} />
                       </label>
+                      <span className={styles.fieldHint}>
+                        Solo quien creó el ticket puede ejecutar esta acción
+                      </span>
                     </div>
                   </div>
                   <div className={styles.formActions}>
