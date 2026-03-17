@@ -4,8 +4,9 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain, Flag,
+  Table, Map, CloudRain, Flag, FileDown,
 } from 'lucide-react';
+import DocumentGeneratorModal from './DocumentGeneratorModal';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -98,6 +99,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeAsignarLluvia = tienePermiso('envios_flex.asignar_lluvia');
   const puedeFlag = tienePermiso('envios_flex.config');
   const puedeCambiarEstadoManual = tienePermiso('envios_flex.cambiar_estado_manual');
+  const puedeImprimir = tienePermiso('documentos.imprimir');
+  const [docGenOpen, setDocGenOpen] = useState(false);
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -2117,6 +2120,18 @@ export default function TabEnviosFlex({ operador = null }) {
             </button>
           )}
 
+          {puedeImprimir && (
+            <button
+              onClick={() => setDocGenOpen(true)}
+              className="btn-tesla outline-subtle-primary sm"
+              disabled={etiquetasFiltradas.length === 0}
+              aria-label="Generar remito PDF"
+            >
+              <FileDown size={16} />
+              Remito
+            </button>
+          )}
+
           {puedeExportar && (
             <button
               onClick={() => setShowExportModal(true)}
@@ -3954,6 +3969,42 @@ export default function TabEnviosFlex({ operador = null }) {
           </div>
         </div>
       )}
+
+      {/* Modal generar remito PDF */}
+      <DocumentGeneratorModal
+        isOpen={docGenOpen}
+        onClose={() => setDocGenOpen(false)}
+        contexto="envios"
+        entityData={{
+          fecha_envio: fechaDesde,
+          logistica_nombre: logisticas.find(l => String(l.id) === String(filtroLogistica))?.nombre || '',
+          transporte_nombre: (() => {
+            const logObj = logisticas.find(l => String(l.id) === String(filtroLogistica));
+            if (logObj?.transporte_id) {
+              const t = transportes.find(tr => tr.id === logObj.transporte_id);
+              return t?.nombre || '';
+            }
+            return '';
+          })(),
+          transporte_direccion: (() => {
+            const logObj = logisticas.find(l => String(l.id) === String(filtroLogistica));
+            if (logObj?.transporte_id) {
+              const t = transportes.find(tr => tr.id === logObj.transporte_id);
+              return t?.direccion || '';
+            }
+            return '';
+          })(),
+          transporte_telefono: (() => {
+            const logObj = logisticas.find(l => String(l.id) === String(filtroLogistica));
+            if (logObj?.transporte_id) {
+              const t = transportes.find(tr => tr.id === logObj.transporte_id);
+              return t?.telefono || '';
+            }
+            return '';
+          })(),
+          envios: etiquetasFiltradas,
+        }}
+      />
     </div>
   );
 }
