@@ -53,15 +53,17 @@ export function useDocumentGenerator(contexto) {
       // 2. Mapear datos de entidad a inputs pdfme
       const inputs = mapEntityToInputs(contexto, entityData);
 
-      // 3. Dynamic import de pdfme generator (lazy load)
+      // 3. Dynamic import de pdfme generator + fonts (lazy load)
       const { generate } = await import('@pdfme/generator');
       const { plugins } = await import('../utils/pdfmePlugins');
+      const { getFont } = await import('../utils/pdfmeFonts');
 
       // 4. Generar PDF
       const pdf = await generate({
         template: pdfmeTemplate,
         inputs: [inputs],
         plugins,
+        options: { font: getFont() },
       });
 
       // 5. Abrir en nueva pestaña
