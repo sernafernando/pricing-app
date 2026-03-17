@@ -26,6 +26,7 @@ class CategoriaPermiso(str, enum.Enum):
     ENVIOS_FLEX = "envios_flex"
     RRHH = "rrhh"
     TICKETS = "tickets"
+    DOCUMENTOS = "documentos"
 
 
 class Permiso(Base):
@@ -768,6 +769,24 @@ PERMISOS_SISTEMA = [
         "orden": 133,
         "es_critico": True,
     },
+    # =========================================================================
+    # DOCUMENTOS
+    # =========================================================================
+    {
+        "codigo": "documentos.disenar",
+        "nombre": "Diseñar templates de documentos",
+        "descripcion": "Acceso al Designer visual de templates PDF: crear, editar y eliminar templates",
+        "categoria": CategoriaPermiso.DOCUMENTOS,
+        "orden": 140,
+        "es_critico": True,
+    },
+    {
+        "codigo": "documentos.imprimir",
+        "nombre": "Generar documentos PDF",
+        "descripcion": "Generar documentos PDF desde cualquier módulo usando templates existentes",
+        "categoria": CategoriaPermiso.DOCUMENTOS,
+        "orden": 141,
+    },
 ]
 
 
@@ -812,6 +831,7 @@ PERMISOS_POR_ROL = {
         "envios_flex.*",
         "rrhh.*",
         "tickets.*",
+        "documentos.*",
     ],
     "GERENTE": [
         "productos.ver",
@@ -856,6 +876,7 @@ PERMISOS_POR_ROL = {
         "tickets.ver",
         "tickets.crear",
         "tickets.gestionar",
+        "documentos.imprimir",
     ],
     "PRICING": [
         "productos.ver",
@@ -906,5 +927,6 @@ PERMISOS_POR_ROL = {
         "seguimiento_envios.marcar_retornado",
         "tickets.ver",
         "tickets.crear",
+        "documentos.imprimir",
     ],
 }

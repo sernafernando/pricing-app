@@ -8,13 +8,17 @@ import RmaAdminOpciones from '../components/RmaAdminOpciones';
 import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
 import RmaEnviosCliente from '../components/RmaEnviosCliente';
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList } from 'lucide-react';
+import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown } from 'lucide-react';
+import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './Rma.module.css';
 
 export default function Rma() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
   const puedeAdminOpciones = tienePermiso('rma.admin_opciones');
+  const puedeImprimir = tienePermiso('documentos.imprimir');
+  const [docGenOpen, setDocGenOpen] = useState(false);
+  const [docGenCaso, setDocGenCaso] = useState(null);
 
   const [casos, setCasos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -246,13 +250,14 @@ export default function Rma() {
                   <th>Estado</th>
                   <th>Reclamo ML</th>
                   <th>Observaciones</th>
+                  {puedeImprimir && <th style={{ width: '50px' }}></th>}
                 </tr>
               </thead>
               <tbody className="table-tesla-body">
                 {loading ? (
-                  <tr><td colSpan={8} className={styles.loadingCell}>Cargando...</td></tr>
+                  <tr><td colSpan={puedeImprimir ? 9 : 8} className={styles.loadingCell}>Cargando...</td></tr>
                 ) : casos.length === 0 ? (
-                  <tr><td colSpan={8} className={styles.emptyCell}>No se encontraron casos RMA</td></tr>
+                  <tr><td colSpan={puedeImprimir ? 9 : 8} className={styles.emptyCell}>No se encontraron casos RMA</td></tr>
                 ) : (
                   casos.map((caso) => (
                     <tr key={caso.id} onClick={() => handleEditar(caso)} className={styles.clickableRow}>
@@ -295,6 +300,17 @@ export default function Rma() {
                       <td className={styles.cellObs}>
                         {caso.observaciones ? caso.observaciones.substring(0, 60) + (caso.observaciones.length > 60 ? '...' : '') : '\u2014'}
                       </td>
+                      {puedeImprimir && (
+                        <td>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDocGenCaso(caso); setDocGenOpen(true); }}
+                            className={styles.btnAction}
+                            title="Generar documento PDF"
+                          >
+                            <FileDown size={14} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -344,6 +360,14 @@ export default function Rma() {
           onClose={handleModalClose}
         />
       )}
+
+      {/* Modal generar documento PDF */}
+      <DocumentGeneratorModal
+        isOpen={docGenOpen}
+        onClose={() => { setDocGenOpen(false); setDocGenCaso(null); }}
+        contexto="rma"
+        entityData={docGenCaso}
+      />
     </div>
   );
 }

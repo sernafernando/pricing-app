@@ -398,4 +398,20 @@ export const workflowsAPI = {
     api.delete(`/tickets/workflows/${workflowId}/transiciones/${transicionId}`),
 };
 
+// =============================================================================
+// Document Templates API
+// =============================================================================
+export const documentTemplatesAPI = {
+  // Consulta (documentos.imprimir)
+  listar: (params) => api.get('/api/document-templates', { params }),
+  obtener: (id) => api.get(`/api/document-templates/${id}`),
+  contextos: () => api.get('/api/document-templates/contextos'),
+  variables: (contexto) => api.get(`/api/document-templates/variables/${contexto}`),
+
+  // Gestión (documentos.disenar)
+  crear: (data) => api.post('/api/document-templates', data),
+  actualizar: (id, data) => api.put(`/api/document-templates/${id}`, data),
+  eliminar: (id) => api.delete(`/api/document-templates/${id}`),
+};
+
 export default api;

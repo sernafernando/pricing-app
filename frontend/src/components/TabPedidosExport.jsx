@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search, CheckCircle, Clock, ScanBarcode } from 'lucide-react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search, CheckCircle, Clock, ScanBarcode, FileDown } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
 import { useToast } from '../hooks/useToast';
+import { usePermisos } from '../contexts/PermisosContext';
 import Toast from './Toast';
+import DocumentGeneratorModal from './DocumentGeneratorModal';
 import styles from './TabPedidosExport.module.css';
 
 // Constantes de user_id del ERP
@@ -12,6 +14,9 @@ const USER_ID_VENDEDOR_ML = 50006;
 const USER_ID_MERCADOLIBRE = 50001;
 
 export default function TabPedidosExport() {
+  const { tienePermiso } = usePermisos();
+  const puedeImprimir = tienePermiso('documentos.imprimir');
+  const [docGenOpen, setDocGenOpen] = useState(false);
   const [pedidos, setPedidos] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1093,6 +1098,15 @@ export default function TabPedidosExport() {
             <div className={styles.modalHeader}>
               <h2>Pedido GBP: {pedidoSeleccionado.soh_id}</h2>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                {puedeImprimir && (
+                  <button
+                    onClick={() => setDocGenOpen(true)}
+                    className={`btn-tesla outline-subtle-primary sm ${styles.btnPrintLabel}`}
+                    title="Generar documento PDF"
+                  >
+                    <FileDown size={14} /> Generar PDF
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     // Usar los valores del pedido (override si existe, sino defaults)
@@ -1911,6 +1925,13 @@ export default function TabPedidosExport() {
         </div>
       )}
 
+      {/* Modal generar documento PDF */}
+      <DocumentGeneratorModal
+        isOpen={docGenOpen}
+        onClose={() => setDocGenOpen(false)}
+        contexto="pedidos"
+        entityData={pedidoSeleccionado}
+      />
     </div>
   );
 }

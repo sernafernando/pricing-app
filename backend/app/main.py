@@ -60,6 +60,7 @@ from app.api.endpoints import (
 from app.routers import (
     alertas,
     claims_dashboard,
+    document_templates,
     free_shipping_alerts,
     rrhh_empleados,
     rrhh_presentismo,
@@ -223,6 +224,7 @@ app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboa
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
+app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
 app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])
 app.include_router(rrhh_presentismo.router, prefix="/api", tags=["rrhh-presentismo"])
 app.include_router(rrhh_sanciones.router, prefix="/api", tags=["rrhh-sanciones"])
