@@ -379,6 +379,7 @@ export const workflowsAPI = {
   obtener: (id) => api.get(`/tickets/workflows/${id}`),
   crear: (data) => api.post('/tickets/workflows', data),
   actualizar: (id, data) => api.patch(`/tickets/workflows/${id}`, data),
+  eliminar: (id) => api.delete(`/tickets/workflows/${id}`),
 
   // Estados
   crearEstado: (workflowId, data) =>

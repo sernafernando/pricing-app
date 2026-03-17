@@ -140,6 +140,47 @@ async def actualizar_workflow(
     return workflow
 
 
+@router.delete("/workflows/{workflow_id}", status_code=204)
+async def eliminar_workflow(
+    workflow_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina un workflow y todos sus estados y transiciones.
+
+    No se puede eliminar si hay tickets activos usando este workflow.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} no encontrado")
+
+    # Verificar que no hay tickets usando estados de este workflow
+    from app.tickets.models.ticket import Ticket
+
+    tickets_count = (
+        db.query(Ticket)
+        .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+        .filter(EstadoTicket.workflow_id == workflow_id)
+        .count()
+    )
+    if tickets_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: hay {tickets_count} ticket(s) usando este workflow",
+        )
+
+    # Eliminar transiciones, luego estados, luego workflow
+    db.query(TransicionEstado).filter(TransicionEstado.workflow_id == workflow_id).delete(synchronize_session="fetch")
+    db.query(EstadoTicket).filter(EstadoTicket.workflow_id == workflow_id).delete(synchronize_session="fetch")
+    db.delete(workflow)
+    db.commit()
+
+
 @router.post("/workflows/{workflow_id}/estados", response_model=EstadoTicketResponse, status_code=201)
 async def crear_estado(
     workflow_id: int,

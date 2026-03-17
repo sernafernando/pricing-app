@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { sectoresAPI, workflowsAPI } from '../services/api';
-import { Plus, X, Save, GitBranch } from 'lucide-react';
+import { Plus, X, Save, GitBranch, Trash2 } from 'lucide-react';
 import EstadosList from './workflow/EstadosList';
 import TransicionesList from './workflow/TransicionesList';
 import styles from './WorkflowEditor.module.css';
@@ -16,6 +16,7 @@ export default function WorkflowEditor() {
   // Create workflow form
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const [newWorkflow, setNewWorkflow] = useState({ nombre: '', descripcion: '', es_default: false });
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     const fetchSectores = async () => {
@@ -80,6 +81,24 @@ export default function WorkflowEditor() {
     }
   };
 
+  const handleDeleteWorkflow = (wf) => {
+    setConfirmDelete({
+      message: `¿Eliminar el workflow "${wf.nombre}"? Se borrarán todos sus estados y transiciones.`,
+      onConfirm: async () => {
+        setConfirmDelete(null);
+        clearMessages();
+        try {
+          await workflowsAPI.eliminar(wf.id);
+          setSuccess(`Workflow "${wf.nombre}" eliminado`);
+          cargarWorkflows();
+        } catch (err) {
+          const detail = err.response?.data?.detail;
+          setError(typeof detail === 'string' ? detail : 'Error al eliminar workflow');
+        }
+      },
+    });
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.sectionHeader}>
@@ -88,6 +107,20 @@ export default function WorkflowEditor() {
 
       {error && <div className={`${styles.message} ${styles.messageError}`}>{error}</div>}
       {success && <div className={`${styles.message} ${styles.messageSuccess}`}>{success}</div>}
+
+      {confirmDelete && (
+        <div className={styles.confirmBar}>
+          <span>{confirmDelete.message}</span>
+          <div className={styles.confirmActions}>
+            <button className={styles.btnCancel} onClick={() => setConfirmDelete(null)}>
+              <X size={14} /> No
+            </button>
+            <button className={styles.btnDangerSolid} onClick={confirmDelete.onConfirm}>
+              <Trash2 size={14} /> Sí, eliminar
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className={styles.selectorRow}>
         <label htmlFor="wf-sector-sel">Sector</label>
@@ -201,6 +234,13 @@ export default function WorkflowEditor() {
                   {wf.activo ? 'Activo' : 'Inactivo'}
                 </span>
               </div>
+              <button
+                className={`${styles.btnIcon} ${styles.btnDanger}`}
+                onClick={() => handleDeleteWorkflow(wf)}
+                aria-label={`Eliminar workflow ${wf.nombre}`}
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
             {wf.descripcion && <div className={styles.workflowDesc}>{wf.descripcion}</div>}
 
