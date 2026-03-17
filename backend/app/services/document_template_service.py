@@ -174,8 +174,10 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         VariableInfo(nombre="observaciones", tipo="text", descripcion="Observaciones del legajo", ejemplo=""),
     ],
     "envios": [
-        # Header de la colecta
-        VariableInfo(nombre="fecha_colecta", tipo="date", descripcion="Fecha de la colecta", ejemplo="2026-03-15"),
+        # Header del remito flex
+        VariableInfo(
+            nombre="fecha_envio", tipo="date", descripcion="Fecha de envío (pistoleado)", ejemplo="2026-03-15"
+        ),
         VariableInfo(nombre="logistica", tipo="text", descripcion="Nombre de la logística", ejemplo="Andreani"),
         VariableInfo(nombre="transporte", tipo="text", descripcion="Nombre del transporte", ejemplo="OCA"),
         VariableInfo(
@@ -184,15 +186,27 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         VariableInfo(
             nombre="transporte_telefono", tipo="text", descripcion="Teléfono del transporte", ejemplo="011-4321-0000"
         ),
-        # Totales de la colecta
-        VariableInfo(nombre="total_envios", tipo="number", descripcion="Cantidad total de envíos", ejemplo="45"),
+        # Totales
+        VariableInfo(
+            nombre="total_envios",
+            tipo="number",
+            descripcion="Cantidad total de envíos pistoleados",
+            ejemplo="45",
+        ),
         VariableInfo(nombre="total_bultos", tipo="number", descripcion="Cantidad total de bultos", ejemplo="62"),
-        # Tabla de envíos (pdfme table plugin — string JSON con filas)
+        # Resumen por cordón
+        VariableInfo(
+            nombre="resumen_cordones",
+            tipo="text",
+            descripcion="Resumen por cordón: CABA: X, Cordón 1: X, ...",
+            ejemplo="CABA: 12 | Cordón 1: 18 | Cordón 2: 10 | Cordón 3: 5",
+        ),
+        # Tabla de envíos pistoleados (pdfme table plugin — string JSON con filas)
         VariableInfo(
             nombre="tabla_envios",
             tipo="table",
-            descripcion="Tabla con detalle de cada envío: shipping_id, destinatario, dirección, CP, ciudad, bultos",
-            ejemplo='[["SHP-001","Juan Pérez","Av. Rivadavia 5678","C1043","CABA","2"]]',
+            descripcion="Tabla: shipping_id, destinatario, dirección, CP, ciudad, cordón, caja, bultos",
+            ejemplo='[["SHP-001","Juan Pérez","Av. Rivadavia 5678","C1043","CABA","CABA","A1","2"]]',
         ),
     ],
     "productos": [

@@ -69,40 +69,53 @@ const rrhhMapper = (entity) => ({
 });
 
 /**
- * Mapper de colecta de envíos.
+ * Mapper de remito flex (envíos pistoleados).
  * entity debe tener la forma:
  * {
- *   fecha_colecta: "2026-03-15",
- *   logistica: "Andreani",
- *   transporte: "OCA",
+ *   fecha_envio: "2026-03-15",
+ *   logistica: "Andreani",  (o logistica_nombre)
+ *   transporte: "OCA",      (o transporte_nombre)
  *   transporte_direccion: "...",
  *   transporte_telefono: "...",
- *   envios: [ { shipping_id, destinatario, direccion, cp, ciudad, bultos }, ... ]
+ *   envios: [ { shipping_id, destinatario/mlreceiver_name, cp, ciudad, cordon, pistoleado_caja, total_bultos, ... } ]
  * }
  */
 const enviosMapper = (entity) => {
   const envios = entity.envios || [];
 
-  // Construir tabla: array de arrays de strings (filas) para pdfme table plugin
+  // Construir tabla: filas para pdfme table plugin
   const tablaRows = envios.map((e) => [
     safe(e.shipping_id),
     safe(e.manual_receiver_name ?? e.mlreceiver_name ?? e.destinatario),
     safe(e.direccion_completa ?? [e.manual_street_name ?? e.mlstreet_name, e.manual_street_number ?? e.mlstreet_number].filter(Boolean).join(' ')),
     safe(e.manual_zip_code ?? e.mlzip_code ?? e.cp),
     safe(e.manual_city_name ?? e.mlcity_name ?? e.ciudad),
+    safe(e.cordon ?? ''),
+    safe(e.pistoleado_caja ?? e.caja ?? ''),
     safe(e.total_bultos ?? '1'),
   ]);
 
   const totalBultos = envios.reduce((sum, e) => sum + (Number(e.total_bultos) || 1), 0);
 
+  // Resumen por cordón
+  const cordones = {};
+  for (const e of envios) {
+    const cordon = e.cordon || 'Sin asignar';
+    cordones[cordon] = (cordones[cordon] || 0) + 1;
+  }
+  const resumenCordones = Object.entries(cordones)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(' | ');
+
   return {
-    fecha_colecta: formatDate(entity.fecha_colecta ?? entity.fecha_envio),
+    fecha_envio: formatDate(entity.fecha_envio),
     logistica: safe(entity.logistica_nombre ?? entity.logistica),
     transporte: safe(entity.transporte_nombre ?? entity.transporte),
     transporte_direccion: safe(entity.transporte_direccion),
     transporte_telefono: safe(entity.transporte_telefono),
     total_envios: String(envios.length),
     total_bultos: String(totalBultos),
+    resumen_cordones: resumenCordones || 'Sin datos de cordón',
     tabla_envios: JSON.stringify(tablaRows),
   };
 };

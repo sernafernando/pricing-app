@@ -241,15 +241,15 @@ def template_rrhh():
 
 
 # =============================================================================
-# TEMPLATE: ENVIOS (Remito de colecta — todos los envíos del día)
+# TEMPLATE: ENVIOS (Remito flex — envíos pistoleados por logística)
 # =============================================================================
 def template_envios():
     fields = []
-    header, y = _header_block("REMITO DE COLECTA")
+    header, y = _header_block("REMITO DE ENVÍOS FLEX")
     fields.extend(header)
 
     y += 2
-    fields.append(_text("fecha_colecta", MARGIN, y, 60, 8, bold=True, fontSize=12))
+    fields.append(_text("fecha_envio", MARGIN, y, 60, 8, bold=True, fontSize=12))
     y += 12
 
     # Transporte / Logística
@@ -269,7 +269,13 @@ def template_envios():
     fields.append(_text("total_bultos", MARGIN + 90, y, 50, 10, bold=True, fontSize=14))
     y += 14
 
-    # Tabla de envíos (usa pdfme table plugin)
+    # Resumen por cordón
+    fields.append(_text("__sec_cordones__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(_text("resumen_cordones", MARGIN, y, CONTENT_W, 7, fontSize=9))
+    y += 10
+
+    # Tabla de envíos pistoleados (usa pdfme table plugin)
     fields.append(
         {
             "name": "tabla_envios",
@@ -277,8 +283,8 @@ def template_envios():
             "position": {"x": MARGIN, "y": y},
             "width": CONTENT_W,
             "height": 150,
-            "head": ["Envío", "Destinatario", "Dirección", "CP", "Ciudad", "Bultos"],
-            "headWidthPercentages": [14, 22, 30, 8, 16, 10],
+            "head": ["Envío", "Destinatario", "Dirección", "CP", "Ciudad", "Cordón", "Caja", "Bultos"],
+            "headWidthPercentages": [12, 18, 24, 7, 13, 10, 8, 8],
             "tableStyles": {"borderWidth": 0.3, "borderColor": "#999999"},
             "headStyles": {
                 "fontName": "Arial Bold",
@@ -309,7 +315,7 @@ def template_envios():
 
     # Firmas
     y = A4_H - MARGIN - 15
-    fields.extend(_firma_block(y, ["Despachó", "Transportista", "Recibió"]))
+    fields.extend(_firma_block(y, ["Despachó", "Logística"]))
 
     return {
         "basePdf": {"width": A4_W, "height": A4_H, "padding": [MARGIN, MARGIN, MARGIN, MARGIN]},
@@ -469,8 +475,8 @@ TEMPLATES = [
         "template_json": template_rrhh,
     },
     {
-        "nombre": "Remito de Colecta (base)",
-        "descripcion": "Template base para remito de colecta. Header con logística/transporte, tabla con todos los envíos del día y totales.",
+        "nombre": "Remito Flex (base)",
+        "descripcion": "Remito de envíos flex pistoleados. Logística/transporte, totales, resumen por cordón, tabla con detalle por envío (caja, bultos).",
         "contexto": "envios",
         "template_json": template_envios,
     },
