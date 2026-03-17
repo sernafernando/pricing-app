@@ -379,14 +379,23 @@ export const workflowsAPI = {
   obtener: (id) => api.get(`/tickets/workflows/${id}`),
   crear: (data) => api.post('/tickets/workflows', data),
   actualizar: (id, data) => api.patch(`/tickets/workflows/${id}`, data),
+  eliminar: (id) => api.delete(`/tickets/workflows/${id}`),
 
   // Estados
   crearEstado: (workflowId, data) =>
     api.post(`/tickets/workflows/${workflowId}/estados`, data),
+  actualizarEstado: (workflowId, estadoId, data) =>
+    api.patch(`/tickets/workflows/${workflowId}/estados/${estadoId}`, data),
+  eliminarEstado: (workflowId, estadoId) =>
+    api.delete(`/tickets/workflows/${workflowId}/estados/${estadoId}`),
 
   // Transiciones
   crearTransicion: (workflowId, data) =>
     api.post(`/tickets/workflows/${workflowId}/transiciones`, data),
+  actualizarTransicion: (workflowId, transicionId, data) =>
+    api.patch(`/tickets/workflows/${workflowId}/transiciones/${transicionId}`, data),
+  eliminarTransicion: (workflowId, transicionId) =>
+    api.delete(`/tickets/workflows/${workflowId}/transiciones/${transicionId}`),
 };
 
 export default api;

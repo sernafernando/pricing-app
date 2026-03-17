@@ -11,8 +11,10 @@ from app.tickets.schemas.workflow_schemas import (
     WorkflowUpdate,
     WorkflowResponse,
     EstadoTicketCreate,
+    EstadoTicketUpdate,
     EstadoTicketResponse,
     TransicionEstadoCreate,
+    TransicionEstadoUpdate,
     TransicionEstadoResponse,
 )
 
@@ -136,6 +138,47 @@ async def actualizar_workflow(
     db.refresh(workflow)
 
     return workflow
+
+
+@router.delete("/workflows/{workflow_id}", status_code=204)
+async def eliminar_workflow(
+    workflow_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina un workflow y todos sus estados y transiciones.
+
+    No se puede eliminar si hay tickets activos usando este workflow.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} no encontrado")
+
+    # Verificar que no hay tickets usando estados de este workflow
+    from app.tickets.models.ticket import Ticket
+
+    tickets_count = (
+        db.query(Ticket)
+        .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+        .filter(EstadoTicket.workflow_id == workflow_id)
+        .count()
+    )
+    if tickets_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: hay {tickets_count} ticket(s) usando este workflow",
+        )
+
+    # Eliminar transiciones, luego estados, luego workflow
+    db.query(TransicionEstado).filter(TransicionEstado.workflow_id == workflow_id).delete(synchronize_session="fetch")
+    db.query(EstadoTicket).filter(EstadoTicket.workflow_id == workflow_id).delete(synchronize_session="fetch")
+    db.delete(workflow)
+    db.commit()
 
 
 @router.post("/workflows/{workflow_id}/estados", response_model=EstadoTicketResponse, status_code=201)
@@ -302,3 +345,149 @@ async def crear_transicion(
     db.refresh(nueva_transicion)
 
     return nueva_transicion
+
+
+@router.patch("/workflows/{workflow_id}/estados/{estado_id}", response_model=EstadoTicketResponse)
+async def actualizar_estado(
+    workflow_id: int,
+    estado_id: int,
+    estado_data: EstadoTicketUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> EstadoTicketResponse:
+    """
+    Actualiza un estado existente de un workflow.
+
+    Permite modificar nombre, descripcion, orden, color y flags (es_inicial, es_final).
+    El código del estado NO se puede cambiar (es identificador único).
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    estado = (
+        db.query(EstadoTicket).filter(EstadoTicket.id == estado_id, EstadoTicket.workflow_id == workflow_id).first()
+    )
+    if not estado:
+        raise HTTPException(status_code=404, detail=f"Estado {estado_id} no encontrado en workflow {workflow_id}")
+
+    # Si se marca como inicial, desmarcar otros estados iniciales del workflow
+    if estado_data.es_inicial is True:
+        db.query(EstadoTicket).filter(
+            EstadoTicket.workflow_id == workflow_id,
+            EstadoTicket.id != estado_id,
+            EstadoTicket.es_inicial == True,
+        ).update({"es_inicial": False})
+
+    for field, value in estado_data.model_dump(exclude_unset=True).items():
+        setattr(estado, field, value)
+
+    db.commit()
+    db.refresh(estado)
+    return estado
+
+
+@router.delete("/workflows/{workflow_id}/estados/{estado_id}", status_code=204)
+async def eliminar_estado(
+    workflow_id: int,
+    estado_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina un estado de un workflow.
+
+    No se puede eliminar si hay tickets activos usando este estado.
+    También elimina las transiciones asociadas a este estado.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    estado = (
+        db.query(EstadoTicket).filter(EstadoTicket.id == estado_id, EstadoTicket.workflow_id == workflow_id).first()
+    )
+    if not estado:
+        raise HTTPException(status_code=404, detail=f"Estado {estado_id} no encontrado en workflow {workflow_id}")
+
+    # Verificar que no hay tickets usando este estado
+    from app.tickets.models.ticket import Ticket
+
+    tickets_con_estado = db.query(Ticket).filter(Ticket.estado_id == estado_id).count()
+    if tickets_con_estado > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: hay {tickets_con_estado} ticket(s) en este estado",
+        )
+
+    # Eliminar transiciones asociadas
+    db.query(TransicionEstado).filter(
+        (TransicionEstado.estado_origen_id == estado_id) | (TransicionEstado.estado_destino_id == estado_id)
+    ).delete(synchronize_session="fetch")
+
+    db.delete(estado)
+    db.commit()
+
+
+@router.patch("/workflows/{workflow_id}/transiciones/{transicion_id}", response_model=TransicionEstadoResponse)
+async def actualizar_transicion(
+    workflow_id: int,
+    transicion_id: int,
+    transicion_data: TransicionEstadoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TransicionEstadoResponse:
+    """
+    Actualiza una transición existente de un workflow.
+
+    Permite modificar nombre, descripcion, permisos y restricciones.
+    Los estados origen/destino NO se pueden cambiar (eliminar y recrear).
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    transicion = (
+        db.query(TransicionEstado)
+        .filter(TransicionEstado.id == transicion_id, TransicionEstado.workflow_id == workflow_id)
+        .first()
+    )
+    if not transicion:
+        raise HTTPException(
+            status_code=404, detail=f"Transición {transicion_id} no encontrada en workflow {workflow_id}"
+        )
+
+    for field, value in transicion_data.model_dump(exclude_unset=True).items():
+        setattr(transicion, field, value)
+
+    db.commit()
+    db.refresh(transicion)
+    return transicion
+
+
+@router.delete("/workflows/{workflow_id}/transiciones/{transicion_id}", status_code=204)
+async def eliminar_transicion(
+    workflow_id: int,
+    transicion_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Elimina una transición de un workflow.
+
+    Requiere: tickets.admin
+    """
+    _check_permiso(db, current_user, "tickets.admin")
+
+    transicion = (
+        db.query(TransicionEstado)
+        .filter(TransicionEstado.id == transicion_id, TransicionEstado.workflow_id == workflow_id)
+        .first()
+    )
+    if not transicion:
+        raise HTTPException(
+            status_code=404, detail=f"Transición {transicion_id} no encontrada en workflow {workflow_id}"
+        )
+
+    db.delete(transicion)
+    db.commit()
