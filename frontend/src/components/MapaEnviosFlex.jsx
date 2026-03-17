@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapPin, AlertTriangle, Zap, CloudRain } from 'lucide-react';
+import { MapPin, AlertTriangle, Zap, CloudRain, Crosshair } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import styles from './MapaEnviosFlex.module.css';
 
@@ -48,15 +48,35 @@ const createColoredIcon = (color, isTurbo = false) => {
 };
 
 // ── FitBounds helper ────────────────────────────────────────────
-const FitBounds = ({ positions }) => {
+// Only fits bounds on initial mount or when explicitly triggered via resetKey.
+// This prevents the map from snapping back to default zoom on every SSE/polling
+// re-render while the user is panning/zooming.
+const FitBounds = ({ positions, resetKey }) => {
   const map = useMap();
+  const hasFittedRef = useRef(false);
 
   useEffect(() => {
     if (positions.length > 0) {
       const bounds = L.latLngBounds(positions);
       map.fitBounds(bounds, { padding: [50, 50] });
+      hasFittedRef.current = true;
     }
-  }, [positions, map]);
+    // Only run on mount or when user explicitly requests re-center (resetKey changes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  // Deferred initial fit: if positions weren't available on first render
+  // (e.g. data still loading), fit once when they arrive.
+  // Uses positions.length as dep instead of the array ref to avoid
+  // re-triggering on every data reload with the same number of points.
+  useEffect(() => {
+    if (!hasFittedRef.current && positions.length > 0) {
+      const bounds = L.latLngBounds(positions);
+      map.fitBounds(bounds, { padding: [50, 50] });
+      hasFittedRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions.length]);
 
   return null;
 };
@@ -88,6 +108,11 @@ const CORDON_COLORS = {
 // ── Main Component ──────────────────────────────────────────────
 export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodificando = false }) {
   const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
+  const [fitBoundsKey, setFitBoundsKey] = useState(0);
+
+  const handleRecenter = useCallback(() => {
+    setFitBoundsKey(prev => prev + 1);
+  }, []);
 
   // Separar envíos con y sin coordenadas + contar turbos
   const { conCoords, sinCoords, posiciones, hayTurbos } = useMemo(() => {
@@ -164,7 +189,7 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {posiciones.length > 0 && <FitBounds positions={posiciones} />}
+        {posiciones.length > 0 && <FitBounds positions={posiciones} resetKey={fitBoundsKey} />}
 
         {conCoords.map((envio) => (
           <Marker
@@ -200,8 +225,19 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
         ))}
       </MapContainer>
 
-      {/* Controles flotantes: modo color + leyenda */}
+      {/* Controles flotantes: re-centrar + modo color + leyenda */}
       <div className={styles.controlPanel}>
+        <button
+          type="button"
+          className={styles.recenterBtn}
+          onClick={handleRecenter}
+          title="Re-centrar mapa"
+          aria-label="Re-centrar mapa"
+        >
+          <Crosshair size={14} />
+          <span>Re-centrar</span>
+        </button>
+
         <div className={styles.colorToggle}>
           <span className={styles.colorToggleLabel}>Color por:</span>
           <button

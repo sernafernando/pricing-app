@@ -4326,6 +4326,147 @@ async def geocodificar_etiquetas(
     )
 
 
+# ── Geocodificación / Re-geocodificación individual ──────────────────
+
+
+class GeocodificarIndividualResponse(BaseModel):
+    """Resultado de geocodificación individual."""
+
+    shipping_id: str
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
+    direccion_usada: Optional[str] = None
+    ok: bool
+    mensaje: str
+
+
+@router.post(
+    "/etiquetas-envio/{shipping_id}/geocodificar",
+    response_model=GeocodificarIndividualResponse,
+    summary="Re-geocodificar una etiqueta individual (fuerza re-cálculo aunque ya tenga coords)",
+)
+async def geocodificar_individual(
+    shipping_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GeocodificarIndividualResponse:
+    """
+    Re-geocodifica una etiqueta individual FORZANDO el re-cálculo.
+    A diferencia del masivo, esto SIEMPRE re-geocodifica aunque ya tenga
+    coordenadas, permitiendo corregir errores de geocodificación.
+
+    No tiene límite de selección — es para corrección puntual.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(status_code=404, detail="Etiqueta no encontrada")
+
+    # ── Determinar dirección a geocodificar ──
+    direccion = None
+    ciudad = "Buenos Aires"
+    zip_code = None
+
+    # Prioridad 1: transporte asignado
+    if etiqueta.transporte_id:
+        transporte = db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
+        if transporte:
+            if transporte.latitud and transporte.longitud:
+                # Transporte ya tiene coords → usar directo
+                etiqueta.latitud = transporte.latitud
+                etiqueta.longitud = transporte.longitud
+                db.commit()
+                sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+                return GeocodificarIndividualResponse(
+                    shipping_id=shipping_id,
+                    latitud=float(transporte.latitud),
+                    longitud=float(transporte.longitud),
+                    direccion_usada=transporte.direccion,
+                    ok=True,
+                    mensaje="Coords tomadas del transporte asignado",
+                )
+            if transporte.direccion:
+                direccion = transporte.direccion
+                ciudad = transporte.localidad or "Buenos Aires"
+                zip_code = transporte.cp
+
+    # Prioridad 2: dirección manual
+    if not direccion and etiqueta.es_manual and etiqueta.manual_street_name:
+        direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
+        ciudad = etiqueta.manual_city_name or "Buenos Aires"
+        zip_code = etiqueta.manual_zip_code
+
+    # Prioridad 3: dirección enriquecida
+    if not direccion and etiqueta.direccion_completa:
+        direccion = etiqueta.direccion_completa
+        # Intentar extraer CP del envío
+        zip_code = zip_code or etiqueta.manual_zip_code
+
+    # Prioridad 4: ML shipping data
+    if not direccion:
+        ml_ship = (
+            db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlshippingid == shipping_id).first()
+        )
+        if ml_ship and ml_ship.mlstreet_name:
+            direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
+            ciudad = ml_ship.mlcity_name or "Buenos Aires"
+            zip_code = ml_ship.mlzip_code
+
+    if not direccion:
+        return GeocodificarIndividualResponse(
+            shipping_id=shipping_id,
+            ok=False,
+            mensaje="Sin dirección válida para geocodificar",
+        )
+
+    # ── Geocodificar (bypass cache para forzar re-cálculo) ──
+    coords = await geocode_address(
+        direccion,
+        ciudad=ciudad,
+        zip_code=zip_code,
+        db=db,
+        usar_cache=False,
+    )
+
+    if not coords:
+        # Limpiar coords erróneas si las tenía
+        if etiqueta.latitud or etiqueta.longitud:
+            etiqueta.latitud = None
+            etiqueta.longitud = None
+            db.commit()
+            sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+        return GeocodificarIndividualResponse(
+            shipping_id=shipping_id,
+            direccion_usada=f"{direccion}, {ciudad}",
+            ok=False,
+            mensaje="No se encontró una ubicación confiable para esta dirección",
+        )
+
+    lat, lng = coords
+    etiqueta.latitud = lat
+    etiqueta.longitud = lng
+    db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
+    logger.info(
+        "Re-geocoding individual OK %s → (%.6f, %.6f) [%s]",
+        shipping_id,
+        lat,
+        lng,
+        direccion[:50],
+    )
+
+    return GeocodificarIndividualResponse(
+        shipping_id=shipping_id,
+        latitud=lat,
+        longitud=lng,
+        direccion_usada=f"{direccion}, {ciudad}",
+        ok=True,
+        mensaje="Geocodificación exitosa",
+    )
+
+
 # ── Smart Polling ─────────────────────────────────────────────
 
 
