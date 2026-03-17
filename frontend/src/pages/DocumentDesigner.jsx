@@ -92,6 +92,7 @@ export default function DocumentDesigner() {
     const initDesigner = async () => {
       const { Designer } = await import('@pdfme/ui');
       const { plugins } = await import('../utils/pdfmePlugins');
+      const { getFont } = await import('../utils/pdfmeFonts');
 
       const template = currentTemplateJson || {
         basePdf: BLANK_PDF,
@@ -111,6 +112,7 @@ export default function DocumentDesigner() {
         domContainer: containerRef.current,
         template,
         plugins,
+        options: { font: getFont() },
       });
     };
 
