@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import SidebarSection from './SidebarSection';
-import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket } from 'lucide-react';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket, FileText } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
@@ -137,6 +137,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       items: [
         { label: 'Tickets', path: '/tickets', permiso: 'tickets.ver' },
         { label: 'Configuración Tickets', path: '/tickets/admin', permiso: 'tickets.admin' },
+      ],
+    },
+    {
+      id: 'documentos',
+      title: 'Documentos',
+      icon: FileText,
+      defaultOpen: false,
+      items: [
+        { label: 'Designer', path: '/document-designer', permiso: 'documentos.disenar' },
       ],
     },
     {

@@ -24,6 +24,7 @@ import {
   MapPin,
   Navigation,
   ExternalLink,
+  FileDown,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -36,6 +37,7 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
+import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './Empleados.module.css';
 
 const ESTADOS = [
@@ -55,6 +57,7 @@ export default function Empleados() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rrhh.gestionar');
   const puedeConfig = tienePermiso('rrhh.config');
+  const puedeImprimir = tienePermiso('documentos.imprimir');
 
   // --- Page tab ---
   const [pageTab, setPageTab] = useState('empleados');
@@ -100,6 +103,10 @@ export default function Empleados() {
 
   // Modal tab (solo en edición)
   const [modalTab, setModalTab] = useState('datos');
+
+  // --- Generar documento ---
+  const [docGenOpen, setDocGenOpen] = useState(false);
+  const [docGenEmpleado, setDocGenEmpleado] = useState(null);
 
   // --- Geocodificación ---
   const [geocoding, setGeocoding] = useState(false);
@@ -928,22 +935,35 @@ export default function Empleados() {
                     </span>
                   </td>
                   <td>{emp.fecha_ingreso}</td>
-                  {puedeGestionar && (
+                  {(puedeGestionar || puedeImprimir) && (
                     <td className={styles.actions}>
-                      <button
-                        onClick={() => handleEditar(emp)}
-                        className={styles.btnEdit}
-                        title="Editar"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleEliminar(emp)}
-                        className={styles.btnDanger}
-                        title="Desactivar"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {puedeImprimir && (
+                        <button
+                          onClick={() => { setDocGenEmpleado(emp); setDocGenOpen(true); }}
+                          className={styles.btnEdit}
+                          title="Generar documento PDF"
+                        >
+                          <FileDown size={14} />
+                        </button>
+                      )}
+                      {puedeGestionar && (
+                        <button
+                          onClick={() => handleEditar(emp)}
+                          className={styles.btnEdit}
+                          title="Editar"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                      )}
+                      {puedeGestionar && (
+                        <button
+                          onClick={() => handleEliminar(emp)}
+                          className={styles.btnDanger}
+                          title="Desactivar"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -1589,6 +1609,14 @@ export default function Empleados() {
           </div>
         </div>
       )}
+
+      {/* Modal generar documento PDF */}
+      <DocumentGeneratorModal
+        isOpen={docGenOpen}
+        onClose={() => { setDocGenOpen(false); setDocGenEmpleado(null); }}
+        contexto="rrhh"
+        entityData={docGenEmpleado}
+      />
     </div>
   );
 }

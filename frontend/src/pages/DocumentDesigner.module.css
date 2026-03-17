@@ -1,0 +1,345 @@
+/* DocumentDesigner - Full page layout */
+.container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-card);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.toolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.toolbarCenter {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex: 1;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+/* Form fields in toolbar */
+.fieldGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.label {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.input {
+  padding: 4px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  width: 180px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.selectWrapper {
+  position: relative;
+}
+
+.select {
+  padding: 4px 24px 4px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  appearance: none;
+  cursor: pointer;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.selectIcon {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+/* Buttons */
+.btnNew,
+.btnSave,
+.btnDelete {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnNew {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnNew:hover {
+  background: var(--cf-border-default);
+}
+
+.btnSave {
+  background: var(--cf-accent-blue);
+  color: #fff;
+}
+
+.btnSave:hover {
+  opacity: 0.9;
+}
+
+.btnSave:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnDelete {
+  background: transparent;
+  color: var(--cf-accent-red);
+  padding: 6px;
+}
+
+.btnDelete:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Messages */
+.errorBanner,
+.successBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.successBanner {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.dismissBtn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  opacity: 0.7;
+}
+
+.dismissBtn:hover {
+  opacity: 1;
+}
+
+/* Main area */
+.mainArea {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: var(--cf-bg-card);
+  border-right: 1px solid var(--cf-border-default);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebarSection {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.sidebarTitle {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.sidebarLoader,
+.sidebarEmpty {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebarHint {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+/* Template list */
+.templateList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.templateItem {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.templateItem:hover {
+  background: var(--cf-bg-hover);
+}
+
+.templateItemActive {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+.templateItemInactive {
+  opacity: 0.5;
+}
+
+.templateName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inactiveBadge {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Variables palette */
+.variableList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.variableItem {
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.variableItem:hover {
+  background: var(--cf-bg-hover);
+}
+
+.variableCode {
+  font-size: 12px;
+  color: var(--cf-accent-blue);
+  font-family: monospace;
+}
+
+.variableDesc {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Designer container */
+.designerContainer {
+  flex: 1;
+  overflow: hidden;
+  background: var(--cf-bg-app);
+}
+
+/* Delete modal */
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.deleteNote {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  margin-top: var(--spacing-xs);
+}

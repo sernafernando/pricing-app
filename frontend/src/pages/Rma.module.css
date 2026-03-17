@@ -254,3 +254,21 @@
   margin-bottom: var(--spacing-lg);
   box-shadow: var(--shadow-sm);
 }
+
+.btnAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnAction:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-accent-blue);
+}

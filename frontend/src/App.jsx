@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './store/authStore';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PermisosProvider } from './contexts/PermisosContext';
@@ -43,6 +43,7 @@ import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import Tickets from './pages/Tickets';
 import TicketsAdmin from './pages/TicketsAdmin';
 import ProtectedRoute from './components/ProtectedRoute';
+const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
 import './styles/design-tokens.css';
@@ -272,6 +273,13 @@ function App() {
             <Route path="/tickets/admin" element={
               <ProtectedRoute permiso="tickets.admin">
                 <TicketsAdmin />
+              </ProtectedRoute>
+            } />
+            <Route path="/document-designer" element={
+              <ProtectedRoute permiso="documentos.disenar">
+                <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Designer...</div>}>
+                  <DocumentDesigner />
+                </Suspense>
               </ProtectedRoute>
             } />
           </Route>

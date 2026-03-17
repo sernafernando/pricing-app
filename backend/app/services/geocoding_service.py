@@ -4,6 +4,7 @@ Usa Mapbox Geocoding API con cache para evitar consultas repetidas.
 """
 
 import asyncio
+import re
 import httpx
 import logging
 from typing import Optional, Tuple, Dict, List
@@ -274,6 +275,22 @@ async def geocode_address(
         return None
 
 
+def _strip_street_prefix(direccion: str) -> str:
+    """
+    Quita prefijos de tipo de vía que Nominatim no entiende.
+    En OSM Argentina las calles están sin prefijo ("Roux", no "Pasaje Roux").
+
+    Ej: "Pasaje Roux 659" → "Roux 659"
+        "Av. San Martín 1200" → "San Martín 1200" (Nominatim entiende "Avenida")
+        "Calle 12 N° 450" → "12 N° 450"
+    """
+    prefixes = re.compile(
+        r"^(?:Pasaje|Pje\.?|Psje\.?|Calle|Diagonal|Diag\.?|Boulev(?:ar|ard)?|Blvd\.?|Callejón|Autopista|Ruta)\s+",
+        re.IGNORECASE,
+    )
+    return prefixes.sub("", direccion).strip()
+
+
 async def _nominatim_fallback(
     direccion: str,
     ciudad: str,
@@ -286,28 +303,50 @@ async def _nominatim_fallback(
 
     Nominatim has better coverage of small Argentine streets (pasajes, etc.)
     but is rate-limited to 1 req/sec. Only used as fallback, never primary.
+
+    Tries twice: first with the original address, then stripping street type
+    prefixes (Pasaje, Pje, Diagonal, etc.) that OSM doesn't use.
     """
+    attempts = [direccion]
+    stripped = _strip_street_prefix(direccion)
+    if stripped != direccion:
+        attempts.append(stripped)
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # Structured search is more precise than free-form for Nominatim
-            params = {
-                "street": direccion,
-                "city": ciudad,
-                "country": pais,
-                "format": "json",
-                "limit": 1,
-                "addressdetails": "1",
-            }
-            if zip_code:
-                params["postalcode"] = zip_code
+            data = None
 
-            response = await client.get(
-                "https://nominatim.openstreetmap.org/search",
-                params=params,
-                headers={"User-Agent": "pricing-app/1.0"},
-            )
-            response.raise_for_status()
-            data = response.json()
+            for attempt in attempts:
+                # Structured search is more precise than free-form for Nominatim
+                params = {
+                    "street": attempt,
+                    "city": ciudad,
+                    "country": pais,
+                    "format": "json",
+                    "limit": 1,
+                    "addressdetails": "1",
+                }
+                if zip_code:
+                    params["postalcode"] = zip_code
+
+                response = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params=params,
+                    headers={"User-Agent": "pricing-app/1.0"},
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if data:
+                    logger.info(
+                        "Nominatim hit with '%s' (attempt: '%s')",
+                        attempt[:50],
+                        "original" if attempt == direccion else "stripped",
+                    )
+                    break
+
+                # Rate limit: 1 req/sec
+                await asyncio.sleep(1.1)
 
             if not data:
                 logger.info("Nominatim fallback: sin resultados para '%s, %s'", direccion[:50], ciudad)

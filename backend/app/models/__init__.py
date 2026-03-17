@@ -97,6 +97,9 @@ from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_hikvision_user import RRHHHikvisionUser
 from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 
+# Documentos — Templates PDF
+from app.models.document_template import DocumentTemplate
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -215,4 +218,6 @@ __all__ = [
     "RRHHEmpleadoHorario",
     "RRHHHikvisionUser",
     "RRHHMotivoBaja",
+    # Documentos
+    "DocumentTemplate",
 ]
