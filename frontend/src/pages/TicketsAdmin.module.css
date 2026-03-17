@@ -209,7 +209,7 @@
 }
 
 .btnDanger {
-  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+  color: var(--cf-accent-red);
 }
 
 .actionBtns {
