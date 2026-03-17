@@ -205,7 +205,7 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
                   {envio.es_lluvia && <CloudRain size={14} className={styles.popupLluviaIcon} />}
                 </h4>
                 <p><strong>Destinatario:</strong> {envio.mlreceiver_name}</p>
-                <p><strong>Dirección:</strong> {envio.direccion_completa}</p>
+                <p><strong>Dirección:</strong> {envio.direccion_completa || [envio.mlstreet_name, envio.mlstreet_number].filter(Boolean).join(' ') || 'Sin dirección'}</p>
                 <p><strong>CP:</strong> {envio.mlzip_code}</p>
                 <p><strong>Cordón:</strong> {envio.cordon || 'Sin asignar'}</p>
                 <p><strong>Logística:</strong> {envio.logistica_nombre || 'Sin asignar'}</p>
