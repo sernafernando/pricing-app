@@ -274,7 +274,70 @@
   gap: 4px;
   font-size: var(--font-xs);
   color: var(--cf-accent-orange);
+}
+
+/* Item action buttons (edit/delete) */
+.itemActions {
+  display: flex;
+  gap: 4px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.btnIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-base);
+  background: transparent;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnIcon:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnDanger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+}
+
+/* Confirm delete bar */
+.confirmBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.btnDangerSolid {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+}
+
+/* Inline edit form (inside list items) */
+.editFormInline {
+  background: var(--cf-bg-hover);
+  border-top: 1px dashed var(--cf-border-default);
+  padding: var(--spacing-sm) var(--spacing-md);
 }
 
 /* Forms */
