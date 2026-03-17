@@ -289,6 +289,48 @@ git push origin v1.2.0
 
 ---
 
+## PRE-COMMIT HOOK (GGA) BYPASS POLICY
+
+The repo uses **Gentleman Guardian Angel (GGA)** as a pre-commit hook to review code.
+
+### When GGA Fails Due to Infrastructure Issues
+
+GGA may crash with `Argument list too long` on large commits (20+ changed files) or timeout on slow networks. This is a hook infra issue, NOT a code quality pass.
+
+### MANDATORY: Manual Verification Before `--no-verify`
+
+**NEVER use `--no-verify` without running these checks FIRST:**
+
+```bash
+# 1. Lint ALL changed JS/JSX files
+cd frontend && npx eslint src/path/to/every/changed/file.jsx
+
+# 2. Format check ALL changed Python files
+cd backend && source venv/bin/activate
+ruff format --check app/path/to/every/changed/file.py
+
+# 3. Lint check ALL new Python files
+ruff check app/path/to/every/new/file.py
+```
+
+**ALL three must pass with 0 errors before `--no-verify` is acceptable.**
+
+### Prevention: Split Large Changes
+
+To avoid hitting GGA's argument limit:
+- Split large features into **2-3 smaller commits** (e.g., backend, frontend infra, integration)
+- Each commit stays under ~10 changed files
+- GGA can review each one normally
+
+### After `--no-verify`
+
+Document in the conversation that:
+1. Manual checks were run
+2. Results were clean (paste output)
+3. Reason for bypass (e.g., "GGA: Argument list too long with 24 files")
+
+---
+
 ## COMMON PITFALLS
 
 ### ❌ DON'T
@@ -296,6 +338,7 @@ git push origin v1.2.0
 - Don't commit directly to `main` or `develop`
 - Don't commit without testing locally
 - Don't commit without running lint (`ruff check` + `ruff format --check` for Python, `npx eslint` for JS/JSX)
+- Don't use `--no-verify` without running manual lint/format checks first
 - Don't use vague commit messages ("fix", "changes")
 - Don't include secrets (.env, credentials)
 - Don't commit node_modules, __pycache__, etc
@@ -307,6 +350,8 @@ git push origin v1.2.0
 - Write descriptive commit messages
 - **Run `ruff check` AND `ruff format --check` on .py files before committing**
 - **Run `npx eslint` on .jsx/.js files before committing**
+- **If GGA hook fails: run manual checks, document results, THEN `--no-verify`**
+- **Split large features into smaller commits to avoid hook limits**
 - Test before pushing
 - Review your own diff before PR
 - Keep commits atomic (one logical change)
