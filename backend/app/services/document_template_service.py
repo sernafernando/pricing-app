@@ -201,13 +201,6 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             descripcion="Resumen por cordón: CABA: X, Cordón 1: X, ...",
             ejemplo="CABA: 12 | Cordón 1: 18 | Cordón 2: 10 | Cordón 3: 5",
         ),
-        # Tabla de envíos pistoleados (pdfme table plugin — string JSON con filas)
-        VariableInfo(
-            nombre="tabla_envios",
-            tipo="table",
-            descripcion="Tabla: shipping_id, destinatario, dirección, CP, ciudad, cordón, caja, bultos",
-            ejemplo='[["SHP-001","Juan Pérez","Av. Rivadavia 5678","C1043","CABA","CABA","A1","2"]]',
-        ),
     ],
     "productos": [
         VariableInfo(nombre="codigo", tipo="text", descripcion="Código del producto", ejemplo="PROD-001"),

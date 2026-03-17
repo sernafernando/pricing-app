@@ -262,56 +262,17 @@ def template_envios():
     fields.append(_text("transporte_telefono", MARGIN + 90, y, 90, 6))
     y += 10
 
-    # Totales
+    # Totales (bien grandes — es lo que importa)
     fields.append(_text("__sec_totales__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
-    y += 8
-    fields.append(_text("total_envios", MARGIN, y, 50, 10, bold=True, fontSize=14))
-    fields.append(_text("total_bultos", MARGIN + 90, y, 50, 10, bold=True, fontSize=14))
-    y += 14
+    y += 10
+    fields.append(_text("total_envios", MARGIN, y, 80, 16, bold=True, fontSize=28))
+    fields.append(_text("total_bultos", MARGIN + 90, y, 90, 16, bold=True, fontSize=28))
+    y += 22
 
     # Resumen por cordón
     fields.append(_text("__sec_cordones__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("resumen_cordones", MARGIN, y, CONTENT_W, 7, fontSize=9))
-    y += 10
-
-    # Tabla de envíos pistoleados (usa pdfme table plugin)
-    fields.append(
-        {
-            "name": "tabla_envios",
-            "type": "table",
-            "position": {"x": MARGIN, "y": y},
-            "width": CONTENT_W,
-            "height": 150,
-            "head": ["Envío", "Destinatario", "Dirección", "CP", "Ciudad", "Cordón", "Caja", "Bultos"],
-            "headWidthPercentages": [12, 18, 24, 7, 13, 10, 8, 8],
-            "tableStyles": {"borderWidth": 0.3, "borderColor": "#999999"},
-            "headStyles": {
-                "fontName": "Arial Bold",
-                "fontSize": 8,
-                "characterSpacing": 0,
-                "alignment": "left",
-                "verticalAlignment": "middle",
-                "lineHeight": 1,
-                "fontColor": "#ffffff",
-                "backgroundColor": "#333333",
-                "borderColor": "#333333",
-                "padding": {"top": 3, "bottom": 3, "left": 3, "right": 3},
-            },
-            "bodyStyles": {
-                "fontName": "Arial",
-                "fontSize": 7,
-                "characterSpacing": 0,
-                "alignment": "left",
-                "verticalAlignment": "middle",
-                "lineHeight": 1,
-                "fontColor": "#333333",
-                "borderColor": "#cccccc",
-                "alternateBackgroundColor": "#f5f5f5",
-                "padding": {"top": 2, "bottom": 2, "left": 3, "right": 3},
-            },
-        }
-    )
+    fields.append(_text("resumen_cordones", MARGIN, y, CONTENT_W, 8, fontSize=11))
 
     # Firmas
     y = A4_H - MARGIN - 15

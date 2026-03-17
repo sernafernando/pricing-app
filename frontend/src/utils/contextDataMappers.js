@@ -77,24 +77,13 @@ const rrhhMapper = (entity) => ({
  *   transporte: "OCA",      (o transporte_nombre)
  *   transporte_direccion: "...",
  *   transporte_telefono: "...",
- *   envios: [ { shipping_id, destinatario/mlreceiver_name, cp, ciudad, cordon, pistoleado_caja, total_bultos, ... } ]
+ *   envios: [ { cordon, total_bultos, ... } ]
  * }
+ * El remito es una hoja simple: totales + cordones + firma.
+ * Sin tabla de detalle (200 envíos no los mira nadie).
  */
 const enviosMapper = (entity) => {
   const envios = entity.envios || [];
-
-  // Construir tabla: filas para pdfme table plugin
-  const tablaRows = envios.map((e) => [
-    safe(e.shipping_id),
-    safe(e.manual_receiver_name ?? e.mlreceiver_name ?? e.destinatario),
-    safe(e.direccion_completa ?? [e.manual_street_name ?? e.mlstreet_name, e.manual_street_number ?? e.mlstreet_number].filter(Boolean).join(' ')),
-    safe(e.manual_zip_code ?? e.mlzip_code ?? e.cp),
-    safe(e.manual_city_name ?? e.mlcity_name ?? e.ciudad),
-    safe(e.cordon ?? ''),
-    safe(e.pistoleado_caja ?? e.caja ?? ''),
-    safe(e.total_bultos ?? '1'),
-  ]);
-
   const totalBultos = envios.reduce((sum, e) => sum + (Number(e.total_bultos) || 1), 0);
 
   // Resumen por cordón
@@ -116,7 +105,6 @@ const enviosMapper = (entity) => {
     total_envios: String(envios.length),
     total_bultos: String(totalBultos),
     resumen_cordones: resumenCordones || 'Sin datos de cordón',
-    tabla_envios: JSON.stringify(tablaRows),
   };
 };
 
