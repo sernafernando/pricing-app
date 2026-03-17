@@ -174,25 +174,25 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         VariableInfo(nombre="observaciones", tipo="text", descripcion="Observaciones del legajo", ejemplo=""),
     ],
     "envios": [
-        VariableInfo(nombre="shipping_id", tipo="text", descripcion="ID de envío", ejemplo="SHP-12345"),
-        VariableInfo(nombre="fecha_envio", tipo="date", descripcion="Fecha de envío", ejemplo="2026-03-15"),
+        # Header de la colecta
+        VariableInfo(nombre="fecha_colecta", tipo="date", descripcion="Fecha de la colecta", ejemplo="2026-03-15"),
         VariableInfo(nombre="logistica", tipo="text", descripcion="Nombre de la logística", ejemplo="Andreani"),
         VariableInfo(nombre="transporte", tipo="text", descripcion="Nombre del transporte", ejemplo="OCA"),
-        VariableInfo(nombre="destinatario", tipo="text", descripcion="Nombre del destinatario", ejemplo="María García"),
-        VariableInfo(nombre="calle", tipo="text", descripcion="Calle del destino", ejemplo="Av. Rivadavia"),
-        VariableInfo(nombre="numero", tipo="text", descripcion="Número de calle", ejemplo="5678"),
-        VariableInfo(nombre="cp", tipo="text", descripcion="Código postal destino", ejemplo="C1043"),
-        VariableInfo(nombre="ciudad", tipo="text", descripcion="Ciudad destino", ejemplo="CABA"),
-        VariableInfo(nombre="telefono", tipo="text", descripcion="Teléfono del destinatario", ejemplo="11-4567-8901"),
-        VariableInfo(
-            nombre="observaciones", tipo="text", descripcion="Observaciones del envío", ejemplo="Tocar timbre 2B"
-        ),
-        VariableInfo(nombre="total_bultos", tipo="number", descripcion="Total de bultos", ejemplo="5"),
         VariableInfo(
             nombre="transporte_direccion", tipo="text", descripcion="Dirección del transporte", ejemplo="Ruta 3 km 25"
         ),
         VariableInfo(
             nombre="transporte_telefono", tipo="text", descripcion="Teléfono del transporte", ejemplo="011-4321-0000"
+        ),
+        # Totales de la colecta
+        VariableInfo(nombre="total_envios", tipo="number", descripcion="Cantidad total de envíos", ejemplo="45"),
+        VariableInfo(nombre="total_bultos", tipo="number", descripcion="Cantidad total de bultos", ejemplo="62"),
+        # Tabla de envíos (pdfme table plugin — string JSON con filas)
+        VariableInfo(
+            nombre="tabla_envios",
+            tipo="table",
+            descripcion="Tabla con detalle de cada envío: shipping_id, destinatario, dirección, CP, ciudad, bultos",
+            ejemplo='[["SHP-001","Juan Pérez","Av. Rivadavia 5678","C1043","CABA","2"]]',
         ),
     ],
     "productos": [

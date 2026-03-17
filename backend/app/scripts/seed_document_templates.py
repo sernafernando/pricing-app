@@ -241,19 +241,18 @@ def template_rrhh():
 
 
 # =============================================================================
-# TEMPLATE: ENVIOS
+# TEMPLATE: ENVIOS (Remito de colecta — todos los envíos del día)
 # =============================================================================
 def template_envios():
     fields = []
-    header, y = _header_block("REMITO DE ENVÍO")
+    header, y = _header_block("REMITO DE COLECTA")
     fields.extend(header)
 
     y += 2
-    fields.append(_text("shipping_id", MARGIN, y, 60, 8, bold=True, fontSize=12))
-    fields.append(_text("fecha_envio", MARGIN + 120, y, 60, 8, alignment="right"))
+    fields.append(_text("fecha_colecta", MARGIN, y, 60, 8, bold=True, fontSize=12))
     y += 12
 
-    # Transporte
+    # Transporte / Logística
     fields.append(_text("__sec_transporte__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
     y += 8
     fields.append(_text("logistica", MARGIN, y, 90, 7, bold=True, fontSize=11))
@@ -263,29 +262,50 @@ def template_envios():
     fields.append(_text("transporte_telefono", MARGIN + 90, y, 90, 6))
     y += 10
 
-    # Destinatario
-    fields.append(_text("__sec_destino__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
+    # Totales
+    fields.append(_text("__sec_totales__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
     y += 8
-    fields.append(_text("destinatario", MARGIN, y, CONTENT_W, 7, bold=True, fontSize=11))
-    y += 8
-    fields.append(_text("calle", MARGIN, y, 80, 6))
-    fields.append(_text("numero", MARGIN + 80, y, 30, 6))
-    fields.append(_text("cp", MARGIN + 120, y, 30, 6))
-    y += 7
-    fields.append(_text("ciudad", MARGIN, y, 60, 6))
-    fields.append(_text("telefono", MARGIN + 60, y, 60, 6))
-    y += 10
+    fields.append(_text("total_envios", MARGIN, y, 50, 10, bold=True, fontSize=14))
+    fields.append(_text("total_bultos", MARGIN + 90, y, 50, 10, bold=True, fontSize=14))
+    y += 14
 
-    # Bultos (grande, prominente)
-    fields.append(_text("__sec_bultos__", MARGIN, y, 80, 7, fontSize=9, bold=True, fontColor="#555555"))
-    y += 8
-    fields.append(_text("total_bultos", MARGIN, y, 60, 14, bold=True, fontSize=24))
-    y += 18
-
-    # Observaciones
-    fields.append(_text("__sec_obs__", MARGIN, y, 60, 7, fontSize=9, bold=True, fontColor="#555555"))
-    y += 8
-    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 25))
+    # Tabla de envíos (usa pdfme table plugin)
+    fields.append(
+        {
+            "name": "tabla_envios",
+            "type": "table",
+            "position": {"x": MARGIN, "y": y},
+            "width": CONTENT_W,
+            "height": 150,
+            "head": ["Envío", "Destinatario", "Dirección", "CP", "Ciudad", "Bultos"],
+            "headWidthPercentages": [14, 22, 30, 8, 16, 10],
+            "tableStyles": {"borderWidth": 0.3, "borderColor": "#999999"},
+            "headStyles": {
+                "fontName": "Arial Bold",
+                "fontSize": 8,
+                "characterSpacing": 0,
+                "alignment": "left",
+                "verticalAlignment": "middle",
+                "lineHeight": 1,
+                "fontColor": "#ffffff",
+                "backgroundColor": "#333333",
+                "borderColor": "#333333",
+                "padding": {"top": 3, "bottom": 3, "left": 3, "right": 3},
+            },
+            "bodyStyles": {
+                "fontName": "Arial",
+                "fontSize": 7,
+                "characterSpacing": 0,
+                "alignment": "left",
+                "verticalAlignment": "middle",
+                "lineHeight": 1,
+                "fontColor": "#333333",
+                "borderColor": "#cccccc",
+                "alternateBackgroundColor": "#f5f5f5",
+                "padding": {"top": 2, "bottom": 2, "left": 3, "right": 3},
+            },
+        }
+    )
 
     # Firmas
     y = A4_H - MARGIN - 15
@@ -449,8 +469,8 @@ TEMPLATES = [
         "template_json": template_rrhh,
     },
     {
-        "nombre": "Remito de Envío (base)",
-        "descripcion": "Template base para remito de envío/mensajería. Transporte, destino, bultos.",
+        "nombre": "Remito de Colecta (base)",
+        "descripcion": "Template base para remito de colecta. Header con logística/transporte, tabla con todos los envíos del día y totales.",
         "contexto": "envios",
         "template_json": template_envios,
     },

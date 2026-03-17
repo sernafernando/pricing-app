@@ -68,22 +68,44 @@ const rrhhMapper = (entity) => ({
   observaciones: safe(entity.observaciones),
 });
 
-const enviosMapper = (entity) => ({
-  shipping_id: safe(entity.shipping_id ?? entity.id),
-  fecha_envio: formatDate(entity.fecha_envio),
-  logistica: safe(entity.logistica_nombre ?? entity.logistica),
-  transporte: safe(entity.transporte_nombre ?? entity.transporte),
-  destinatario: safe(entity.manual_receiver_name ?? entity.mlreceiver_name ?? entity.destinatario),
-  calle: safe(entity.manual_street_name ?? entity.mlstreet_name ?? entity.calle),
-  numero: safe(entity.manual_street_number ?? entity.mlstreet_number ?? entity.numero),
-  cp: safe(entity.manual_zip_code ?? entity.mlzip_code ?? entity.cp),
-  ciudad: safe(entity.manual_city_name ?? entity.mlcity_name ?? entity.ciudad),
-  telefono: safe(entity.manual_phone ?? entity.mlreceiver_phone ?? entity.telefono),
-  observaciones: safe(entity.manual_comment ?? entity.direccion_comentario ?? entity.observaciones),
-  total_bultos: safe(entity.total_bultos),
-  transporte_direccion: safe(entity.transporte_direccion),
-  transporte_telefono: safe(entity.transporte_telefono),
-});
+/**
+ * Mapper de colecta de envíos.
+ * entity debe tener la forma:
+ * {
+ *   fecha_colecta: "2026-03-15",
+ *   logistica: "Andreani",
+ *   transporte: "OCA",
+ *   transporte_direccion: "...",
+ *   transporte_telefono: "...",
+ *   envios: [ { shipping_id, destinatario, direccion, cp, ciudad, bultos }, ... ]
+ * }
+ */
+const enviosMapper = (entity) => {
+  const envios = entity.envios || [];
+
+  // Construir tabla: array de arrays de strings (filas) para pdfme table plugin
+  const tablaRows = envios.map((e) => [
+    safe(e.shipping_id),
+    safe(e.manual_receiver_name ?? e.mlreceiver_name ?? e.destinatario),
+    safe(e.direccion_completa ?? [e.manual_street_name ?? e.mlstreet_name, e.manual_street_number ?? e.mlstreet_number].filter(Boolean).join(' ')),
+    safe(e.manual_zip_code ?? e.mlzip_code ?? e.cp),
+    safe(e.manual_city_name ?? e.mlcity_name ?? e.ciudad),
+    safe(e.total_bultos ?? '1'),
+  ]);
+
+  const totalBultos = envios.reduce((sum, e) => sum + (Number(e.total_bultos) || 1), 0);
+
+  return {
+    fecha_colecta: formatDate(entity.fecha_colecta ?? entity.fecha_envio),
+    logistica: safe(entity.logistica_nombre ?? entity.logistica),
+    transporte: safe(entity.transporte_nombre ?? entity.transporte),
+    transporte_direccion: safe(entity.transporte_direccion),
+    transporte_telefono: safe(entity.transporte_telefono),
+    total_envios: String(envios.length),
+    total_bultos: String(totalBultos),
+    tabla_envios: JSON.stringify(tablaRows),
+  };
+};
 
 const productosMapper = (entity) => ({
   codigo: safe(entity.codigo),
