@@ -41,6 +41,61 @@ def _es_cp_caba(zip_code: Optional[str]) -> bool:
     return False
 
 
+def _extract_postcode_from_context(feature: dict) -> Optional[str]:
+    """
+    Extrae el código postal del context array de un resultado Mapbox.
+    El context es un array de objetos con ids como 'postcode.123456'.
+    """
+    # Primero buscar en context
+    for ctx in feature.get("context", []):
+        ctx_id = ctx.get("id", "")
+        if ctx_id.startswith("postcode"):
+            return ctx.get("text", "").strip()
+    # Si el feature mismo es un postcode
+    for pt in feature.get("place_type", []):
+        if pt == "postcode":
+            return feature.get("text", "").strip()
+    return None
+
+
+def _postcodes_compatible(expected: str, actual: str) -> bool:
+    """
+    Compara dos códigos postales argentinos con tolerancia.
+    CPA alfanumérico (C1429AAA) → extraer parte numérica (1429).
+    CP numérico → comparar los primeros 2 dígitos (misma zona).
+
+    Ejemplos:
+      '1429' vs '1429' → True
+      'C1429AAA' vs '1429' → True
+      '1429' vs '1430' → True (misma zona, primeros 2 dígitos iguales)
+      '1429' vs '2000' → False (Rosario vs CABA)
+    """
+
+    def _normalize_cp(cp: str) -> str:
+        cp = cp.strip().upper()
+        # CPA alfanumérico: C1429AAA → extraer dígitos
+        digits = "".join(c for c in cp if c.isdigit())
+        return digits
+
+    norm_expected = _normalize_cp(expected)
+    norm_actual = _normalize_cp(actual)
+
+    if not norm_expected or not norm_actual:
+        # No podemos comparar, dejar pasar
+        return True
+
+    # Comparación exacta
+    if norm_expected == norm_actual:
+        return True
+
+    # Comparar primeros 2 dígitos (misma zona geográfica)
+    # 10xx-14xx = CABA/GBA, 20xx = Rosario, 50xx = Córdoba, etc.
+    if len(norm_expected) >= 2 and len(norm_actual) >= 2:
+        return norm_expected[:2] == norm_actual[:2]
+
+    return True
+
+
 async def geocode_address(
     direccion: str,
     ciudad: str = "Buenos Aires",
@@ -109,16 +164,21 @@ async def geocode_address(
         # Formato: /geocoding/v5/mapbox.places/{search_text}.json
         url = f"{MAPBOX_GEOCODING_URL}/{query_encoded}.json"
 
+        # Bias results toward Buenos Aires area for better accuracy
+        params = {
+            "access_token": settings.MAPBOX_ACCESS_TOKEN,
+            "limit": 1,  # Solo el mejor resultado
+            "country": "ar",  # Restringir a Argentina (código ISO 3166-1)
+            "language": "es",  # Respuesta en español
+            "proximity": "-58.3816,-34.6037",  # Bias hacia Buenos Aires
+        }
+
+        # If we have a zip code, prefer address-level results
+        if zip_code:
+            params["types"] = "address,poi,neighborhood,locality"
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                url,
-                params={
-                    "access_token": settings.MAPBOX_ACCESS_TOKEN,
-                    "limit": 1,  # Solo el mejor resultado
-                    "country": "ar",  # Restringir a Argentina (código ISO 3166-1)
-                    "language": "es",  # Respuesta en español
-                },
-            )
+            response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -130,6 +190,47 @@ async def geocode_address(
             # Obtener primera coincidencia
             feature = data["features"][0]
 
+            # ── Validación de confianza ──────────────────────────────
+            # Mapbox relevance: 0-1 (1 = match perfecto)
+            relevance = feature.get("relevance", 0)
+            place_type = feature.get("place_type", [])
+
+            # Rechazar resultados de baja relevancia (dirección mal escrita)
+            if relevance < 0.6:
+                logger.warning(
+                    "Geocoding REJECTED (low relevance %.2f): %s → %s",
+                    relevance,
+                    query[:60],
+                    feature.get("place_name", "?"),
+                )
+                return None
+
+            # Rechazar si Mapbox solo matcheó a nivel de ciudad/región/país
+            # (significa que no encontró la dirección, solo la ciudad)
+            coarse_types = {"place", "region", "country", "district"}
+            if place_type and set(place_type).issubset(coarse_types):
+                logger.warning(
+                    "Geocoding REJECTED (coarse place_type %s): %s → %s",
+                    place_type,
+                    query[:60],
+                    feature.get("place_name", "?"),
+                )
+                return None
+
+            # Si tenemos CP, validar que el resultado esté en la misma zona postal
+            # Esto previene "calle X en CABA" → match en Rosario
+            if zip_code:
+                result_postcode = _extract_postcode_from_context(feature)
+                if result_postcode and not _postcodes_compatible(zip_code, result_postcode):
+                    logger.warning(
+                        "Geocoding REJECTED (postcode mismatch: expected %s, got %s): %s",
+                        zip_code,
+                        result_postcode,
+                        query[:60],
+                    )
+                    return None
+
+            # ── Resultado válido ─────────────────────────────────────
             # Mapbox devuelve coordenadas en formato [longitud, latitud]
             coordinates = feature["geometry"]["coordinates"]
             longitud = float(coordinates[0])
@@ -139,7 +240,14 @@ async def geocode_address(
             if usar_cache and db:
                 save_to_cache(query, latitud, longitud, db)
 
-            logger.info(f"Geocoding SUCCESS: {query[:50]} -> ({latitud}, {longitud})")
+            logger.info(
+                "Geocoding SUCCESS (relevance=%.2f, type=%s): %s -> (%.6f, %.6f)",
+                relevance,
+                place_type,
+                query[:50],
+                latitud,
+                longitud,
+            )
             return (latitud, longitud)
 
     except httpx.HTTPStatusError as e:

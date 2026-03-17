@@ -1202,6 +1202,20 @@ export default function TabEnviosFlex({ operador = null }) {
 
     setBulkActualizando(true);
     try {
+      // 1 solo seleccionado → endpoint individual (fuerza re-cálculo)
+      if (shipping_ids.length === 1) {
+        const { data } = await api.post(`/etiquetas-envio/${shipping_ids[0]}/geocodificar`);
+        showErrorToast(
+          data.mensaje + (data.direccion_usada ? ` (${data.direccion_usada})` : ''),
+          data.ok ? 'success' : 'warning',
+        );
+        if (data.ok) {
+          await cargarDatos();
+        }
+        return;
+      }
+
+      // Múltiples → masivo (respeta "ya tenían")
       const { data } = await api.post('/etiquetas-envio/geocodificar', { shipping_ids });
       const { geocodificados, ya_tenian, sin_resultado, errores } = data;
 

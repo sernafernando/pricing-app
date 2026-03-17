@@ -33,6 +33,29 @@
   gap: var(--spacing-sm);
 }
 
+.recenterBtn {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 4px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.recenterBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
 .colorToggle {
   display: flex;
   align-items: center;
@@ -252,6 +275,7 @@
    DARK MODE
    ============================================ */
 
+[data-theme="dark"] .controlPanel .recenterBtn,
 [data-theme="dark"] .controlPanel .colorToggle,
 [data-theme="dark"] .controlPanel .leyenda {
   background: var(--bg-secondary);
