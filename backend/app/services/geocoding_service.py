@@ -194,8 +194,11 @@ async def geocode_address(
 
             # Verificar que hay resultados
             if not data.get("features") or len(data["features"]) == 0:
-                logger.warning(f"Geocoding no encontró resultados: {query[:50]}")
-                return None
+                logger.warning(f"Geocoding (Mapbox) sin resultados: {query[:50]}, trying Nominatim...")
+                fallback = await _nominatim_fallback(direccion, ciudad, pais, zip_code)
+                if fallback and usar_cache and db:
+                    save_to_cache(query, fallback[0], fallback[1], db)
+                return fallback
 
             # Obtener primera coincidencia
             feature = data["features"][0]
@@ -204,41 +207,41 @@ async def geocode_address(
             # Mapbox relevance: 0-1 (1 = match perfecto)
             relevance = feature.get("relevance", 0)
             place_type = feature.get("place_type", [])
+            mapbox_rejected = False
+            reject_reason = ""
 
             # Rechazar resultados de baja relevancia (dirección mal escrita)
             if relevance < 0.6:
-                logger.warning(
-                    "Geocoding REJECTED (low relevance %.2f): %s → %s",
-                    relevance,
-                    query[:60],
-                    feature.get("place_name", "?"),
-                )
-                return None
+                reject_reason = f"low relevance {relevance:.2f}"
+                mapbox_rejected = True
 
             # Rechazar si Mapbox solo matcheó a nivel de ciudad/región/país
             # (significa que no encontró la dirección, solo la ciudad)
-            coarse_types = {"place", "region", "country", "district"}
-            if place_type and set(place_type).issubset(coarse_types):
-                logger.warning(
-                    "Geocoding REJECTED (coarse place_type %s): %s → %s",
-                    place_type,
-                    query[:60],
-                    feature.get("place_name", "?"),
-                )
-                return None
+            if not mapbox_rejected:
+                coarse_types = {"place", "region", "country", "district"}
+                if place_type and set(place_type).issubset(coarse_types):
+                    reject_reason = f"coarse place_type {place_type}"
+                    mapbox_rejected = True
 
             # Si tenemos CP, validar que el resultado esté en la misma zona postal
             # Esto previene "calle X en CABA" → match en Rosario
-            if zip_code:
+            if not mapbox_rejected and zip_code:
                 result_postcode = _extract_postcode_from_context(feature)
                 if result_postcode and not _postcodes_compatible(zip_code, result_postcode):
-                    logger.warning(
-                        "Geocoding REJECTED (postcode mismatch: expected %s, got %s): %s",
-                        zip_code,
-                        result_postcode,
-                        query[:60],
-                    )
-                    return None
+                    reject_reason = f"postcode mismatch (expected {zip_code}, got {result_postcode})"
+                    mapbox_rejected = True
+
+            if mapbox_rejected:
+                logger.warning(
+                    "Mapbox REJECTED (%s): %s → %s, trying Nominatim...",
+                    reject_reason,
+                    query[:60],
+                    feature.get("place_name", "?"),
+                )
+                fallback = await _nominatim_fallback(direccion, ciudad, pais, zip_code)
+                if fallback and usar_cache and db:
+                    save_to_cache(query, fallback[0], fallback[1], db)
+                return fallback
 
             # ── Resultado válido ─────────────────────────────────────
             # Mapbox devuelve coordenadas en formato [longitud, latitud]
@@ -262,12 +265,87 @@ async def geocode_address(
 
     except httpx.HTTPStatusError as e:
         logger.error(f"Geocoding HTTP error: {e.response.status_code} - {e.response.text}")
-        return None
+        return await _nominatim_fallback(direccion, ciudad, pais, zip_code)
     except httpx.RequestError as e:
         logger.error(f"Geocoding request error: {e}")
-        return None
+        return await _nominatim_fallback(direccion, ciudad, pais, zip_code)
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Geocoding parse error: {e}")
+        return None
+
+
+async def _nominatim_fallback(
+    direccion: str,
+    ciudad: str,
+    pais: str = "Argentina",
+    zip_code: Optional[str] = None,
+) -> Optional[Tuple[float, float]]:
+    """
+    Fallback geocoder using Nominatim (OpenStreetMap).
+    Used when Mapbox fails to find a confident result.
+
+    Nominatim has better coverage of small Argentine streets (pasajes, etc.)
+    but is rate-limited to 1 req/sec. Only used as fallback, never primary.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Structured search is more precise than free-form for Nominatim
+            params = {
+                "street": direccion,
+                "city": ciudad,
+                "country": pais,
+                "format": "json",
+                "limit": 1,
+                "addressdetails": "1",
+            }
+            if zip_code:
+                params["postalcode"] = zip_code
+
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params=params,
+                headers={"User-Agent": "pricing-app/1.0"},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if not data:
+                logger.info("Nominatim fallback: sin resultados para '%s, %s'", direccion[:50], ciudad)
+                return None
+
+            result = data[0]
+            lat = float(result["lat"])
+            lng = float(result["lon"])
+
+            # Validar que el resultado esté en la ciudad correcta
+            addr = result.get("address", {})
+            result_city = addr.get("city") or addr.get("town") or addr.get("village") or ""
+
+            # Verificar que la ciudad del resultado sea compatible
+            if result_city and ciudad.lower() not in result_city.lower() and result_city.lower() not in ciudad.lower():
+                # Chequeo relajado: si el CP coincide, aceptar
+                result_postcode = addr.get("postcode", "")
+                if zip_code and result_postcode and not _postcodes_compatible(zip_code, result_postcode):
+                    logger.warning(
+                        "Nominatim fallback REJECTED (city mismatch: expected '%s', got '%s'): %s",
+                        ciudad,
+                        result_city,
+                        direccion[:50],
+                    )
+                    return None
+
+            logger.info(
+                "Nominatim fallback SUCCESS: '%s, %s' → (%.6f, %.6f) [%s]",
+                direccion[:50],
+                ciudad,
+                lat,
+                lng,
+                result.get("display_name", "")[:80],
+            )
+            return (lat, lng)
+
+    except Exception:
+        logger.exception("Nominatim fallback error for '%s, %s'", direccion[:50], ciudad)
         return None
 
 
