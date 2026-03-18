@@ -1,25 +1,14 @@
 /**
  * Configuración de fuentes para pdfme (Designer + Generator).
  *
- * pdfme necesita los archivos TTF como ArrayBuffer o URL string.
- * Usamos URLs a Google Fonts CDN (estáticas, confiables, gratis).
+ * IMPORTANTE: pdfme solo soporta TTF estáticos (no variable fonts).
+ * Los archivos con [wght] o [opsz,wght] en el nombre NO funcionan.
  *
- * Para agregar una fuente:
- * 1. Buscar la URL TTF en https://fonts.google.com
- * 2. Agregar una entrada al objeto FONT_REGISTRY
- * 3. La primera con `fallback: true` es la fuente por defecto
- *
- * Orden de prioridad definido por el usuario:
- * - Sistema: Arial, Times New Roman
- * - Google Fonts: Inter, Open Sans, Roboto
+ * Usamos fonts del repo google/fonts en su versión STATIC.
  */
 
-// Google Fonts sirve TTF estáticos desde este patrón:
-// https://raw.githubusercontent.com/google/fonts/main/ofl/{font}/{font}-Regular.ttf
-// Para fuentes de sistema (Arial, Times) usamos una alternativa open-source equivalente.
-
 const FONT_REGISTRY = {
-  // --- Fuentes de sistema (open-source equivalentes) ---
+  // --- Fuentes de sistema (open-source equivalentes estáticas) ---
   Arial: {
     data: 'https://raw.githubusercontent.com/matomo-org/travis-scripts/master/fonts/Arial.ttf',
     fallback: true,
@@ -27,25 +16,28 @@ const FONT_REGISTRY = {
   'Arial Bold': {
     data: 'https://raw.githubusercontent.com/matomo-org/travis-scripts/master/fonts/Arial_Bold.ttf',
   },
-  'Times New Roman': {
-    data: 'https://raw.githubusercontent.com/AreebaArowormo5/FontsFree/master/Times-New-Roman/times%20new%20roman.ttf',
-  },
-  'Times New Roman Bold': {
-    data: 'https://raw.githubusercontent.com/AreebaArowormo5/FontsFree/master/Times-New-Roman/times%20new%20roman%20bold.ttf',
-  },
 
-  // --- Google Fonts ---
+  // --- Google Fonts (versiones STATIC, no variable) ---
   Inter: {
-    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf',
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/static/Inter_18pt-Regular.ttf',
+  },
+  'Inter Bold': {
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/static/Inter_18pt-Bold.ttf',
   },
   'Open Sans': {
-    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/opensans/OpenSans%5Bwdth%2Cwght%5D.ttf',
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/opensans/static/OpenSans-Regular.ttf',
+  },
+  'Open Sans Bold': {
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/opensans/static/OpenSans-Bold.ttf',
   },
   Roboto: {
-    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf',
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/static/Roboto-Regular.ttf',
+  },
+  'Roboto Bold': {
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/static/Roboto-Bold.ttf',
   },
   'Roboto Mono': {
-    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/robotomono/RobotoMono%5Bwght%5D.ttf',
+    data: 'https://raw.githubusercontent.com/google/fonts/main/ofl/robotomono/static/RobotoMono-Regular.ttf',
   },
 };
 
