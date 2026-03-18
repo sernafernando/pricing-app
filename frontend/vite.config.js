@@ -21,6 +21,13 @@ export default defineConfig({
         drop_console: true,
         drop_debugger: true,
       }
-    }
+    },
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // pdfme usa eval internamente para expresiones de templates — es esperado
+        if (warning.code === 'EVAL' && warning.id?.includes('@pdfme/')) return;
+        warn(warning);
+      },
+    },
   }
 })
