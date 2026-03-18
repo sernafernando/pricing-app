@@ -112,7 +112,7 @@ export default function DocumentDesigner() {
         domContainer: containerRef.current,
         template,
         plugins,
-        options: { font: getFont() },
+        options: { font: await getFont() },
       });
     };
 

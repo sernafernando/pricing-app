@@ -63,7 +63,7 @@ export function useDocumentGenerator(contexto) {
         template: pdfmeTemplate,
         inputs: [inputs],
         plugins,
-        options: { font: getFont() },
+        options: { font: await getFont() },
       });
 
       // 5. Abrir en nueva pestaña
