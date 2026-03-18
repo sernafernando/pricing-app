@@ -480,7 +480,7 @@ TEMPLATES = [
     },
     {
         "nombre": "Remito Flex (base)",
-        "descripcion": "Remito de envíos flex pistoleados. Logística/transporte, totales, resumen por cordón, tabla con detalle por envío (caja, bultos).",
+        "descripcion": "Remito flex: totales, cordones y firma de logística.",
         "contexto": "envios",
         "template_json": template_envios,
     },

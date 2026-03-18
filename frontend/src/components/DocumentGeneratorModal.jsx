@@ -80,7 +80,7 @@ export default function DocumentGeneratorModal({ isOpen, onClose, contexto, enti
               <li key={t.id} className={styles.templateItem}>
                 <div className={styles.templateInfo}>
                   <FileText size={16} className={styles.templateIcon} />
-                  <div>
+                  <div className={styles.templateText}>
                     <span className={styles.templateName}>{t.nombre}</span>
                     {t.descripcion && (
                       <span className={styles.templateDesc}>{t.descripcion}</span>
