@@ -51,14 +51,28 @@ export function useDocumentGenerator(contexto) {
       const pdfmeTemplate = templateData.template_json;
 
       // 2. Mapear datos de entidad a inputs pdfme
-      const inputs = mapEntityToInputs(contexto, entityData);
+      const mappedInputs = mapEntityToInputs(contexto, entityData);
 
-      // 3. Dynamic import de pdfme generator + fonts (lazy load)
+      // 3. Extraer defaults del template (imágenes, labels estáticos, etc.)
+      //    pdfme sobreescribe TODO con inputs — si un campo no está en inputs,
+      //    se pierde el content del template. Mergeamos defaults + datos dinámicos.
+      const templateDefaults = {};
+      const schemas = pdfmeTemplate.schemas || [];
+      for (const page of schemas) {
+        for (const field of page) {
+          if (field.content !== undefined && field.content !== '') {
+            templateDefaults[field.name] = field.content;
+          }
+        }
+      }
+      const inputs = { ...templateDefaults, ...mappedInputs };
+
+      // 4. Dynamic import de pdfme generator + fonts (lazy load)
       const { generate } = await import('@pdfme/generator');
       const { plugins } = await import('../utils/pdfmePlugins');
       const { getFont } = await import('../utils/pdfmeFonts');
 
-      // 4. Generar PDF
+      // 5. Generar PDF
       const pdf = await generate({
         template: pdfmeTemplate,
         inputs: [inputs],
