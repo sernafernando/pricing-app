@@ -145,6 +145,38 @@ const rmaMapper = (entity) => ({
   fecha_caso: formatDate(entity.fecha_caso ?? entity.created_at),
 });
 
+/**
+ * Mapper de remito manual.
+ * entity viene directo del state del ModalRemitoManual:
+ * { cliente_nombre, cliente_cuit, ..., items: [{codigo, descripcion, cantidad, precio_unitario}], bultos, valor_declarado, ... }
+ */
+const remitoManualMapper = (entity) => {
+  const items = entity.items || [];
+
+  const tablaRows = items.map((item) => [
+    safe(item.codigo),
+    safe(item.descripcion),
+    safe(item.cantidad),
+    formatNumber(item.precio_unitario),
+    formatNumber((Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)),
+  ]);
+
+  return {
+    cliente_nombre: safe(entity.cliente_nombre),
+    cliente_cuit: safe(entity.cliente_cuit),
+    cliente_direccion: safe(entity.cliente_direccion),
+    cliente_ciudad: safe(entity.cliente_ciudad),
+    cliente_cp: safe(entity.cliente_cp),
+    cliente_telefono: safe(entity.cliente_telefono),
+    fecha_remito: formatDate(entity.fecha_remito),
+    shipping_id: safe(entity.shipping_id),
+    bultos: safe(entity.bultos),
+    valor_declarado: formatNumber(entity.valor_declarado),
+    observaciones: safe(entity.observaciones),
+    tabla_items: JSON.stringify(tablaRows),
+  };
+};
+
 // =============================================================================
 // REGISTRY
 // =============================================================================
@@ -160,6 +192,7 @@ const contextDataMappers = {
   productos: productosMapper,
   ventas: ventasMapper,
   rma: rmaMapper,
+  remito_manual: remitoManualMapper,
 };
 
 /**

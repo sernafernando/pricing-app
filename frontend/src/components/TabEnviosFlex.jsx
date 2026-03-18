@@ -7,6 +7,7 @@ import {
   Table, Map, CloudRain, Flag, FileDown,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
+import ModalRemitoManual from './ModalRemitoManual';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -101,6 +102,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeCambiarEstadoManual = tienePermiso('envios_flex.cambiar_estado_manual');
   const puedeImprimir = tienePermiso('documentos.imprimir');
   const [docGenOpen, setDocGenOpen] = useState(false);
+  const [remitoManualOpen, setRemitoManualOpen] = useState(false);
+  const [remitoManualEnvio, setRemitoManualEnvio] = useState(null);
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -2125,10 +2128,26 @@ export default function TabEnviosFlex({ operador = null }) {
               onClick={() => setDocGenOpen(true)}
               className="btn-tesla outline-subtle-primary sm"
               disabled={etiquetasFiltradas.length === 0}
-              aria-label="Generar remito PDF"
+              aria-label="Generar remito flex PDF"
             >
               <FileDown size={16} />
-              Remito
+              Remito Flex
+            </button>
+          )}
+
+          {puedeImprimir && (
+            <button
+              onClick={() => {
+                const selId = [...selectedIds][0];
+                const envio = selId ? etiquetasFiltradas.find(e => e.shipping_id === selId) : null;
+                setRemitoManualEnvio(envio);
+                setRemitoManualOpen(true);
+              }}
+              className="btn-tesla outline-subtle-primary sm"
+              aria-label="Generar remito manual con items"
+            >
+              <FileDown size={16} />
+              Remito Manual
             </button>
           )}
 
@@ -4004,6 +4023,13 @@ export default function TabEnviosFlex({ operador = null }) {
           })(),
           envios: etiquetasFiltradas,
         }}
+      />
+
+      {/* Modal remito manual con items */}
+      <ModalRemitoManual
+        isOpen={remitoManualOpen}
+        onClose={() => { setRemitoManualOpen(false); setRemitoManualEnvio(null); }}
+        envio={remitoManualEnvio}
       />
     </div>
   );

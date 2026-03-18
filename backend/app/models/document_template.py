@@ -21,6 +21,7 @@ CONTEXTOS_VALIDOS = [
     "productos",
     "ventas",
     "rma",
+    "remito_manual",
 ]
 
 

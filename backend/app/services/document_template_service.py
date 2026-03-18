@@ -252,6 +252,34 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         ),
         VariableInfo(nombre="fecha_caso", tipo="date", descripcion="Fecha del caso", ejemplo="2026-03-10"),
     ],
+    "remito_manual": [
+        # Datos del cliente (manual o desde envío)
+        VariableInfo(
+            nombre="cliente_nombre", tipo="text", descripcion="Nombre del cliente/destinatario", ejemplo="Juan Pérez"
+        ),
+        VariableInfo(nombre="cliente_cuit", tipo="text", descripcion="CUIT del cliente", ejemplo="20-12345678-9"),
+        VariableInfo(
+            nombre="cliente_direccion", tipo="text", descripcion="Dirección del cliente", ejemplo="Av. Corrientes 1234"
+        ),
+        VariableInfo(nombre="cliente_ciudad", tipo="text", descripcion="Ciudad", ejemplo="CABA"),
+        VariableInfo(nombre="cliente_cp", tipo="text", descripcion="Código postal", ejemplo="C1043"),
+        VariableInfo(nombre="cliente_telefono", tipo="text", descripcion="Teléfono", ejemplo="11-4567-8901"),
+        # Datos del remito
+        VariableInfo(nombre="fecha_remito", tipo="date", descripcion="Fecha del remito", ejemplo="2026-03-15"),
+        VariableInfo(
+            nombre="shipping_id", tipo="text", descripcion="ID de envío asociado (si aplica)", ejemplo="43210987654"
+        ),
+        VariableInfo(nombre="bultos", tipo="number", descripcion="Cantidad de bultos", ejemplo="3"),
+        VariableInfo(nombre="valor_declarado", tipo="number", descripcion="Valor declarado total", ejemplo="125000.00"),
+        VariableInfo(nombre="observaciones", tipo="text", descripcion="Observaciones del remito", ejemplo="Frágil"),
+        # Tabla de items
+        VariableInfo(
+            nombre="tabla_items",
+            tipo="table",
+            descripcion="Tabla de items: código, descripción, cantidad, precio unitario, subtotal",
+            ejemplo='[["PROD-001","Monitor LED 24","2","62500.00","125000.00"]]',
+        ),
+    ],
 }
 
 
