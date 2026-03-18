@@ -95,6 +95,7 @@
   gap: var(--spacing-sm);
   min-width: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .templateIcon {
@@ -102,14 +103,21 @@
   flex-shrink: 0;
 }
 
+.templateText {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .templateName {
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .templateDesc {
-  display: block;
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
   overflow: hidden;
