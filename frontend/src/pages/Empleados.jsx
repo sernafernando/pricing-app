@@ -232,6 +232,8 @@ export default function Empleados() {
       longitud: null,
       telefono: '',
       email_personal: '',
+      contacto_emergencia: '',
+      contacto_emergencia_tel: '',
       observaciones: '',
     });
     setFormError(null);
@@ -266,6 +268,8 @@ export default function Empleados() {
       longitud: emp.longitud || null,
       telefono: emp.telefono || '',
       email_personal: emp.email_personal || '',
+      contacto_emergencia: emp.contacto_emergencia || '',
+      contacto_emergencia_tel: emp.contacto_emergencia_tel || '',
       observaciones: emp.observaciones || '',
     });
     setFormError(null);
@@ -1267,6 +1271,24 @@ export default function Empleados() {
                         className={styles.input}
                         value={formData.email_personal}
                         onChange={(e) => handleField('email_personal', e.target.value)}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Contacto de Emergencia</label>
+                      <input
+                        className={styles.input}
+                        value={formData.contacto_emergencia}
+                        onChange={(e) => handleField('contacto_emergencia', e.target.value)}
+                        placeholder="Nombre y parentesco"
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Tel. Emergencia</label>
+                      <input
+                        className={styles.input}
+                        value={formData.contacto_emergencia_tel}
+                        onChange={(e) => handleField('contacto_emergencia_tel', e.target.value)}
+                        placeholder="11-1234-5678"
                       />
                     </div>
                     <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
