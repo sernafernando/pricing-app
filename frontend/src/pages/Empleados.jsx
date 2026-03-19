@@ -116,6 +116,7 @@ export default function Empleados() {
   // --- Geocodificación ---
   const [geocoding, setGeocoding] = useState(false);
   const [geoError, setGeoError] = useState(null);
+  const [coordsManuales, setCoordsManuales] = useState(false);
 
   // --- Motivos de baja ---
   const [motivosBaja, setMotivosBaja] = useState([]);
@@ -1375,31 +1376,40 @@ export default function Empleados() {
                   </div>
 
                   {puedeGestionar && (
-                    <div className={styles.coordsRow}>
-                      <div className={styles.formGroup}>
-                        <label>Latitud</label>
-                        <input
-                          className={styles.input}
-                          type="text"
-                          value={formData.latitud || ''}
-                          onChange={(e) => handleField('latitud', e.target.value || null)}
-                          placeholder="-34.603722"
-                        />
+                    <details
+                      className={styles.coordsSpoiler}
+                      open={coordsManuales}
+                      onToggle={(e) => setCoordsManuales(e.target.open)}
+                    >
+                      <summary className={styles.coordsSummary}>
+                        <MapPin size={12} /> Editar coordenadas manualmente
+                      </summary>
+                      <div className={styles.coordsRow}>
+                        <div className={styles.formGroup}>
+                          <label>Latitud</label>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.latitud || ''}
+                            onChange={(e) => handleField('latitud', e.target.value || null)}
+                            placeholder="-34.603722"
+                          />
+                        </div>
+                        <div className={styles.formGroup}>
+                          <label>Longitud</label>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.longitud || ''}
+                            onChange={(e) => handleField('longitud', e.target.value || null)}
+                            placeholder="-58.381592"
+                          />
+                        </div>
+                        <p className={styles.coordsHint}>
+                          Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
+                        </p>
                       </div>
-                      <div className={styles.formGroup}>
-                        <label>Longitud</label>
-                        <input
-                          className={styles.input}
-                          type="text"
-                          value={formData.longitud || ''}
-                          onChange={(e) => handleField('longitud', e.target.value || null)}
-                          placeholder="-58.381592"
-                        />
-                      </div>
-                      <p className={styles.coordsHint}>
-                        <MapPin size={12} /> Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
-                      </p>
-                    </div>
+                    </details>
                   )}
 
                   {/* Mapa */}

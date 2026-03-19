@@ -563,6 +563,38 @@
   opacity: 0.7;
 }
 
+.coordsSpoiler {
+  margin-top: var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.coordsSummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.coordsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.coordsSummary::before {
+  content: '\25B6';
+  font-size: 8px;
+  transition: transform var(--duration-200) var(--ease-out);
+}
+
+.coordsSpoiler[open] > .coordsSummary::before {
+  transform: rotate(90deg);
+}
+
 .coordsRow {
   display: flex;
   align-items: flex-end;
