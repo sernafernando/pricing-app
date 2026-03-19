@@ -1068,8 +1068,8 @@ export default function Empleados() {
 
       {/* Confirm Delete Modal */}
       {confirmDelete && (
-        <div className="modal-overlay-tesla" onClick={() => setConfirmDelete(null)}>
-          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Confirmar desactivación</h2>
               <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar">✕</button>
@@ -1092,8 +1092,8 @@ export default function Empleados() {
       {/* Modal */}
       {/* Modals (always rendered, not inside pageTab conditional) */}
       {modalOpen && (
-        <div className="modal-overlay-tesla" onClick={() => setModalOpen(false)}>
-          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla lg">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
               <button className="btn-close-tesla" onClick={() => setModalOpen(false)}>✕</button>
