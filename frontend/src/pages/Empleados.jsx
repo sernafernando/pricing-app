@@ -1661,9 +1661,9 @@ export default function Empleados() {
                 className={styles.btnCancel}
                 onClick={() => setModalOpen(false)}
               >
-                {editando && modalTab !== 'datos' && modalTab !== 'baja' ? 'Cerrar' : 'Cancelar'}
+                {editando && (modalTab === 'turnos' || modalTab === 'documentos') ? 'Cerrar' : 'Cancelar'}
               </button>
-              {(modalTab === 'datos' || modalTab === 'baja' || !editando) && (
+              {(modalTab === 'datos' || modalTab === 'direccion' || modalTab === 'baja' || !editando) && (
                 <button
                   className={styles.btnSave}
                   onClick={handleGuardar}
