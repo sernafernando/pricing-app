@@ -172,7 +172,7 @@ export default function RRHHCumpleanos() {
                         {c.apellido}, {c.nombre}
                       </span>
                       <span className={styles.listaItemMeta}>
-                        {c.area || 'Sin área'}
+                        {c.puesto || c.area || 'Sin puesto'}
                         {c.edad ? ` — Cumple ${c.edad} años` : ''}
                       </span>
                     </div>

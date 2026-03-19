@@ -31,6 +31,7 @@ class CumpleanosEmpleado(BaseModel):
     apellido: str
     legajo: str
     area: str | None = None
+    puesto: str | None = None
     fecha_nacimiento: date
     dia: int
     mes: int
@@ -65,6 +66,7 @@ def _to_cumpleanos(emp: RRHHEmpleado, anio: int) -> CumpleanosEmpleado:
         apellido=emp.apellido,
         legajo=emp.legajo,
         area=emp.area,
+        puesto=emp.puesto,
         fecha_nacimiento=fn,
         dia=fn.day,
         mes=fn.month,
