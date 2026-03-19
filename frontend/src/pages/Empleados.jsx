@@ -116,6 +116,7 @@ export default function Empleados() {
   // --- Geocodificación ---
   const [geocoding, setGeocoding] = useState(false);
   const [geoError, setGeoError] = useState(null);
+  const [coordsManuales, setCoordsManuales] = useState(false);
 
   // --- Motivos de baja ---
   const [motivosBaja, setMotivosBaja] = useState([]);
@@ -156,6 +157,18 @@ export default function Empleados() {
     };
     fetchFiltros();
   }, []);
+
+  // --- Escape to close modals ---
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmDelete) setConfirmDelete(null);
+        else if (modalOpen) setModalOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [modalOpen, confirmDelete]);
 
   // --- Fetch empleados ---
   const cargarEmpleados = useCallback(async () => {
@@ -267,7 +280,15 @@ export default function Empleados() {
       const cleanData = {};
       for (const [key, value] of Object.entries(formData)) {
         // Convertir strings vacíos a null (Pydantic no parsea '' como date/int/float)
-        cleanData[key] = value === '' ? null : value;
+        if (value === '' || value === undefined) {
+          cleanData[key] = null;
+        } else if ((key === 'latitud' || key === 'longitud') && value !== null) {
+          // Forzar float para coordenadas
+          const num = parseFloat(value);
+          cleanData[key] = isNaN(num) ? null : num;
+        } else {
+          cleanData[key] = value;
+        }
       }
 
       if (editando) {
@@ -1068,8 +1089,8 @@ export default function Empleados() {
 
       {/* Confirm Delete Modal */}
       {confirmDelete && (
-        <div className="modal-overlay-tesla" onClick={() => setConfirmDelete(null)}>
-          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Confirmar desactivación</h2>
               <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar">✕</button>
@@ -1092,8 +1113,8 @@ export default function Empleados() {
       {/* Modal */}
       {/* Modals (always rendered, not inside pageTab conditional) */}
       {modalOpen && (
-        <div className="modal-overlay-tesla" onClick={() => setModalOpen(false)}>
-          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla lg">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
               <button className="btn-close-tesla" onClick={() => setModalOpen(false)}>✕</button>
@@ -1363,31 +1384,40 @@ export default function Empleados() {
                   </div>
 
                   {puedeGestionar && (
-                    <div className={styles.coordsRow}>
-                      <div className={styles.formGroup}>
-                        <label>Latitud</label>
-                        <input
-                          className={styles.input}
-                          type="text"
-                          value={formData.latitud || ''}
-                          onChange={(e) => handleField('latitud', e.target.value || null)}
-                          placeholder="-34.603722"
-                        />
+                    <details
+                      className={styles.coordsSpoiler}
+                      open={coordsManuales}
+                      onToggle={(e) => setCoordsManuales(e.target.open)}
+                    >
+                      <summary className={styles.coordsSummary}>
+                        <MapPin size={12} /> Editar coordenadas manualmente
+                      </summary>
+                      <div className={styles.coordsRow}>
+                        <div className={styles.formGroup}>
+                          <label>Latitud</label>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.latitud || ''}
+                            onChange={(e) => handleField('latitud', e.target.value || null)}
+                            placeholder="-34.603722"
+                          />
+                        </div>
+                        <div className={styles.formGroup}>
+                          <label>Longitud</label>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.longitud || ''}
+                            onChange={(e) => handleField('longitud', e.target.value || null)}
+                            placeholder="-58.381592"
+                          />
+                        </div>
+                        <p className={styles.coordsHint}>
+                          Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
+                        </p>
                       </div>
-                      <div className={styles.formGroup}>
-                        <label>Longitud</label>
-                        <input
-                          className={styles.input}
-                          type="text"
-                          value={formData.longitud || ''}
-                          onChange={(e) => handleField('longitud', e.target.value || null)}
-                          placeholder="-58.381592"
-                        />
-                      </div>
-                      <p className={styles.coordsHint}>
-                        <MapPin size={12} /> Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
-                      </p>
-                    </div>
+                    </details>
                   )}
 
                   {/* Mapa */}
