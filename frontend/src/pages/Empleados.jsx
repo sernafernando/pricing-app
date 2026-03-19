@@ -1393,6 +1393,31 @@ export default function Empleados() {
                         <MapPin size={12} /> Editar coordenadas manualmente
                       </summary>
                       <div className={styles.coordsRow}>
+                        <div className={styles.formGroup} style={{ flex: '1 1 100%' }}>
+                          <label>Pegar coordenadas de Google Maps</label>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            placeholder="Ej: -34.662843, -58.367527"
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData('text').trim();
+                              const match = text.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+                              if (match) {
+                                e.preventDefault();
+                                handleField('latitud', match[1]);
+                                handleField('longitud', match[2]);
+                              }
+                            }}
+                            onChange={(e) => {
+                              const text = e.target.value.trim();
+                              const match = text.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+                              if (match) {
+                                handleField('latitud', match[1]);
+                                handleField('longitud', match[2]);
+                              }
+                            }}
+                          />
+                        </div>
                         <div className={styles.formGroup}>
                           <label>Latitud</label>
                           <input
@@ -1413,9 +1438,6 @@ export default function Empleados() {
                             placeholder="-58.381592"
                           />
                         </div>
-                        <p className={styles.coordsHint}>
-                          Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
-                        </p>
                       </div>
                     </details>
                   )}
