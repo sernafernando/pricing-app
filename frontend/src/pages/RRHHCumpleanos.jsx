@@ -128,17 +128,25 @@ export default function RRHHCumpleanos() {
                   <span className={styles.diaNumero}>{dia}</span>
                   {tieneCumple && (
                     <div className={styles.cumpleList}>
-                      {cumples.map((c) => (
-                        <div key={c.empleado_id} className={styles.cumpleItem}>
-                          <Gift size={10} />
-                          <span className={styles.cumpleNombre}>
-                            {c.nombre} {c.apellido}
-                          </span>
-                          {c.edad && (
-                            <span className={styles.cumpleEdad}>{c.edad}</span>
-                          )}
-                        </div>
-                      ))}
+                      {cumples.map((c) => {
+                        const primerNombre = (c.nombre || '').split(' ')[0];
+                        const primerApellido = (c.apellido || '').split(' ')[0];
+                        return (
+                          <div
+                            key={c.empleado_id}
+                            className={styles.cumpleItem}
+                            title={`${c.apellido}, ${c.nombre}${c.edad ? ` — Cumple ${c.edad}` : ''}`}
+                          >
+                            <Gift size={10} />
+                            <span className={styles.cumpleNombre}>
+                              {primerNombre} {primerApellido}
+                            </span>
+                            {c.edad && (
+                              <span className={styles.cumpleEdad}>{c.edad}</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
