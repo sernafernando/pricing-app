@@ -223,20 +223,33 @@ def main() -> None:
     print(f"  Bajas: {bajas}")
     print()
 
-    print(f"{'LEGAJO':<8} {'APELLIDO':<25} {'NOMBRE':<25} {'DNI':<12} {'ESTADO':<8} {'ÁREA':<20}")
-    print(f"{'-' * 8} {'-' * 25} {'-' * 25} {'-' * 12} {'-' * 8} {'-' * 20}")
-    for r in rows_data:
-        print(
-            f"{r['legajo'] or '???':<8} "
-            f"{(r['apellido'] or '')[:25]:<25} "
-            f"{(r['nombre'] or '')[:25]:<25} "
-            f"{(r['dni'] or ''):<12} "
-            f"{r['estado']:<8} "
-            f"{(r['area'] or '')[:20]:<20}"
-        )
+    for i, r in enumerate(rows_data, 1):
+        print(f"── Empleado {i}/{len(rows_data)} ──")
+        print(f"  Legajo:          {r['legajo'] or '???'}")
+        print(f"  Apellido:        {r['apellido'] or ''}")
+        print(f"  Nombre:          {r['nombre'] or ''}")
+        print(f"  DNI:             {r['dni'] or ''}")
+        print(f"  CUIL:            {r['cuil'] or ''}")
+        print(f"  Fecha Nac.:      {r['fecha_nacimiento'] or ''}")
+        print(f"  Calle:           {r['calle'] or ''}")
+        print(f"  Localidad:       {r['localidad'] or ''}")
+        print(f"  Provincia:       {r['provincia'] or ''}")
+        print(f"  Código Postal:   {r['codigo_postal'] or ''}")
+        print(f"  Domicilio:       {r['domicilio'] or ''}")
+        print(f"  Teléfono:        {r['telefono'] or ''}")
+        print(f"  Email:           {r['email_personal'] or ''}")
+        print(f"  Puesto:          {r['puesto'] or ''}")
+        print(f"  Área:            {r['area'] or ''}")
+        print(f"  Fecha Ingreso:   {r['fecha_ingreso'] or ''}")
+        print(f"  Fecha Egreso:    {r['fecha_egreso'] or ''}")
+        print(f"  Estado:          {r['estado']}")
+        print(f"  Detalle Baja:    {r['detalle_baja'] or ''}")
+        if r["datos_custom"]:
+            for k, v in r["datos_custom"].items():
+                print(f"  {k:<18} {v}")
+        print()
 
-    print()
-    print("VERIFICÁ los nombres arriba. Si algún apellido/nombre está mal partido,")
+    print("VERIFICÁ los datos arriba. Si algún apellido/nombre está mal partido,")
     print("agregá el apellido compuesto a APELLIDOS_COMPUESTOS en este script.")
     print()
 
