@@ -325,7 +325,7 @@ export default function RRHHCuentaCorriente() {
       <div className={styles.header}>
         <div className={styles.headerTitle}>
           <Wallet size={24} />
-          <h1>Cuenta Corriente</h1>
+          <h1>Materiales a Cargo</h1>
         </div>
         <div className={styles.headerActions}>
           {puedeGestionar && activeTab === 'cuentas' && !detalleEmpleadoId && (

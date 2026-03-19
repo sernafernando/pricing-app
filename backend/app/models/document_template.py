@@ -22,6 +22,8 @@ CONTEXTOS_VALIDOS = [
     "ventas",
     "rma",
     "remito_manual",
+    "sanciones",
+    "vacaciones",
 ]
 
 

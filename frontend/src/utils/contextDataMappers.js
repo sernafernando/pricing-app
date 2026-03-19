@@ -150,6 +150,34 @@ const rmaMapper = (entity) => ({
  * entity viene directo del state del ModalRemitoManual:
  * { cliente_nombre, cliente_cuit, ..., items: [{codigo, descripcion, cantidad, precio_unitario}], bultos, valor_declarado, ... }
  */
+const sancionesMapper = (entity) => ({
+  fecha_sancion: safe(entity.fecha_sancion || entity.fecha),
+  empleado_nombre: safe(entity.empleado_nombre),
+  empleado_legajo: safe(entity.empleado_legajo || entity.legajo),
+  empleado_sector: safe(entity.empleado_sector || entity.sector),
+  empleado_dni: safe(entity.empleado_dni || entity.dni),
+  tipo_sancion: safe(entity.tipo_sancion_nombre || entity.tipo_sancion),
+  texto_sancion: safe(entity.texto_sancion),
+  fecha_suspension_desde: formatDate(entity.fecha_desde),
+  fecha_suspension_hasta: formatDate(entity.fecha_hasta),
+  dias_suspension: safe(entity.dias_suspension),
+  numero_interno: safe(entity.id),
+});
+
+const vacacionesMapper = (entity) => ({
+  empleado_nombre: safe(entity.empleado_nombre),
+  empleado_legajo: safe(entity.empleado_legajo || entity.legajo),
+  empleado_dni: safe(entity.empleado_dni || entity.dni),
+  empleado_area: safe(entity.empleado_area || entity.area),
+  empleado_puesto: safe(entity.empleado_puesto || entity.puesto),
+  fecha_desde: formatDate(entity.fecha_desde),
+  fecha_hasta: formatDate(entity.fecha_hasta),
+  dias_totales: safe(entity.dias_totales || entity.dias),
+  anio_periodo: safe(entity.anio_periodo || entity.anio),
+  fecha_reincorporacion: formatDate(entity.fecha_reincorporacion),
+  texto_notificacion: safe(entity.texto_notificacion),
+});
+
 const remitoManualMapper = (entity) => {
   const items = entity.items || [];
 
@@ -192,6 +220,8 @@ const contextDataMappers = {
   productos: productosMapper,
   ventas: ventasMapper,
   rma: rmaMapper,
+  sanciones: sancionesMapper,
+  vacaciones: vacacionesMapper,
   remito_manual: remitoManualMapper,
 };
 

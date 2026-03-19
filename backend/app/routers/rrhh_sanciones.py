@@ -33,6 +33,7 @@ class TipoSancionCreate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=500)
     dias_suspension: Optional[int] = None
     requiere_descuento: bool = False
+    texto_predeterminado: Optional[str] = None
     orden: int = 0
 
 
@@ -41,6 +42,7 @@ class TipoSancionUpdate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=500)
     dias_suspension: Optional[int] = None
     requiere_descuento: Optional[bool] = None
+    texto_predeterminado: Optional[str] = None
     activo: Optional[bool] = None
     orden: Optional[int] = None
 
@@ -51,6 +53,7 @@ class TipoSancionResponse(BaseModel):
     descripcion: Optional[str] = None
     dias_suspension: Optional[int] = None
     requiere_descuento: bool
+    texto_predeterminado: Optional[str] = None
     activo: bool
     orden: int
     created_at: Optional[datetime] = None
@@ -64,6 +67,7 @@ class SancionCreate(BaseModel):
     fecha: date
     motivo: str = Field(min_length=1)
     descripcion: Optional[str] = None
+    texto_sancion: Optional[str] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
 
@@ -79,6 +83,7 @@ class SancionResponse(BaseModel):
     fecha: date
     motivo: str
     descripcion: Optional[str] = None
+    texto_sancion: Optional[str] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
     anulada: bool
@@ -90,6 +95,8 @@ class SancionResponse(BaseModel):
     # Joined
     tipo_sancion_nombre: Optional[str] = None
     empleado_nombre: Optional[str] = None
+    empleado_legajo: Optional[str] = None
+    empleado_sector: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,6 +120,8 @@ def _sancion_to_response(s: RRHHSancion) -> SancionResponse:
         data.tipo_sancion_nombre = s.tipo_sancion.nombre
     if s.empleado:
         data.empleado_nombre = s.empleado.nombre_completo
+        data.empleado_legajo = s.empleado.legajo
+        data.empleado_sector = s.empleado.area
     return data
 
 
@@ -268,6 +277,7 @@ def create_sancion(
         fecha=body.fecha,
         motivo=body.motivo,
         descripcion=body.descripcion,
+        texto_sancion=body.texto_sancion,
         fecha_desde=body.fecha_desde,
         fecha_hasta=body.fecha_hasta,
         aplicada_por_id=current_user.id,

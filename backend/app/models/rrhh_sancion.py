@@ -35,6 +35,7 @@ class RRHHTipoSancion(Base):
     descripcion = Column(String(500), nullable=True)
     dias_suspension = Column(Integer, nullable=True)  # NULL for apercibimiento
     requiere_descuento = Column(Boolean, nullable=False, default=False)
+    texto_predeterminado = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)
     orden = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -69,6 +70,7 @@ class RRHHSancion(Base):
     fecha = Column(Date, nullable=False, index=True)
     motivo = Column(Text, nullable=False)
     descripcion = Column(Text, nullable=True)
+    texto_sancion = Column(Text, nullable=True)
     fecha_desde = Column(Date, nullable=True)  # suspension start
     fecha_hasta = Column(Date, nullable=True)  # suspension end
 

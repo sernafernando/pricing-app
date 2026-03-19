@@ -124,7 +124,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Presentismo', path: '/rrhh/presentismo', permiso: 'rrhh.ver' },
         { label: 'Sanciones', path: '/rrhh/sanciones', permiso: 'rrhh.ver' },
         { label: 'Vacaciones', path: '/rrhh/vacaciones', permiso: 'rrhh.ver' },
-        { label: 'Cuenta Corriente', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
+        { label: 'Materiales a Cargo', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
         { label: 'Horarios', path: '/rrhh/horarios', permiso: 'rrhh.ver' },
         { label: 'Reportes', path: '/rrhh/reportes', permiso: 'rrhh.ver' },
       ],
