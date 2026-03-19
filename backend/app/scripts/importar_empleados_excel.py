@@ -304,7 +304,7 @@ def main() -> None:
 
         print()
         print(f"{'=' * 70}")
-        print(f"RESULTADO:")
+        print("RESULTADO:")
         print(f"  Creados: {created}")
         print(f"  Actualizados: {updated}")
         print(f"  Saltados (existentes): {skipped}")
