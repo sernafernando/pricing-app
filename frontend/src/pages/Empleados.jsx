@@ -157,6 +157,18 @@ export default function Empleados() {
     fetchFiltros();
   }, []);
 
+  // --- Escape to close modals ---
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmDelete) setConfirmDelete(null);
+        else if (modalOpen) setModalOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [modalOpen, confirmDelete]);
+
   // --- Fetch empleados ---
   const cargarEmpleados = useCallback(async () => {
     setLoading(true);
