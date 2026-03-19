@@ -11,6 +11,7 @@ import {
   Edit3,
   Download,
   FileText,
+  CalendarRange,
 } from 'lucide-react';
 import styles from './RRHHPresentismo.module.css';
 
@@ -91,6 +92,19 @@ export default function RRHHPresentismo() {
 
   // --- Error feedback ---
   const [markError, setMarkError] = useState(null);
+
+  // ── Range marking modal ──
+  const [rangoModalOpen, setRangoModalOpen] = useState(false);
+  const [rangoForm, setRangoForm] = useState({
+    empleado_id: '',
+    estado: 'vacaciones',
+    fecha_desde: '',
+    fecha_hasta: '',
+    observaciones: '',
+  });
+  const [rangoSaving, setRangoSaving] = useState(false);
+  const [rangoError, setRangoError] = useState(null);
+  const [rangoSuccess, setRangoSuccess] = useState(null);
 
   // --- Empleados for ART select ---
   const [empleados, setEmpleados] = useState([]);
@@ -190,6 +204,31 @@ export default function RRHHPresentismo() {
     }
   };
 
+  const handleRangoSubmit = async () => {
+    if (!rangoForm.empleado_id || !rangoForm.fecha_desde || !rangoForm.fecha_hasta) {
+      setRangoError('Empleado, fecha desde y fecha hasta son obligatorios');
+      return;
+    }
+    setRangoSaving(true);
+    setRangoError(null);
+    setRangoSuccess(null);
+    try {
+      const { data } = await rrhhAPI.marcarPresentismoRango({
+        empleado_id: Number(rangoForm.empleado_id),
+        estado: rangoForm.estado,
+        fecha_desde: rangoForm.fecha_desde,
+        fecha_hasta: rangoForm.fecha_hasta,
+        observaciones: rangoForm.observaciones || null,
+      });
+      setRangoSuccess(`Se marcaron ${data.updated} dias como "${rangoForm.estado}"`);
+      cargarGrilla();
+    } catch (err) {
+      setRangoError(err.response?.data?.detail || 'Error al marcar rango');
+    } finally {
+      setRangoSaving(false);
+    }
+  };
+
   // ── ART CRUD ──
   const handleArtSubmit = async (e) => {
     e.preventDefault();
@@ -276,16 +315,21 @@ export default function RRHHPresentismo() {
                     const fullLabel = estado
                       ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.fullLabel
                       : 'Sin marcar';
-                    const title = isAuto ? `${fullLabel} (auto)` : fullLabel;
+                    const fichadaStr = dia?.fichada ? ` | ${dia.fichada}` : '';
+                    const title = isAuto ? `${fullLabel} (auto)${fichadaStr}` : `${fullLabel}${fichadaStr}`;
                     return (
                       <td key={f}>
-                        <span
-                          className={`${styles[styleName]} ${isAuto ? styles.autoCalc : ''}`}
-                          onClick={(e) => handleCellClick(emp.empleado_id, f, e)}
-                          title={title}
-                        >
-                          {label}
-                        </span>
+                        <div className={styles.cellWrapper} onClick={(e) => handleCellClick(emp.empleado_id, f, e)}>
+                          <span
+                            className={`${styles[styleName]} ${isAuto ? styles.autoCalc : ''}`}
+                            title={title}
+                          >
+                            {label}
+                          </span>
+                          {dia?.fichada && (
+                            <span className={styles.fichadaLabel}>{dia.fichada}</span>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
@@ -726,6 +770,45 @@ export default function RRHHPresentismo() {
             <button className={styles.btnRefresh} onClick={cargarGrilla} title="Recargar">
               <RotateCcw size={14} />
             </button>
+            <button
+              className={styles.btnCreate}
+              onClick={async () => {
+                try {
+                  const { data } = await rrhhAPI.exportarPresentismoDiario({
+                    fecha_desde: fechaDesde,
+                    fecha_hasta: fechaHasta,
+                  });
+                  const url = window.URL.createObjectURL(new Blob([data]));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', `presentismo_${fechaDesde}_${fechaHasta}.xlsx`);
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch {
+                  setMarkError('Error al exportar. Intenta de nuevo.');
+                  setTimeout(() => setMarkError(null), 4000);
+                }
+              }}
+              title="Exportar a Excel (apaisado)"
+            >
+              <Download size={14} /> Exportar Excel
+            </button>
+            {puedeGestionar && (
+              <button
+                className={styles.btnCreate}
+                onClick={() => {
+                  setRangoForm({ empleado_id: '', estado: 'vacaciones', fecha_desde: '', fecha_hasta: '', observaciones: '' });
+                  setRangoError(null);
+                  setRangoSuccess(null);
+                  setRangoModalOpen(true);
+                }}
+                title="Cargar vacaciones, suspension, ART o licencia por rango de fechas"
+              >
+                <CalendarRange size={14} /> Cargar por rango
+              </button>
+            )}
           </div>
           {markError && <div className={styles.formError} style={{ marginBottom: 'var(--spacing-sm)' }}>{markError}</div>}
           {renderPresentismoGrid()}
@@ -759,6 +842,114 @@ export default function RRHHPresentismo() {
       {/* Modals */}
       {renderArtFormModal()}
       {renderArtDetalleModal()}
+
+      {/* Range marking modal */}
+      {rangoModalOpen && (
+        <div className="modal-overlay-tesla" onClick={() => setRangoModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Cargar por rango de fechas</h2>
+              <button className="btn-close-tesla" onClick={() => setRangoModalOpen(false)} aria-label="Cerrar modal">
+                ✕
+              </button>
+            </div>
+            <div className="modal-body-tesla">
+              <p
+                style={{
+                  color: 'var(--cf-text-secondary)',
+                  fontSize: 'var(--font-sm)',
+                  marginBottom: 'var(--spacing-md)',
+                }}
+              >
+                Marcar un estado para un empleado en un rango de fechas. Util para cargar vacaciones, suspensiones, ART
+                o licencia sin hacerlo dia por dia.
+              </p>
+              <div className={styles.formGroup}>
+                <label>Empleado</label>
+                <select
+                  className={styles.select}
+                  value={rangoForm.empleado_id}
+                  onChange={(e) => setRangoForm({ ...rangoForm, empleado_id: e.target.value })}
+                  required
+                >
+                  <option value="">Seleccionar empleado...</option>
+                  {empleados.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.legajo} - {emp.apellido}, {emp.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Estado</label>
+                <select
+                  className={styles.select}
+                  value={rangoForm.estado}
+                  onChange={(e) => setRangoForm({ ...rangoForm, estado: e.target.value })}
+                >
+                  <option value="vacaciones">Vacaciones</option>
+                  <option value="licencia">Licencia</option>
+                  <option value="art">ART</option>
+                  <option value="ausente">Ausente</option>
+                  <option value="home_office">Home Office</option>
+                  <option value="franco">Franco</option>
+                </select>
+              </div>
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Fecha desde</label>
+                  <input
+                    className={styles.input}
+                    type="date"
+                    value={rangoForm.fecha_desde}
+                    onChange={(e) => setRangoForm({ ...rangoForm, fecha_desde: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Fecha hasta</label>
+                  <input
+                    className={styles.input}
+                    type="date"
+                    value={rangoForm.fecha_hasta}
+                    onChange={(e) => setRangoForm({ ...rangoForm, fecha_hasta: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Observaciones (opcional)</label>
+                <textarea
+                  className={styles.textarea}
+                  value={rangoForm.observaciones}
+                  onChange={(e) => setRangoForm({ ...rangoForm, observaciones: e.target.value })}
+                  placeholder="Ej: Vacaciones aprobadas por jefe de area"
+                />
+              </div>
+              {rangoError && <div className={styles.formError}>{rangoError}</div>}
+              {rangoSuccess && (
+                <div
+                  style={{
+                    color: 'var(--cf-accent-green)',
+                    fontSize: 'var(--font-sm)',
+                    marginTop: 'var(--spacing-sm)',
+                  }}
+                >
+                  {rangoSuccess}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setRangoModalOpen(false)}>
+                Cerrar
+              </button>
+              <button className={styles.btnSave} onClick={handleRangoSubmit} disabled={rangoSaving}>
+                {rangoSaving ? 'Guardando...' : 'Aplicar rango'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -165,6 +165,7 @@ class HorasTrabajadasResponse(BaseModel):
 
 EXPORTABLES = {
     "presentismo-mensual",
+    "presentismo-diario",
     "sanciones-periodo",
     "vacaciones-resumen",
     "cuenta-corriente-resumen",
@@ -253,6 +254,32 @@ def reporte_horas_trabajadas(
     svc = ReportesService(db)
     data = svc.horas_trabajadas(mes, anio, empleado_id)
     return HorasTrabajadasResponse(**data)
+
+
+@router.get("/presentismo-diario")
+def reporte_presentismo_diario(
+    fecha_desde: date = Query(),
+    fecha_hasta: date = Query(),
+    empleado_id: int | None = Query(default=None),
+    area: str | None = Query(default=None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Reporte apaisado de presentismo diario.
+    Una fila por empleado, una columna por fecha.
+    Incluye estado + fichada (hora ingreso/egreso) por día.
+    """
+    _check_permiso(db, current_user)
+    if fecha_hasta < fecha_desde:
+        raise HTTPException(status_code=400, detail="fecha_hasta debe ser >= fecha_desde")
+    delta = (fecha_hasta - fecha_desde).days
+    if delta > 62:
+        raise HTTPException(status_code=400, detail="Rango máximo: 62 días")
+
+    svc = ReportesService(db)
+    data = svc.presentismo_diario(fecha_desde, fecha_hasta, empleado_id, area)
+    return data
 
 
 @router.get("/exportar/{tipo}")
@@ -412,6 +439,42 @@ def exportar_reporte(
                     item["saldo"],
                 ]
             )
+
+    elif tipo == "presentismo-diario":
+        if fecha_desde is None or fecha_hasta is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Parámetros requeridos: fecha_desde, fecha_hasta",
+            )
+        data = svc.presentismo_diario(fecha_desde, fecha_hasta, empleado_id, area)
+        ws.title = "Presentismo Diario"
+        filename = f"presentismo_diario_{fecha_desde}_{fecha_hasta}"
+
+        # Build headers: Legajo | Empleado | Area | fecha1 | fecha2 | ... | fichadaFecha1 | fichadaFecha2 ...
+        fechas = data["fechas"]
+        headers = ["Legajo", "Empleado", "Área"]
+        for f in fechas:
+            headers.append(f)  # estado column
+        for f in fechas:
+            headers.append(f"Fichada {f}")  # fichada column
+        ws.append(headers)
+
+        for item in data["items"]:
+            row = [item["legajo"], item["nombre"], item["area"]]
+            for f in fechas:
+                dia = item["dias"].get(f)
+                row.append(dia["estado"] if dia else "")
+            for f in fechas:
+                dia = item["dias"].get(f)
+                row.append(dia.get("fichada", "") if dia else "")
+            ws.append(row)
+
+        # Set landscape orientation for printing
+        import openpyxl.worksheet.properties
+
+        ws.sheet_properties.pageSetUpPr = openpyxl.worksheet.properties.PageSetupProperties()
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
 
     elif tipo == "horas-trabajadas":
         if mes is None or anio is None:

@@ -100,10 +100,11 @@ class PresentismoResponse(BaseModel):
 
 
 class DiaPresentismo(BaseModel):
-    """Dato de presentismo de un día: estado + origen (manual o auto)."""
+    """Dato de presentismo de un día: estado + origen (manual o auto) + fichada."""
 
     estado: Optional[str] = None
     origen: Optional[str] = None  # "manual" | "auto" | None
+    fichada: Optional[str] = None  # "HH:MM - HH:MM" (primera entrada - última salida)
 
 
 class EmpleadoPresentismoRow(BaseModel):
@@ -321,13 +322,15 @@ def get_presentismo_grilla(
                         dias_set.add(int(d_stripped))
         emp_dias_laborales[emp_id] = dias_set
 
-    # ── 5. Fichadas del rango (solo entrada, para detectar "presente") ──
+    # ── 5. Fichadas del rango (entrada + salida para detectar "presente" y mostrar horarios) ──
     from sqlalchemy import func as sa_func
 
+    # Primera entrada por (empleado, fecha)
     fichadas_entradas = (
         db.query(
             RRHHFichada.empleado_id,
             sa_func.date(RRHHFichada.timestamp).label("fecha"),
+            sa_func.min(RRHHFichada.timestamp).label("primera_entrada"),
         )
         .filter(
             RRHHFichada.empleado_id.in_(emp_ids),
@@ -338,14 +341,39 @@ def get_presentismo_grilla(
         .group_by(RRHHFichada.empleado_id, sa_func.date(RRHHFichada.timestamp))
         .all()
     )
-    # Set de (empleado_id, fecha_iso) con fichada de entrada
+
+    # Última salida por (empleado, fecha)
+    fichadas_salidas = (
+        db.query(
+            RRHHFichada.empleado_id,
+            sa_func.date(RRHHFichada.timestamp).label("fecha"),
+            sa_func.max(RRHHFichada.timestamp).label("ultima_salida"),
+        )
+        .filter(
+            RRHHFichada.empleado_id.in_(emp_ids),
+            RRHHFichada.timestamp >= datetime.combine(fecha_desde, time.min),
+            RRHHFichada.timestamp <= datetime.combine(fecha_hasta, time.max),
+            RRHHFichada.tipo == "salida",
+        )
+        .group_by(RRHHFichada.empleado_id, sa_func.date(RRHHFichada.timestamp))
+        .all()
+    )
+
+    # Mapas: (empleado_id, fecha_iso) → timestamp
+    def _to_key(row_emp_id, row_fecha):
+        return (row_emp_id, row_fecha if isinstance(row_fecha, str) else row_fecha.isoformat())
+
+    fichadas_entrada_map: dict[tuple[int, str], datetime] = {}
     fichadas_set: set[tuple[int, str]] = set()
     for row in fichadas_entradas:
-        fecha_val = row.fecha
-        if isinstance(fecha_val, str):
-            fichadas_set.add((row.empleado_id, fecha_val))
-        else:
-            fichadas_set.add((row.empleado_id, fecha_val.isoformat()))
+        key = _to_key(row.empleado_id, row.fecha)
+        fichadas_set.add(key)
+        fichadas_entrada_map[key] = row.primera_entrada
+
+    fichadas_salida_map: dict[tuple[int, str], datetime] = {}
+    for row in fichadas_salidas:
+        key = _to_key(row.empleado_id, row.fecha)
+        fichadas_salida_map[key] = row.ultima_salida
 
     # ── 6. Generar lista de fechas ──
     fechas: list[str] = []
@@ -362,6 +390,24 @@ def get_presentismo_grilla(
         fecha_weekday[current.isoformat()] = current.isoweekday()
         current += timedelta(days=1)
 
+    # Helper: formatear fichada como "HH:MM - HH:MM"
+    def _format_fichada(emp_id: int, fecha_iso: str) -> Optional[str]:
+        key = (emp_id, fecha_iso)
+        entrada = fichadas_entrada_map.get(key)
+        salida = fichadas_salida_map.get(key)
+        if not entrada and not salida:
+            return None
+        parts = []
+        if entrada:
+            parts.append(entrada.strftime("%H:%M"))
+        else:
+            parts.append("--:--")
+        if salida:
+            parts.append(salida.strftime("%H:%M"))
+        else:
+            parts.append("--:--")
+        return " - ".join(parts)
+
     rows: list[EmpleadoPresentismoRow] = []
     for emp in empleados:
         dias: dict[str, Optional[DiaPresentismo]] = {}
@@ -369,27 +415,29 @@ def get_presentismo_grilla(
         tiene_turnos = len(dias_lab) > 0
 
         for f in fechas:
+            fichada_str = _format_fichada(emp.id, f)
+
             # Prioridad 1: Manual
             manual_estado = marc_map.get((emp.id, f))
             if manual_estado is not None:
-                dias[f] = DiaPresentismo(estado=manual_estado, origen="manual")
+                dias[f] = DiaPresentismo(estado=manual_estado, origen="manual", fichada=fichada_str)
                 continue
 
             # Prioridad 2: Feriado no laborable
             if f in feriados_set:
-                dias[f] = DiaPresentismo(estado="feriado", origen="auto")
+                dias[f] = DiaPresentismo(estado="feriado", origen="auto", fichada=fichada_str)
                 continue
 
             # Prioridad 3: Franco (si tiene turnos y el día no es laboral)
             if tiene_turnos:
                 weekday = fecha_weekday[f]
                 if weekday not in dias_lab:
-                    dias[f] = DiaPresentismo(estado="franco", origen="auto")
+                    dias[f] = DiaPresentismo(estado="franco", origen="auto", fichada=fichada_str)
                     continue
 
             # Prioridad 4: Fichada de entrada → presente
             if (emp.id, f) in fichadas_set:
-                dias[f] = DiaPresentismo(estado="presente", origen="auto")
+                dias[f] = DiaPresentismo(estado="presente", origen="auto", fichada=fichada_str)
                 continue
 
             # Sin dato
@@ -410,6 +458,104 @@ def get_presentismo_grilla(
         empleados=rows,
         total_empleados=len(rows),
     )
+
+
+class PresentismoRangoRequest(BaseModel):
+    """Marcar un rango de fechas para un empleado (vacaciones, suspensión, ART, licencia)."""
+
+    empleado_id: int
+    estado: str = Field(max_length=30)
+    fecha_desde: date
+    fecha_hasta: date
+    observaciones: Optional[str] = None
+    art_caso_id: Optional[int] = None
+
+
+@router.put("/presentismo/rango", response_model=dict)
+def mark_presentismo_rango(
+    body: PresentismoRangoRequest,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Marcar un rango de fechas para un empleado.
+
+    Útil para cargar vacaciones, suspensiones, ART o licencia
+    de fecha X a fecha Y sin hacerlo día por día manualmente.
+    """
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.gestionar"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.gestionar")
+
+    # Validaciones
+    empleado = db.query(RRHHEmpleado).filter(RRHHEmpleado.id == body.empleado_id).first()
+    if not empleado:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+
+    estados_validos = [e.value for e in EstadoPresentismo]
+    if body.estado not in estados_validos:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Estado inválido. Opciones: {', '.join(estados_validos)}",
+        )
+
+    if body.fecha_desde > body.fecha_hasta:
+        raise HTTPException(status_code=400, detail="fecha_desde no puede ser posterior a fecha_hasta")
+
+    delta = (body.fecha_hasta - body.fecha_desde).days
+    if delta > 365:
+        raise HTTPException(status_code=400, detail="Rango máximo: 365 días")
+
+    # Validate ART case if estado is 'art'
+    if body.estado == EstadoPresentismo.ART.value and body.art_caso_id:
+        art_caso = db.query(RRHHArtCaso).filter(RRHHArtCaso.id == body.art_caso_id).first()
+        if not art_caso:
+            raise HTTPException(status_code=404, detail="Caso ART no encontrado")
+        if art_caso.empleado_id != body.empleado_id:
+            raise HTTPException(status_code=400, detail="El caso ART no pertenece a este empleado")
+
+    # Create/update records for each day in the range
+    from datetime import timedelta
+
+    current = body.fecha_desde
+    updated = 0
+    while current <= body.fecha_hasta:
+        registro = (
+            db.query(RRHHPresentismoDiario)
+            .filter(
+                RRHHPresentismoDiario.empleado_id == body.empleado_id,
+                RRHHPresentismoDiario.fecha == current,
+            )
+            .first()
+        )
+
+        if registro:
+            registro.estado = body.estado
+            registro.observaciones = body.observaciones
+            registro.art_caso_id = body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None
+            registro.registrado_por_id = current_user.id
+        else:
+            registro = RRHHPresentismoDiario(
+                empleado_id=body.empleado_id,
+                fecha=current,
+                estado=body.estado,
+                observaciones=body.observaciones,
+                art_caso_id=body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None,
+                registrado_por_id=current_user.id,
+            )
+            db.add(registro)
+
+        updated += 1
+        current += timedelta(days=1)
+
+    db.commit()
+    return {
+        "updated": updated,
+        "empleado_id": body.empleado_id,
+        "estado": body.estado,
+        "fecha_desde": body.fecha_desde.isoformat(),
+        "fecha_hasta": body.fecha_hasta.isoformat(),
+    }
 
 
 @router.put(

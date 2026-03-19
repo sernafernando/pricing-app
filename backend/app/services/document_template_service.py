@@ -173,6 +173,50 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         VariableInfo(nombre="estado", tipo="text", descripcion="Estado del empleado", ejemplo="activo"),
         VariableInfo(nombre="observaciones", tipo="text", descripcion="Observaciones del legajo", ejemplo=""),
     ],
+    "sanciones": [
+        VariableInfo(
+            nombre="fecha_sancion", tipo="date", descripcion="Fecha de la sanción", ejemplo="13 de Marzo de 2026"
+        ),
+        VariableInfo(
+            nombre="empleado_nombre",
+            tipo="text",
+            descripcion="Nombre completo del empleado (APELLIDO NOMBRE)",
+            ejemplo="GOMEZ GUSTAVO DANIEL",
+        ),
+        VariableInfo(nombre="empleado_legajo", tipo="text", descripcion="Número de legajo", ejemplo="5543"),
+        VariableInfo(
+            nombre="empleado_sector",
+            tipo="text",
+            descripcion="Sector / área del empleado",
+            ejemplo="Dist. Firma Naturgy Noroeste",
+        ),
+        VariableInfo(nombre="empleado_dni", tipo="text", descripcion="DNI del empleado", ejemplo="35.123.456"),
+        VariableInfo(
+            nombre="tipo_sancion", tipo="text", descripcion="Tipo de sanción aplicada", ejemplo="Apercibimiento"
+        ),
+        VariableInfo(
+            nombre="texto_sancion",
+            tipo="text",
+            descripcion="Cuerpo completo del texto de la sanción (configurable)",
+            ejemplo="Notificámosle que ante el incumplimiento...",
+        ),
+        VariableInfo(
+            nombre="fecha_suspension_desde",
+            tipo="date",
+            descripcion="Fecha inicio suspensión (si aplica)",
+            ejemplo="15/03/2026",
+        ),
+        VariableInfo(
+            nombre="fecha_suspension_hasta",
+            tipo="date",
+            descripcion="Fecha fin suspensión (si aplica)",
+            ejemplo="16/03/2026",
+        ),
+        VariableInfo(
+            nombre="dias_suspension", tipo="number", descripcion="Cantidad de días de suspensión", ejemplo="1"
+        ),
+        VariableInfo(nombre="numero_interno", tipo="text", descripcion="Número interno de la sanción", ejemplo="21115"),
+    ],
     "envios": [
         # Header del remito flex
         VariableInfo(
@@ -251,6 +295,63 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             ejemplo="Producto con pantalla rota",
         ),
         VariableInfo(nombre="fecha_caso", tipo="date", descripcion="Fecha del caso", ejemplo="2026-03-10"),
+    ],
+    "vacaciones": [
+        VariableInfo(
+            nombre="empleado_nombre",
+            tipo="text",
+            descripcion="Nombre completo del empleado",
+            ejemplo="González, Carlos",
+        ),
+        VariableInfo(nombre="empleado_legajo", tipo="text", descripcion="Número de legajo", ejemplo="5543"),
+        VariableInfo(nombre="empleado_dni", tipo="text", descripcion="DNI del empleado", ejemplo="35.123.456"),
+        VariableInfo(
+            nombre="empleado_area", tipo="text", descripcion="Área / sector del empleado", ejemplo="Logística"
+        ),
+        VariableInfo(
+            nombre="empleado_puesto", tipo="text", descripcion="Puesto del empleado", ejemplo="Operario de depósito"
+        ),
+        VariableInfo(nombre="fecha_desde", tipo="date", descripcion="Fecha inicio de vacaciones", ejemplo="15/01/2026"),
+        VariableInfo(nombre="fecha_hasta", tipo="date", descripcion="Fecha fin de vacaciones", ejemplo="29/01/2026"),
+        VariableInfo(nombre="dias_totales", tipo="number", descripcion="Cantidad de días de vacaciones", ejemplo="14"),
+        VariableInfo(nombre="anio_periodo", tipo="text", descripcion="Año del período de vacaciones", ejemplo="2025"),
+        VariableInfo(
+            nombre="fecha_reincorporacion", tipo="date", descripcion="Fecha de reincorporación", ejemplo="30/01/2026"
+        ),
+        VariableInfo(
+            nombre="texto_notificacion",
+            tipo="text",
+            descripcion="Texto completo de la notificación (configurable)",
+            ejemplo="Se le notifica que le corresponden...",
+        ),
+    ],
+    "remito_manual": [
+        # Datos del cliente (manual o desde envío)
+        VariableInfo(
+            nombre="cliente_nombre", tipo="text", descripcion="Nombre del cliente/destinatario", ejemplo="Juan Pérez"
+        ),
+        VariableInfo(nombre="cliente_cuit", tipo="text", descripcion="CUIT del cliente", ejemplo="20-12345678-9"),
+        VariableInfo(
+            nombre="cliente_direccion", tipo="text", descripcion="Dirección del cliente", ejemplo="Av. Corrientes 1234"
+        ),
+        VariableInfo(nombre="cliente_ciudad", tipo="text", descripcion="Ciudad", ejemplo="CABA"),
+        VariableInfo(nombre="cliente_cp", tipo="text", descripcion="Código postal", ejemplo="C1043"),
+        VariableInfo(nombre="cliente_telefono", tipo="text", descripcion="Teléfono", ejemplo="11-4567-8901"),
+        # Datos del remito
+        VariableInfo(nombre="fecha_remito", tipo="date", descripcion="Fecha del remito", ejemplo="2026-03-15"),
+        VariableInfo(
+            nombre="shipping_id", tipo="text", descripcion="ID de envío asociado (si aplica)", ejemplo="43210987654"
+        ),
+        VariableInfo(nombre="bultos", tipo="number", descripcion="Cantidad de bultos", ejemplo="3"),
+        VariableInfo(nombre="valor_declarado", tipo="number", descripcion="Valor declarado total", ejemplo="125000.00"),
+        VariableInfo(nombre="observaciones", tipo="text", descripcion="Observaciones del remito", ejemplo="Frágil"),
+        # Tabla de items
+        VariableInfo(
+            nombre="tabla_items",
+            tipo="table",
+            descripcion="Tabla de items: código, descripción, cantidad, precio unitario, subtotal",
+            ejemplo='[["PROD-001","Monitor LED 24","2","62500.00","125000.00"]]',
+        ),
     ],
 }
 

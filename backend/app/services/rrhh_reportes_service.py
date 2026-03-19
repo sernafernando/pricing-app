@@ -23,7 +23,9 @@ from sqlalchemy.orm import Session
 
 from app.models.rrhh_cuenta_corriente import RRHHCuentaCorriente
 from app.models.rrhh_empleado import RRHHEmpleado
+from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_fichada import RRHHFichada
+from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
 from app.models.rrhh_presentismo import RRHHPresentismoDiario
 from app.models.rrhh_sancion import RRHHSancion, RRHHTipoSancion
 from app.models.rrhh_vacaciones import RRHHVacacionesPeriodo
@@ -484,6 +486,230 @@ class ReportesService:
             "empleado_id": empleado_id,
             "fecha_desde": fecha_desde.isoformat(),
             "fecha_hasta": fecha_hasta.isoformat(),
+            "total_empleados": len(items),
+            "items": items,
+        }
+
+    # ──────────────────────────────────────────
+    # 6. Presentismo diario (grilla apaisada)
+    # ──────────────────────────────────────────
+
+    def presentismo_diario(
+        self,
+        fecha_desde: date,
+        fecha_hasta: date,
+        empleado_id: int | None = None,
+        area: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Reporte apaisado de presentismo diario.
+
+        Una fila por empleado, una columna por fecha.
+        Incluye estado + fichada (hora ingreso/egreso) por día.
+
+        Prioridad de estado (misma lógica que la grilla):
+        1. Manual: registro en rrhh_presentismo_diario → origen="manual"
+        2. Feriado: excepción no laborable → "feriado", origen="auto"
+        3. Franco: día de semana fuera de turnos → "franco", origen="auto"
+        4. Presente: fichada de entrada ese día → "presente", origen="auto"
+        5. Nulo: sin dato
+        """
+        from collections import defaultdict
+        from datetime import datetime, time
+
+        # ── 1. Empleados activos ──
+        emp_query = self.db.query(RRHHEmpleado).filter(
+            RRHHEmpleado.activo.is_(True),
+            RRHHEmpleado.estado == "activo",
+        )
+        if area:
+            emp_query = emp_query.filter(RRHHEmpleado.area == area)
+        if empleado_id:
+            emp_query = emp_query.filter(RRHHEmpleado.id == empleado_id)
+
+        empleados = emp_query.order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre).all()
+
+        if not empleados:
+            fechas_list: list[str] = []
+            current = fecha_desde
+            while current <= fecha_hasta:
+                fechas_list.append(current.isoformat())
+                current += timedelta(days=1)
+            return {
+                "fecha_desde": fecha_desde.isoformat(),
+                "fecha_hasta": fecha_hasta.isoformat(),
+                "fechas": fechas_list,
+                "total_empleados": 0,
+                "items": [],
+            }
+
+        emp_ids = [e.id for e in empleados]
+
+        # ── 2. Marcaciones manuales del rango ──
+        marcaciones = (
+            self.db.query(RRHHPresentismoDiario)
+            .filter(
+                RRHHPresentismoDiario.empleado_id.in_(emp_ids),
+                RRHHPresentismoDiario.fecha >= fecha_desde,
+                RRHHPresentismoDiario.fecha <= fecha_hasta,
+            )
+            .all()
+        )
+        marc_map: dict[tuple[int, str], str] = {}
+        for m in marcaciones:
+            marc_map[(m.empleado_id, m.fecha.isoformat())] = m.estado
+
+        # ── 3. Excepciones (feriados) del rango ──
+        excepciones = (
+            self.db.query(RRHHHorarioExcepcion)
+            .filter(
+                RRHHHorarioExcepcion.fecha >= fecha_desde,
+                RRHHHorarioExcepcion.fecha <= fecha_hasta,
+            )
+            .all()
+        )
+        feriados_set: set[str] = set()
+        for exc in excepciones:
+            if exc.tipo == "feriado" and not exc.es_laborable:
+                feriados_set.add(exc.fecha.isoformat())
+
+        # ── 4. Turnos asignados por empleado (para detectar francos) ──
+        asignaciones = self.db.query(RRHHEmpleadoHorario).filter(RRHHEmpleadoHorario.empleado_id.in_(emp_ids)).all()
+        horario_ids = list({a.horario_config_id for a in asignaciones})
+        horarios_map: dict[int, RRHHHorarioConfig] = {}
+        if horario_ids:
+            horarios = (
+                self.db.query(RRHHHorarioConfig)
+                .filter(
+                    RRHHHorarioConfig.id.in_(horario_ids),
+                    RRHHHorarioConfig.activo.is_(True),
+                )
+                .all()
+            )
+            horarios_map = {h.id: h for h in horarios}
+
+        emp_dias_laborales: dict[int, set[int]] = {}
+        for eid in emp_ids:
+            dias_set: set[int] = set()
+            emp_asigs = [a for a in asignaciones if a.empleado_id == eid]
+            for asig in emp_asigs:
+                horario = horarios_map.get(asig.horario_config_id)
+                if horario and horario.dias_semana:
+                    for d in horario.dias_semana.split(","):
+                        d_stripped = d.strip()
+                        if d_stripped.isdigit():
+                            dias_set.add(int(d_stripped))
+            emp_dias_laborales[eid] = dias_set
+
+        # ── 5. Fichadas del rango (entrada y salida) ──
+        fichadas_raw = (
+            self.db.query(RRHHFichada)
+            .filter(
+                RRHHFichada.empleado_id.in_(emp_ids),
+                RRHHFichada.timestamp >= datetime.combine(fecha_desde, time.min),
+                RRHHFichada.timestamp <= datetime.combine(fecha_hasta, time.max),
+                RRHHFichada.tipo.in_(["entrada", "salida"]),
+            )
+            .order_by(RRHHFichada.timestamp)
+            .all()
+        )
+
+        # Group fichadas by (empleado_id, fecha_iso)
+        fichadas_by_emp_day: dict[tuple[int, str], list] = defaultdict(list)
+        for f in fichadas_raw:
+            dia = f.timestamp.date() if hasattr(f.timestamp, "date") else f.timestamp
+            fichadas_by_emp_day[(f.empleado_id, dia.isoformat())].append(f)
+
+        # Set of (emp_id, fecha_iso) with at least one entrada
+        fichadas_entrada_set: set[tuple[int, str]] = set()
+        for f in fichadas_raw:
+            if f.tipo == "entrada":
+                dia = f.timestamp.date() if hasattr(f.timestamp, "date") else f.timestamp
+                fichadas_entrada_set.add((f.empleado_id, dia.isoformat()))
+
+        # ── 6. Generar lista de fechas ──
+        fechas: list[str] = []
+        fecha_weekday: dict[str, int] = {}
+        current_date = fecha_desde
+        while current_date <= fecha_hasta:
+            iso = current_date.isoformat()
+            fechas.append(iso)
+            fecha_weekday[iso] = current_date.isoweekday()
+            current_date += timedelta(days=1)
+
+        # ── 7. Armar grilla con auto-cálculo + fichadas ──
+        items: list[dict[str, Any]] = []
+        for emp in empleados:
+            dias: dict[str, dict[str, Any]] = {}
+            dias_lab = emp_dias_laborales.get(emp.id, set())
+            tiene_turnos = len(dias_lab) > 0
+
+            for f_iso in fechas:
+                estado: str | None = None
+                origen: str | None = None
+
+                # Prioridad 1: Manual
+                manual_estado = marc_map.get((emp.id, f_iso))
+                if manual_estado is not None:
+                    estado = manual_estado
+                    origen = "manual"
+                # Prioridad 2: Feriado no laborable
+                elif f_iso in feriados_set:
+                    estado = "feriado"
+                    origen = "auto"
+                # Prioridad 3: Franco
+                elif tiene_turnos and fecha_weekday[f_iso] not in dias_lab:
+                    estado = "franco"
+                    origen = "auto"
+                # Prioridad 4: Fichada de entrada → presente
+                elif (emp.id, f_iso) in fichadas_entrada_set:
+                    estado = "presente"
+                    origen = "auto"
+
+                # Format fichada string: "HH:MM - HH:MM" (first entry - last exit)
+                fichada_str = ""
+                day_fichadas = fichadas_by_emp_day.get((emp.id, f_iso), [])
+                if day_fichadas:
+                    entradas = [fich for fich in day_fichadas if fich.tipo == "entrada"]
+                    salidas = [fich for fich in day_fichadas if fich.tipo == "salida"]
+                    first_entry = entradas[0].timestamp.strftime("%H:%M") if entradas else ""
+                    last_exit = salidas[-1].timestamp.strftime("%H:%M") if salidas else ""
+                    if first_entry and last_exit:
+                        fichada_str = f"{first_entry} - {last_exit}"
+                    elif first_entry:
+                        fichada_str = first_entry
+                    elif last_exit:
+                        fichada_str = f"- {last_exit}"
+
+                if estado is not None:
+                    dias[f_iso] = {
+                        "estado": estado,
+                        "origen": origen,
+                        "fichada": fichada_str,
+                    }
+                else:
+                    # Sin dato pero con fichada posible (edge case)
+                    if fichada_str:
+                        dias[f_iso] = {
+                            "estado": "",
+                            "origen": None,
+                            "fichada": fichada_str,
+                        }
+
+            items.append(
+                {
+                    "empleado_id": emp.id,
+                    "nombre": emp.nombre_completo,
+                    "legajo": emp.legajo,
+                    "area": emp.area or "",
+                    "dias": dias,
+                }
+            )
+
+        return {
+            "fecha_desde": fecha_desde.isoformat(),
+            "fecha_hasta": fecha_hasta.isoformat(),
+            "fechas": fechas,
             "total_empleados": len(items),
             "items": items,
         }

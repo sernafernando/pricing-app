@@ -462,6 +462,113 @@ def template_rma():
 
 
 # =============================================================================
+# TEMPLATE: REMITO MANUAL
+# =============================================================================
+def template_remito_manual():
+    fields = []
+    header, y = _header_block("REMITO")
+    fields.extend(header)
+
+    y += 2
+    fields.append(_text("fecha_remito", MARGIN, y, 60, 8, content="dd/mm/aaaa", bold=True, fontSize=12))
+    fields.append(_text("shipping_id", MARGIN + 120, y, 60, 8, content="", fontSize=9, alignment="right"))
+    y += 12
+
+    # Cliente
+    fields.append(_label("__sec_cliente__", MARGIN, y, 80, 7, "CLIENTE", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(
+        _text("cliente_nombre", MARGIN, y, CONTENT_W, 7, content="Nombre / Razón social", bold=True, fontSize=11)
+    )
+    y += 8
+    fields.append(_text("cliente_cuit", MARGIN, y, 60, 6, content="CUIT"))
+    fields.append(_text("cliente_telefono", MARGIN + 60, y, 60, 6, content="Teléfono"))
+    y += 7
+    fields.append(_text("cliente_direccion", MARGIN, y, CONTENT_W, 6, content="Dirección"))
+    y += 7
+    fields.append(_text("cliente_ciudad", MARGIN, y, 60, 6, content="Ciudad"))
+    fields.append(_text("cliente_cp", MARGIN + 60, y, 30, 6, content="CP"))
+    y += 10
+
+    # Items (tabla)
+    fields.append(_label("__sec_items__", MARGIN, y, 80, 7, "DETALLE", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(
+        {
+            "name": "tabla_items",
+            "type": "table",
+            "content": "",
+            "position": {"x": MARGIN, "y": y},
+            "width": CONTENT_W,
+            "height": 80,
+            "head": ["Código", "Descripción", "Cant.", "P. Unit.", "Subtotal"],
+            "headWidthPercentages": [15, 40, 10, 17, 18],
+            "tableStyles": {"borderWidth": 0.3, "borderColor": "#999999"},
+            "headStyles": {
+                "fontName": "Arial Bold",
+                "fontSize": 8,
+                "characterSpacing": 0,
+                "alignment": "left",
+                "verticalAlignment": "middle",
+                "lineHeight": 1,
+                "fontColor": "#ffffff",
+                "backgroundColor": "#333333",
+                "borderColor": "#333333",
+                "padding": {"top": 3, "bottom": 3, "left": 3, "right": 3},
+            },
+            "bodyStyles": {
+                "fontName": "Arial",
+                "fontSize": 8,
+                "characterSpacing": 0,
+                "alignment": "left",
+                "verticalAlignment": "middle",
+                "lineHeight": 1,
+                "fontColor": "#333333",
+                "borderColor": "#cccccc",
+                "alternateBackgroundColor": "#f5f5f5",
+                "padding": {"top": 2, "bottom": 2, "left": 3, "right": 3},
+            },
+        }
+    )
+    y += 85
+
+    # Totales
+    fields.append(_label("__sec_totales__", MARGIN, y, 80, 7, "TOTALES", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(_label("__lbl_bultos__", MARGIN, y, 40, 7, "Bultos:", fontSize=10))
+    fields.append(_text("bultos", MARGIN + 40, y, 30, 7, content="0", bold=True, fontSize=12))
+    fields.append(_label("__lbl_valor__", MARGIN + 90, y, 60, 7, "Valor declarado:", fontSize=10))
+    fields.append(
+        _text(
+            "valor_declarado",
+            MARGIN + 150,
+            y,
+            30,
+            7,
+            content="$ 0",
+            bold=True,
+            fontSize=12,
+            alignment="right",
+        )
+    )
+    y += 10
+
+    # Observaciones
+    fields.append(_label("__sec_obs__", MARGIN, y, 80, 7, "OBSERVACIONES", fontSize=9, bold=True, fontColor="#555555"))
+    y += 8
+    fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 15, content=""))
+
+    # Firmas
+    y = A4_H - MARGIN - 15
+    fields.extend(_firma_block(y, ["Entregó", "Recibió"]))
+
+    return {
+        "basePdf": {"width": A4_W, "height": A4_H, "padding": [MARGIN, MARGIN, MARGIN, MARGIN]},
+        "schemas": [fields],
+    }
+
+
+# =============================================================================
 # SEED
 # =============================================================================
 
@@ -501,6 +608,12 @@ TEMPLATES = [
         "descripcion": "Template base para comprobante de caso RMA. Cliente, caso, observaciones.",
         "contexto": "rma",
         "template_json": template_rma,
+    },
+    {
+        "nombre": "Remito Manual (base)",
+        "descripcion": "Remito con items, cliente y valor declarado.",
+        "contexto": "remito_manual",
+        "template_json": template_remito_manual,
     },
 ]
 

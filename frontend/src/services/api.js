@@ -199,6 +199,7 @@ export const rrhhAPI = {
   marcarPresentismo: (empleadoId, fecha, data) =>
     api.put(`/rrhh/presentismo/${empleadoId}/${fecha}`, data),
   marcarPresentismoBulk: (data) => api.put('/rrhh/presentismo/bulk', data),
+  marcarPresentismoRango: (data) => api.put('/rrhh/presentismo/rango', data),
 
   // ── ART (Accidentes de Trabajo) ─────────────
   listarArtCasos: (params) => api.get('/rrhh/art', { params }),
@@ -300,6 +301,10 @@ export const rrhhAPI = {
     api.get('/rrhh/reportes/cuenta-corriente-resumen'),
   reporteHorasTrabajadas: (params) =>
     api.get('/rrhh/reportes/horas-trabajadas', { params }),
+  reportePresentismoDiario: (params) =>
+    api.get('/rrhh/reportes/presentismo-diario', { params }),
+  exportarPresentismoDiario: (params) =>
+    api.get('/rrhh/reportes/exportar/presentismo-diario', { params, responseType: 'blob' }),
   exportarReporte: (tipo, params) =>
     api.get(`/rrhh/reportes/exportar/${tipo}`, { params, responseType: 'blob' }),
 };

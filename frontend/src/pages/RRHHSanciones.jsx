@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
-import { Shield, Plus, RotateCcw, Ban, Eye } from 'lucide-react';
+import { Shield, Plus, RotateCcw, Ban, Eye, FileDown } from 'lucide-react';
+import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './RRHHSanciones.module.css';
 
 const INITIAL_FORM = {
@@ -10,6 +11,7 @@ const INITIAL_FORM = {
   fecha: new Date().toISOString().slice(0, 10),
   motivo: '',
   descripcion: '',
+  texto_sancion: '',
   fecha_desde: '',
   fecha_hasta: '',
 };
@@ -56,6 +58,13 @@ export default function RRHHSanciones() {
   // ── Detail view ──
   const [detalleOpen, setDetalleOpen] = useState(null);
 
+  // ── Empleados for selector ──
+  const [empleados, setEmpleados] = useState([]);
+  const [empleadoSearch, setEmpleadoSearch] = useState('');
+
+  // ── PDF modal ──
+  const [pdfTarget, setPdfTarget] = useState(null);
+
   // ── Load tipos sancion on mount ──
   useEffect(() => {
     const fetchTipos = async () => {
@@ -67,6 +76,19 @@ export default function RRHHSanciones() {
       }
     };
     fetchTipos();
+  }, []);
+
+  // ── Load empleados on mount ──
+  useEffect(() => {
+    const fetchEmpleados = async () => {
+      try {
+        const { data } = await rrhhAPI.listarEmpleados({ page_size: 9999, estado: 'activo' });
+        setEmpleados(Array.isArray(data) ? data : data.items || []);
+      } catch {
+        setEmpleados([]);
+      }
+    };
+    fetchEmpleados();
   }, []);
 
   // ── Fetch sanciones ──
@@ -116,6 +138,9 @@ export default function RRHHSanciones() {
       };
       if (crearForm.descripcion.trim()) {
         payload.descripcion = crearForm.descripcion.trim();
+      }
+      if (crearForm.texto_sancion.trim()) {
+        payload.texto_sancion = crearForm.texto_sancion.trim();
       }
       if (crearForm.fecha_desde) payload.fecha_desde = crearForm.fecha_desde;
       if (crearForm.fecha_hasta) payload.fecha_hasta = crearForm.fecha_hasta;
@@ -194,7 +219,7 @@ export default function RRHHSanciones() {
         <input
           type="number"
           className={styles.input}
-          placeholder="ID Empleado"
+          placeholder="Legajo o ID empleado"
           value={filtroEmpleado}
           onChange={(e) => { setFiltroEmpleado(e.target.value); setPage(1); }}
           min="1"
@@ -282,6 +307,13 @@ export default function RRHHSanciones() {
                     >
                       <Eye size={14} />
                     </button>
+                    <button
+                      className={styles.btnView}
+                      onClick={() => setPdfTarget(s)}
+                      title="Generar PDF"
+                    >
+                      <FileDown size={14} />
+                    </button>
                     {puedeGestionar && !s.anulada && (
                       <button
                         className={styles.btnAnular}
@@ -333,22 +365,55 @@ export default function RRHHSanciones() {
             <div className="modal-body-tesla">
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
-                  <label>Empleado ID</label>
+                  <label>Empleado (Legajo)</label>
                   <input
-                    type="number"
+                    type="text"
                     className={styles.input}
+                    placeholder="Buscar por legajo o nombre..."
+                    value={empleadoSearch}
+                    onChange={(e) => setEmpleadoSearch(e.target.value)}
+                  />
+                  <select
+                    className={styles.select}
                     value={crearForm.empleado_id}
                     onChange={(e) => setCrearForm({ ...crearForm, empleado_id: e.target.value })}
-                    min="1"
                     required
-                  />
+                    size={5}
+                    style={{ marginTop: 'var(--spacing-xs)' }}
+                  >
+                    <option value="">Seleccionar empleado...</option>
+                    {empleados
+                      .filter((emp) => {
+                        if (!empleadoSearch) return true;
+                        const q = empleadoSearch.toLowerCase();
+                        return (
+                          (emp.legajo || '').toLowerCase().includes(q) ||
+                          (emp.nombre || '').toLowerCase().includes(q) ||
+                          (emp.apellido || '').toLowerCase().includes(q) ||
+                          (`${emp.apellido} ${emp.nombre}`).toLowerCase().includes(q)
+                        );
+                      })
+                      .map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.legajo} - {emp.apellido}, {emp.nombre}
+                        </option>
+                      ))}
+                  </select>
                 </div>
                 <div className={styles.formGroup}>
                   <label>Tipo de sancion</label>
                   <select
                     className={styles.select}
                     value={crearForm.tipo_sancion_id}
-                    onChange={(e) => setCrearForm({ ...crearForm, tipo_sancion_id: e.target.value })}
+                    onChange={(e) => {
+                      const tipoId = e.target.value;
+                      const tipo = tiposSancion.find((t) => t.id === Number(tipoId));
+                      setCrearForm({
+                        ...crearForm,
+                        tipo_sancion_id: tipoId,
+                        texto_sancion: tipo?.texto_predeterminado || crearForm.texto_sancion,
+                      });
+                    }}
                     required
                   >
                     <option value="">Seleccionar...</option>
@@ -383,6 +448,16 @@ export default function RRHHSanciones() {
                   className={styles.textarea}
                   value={crearForm.descripcion}
                   onChange={(e) => setCrearForm({ ...crearForm, descripcion: e.target.value })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Texto de la sancion (cuerpo del documento)</label>
+                <textarea
+                  className={styles.textarea}
+                  value={crearForm.texto_sancion}
+                  onChange={(e) => setCrearForm({ ...crearForm, texto_sancion: e.target.value })}
+                  rows={6}
+                  placeholder="Texto completo que aparecera en el documento de sancion..."
                 />
               </div>
               <div className={styles.formRow}>
@@ -510,6 +585,14 @@ export default function RRHHSanciones() {
                   </div>
                 </div>
               )}
+              {detalleOpen.texto_sancion && (
+                <div className={styles.formGroup}>
+                  <label>Texto de la sancion</label>
+                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)', whiteSpace: 'pre-wrap' }}>
+                    {detalleOpen.texto_sancion}
+                  </div>
+                </div>
+              )}
               {detalleOpen.fecha_desde && (
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
@@ -536,12 +619,38 @@ export default function RRHHSanciones() {
               )}
             </div>
             <div className="modal-footer-tesla">
+              <button
+                className={styles.btnSave}
+                onClick={() => { setDetalleOpen(null); setPdfTarget(detalleOpen); }}
+              >
+                <FileDown size={14} /> Generar PDF
+              </button>
               <button className={styles.btnCancel} onClick={() => setDetalleOpen(null)}>
                 Cerrar
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* PDF Generator Modal */}
+      {pdfTarget && (
+        <DocumentGeneratorModal
+          isOpen={!!pdfTarget}
+          onClose={() => setPdfTarget(null)}
+          contexto="sanciones"
+          entityData={{
+            ...pdfTarget,
+            empleado_legajo: pdfTarget.empleado_legajo,
+            empleado_sector: pdfTarget.empleado_sector,
+            empleado_dni: pdfTarget.empleado_dni,
+            tipo_sancion_nombre: getTipoNombre(pdfTarget.tipo_sancion_id),
+            dias_suspension: (() => {
+              const tipo = tiposSancion.find((t) => t.id === pdfTarget.tipo_sancion_id);
+              return tipo?.dias_suspension || '';
+            })(),
+          }}
+        />
       )}
     </div>
   );
