@@ -28,12 +28,25 @@
 }
 
 .badge {
-  background: var(--cf-accent-blue);
   color: white;
   font-size: var(--font-xs);
   padding: 2px 8px;
   border-radius: var(--radius-full);
   font-weight: 500;
+  min-width: 24px;
+  text-align: center;
+}
+
+.badgeGreen {
+  background: var(--cf-accent-green);
+}
+
+.badgeYellow {
+  background: var(--cf-accent-orange);
+}
+
+.badgeRed {
+  background: var(--cf-accent-red);
 }
 
 /* Filters */

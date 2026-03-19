@@ -145,6 +145,30 @@ export default function Empleados() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // --- Contadores por estado ---
+  const [contadores, setContadores] = useState({ activos: 0, licencia: 0, bajas: 0 });
+
+  const cargarContadores = useCallback(async () => {
+    try {
+      const [actRes, licRes, bajaRes] = await Promise.all([
+        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'activo' }),
+        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'licencia' }),
+        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'baja' }),
+      ]);
+      setContadores({
+        activos: actRes.data.total,
+        licencia: licRes.data.total,
+        bajas: bajaRes.data.total,
+      });
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarContadores();
+  }, [cargarContadores]);
+
   // --- Fetch filter options (areas, puestos) ---
   useEffect(() => {
     const fetchFiltros = async () => {
@@ -232,6 +256,8 @@ export default function Empleados() {
       longitud: null,
       telefono: '',
       email_personal: '',
+      contacto_emergencia: '',
+      contacto_emergencia_tel: '',
       observaciones: '',
     });
     setFormError(null);
@@ -266,6 +292,8 @@ export default function Empleados() {
       longitud: emp.longitud || null,
       telefono: emp.telefono || '',
       email_personal: emp.email_personal || '',
+      contacto_emergencia: emp.contacto_emergencia || '',
+      contacto_emergencia_tel: emp.contacto_emergencia_tel || '',
       observaciones: emp.observaciones || '',
     });
     setFormError(null);
@@ -298,6 +326,7 @@ export default function Empleados() {
       }
       setModalOpen(false);
       cargarEmpleados();
+      cargarContadores();
     } catch (err) {
       const msg = err.response?.data?.detail || 'Error al guardar';
       setFormError(msg);
@@ -319,6 +348,7 @@ export default function Empleados() {
       await rrhhAPI.eliminarEmpleado(confirmDelete.id);
       setConfirmDelete(null);
       cargarEmpleados();
+      cargarContadores();
     } catch (err) {
       setActionError(err.response?.data?.detail || 'Error al desactivar empleado');
     }
@@ -693,7 +723,9 @@ export default function Empleados() {
         <div className={styles.headerTitle}>
           <Users size={24} />
           <h1>Empleados</h1>
-          <span className={styles.badge}>{total}</span>
+          <span className={`${styles.badge} ${styles.badgeGreen}`} title="Activos">{contadores.activos}</span>
+          <span className={`${styles.badge} ${styles.badgeYellow}`} title="Licencia">{contadores.licencia}</span>
+          <span className={`${styles.badge} ${styles.badgeRed}`} title="Bajas">{contadores.bajas}</span>
         </div>
         <div className={styles.headerActions}>
           {puedeGestionar && pageTab === 'empleados' && (
@@ -1267,6 +1299,24 @@ export default function Empleados() {
                         className={styles.input}
                         value={formData.email_personal}
                         onChange={(e) => handleField('email_personal', e.target.value)}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Contacto de Emergencia</label>
+                      <input
+                        className={styles.input}
+                        value={formData.contacto_emergencia}
+                        onChange={(e) => handleField('contacto_emergencia', e.target.value)}
+                        placeholder="Nombre y parentesco"
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Tel. Emergencia</label>
+                      <input
+                        className={styles.input}
+                        value={formData.contacto_emergencia_tel}
+                        onChange={(e) => handleField('contacto_emergencia_tel', e.target.value)}
+                        placeholder="11-1234-5678"
                       />
                     </div>
                     <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
