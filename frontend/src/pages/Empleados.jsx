@@ -1351,22 +1351,44 @@ export default function Empleados() {
                     )}
 
                     {formData.latitud && formData.longitud && (
-                      <>
-                        <span className={styles.geoCoords}>
-                          <MapPin size={12} />
-                          {Number(formData.latitud).toFixed(6)}, {Number(formData.longitud).toFixed(6)}
-                        </span>
-                        <a
-                          href={`https://www.google.com/maps?q=${formData.latitud},${formData.longitud}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={styles.btnGoogleMaps}
-                        >
-                          <ExternalLink size={12} /> Abrir en Google Maps
-                        </a>
-                      </>
+                      <a
+                        href={`https://www.google.com/maps?q=${formData.latitud},${formData.longitud}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.btnGoogleMaps}
+                      >
+                        <ExternalLink size={12} /> Abrir en Google Maps
+                      </a>
                     )}
                   </div>
+
+                  {puedeGestionar && (
+                    <div className={styles.coordsRow}>
+                      <div className={styles.formGroup}>
+                        <label>Latitud</label>
+                        <input
+                          className={styles.input}
+                          type="text"
+                          value={formData.latitud || ''}
+                          onChange={(e) => handleField('latitud', e.target.value || null)}
+                          placeholder="-34.603722"
+                        />
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>Longitud</label>
+                        <input
+                          className={styles.input}
+                          type="text"
+                          value={formData.longitud || ''}
+                          onChange={(e) => handleField('longitud', e.target.value || null)}
+                          placeholder="-58.381592"
+                        />
+                      </div>
+                      <p className={styles.coordsHint}>
+                        <MapPin size={12} /> Podés pegar coordenadas de Google Maps si el geocodificador no las encuentra
+                      </p>
+                    </div>
+                  )}
 
                   {/* Mapa */}
                   {formData.latitud && formData.longitud && (

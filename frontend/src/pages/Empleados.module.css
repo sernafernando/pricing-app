@@ -563,6 +563,28 @@
   opacity: 0.7;
 }
 
+.coordsRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+}
+
+.coordsRow .formGroup {
+  flex: 0 0 180px;
+}
+
+.coordsHint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin: 0;
+  padding-bottom: var(--spacing-sm);
+}
+
 .mapContainer {
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
