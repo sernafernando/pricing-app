@@ -70,6 +70,11 @@ export default function Empleados() {
   const [search, setSearch] = useState('');
   const [estado, setEstado] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [area, setArea] = useState('');
+  const [puesto, setPuesto] = useState('');
+  const [sortBy, setSortBy] = useState('');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [filtroOpciones, setFiltroOpciones] = useState({ areas: [], puestos: [] });
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -139,6 +144,19 @@ export default function Empleados() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // --- Fetch filter options (areas, puestos) ---
+  useEffect(() => {
+    const fetchFiltros = async () => {
+      try {
+        const { data } = await rrhhAPI.obtenerFiltrosEmpleados();
+        setFiltroOpciones(data);
+      } catch {
+        setFiltroOpciones({ areas: [], puestos: [] });
+      }
+    };
+    fetchFiltros();
+  }, []);
+
   // --- Fetch empleados ---
   const cargarEmpleados = useCallback(async () => {
     setLoading(true);
@@ -146,6 +164,12 @@ export default function Empleados() {
       const params = { page, page_size: PAGE_SIZE };
       if (debouncedSearch) params.search = debouncedSearch;
       if (estado) params.estado = estado;
+      if (area) params.area = area;
+      if (puesto) params.puesto = puesto;
+      if (sortBy) {
+        params.sort_by = sortBy;
+        params.sort_order = sortOrder;
+      }
       const { data } = await rrhhAPI.listarEmpleados(params);
       setEmpleados(data.items);
       setTotal(data.total);
@@ -155,7 +179,7 @@ export default function Empleados() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, estado]);
+  }, [page, debouncedSearch, estado, area, puesto, sortBy, sortOrder]);
 
   useEffect(() => {
     cargarEmpleados();
@@ -616,6 +640,31 @@ export default function Empleados() {
     }
   };
 
+  const SortHeader = ({ field, children }) => {
+    const isActive = sortBy === field;
+    return (
+      <th
+        className={styles.sortableHeader}
+        onClick={() => {
+          if (sortBy === field) {
+            setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+          } else {
+            setSortBy(field);
+            setSortOrder('asc');
+          }
+          setPage(1);
+        }}
+      >
+        {children}
+        {isActive && (
+          <span className={styles.sortIndicator}>
+            {sortOrder === 'asc' ? '\u25B2' : '\u25BC'}
+          </span>
+        )}
+      </th>
+    );
+  };
+
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -865,23 +914,41 @@ export default function Empleados() {
             placeholder="Buscar por nombre, DNI, legajo..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className={styles.input}
+            className={styles.searchInput}
           />
         </div>
         <select
           value={estado}
           onChange={(e) => { setEstado(e.target.value); setPage(1); }}
-          className={styles.select}
+          className={styles.filterSelect}
         >
           {ESTADOS.map((e) => (
-            <option key={e.value} value={e.value}>
-              {e.label}
-            </option>
+            <option key={e.value} value={e.value}>{e.label}</option>
+          ))}
+        </select>
+        <select
+          value={area}
+          onChange={(e) => { setArea(e.target.value); setPage(1); }}
+          className={styles.filterSelect}
+        >
+          <option value="">Todas las areas</option>
+          {filtroOpciones.areas.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+        <select
+          value={puesto}
+          onChange={(e) => { setPuesto(e.target.value); setPage(1); }}
+          className={styles.filterSelect}
+        >
+          <option value="">Todos los puestos</option>
+          {filtroOpciones.puestos.map((p) => (
+            <option key={p} value={p}>{p}</option>
           ))}
         </select>
         <button
           className={styles.btnRefresh}
-          onClick={() => { setSearch(''); setEstado(''); setPage(1); }}
+          onClick={() => { setSearch(''); setEstado(''); setArea(''); setPuesto(''); setSortBy(''); setSortOrder('asc'); setPage(1); }}
           title="Limpiar filtros"
         >
           <RotateCcw size={16} />
@@ -893,13 +960,13 @@ export default function Empleados() {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>Legajo</th>
-              <th>Nombre</th>
+              <SortHeader field="legajo">Legajo</SortHeader>
+              <SortHeader field="nombre">Nombre</SortHeader>
               <th>DNI</th>
-              <th>Puesto</th>
-              <th>Area</th>
+              <SortHeader field="puesto">Puesto</SortHeader>
+              <SortHeader field="area">Area</SortHeader>
               <th>Estado</th>
-              <th>Ingreso</th>
+              <SortHeader field="fecha_ingreso">Ingreso</SortHeader>
               {puedeGestionar && <th>Acciones</th>}
             </tr>
           </thead>

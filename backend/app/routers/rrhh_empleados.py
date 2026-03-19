@@ -351,7 +351,10 @@ def listar_empleados(
     search: Optional[str] = Query(default=None, max_length=200),
     estado: Optional[str] = Query(default=None, max_length=20),
     area: Optional[str] = Query(default=None, max_length=100),
+    puesto: Optional[str] = Query(default=None, max_length=100),
     activo: Optional[bool] = None,
+    sort_by: Optional[str] = Query(default=None, max_length=30),
+    sort_order: Optional[str] = Query(default="asc", max_length=4),
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> EmpleadoListResponse:
@@ -378,6 +381,9 @@ def listar_empleados(
     if area:
         query = query.filter(RRHHEmpleado.area == area)
 
+    if puesto:
+        query = query.filter(RRHHEmpleado.puesto == puesto)
+
     if search:
         term = f"%{search}%"
         query = query.filter(
@@ -392,12 +398,24 @@ def listar_empleados(
 
     total = query.count()
     offset = (page - 1) * page_size
+
+    # Dynamic sorting
+    SORT_COLUMNS = {
+        "legajo": RRHHEmpleado.legajo,
+        "nombre": RRHHEmpleado.apellido,  # sort by apellido when "nombre" requested
+        "dni": RRHHEmpleado.dni,
+        "puesto": RRHHEmpleado.puesto,
+        "area": RRHHEmpleado.area,
+        "estado": RRHHEmpleado.estado,
+        "fecha_ingreso": RRHHEmpleado.fecha_ingreso,
+    }
+
+    sort_col = SORT_COLUMNS.get(sort_by, RRHHEmpleado.apellido)
+    if sort_order == "desc":
+        sort_col = sort_col.desc()
+
     empleados = (
-        query.options(selectinload(RRHHEmpleado.motivo_baja))
-        .order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre)
-        .offset(offset)
-        .limit(page_size)
-        .all()
+        query.options(selectinload(RRHHEmpleado.motivo_baja)).order_by(sort_col).offset(offset).limit(page_size).all()
     )
 
     items = []
@@ -413,6 +431,37 @@ def listar_empleados(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/empleados/filtros/opciones")
+def opciones_filtros_empleados(
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Opciones únicas de área y puesto para filtros."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    areas = (
+        db.query(RRHHEmpleado.area)
+        .filter(RRHHEmpleado.activo.is_(True), RRHHEmpleado.area.isnot(None))
+        .distinct()
+        .order_by(RRHHEmpleado.area)
+        .all()
+    )
+    puestos = (
+        db.query(RRHHEmpleado.puesto)
+        .filter(RRHHEmpleado.activo.is_(True), RRHHEmpleado.puesto.isnot(None))
+        .distinct()
+        .order_by(RRHHEmpleado.puesto)
+        .all()
+    )
+
+    return {
+        "areas": [a[0] for a in areas if a[0]],
+        "puestos": [p[0] for p in puestos if p[0]],
+    }
 
 
 @router.get("/empleados/{empleado_id}", response_model=EmpleadoResponse)

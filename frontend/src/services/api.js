@@ -151,6 +151,7 @@ export const permisosAPI = {
 export const rrhhAPI = {
   // Empleados
   listarEmpleados: (params) => api.get('/rrhh/empleados', { params }),
+  obtenerFiltrosEmpleados: () => api.get('/rrhh/empleados/filtros/opciones'),
   obtenerEmpleado: (id) => api.get(`/rrhh/empleados/${id}`),
   crearEmpleado: (data) => api.post('/rrhh/empleados', data),
   actualizarEmpleado: (id, data) => api.put(`/rrhh/empleados/${id}`, data),
