@@ -280,7 +280,15 @@ export default function Empleados() {
       const cleanData = {};
       for (const [key, value] of Object.entries(formData)) {
         // Convertir strings vacíos a null (Pydantic no parsea '' como date/int/float)
-        cleanData[key] = value === '' ? null : value;
+        if (value === '' || value === undefined) {
+          cleanData[key] = null;
+        } else if ((key === 'latitud' || key === 'longitud') && value !== null) {
+          // Forzar float para coordenadas
+          const num = parseFloat(value);
+          cleanData[key] = isNaN(num) ? null : num;
+        } else {
+          cleanData[key] = value;
+        }
       }
 
       if (editando) {
