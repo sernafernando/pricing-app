@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { X } from 'lucide-react';
 import api from '../services/api';
 import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
@@ -510,7 +511,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       <div className={styles.modal} ref={modalRef}>
         <div className={styles.header}>
           <h2 className={styles.title}>Exportar Precios</h2>
-          <button onClick={onClose} className={styles.closeButton}>×</button>
+          <button onClick={onClose} className={styles.closeButton} aria-label="Cerrar modal"><X size={18} /></button>
         </div>
 
         {tabsDisponibles.length === 0 ? (
