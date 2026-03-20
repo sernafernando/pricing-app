@@ -3961,22 +3961,29 @@ async def exportar_rebate(
 
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
 
-        if pricelist_id == 4 and producto_pricing.precio_lista_ml:
-            # Clásica: precio_lista_ml es el base (PVP SELLER), se infla con rebate para PVP LLENO
-            # PVP LLENO viene de PrecioML (la pricelist), PVP SELLER = precio_lista_ml / (1 - rebate%)
+        if not producto_pricing.precio_lista_ml:
+            continue
+
+        precio_base = float(producto_pricing.precio_lista_ml)
+
+        if pricelist_id == 4:
+            # Clásica: misma lógica que la columna rebate
+            # PVP LLENO = PrecioML.precio (pricelist 4)
+            # PVP SELLER = precio_lista_ml / (1 - rebate%)
             pvp_lleno = precio_pricelist
-            pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
+            pvp_seller = precio_base / (1 - porcentaje_rebate / 100)
         else:
-            # Cuotas: el precio de la pricelist ES el PVP SELLER (lo que paga el comprador)
-            # PVP LLENO se calcula inflando con el rebate, igual que la columna rebate:
-            #   pvp_lleno = pvp_seller / (1 - rebate%)
+            # Cuotas: misma fórmula de la columna rebate (base = precio_lista_ml)
+            # pero con el porcentaje del modal (default 1.5%)
+            # PVP LLENO = PrecioML.precio de la pricelist de cuotas (más alto por interés)
+            # PVP SELLER = precio_lista_ml / (1 - porcentaje_cuotas%)
             porcentaje_cuotas = (
                 request.porcentaje_rebate_override
                 if request.porcentaje_rebate_override is not None
                 else porcentaje_rebate
             )
-            pvp_seller = precio_pricelist
-            pvp_lleno = precio_pricelist / (1 - porcentaje_cuotas / 100)
+            pvp_lleno = precio_pricelist
+            pvp_seller = precio_base / (1 - porcentaje_cuotas / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
