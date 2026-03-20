@@ -3932,28 +3932,29 @@ async def exportar_rebate(
             .first()
         )
 
-        # PVP LLENO = Precio de la lista de precios seleccionada
-        pvp_lleno = float(precio_lista.precio) if precio_lista and precio_lista.precio else 0
+        precio_pricelist = float(precio_lista.precio) if precio_lista and precio_lista.precio else 0
 
-        if pvp_lleno == 0:
+        if precio_pricelist == 0:
             continue
 
-        # PVP SELLER = Precio con rebate aplicado
-        # Basado en precio_lista_ml de ProductoPricing si es clásica, o calculado si son cuotas
-        # Para ser consistentes con el resto del sistema, calculamos pvp_seller aplicando el rebate sobre pvp_lleno
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
 
-        # Si es Clásica (4), usamos precio_lista_ml para mantener compatibilidad con lógica original
         if pricelist_id == 4 and producto_pricing.precio_lista_ml:
+            # Clásica: precio_lista_ml es el base (PVP SELLER), se infla con rebate para PVP LLENO
+            # PVP LLENO viene de PrecioML (la pricelist), PVP SELLER = precio_lista_ml / (1 - rebate%)
+            pvp_lleno = precio_pricelist
             pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
         else:
-            # Para cuotas: usar override global si se proporcionó, sino el individual del producto
+            # Cuotas: el precio de la pricelist ES el PVP SELLER (lo que paga el comprador)
+            # PVP LLENO se calcula inflando con el rebate, igual que la columna rebate:
+            #   pvp_lleno = pvp_seller / (1 - rebate%)
             porcentaje_cuotas = (
                 request.porcentaje_rebate_override
                 if request.porcentaje_rebate_override is not None
                 else porcentaje_rebate
             )
-            pvp_seller = pvp_lleno / (1 - porcentaje_cuotas / 100)
+            pvp_seller = precio_pricelist
+            pvp_lleno = precio_pricelist / (1 - porcentaje_cuotas / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
@@ -3970,11 +3971,12 @@ async def exportar_rebate(
                 ws.cell(row=row, column=5, value="DxI")
                 ws.cell(row=row, column=6, value=fecha_desde)
                 ws.cell(row=row, column=7, value=fecha_hasta)
-                ws.cell(row=row, column=8, value=pvp_lleno)
+                ws.cell(row=row, column=8, value=round(pvp_lleno, 2))
                 ws.cell(row=row, column=9, value=round(pvp_seller, 2))
             else:
                 # Formato tradicional
-                ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
+                rebate_mostrar = porcentaje_cuotas if pricelist_id != 4 else porcentaje_rebate
+                ws.cell(row=row, column=1, value=f"{rebate_mostrar}%")
                 ws.cell(row=row, column=2, value=producto_erp.marca or "")
                 ws.cell(row=row, column=3, value=fecha_desde)
                 ws.cell(row=row, column=4, value=fecha_hasta)
