@@ -3572,6 +3572,10 @@ async def exportar_rebate(
     pricelist_map = {"clasica": 4, "3": 17, "6": 14, "9": 13, "12": 23}
     pricelist_id = pricelist_map.get(request.tipo_cuotas, 4)
 
+    # Mapeo cuotas → PVP equivalente para buscar MLAs en ambas listas
+    cuotas_pvp_map = {"3": 18, "6": 19, "9": 20, "12": 21}
+    pricelist_pvp_equivalente = cuotas_pvp_map.get(request.tipo_cuotas)
+
     # Construir query con filtros
     query = (
         db.query(ProductoERP, ProductoPricing)
@@ -3918,6 +3922,24 @@ async def exportar_rebate(
             )
             .all()
         )
+
+        # Para cuotas: también traer MLAs de la pricelist PVP equivalente y unificar
+        if pricelist_pvp_equivalente:
+            mlas_pvp = (
+                db.query(PublicacionML)
+                .filter(
+                    PublicacionML.item_id == producto_erp.item_id,
+                    PublicacionML.pricelist_id == pricelist_pvp_equivalente,
+                    PublicacionML.activo == True,
+                )
+                .all()
+            )
+            # Deduplicar por MLA (el código MLA es único, priorizar el de cuotas)
+            mlas_existentes = {m.mla for m in mlas}
+            for m in mlas_pvp:
+                if m.mla not in mlas_existentes:
+                    mlas.append(m)
+                    mlas_existentes.add(m.mla)
 
         # Si no tiene MLAs, skip
         if not mlas:
