@@ -10,7 +10,7 @@ Endpoints:
 
 import os
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -230,8 +230,6 @@ def get_presentismo_grilla(
 
     Los auto-calculados son "pisables": cualquier marca manual los sobreescribe.
     """
-    from datetime import timedelta
-
     svc = PermisosService(db)
     if not svc.tiene_permiso(current_user, "rrhh.ver"):
         raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
@@ -517,8 +515,6 @@ def mark_presentismo_rango(
             raise HTTPException(status_code=400, detail="El caso ART no pertenece a este empleado")
 
     # Create/update records for each day in the range
-    from datetime import timedelta
-
     current = body.fecha_desde
     updated = 0
     while current <= body.fecha_hasta:
