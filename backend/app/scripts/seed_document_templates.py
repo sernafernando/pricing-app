@@ -528,6 +528,7 @@ def template_remito_manual():
                 "alternateBackgroundColor": "#f5f5f5",
                 "padding": {"top": 2, "bottom": 2, "left": 3, "right": 3},
             },
+            "columnStyles": {},
         }
     )
     y += 85
