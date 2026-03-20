@@ -3538,6 +3538,7 @@ class ExportRebateRequest(BaseModel):
     formato: Optional[str] = "nuevo"  # nuevo, tradicional
     tipo_cuotas: Optional[str] = "clasica"  # clasica, 3, 6, 9, 12
     porcentaje_rebate_override: Optional[float] = None  # Override global para cuotas (ej: 1.5)
+    offset_pvp_lleno: Optional[float] = None  # Offset % sobre precio cuotas para PVP LLENO (ej: 5.0)
 
 
 @router.post("/productos/exportar-rebate")
@@ -3961,29 +3962,26 @@ async def exportar_rebate(
 
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
 
-        if not producto_pricing.precio_lista_ml:
-            continue
-
-        precio_base = float(producto_pricing.precio_lista_ml)
-
         if pricelist_id == 4:
-            # Clásica: misma lógica que la columna rebate
+            # Clásica: necesita precio_lista_ml como base
+            if not producto_pricing.precio_lista_ml:
+                continue
+            precio_base = float(producto_pricing.precio_lista_ml)
             # PVP LLENO = PrecioML.precio (pricelist 4)
             # PVP SELLER = precio_lista_ml / (1 - rebate%)
             pvp_lleno = precio_pricelist
             pvp_seller = precio_base / (1 - porcentaje_rebate / 100)
         else:
-            # Cuotas: misma fórmula de la columna rebate (base = precio_lista_ml)
-            # pero con el porcentaje del modal (default 1.5%)
-            # PVP LLENO = PrecioML.precio de la pricelist de cuotas (más alto por interés)
-            # PVP SELLER = precio_lista_ml / (1 - porcentaje_cuotas%)
+            # Cuotas: base = precio de la pricelist de cuotas
+            # PVP SELLER = precio_cuotas / (1 - rebate_cuotas%)
             porcentaje_cuotas = (
                 request.porcentaje_rebate_override
                 if request.porcentaje_rebate_override is not None
                 else porcentaje_rebate
             )
-            pvp_lleno = precio_pricelist
-            pvp_seller = precio_base / (1 - porcentaje_cuotas / 100)
+            pvp_seller = precio_pricelist / (1 - porcentaje_cuotas / 100)
+            offset_lleno = request.offset_pvp_lleno if request.offset_pvp_lleno is not None else 0
+            pvp_lleno = precio_pricelist * (1 + offset_lleno / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:

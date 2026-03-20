@@ -34,6 +34,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [formatoRebate, setFormatoRebate] = useState('nuevo'); // nuevo, tradicional
   const [tipoCuotasRebate, setTipoCuotasRebate] = useState('clasica'); // clasica, 3, 6, 9, 12
   const [porcentajeRebateCuotas, setPorcentajeRebateCuotas] = useState('1.5'); // % rebate para cuotas
+  const [offsetPvpLleno, setOffsetPvpLleno] = useState('0'); // % offset sobre precio cuotas para PVP LLENO
   const [tipoCuotasPVP, setTipoCuotasPVP] = useState('pvp'); // pvp, pvp_3, pvp_6, pvp_9, pvp_12
   const [porcentajePVP, setPorcentajePVP] = useState('0');
   const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
@@ -312,9 +313,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         tipo_cuotas: tipoCuotasRebate
       };
 
-      // Para cuotas, enviar el override de porcentaje de rebate
+      // Para cuotas, enviar rebate override y offset PVP LLENO
       if (tipoCuotasRebate !== 'clasica') {
         body.porcentaje_rebate_override = parseFloat(porcentajeRebateCuotas.toString().replace(',', '.')) || 1.5;
+        body.offset_pvp_lleno = parseFloat(offsetPvpLleno.toString().replace(',', '.')) || 0;
       }
 
       if (aplicarFiltros) {
@@ -873,7 +875,34 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     className={styles.input}
                   />
                   <small className={styles.filterInfo}>
-                    Se aplicará este porcentaje de rebate a todos los productos en la exportación de cuotas.
+                    PVP SELLER = precio cuotas / (1 - rebate%). Se aplica a todos los productos.
+                  </small>
+                </div>
+              )}
+
+              {tipoCuotasRebate !== 'clasica' && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Offset PVP LLENO (%):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 5"
+                    value={offsetPvpLleno}
+                    onChange={(e) => setOffsetPvpLleno(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetPvpLleno(numero.toString());
+                      } else {
+                        setOffsetPvpLleno('0');
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    PVP LLENO = precio cuotas * (1 + offset%). Debe ser mayor que PVP SELLER.
                   </small>
                 </div>
               )}
