@@ -36,7 +36,11 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(255), nullable=False)
     descripcion = Column(Text, nullable=True)
-    prioridad = Column(SQLEnum(PrioridadTicket), default=PrioridadTicket.MEDIA, nullable=False)
+    prioridad = Column(
+        SQLEnum(PrioridadTicket, values_callable=lambda e: [x.value for x in e]),
+        default=PrioridadTicket.MEDIA,
+        nullable=False,
+    )
 
     # Referencias
     sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False, index=True)
