@@ -10,7 +10,7 @@ Endpoints:
 
 import os
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -390,7 +390,9 @@ def get_presentismo_grilla(
         fecha_weekday[current.isoformat()] = current.isoweekday()
         current += timedelta(days=1)
 
-    # Helper: formatear fichada como "HH:MM - HH:MM"
+    # Helper: formatear fichada como "HH:MM - HH:MM" (en hora Argentina)
+    ART_TZ = timezone(timedelta(hours=-3))
+
     def _format_fichada(emp_id: int, fecha_iso: str) -> Optional[str]:
         key = (emp_id, fecha_iso)
         entrada = fichadas_entrada_map.get(key)
@@ -399,11 +401,11 @@ def get_presentismo_grilla(
             return None
         parts = []
         if entrada:
-            parts.append(entrada.strftime("%H:%M"))
+            parts.append(entrada.astimezone(ART_TZ).strftime("%H:%M"))
         else:
             parts.append("--:--")
         if salida:
-            parts.append(salida.strftime("%H:%M"))
+            parts.append(salida.astimezone(ART_TZ).strftime("%H:%M"))
         else:
             parts.append("--:--")
         return " - ".join(parts)
