@@ -47,6 +47,11 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   const [resultados, setResultados] = useState([]);
   const [buscando, setBuscando] = useState(false);
 
+  // === Buscar cliente por N° ===
+  const [clienteNumero, setClienteNumero] = useState('');
+  const [buscandoCliente, setBuscandoCliente] = useState(false);
+  const [clienteError, setClienteError] = useState(null);
+
   // === Item manual ===
   const [showManualItem, setShowManualItem] = useState(false);
   const [manualCodigo, setManualCodigo] = useState('');
@@ -88,6 +93,8 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
       setBusqueda('');
       setResultados([]);
       setShowManualItem(false);
+      setClienteNumero('');
+      setClienteError(null);
     }
   }, [isOpen]);
 
@@ -123,6 +130,27 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
       setValorDeclarado(total > 0 ? String(total) : '');
     }
   }, [items, valorManual]);
+
+  const buscarCliente = useCallback(async () => {
+    const custId = clienteNumero.trim();
+    if (!custId) return;
+
+    setBuscandoCliente(true);
+    setClienteError(null);
+    try {
+      const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
+      setClienteNombre(data.cust_name || '');
+      setClienteCuit(data.cust_taxnumber || '');
+      setClienteTelefono(data.cust_cellphone || data.cust_phone1 || '');
+      setClienteCp(data.cust_zip || '');
+      setClienteCiudad(data.cust_city || '');
+      setClienteDireccion(data.cust_address || '');
+    } catch (err) {
+      setClienteError(err.response?.data?.detail || 'Cliente no encontrado');
+    } finally {
+      setBuscandoCliente(false);
+    }
+  }, [clienteNumero]);
 
   const agregarProducto = useCallback((producto) => {
     setItems((prev) => [
@@ -203,6 +231,28 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}><User size={14} /> Cliente</h3>
           <div className={styles.formGrid}>
+            <div className={styles.fieldFull}>
+              <label className={styles.label}>N° Cliente</label>
+              <div className={styles.searchBox}>
+                <Search size={14} className={styles.searchIcon} />
+                <input
+                  className={styles.searchInput}
+                  placeholder="Ingresá el número de cliente y presioná Enter"
+                  value={clienteNumero}
+                  onChange={(e) => setClienteNumero(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
+                />
+                <button
+                  type="button"
+                  className="btn-tesla outline-subtle-primary sm"
+                  onClick={buscarCliente}
+                  disabled={buscandoCliente || !clienteNumero.trim()}
+                >
+                  {buscandoCliente ? <Loader2 size={14} className={styles.spin} /> : 'Buscar'}
+                </button>
+              </div>
+              {clienteError && <span className={styles.clienteError}>{clienteError}</span>}
+            </div>
             <div className={styles.fieldFull}>
               <label className={styles.label}>Nombre / Razón social</label>
               <input className={styles.input} value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} />
