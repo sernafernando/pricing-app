@@ -21,16 +21,25 @@ const formatMoney = (val) => {
   return Number(val).toLocaleString('es-AR', { minimumFractionDigits: 2 });
 };
 
+const CLIENTE_INICIAL = {
+  numero: '',
+  nombre: '',
+  cuit: '',
+  direccion: '',
+  ciudad: '',
+  cp: '',
+  telefono: '',
+};
+
 export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   const { templates, loading: loadingTemplates, generating, error: genError, fetchTemplates, generatePdf } = useDocumentGenerator('remito_manual');
 
-  // === Cliente ===
-  const [clienteNombre, setClienteNombre] = useState('');
-  const [clienteCuit, setClienteCuit] = useState('');
-  const [clienteDireccion, setClienteDireccion] = useState('');
-  const [clienteCiudad, setClienteCiudad] = useState('');
-  const [clienteCp, setClienteCp] = useState('');
-  const [clienteTelefono, setClienteTelefono] = useState('');
+  // === Cliente (objeto consolidado) ===
+  const [cliente, setCliente] = useState(CLIENTE_INICIAL);
+  const [buscandoCliente, setBuscandoCliente] = useState(false);
+  const [clienteError, setClienteError] = useState(null);
+
+  const updateCliente = (field, value) => setCliente((prev) => ({ ...prev, [field]: value }));
 
   // === Remito ===
   const [fechaRemito, setFechaRemito] = useState(todayStr());
@@ -47,11 +56,6 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   const [resultados, setResultados] = useState([]);
   const [buscando, setBuscando] = useState(false);
 
-  // === Buscar cliente por N° ===
-  const [clienteNumero, setClienteNumero] = useState('');
-  const [buscandoCliente, setBuscandoCliente] = useState(false);
-  const [clienteError, setClienteError] = useState(null);
-
   // === Item manual ===
   const [showManualItem, setShowManualItem] = useState(false);
   const [manualCodigo, setManualCodigo] = useState('');
@@ -61,15 +65,18 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   // Precargar datos del envío si viene uno
   useEffect(() => {
     if (isOpen && envio) {
-      setClienteNombre(envio.mlreceiver_name || envio.manual_receiver_name || '');
-      setClienteDireccion(
-        envio.direccion_completa ||
-        [envio.mlstreet_name || envio.manual_street_name, envio.mlstreet_number || envio.manual_street_number].filter(Boolean).join(' ') ||
-        ''
-      );
-      setClienteCiudad(envio.mlcity_name || envio.manual_city_name || '');
-      setClienteCp(envio.mlzip_code || envio.manual_zip_code || '');
-      setClienteTelefono(envio.mlreceiver_phone || envio.manual_phone || '');
+      setCliente({
+        numero: '',
+        nombre: envio.mlreceiver_name || envio.manual_receiver_name || '',
+        cuit: '',
+        direccion:
+          envio.direccion_completa ||
+          [envio.mlstreet_name || envio.manual_street_name, envio.mlstreet_number || envio.manual_street_number].filter(Boolean).join(' ') ||
+          '',
+        ciudad: envio.mlcity_name || envio.manual_city_name || '',
+        cp: envio.mlzip_code || envio.manual_zip_code || '',
+        telefono: envio.mlreceiver_phone || envio.manual_phone || '',
+      });
       setShippingId(envio.shipping_id || '');
     }
   }, [isOpen, envio]);
@@ -77,12 +84,8 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   // Resetear al cerrar
   useEffect(() => {
     if (!isOpen) {
-      setClienteNombre('');
-      setClienteCuit('');
-      setClienteDireccion('');
-      setClienteCiudad('');
-      setClienteCp('');
-      setClienteTelefono('');
+      setCliente(CLIENTE_INICIAL);
+      setClienteError(null);
       setFechaRemito(todayStr());
       setShippingId('');
       setBultos('1');
@@ -93,8 +96,6 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
       setBusqueda('');
       setResultados([]);
       setShowManualItem(false);
-      setClienteNumero('');
-      setClienteError(null);
     }
   }, [isOpen]);
 
@@ -132,27 +133,30 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
   }, [items, valorManual]);
 
   const buscarCliente = useCallback(async () => {
-    const custId = clienteNumero.trim();
+    const custId = cliente.numero.trim();
     if (!custId) return;
 
     setBuscandoCliente(true);
     setClienteError(null);
     try {
       const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
-      setClienteNombre(data.cust_name || '');
-      setClienteCuit(data.cust_taxnumber || '');
-      setClienteTelefono(data.cust_cellphone || data.cust_phone1 || '');
-      setClienteCp(data.cust_zip || '');
-      setClienteCiudad(data.cust_city || '');
-      setClienteDireccion(data.cust_address || '');
+      setCliente((prev) => ({
+        ...prev,
+        nombre: data.cust_name || '',
+        cuit: data.cust_taxnumber || '',
+        telefono: data.cust_cellphone || data.cust_phone1 || '',
+        cp: data.cust_zip || '',
+        ciudad: data.cust_city || '',
+        direccion: data.cust_address || '',
+      }));
     } catch (err) {
       setClienteError(err.response?.data?.detail || 'Cliente no encontrado');
     } finally {
       setBuscandoCliente(false);
     }
-  }, [clienteNumero]);
+  }, [cliente.numero]);
 
-  const agregarProducto = useCallback((producto) => {
+  const agregarProducto = (producto) => {
     setItems((prev) => [
       ...prev,
       {
@@ -165,9 +169,9 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
     ]);
     setBusqueda('');
     setResultados([]);
-  }, []);
+  };
 
-  const agregarItemManual = useCallback(() => {
+  const agregarItemManual = () => {
     if (!manualDescripcion.trim()) return;
     setItems((prev) => [
       ...prev,
@@ -183,26 +187,26 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
     setManualDescripcion('');
     setManualPrecio('');
     setShowManualItem(false);
-  }, [manualCodigo, manualDescripcion, manualPrecio]);
+  };
 
-  const eliminarItem = useCallback((id) => {
+  const eliminarItem = (id) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
-  }, []);
+  };
 
-  const actualizarItem = useCallback((id, field, value) => {
+  const actualizarItem = (id, field, value) => {
     setItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
     );
-  }, []);
+  };
 
   const handleGenerate = (templateId) => {
     generatePdf(templateId, {
-      cliente_nombre: clienteNombre,
-      cliente_cuit: clienteCuit,
-      cliente_direccion: clienteDireccion,
-      cliente_ciudad: clienteCiudad,
-      cliente_cp: clienteCp,
-      cliente_telefono: clienteTelefono,
+      cliente_nombre: cliente.nombre,
+      cliente_cuit: cliente.cuit,
+      cliente_direccion: cliente.direccion,
+      cliente_ciudad: cliente.ciudad,
+      cliente_cp: cliente.cp,
+      cliente_telefono: cliente.telefono,
       fecha_remito: fechaRemito,
       shipping_id: shippingId,
       bultos,
@@ -238,15 +242,15 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
                 <input
                   className={styles.searchInput}
                   placeholder="Ingresá el número de cliente y presioná Enter"
-                  value={clienteNumero}
-                  onChange={(e) => setClienteNumero(e.target.value)}
+                  value={cliente.numero}
+                  onChange={(e) => updateCliente('numero', e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
                 />
                 <button
                   type="button"
                   className="btn-tesla outline-subtle-primary sm"
                   onClick={buscarCliente}
-                  disabled={buscandoCliente || !clienteNumero.trim()}
+                  disabled={buscandoCliente || !cliente.numero.trim()}
                 >
                   {buscandoCliente ? <Loader2 size={14} className={styles.spin} /> : 'Buscar'}
                 </button>
@@ -255,27 +259,27 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
             </div>
             <div className={styles.fieldFull}>
               <label className={styles.label}>Nombre / Razón social</label>
-              <input className={styles.input} value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} />
+              <input className={styles.input} value={cliente.nombre} onChange={(e) => updateCliente('nombre', e.target.value)} />
             </div>
             <div className={styles.field}>
               <label className={styles.label}>CUIT</label>
-              <input className={styles.input} value={clienteCuit} onChange={(e) => setClienteCuit(e.target.value)} />
+              <input className={styles.input} value={cliente.cuit} onChange={(e) => updateCliente('cuit', e.target.value)} />
             </div>
             <div className={styles.field}>
               <label className={styles.label}>Teléfono</label>
-              <input className={styles.input} value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} />
+              <input className={styles.input} value={cliente.telefono} onChange={(e) => updateCliente('telefono', e.target.value)} />
             </div>
             <div className={styles.fieldFull}>
               <label className={styles.label}>Dirección</label>
-              <input className={styles.input} value={clienteDireccion} onChange={(e) => setClienteDireccion(e.target.value)} />
+              <input className={styles.input} value={cliente.direccion} onChange={(e) => updateCliente('direccion', e.target.value)} />
             </div>
             <div className={styles.field}>
               <label className={styles.label}>Ciudad</label>
-              <input className={styles.input} value={clienteCiudad} onChange={(e) => setClienteCiudad(e.target.value)} />
+              <input className={styles.input} value={cliente.ciudad} onChange={(e) => updateCliente('ciudad', e.target.value)} />
             </div>
             <div className={styles.field}>
               <label className={styles.label}>CP</label>
-              <input className={styles.input} value={clienteCp} onChange={(e) => setClienteCp(e.target.value)} />
+              <input className={styles.input} value={cliente.cp} onChange={(e) => updateCliente('cp', e.target.value)} />
             </div>
           </div>
         </div>
