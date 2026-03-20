@@ -15,6 +15,12 @@
   font-size: var(--font-sm);
 }
 
+.clienteError {
+  color: var(--cf-accent-red);
+  font-size: var(--font-xs);
+  margin-top: var(--spacing-xs);
+}
+
 /* Sections */
 .section {
   border: 1px solid var(--cf-border-default);
