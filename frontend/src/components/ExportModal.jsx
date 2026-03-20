@@ -33,6 +33,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
   const [formatoRebate, setFormatoRebate] = useState('nuevo'); // nuevo, tradicional
   const [tipoCuotasRebate, setTipoCuotasRebate] = useState('clasica'); // clasica, 3, 6, 9, 12
+  const [porcentajeRebateCuotas, setPorcentajeRebateCuotas] = useState('1.5'); // % rebate para cuotas
   const [tipoCuotasPVP, setTipoCuotasPVP] = useState('pvp'); // pvp, pvp_3, pvp_6, pvp_9, pvp_12
   const [porcentajePVP, setPorcentajePVP] = useState('0');
   const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
@@ -310,6 +311,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         formato: formatoRebate,
         tipo_cuotas: tipoCuotasRebate
       };
+
+      // Para cuotas, enviar el override de porcentaje de rebate
+      if (tipoCuotasRebate !== 'clasica') {
+        body.porcentaje_rebate_override = parseFloat(porcentajeRebateCuotas.toString().replace(',', '.')) || 1.5;
+      }
 
       if (aplicarFiltros) {
         body.filtros = {
@@ -844,6 +850,33 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   <option value="12">12 Cuotas</option>
                 </select>
               </div>
+
+              {tipoCuotasRebate !== 'clasica' && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Porcentaje de Rebate (%):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 1.5"
+                    value={porcentajeRebateCuotas}
+                    onChange={(e) => setPorcentajeRebateCuotas(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero) && numero >= 0) {
+                        setPorcentajeRebateCuotas(numero.toString());
+                      } else {
+                        setPorcentajeRebateCuotas('1.5');
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Se aplicará este porcentaje de rebate a todos los productos en la exportación de cuotas.
+                  </small>
+                </div>
+              )}
 
               <div className={styles.formGrid}>
                 <div className={styles.formGroup}>
