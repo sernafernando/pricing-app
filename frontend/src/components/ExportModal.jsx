@@ -1,11 +1,109 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 
+/**
+ * Construye query string de filtros para exports GET.
+ * Centraliza la lógica que antes estaba copy-pasteada en 4 funciones.
+ */
+const buildFilterQueryString = (filtrosActivos) => {
+  let params = '';
+  if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+  if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
+  if (filtrosActivos.con_stock === false) params += `&con_stock=false`;
+  if (filtrosActivos.con_precio === true) params += `&con_precio=true`;
+  if (filtrosActivos.con_precio === false) params += `&con_precio=false`;
+  if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+  if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+  if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
+  if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
+  if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
+  if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
+  if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
+  if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
+  if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
+  if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
+  if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
+  if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
+  if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
+  if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
+  if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
+  if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
+  if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
+  if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
+  if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
+  if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
+  if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
+  if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
+  if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
+  if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
+  if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
+  if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
+  if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+  if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
+  if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
+  if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
+  if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
+  if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
+  if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+  return params;
+};
+
+/**
+ * Display de filtros activos — definido fuera del componente
+ * para evitar re-creación en cada render (rompe reconciliación React).
+ */
+const FiltrosActivosDisplay = ({ filtrosActivos }) => (
+  <div className={styles.filtrosActivos}>
+    {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
+    {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+    {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+    {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+    {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+    {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+    {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+    {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
+    {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
+    {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
+    {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
+    {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
+    {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
+    {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
+    {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
+    {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
+    {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
+    {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
+    {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
+    {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
+    {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
+    {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
+    {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
+    {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
+    {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
+    {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
+    {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
+    {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
+    {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
+    {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
+    {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+    {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
+    {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
+    {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
+    {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
+    {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
+    {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
+    {filtrosActivos?.filtroTiendaOficial === '57997' && <div>• Tienda Oficial: Gauss</div>}
+    {filtrosActivos?.filtroTiendaOficial === '2645' && <div>• Tienda Oficial: TP-Link</div>}
+    {filtrosActivos?.filtroTiendaOficial === '144' && <div>• Tienda Oficial: Forza/Verbatim</div>}
+    {filtrosActivos?.filtroTiendaOficial === '191942' && <div>• Tienda Oficial: Multi-marca</div>}
+  </div>
+);
+
 export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
   const { tienePermiso } = usePermisos();
+  const modalRef = useRef(null);
 
   // Permisos de exportación
   const puedeExportarVistaActual = tienePermiso('productos.exportar_vista_actual');
@@ -44,56 +142,54 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [dolarVenta, setDolarVenta] = useState(null);
   const [offsetDolar, setOffsetDolar] = useState('0');
 
-  // Auto-focus en primer input al abrir modal
+  // Auto-focus en primer input al abrir modal (via ref)
   useEffect(() => {
-    const modal = document.querySelector(`.${styles.modal}`);
-    if (modal) {
-      const firstInput = modal.querySelector('input');
+    const el = modalRef.current;
+    if (el) {
+      const firstInput = el.querySelector('input');
       if (firstInput) {
-        // Pequeño delay para asegurar que el modal esté renderizado
-        setTimeout(() => firstInput.focus(), 100);
+        // requestAnimationFrame es más confiable que setTimeout para post-render
+        requestAnimationFrame(() => firstInput.focus());
       }
     }
   }, []);
 
-  // Cerrar modal con Escape y capturar Tab para navegación interna
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && !exportando) {
-        onClose();
-        return;
-      }
+  // Cerrar modal con Escape y capturar Tab para focus trap (via ref)
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Escape' && !exportando) {
+      onClose();
+      return;
+    }
 
-      // Capturar Tab para mantenerlo dentro del modal
-      if (e.key === 'Tab') {
-        const modal = document.querySelector(`.${styles.modal}`);
-        if (modal) {
-          const focusableElements = modal.querySelectorAll(
-            'input, button, [tabindex]:not([tabindex="-1"])'
-          );
-          const firstElement = focusableElements[0];
-          const lastElement = focusableElements[focusableElements.length - 1];
+    // Focus trap dentro del modal
+    if (e.key === 'Tab') {
+      const el = modalRef.current;
+      if (el) {
+        const focusableElements = el.querySelectorAll(
+          'input, button, select, [tabindex]:not([tabindex="-1"])'
+        );
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
 
-          if (e.shiftKey) {
-            // Tab + Shift: ir hacia atrás
-            if (document.activeElement === firstElement) {
-              e.preventDefault();
-              lastElement.focus();
-            }
-          } else {
-            // Tab: ir hacia adelante
-            if (document.activeElement === lastElement) {
-              e.preventDefault();
-              firstElement.focus();
-            }
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement.focus();
           }
         }
       }
-    };
+    }
+  }, [onClose, exportando]);
 
+  useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, exportando]);
+  }, [handleKeyDown]);
 
   const hayFiltros =
     !!filtrosActivos?.search ||
@@ -156,52 +252,6 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     return params;
   };
 
-  const FiltrosActivosDisplay = () => (
-    <div className={styles.filtrosActivos}>
-      {filtrosActivos?.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
-      {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
-      {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
-      {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
-      {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
-      {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
-      {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
-      {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
-      {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
-      {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
-      {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
-      {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
-      {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
-      {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
-      {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
-      {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
-      {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
-      {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
-      {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
-      {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
-      {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
-      {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
-      {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
-      {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
-      {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
-      {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
-      {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
-      {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
-      {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
-      {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
-      {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
-      {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
-      {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
-      {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
-      {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
-      {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
-      {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
-      {filtrosActivos?.filtroTiendaOficial === '57997' && <div>• Tienda Oficial: Gauss</div>}
-      {filtrosActivos?.filtroTiendaOficial === '2645' && <div>• Tienda Oficial: TP-Link</div>}
-      {filtrosActivos?.filtroTiendaOficial === '144' && <div>• Tienda Oficial: Forza/Verbatim</div>}
-      {filtrosActivos?.filtroTiendaOficial === '191942' && <div>• Tienda Oficial: Multi-marca</div>}
-    </div>
-  );
-
   const [fechaDesde, setFechaDesde] = useState(() => {
     const hoy = new Date();
     return hoy.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -220,8 +270,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       try {
         const response = await api.get('/tipo-cambio/actual');
         setDolarVenta(response.data.venta);
-      } catch (error) {
-        console.error('Error cargando dólar venta:', error);
+      } catch {
+        // Silencioso: dólar no es crítico, el modal funciona sin él
       }
     };
     cargarDolarVenta();
@@ -232,71 +282,35 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     return `${y}-${m}-${d}`;
   };
 
+  /** Helper: descarga un blob como archivo Excel */
+  const descargarBlob = (blobData, nombreArchivo) => {
+    const url = window.URL.createObjectURL(new Blob([blobData]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', nombreArchivo);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const exportarVistaActual = async () => {
     setExportando(true);
     try {
       let params = `page=1&page_size=10000`;
-
       if (aplicarFiltros) {
-        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
-        if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
-        if (filtrosActivos.con_stock === false) params += `&con_stock=false`;
-        if (filtrosActivos.con_precio === true) params += `&con_precio=true`;
-        if (filtrosActivos.con_precio === false) params += `&con_precio=false`;
-        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
-        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
-        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
-        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
-        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
-        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
-        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
-        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
-        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
-        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
-        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
-        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
-        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
-        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
-        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
-        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
-        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
-        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
-        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
-        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
-        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
-        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
-        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
-        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
-        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
-        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
-        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+        params += buildFilterQueryString(filtrosActivos);
       }
 
       const response = await api.get(`/exportar-vista-actual?${params}`, {
         responseType: 'blob'
       });
 
-      const blob = new Blob([response.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      });
-      const link = document.createElement('a');
-      link.href = window.URL.createObjectURL(blob);
       const timestamp = toLocalTimestamp();
-      const nombreArchivo = `vista_actual_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `vista_actual_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar Vista Actual', 'error');
     } finally {
       setExportando(false);
@@ -333,19 +347,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const response = await api.post('/productos/exportar-rebate', body, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
       const timestamp = toLocalTimestamp();
-      const nombreArchivo = `rebate_export_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `rebate_export_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar', 'error');
     } finally {
       setExportando(false);
@@ -366,50 +372,13 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       if (aplicarFiltros) {
-        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
-        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
-        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
-        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
-        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
-        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
-        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
-        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
-        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
-        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
-        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
-        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
-        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
-        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
-        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
-        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
-        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
-        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
-        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
-        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
-        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
-        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
-        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
-        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
-        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
-        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
-        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
-        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
-        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
-        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+        params += buildFilterQueryString(filtrosActivos);
       }
 
       const response = await api.get(`/exportar-clasica?${params}`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
+
       const timestamp = toLocalTimestamp();
 
       // Determinar nombre del archivo según tipo de cuotas
@@ -419,15 +388,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       else if (tipoCuotas === '9') nombreBase = '9_cuotas';
       else if (tipoCuotas === '12') nombreBase = '12_cuotas';
 
-      const nombreArchivo = `${nombreBase}_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `${nombreBase}_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar Clásica', 'error');
     } finally {
       setExportando(false);
@@ -459,20 +423,12 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const response = await api.get(`/exportar-lista-gremio?${params}`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
       const timestamp = toLocalTimestamp();
       const monedaSufijo = monedaGremio === 'USD' ? '_USD' : '_ARS';
-      const nombreArchivo = `lista_gremio${monedaSufijo}_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `lista_gremio${monedaSufijo}_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar Lista Gremio', 'error');
     } finally {
       setExportando(false);
@@ -493,60 +449,17 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       if (aplicarFiltros) {
-        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
-        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
-        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
-        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
-        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
-        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
-        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
-        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
-        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
-        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
-        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
-        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
-        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
-        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
-        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
-        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
-        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
-        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
-        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
-        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
-        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
-        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
-        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
-        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
-        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
-        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
-        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
-        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
-        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
-        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+        params += buildFilterQueryString(filtrosActivos);
       }
 
       const response = await api.get(`/exportar-web-transferencia?${params}`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
       const timestamp = toLocalTimestamp();
-      const nombreArchivo = `web_transferencia_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `web_transferencia_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar Web Transferencia', 'error');
     } finally {
       setExportando(false);
@@ -567,50 +480,12 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       if (aplicarFiltros) {
-        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
-        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
-        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
-        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
-        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
-        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
-        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
-        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
-        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
-        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
-        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
-        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
-        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
-        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
-        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
-        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
-        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
-        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
-        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
-        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
-        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
-        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
-        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
-        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
-        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
-        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
-        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
-        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
-        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
-        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
-        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
-        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
-        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+        params += buildFilterQueryString(filtrosActivos);
       }
 
       const response = await api.get(`/exportar-clasica?${params}`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
       const timestamp = toLocalTimestamp();
 
       // Determinar nombre del archivo según tipo de cuotas
@@ -620,15 +495,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       else if (tipoCuotasPVP === 'pvp_9') nombreBase = 'pvp_9_cuotas';
       else if (tipoCuotasPVP === 'pvp_12') nombreBase = 'pvp_12_cuotas';
 
-      const nombreArchivo = `${nombreBase}_${timestamp}.xlsx`;
-      link.setAttribute('download', nombreArchivo);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      descargarBlob(response.data, `${nombreBase}_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch (error) {
-      console.error('Error exportando:', error);
+    } catch {
       showToast('Error al exportar PVP', 'error');
     } finally {
       setExportando(false);
@@ -637,7 +507,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
   return (
     <div className={styles.overlay}>
-      <div className={styles.modal}>
+      <div className={styles.modal} ref={modalRef}>
         <div className={styles.header}>
           <h2 className={styles.title}>Exportar Precios</h2>
           <button onClick={onClose} className={styles.closeButton}>×</button>
@@ -714,7 +584,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
@@ -747,7 +617,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
@@ -822,7 +692,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
@@ -955,7 +825,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
@@ -1015,11 +885,9 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   placeholder="Ej: 25"
                   value={porcentajeWebTransf}
                   onChange={(e) => {
-                    // Aceptar cualquier entrada, dejar que el usuario escriba libremente
                     setPorcentajeWebTransf(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, validar que sea un número válido
                     const valor = e.target.value.replace(',', '.');
                     const numero = parseFloat(valor);
                     if (!isNaN(numero)) {
@@ -1059,7 +927,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
@@ -1132,11 +1000,9 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   placeholder="Ej: 20"
                   value={porcentajeClasica}
                   onChange={(e) => {
-                    // Aceptar cualquier entrada, dejar que el usuario escriba libremente
                     setPorcentajeClasica(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, validar que sea un número válido
                     const valor = e.target.value.replace(',', '.');
                     const numero = parseFloat(valor);
                     if (!isNaN(numero)) {
@@ -1176,7 +1042,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                     />
                     Exportar solo productos filtrados
                   </label>
-                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
 
