@@ -14,7 +14,7 @@ Reportes disponibles:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -666,14 +666,15 @@ class ReportesService:
                     estado = "presente"
                     origen = "auto"
 
-                # Format fichada string: "HH:MM - HH:MM" (first entry - last exit)
+                # Format fichada string: "HH:MM - HH:MM" (first entry - last exit, in ART timezone)
+                ART_TZ = timezone(timedelta(hours=-3))
                 fichada_str = ""
                 day_fichadas = fichadas_by_emp_day.get((emp.id, f_iso), [])
                 if day_fichadas:
                     entradas = [fich for fich in day_fichadas if fich.tipo == "entrada"]
                     salidas = [fich for fich in day_fichadas if fich.tipo == "salida"]
-                    first_entry = entradas[0].timestamp.strftime("%H:%M") if entradas else ""
-                    last_exit = salidas[-1].timestamp.strftime("%H:%M") if salidas else ""
+                    first_entry = entradas[0].timestamp.astimezone(ART_TZ).strftime("%H:%M") if entradas else ""
+                    last_exit = salidas[-1].timestamp.astimezone(ART_TZ).strftime("%H:%M") if salidas else ""
                     if first_entry and last_exit:
                         fichada_str = f"{first_entry} - {last_exit}"
                     elif first_entry:
