@@ -3537,6 +3537,7 @@ class ExportRebateRequest(BaseModel):
     estado_mla: Optional[str] = None
     formato: Optional[str] = "nuevo"  # nuevo, tradicional
     tipo_cuotas: Optional[str] = "clasica"  # clasica, 3, 6, 9, 12
+    porcentaje_rebate_override: Optional[float] = None  # Override global para cuotas (ej: 1.5)
 
 
 @router.post("/productos/exportar-rebate")
@@ -3946,9 +3947,13 @@ async def exportar_rebate(
         if pricelist_id == 4 and producto_pricing.precio_lista_ml:
             pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
         else:
-            # Para cuotas, aplicamos el rebate sobre el precio de la lista seleccionada
-            # Nota: El rebate en este sistema se define como (PrecioML / (1 - %/100))
-            pvp_seller = pvp_lleno / (1 - porcentaje_rebate / 100)
+            # Para cuotas: usar override global si se proporcionó, sino el individual del producto
+            porcentaje_cuotas = (
+                request.porcentaje_rebate_override
+                if request.porcentaje_rebate_override is not None
+                else porcentaje_rebate
+            )
+            pvp_seller = pvp_lleno / (1 - porcentaje_cuotas / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
