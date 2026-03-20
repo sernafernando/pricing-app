@@ -413,12 +413,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       if (aplicarFiltros) {
-        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
-        if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
-        if (filtrosActivos.con_stock === false) params += `&con_stock=false`;
-        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
-        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
-        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
+        params += buildFilterQueryString(filtrosActivos);
       }
 
       const response = await api.get(`/exportar-lista-gremio?${params}`, {
