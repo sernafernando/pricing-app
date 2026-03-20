@@ -42,7 +42,7 @@ export function useDocumentGenerator(contexto) {
    * @param {number} templateId - ID del template a usar
    * @param {object} entityData - Datos crudos de la entidad (del state de la página)
    */
-  const generatePdf = useCallback(async (templateId, entityData) => {
+  const generatePdf = async (templateId, entityData) => {
     setGenerating(true);
     setError(null);
     try {
@@ -63,6 +63,10 @@ export function useDocumentGenerator(contexto) {
           if (field.content !== undefined && field.content !== '') {
             templateDefaults[field.name] = field.content;
           }
+          // pdfme v5 requiere columnStyles en tablas — asegurar que exista
+          if (field.type === 'table' && !field.columnStyles) {
+            field.columnStyles = {};
+          }
         }
       }
       const inputs = { ...templateDefaults, ...mappedInputs };
@@ -72,7 +76,7 @@ export function useDocumentGenerator(contexto) {
       const { plugins } = await import('../utils/pdfmePlugins');
       const { getFont } = await import('../utils/pdfmeFonts');
 
-      // 5. Generar PDF
+      // 5. Generar PDF (pdfme v5)
       const pdf = await generate({
         template: pdfmeTemplate,
         inputs: [inputs],
@@ -80,7 +84,7 @@ export function useDocumentGenerator(contexto) {
         options: { font: await getFont() },
       });
 
-      // 5. Abrir en nueva pestaña
+      // 6. Abrir en nueva pestaña
       const blob = new Blob([pdf.buffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
@@ -93,7 +97,7 @@ export function useDocumentGenerator(contexto) {
     } finally {
       setGenerating(false);
     }
-  }, [contexto]);
+  };
 
   return {
     templates,
