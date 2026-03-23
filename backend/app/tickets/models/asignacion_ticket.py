@@ -36,7 +36,7 @@ class AsignacionTicket(Base):
     asignado_a_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     asignado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)  # Null si fue automático
 
-    tipo = Column(SQLEnum(TipoAsignacion), nullable=False)
+    tipo = Column(SQLEnum(TipoAsignacion, values_callable=lambda x: [e.value for e in x]), nullable=False)
     motivo = Column(String(500), nullable=True)  # Motivo de reasignación o escalamiento
 
     fecha_asignacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
