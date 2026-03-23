@@ -1,4 +1,18 @@
 import { useState, useEffect } from 'react';
+import {
+  Search,
+  Download,
+  Trash2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  SlidersHorizontal,
+  Users,
+  Check,
+  AlertCircle,
+} from 'lucide-react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
@@ -10,6 +24,7 @@ export default function Clientes() {
   const [loading, setLoading] = useState(true);
   const [totalClientes, setTotalClientes] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [error, setError] = useState(null);
 
   // Filtros disponibles
   const [provincias, setProvincias] = useState([]);
@@ -17,7 +32,10 @@ export default function Clientes() {
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
 
-  // Usar query params para todos los filtros
+  // Advanced filters toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Query params
   const { getFilter, updateFilters } = useQueryFilters({
     search: '',
     page: 1,
@@ -30,8 +48,6 @@ export default function Clientes() {
     con_ml: '',
     con_email: '',
     con_telefono: '',
-    fecha_desde: '',
-    fecha_hasta: '',
     cust_id_desde: '',
     cust_id_hasta: ''
   }, {
@@ -40,7 +56,6 @@ export default function Clientes() {
     solo_activos: 'boolean'
   });
 
-  // Extraer valores de URL - IMPORTANTE: dependen de searchParams para re-evaluar
   const searchInput = getFilter('search');
   const page = getFilter('page');
   const pageSize = getFilter('page_size');
@@ -52,8 +67,6 @@ export default function Clientes() {
   const filtroConML = getFilter('con_ml');
   const filtroConEmail = getFilter('con_email');
   const filtroConTelefono = getFilter('con_telefono');
-  const filtroFechaDesde = getFilter('fecha_desde');
-  const filtroFechaHasta = getFilter('fecha_hasta');
   const filtroCustIdDesde = getFilter('cust_id_desde');
   const filtroCustIdHasta = getFilter('cust_id_hasta');
 
@@ -78,7 +91,7 @@ export default function Clientes() {
   // Cargar clientes cuando cambian los filtros
   useEffect(() => {
     cargarClientes();
-  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
+  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroCustIdDesde, filtroCustIdHasta]);
 
   const cargarFiltros = async () => {
     try {
@@ -93,8 +106,8 @@ export default function Clientes() {
       setCondicionesFiscales(fiscalRes.data);
       setSucursales(sucRes.data);
       setVendedores(vendRes.data);
-    } catch (error) {
-      console.error('Error cargando filtros:', error);
+    } catch {
+      // Filtros no disponibles — no es crítico
     }
   };
 
@@ -102,18 +115,18 @@ export default function Clientes() {
     try {
       const response = await api.get('/clientes/campos-disponibles');
       setCamposDisponibles(response.data.campos);
-      // Seleccionar algunos campos por defecto
       const camposDefault = response.data.campos
         .filter(c => ['cust_id', 'cust_name', 'cust_taxnumber', 'cust_email', 'cust_phone1', 'state_desc', 'fc_desc'].includes(c.key))
         .map(c => c.key);
       setCamposSeleccionados(camposDefault);
-    } catch (error) {
-      console.error('Error cargando campos disponibles:', error);
+    } catch {
+      // No es crítico
     }
   };
 
   const cargarClientes = async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({
         page: page.toString(),
@@ -129,8 +142,6 @@ export default function Clientes() {
       if (filtroConML !== '') params.append('con_ml', filtroConML);
       if (filtroConEmail !== '') params.append('con_email', filtroConEmail);
       if (filtroConTelefono !== '') params.append('con_telefono', filtroConTelefono);
-      if (filtroFechaDesde) params.append('fecha_desde', filtroFechaDesde);
-      if (filtroFechaHasta) params.append('fecha_hasta', filtroFechaHasta);
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
       if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
@@ -138,18 +149,15 @@ export default function Clientes() {
       setClientes(response.data.clientes);
       setTotalClientes(response.data.total);
       setTotalPages(response.data.total_pages);
-    } catch (error) {
-      console.error('Error cargando clientes:', error);
+    } catch {
+      setError('Error al cargar clientes');
     } finally {
       setLoading(false);
     }
   };
 
   const handleExportar = async () => {
-    if (camposSeleccionados.length === 0) {
-      alert('Seleccioná al menos un campo para exportar');
-      return;
-    }
+    if (camposSeleccionados.length === 0) return;
 
     setExportando(true);
     try {
@@ -164,8 +172,6 @@ export default function Clientes() {
         con_ml: filtroConML !== '' ? (filtroConML === 'true') : null,
         con_email: filtroConEmail !== '' ? (filtroConEmail === 'true') : null,
         con_telefono: filtroConTelefono !== '' ? (filtroConTelefono === 'true') : null,
-        fecha_desde: filtroFechaDesde || null,
-        fecha_hasta: filtroFechaHasta || null,
         cust_id_desde: filtroCustIdDesde ? parseInt(filtroCustIdDesde) : null,
         cust_id_hasta: filtroCustIdHasta ? parseInt(filtroCustIdHasta) : null
       };
@@ -174,7 +180,6 @@ export default function Clientes() {
         responseType: 'blob'
       });
 
-      // Descargar archivo XLSX
       const url = window.URL.createObjectURL(new Blob([response.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       }));
@@ -188,58 +193,45 @@ export default function Clientes() {
       window.URL.revokeObjectURL(url);
 
       setMostrarModalExport(false);
-    } catch (error) {
-      console.error('Error exportando:', error);
-      alert('Error al exportar clientes');
+    } catch {
+      setError('Error al exportar clientes');
     } finally {
       setExportando(false);
     }
   };
 
   const toggleCampo = (key) => {
-    setCamposSeleccionados(prev => {
-      if (prev.includes(key)) {
-        return prev.filter(k => k !== key);
-      } else {
-        return [...prev, key];
-      }
-    });
+    setCamposSeleccionados(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
   };
 
-  const seleccionarTodosCampos = () => {
-    setCamposSeleccionados(camposDisponibles.map(c => c.key));
-  };
+  // Helper para labels de filtros activos
+  const getProvinciaLabel = (id) => provincias.find(p => String(p.state_id) === String(id))?.state_desc;
+  const getFiscalLabel = (id) => condicionesFiscales.find(c => String(c.fc_id) === String(id))?.fc_desc;
+  const getSucursalLabel = (id) => sucursales.find(s => String(s.bra_id) === String(id))?.bra_desc;
+  const getVendedorLabel = (id) => vendedores.find(v => String(v.sm_id) === String(id))?.sm_name;
 
-  const deseleccionarTodosCampos = () => {
-    setCamposSeleccionados([]);
-  };
+  // Chips de filtros activos
+  const activeChips = [];
+  if (filtroProvinciaId) activeChips.push({ key: 'state_id', label: getProvinciaLabel(filtroProvinciaId) || filtroProvinciaId });
+  if (filtroFiscalId) activeChips.push({ key: 'fc_id', label: getFiscalLabel(filtroFiscalId) || filtroFiscalId });
+  if (filtroSucursalId) activeChips.push({ key: 'bra_id', label: getSucursalLabel(filtroSucursalId) || filtroSucursalId });
+  if (filtroVendedorId) activeChips.push({ key: 'sm_id', label: getVendedorLabel(filtroVendedorId) || filtroVendedorId });
+  if (filtroConML === 'true') activeChips.push({ key: 'con_ml', label: 'Con ML' });
+  if (filtroConML === 'false') activeChips.push({ key: 'con_ml', label: 'Sin ML' });
+  if (filtroConEmail === 'true') activeChips.push({ key: 'con_email', label: 'Con Email' });
+  if (filtroConEmail === 'false') activeChips.push({ key: 'con_email', label: 'Sin Email' });
+  if (filtroConTelefono === 'true') activeChips.push({ key: 'con_telefono', label: 'Con Tel' });
+  if (filtroConTelefono === 'false') activeChips.push({ key: 'con_telefono', label: 'Sin Tel' });
+  if (!filtroSoloActivos) activeChips.push({ key: 'solo_activos', label: 'Incluye inactivos' });
+  if (filtroCustIdDesde) activeChips.push({ key: 'cust_id_desde', label: `ID ≥ ${filtroCustIdDesde}` });
+  if (filtroCustIdHasta) activeChips.push({ key: 'cust_id_hasta', label: `ID ≤ ${filtroCustIdHasta}` });
 
-  // Helper para actualizar filtros individuales
-  // Los filtros que cambian contenido resetean página a 1
-  const setSearchInput = (value) => {
-    updateFilters({ search: value, page: 1 });
+  const removeChip = (key) => {
+    const resetValue = key === 'solo_activos' ? true : '';
+    updateFilters({ [key]: resetValue, page: 1 });
   };
-  
-  const setPage = (value) => {
-    const newPage = typeof value === 'function' ? value(page) : value;
-    updateFilters({ page: newPage });
-  };
-  
-  const setPageSize = (value) => {
-    updateFilters({ page_size: value, page: 1 });
-  };
-  
-  const setFiltroProvinciaId = (value) => {
-    updateFilters({ state_id: value, page: 1 });
-  };
-  
-  const setFiltroFiscalId = (value) => updateFilters({ fc_id: value, page: 1 });
-  const setFiltroSucursalId = (value) => updateFilters({ bra_id: value, page: 1 });
-  const setFiltroVendedorId = (value) => updateFilters({ sm_id: value, page: 1 });
-  const setFiltroSoloActivos = (value) => updateFilters({ solo_activos: value, page: 1 });
-  const setFiltroConML = (value) => updateFilters({ con_ml: value, page: 1 });
-  const setFiltroConEmail = (value) => updateFilters({ con_email: value, page: 1 });
-  const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value, page: 1 });
 
   const limpiarFiltros = () => {
     updateFilters({
@@ -252,8 +244,6 @@ export default function Clientes() {
       con_ml: '',
       con_email: '',
       con_telefono: '',
-      fecha_desde: '',
-      fecha_hasta: '',
       cust_id_desde: '',
       cust_id_hasta: '',
       page: 1
@@ -267,15 +257,13 @@ export default function Clientes() {
       );
       setClienteSeleccionado(response.data);
       setMostrarModalDetalle(true);
-    } catch (error) {
-      console.error('Error cargando detalle del cliente:', error);
-      alert('Error al cargar detalle del cliente');
+    } catch {
+      setError('Error al cargar detalle del cliente');
     }
   };
 
   const handleActualizarCliente = (clienteActualizado) => {
-    // Actualizar en la lista
-    setClientes(clientes.map(c => 
+    setClientes(prev => prev.map(c =>
       c.cust_id === clienteActualizado.cust_id && c.comp_id === clienteActualizado.comp_id
         ? clienteActualizado
         : c
@@ -283,146 +271,217 @@ export default function Clientes() {
     setClienteSeleccionado(clienteActualizado);
   };
 
+  const hasAdvancedFilters = filtroConML || filtroConEmail || filtroConTelefono || filtroCustIdDesde || filtroCustIdHasta || !filtroSoloActivos;
+
   return (
     <div className={styles.container}>
+      {/* Header */}
       <div className={styles.header}>
-        <h1>Clientes</h1>
+        <div className={styles.headerTitle}>
+          <Users size={22} />
+          <h1>Clientes</h1>
+          {totalClientes > 0 && (
+            <span className={styles.totalBadge}>
+              {totalClientes.toLocaleString()}
+            </span>
+          )}
+        </div>
         <div className={styles.headerActions}>
-          <span className={styles.totalCount}>
-            Total: {totalClientes.toLocaleString()} clientes
-          </span>
           <button
             className={styles.btnExport}
             onClick={() => setMostrarModalExport(true)}
           >
-            📊 Exportar
+            <Download size={14} />
+            Exportar
           </button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className={styles.filtros}>
-        <div className={styles.filtrosRow}>
+      {/* Error message */}
+      {error && (
+        <div className={styles.errorMessage}>
+          <AlertCircle size={16} />
+          {error}
+          <button onClick={() => setError(null)} aria-label="Cerrar error">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Main filters bar */}
+      <div className={styles.filters}>
+        <div className={styles.searchBox}>
+          <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Buscar por nombre, CUIT, email o ciudad..."
+            placeholder="Buscar por nombre, CUIT, email, ciudad o N° cliente..."
             value={searchInput}
-            onChange={(e) => {
-              setSearchInput(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => updateFilters({ search: e.target.value, page: 1 })}
             className={styles.searchInput}
           />
-
-          <select
-            value={filtroProvinciaId}
-            onChange={(e) => setFiltroProvinciaId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todas las provincias</option>
-            {provincias.map(p => (
-              <option key={p.state_id} value={p.state_id}>
-                {p.state_desc}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filtroFiscalId}
-            onChange={(e) => setFiltroFiscalId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todas las condiciones fiscales</option>
-            {condicionesFiscales.map(c => (
-              <option key={c.fc_id} value={c.fc_id}>
-                {c.fc_desc}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filtroSucursalId}
-            onChange={(e) => setFiltroSucursalId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todas las sucursales</option>
-            {sucursales.map(s => (
-              <option key={s.bra_id} value={s.bra_id}>
-                {s.bra_desc}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filtroVendedorId}
-            onChange={(e) => setFiltroVendedorId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todos los vendedores</option>
-            {vendedores.map(v => (
-              <option key={v.sm_id} value={v.sm_id}>
-                {v.sm_name}
-              </option>
-            ))}
-          </select>
         </div>
 
-        <div className={styles.filtrosRow}>
-          <label className={styles.checkbox}>
+        <select
+          value={filtroProvinciaId}
+          onChange={(e) => updateFilters({ state_id: e.target.value, page: 1 })}
+          className={styles.filterSelect}
+        >
+          <option value="">Provincia</option>
+          {provincias.map(p => (
+            <option key={p.state_id} value={p.state_id}>
+              {p.state_desc}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={filtroFiscalId}
+          onChange={(e) => updateFilters({ fc_id: e.target.value, page: 1 })}
+          className={styles.filterSelect}
+        >
+          <option value="">Cond. Fiscal</option>
+          {condicionesFiscales.map(c => (
+            <option key={c.fc_id} value={c.fc_id}>
+              {c.fc_desc}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={filtroSucursalId}
+          onChange={(e) => updateFilters({ bra_id: e.target.value, page: 1 })}
+          className={styles.filterSelect}
+        >
+          <option value="">Sucursal</option>
+          {sucursales.map(s => (
+            <option key={s.bra_id} value={s.bra_id}>
+              {s.bra_desc}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={filtroVendedorId}
+          onChange={(e) => updateFilters({ sm_id: e.target.value, page: 1 })}
+          className={styles.filterSelect}
+        >
+          <option value="">Vendedor</option>
+          {vendedores.map(v => (
+            <option key={v.sm_id} value={v.sm_id}>
+              {v.sm_name}
+            </option>
+          ))}
+        </select>
+
+        <button
+          className={styles.btnToggleAdvanced}
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          title="Filtros avanzados"
+        >
+          <SlidersHorizontal size={14} />
+          {hasAdvancedFilters ? 'Avanzados *' : 'Avanzados'}
+        </button>
+
+        {activeChips.length > 0 && (
+          <button
+            className={styles.btnLimpiar}
+            onClick={limpiarFiltros}
+          >
+            <Trash2 size={14} />
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Advanced filters panel */}
+      {showAdvanced && (
+        <div className={styles.advancedFilters}>
+          <label className={styles.checkboxLabel}>
             <input
               type="checkbox"
               checked={filtroSoloActivos}
-              onChange={(e) => setFiltroSoloActivos(e.target.checked)}
+              onChange={(e) => updateFilters({ solo_activos: e.target.checked, page: 1 })}
             />
             Solo activos
           </label>
 
+          <div className={styles.separator} />
+
           <select
             value={filtroConML}
-            onChange={(e) => setFiltroConML(e.target.value)}
-            className={styles.select}
+            onChange={(e) => updateFilters({ con_ml: e.target.value, page: 1 })}
+            className={styles.filterSelect}
           >
-            <option value="">Con/sin MercadoLibre</option>
-            <option value="true">Con MercadoLibre</option>
-            <option value="false">Sin MercadoLibre</option>
+            <option value="">MercadoLibre</option>
+            <option value="true">Con ML</option>
+            <option value="false">Sin ML</option>
           </select>
 
           <select
             value={filtroConEmail}
-            onChange={(e) => {
-              setFiltroConEmail(e.target.value);
-              setPage(1);
-            }}
-            className={styles.select}
+            onChange={(e) => updateFilters({ con_email: e.target.value, page: 1 })}
+            className={styles.filterSelect}
           >
-            <option value="">Con/sin Email</option>
+            <option value="">Email</option>
             <option value="true">Con Email</option>
             <option value="false">Sin Email</option>
           </select>
 
           <select
             value={filtroConTelefono}
-            onChange={(e) => {
-              setFiltroConTelefono(e.target.value);
-              setPage(1);
-            }}
-            className={styles.select}
+            onChange={(e) => updateFilters({ con_telefono: e.target.value, page: 1 })}
+            className={styles.filterSelect}
           >
-            <option value="">Con/sin Teléfono</option>
-            <option value="true">Con Teléfono</option>
-            <option value="false">Sin Teléfono</option>
+            <option value="">Teléfono</option>
+            <option value="true">Con Tel</option>
+            <option value="false">Sin Tel</option>
           </select>
 
-          <button
-            className={styles.btnLimpiar}
-            onClick={limpiarFiltros}
-          >
-            🗑️ Limpiar filtros
-          </button>
-        </div>
-      </div>
+          <div className={styles.separator} />
 
-      {/* Tabla */}
+          <div className={styles.filterGroup}>
+            <label>ID desde:</label>
+            <input
+              type="number"
+              value={filtroCustIdDesde}
+              onChange={(e) => updateFilters({ cust_id_desde: e.target.value, page: 1 })}
+              className={styles.filterInputSmall}
+              placeholder="Min"
+            />
+          </div>
+
+          <div className={styles.filterGroup}>
+            <label>ID hasta:</label>
+            <input
+              type="number"
+              value={filtroCustIdHasta}
+              onChange={(e) => updateFilters({ cust_id_hasta: e.target.value, page: 1 })}
+              className={styles.filterInputSmall}
+              placeholder="Max"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Active filter chips */}
+      {activeChips.length > 0 && (
+        <div className={styles.activeFilters}>
+          {activeChips.map(({ key, label }) => (
+            <span key={key} className={styles.chip}>
+              {label}
+              <button
+                className={styles.chipRemove}
+                onClick={() => removeChip(key)}
+                aria-label={`Quitar filtro ${label}`}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Table */}
       <div className={styles.tableWrapper}>
         {loading ? (
           <div className={styles.loading}>Cargando clientes...</div>
@@ -437,9 +496,9 @@ export default function Clientes() {
                 <th>Teléfono</th>
                 <th>Ciudad</th>
                 <th>Provincia</th>
-                <th>Condición Fiscal</th>
+                <th>Cond. Fiscal</th>
                 <th>Vendedor</th>
-                <th>MercadoLibre</th>
+                <th>ML</th>
                 <th>Estado</th>
               </tr>
             </thead>
@@ -454,7 +513,7 @@ export default function Clientes() {
                 clientes.map((cliente) => (
                   <tr key={`${cliente.comp_id}-${cliente.cust_id}`}>
                     <td>{cliente.cust_id}</td>
-                    <td 
+                    <td
                       className={styles.nombre}
                       onClick={() => handleVerDetalle(cliente)}
                       title="Click para ver detalle"
@@ -471,7 +530,7 @@ export default function Clientes() {
                     <td>
                       {cliente.cust_mercadolibreid ? (
                         <span className={styles.badgeSuccess} title={cliente.cust_mercadolibrenickname}>
-                          ✓ ML
+                          <Check size={12} /> ML
                         </span>
                       ) : (
                         <span className={styles.badgeMuted}>-</span>
@@ -492,54 +551,58 @@ export default function Clientes() {
         )}
       </div>
 
-      {/* Paginación */}
+      {/* Pagination */}
       <div className={styles.pagination}>
         <div className={styles.paginationInfo}>
-          Mostrando {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, totalClientes)} de {totalClientes}
+          {totalClientes > 0
+            ? `${((page - 1) * pageSize) + 1}–${Math.min(page * pageSize, totalClientes)} de ${totalClientes.toLocaleString()}`
+            : 'Sin resultados'
+          }
         </div>
         <div className={styles.paginationControls}>
           <button
-            onClick={() => setPage(1)}
+            onClick={() => updateFilters({ page: 1 })}
             disabled={page === 1}
             className={styles.btnPagination}
+            aria-label="Primera página"
           >
-            ««
+            <ChevronsLeft size={16} />
           </button>
           <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+            onClick={() => updateFilters({ page: Math.max(1, page - 1) })}
             disabled={page === 1}
             className={styles.btnPagination}
+            aria-label="Página anterior"
           >
-            «
+            <ChevronLeft size={16} />
           </button>
           <span className={styles.pageNumber}>
-            Página {page} de {totalPages}
+            {page} / {totalPages}
           </span>
           <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            onClick={() => updateFilters({ page: Math.min(totalPages, page + 1) })}
             disabled={page === totalPages}
             className={styles.btnPagination}
+            aria-label="Página siguiente"
           >
-            »
+            <ChevronRight size={16} />
           </button>
           <button
-            onClick={() => setPage(totalPages)}
+            onClick={() => updateFilters({ page: totalPages })}
             disabled={page === totalPages}
             className={styles.btnPagination}
+            aria-label="Última página"
           >
-            »»
+            <ChevronsRight size={16} />
           </button>
         </div>
         <div className={styles.pageSizeSelector}>
           <label>
-            Items por página:
+            Por página:
             <select
               value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className={styles.selectSmall}
+              onChange={(e) => updateFilters({ page_size: Number(e.target.value), page: 1 })}
+              className={styles.pageSizeSelect}
             >
               <option value={25}>25</option>
               <option value={50}>50</option>
@@ -550,7 +613,7 @@ export default function Clientes() {
         </div>
       </div>
 
-      {/* Modal de Exportación */}
+      {/* Export Modal */}
       {mostrarModalExport && (
         <div className={styles.modalOverlay} onClick={() => setMostrarModalExport(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
@@ -559,27 +622,27 @@ export default function Clientes() {
               <button
                 className={styles.modalClose}
                 onClick={() => setMostrarModalExport(false)}
+                aria-label="Cerrar modal"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             <div className={styles.modalBody}>
               <p className={styles.modalInfo}>
-                Seleccioná los campos que querés incluir en la exportación.
-                Se exportarán {totalClientes} clientes con los filtros aplicados.
+                Seleccioná los campos a incluir. Se exportarán {totalClientes.toLocaleString()} clientes con los filtros aplicados.
               </p>
 
               <div className={styles.modalActions}>
                 <button
-                  className={styles.btnSecondary}
-                  onClick={seleccionarTodosCampos}
+                  className={styles.btnSelectAll}
+                  onClick={() => setCamposSeleccionados(camposDisponibles.map(c => c.key))}
                 >
                   Seleccionar todos
                 </button>
                 <button
-                  className={styles.btnSecondary}
-                  onClick={deseleccionarTodosCampos}
+                  className={styles.btnSelectAll}
+                  onClick={() => setCamposSeleccionados([])}
                 >
                   Deseleccionar todos
                 </button>
@@ -587,7 +650,7 @@ export default function Clientes() {
 
               <div className={styles.camposGrid}>
                 {camposDisponibles.map(campo => (
-                  <label key={campo.key} className={styles.checkboxLabel}>
+                  <label key={campo.key} className={styles.campoCheckbox}>
                     <input
                       type="checkbox"
                       checked={camposSeleccionados.includes(campo.key)}
@@ -612,14 +675,14 @@ export default function Clientes() {
                 onClick={handleExportar}
                 disabled={exportando || camposSeleccionados.length === 0}
               >
-                {exportando ? 'Exportando...' : 'Exportar CSV'}
+                {exportando ? 'Exportando...' : 'Exportar XLSX'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Detalle */}
+      {/* Modal Detalle */}
       {mostrarModalDetalle && clienteSeleccionado && (
         <ModalDetalleCliente
           cliente={clienteSeleccionado}
