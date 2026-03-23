@@ -63,9 +63,28 @@ export function useDocumentGenerator(contexto) {
           if (field.content !== undefined && field.content !== '') {
             templateDefaults[field.name] = field.content;
           }
-          // pdfme v5 requiere columnStyles en tablas — asegurar que exista
-          if (field.type === 'table' && !field.columnStyles) {
-            field.columnStyles = {};
+          // pdfme v5 requiere ciertos campos en tablas — asegurar que existan
+          if (field.type === 'table') {
+            if (!field.columnStyles) field.columnStyles = {};
+
+            // Asegurar que headStyles y bodyStyles tengan padding y borderWidth como objetos
+            const defaultPadding = { top: 5, right: 5, bottom: 5, left: 5 };
+            const defaultBorderWidth = { top: 0.1, right: 0.1, bottom: 0.1, left: 0.1 };
+
+            for (const key of ['headStyles', 'bodyStyles']) {
+              const s = field[key];
+              if (!s) continue;
+              if (s.padding && typeof s.padding !== 'object') {
+                const v = s.padding;
+                s.padding = { top: v, right: v, bottom: v, left: v };
+              }
+              if (!s.padding) s.padding = defaultPadding;
+              if (s.borderWidth !== undefined && typeof s.borderWidth !== 'object') {
+                const v = s.borderWidth;
+                s.borderWidth = { top: v, right: v, bottom: v, left: v };
+              }
+              if (s.borderWidth === undefined) s.borderWidth = defaultBorderWidth;
+            }
           }
         }
       }
