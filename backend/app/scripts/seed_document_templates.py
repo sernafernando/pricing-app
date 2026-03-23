@@ -490,17 +490,19 @@ def template_remito_manual():
     fields.append(_text("cliente_cp", MARGIN + 60, y, 30, 6, content="CP"))
     y += 10
 
-    # Items (tabla)
+    # Items (tabla) — altura fija para ~10 items
+    TABLE_H = 120
     fields.append(_label("__sec_items__", MARGIN, y, 80, 7, "DETALLE", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
+    table_y = y
     fields.append(
         {
             "name": "tabla_items",
             "type": "table",
             "content": "",
-            "position": {"x": MARGIN, "y": y},
+            "position": {"x": MARGIN, "y": table_y},
             "width": CONTENT_W,
-            "height": 80,
+            "height": TABLE_H,
             "head": ["Código", "Descripción", "Cant.", "P. Unit.", "Subtotal"],
             "headWidthPercentages": [15, 40, 10, 17, 18],
             "tableStyles": {"borderWidth": 0.3, "borderColor": "#999999"},
@@ -515,6 +517,7 @@ def template_remito_manual():
                 "backgroundColor": "#333333",
                 "borderColor": "#333333",
                 "padding": {"top": 3, "bottom": 3, "left": 3, "right": 3},
+                "borderWidth": {"top": 0, "right": 0, "bottom": 0, "left": 0},
             },
             "bodyStyles": {
                 "fontName": "Arial",
@@ -527,11 +530,14 @@ def template_remito_manual():
                 "borderColor": "#cccccc",
                 "alternateBackgroundColor": "#f5f5f5",
                 "padding": {"top": 2, "bottom": 2, "left": 3, "right": 3},
+                "borderWidth": {"top": 0.1, "right": 0.1, "bottom": 0.1, "left": 0.1},
             },
             "columnStyles": {},
         }
     )
-    y += 85
+
+    # Posiciones fijas después de la tabla (no dependen de la cantidad de items)
+    y = table_y + TABLE_H + 5
 
     # Totales
     fields.append(_label("__sec_totales__", MARGIN, y, 80, 7, "TOTALES", fontSize=9, bold=True, fontColor="#555555"))
@@ -552,14 +558,14 @@ def template_remito_manual():
             alignment="right",
         )
     )
-    y += 10
+    y += 12
 
     # Observaciones
     fields.append(_label("__sec_obs__", MARGIN, y, 80, 7, "OBSERVACIONES", fontSize=9, bold=True, fontColor="#555555"))
     y += 8
     fields.append(_text("observaciones", MARGIN, y, CONTENT_W, 15, content=""))
 
-    # Firmas
+    # Firmas — siempre al fondo de la página
     y = A4_H - MARGIN - 15
     fields.extend(_firma_block(y, ["Entregó", "Recibió"]))
 
@@ -619,7 +625,7 @@ TEMPLATES = [
 ]
 
 
-def seed_templates(user_id: int = 1):
+def seed_templates(user_id: int = 1, force_update: bool = False):
     """
     Inserta los templates base si no existen.
     Usa user_id=1 (admin) como creador por defecto.
@@ -641,8 +647,14 @@ def seed_templates(user_id: int = 1):
             )
 
             if existing:
-                print(f"  ⏭ Ya existe: {tmpl['nombre']} ({tmpl['contexto']})")
-                skipped += 1
+                if force_update:
+                    existing.template_json = tmpl["template_json"]()
+                    db.commit()
+                    print(f"  🔄 Actualizado: {tmpl['nombre']} ({tmpl['contexto']})")
+                    created += 1
+                else:
+                    print(f"  ⏭ Ya existe: {tmpl['nombre']} ({tmpl['contexto']})")
+                    skipped += 1
                 continue
 
             template = DocumentTemplate(
@@ -669,8 +681,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Seed document templates base")
     parser.add_argument("--user-id", type=int, default=1, help="ID del usuario creador (default: 1)")
+    parser.add_argument(
+        "--force-update", action="store_true", help="Actualizar templates existentes con la versión del seed"
+    )
     args = parser.parse_args()
 
     print("Seeding document templates...")
-    seed_templates(user_id=args.user_id)
+    seed_templates(user_id=args.user_id, force_update=args.force_update)
     print("Done!")
