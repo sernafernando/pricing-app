@@ -64,16 +64,19 @@ class AfipServiceError(Exception):
 class AfipService:
     """Cliente para AFIP SDK API (afipsdk.com)."""
 
-    BASE_URL = settings.AFIP_SDK_BASE_URL
-    ACCESS_TOKEN = settings.AFIP_ACCESS_TOKEN
-    CUIT = settings.AFIP_CUIT
-    ENVIRONMENT = settings.AFIP_ENVIRONMENT
-    CERT = settings.AFIP_CERT
-    KEY = settings.AFIP_KEY
     # Timeout generoso — AFIP puede tardar
     TIMEOUT = 30.0
 
     def __init__(self) -> None:
+        # Leer settings en runtime (no como class attrs) para que
+        # _restore_pem se aplique con el valor actual de .env
+        self.BASE_URL = settings.AFIP_SDK_BASE_URL
+        self.ACCESS_TOKEN = settings.AFIP_ACCESS_TOKEN
+        self.CUIT = settings.AFIP_CUIT
+        self.ENVIRONMENT = settings.AFIP_ENVIRONMENT
+        self.CERT = _restore_pem(settings.AFIP_CERT or "")
+        self.KEY = _restore_pem(settings.AFIP_KEY or "")
+
         if not self.ACCESS_TOKEN:
             raise AfipServiceError(
                 "AFIP_ACCESS_TOKEN no configurado",
@@ -110,8 +113,8 @@ class AfipService:
 
         # En producción, agregar cert y key para autenticar con ARCA
         if self.CERT and self.KEY:
-            body["cert"] = _restore_pem(self.CERT)
-            body["key"] = _restore_pem(self.KEY)
+            body["cert"] = self.CERT
+            body["key"] = self.KEY
 
         async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
             resp = await client.post(
