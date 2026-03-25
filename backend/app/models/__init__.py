@@ -101,6 +101,7 @@ from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 from app.models.document_template import DocumentTemplate
 
 # Proveedores — Módulo Administración
+from app.models.rma_proveedor import RmaProveedor  # must be before Proveedor (relationship target)
 from app.models.proveedor import Proveedor, OrigenProveedor
 from app.models.proveedor_datos_fiscales import ProveedorDatosFiscales
 
@@ -225,6 +226,7 @@ __all__ = [
     # Documentos
     "DocumentTemplate",
     # Proveedores — Módulo Administración
+    "RmaProveedor",
     "Proveedor",
     "OrigenProveedor",
     "ProveedorDatosFiscales",
