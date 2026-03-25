@@ -35,6 +35,23 @@ IMPUESTO_MONOTRIBUTO = 20
 _ta_cache: dict[str, dict[str, Any]] = {}
 
 
+def _restore_pem(value: str) -> str:
+    """
+    Restaura un PEM (cert/key) guardado en .env como una sola línea.
+
+    El .env guarda los saltos de línea como la secuencia literal backslash+n.
+    Pydantic puede o no interpretar esos escapes dependiendo de la versión.
+    Esta función cubre todos los casos:
+      - "\\n" literal (2 chars) → salto de línea real
+      - ya tiene saltos reales → no toca nada
+    """
+    # Si ya tiene saltos de línea reales y el header PEM, no tocar
+    if "\n" in value and "-----BEGIN" in value.split("\n")[0]:
+        return value
+    # Reemplazar la secuencia literal \n y \r
+    return value.replace("\\r", "").replace("\\n", "\n")
+
+
 class AfipServiceError(Exception):
     """Error genérico de AfipService."""
 
@@ -93,8 +110,8 @@ class AfipService:
 
         # En producción, agregar cert y key para autenticar con ARCA
         if self.CERT and self.KEY:
-            body["cert"] = self.CERT.replace("\\n", "\n")
-            body["key"] = self.KEY.replace("\\n", "\n")
+            body["cert"] = _restore_pem(self.CERT)
+            body["key"] = _restore_pem(self.KEY)
 
         async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
             resp = await client.post(
