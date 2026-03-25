@@ -147,9 +147,10 @@ def main() -> None:
     print("=" * 60)
     print()
     print("Este script va a:")
-    print("  1. Crear un certificado digital de producción en ARCA")
-    print("  2. Autorizar el web service ws_sr_padron_a4")
-    print("  3. Guardar cert + key en el .env")
+    print("  1. Habilitar Administración de Certificados Digitales en ARCA")
+    print("  2. Crear un certificado digital de producción")
+    print("  3. Autorizar el web service ws_sr_padron_a4")
+    print("  4. Guardar cert + key en el .env")
     print()
     print("IMPORTANTE: la clave fiscal NO se guarda.")
     print("Solo se usa para las automatizaciones de afipsdk.com.")
@@ -185,14 +186,32 @@ def main() -> None:
         print("  Cancelado.")
         sys.exit(0)
 
-    # ── Paso 1: Crear certificado ─────────────────────────────────
-    print("\n[1/3] Creando certificado de producción...")
-    result = run_automation(access_token, "create-cert-prod", {
-        "cuit": cuit,
-        "username": username,
-        "password": password,
-        "alias": alias,
-    })
+    # ── Paso 1: Habilitar Administración de Certificados Digitales ─
+    print("\n[1/4] Habilitando Administración de Certificados Digitales...")
+    result = run_automation(
+        access_token,
+        "enable-cert-prod-admin",
+        {
+            "cuit": cuit,
+            "username": username,
+            "password": password,
+        },
+    )
+    status = result.get("data", {}).get("status", "")
+    print(f"  Administración de Certificados: {status or 'OK'}")
+
+    # ── Paso 2: Crear certificado ─────────────────────────────────
+    print("\n[2/4] Creando certificado de producción...")
+    result = run_automation(
+        access_token,
+        "create-cert-prod",
+        {
+            "cuit": cuit,
+            "username": username,
+            "password": password,
+            "alias": alias,
+        },
+    )
 
     cert = result.get("data", {}).get("cert")
     key = result.get("data", {}).get("key")
@@ -203,20 +222,24 @@ def main() -> None:
 
     print("  Certificado creado OK")
 
-    # ── Paso 2: Autorizar web services ────────────────────────────
+    # ── Paso 3: Autorizar web services ────────────────────────────
     for ws in WEB_SERVICES:
-        print(f"\n[2/3] Autorizando web service: {ws}...")
-        run_automation(access_token, "auth-web-service-prod", {
-            "cuit": cuit,
-            "username": username,
-            "password": password,
-            "alias": alias,
-            "service": ws,
-        })
+        print(f"\n[3/4] Autorizando web service: {ws}...")
+        run_automation(
+            access_token,
+            "auth-web-service-prod",
+            {
+                "cuit": cuit,
+                "username": username,
+                "password": password,
+                "alias": alias,
+                "service": ws,
+            },
+        )
         print(f"  {ws} autorizado OK")
 
-    # ── Paso 3: Guardar en .env ───────────────────────────────────
-    print("\n[3/3] Guardando en .env...")
+    # ── Paso 4: Guardar en .env ───────────────────────────────────
+    print("\n[4/4] Guardando en .env...")
     update_env("AFIP_CERT", cert)
     update_env("AFIP_KEY", key)
     update_env("AFIP_ENVIRONMENT", "prod")
