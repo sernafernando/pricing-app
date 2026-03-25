@@ -51,6 +51,8 @@ class AfipService:
     ACCESS_TOKEN = settings.AFIP_ACCESS_TOKEN
     CUIT = settings.AFIP_CUIT
     ENVIRONMENT = settings.AFIP_ENVIRONMENT
+    CERT = settings.AFIP_CERT
+    KEY = settings.AFIP_KEY
     # Timeout generoso — AFIP puede tardar
     TIMEOUT = 30.0
 
@@ -88,6 +90,11 @@ class AfipService:
             "tax_id": self.CUIT,
             "wsid": wsid,
         }
+
+        # En producción, agregar cert y key para autenticar con ARCA
+        if self.CERT and self.KEY:
+            body["cert"] = self.CERT.replace("\\n", "\n")
+            body["key"] = self.KEY.replace("\\n", "\n")
 
         async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
             resp = await client.post(
