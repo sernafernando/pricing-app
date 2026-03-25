@@ -27,6 +27,7 @@ class CategoriaPermiso(str, enum.Enum):
     RRHH = "rrhh"
     TICKETS = "tickets"
     DOCUMENTOS = "documentos"
+    ADMINISTRACION_SECTOR = "administracion_sector"
 
 
 class Permiso(Base):
@@ -787,6 +788,60 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.DOCUMENTOS,
         "orden": 141,
     },
+    # =========================================================================
+    # ADMINISTRACIÓN (sector empresa — proveedores, cuentas corrientes, AFIP)
+    # =========================================================================
+    {
+        "codigo": "administracion.ver_proveedores",
+        "nombre": "Ver proveedores",
+        "descripcion": "Acceso a la lista de proveedores y sus datos fiscales",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 150,
+    },
+    {
+        "codigo": "administracion.gestionar_proveedores",
+        "nombre": "Gestionar proveedores",
+        "descripcion": "Crear, editar proveedores y sincronizar desde ERP",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 151,
+    },
+    {
+        "codigo": "administracion.consultar_afip",
+        "nombre": "Consultar AFIP",
+        "descripcion": "Consultar situación tributaria de proveedores en AFIP (Padrón A4/A5)",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 152,
+        "es_critico": True,
+    },
+    {
+        "codigo": "administracion.ver_cuentas_corrientes",
+        "nombre": "Ver cuentas corrientes",
+        "descripcion": "Acceso a cuentas corrientes de proveedores y clientes",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 153,
+    },
+    {
+        "codigo": "administracion.gestionar_cuentas_corrientes",
+        "nombre": "Gestionar cuentas corrientes",
+        "descripcion": "Registrar movimientos en cuentas corrientes",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 154,
+    },
+    {
+        "codigo": "administracion.ver_ordenes_compra",
+        "nombre": "Ver órdenes de compra",
+        "descripcion": "Acceso a las órdenes de compra a proveedores",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 155,
+    },
+    {
+        "codigo": "administracion.gestionar_ordenes_compra",
+        "nombre": "Gestionar órdenes de compra",
+        "descripcion": "Crear, editar y aprobar órdenes de compra",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 156,
+        "es_critico": True,
+    },
 ]
 
 
@@ -832,6 +887,7 @@ PERMISOS_POR_ROL = {
         "rrhh.*",
         "tickets.*",
         "documentos.*",
+        "administracion.*",
     ],
     "GERENTE": [
         "productos.ver",

@@ -42,6 +42,7 @@ import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import Tickets from './pages/Tickets';
 import TicketsAdmin from './pages/TicketsAdmin';
+import AdministracionProveedores from './pages/AdministracionProveedores';
 import ProtectedRoute from './components/ProtectedRoute';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
@@ -263,6 +264,12 @@ function App() {
             <Route path="/rrhh/reportes" element={
               <ProtectedRoute permiso="rrhh.ver">
                 <RRHHReportes />
+              </ProtectedRoute>
+            } />
+            {/* ── Administración (sector empresa) ──────────── */}
+            <Route path="/administracion/proveedores" element={
+              <ProtectedRoute permiso="administracion.ver_proveedores">
+                <AdministracionProveedores />
               </ProtectedRoute>
             } />
             <Route path="/tickets" element={

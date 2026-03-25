@@ -100,6 +100,10 @@ from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 # Documentos — Templates PDF
 from app.models.document_template import DocumentTemplate
 
+# Proveedores — Módulo Administración
+from app.models.proveedor import Proveedor, OrigenProveedor
+from app.models.proveedor_datos_fiscales import ProveedorDatosFiscales
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -220,4 +224,8 @@ __all__ = [
     "RRHHMotivoBaja",
     # Documentos
     "DocumentTemplate",
+    # Proveedores — Módulo Administración
+    "Proveedor",
+    "OrigenProveedor",
+    "ProveedorDatosFiscales",
 ]

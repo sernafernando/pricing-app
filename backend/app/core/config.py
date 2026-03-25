@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     HIKVISION_USERNAME: Optional[str] = None
     HIKVISION_PASSWORD: Optional[str] = None
 
+    # AFIP SDK (afipsdk.com — Padrón A4, Constancia de Inscripción)
+    AFIP_CUIT: Optional[str] = None
+    AFIP_ACCESS_TOKEN: Optional[str] = None
+    AFIP_SDK_BASE_URL: str = "https://app.afipsdk.com/api/v1/afip"
+    AFIP_ENVIRONMENT: str = "prod"  # "dev" para testing con CUIT 20409378472
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 
