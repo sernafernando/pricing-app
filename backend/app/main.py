@@ -58,6 +58,7 @@ from app.api.endpoints import (
     etiquetas_colecta,
 )
 from app.routers import (
+    administracion_proveedores,
     alertas,
     claims_dashboard,
     document_templates,
@@ -234,6 +235,9 @@ app.include_router(rrhh_horarios.router, prefix="/api", tags=["rrhh-horarios"])
 app.include_router(rrhh_cumpleanos.router, prefix="/api", tags=["rrhh-cumpleanos"])
 app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
+
+# ── Módulo Administración (sector empresa) ────────────────────────
+app.include_router(administracion_proveedores.router, prefix="/api", tags=["Administración - Proveedores"])
 
 # ── Tickets module ────────────────────────────────────────────────
 app.include_router(tickets_ep.router, prefix="/api/tickets", tags=["tickets"])
