@@ -55,23 +55,6 @@
   align-items: center;
   gap: 6px;
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--cf-accent-blue);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-sm);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
-}
-.btnPrimary:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
-.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btnSecondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: var(--spacing-sm) var(--spacing-md);
   background: var(--cf-bg-card);
   color: var(--cf-text-primary);
   border: 1px solid var(--cf-border-default);
@@ -81,7 +64,24 @@
   cursor: pointer;
   transition: all var(--duration-200) var(--ease-out);
 }
-.btnSecondary:hover:not(:disabled) { background: var(--cf-bg-hover); }
+.btnPrimary:hover:not(:disabled) { background: var(--cf-bg-hover); border-color: var(--cf-text-tertiary); }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+.btnSecondary:hover:not(:disabled) { background: var(--cf-bg-hover); color: var(--cf-text-primary); }
 .btnSecondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btnBack {
@@ -140,7 +140,7 @@
 
 .searchInput {
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) 40px;
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) 42px;
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
   background: var(--cf-bg-card);

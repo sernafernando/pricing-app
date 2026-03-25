@@ -334,13 +334,13 @@ export default function AdministracionProveedores() {
                 <div className={styles.fieldGrid}>
                   <Field label="CUIT" value={detalle.cuit} />
                   <Field label="Origen" value={detalle.origen === 'erp' ? 'ERP (GBP)' : 'Manual'} />
-                  <Field label="Teléfono" value={detalle.telefono} />
-                  <Field label="Email" value={detalle.email} />
-                  <Field label="Dirección" value={detalle.direccion} />
-                  <Field label="Ciudad" value={detalle.ciudad} />
-                  <Field label="Provincia" value={detalle.provincia} />
-                  <Field label="CP" value={detalle.cp} />
-                  <Field label="Representante" value={detalle.representante} />
+                  {detalle.telefono && <Field label="Teléfono" value={detalle.telefono} />}
+                  {detalle.email && <Field label="Email" value={detalle.email} />}
+                  {detalle.direccion && <Field label="Dirección" value={detalle.direccion} />}
+                  {detalle.ciudad && <Field label="Ciudad" value={detalle.ciudad} />}
+                  {detalle.provincia && <Field label="Provincia" value={detalle.provincia} />}
+                  {detalle.cp && <Field label="CP" value={detalle.cp} />}
+                  {detalle.representante && <Field label="Representante" value={detalle.representante} />}
                 </div>
                 {detalle.notas && (
                   <div className={styles.fieldFull}>
