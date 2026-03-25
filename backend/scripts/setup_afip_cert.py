@@ -166,7 +166,7 @@ def main() -> None:
         print("ERROR: CUIT vacío")
         sys.exit(1)
 
-    username = input(f"  CUIT para login en ARCA [{cuit}]: ").strip() or cuit
+    username = input(f"  CUIT para login en ARCA (ej: 20316749942) [{cuit}]: ").strip() or cuit
     password = getpass.getpass("  Clave fiscal de ARCA: ")
     if not password:
         print("ERROR: Clave fiscal vacía")
