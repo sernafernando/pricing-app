@@ -190,11 +190,13 @@ def main() -> None:
     print("\n[1/4] Habilitando Administración de Certificados Digitales...")
     result = run_automation(
         access_token,
-        "enable-cert-prod-admin",
+        "add-relation",
         {
             "cuit": cuit,
             "username": username,
             "password": password,
+            "service": "web://arfe_certificado",
+            "delegate_to": username,
         },
     )
     status = result.get("data", {}).get("status", "")
