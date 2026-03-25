@@ -216,16 +216,15 @@ class AfipService:
             persona = await self._query_ws("ws_sr_padron_a4", cuit_persona)
             return persona, "ws_sr_padron_a4"
         except AfipServiceError as e:
-            # Si es un error de autorización/habilitación, probar A13
-            detail_lower = (e.detail or "").lower()
-            if (
-                "not authorized" in detail_lower
-                or "no se encuentra habilitad" in detail_lower
-                or "notauthorized" in detail_lower
-            ):
-                logger.info("A4 no habilitado, intentando A13 para CUIT %s", cuit_clean)
-            else:
-                raise
+            # Cualquier error en A4 → intentar A13 como fallback.
+            # Errores comunes: "notAuthorized", "no se encuentra habilitada",
+            # "Only 8, 16, 24, or 32 bits supported" (AFIP SDK crypto error
+            # cuando el WS no está autorizado para el certificado).
+            logger.warning(
+                "A4 falló para CUIT %s (%s), intentando A13...",
+                cuit_clean,
+                e.message,
+            )
 
         # Fallback a A13
         logger.info("Consultando Padrón A13 para CUIT %s", cuit_clean)
