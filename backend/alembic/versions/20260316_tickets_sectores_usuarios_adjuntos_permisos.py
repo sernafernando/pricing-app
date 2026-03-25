@@ -114,6 +114,17 @@ def upgrade() -> None:
     )
     op.create_index("ix_tickets_adjuntos_ticket_id", "tickets_adjuntos", ["ticket_id"])
 
+    # 2.5 Convert categoria from PG ENUM to VARCHAR(50)
+    # The model uses String(50) but older DBs still have the PG ENUM type.
+    # PG doesn't let you use new enum values in the same transaction as ALTER TYPE,
+    # so we kill the enum entirely — VARCHAR is what the model expects anyway.
+    op.execute("""
+        ALTER TABLE permisos
+        ALTER COLUMN categoria TYPE VARCHAR(50)
+        USING categoria::text
+    """)
+    op.execute("DROP TYPE IF EXISTS categoriapermiso")
+
     # 3. Insert ticket permissions into catalog
     for codigo, nombre, desc, cat, orden, critico in PERMISOS:
         critico_str = "true" if critico else "false"
