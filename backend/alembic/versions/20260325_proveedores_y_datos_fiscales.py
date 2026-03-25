@@ -117,8 +117,17 @@ def upgrade() -> None:
     op.add_column("rma_proveedores", sa.Column("notas_rma", sa.Text(), nullable=True))
 
     # ── 5. Copiar datos de rma_proveedores a los nuevos campos RMA ─
-    # Note: legacy column is "observaciones" not "notas"
-    op.execute("""
+    # Detect notes column name: some DBs have "notas", others "observaciones"
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'rma_proveedores' AND column_name IN ('notas', 'observaciones')
+    """)
+    )
+    notes_col = result.scalar() or "notas"
+
+    op.execute(f"""
         UPDATE rma_proveedores
         SET direccion_entrega = direccion,
             cp_entrega = cp,
@@ -126,20 +135,18 @@ def upgrade() -> None:
             provincia_entrega = provincia,
             representante_tecnico = representante,
             horario_recepcion = horario,
-            notas_rma = observaciones
+            notas_rma = {notes_col}
     """)
 
     # ── 6. Poblar proveedores desde rma_proveedores existentes ───
-    # Insertar cada rma_proveedor como un proveedor central
-    # Note: legacy uses "observaciones" not "notas", and activo is boolean not int
-    op.execute("""
+    op.execute(f"""
         INSERT INTO proveedores (supp_id, comp_id, nombre, cuit, origen,
                                  direccion, cp, ciudad, provincia,
                                  telefono, email, representante, notas,
                                  activo, created_at, updated_at)
         SELECT supp_id, comp_id, nombre, cuit, 'erp',
                direccion, cp, ciudad, provincia,
-               telefono, email, representante, observaciones,
+               telefono, email, representante, {notes_col},
                COALESCE(activo::boolean, true),
                created_at, updated_at
         FROM rma_proveedores
