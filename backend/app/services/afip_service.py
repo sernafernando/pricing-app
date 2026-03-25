@@ -39,17 +39,17 @@ def _restore_pem(value: str) -> str:
     """
     Restaura un PEM (cert/key) guardado en .env como una sola línea.
 
-    El .env guarda los saltos de línea como la secuencia literal backslash+n.
-    Pydantic puede o no interpretar esos escapes dependiendo de la versión.
-    Esta función cubre todos los casos:
-      - "\\n" literal (2 chars) → salto de línea real
-      - ya tiene saltos reales → no toca nada
+    El .env almacena los saltos de línea como backslash+n literal.
+    Pydantic puede agregar niveles extra de escape dependiendo de la versión.
+    Reemplazamos iterativamente hasta que el PEM tenga saltos reales.
     """
-    # Si ya tiene saltos de línea reales y el header PEM, no tocar
-    if "\n" in value and "-----BEGIN" in value.split("\n")[0]:
+    if not value:
         return value
-    # Reemplazar la secuencia literal \n y \r
-    return value.replace("\\r", "").replace("\\n", "\n")
+    result = value.replace("\\r", "").replace("\r", "")
+    # Reemplazar iterativamente: \\n → \n hasta que no queden
+    while "\\n" in result:
+        result = result.replace("\\n", "\n")
+    return result
 
 
 class AfipServiceError(Exception):
