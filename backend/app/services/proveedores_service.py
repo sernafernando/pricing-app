@@ -228,10 +228,10 @@ class ProveedoresService:
 
         try:
             afip = AfipService()
-            persona = await afip.get_persona_padron_a4(prov.cuit)
+            persona, wsid = await afip.get_persona(prov.cuit)
 
             # Extraer campos derivados y guardar
-            campos = AfipService.build_datos_fiscales_from_persona(persona, prov.cuit)
+            campos = AfipService.build_datos_fiscales_from_persona(persona, prov.cuit, wsid)
             for field, value in campos.items():
                 setattr(datos, field, value)
 
@@ -239,9 +239,10 @@ class ProveedoresService:
             self.db.refresh(datos)
 
             logger.info(
-                "AFIP consultado OK para proveedor=%d, cuit=%s, condicion_iva=%s",
+                "AFIP consultado OK para proveedor=%d, cuit=%s, wsid=%s, condicion_iva=%s",
                 proveedor_id,
                 prov.cuit,
+                wsid,
                 datos.condicion_iva,
             )
 

@@ -146,25 +146,16 @@ class AfipService:
         logger.info("TA obtenido para wsid=%s, expira=%s", wsid, data["expiration"])
         return {"token": token, "sign": sign}
 
-    async def get_persona_padron_a4(self, cuit_persona: str) -> dict[str, Any]:
+    async def _query_ws(self, wsid: str, cuit_persona: str) -> dict[str, Any]:
         """
-        Consulta el Padrón Alcance 4 (ws_sr_padron_a4) para un CUIT.
-
-        Retorna el dict completo de `personaReturn.persona` con:
-        - actividad, domicilio, email, telefono
-        - estadoClave, formaJuridica, tipoPersona
-        - impuesto[] (IVA, Ganancias, etc. con estado ACTIVO/BAJA)
-        - regimen[] (retenciones/percepciones)
-        - relacion[] (sociedades vinculadas)
+        Consulta genérica a un web service de padrón AFIP.
+        Retorna el dict de `personaReturn.persona`.
         """
-        wsid = "ws_sr_padron_a4"
         ta = await self._get_ta(wsid)
 
         cuit_clean = cuit_persona.replace("-", "").replace(" ", "")
         cuit_representada = int(self.CUIT)
         id_persona = int(cuit_clean)
-
-        logger.info("Consultando Padrón A4 para CUIT %s", cuit_clean)
 
         body = {
             "environment": self.ENVIRONMENT,
@@ -188,20 +179,16 @@ class AfipService:
         if resp.status_code != 200:
             error_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             error_msg = error_data.get("message", resp.text)
-            logger.error("Error consultando Padrón A4: status=%d, msg=%s", resp.status_code, error_msg)
+            logger.error("Error consultando %s: status=%d, msg=%s", wsid, resp.status_code, error_msg)
             raise AfipServiceError(
-                f"Error consultando AFIP Padrón A4 (HTTP {resp.status_code})",
+                f"Error consultando AFIP {wsid} (HTTP {resp.status_code})",
                 detail=str(error_msg),
             )
 
         data = resp.json()
 
-        # Verificar si la API devolvió error de AFIP (no HTTP)
         if "code" in data and "message" in data:
-            raise AfipServiceError(
-                "AFIP rechazó la consulta",
-                detail=data["message"],
-            )
+            raise AfipServiceError("AFIP rechazó la consulta", detail=data["message"])
 
         persona = data.get("personaReturn", {}).get("persona")
         if not persona:
@@ -211,6 +198,39 @@ class AfipService:
             )
 
         return persona
+
+    async def get_persona(self, cuit_persona: str) -> tuple[dict[str, Any], str]:
+        """
+        Consulta datos de una persona en AFIP.
+
+        Intenta Padrón A4 primero (datos completos con impuestos y regímenes).
+        Si A4 no está habilitado, usa A13 (datos básicos sin impuestos).
+
+        Retorna (persona_dict, wsid_usado).
+        """
+        cuit_clean = cuit_persona.replace("-", "").replace(" ", "")
+
+        # Intentar A4 primero
+        try:
+            logger.info("Consultando Padrón A4 para CUIT %s", cuit_clean)
+            persona = await self._query_ws("ws_sr_padron_a4", cuit_persona)
+            return persona, "ws_sr_padron_a4"
+        except AfipServiceError as e:
+            # Si es un error de autorización/habilitación, probar A13
+            detail_lower = (e.detail or "").lower()
+            if (
+                "not authorized" in detail_lower
+                or "no se encuentra habilitad" in detail_lower
+                or "notauthorized" in detail_lower
+            ):
+                logger.info("A4 no habilitado, intentando A13 para CUIT %s", cuit_clean)
+            else:
+                raise
+
+        # Fallback a A13
+        logger.info("Consultando Padrón A13 para CUIT %s", cuit_clean)
+        persona = await self._query_ws("ws_sr_padron_a13", cuit_persona)
+        return persona, "ws_sr_padron_a13"
 
     @staticmethod
     def extraer_condicion_iva(persona: dict[str, Any]) -> str:
@@ -255,14 +275,20 @@ class AfipService:
     @staticmethod
     def extraer_actividad_principal(persona: dict[str, Any]) -> tuple[Optional[str], Optional[int]]:
         """
-        Extrae la actividad principal (orden=1, período más reciente).
-        Retorna (descripcion, id_actividad).
+        Extrae la actividad principal.
+
+        A4: array `actividad[]` con orden y periodo → tomar orden=1 más reciente.
+        A13: campos planos `descripcionActividadPrincipal` e `idActividadPrincipal`.
         """
+        # A13: campos planos
+        if "descripcionActividadPrincipal" in persona:
+            return persona.get("descripcionActividadPrincipal"), persona.get("idActividadPrincipal")
+
+        # A4: array
         actividades = persona.get("actividad", [])
         if not actividades:
             return None, None
 
-        # Filtrar las de orden 1, tomar la de período más reciente
         principales = [a for a in actividades if a.get("orden") == 1]
         if not principales:
             principales = actividades
@@ -289,7 +315,7 @@ class AfipService:
 
         return {
             "direccion": fiscal.get("direccion"),
-            "cp": fiscal.get("codPostal"),
+            "cp": fiscal.get("codPostal") or fiscal.get("codigoPostal"),
             "provincia": fiscal.get("descripcionProvincia"),
             "localidad": fiscal.get("localidad"),
         }
@@ -298,13 +324,21 @@ class AfipService:
     def build_datos_fiscales_from_persona(
         persona: dict[str, Any],
         cuit: str,
+        wsid: str = "ws_sr_padron_a4",
     ) -> dict[str, Any]:
         """
         Construye el dict de campos para ProveedorDatosFiscales a partir
-        del response crudo del Padrón A4.
+        del response crudo del Padrón A4 o A13.
+
+        A4 tiene impuestos y regímenes → condición IVA y ganancias se extraen.
+        A13 no trae impuestos → condición IVA y ganancias quedan como None.
         """
-        condicion_iva = AfipService.extraer_condicion_iva(persona)
-        inscripto_ganancias = AfipService.extraer_inscripto_ganancias(persona)
+        # A4 tiene impuestos → podemos extraer condición IVA y ganancias
+        # A13 no tiene → dejamos None (se completará cuando se habilite A4)
+        has_impuestos = "impuesto" in persona
+        condicion_iva = AfipService.extraer_condicion_iva(persona) if has_impuestos else None
+        inscripto_ganancias = AfipService.extraer_inscripto_ganancias(persona) if has_impuestos else None
+
         act_desc, act_id = AfipService.extraer_actividad_principal(persona)
         domicilio = AfipService.extraer_domicilio_fiscal(persona)
 
@@ -325,5 +359,5 @@ class AfipService:
             "cuit_consultado": cuit,
             "ultima_consulta_afip": datetime.now(UTC),
             "ultimo_error_afip": None,
-            "wsid_consultado": "ws_sr_padron_a4",
+            "wsid_consultado": wsid,
         }
