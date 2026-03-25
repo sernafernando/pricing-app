@@ -489,9 +489,19 @@ function DatosFiscalesView({ datos }) {
 
   return (
     <div className={styles.fiscalData}>
+      {datos.wsid_consultado === 'ws_sr_padron_a13' && (
+        <div className={styles.alertWarning}>
+          <AlertCircle size={16} />
+          Datos parciales (Padrón A13). Condición IVA y Ganancias requieren Padrón A4 (pendiente de habilitación en ARCA).
+        </div>
+      )}
       <div className={styles.fieldGrid}>
-        <Field label="Condición IVA" value={datos.condicion_iva} />
-        <Field label="Inscripto Ganancias" value={datos.inscripto_ganancias ? 'Sí' : 'No'} />
+        {datos.condicion_iva !== null && datos.condicion_iva !== undefined && (
+          <Field label="Condición IVA" value={datos.condicion_iva} />
+        )}
+        {datos.inscripto_ganancias !== null && datos.inscripto_ganancias !== undefined && (
+          <Field label="Inscripto Ganancias" value={datos.inscripto_ganancias ? 'Sí' : 'No'} />
+        )}
         <Field label="Estado Clave" value={datos.estado_clave} />
         <Field label="Tipo Persona" value={datos.tipo_persona} />
         <Field label="Forma Jurídica" value={datos.forma_juridica} />

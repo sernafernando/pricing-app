@@ -115,13 +115,6 @@ class AfipService:
         if self.CERT and self.KEY:
             body["cert"] = self.CERT
             body["key"] = self.KEY
-            logger.info(
-                "CERT debug: len=%d, has_newlines=%s, first_line='%s', lines=%d",
-                len(self.CERT),
-                "\n" in self.CERT,
-                self.CERT.split("\n")[0] if "\n" in self.CERT else self.CERT[:40],
-                len(self.CERT.split("\n")) if "\n" in self.CERT else 1,
-            )
 
         async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
             resp = await client.post(

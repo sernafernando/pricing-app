@@ -379,6 +379,19 @@
   margin-bottom: var(--spacing-md);
 }
 
+.alertWarning {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
 .alertClose {
   margin-left: auto;
   background: none;
