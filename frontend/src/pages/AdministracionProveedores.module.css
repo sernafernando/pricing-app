@@ -130,18 +130,9 @@
   position: relative;
 }
 
-.searchIcon {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--cf-text-tertiary);
-  pointer-events: none;
-}
-
 .searchInput {
   width: 100%;
-  padding: 10px var(--spacing-md) 10px 40px;
+  padding: 10px var(--spacing-md);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
   background: var(--cf-bg-card);

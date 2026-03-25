@@ -214,7 +214,6 @@ export default function AdministracionProveedores() {
       {/* Search bar */}
       <div className={styles.searchBar}>
         <form onSubmit={handleSearch} className={styles.searchForm}>
-          <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
             value={searchInput}
