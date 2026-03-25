@@ -1,20 +1,32 @@
+/* ModalDetalleCliente - CF Design System */
+
 .overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  padding: 2rem;
+  z-index: var(--z-modal);
+  padding: var(--spacing-xl);
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+:root[data-theme="dark"] .overlay {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
 }
 
 .modal {
-  background: var(--color-bg);
-  border-radius: 12px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-xl);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
   max-width: 900px;
   width: 100%;
@@ -27,48 +39,89 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-subtle);
 }
 
 .header h2 {
   margin: 0;
-  font-size: 1.5rem;
-  color: var(--color-text);
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
 }
 
 .closeBtn {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: 0;
-  width: 2rem;
-  height: 2rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-md);
+  transition: all var(--duration-200) var(--ease-out);
 }
 
 .closeBtn:hover {
-  background: var(--color-bg-secondary);
-  color: var(--color-text);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
 }
 
 .body {
-  padding: 1.5rem;
+  padding: var(--spacing-lg);
   overflow-y: auto;
   flex: 1;
 }
 
+/* Feedback messages */
+.msgSuccess,
+.msgError {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.msgSuccess {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  color: var(--cf-accent-green);
+}
+
+.msgError {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--cf-accent-red);
+}
+
+.msgSuccess button,
+.msgError button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  opacity: 0.7;
+}
+
+.msgSuccess button:hover,
+.msgError button:hover {
+  opacity: 1;
+}
+
+/* Sections */
 .section {
-  background: var(--color-bg-secondary);
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
 }
 
 .section:last-child {
@@ -79,171 +132,121 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: var(--spacing-md);
 }
 
 .section h3 {
-  margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  color: var(--color-text);
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--spacing-xs);
 }
 
 .sectionHeader h3 {
   margin: 0;
 }
 
+/* Grid */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
+  gap: var(--spacing-md);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 2px;
 }
 
 .field label {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--tracking-wide);
 }
 
 .value {
-  font-size: 1rem;
-  color: var(--color-text);
-  padding: 0.5rem 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  padding: var(--spacing-xs) 0;
 }
 
+/* Form inputs */
 .input {
-  padding: 0.6rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 0.95rem;
-  background: var(--color-bg);
-  color: var(--color-text);
-  transition: border-color 0.2s;
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
+/* Badges */
 .badgeSuccess {
-  display: inline-block;
-  padding: 0.35rem 0.75rem;
-  background: #d1fae5;
-  color: #065f46;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
   width: fit-content;
 }
 
 .badgeDanger {
-  display: inline-block;
-  padding: 0.35rem 0.75rem;
-  background: #fee2e2;
-  color: #991b1b;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
   width: fit-content;
 }
 
+/* Buttons */
 .btnEdit {
-  padding: 0.5rem 1rem;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btnEdit:hover {
-  background: var(--color-primary-dark);
-  transform: translateY(-1px);
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
 .editActions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--spacing-xs);
 }
 
 .btnSave {
-  padding: 0.5rem 1rem;
-  background: #10b981;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btnSave:hover:not(:disabled) {
-  background: #059669;
-  transform: translateY(-1px);
-}
-
-.btnSave:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
 .btnCancel {
-  padding: 0.5rem 1rem;
-  background: var(--color-bg);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btnCancel:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-text-secondary);
-}
-
-.btnCancel:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
 .footer {
   display: flex;
   justify-content: flex-end;
-  padding: 1.5rem;
-  border-top: 1px solid var(--color-border);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-subtle);
 }
 
 .btnClose {
-  padding: 0.75rem 1.5rem;
-  background: var(--color-bg-secondary);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btnClose:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-text-secondary);
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
 /* Responsive */
@@ -261,7 +264,7 @@
   .sectionHeader {
     flex-direction: column;
     align-items: flex-start;
-    gap: 1rem;
+    gap: var(--spacing-sm);
   }
 
   .editActions {

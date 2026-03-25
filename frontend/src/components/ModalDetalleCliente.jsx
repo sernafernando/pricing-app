@@ -1,10 +1,25 @@
 import { useState, useEffect } from 'react';
+import {
+  X,
+  Edit3,
+  Save,
+  XCircle,
+  ClipboardList,
+  Phone,
+  MapPin,
+  Briefcase,
+  ShoppingCart,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+} from 'lucide-react';
 import styles from './ModalDetalleCliente.module.css';
 import api from '../services/api';
 
 export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) {
   const [editando, setEditando] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [mensaje, setMensaje] = useState(null); // { tipo: 'success'|'error', texto: '...' }
   const [datosEdit, setDatosEdit] = useState({
     cust_name: '',
     cust_email: '',
@@ -31,18 +46,18 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
 
   const handleGuardar = async () => {
     setGuardando(true);
+    setMensaje(null);
     try {
       const response = await api.patch(
         `/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`,
         datosEdit
       );
-      
+
       setEditando(false);
       onActualizar(response.data);
-      alert('Cliente actualizado correctamente');
-    } catch (error) {
-      console.error('Error actualizando cliente:', error);
-      alert('Error al actualizar cliente');
+      setMensaje({ tipo: 'success', texto: 'Cliente actualizado correctamente' });
+    } catch {
+      setMensaje({ tipo: 'error', texto: 'Error al actualizar cliente' });
     } finally {
       setGuardando(false);
     }
@@ -50,7 +65,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
 
   const handleCancelar = () => {
     setEditando(false);
-    // Restaurar datos originales
+    setMensaje(null);
     setDatosEdit({
       cust_name: cliente.cust_name || '',
       cust_email: cliente.cust_email || '',
@@ -60,6 +75,10 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
       cust_city: cliente.cust_city || '',
       cust_zip: cliente.cust_zip || ''
     });
+  };
+
+  const updateField = (field, value) => {
+    setDatosEdit(prev => ({ ...prev, [field]: value }));
   };
 
   if (!cliente) return null;
@@ -79,37 +98,53 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
-          <h2>Detalle del Cliente #{cliente.cust_id}</h2>
-          <button className={styles.closeBtn} onClick={onClose}>✕</button>
+          <h2>Cliente #{cliente.cust_id}</h2>
+          <button className={styles.closeBtn} onClick={onClose} aria-label="Cerrar modal">
+            <X size={18} />
+          </button>
         </div>
 
         <div className={styles.body}>
-          {/* Sección: Datos Principales */}
+          {/* Feedback message */}
+          {mensaje && (
+            <div className={mensaje.tipo === 'success' ? styles.msgSuccess : styles.msgError}>
+              {mensaje.tipo === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {mensaje.texto}
+              <button onClick={() => setMensaje(null)} aria-label="Cerrar mensaje">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Datos Principales */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
-              <h3>📋 Datos Principales</h3>
+              <h3><ClipboardList size={16} /> Datos Principales</h3>
               {!editando ? (
-                <button 
+                <button
                   className={styles.btnEdit}
                   onClick={() => setEditando(true)}
                 >
-                  ✏️ Editar
+                  <Edit3 size={14} />
+                  Editar
                 </button>
               ) : (
                 <div className={styles.editActions}>
-                  <button 
+                  <button
                     className={styles.btnSave}
                     onClick={handleGuardar}
                     disabled={guardando}
                   >
-                    {guardando ? 'Guardando...' : '💾 Guardar'}
+                    <Save size={14} />
+                    {guardando ? 'Guardando...' : 'Guardar'}
                   </button>
-                  <button 
+                  <button
                     className={styles.btnCancel}
                     onClick={handleCancelar}
                     disabled={guardando}
                   >
-                    ❌ Cancelar
+                    <XCircle size={14} />
+                    Cancelar
                   </button>
                 </div>
               )}
@@ -127,7 +162,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_name}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_name: e.target.value })}
+                    onChange={(e) => updateField('cust_name', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -151,7 +186,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="email"
                     value={datosEdit.cust_email}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_email: e.target.value })}
+                    onChange={(e) => updateField('cust_email', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -168,9 +203,9 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
             </div>
           </div>
 
-          {/* Sección: Contacto */}
+          {/* Contacto */}
           <div className={styles.section}>
-            <h3>📞 Contacto</h3>
+            <h3><Phone size={16} /> Contacto</h3>
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>Teléfono</label>
@@ -178,7 +213,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_phone1}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_phone1: e.target.value })}
+                    onChange={(e) => updateField('cust_phone1', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -192,7 +227,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_cellphone}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_cellphone: e.target.value })}
+                    onChange={(e) => updateField('cust_cellphone', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -202,9 +237,9 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
             </div>
           </div>
 
-          {/* Sección: Dirección */}
+          {/* Dirección */}
           <div className={styles.section}>
-            <h3>📍 Dirección</h3>
+            <h3><MapPin size={16} /> Dirección</h3>
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>Dirección</label>
@@ -212,7 +247,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_address}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_address: e.target.value })}
+                    onChange={(e) => updateField('cust_address', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -226,7 +261,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_city}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_city: e.target.value })}
+                    onChange={(e) => updateField('cust_city', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -240,7 +275,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
                   <input
                     type="text"
                     value={datosEdit.cust_zip}
-                    onChange={(e) => setDatosEdit({ ...datosEdit, cust_zip: e.target.value })}
+                    onChange={(e) => updateField('cust_zip', e.target.value)}
                     className={styles.input}
                   />
                 ) : (
@@ -255,9 +290,9 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
             </div>
           </div>
 
-          {/* Sección: Información Fiscal */}
+          {/* Información Fiscal */}
           <div className={styles.section}>
-            <h3>💼 Información Fiscal y Comercial</h3>
+            <h3><Briefcase size={16} /> Información Fiscal y Comercial</h3>
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>Condición Fiscal</label>
@@ -276,10 +311,10 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
             </div>
           </div>
 
-          {/* Sección: MercadoLibre */}
+          {/* MercadoLibre */}
           {cliente.cust_mercadolibreid && (
             <div className={styles.section}>
-              <h3>🛒 MercadoLibre</h3>
+              <h3><ShoppingCart size={16} /> MercadoLibre</h3>
               <div className={styles.grid}>
                 <div className={styles.field}>
                   <label>ID ML</label>
@@ -294,9 +329,9 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
             </div>
           )}
 
-          {/* Sección: Auditoría */}
+          {/* Auditoría */}
           <div className={styles.section}>
-            <h3>🕐 Auditoría</h3>
+            <h3><Clock size={16} /> Auditoría</h3>
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>Fecha de Alta</label>
