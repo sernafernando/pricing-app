@@ -3972,14 +3972,28 @@ async def exportar_rebate(
             pvp_lleno = precio_pricelist
             pvp_seller = precio_base / (1 - porcentaje_rebate / 100)
         else:
-            # Cuotas: base = precio de la pricelist de cuotas
-            # PVP SELLER = precio_cuotas / (1 - rebate_cuotas%)
+            # Cuotas: usar el precio editado de la columna de cuotas (ProductoPricing)
+            # como base para PVP SELLER, y el precio de la pricelist (PrecioML) como PVP LLENO
+            cuotas_campo_map = {
+                "3": "precio_3_cuotas",
+                "6": "precio_6_cuotas",
+                "9": "precio_9_cuotas",
+                "12": "precio_12_cuotas",
+            }
+            campo_cuota = cuotas_campo_map.get(request.tipo_cuotas)
+            precio_cuota_editado = float(getattr(producto_pricing, campo_cuota, None) or 0) if campo_cuota else 0
+
+            if precio_cuota_editado == 0:
+                # Si no tiene precio de cuota editado, skip este producto
+                continue
+
             porcentaje_cuotas = (
                 request.porcentaje_rebate_override
                 if request.porcentaje_rebate_override is not None
                 else porcentaje_rebate
             )
-            pvp_seller = precio_pricelist / (1 - porcentaje_cuotas / 100)
+            # PVP SELLER = precio editado de cuotas / (1 - rebate%)
+            pvp_seller = precio_cuota_editado / (1 - porcentaje_cuotas / 100)
             offset_lleno = request.offset_pvp_lleno if request.offset_pvp_lleno is not None else 0
             pvp_lleno = precio_pricelist * (1 + offset_lleno / 100)
 
