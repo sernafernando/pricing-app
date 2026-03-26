@@ -148,43 +148,7 @@ export default function AdministracionBancos() {
       ) : bancos.length === 0 ? (
         <div className={styles.emptyState}>No se encontraron cuentas bancarias</div>
       ) : (
-        <div className={styles.grid}>
-          {bancos.map((b) => (
-            <div key={b.id} className={`${styles.card} ${!b.activo ? styles.cardInactive : ''}`}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardTitle}>{b.banco}</span>
-                <div className={styles.cardActions}>
-                  {b.tipo_cuenta && <span className={styles.tag}>{b.tipo_cuenta}</span>}
-                  <span className={styles.tagMoneda}>{b.moneda}</span>
-                  {canEdit && (
-                    <>
-                      <button className={styles.btnIcon} onClick={() => handleOpenEdit(b)} title="Editar">
-                        <Pencil size={14} />
-                      </button>
-                      <button className={styles.btnIcon} onClick={() => handleToggle(b)} title={b.activo ? 'Deshabilitar' : 'Habilitar'}>
-                        {b.activo ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className={styles.cardBody}>
-                {b.cbu && <div className={styles.fieldRow}><span className={styles.fieldLabel}>CBU</span><span className={styles.fieldValue}>{b.cbu}</span></div>}
-                {b.alias && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Alias</span><span className={styles.fieldValue}>{b.alias}</span></div>}
-                {b.numero_cuenta && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Nº Cuenta</span><span className={styles.fieldValue}>{b.numero_cuenta}</span></div>}
-                {b.sucursal && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Sucursal</span><span className={styles.fieldValue}>{b.sucursal}</span></div>}
-                {b.titular && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Titular</span><span className={styles.fieldValue}>{b.titular}{b.cuit_titular ? ` (${b.cuit_titular})` : ''}</span></div>}
-                <div className={styles.fieldRow}>
-                  <span className={styles.fieldLabel}>Saldo inicial</span>
-                  <span className={styles.fieldValue}>
-                    {b.moneda === 'USD' ? 'USD ' : '$ '}{Number(b.saldo_inicial).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                {b.notas && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Notas</span><span className={styles.fieldValue}>{b.notas}</span></div>}
-              </div>
-            </div>
-          ))}
-        </div>
+        <BancosGrouped bancos={bancos} canEdit={canEdit} onEdit={handleOpenEdit} onToggle={handleToggle} />
       )}
 
       {/* Modal crear/editar */}
@@ -265,6 +229,83 @@ export default function AdministracionBancos() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Bancos agrupados por titular/CUIT ────────────────────────────
+
+function BancosGrouped({ bancos, canEdit, onEdit, onToggle }) {
+  // Agrupar por cuit_titular (si no tiene, agrupar bajo "Sin titular")
+  const groups = {};
+  for (const b of bancos) {
+    const key = b.cuit_titular || '__sin_titular__';
+    if (!groups[key]) {
+      groups[key] = { titular: b.titular || 'Sin titular asignado', cuit: b.cuit_titular, bancos: [] };
+    }
+    groups[key].bancos.push(b);
+  }
+
+  const sortedKeys = Object.keys(groups).sort((a, b) => {
+    if (a === '__sin_titular__') return 1;
+    if (b === '__sin_titular__') return -1;
+    return (groups[a].titular || '').localeCompare(groups[b].titular || '');
+  });
+
+  return (
+    <div className={styles.groupedContainer}>
+      {sortedKeys.map((key) => {
+        const group = groups[key];
+        return (
+          <div key={key} className={styles.group}>
+            <div className={styles.groupHeader}>
+              <span className={styles.groupTitle}>{group.titular}</span>
+              {group.cuit && <span className={styles.groupCuit}>CUIT {group.cuit}</span>}
+            </div>
+            <div className={styles.grid}>
+              {group.bancos.map((b) => (
+                <BancoCard key={b.id} banco={b} canEdit={canEdit} onEdit={onEdit} onToggle={onToggle} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BancoCard({ banco: b, canEdit, onEdit, onToggle }) {
+  return (
+    <div className={`${styles.card} ${!b.activo ? styles.cardInactive : ''}`}>
+      <div className={styles.cardHeader}>
+        <span className={styles.cardTitle}>{b.banco}</span>
+        <div className={styles.cardActions}>
+          {b.tipo_cuenta && <span className={styles.tag}>{b.tipo_cuenta}</span>}
+          {canEdit && (
+            <>
+              <button className={styles.btnIcon} onClick={() => onEdit(b)} title="Editar">
+                <Pencil size={14} />
+              </button>
+              <button className={styles.btnIcon} onClick={() => onToggle(b)} title={b.activo ? 'Deshabilitar' : 'Habilitar'}>
+                {b.activo ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className={styles.cardBody}>
+        {b.cbu && <div className={styles.fieldRow}><span className={styles.fieldLabel}>CBU</span><span className={styles.fieldValue}>{b.cbu}</span></div>}
+        {b.alias && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Alias</span><span className={styles.fieldValue}>{b.alias}</span></div>}
+        {b.numero_cuenta && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Nº Cuenta</span><span className={styles.fieldValue}>{b.numero_cuenta}</span></div>}
+        {b.sucursal && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Sucursal</span><span className={styles.fieldValue}>{b.sucursal}</span></div>}
+        <div className={styles.fieldRow}>
+          <span className={styles.fieldLabel}>Saldo inicial</span>
+          <span className={styles.fieldValue}>
+            {(b.tipo_cuenta || '').includes('USD') ? 'USD ' : '$ '}{Number(b.saldo_inicial).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+          </span>
+        </div>
+        {b.notas && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Notas</span><span className={styles.fieldValue}>{b.notas}</span></div>}
+      </div>
     </div>
   );
 }
