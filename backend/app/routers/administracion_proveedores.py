@@ -90,10 +90,72 @@ class ProveedorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DireccionResponse(BaseModel):
+    id: int
+    proveedor_id: int
+    etiqueta: str
+    direccion: str
+    cp: Optional[str] = None
+    ciudad: Optional[str] = None
+    provincia: Optional[str] = None
+    horario_recepcion: Optional[str] = None
+    contacto_nombre: Optional[str] = None
+    contacto_telefono: Optional[str] = None
+    notas: Optional[str] = None
+    origen: str = "manual"
+    activo: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BancoResponse(BaseModel):
+    id: int
+    proveedor_id: int
+    banco: str
+    tipo_cuenta: Optional[str] = None
+    cbu: Optional[str] = None
+    alias: Optional[str] = None
+    numero_cuenta: Optional[str] = None
+    sucursal: Optional[str] = None
+    titular: Optional[str] = None
+    cuit_titular: Optional[str] = None
+    moneda: Optional[str] = "ARS"
+    notas: Optional[str] = None
+    activo: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ContactoResponse(BaseModel):
+    id: int
+    proveedor_id: int
+    nombre: str
+    rol: Optional[str] = None
+    telefono: Optional[str] = None
+    email: Optional[str] = None
+    cargo: Optional[str] = None
+    notas: Optional[str] = None
+    activo: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MarcaProveedorResponse(BaseModel):
+    """Marca que le compramos a un proveedor (extraída de compras)."""
+
+    brand_id: int
+    marca: str
+    ultima_compra: Optional[datetime] = None
+    cantidad_compras: int = 0
+
+
 class ProveedorDetalleResponse(ProveedorResponse):
-    """Proveedor con datos fiscales completos."""
+    """Proveedor con datos fiscales completos y sub-entidades."""
 
     datos_fiscales: Optional[DatosFiscalesResponse] = None
+    direcciones: list[DireccionResponse] = []
+    bancos: list[BancoResponse] = []
+    contactos: list[ContactoResponse] = []
 
 
 class ProveedorCreate(BaseModel):
@@ -125,6 +187,40 @@ class ProveedorUpdate(BaseModel):
     representante: Optional[str] = Field(None, max_length=255)
     notas: Optional[str] = None
     activo: Optional[bool] = None
+
+
+class DireccionCreate(BaseModel):
+    etiqueta: str = Field(min_length=1, max_length=100)
+    direccion: str = Field(min_length=1, max_length=500)
+    cp: Optional[str] = Field(None, max_length=20)
+    ciudad: Optional[str] = Field(None, max_length=255)
+    provincia: Optional[str] = Field(None, max_length=255)
+    horario_recepcion: Optional[str] = Field(None, max_length=255)
+    contacto_nombre: Optional[str] = Field(None, max_length=255)
+    contacto_telefono: Optional[str] = Field(None, max_length=100)
+    notas: Optional[str] = None
+
+
+class BancoCreate(BaseModel):
+    banco: str = Field(min_length=1, max_length=255)
+    tipo_cuenta: Optional[str] = Field(None, max_length=50)
+    cbu: Optional[str] = Field(None, max_length=30)
+    alias: Optional[str] = Field(None, max_length=100)
+    numero_cuenta: Optional[str] = Field(None, max_length=50)
+    sucursal: Optional[str] = Field(None, max_length=100)
+    titular: Optional[str] = Field(None, max_length=255)
+    cuit_titular: Optional[str] = Field(None, max_length=20)
+    moneda: Optional[str] = Field("ARS", max_length=10)
+    notas: Optional[str] = None
+
+
+class ContactoCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=255)
+    rol: Optional[str] = Field(None, max_length=100)
+    telefono: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    cargo: Optional[str] = Field(None, max_length=255)
+    notas: Optional[str] = None
 
 
 class ProveedorListResponse(BaseModel):
@@ -253,9 +349,17 @@ async def obtener_proveedor(
     datos = getattr(prov, "datos_fiscales", None)
     base = _proveedor_to_response(prov)
 
+    # Sub-entidades: solo activas
+    direcciones_activas = [d for d in (prov.direcciones or []) if d.activo]
+    bancos_activos = [b for b in (prov.bancos or []) if b.activo]
+    contactos_activos = [c for c in (prov.contactos or []) if c.activo]
+
     return ProveedorDetalleResponse(
         **base.model_dump(),
         datos_fiscales=_datos_fiscales_to_response(datos) if datos else None,
+        direcciones=[DireccionResponse.model_validate(d) for d in direcciones_activas],
+        bancos=[BancoResponse.model_validate(b) for b in bancos_activos],
+        contactos=[ContactoResponse.model_validate(c) for c in contactos_activos],
     )
 
 
@@ -393,3 +497,342 @@ async def obtener_datos_fiscales(
         )
 
     return _datos_fiscales_to_response(datos)
+
+
+# =============================================================================
+# DIRECCIONES
+# =============================================================================
+
+
+@router.get("/{proveedor_id}/direcciones", response_model=list[DireccionResponse])
+async def listar_direcciones(
+    proveedor_id: int,
+    incluir_inactivas: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[DireccionResponse]:
+    """Lista direcciones/depósitos de un proveedor."""
+    _check_permiso(db, current_user, "administracion.ver_proveedores")
+
+    from app.models.proveedor_direccion import ProveedorDireccion
+
+    query = db.query(ProveedorDireccion).filter(ProveedorDireccion.proveedor_id == proveedor_id)
+    if not incluir_inactivas:
+        query = query.filter(ProveedorDireccion.activo == True)  # noqa: E712
+    return [DireccionResponse.model_validate(d) for d in query.order_by(ProveedorDireccion.etiqueta).all()]
+
+
+@router.post("/{proveedor_id}/direcciones", response_model=DireccionResponse, status_code=201)
+async def crear_direccion(
+    proveedor_id: int,
+    data: DireccionCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DireccionResponse:
+    """Agrega una dirección/depósito al proveedor."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_direccion import ProveedorDireccion
+
+    d = ProveedorDireccion(proveedor_id=proveedor_id, **data.model_dump())
+    db.add(d)
+    db.commit()
+    db.refresh(d)
+    return DireccionResponse.model_validate(d)
+
+
+@router.put("/direcciones/{direccion_id}", response_model=DireccionResponse)
+async def actualizar_direccion(
+    direccion_id: int,
+    data: DireccionCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DireccionResponse:
+    """Actualiza una dirección."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_direccion import ProveedorDireccion
+
+    d = db.query(ProveedorDireccion).filter(ProveedorDireccion.id == direccion_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Dirección no encontrada")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(d, field, value)
+    db.commit()
+    db.refresh(d)
+    return DireccionResponse.model_validate(d)
+
+
+@router.patch("/direcciones/{direccion_id}/toggle", response_model=DireccionResponse)
+async def toggle_direccion(
+    direccion_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DireccionResponse:
+    """Habilita/deshabilita una dirección (soft delete)."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_direccion import ProveedorDireccion
+
+    d = db.query(ProveedorDireccion).filter(ProveedorDireccion.id == direccion_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Dirección no encontrada")
+    d.activo = not d.activo
+    db.commit()
+    db.refresh(d)
+    return DireccionResponse.model_validate(d)
+
+
+# =============================================================================
+# BANCOS
+# =============================================================================
+
+
+@router.get("/{proveedor_id}/bancos", response_model=list[BancoResponse])
+async def listar_bancos(
+    proveedor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[BancoResponse]:
+    """Lista cuentas bancarias de un proveedor."""
+    _check_permiso(db, current_user, "administracion.ver_proveedores")
+
+    from app.models.proveedor_banco import ProveedorBanco
+
+    bancos = (
+        db.query(ProveedorBanco)
+        .filter(ProveedorBanco.proveedor_id == proveedor_id, ProveedorBanco.activo == True)  # noqa: E712
+        .order_by(ProveedorBanco.banco)
+        .all()
+    )
+    return [BancoResponse.model_validate(b) for b in bancos]
+
+
+@router.post("/{proveedor_id}/bancos", response_model=BancoResponse, status_code=201)
+async def crear_banco(
+    proveedor_id: int,
+    data: BancoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> BancoResponse:
+    """Agrega una cuenta bancaria al proveedor."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_banco import ProveedorBanco
+
+    b = ProveedorBanco(proveedor_id=proveedor_id, **data.model_dump())
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    return BancoResponse.model_validate(b)
+
+
+@router.put("/bancos/{banco_id}", response_model=BancoResponse)
+async def actualizar_banco(
+    banco_id: int,
+    data: BancoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> BancoResponse:
+    """Actualiza una cuenta bancaria."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_banco import ProveedorBanco
+
+    b = db.query(ProveedorBanco).filter(ProveedorBanco.id == banco_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(b, field, value)
+    db.commit()
+    db.refresh(b)
+    return BancoResponse.model_validate(b)
+
+
+@router.delete("/bancos/{banco_id}", status_code=204)
+async def eliminar_banco(
+    banco_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """Elimina (soft) una cuenta bancaria."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_banco import ProveedorBanco
+
+    b = db.query(ProveedorBanco).filter(ProveedorBanco.id == banco_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+    b.activo = False
+    db.commit()
+
+
+# =============================================================================
+# CONTACTOS
+# =============================================================================
+
+
+@router.get("/{proveedor_id}/contactos", response_model=list[ContactoResponse])
+async def listar_contactos(
+    proveedor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[ContactoResponse]:
+    """Lista contactos de un proveedor."""
+    _check_permiso(db, current_user, "administracion.ver_proveedores")
+
+    from app.models.proveedor_contacto import ProveedorContacto
+
+    contactos = (
+        db.query(ProveedorContacto)
+        .filter(ProveedorContacto.proveedor_id == proveedor_id, ProveedorContacto.activo == True)  # noqa: E712
+        .order_by(ProveedorContacto.nombre)
+        .all()
+    )
+    return [ContactoResponse.model_validate(c) for c in contactos]
+
+
+@router.post("/{proveedor_id}/contactos", response_model=ContactoResponse, status_code=201)
+async def crear_contacto(
+    proveedor_id: int,
+    data: ContactoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ContactoResponse:
+    """Agrega un contacto al proveedor."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_contacto import ProveedorContacto
+
+    c = ProveedorContacto(proveedor_id=proveedor_id, **data.model_dump())
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return ContactoResponse.model_validate(c)
+
+
+@router.put("/contactos/{contacto_id}", response_model=ContactoResponse)
+async def actualizar_contacto(
+    contacto_id: int,
+    data: ContactoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ContactoResponse:
+    """Actualiza un contacto."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_contacto import ProveedorContacto
+
+    c = db.query(ProveedorContacto).filter(ProveedorContacto.id == contacto_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(c, field, value)
+    db.commit()
+    db.refresh(c)
+    return ContactoResponse.model_validate(c)
+
+
+@router.delete("/contactos/{contacto_id}", status_code=204)
+async def eliminar_contacto(
+    contacto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """Elimina (soft) un contacto."""
+    _check_permiso(db, current_user, "administracion.gestionar_proveedores")
+
+    from app.models.proveedor_contacto import ProveedorContacto
+
+    c = db.query(ProveedorContacto).filter(ProveedorContacto.id == contacto_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
+    c.activo = False
+    db.commit()
+
+
+# =============================================================================
+# MARCAS (read-only, extraídas de compras en GBP)
+# =============================================================================
+
+
+@router.get("/{proveedor_id}/marcas", response_model=list[MarcaProveedorResponse])
+async def marcas_por_proveedor(
+    proveedor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[MarcaProveedorResponse]:
+    """
+    Marcas que le compramos a un proveedor.
+    Extrae de item_transactions (puco_id=10) cruzando con tb_item → tb_brand.
+    """
+    _check_permiso(db, current_user, "administracion.ver_proveedores")
+
+    from app.models.proveedor import Proveedor
+
+    prov = db.query(Proveedor).filter(Proveedor.id == proveedor_id).first()
+    if not prov or not prov.supp_id:
+        return []
+
+    from sqlalchemy import text
+
+    results = db.execute(
+        text("""
+            SELECT b.brand_id, b.brand_desc, MAX(ct.ct_date) as ultima_compra, COUNT(DISTINCT ct.ct_transaction) as cant
+            FROM tb_item_transactions it
+            JOIN tb_commercial_transactions ct ON it.ct_transaction = ct.ct_transaction
+            JOIN tb_item i ON it.item_id = i.item_id AND it.comp_id = i.comp_id
+            JOIN tb_brand b ON i.brand_id = b.brand_id AND i.comp_id = b.comp_id
+            WHERE it.supp_id = :supp_id AND it.puco_id = 10
+            GROUP BY b.brand_id, b.brand_desc
+            ORDER BY cant DESC
+        """),
+        {"supp_id": prov.supp_id},
+    ).fetchall()
+
+    return [
+        MarcaProveedorResponse(
+            brand_id=r[0],
+            marca=r[1],
+            ultima_compra=r[2],
+            cantidad_compras=r[3],
+        )
+        for r in results
+    ]
+
+
+@router.get("/buscar-por-marca", response_model=list[ProveedorResponse])
+async def buscar_proveedores_por_marca(
+    marca: str = Query(..., min_length=1, description="Nombre de marca a buscar"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[ProveedorResponse]:
+    """
+    Busca proveedores a los que les compramos una marca determinada.
+    Ej: "¿a quién le compro Logitech?"
+    """
+    _check_permiso(db, current_user, "administracion.ver_proveedores")
+
+    from sqlalchemy import text
+
+    results = db.execute(
+        text("""
+            SELECT DISTINCT p.id
+            FROM proveedores p
+            JOIN tb_item_transactions it ON it.supp_id = p.supp_id
+            JOIN tb_item i ON it.item_id = i.item_id AND it.comp_id = i.comp_id
+            JOIN tb_brand b ON i.brand_id = b.brand_id AND i.comp_id = b.comp_id
+            WHERE it.puco_id = 10 AND b.brand_desc ILIKE :marca AND p.activo = true
+            ORDER BY p.id
+        """),
+        {"marca": f"%{marca}%"},
+    ).fetchall()
+
+    prov_ids = [r[0] for r in results]
+    if not prov_ids:
+        return []
+
+    from app.models.proveedor import Proveedor
+
+    proveedores = db.query(Proveedor).filter(Proveedor.id.in_(prov_ids)).all()
+    return [_proveedor_to_response(p) for p in proveedores]
