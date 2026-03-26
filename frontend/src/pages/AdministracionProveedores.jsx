@@ -329,6 +329,18 @@ export default function AdministracionProveedores() {
                     {detalle.estado_clave}
                   </span>
                 )}
+                {tienePermiso('administracion.gestionar_proveedores') && (
+                  <button
+                    className={detalle.activo ? styles.btnDisable : styles.btnEnable}
+                    onClick={async () => {
+                      await api.put(`/administracion/proveedores/${detalle.id}`, { activo: !detalle.activo });
+                      fetchDetalle(selectedId);
+                      fetchProveedores();
+                    }}
+                  >
+                    {detalle.activo ? <><EyeOff size={14} /> Deshabilitar</> : <><Eye size={14} /> Habilitar</>}
+                  </button>
+                )}
               </div>
 
               {/* Datos generales */}
