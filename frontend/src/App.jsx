@@ -43,6 +43,7 @@ import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import Tickets from './pages/Tickets';
 import TicketsAdmin from './pages/TicketsAdmin';
 import AdministracionProveedores from './pages/AdministracionProveedores';
+import AdministracionBancos from './pages/AdministracionBancos';
 import ProtectedRoute from './components/ProtectedRoute';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
@@ -270,6 +271,11 @@ function App() {
             <Route path="/administracion/proveedores" element={
               <ProtectedRoute permiso="administracion.ver_proveedores">
                 <AdministracionProveedores />
+              </ProtectedRoute>
+            } />
+            <Route path="/administracion/bancos" element={
+              <ProtectedRoute permiso="administracion.ver_proveedores">
+                <AdministracionBancos />
               </ProtectedRoute>
             } />
             <Route path="/tickets" element={

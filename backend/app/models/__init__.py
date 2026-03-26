@@ -108,6 +108,9 @@ from app.models.proveedor_contacto import ProveedorContacto
 from app.models.proveedor import Proveedor, OrigenProveedor
 from app.models.proveedor_datos_fiscales import ProveedorDatosFiscales
 
+# Bancos — Módulo Administración
+from app.models.banco_empresa import BancoEmpresa
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -236,4 +239,6 @@ __all__ = [
     "Proveedor",
     "OrigenProveedor",
     "ProveedorDatosFiscales",
+    # Bancos — Módulo Administración
+    "BancoEmpresa",
 ]
