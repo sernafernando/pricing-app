@@ -32,7 +32,18 @@ class ImpuestoEmpresa(Base):
     codigo_afip = Column(Integer, nullable=True)  # ID de AFIP (30=IVA, 217=Ret.Gan, etc.)
 
     # ── Alícuota ──────────────────────────────────────────────────
-    alicuota = Column(Numeric(8, 4), nullable=False)  # Porcentaje: 21.0000, 10.5000, 3.0000
+    alicuota = Column(Numeric(8, 4), nullable=False)  # Porcentaje general o para inscriptos
+    alicuota_no_inscripto = Column(Numeric(8, 4), nullable=True)  # Para no inscriptos (IIBB)
+    alicuota_convenio = Column(Numeric(8, 4), nullable=True)  # Convenio multilateral (IIBB)
+    segun_padron = Column(Boolean, default=False, nullable=False)  # True = alícuota varía según padrón
+
+    # ── Jurisdicción (para percepciones/retenciones provinciales) ─
+    jurisdiccion = Column(String(100), nullable=True)  # "Buenos Aires", "CABA", "Catamarca", etc.
+
+    # ── Mínimos ───────────────────────────────────────────────────
+    base_imponible_minima = Column(Numeric(18, 2), nullable=True)  # Monto mínimo para aplicar
+    percepcion_minima = Column(Numeric(18, 2), nullable=True)  # Monto mínimo de percepción
+    minimo_incluye_iva = Column(Boolean, default=False, nullable=False)  # Si el mínimo es + IVA
 
     # ── Aplicación ────────────────────────────────────────────────
     aplica_a = Column(String(20), nullable=False, default="ambos")  # compras, ventas, ambos

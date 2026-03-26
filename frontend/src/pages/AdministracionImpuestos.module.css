@@ -160,11 +160,23 @@
 .rowInactive { opacity: 0.4; }
 
 .cellName { font-weight: 500; }
-.cellAlicuota { font-weight: 600; font-variant-numeric: tabular-nums; }
-.cellCode { color: var(--cf-text-tertiary); font-size: var(--font-xs); }
+.cellAlicuota { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cellJurisdiccion { font-size: var(--font-xs); color: var(--cf-text-secondary); white-space: nowrap; }
 .cellAplica { font-size: var(--font-xs); color: var(--cf-text-secondary); }
-.cellNotas { font-size: var(--font-xs); color: var(--cf-text-tertiary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cellMinimos { font-size: var(--font-xs); color: var(--cf-text-tertiary); display: flex; flex-direction: column; gap: 2px; }
 .cellActions { display: flex; gap: var(--spacing-xs); }
+
+.tagPadron {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  margin-left: 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+  vertical-align: middle;
+}
 
 /* ── States ──────────────────────────────────────────────────── */
 .loadingState {

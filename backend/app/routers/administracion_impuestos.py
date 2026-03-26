@@ -34,6 +34,13 @@ class ImpuestoResponse(BaseModel):
     tipo: str
     codigo_afip: Optional[int] = None
     alicuota: float
+    alicuota_no_inscripto: Optional[float] = None
+    alicuota_convenio: Optional[float] = None
+    segun_padron: bool = False
+    jurisdiccion: Optional[str] = None
+    base_imponible_minima: Optional[float] = None
+    percepcion_minima: Optional[float] = None
+    minimo_incluye_iva: bool = False
     aplica_a: str = "ambos"
     notas: Optional[str] = None
     activo: bool = True
@@ -45,10 +52,17 @@ class ImpuestoResponse(BaseModel):
 
 class ImpuestoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=255)
-    tipo: str = Field(min_length=1, max_length=50)  # iva, retencion, percepcion, otro
+    tipo: str = Field(min_length=1, max_length=50)
     codigo_afip: Optional[int] = None
     alicuota: float = Field(ge=0, le=100)
-    aplica_a: str = Field("ambos", max_length=20)  # compras, ventas, ambos
+    alicuota_no_inscripto: Optional[float] = Field(None, ge=0, le=100)
+    alicuota_convenio: Optional[float] = Field(None, ge=0, le=100)
+    segun_padron: bool = False
+    jurisdiccion: Optional[str] = Field(None, max_length=100)
+    base_imponible_minima: Optional[float] = None
+    percepcion_minima: Optional[float] = None
+    minimo_incluye_iva: bool = False
+    aplica_a: str = Field("ambos", max_length=20)
     notas: Optional[str] = None
 
 
@@ -57,6 +71,13 @@ class ImpuestoUpdate(BaseModel):
     tipo: Optional[str] = Field(None, min_length=1, max_length=50)
     codigo_afip: Optional[int] = None
     alicuota: Optional[float] = Field(None, ge=0, le=100)
+    alicuota_no_inscripto: Optional[float] = Field(None, ge=0, le=100)
+    alicuota_convenio: Optional[float] = Field(None, ge=0, le=100)
+    segun_padron: Optional[bool] = None
+    jurisdiccion: Optional[str] = Field(None, max_length=100)
+    base_imponible_minima: Optional[float] = None
+    percepcion_minima: Optional[float] = None
+    minimo_incluye_iva: Optional[bool] = None
     aplica_a: Optional[str] = Field(None, max_length=20)
     notas: Optional[str] = None
     activo: Optional[bool] = None
