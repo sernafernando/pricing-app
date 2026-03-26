@@ -102,6 +102,9 @@ from app.models.document_template import DocumentTemplate
 
 # Proveedores — Módulo Administración
 from app.models.rma_proveedor import RmaProveedor  # must be before Proveedor (relationship target)
+from app.models.proveedor_direccion import ProveedorDireccion
+from app.models.proveedor_banco import ProveedorBanco
+from app.models.proveedor_contacto import ProveedorContacto
 from app.models.proveedor import Proveedor, OrigenProveedor
 from app.models.proveedor_datos_fiscales import ProveedorDatosFiscales
 
@@ -227,6 +230,9 @@ __all__ = [
     "DocumentTemplate",
     # Proveedores — Módulo Administración
     "RmaProveedor",
+    "ProveedorDireccion",
+    "ProveedorBanco",
+    "ProveedorContacto",
     "Proveedor",
     "OrigenProveedor",
     "ProveedorDatosFiscales",

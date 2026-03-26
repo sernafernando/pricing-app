@@ -88,6 +88,24 @@ class Proveedor(Base):
         back_populates="proveedor",
         uselist=False,
     )
+    direcciones = relationship(
+        "ProveedorDireccion",
+        back_populates="proveedor",
+        cascade="all, delete-orphan",
+        order_by="ProveedorDireccion.etiqueta",
+    )
+    bancos = relationship(
+        "ProveedorBanco",
+        back_populates="proveedor",
+        cascade="all, delete-orphan",
+        order_by="ProveedorBanco.banco",
+    )
+    contactos = relationship(
+        "ProveedorContacto",
+        back_populates="proveedor",
+        cascade="all, delete-orphan",
+        order_by="ProveedorContacto.nombre",
+    )
 
     def __repr__(self) -> str:
         return f"<Proveedor(id={self.id}, nombre='{self.nombre}', cuit='{self.cuit}')>"

@@ -69,10 +69,15 @@ class ProveedoresService:
         return proveedores, total
 
     def obtener(self, proveedor_id: int) -> Optional[Proveedor]:
-        """Obtiene un proveedor por ID con datos fiscales incluidos."""
+        """Obtiene un proveedor por ID con todas las sub-entidades."""
         return (
             self.db.query(Proveedor)
-            .options(joinedload(Proveedor.datos_fiscales))
+            .options(
+                joinedload(Proveedor.datos_fiscales),
+                joinedload(Proveedor.direcciones),
+                joinedload(Proveedor.bancos),
+                joinedload(Proveedor.contactos),
+            )
             .filter(Proveedor.id == proveedor_id)
             .first()
         )
