@@ -137,6 +137,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       items: [
         { label: 'Proveedores', path: '/administracion/proveedores', permiso: 'administracion.ver_proveedores' },
         { label: 'Bancos', path: '/administracion/bancos', permiso: 'administracion.ver_proveedores' },
+        { label: 'Impuestos', path: '/administracion/impuestos', permiso: 'administracion.ver_proveedores' },
       ],
     },
     {

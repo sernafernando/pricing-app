@@ -111,6 +111,9 @@ from app.models.proveedor_datos_fiscales import ProveedorDatosFiscales
 # Bancos — Módulo Administración
 from app.models.banco_empresa import BancoEmpresa
 
+# Impuestos — Módulo Administración
+from app.models.impuesto_empresa import ImpuestoEmpresa
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -241,4 +244,6 @@ __all__ = [
     "ProveedorDatosFiscales",
     # Bancos — Módulo Administración
     "BancoEmpresa",
+    # Impuestos — Módulo Administración
+    "ImpuestoEmpresa",
 ]
