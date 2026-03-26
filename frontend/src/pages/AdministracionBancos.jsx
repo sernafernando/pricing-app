@@ -189,8 +189,8 @@ export default function AdministracionBancos() {
 
       {/* Modal crear/editar */}
       {showModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h2>{editingId ? 'Editar Cuenta' : 'Nueva Cuenta Bancaria'}</h2>
               <button className={styles.modalClose} onClick={() => setShowModal(false)}>

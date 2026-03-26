@@ -60,6 +60,11 @@ allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 - NEVER: Use emoji as icons (📦, ✅, ❌, 💰, ⚡, etc.) — use lucide SVGs instead
 - NEVER: Use `react-icons` for new code — standardized on `lucide-react`
 
+### Modals
+- ALWAYS: Modals close ONLY via X button or Cancel/Close button
+- NEVER: Add `onClick` to `.modalOverlay` to close — users lose data clicking outside accidentally
+- NEVER: Use `stopPropagation` on `.modalContent` as a workaround for overlay click-to-close
+
 ### Accessibility
 - ALWAYS: Alt text on images: `<img src="logo.png" alt="Company logo" />`
 - ALWAYS: Semantic HTML: `<button>` not `<div onClick>`

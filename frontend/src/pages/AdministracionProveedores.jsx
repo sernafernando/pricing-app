@@ -443,8 +443,8 @@ export default function AdministracionProveedores() {
 
       {/* ── MODAL CREAR ──────────────────────────────────── */}
       {showCrear && (
-        <div className={styles.modalOverlay} onClick={() => setShowCrear(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h2>Nuevo Proveedor</h2>
               <button className={styles.modalClose} onClick={() => setShowCrear(false)}>
