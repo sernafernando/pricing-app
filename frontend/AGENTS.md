@@ -168,6 +168,9 @@ When writing NEW CSS or refactoring existing CSS, prefer CF tokens over legacy t
 - ALWAYS: Use custom modal components (Tesla Design `modals-tesla.css`) for confirmations and messages
 - ALWAYS: For destructive actions (delete, overwrite), show a confirmation modal with clear action buttons
 - ALWAYS: For error feedback, use inline messages or toast-style notifications within the UI
+- ALWAYS: Modals close ONLY via the X button or a Cancel/Close button — **NEVER on overlay click**
+- NEVER: Add `onClick` to `.modalOverlay` to close the modal — users lose data when they accidentally click outside
+- NEVER: Use `stopPropagation` on `.modalContent` as a workaround for overlay click-to-close
 - NEVER: Use `alert()`, `confirm()`, or `prompt()` — they block the thread, look terrible, and break the design system
 - NEVER: Use `window.alert()` or `window.confirm()` — same thing, same problem
 

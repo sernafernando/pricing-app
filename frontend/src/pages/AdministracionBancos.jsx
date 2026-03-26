@@ -39,10 +39,16 @@ export default function AdministracionBancos() {
   function emptyForm() {
     return {
       banco: '', tipo_cuenta: '', cbu: '', alias: '',
-      numero_cuenta: '', sucursal: '', moneda: 'ARS',
+      numero_cuenta: '', sucursal: '',
       titular: '', cuit_titular: '', saldo_inicial: 0, notas: '',
     };
   }
+
+  // Derivar moneda del tipo de cuenta
+  const getMoneda = (tipoCuenta) => {
+    if (!tipoCuenta) return 'ARS';
+    return tipoCuenta.includes('USD') ? 'USD' : 'ARS';
+  };
 
   const fetchBancos = useCallback(async () => {
     setLoading(true);
@@ -75,7 +81,6 @@ export default function AdministracionBancos() {
       alias: banco.alias || '',
       numero_cuenta: banco.numero_cuenta || '',
       sucursal: banco.sucursal || '',
-      moneda: banco.moneda || 'ARS',
       titular: banco.titular || '',
       cuit_titular: banco.cuit_titular || '',
       saldo_inicial: banco.saldo_inicial || 0,
@@ -90,10 +95,11 @@ export default function AdministracionBancos() {
     setSaving(true);
     setFormError(null);
     try {
+      const payload = { ...form, moneda: getMoneda(form.tipo_cuenta) };
       if (editingId) {
-        await api.put(`/administracion/bancos/${editingId}`, form);
+        await api.put(`/administracion/bancos/${editingId}`, payload);
       } else {
-        await api.post('/administracion/bancos', form);
+        await api.post('/administracion/bancos', payload);
       }
       setShowModal(false);
       fetchBancos();
@@ -183,8 +189,8 @@ export default function AdministracionBancos() {
 
       {/* Modal crear/editar */}
       {showModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h2>{editingId ? 'Editar Cuenta' : 'Nueva Cuenta Bancaria'}</h2>
               <button className={styles.modalClose} onClick={() => setShowModal(false)}>
@@ -201,24 +207,17 @@ export default function AdministracionBancos() {
                 <label className={styles.formLabel}>Banco *</label>
                 <input className={styles.formInput} value={form.banco} onChange={(e) => setForm({ ...form, banco: e.target.value })} required autoFocus />
               </div>
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Tipo de cuenta</label>
-                  <select className={styles.formInput} value={form.tipo_cuenta} onChange={(e) => setForm({ ...form, tipo_cuenta: e.target.value })}>
-                    <option value="">Seleccionar</option>
-                    <option value="CA $">CA $</option>
-                    <option value="CC $">CC $</option>
-                    <option value="CA USD">CA USD</option>
-                    <option value="CC USD">CC USD</option>
-                  </select>
-                </div>
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Moneda</label>
-                  <select className={styles.formInput} value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value })}>
-                    <option value="ARS">ARS</option>
-                    <option value="USD">USD</option>
-                  </select>
-                </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Tipo de cuenta</label>
+                <select className={styles.formInput} value={form.tipo_cuenta} onChange={(e) => setForm({ ...form, tipo_cuenta: e.target.value })}>
+                  <option value="">Seleccionar</option>
+                  <option value="CA $">CA $ (Caja de Ahorro Pesos)</option>
+                  <option value="CC $">CC $ (Cuenta Corriente Pesos)</option>
+                  <option value="CU $">CU $ (Cuenta Única Pesos)</option>
+                  <option value="CA USD">CA USD (Caja de Ahorro Dólares)</option>
+                  <option value="CC USD">CC USD (Cuenta Corriente Dólares)</option>
+                  <option value="CU USD">CU USD (Cuenta Única Dólares)</option>
+                </select>
               </div>
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>

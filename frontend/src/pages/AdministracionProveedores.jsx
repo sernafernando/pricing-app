@@ -443,8 +443,8 @@ export default function AdministracionProveedores() {
 
       {/* ── MODAL CREAR ──────────────────────────────────── */}
       {showCrear && (
-        <div className={styles.modalOverlay} onClick={() => setShowCrear(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h2>Nuevo Proveedor</h2>
               <button className={styles.modalClose} onClick={() => setShowCrear(false)}>
@@ -696,16 +696,17 @@ function DireccionesSection({ proveedorId, direcciones, canEdit, onRefresh }) {
 
 function BancosSection({ proveedorId, bancos, canEdit, onRefresh }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ banco: '', tipo_cuenta: '', cbu: '', alias: '', titular: '', cuit_titular: '', moneda: 'ARS' });
+  const [form, setForm] = useState({ banco: '', tipo_cuenta: '', cbu: '', alias: '', titular: '', cuit_titular: '' });
   const [saving, setSaving] = useState(false);
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post(`/administracion/proveedores/${proveedorId}/bancos`, form);
+      const moneda = (form.tipo_cuenta || '').includes('USD') ? 'USD' : 'ARS';
+      await api.post(`/administracion/proveedores/${proveedorId}/bancos`, { ...form, moneda });
       setShowForm(false);
-      setForm({ banco: '', tipo_cuenta: '', cbu: '', alias: '', titular: '', cuit_titular: '', moneda: 'ARS' });
+      setForm({ banco: '', tipo_cuenta: '', cbu: '', alias: '', titular: '', cuit_titular: '' });
       onRefresh();
     } catch { /* */ }
     finally { setSaving(false); }
@@ -729,12 +730,10 @@ function BancosSection({ proveedorId, bancos, canEdit, onRefresh }) {
               <option value="">Tipo cuenta</option>
               <option value="CA $">CA $</option>
               <option value="CC $">CC $</option>
+              <option value="CU $">CU $</option>
               <option value="CA USD">CA USD</option>
               <option value="CC USD">CC USD</option>
-            </select>
-            <select className={styles.formInput} value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value })}>
-              <option value="ARS">ARS</option>
-              <option value="USD">USD</option>
+              <option value="CU USD">CU USD</option>
             </select>
           </div>
           <div className={styles.formRow}>
