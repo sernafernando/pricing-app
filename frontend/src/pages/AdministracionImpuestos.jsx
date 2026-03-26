@@ -55,9 +55,14 @@ export default function AdministracionImpuestos() {
   function emptyForm() {
     return {
       nombre: '', tipo: 'iva', codigo_afip: '',
-      alicuota: '', aplica_a: 'ambos', notas: '',
+      alicuota: '', alicuota_no_inscripto: '', alicuota_convenio: '',
+      segun_padron: false, jurisdiccion: '',
+      base_imponible_minima: '', percepcion_minima: '', minimo_incluye_iva: false,
+      aplica_a: 'ambos', notas: '',
     };
   }
+
+  const showJurisdiccion = (tipo) => tipo === 'percepcion' || tipo === 'retencion';
 
   const fetchImpuestos = useCallback(async () => {
     setLoading(true);
@@ -90,6 +95,13 @@ export default function AdministracionImpuestos() {
       tipo: imp.tipo || 'iva',
       codigo_afip: imp.codigo_afip ?? '',
       alicuota: imp.alicuota ?? '',
+      alicuota_no_inscripto: imp.alicuota_no_inscripto ?? '',
+      alicuota_convenio: imp.alicuota_convenio ?? '',
+      segun_padron: imp.segun_padron || false,
+      jurisdiccion: imp.jurisdiccion || '',
+      base_imponible_minima: imp.base_imponible_minima ?? '',
+      percepcion_minima: imp.percepcion_minima ?? '',
+      minimo_incluye_iva: imp.minimo_incluye_iva || false,
       aplica_a: imp.aplica_a || 'ambos',
       notas: imp.notas || '',
     });
@@ -102,10 +114,16 @@ export default function AdministracionImpuestos() {
     setSaving(true);
     setFormError(null);
     try {
+      const optNum = (v) => v === '' || v === null || v === undefined ? null : parseFloat(v);
       const payload = {
         ...form,
         alicuota: parseFloat(form.alicuota) || 0,
+        alicuota_no_inscripto: optNum(form.alicuota_no_inscripto),
+        alicuota_convenio: optNum(form.alicuota_convenio),
         codigo_afip: form.codigo_afip ? parseInt(form.codigo_afip, 10) : null,
+        jurisdiccion: form.jurisdiccion || null,
+        base_imponible_minima: optNum(form.base_imponible_minima),
+        percepcion_minima: optNum(form.percepcion_minima),
       };
       if (editingId) {
         await api.put(`/administracion/impuestos/${editingId}`, payload);
@@ -187,21 +205,36 @@ export default function AdministracionImpuestos() {
                 <thead>
                   <tr>
                     <th>Nombre</th>
+                    <th>Jurisdicción</th>
                     <th>Alícuota</th>
-                    <th>Cód. AFIP</th>
+                    <th>No Inscr.</th>
+                    <th>Conv. ML</th>
+                    <th>Mínimos</th>
                     <th>Aplica a</th>
-                    <th>Notas</th>
                     {canEdit && <th></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {grouped[tipo].map((imp) => (
                     <tr key={imp.id} className={!imp.activo ? styles.rowInactive : ''}>
-                      <td className={styles.cellName}>{imp.nombre}</td>
-                      <td className={styles.cellAlicuota}>{Number(imp.alicuota).toFixed(2)}%</td>
-                      <td className={styles.cellCode}>{imp.codigo_afip ?? '—'}</td>
+                      <td className={styles.cellName}>
+                        {imp.nombre}
+                        {imp.segun_padron && <span className={styles.tagPadron}>Según padrón</span>}
+                      </td>
+                      <td className={styles.cellJurisdiccion}>{imp.jurisdiccion || '—'}</td>
+                      <td className={styles.cellAlicuota}>{imp.segun_padron && Number(imp.alicuota) === 0 ? 'Padrón' : `${Number(imp.alicuota).toFixed(2)}%`}</td>
+                      <td className={styles.cellAlicuota}>{imp.alicuota_no_inscripto != null ? `${Number(imp.alicuota_no_inscripto).toFixed(2)}%` : '—'}</td>
+                      <td className={styles.cellAlicuota}>{imp.alicuota_convenio != null && Number(imp.alicuota_convenio) > 0 ? `${Number(imp.alicuota_convenio).toFixed(2)}%` : '—'}</td>
+                      <td className={styles.cellMinimos}>
+                        {imp.base_imponible_minima != null && (
+                          <span>Base: ${Number(imp.base_imponible_minima).toLocaleString('es-AR')}{imp.minimo_incluye_iva ? ' +IVA' : ''}</span>
+                        )}
+                        {imp.percepcion_minima != null && (
+                          <span>Perc. mín: ${Number(imp.percepcion_minima).toLocaleString('es-AR')}</span>
+                        )}
+                        {imp.base_imponible_minima == null && imp.percepcion_minima == null && '—'}
+                      </td>
                       <td className={styles.cellAplica}>{imp.aplica_a}</td>
-                      <td className={styles.cellNotas}>{imp.notas || ''}</td>
                       {canEdit && (
                         <td className={styles.cellActions}>
                           <button className={styles.btnIcon} onClick={() => handleOpenEdit(imp)} title="Editar">
@@ -255,6 +288,44 @@ export default function AdministracionImpuestos() {
                   <input className={styles.formInput} type="number" step="0.0001" min="0" max="100" value={form.alicuota} onChange={(e) => setForm({ ...form, alicuota: e.target.value })} required />
                 </div>
               </div>
+              {showJurisdiccion(form.tipo) && (
+                <>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Jurisdicción</label>
+                      <input className={styles.formInput} value={form.jurisdiccion} onChange={(e) => setForm({ ...form, jurisdiccion: e.target.value })} placeholder="Ej: Buenos Aires, CABA" />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Alícuota no inscripto (%)</label>
+                      <input className={styles.formInput} type="number" step="0.0001" min="0" max="100" value={form.alicuota_no_inscripto} onChange={(e) => setForm({ ...form, alicuota_no_inscripto: e.target.value })} />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Alícuota conv. multilateral (%)</label>
+                      <input className={styles.formInput} type="number" step="0.0001" min="0" max="100" value={form.alicuota_convenio} onChange={(e) => setForm({ ...form, alicuota_convenio: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Base imponible mínima ($)</label>
+                      <input className={styles.formInput} type="number" step="0.01" min="0" value={form.base_imponible_minima} onChange={(e) => setForm({ ...form, base_imponible_minima: e.target.value })} />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Percepción mínima ($)</label>
+                      <input className={styles.formInput} type="number" step="0.01" min="0" value={form.percepcion_minima} onChange={(e) => setForm({ ...form, percepcion_minima: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className={styles.formRow}>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={form.segun_padron} onChange={(e) => setForm({ ...form, segun_padron: e.target.checked })} />
+                      Alícuota según padrón
+                    </label>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={form.minimo_incluye_iva} onChange={(e) => setForm({ ...form, minimo_incluye_iva: e.target.checked })} />
+                      Mínimo incluye IVA
+                    </label>
+                  </div>
+                </>
+              )}
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>Código AFIP</label>
