@@ -266,6 +266,46 @@
   composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
+/* Config tabs */
+.configTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--cf-border-default);
+  margin-bottom: var(--spacing-md);
+}
+
+.configTab,
+.configTabActive {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border: none;
+  background: none;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--cf-text-tertiary);
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.configTab:hover {
+  color: var(--cf-text-secondary);
+}
+
+.configTabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+.tabContent {
+  min-height: 200px;
+}
+
+.phBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
 /* Config form */
 .configForm {
   margin-top: var(--spacing-lg);

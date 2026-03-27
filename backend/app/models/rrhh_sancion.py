@@ -5,6 +5,10 @@ Tipos de sanción configurables (RRHHTipoSancion):
 - Apercibimiento, suspensión 1 día, suspensión 3 días, etc.
 - Cada tipo define si requiere descuento salarial y cantidad de días.
 
+Textos predefinidos (RRHHTextoPredefinidoSancion):
+- Plantillas de texto reutilizables con soporte de {placeholders}.
+- Independientes del tipo de sanción (cualquier tipo puede usar cualquier texto).
+
 Cada sanción (RRHHSancion) se vincula a un empleado con motivo, fechas
 de vigencia, y posibilidad de anulación con motivo documentado.
 """
@@ -44,6 +48,24 @@ class RRHHTipoSancion(Base):
         return f"<RRHHTipoSancion(nombre='{self.nombre}')>"
 
 
+class RRHHTextoPredefinidoSancion(Base):
+    """Textos predefinidos reutilizables para sanciones, con soporte de placeholders."""
+
+    __tablename__ = "rrhh_texto_predefinido_sancion"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(200), unique=True, nullable=False)
+    texto = Column(Text, nullable=False)
+    activo = Column(Boolean, nullable=False, default=True)
+    orden = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_texto_pred_sancion_activo_orden", "activo", "orden"),)
+
+    def __repr__(self) -> str:
+        return f"<RRHHTextoPredefinidoSancion(nombre='{self.nombre}')>"
+
+
 class RRHHSancion(Base):
     """
     Sanción aplicada a un empleado.
@@ -80,6 +102,14 @@ class RRHHSancion(Base):
     anulada_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     anulada_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Trazabilidad texto predefinido
+    texto_predefinido_id = Column(
+        Integer,
+        ForeignKey("rrhh_texto_predefinido_sancion.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Audit
     aplicada_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -87,6 +117,7 @@ class RRHHSancion(Base):
     # --- Relaciones ---
     empleado = relationship("RRHHEmpleado")
     tipo_sancion = relationship("RRHHTipoSancion")
+    texto_predefinido = relationship("RRHHTextoPredefinidoSancion")
     aplicada_por = relationship("Usuario", foreign_keys=[aplicada_por_id])
     anulada_por = relationship("Usuario", foreign_keys=[anulada_por_id])
 
