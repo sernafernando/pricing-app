@@ -227,6 +227,18 @@ export const rrhhAPI = {
   crearTipoSancion: (data) => api.post('/rrhh/tipos-sancion', data),
   actualizarTipoSancion: (id, data) => api.put(`/rrhh/tipos-sancion/${id}`, data),
 
+  // ── Textos predefinidos sanción ───────────
+  listarTextosPredefinidosSancion: (params) =>
+    api.get('/rrhh/textos-predefinidos-sancion', { params }),
+  crearTextoPredefinidoSancion: (data) =>
+    api.post('/rrhh/textos-predefinidos-sancion', data),
+  actualizarTextoPredefinidoSancion: (id, data) =>
+    api.put(`/rrhh/textos-predefinidos-sancion/${id}`, data),
+  eliminarTextoPredefinidoSancion: (id) =>
+    api.delete(`/rrhh/textos-predefinidos-sancion/${id}`),
+  reordenarTextosPredefinidosSancion: (items) =>
+    api.put('/rrhh/textos-predefinidos-sancion/reorder', items),
+
   // ── Vacaciones ──────────────────────────────
   listarVacacionesPeriodos: (params) => api.get('/rrhh/vacaciones/periodos', { params }),
   generarPeriodos: (data) => api.post('/rrhh/vacaciones/periodos/generar', data),
