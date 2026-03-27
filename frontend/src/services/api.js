@@ -223,6 +223,7 @@ export const rrhhAPI = {
   obtenerSancion: (id) => api.get(`/rrhh/sanciones/${id}`),
   anularSancion: (id, data) => api.patch(`/rrhh/sanciones/${id}/anular`, data),
   listarTiposSancion: () => api.get('/rrhh/tipos-sancion'),
+  obtenerPlaceholdersSancion: () => api.get('/rrhh/sanciones/placeholders'),
   crearTipoSancion: (data) => api.post('/rrhh/tipos-sancion', data),
   actualizarTipoSancion: (id, data) => api.put(`/rrhh/tipos-sancion/${id}`, data),
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
-import { Shield, Plus, RotateCcw, Ban, Eye, FileDown } from 'lucide-react';
+import { Shield, Plus, RotateCcw, Ban, Eye, FileDown, HelpCircle, X } from 'lucide-react';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './RRHHSanciones.module.css';
 
@@ -20,6 +20,29 @@ const formatDate = (dateStr) => {
   if (!dateStr) return '-';
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+/**
+ * Extrae placeholders {xxx} de un texto.
+ * Retorna array de nombres únicos. Ej: "{nombre} bla {legajo}" → ["nombre", "legajo"]
+ */
+const extractPlaceholders = (text) => {
+  if (!text) return [];
+  const matches = text.match(/\{(\w+)\}/g);
+  if (!matches) return [];
+  return [...new Set(matches.map((m) => m.slice(1, -1)))];
+};
+
+/**
+ * Reemplaza {placeholder} en el texto con los valores del mapa.
+ * Los que no tienen valor quedan como {placeholder}.
+ */
+const interpolateText = (template, values) => {
+  if (!template) return '';
+  return template.replace(/\{(\w+)\}/g, (match, key) => {
+    const val = values[key];
+    return val !== undefined && val !== '' ? val : match;
+  });
 };
 
 export default function RRHHSanciones() {
@@ -62,10 +85,16 @@ export default function RRHHSanciones() {
   const [empleados, setEmpleados] = useState([]);
   const [empleadoSearch, setEmpleadoSearch] = useState('');
 
+  // ── Placeholders ──
+  const [knownPlaceholders, setKnownPlaceholders] = useState({});
+  const [placeholderValues, setPlaceholderValues] = useState({});
+  const [currentPlaceholders, setCurrentPlaceholders] = useState([]);
+  const [showPlaceholderHelp, setShowPlaceholderHelp] = useState(false);
+
   // ── PDF modal ──
   const [pdfTarget, setPdfTarget] = useState(null);
 
-  // ── Load tipos sancion on mount ──
+  // ── Load tipos sancion + placeholders on mount ──
   useEffect(() => {
     const fetchTipos = async () => {
       try {
@@ -75,7 +104,16 @@ export default function RRHHSanciones() {
         setTiposSancion([]);
       }
     };
+    const fetchPlaceholders = async () => {
+      try {
+        const { data } = await rrhhAPI.obtenerPlaceholdersSancion();
+        setKnownPlaceholders(data || {});
+      } catch {
+        setKnownPlaceholders({});
+      }
+    };
     fetchTipos();
+    fetchPlaceholders();
   }, []);
 
   // ── Load empleados on mount ──
@@ -139,8 +177,11 @@ export default function RRHHSanciones() {
       if (crearForm.descripcion.trim()) {
         payload.descripcion = crearForm.descripcion.trim();
       }
-      if (crearForm.texto_sancion.trim()) {
-        payload.texto_sancion = crearForm.texto_sancion.trim();
+      const textoFinal = currentPlaceholders.length > 0
+        ? interpolateText(crearForm.texto_sancion, placeholderValues)
+        : crearForm.texto_sancion;
+      if (textoFinal.trim()) {
+        payload.texto_sancion = textoFinal.trim();
       }
       if (crearForm.fecha_desde) payload.fecha_desde = crearForm.fecha_desde;
       if (crearForm.fecha_hasta) payload.fecha_hasta = crearForm.fecha_hasta;
@@ -148,6 +189,8 @@ export default function RRHHSanciones() {
       await rrhhAPI.crearSancion(payload);
       setCrearModalOpen(false);
       setCrearForm(INITIAL_FORM);
+      setCurrentPlaceholders([]);
+      setPlaceholderValues({});
       cargarSanciones();
     } catch (err) {
       setCrearError(err.response?.data?.detail || 'Error al crear la sancion');
@@ -195,6 +238,59 @@ export default function RRHHSanciones() {
     const tipo = tiposSancion.find((t) => t.id === tipoId);
     return tipo ? tipo.nombre : `#${tipoId}`;
   };
+
+  /**
+   * Construye los valores auto-fill a partir del empleado seleccionado y el form.
+   * Solo llena los placeholders que están en KNOWN_PLACEHOLDERS del backend.
+   */
+  const buildAutoFillValues = useCallback((empleadoId, formData) => {
+    const emp = empleados.find((e) => e.id === Number(empleadoId));
+    const tipo = tiposSancion.find((t) => t.id === Number(formData.tipo_sancion_id));
+    const auto = {};
+    if (emp) {
+      auto.nombre_empleado = `${emp.apellido}, ${emp.nombre}`.toUpperCase();
+      auto.legajo = emp.legajo || '';
+      auto.dni = emp.dni || '';
+      auto.cuil = emp.cuil || '';
+      auto.area = emp.area || '';
+      auto.puesto = emp.puesto || '';
+      auto.fecha_ingreso = emp.fecha_ingreso ? formatDate(emp.fecha_ingreso) : '';
+    }
+    if (tipo) {
+      auto.tipo_sancion = tipo.nombre || '';
+    }
+    // dias_suspension se calcula de fecha_desde/fecha_hasta
+    if (formData.fecha_desde && formData.fecha_hasta) {
+      const desde = new Date(formData.fecha_desde + 'T12:00:00');
+      const hasta = new Date(formData.fecha_hasta + 'T12:00:00');
+      const diff = Math.round((hasta - desde) / (1000 * 60 * 60 * 24)) + 1;
+      if (diff > 0) auto.dias_suspension = String(diff);
+    }
+    if (formData.fecha) auto.fecha_sancion = formatDate(formData.fecha);
+    if (formData.fecha_desde) auto.fecha_desde = formatDate(formData.fecha_desde);
+    if (formData.fecha_hasta) auto.fecha_hasta = formatDate(formData.fecha_hasta);
+    return auto;
+  }, [empleados, tiposSancion]);
+
+  /**
+   * Cuando cambian los datos del form que afectan auto-fill, recalcular.
+   */
+  const refreshPlaceholderValues = useCallback((formData, extraPlaceholders) => {
+    const auto = buildAutoFillValues(formData.empleado_id, formData);
+    const phs = extraPlaceholders || currentPlaceholders;
+    setPlaceholderValues((prev) => {
+      const next = {};
+      for (const ph of phs) {
+        // Auto-fill si es conocido, sino mantener valor manual previo
+        if (auto[ph] !== undefined) {
+          next[ph] = auto[ph];
+        } else {
+          next[ph] = prev[ph] || '';
+        }
+      }
+      return next;
+    });
+  }, [buildAutoFillValues, currentPlaceholders]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -376,7 +472,11 @@ export default function RRHHSanciones() {
                   <select
                     className={styles.select}
                     value={crearForm.empleado_id}
-                    onChange={(e) => setCrearForm({ ...crearForm, empleado_id: e.target.value })}
+                    onChange={(e) => {
+                      const newForm = { ...crearForm, empleado_id: e.target.value };
+                      setCrearForm(newForm);
+                      refreshPlaceholderValues(newForm);
+                    }}
                     required
                     size={5}
                     style={{ marginTop: 'var(--spacing-xs)' }}
@@ -408,11 +508,16 @@ export default function RRHHSanciones() {
                     onChange={(e) => {
                       const tipoId = e.target.value;
                       const tipo = tiposSancion.find((t) => t.id === Number(tipoId));
-                      setCrearForm({
+                      const template = tipo?.texto_predeterminado || '';
+                      const phs = extractPlaceholders(template);
+                      const newForm = {
                         ...crearForm,
                         tipo_sancion_id: tipoId,
-                        texto_sancion: tipo?.texto_predeterminado || crearForm.texto_sancion,
-                      });
+                        texto_sancion: template,
+                      };
+                      setCrearForm(newForm);
+                      setCurrentPlaceholders(phs);
+                      refreshPlaceholderValues(newForm, phs);
                     }}
                     required
                   >
@@ -429,7 +534,11 @@ export default function RRHHSanciones() {
                   type="date"
                   className={styles.input}
                   value={crearForm.fecha}
-                  onChange={(e) => setCrearForm({ ...crearForm, fecha: e.target.value })}
+                  onChange={(e) => {
+                    const newForm = { ...crearForm, fecha: e.target.value };
+                    setCrearForm(newForm);
+                    refreshPlaceholderValues(newForm);
+                  }}
                   required
                 />
               </div>
@@ -450,16 +559,63 @@ export default function RRHHSanciones() {
                   onChange={(e) => setCrearForm({ ...crearForm, descripcion: e.target.value })}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label>Texto de la sancion (cuerpo del documento)</label>
-                <textarea
-                  className={styles.textarea}
-                  value={crearForm.texto_sancion}
-                  onChange={(e) => setCrearForm({ ...crearForm, texto_sancion: e.target.value })}
-                  rows={6}
-                  placeholder="Texto completo que aparecera en el documento de sancion..."
-                />
-              </div>
+              {/* Texto de sanción: si hay placeholders → form dinámico, sino → textarea libre */}
+              {currentPlaceholders.length > 0 ? (
+                <>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelRow}>
+                      <label>Campos del documento</label>
+                      <button
+                        type="button"
+                        className={styles.btnHelp}
+                        onClick={() => setShowPlaceholderHelp(true)}
+                        title="Ver placeholders disponibles"
+                      >
+                        <HelpCircle size={14} />
+                      </button>
+                    </div>
+                    <div className={styles.placeholderGrid}>
+                      {currentPlaceholders.map((ph) => {
+                        const isKnown = ph in knownPlaceholders;
+                        return (
+                          <div key={ph} className={styles.placeholderField}>
+                            <label>
+                              {ph.replace(/_/g, ' ')}
+                              {isKnown && <span className={styles.autoTag}>auto</span>}
+                            </label>
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={placeholderValues[ph] || ''}
+                              onChange={(e) => {
+                                setPlaceholderValues((prev) => ({ ...prev, [ph]: e.target.value }));
+                              }}
+                              placeholder={knownPlaceholders[ph] || `Valor para {${ph}}`}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Vista previa del texto</label>
+                    <div className={styles.textPreview}>
+                      {interpolateText(crearForm.texto_sancion, placeholderValues)}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.formGroup}>
+                  <label>Texto de la sancion (cuerpo del documento)</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={crearForm.texto_sancion}
+                    onChange={(e) => setCrearForm({ ...crearForm, texto_sancion: e.target.value })}
+                    rows={6}
+                    placeholder="Texto completo que aparecera en el documento de sancion..."
+                  />
+                </div>
+              )}
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Suspension desde</label>
@@ -467,7 +623,11 @@ export default function RRHHSanciones() {
                     type="date"
                     className={styles.input}
                     value={crearForm.fecha_desde}
-                    onChange={(e) => setCrearForm({ ...crearForm, fecha_desde: e.target.value })}
+                    onChange={(e) => {
+                      const newForm = { ...crearForm, fecha_desde: e.target.value };
+                      setCrearForm(newForm);
+                      refreshPlaceholderValues(newForm);
+                    }}
                   />
                 </div>
                 <div className={styles.formGroup}>
@@ -476,7 +636,11 @@ export default function RRHHSanciones() {
                     type="date"
                     className={styles.input}
                     value={crearForm.fecha_hasta}
-                    onChange={(e) => setCrearForm({ ...crearForm, fecha_hasta: e.target.value })}
+                    onChange={(e) => {
+                      const newForm = { ...crearForm, fecha_hasta: e.target.value };
+                      setCrearForm(newForm);
+                      refreshPlaceholderValues(newForm);
+                    }}
                   />
                 </div>
               </div>
@@ -633,6 +797,49 @@ export default function RRHHSanciones() {
         </div>
       )}
 
+      {/* Placeholder help modal */}
+      {showPlaceholderHelp && (
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Placeholders disponibles</h2>
+              <button className="btn-close-tesla" onClick={() => setShowPlaceholderHelp(false)} aria-label="Cerrar modal">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
+                Usa estos nombres entre llaves en el texto predeterminado del tipo de sancion. Los marcados como <strong>auto</strong> se completan automaticamente.
+              </p>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Placeholder</th>
+                    <th>Descripcion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(knownPlaceholders).map(([key, desc]) => (
+                    <tr key={key}>
+                      <td><code>{`{${key}}`}</code></td>
+                      <td>{desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginTop: 'var(--spacing-md)' }}>
+                Tambien podes usar placeholders custom (ej: {'{motivo_detallado}'}). Se mostraran como campo de texto libre.
+              </p>
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setShowPlaceholderHelp(false)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PDF Generator Modal */}
       {pdfTarget && (
         <DocumentGeneratorModal
@@ -646,8 +853,13 @@ export default function RRHHSanciones() {
             empleado_dni: pdfTarget.empleado_dni,
             tipo_sancion_nombre: getTipoNombre(pdfTarget.tipo_sancion_id),
             dias_suspension: (() => {
-              const tipo = tiposSancion.find((t) => t.id === pdfTarget.tipo_sancion_id);
-              return tipo?.dias_suspension || '';
+              if (pdfTarget.fecha_desde && pdfTarget.fecha_hasta) {
+                const desde = new Date(pdfTarget.fecha_desde + 'T12:00:00');
+                const hasta = new Date(pdfTarget.fecha_hasta + 'T12:00:00');
+                const diff = Math.round((hasta - desde) / (1000 * 60 * 60 * 24)) + 1;
+                return diff > 0 ? String(diff) : '';
+              }
+              return '';
             })(),
           }}
         />
