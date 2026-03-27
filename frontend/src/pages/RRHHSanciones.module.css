@@ -250,6 +250,10 @@
   margin-bottom: var(--spacing-md);
 }
 
+.rowInactive {
+  opacity: 0.5;
+}
+
 .actions {
   display: flex;
   gap: var(--spacing-xs);
