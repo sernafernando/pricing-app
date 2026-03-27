@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
-import { Shield, Plus, RotateCcw, Ban, Eye, FileDown, HelpCircle, X } from 'lucide-react';
+import { Shield, Plus, RotateCcw, Ban, Eye, FileDown, HelpCircle, X, Settings, Pencil, Trash2 } from 'lucide-react';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './RRHHSanciones.module.css';
 
@@ -91,6 +91,14 @@ export default function RRHHSanciones() {
   const [currentPlaceholders, setCurrentPlaceholders] = useState([]);
   const [showPlaceholderHelp, setShowPlaceholderHelp] = useState(false);
 
+  // ── Config tipos modal ──
+  const puedeConfig = tienePermiso('rrhh.config');
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [editingTipo, setEditingTipo] = useState(null); // null = crear, obj = editar
+  const [tipoForm, setTipoForm] = useState({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: 0 });
+  const [tipoSaving, setTipoSaving] = useState(false);
+  const [tipoError, setTipoError] = useState(null);
+
   // ── PDF modal ──
   const [pdfTarget, setPdfTarget] = useState(null);
 
@@ -98,7 +106,7 @@ export default function RRHHSanciones() {
   useEffect(() => {
     const fetchTipos = async () => {
       try {
-        const { data } = await rrhhAPI.listarTiposSancion();
+        const { data } = await rrhhAPI.listarTiposSancion({ incluir_inactivos: true });
         setTiposSancion(Array.isArray(data) ? data : data.items || []);
       } catch {
         setTiposSancion([]);
@@ -292,6 +300,68 @@ export default function RRHHSanciones() {
     });
   }, [buildAutoFillValues, currentPlaceholders]);
 
+  // ── Config tipos: helpers ──
+  const tiposActivos = tiposSancion.filter((t) => t.activo);
+
+  const reloadTipos = async () => {
+    try {
+      const { data } = await rrhhAPI.listarTiposSancion({ incluir_inactivos: true });
+      setTiposSancion(Array.isArray(data) ? data : data.items || []);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const openEditTipo = (tipo) => {
+    setEditingTipo(tipo);
+    setTipoForm({
+      nombre: tipo.nombre,
+      descripcion: tipo.descripcion || '',
+      requiere_descuento: tipo.requiere_descuento,
+      texto_predeterminado: tipo.texto_predeterminado || '',
+      orden: tipo.orden,
+    });
+    setTipoError(null);
+  };
+
+  const openNewTipo = () => {
+    setEditingTipo(null);
+    setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: tiposSancion.length + 1 });
+    setTipoError(null);
+  };
+
+  const handleSaveTipo = async () => {
+    if (!tipoForm.nombre.trim()) {
+      setTipoError('El nombre es obligatorio');
+      return;
+    }
+    setTipoSaving(true);
+    setTipoError(null);
+    try {
+      if (editingTipo) {
+        await rrhhAPI.actualizarTipoSancion(editingTipo.id, tipoForm);
+      } else {
+        await rrhhAPI.crearTipoSancion(tipoForm);
+      }
+      await reloadTipos();
+      setEditingTipo(null);
+      setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: 0 });
+    } catch (err) {
+      setTipoError(err.response?.data?.detail || 'Error al guardar tipo');
+    } finally {
+      setTipoSaving(false);
+    }
+  };
+
+  const handleToggleTipoActivo = async (tipo) => {
+    try {
+      await rrhhAPI.actualizarTipoSancion(tipo.id, { activo: !tipo.activo });
+      await reloadTipos();
+    } catch {
+      /* noop */
+    }
+  };
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
@@ -303,11 +373,18 @@ export default function RRHHSanciones() {
           <h1>Sanciones</h1>
           {total > 0 && <span className={styles.badge}>{total}</span>}
         </div>
-        {puedeGestionar && (
-          <button className={styles.btnCreate} onClick={openCrear}>
-            <Plus size={16} /> Nueva sancion
-          </button>
-        )}
+        <div className={styles.headerActions}>
+          {puedeConfig && (
+            <button className={styles.btnConfig} onClick={() => setConfigModalOpen(true)}>
+              <Settings size={16} /> Tipos
+            </button>
+          )}
+          {puedeGestionar && (
+            <button className={styles.btnCreate} onClick={openCrear}>
+              <Plus size={16} /> Nueva sancion
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -522,7 +599,7 @@ export default function RRHHSanciones() {
                     required
                   >
                     <option value="">Seleccionar...</option>
-                    {tiposSancion.map((t) => (
+                    {tiposActivos.map((t) => (
                       <option key={t.id} value={t.id}>{t.nombre}</option>
                     ))}
                   </select>
@@ -790,6 +867,164 @@ export default function RRHHSanciones() {
                 <FileDown size={14} /> Generar PDF
               </button>
               <button className={styles.btnCancel} onClick={() => setDetalleOpen(null)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Config tipos modal */}
+      {configModalOpen && (
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Configurar tipos de sancion</h2>
+              <button className="btn-close-tesla" onClick={() => { setConfigModalOpen(false); setEditingTipo(null); }} aria-label="Cerrar modal">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="modal-body-tesla">
+              {/* Lista de tipos existentes */}
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Orden</th>
+                    <th>Nombre</th>
+                    <th>Descuento</th>
+                    <th>Texto predeterminado</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tiposSancion.map((t) => (
+                    <tr key={t.id} style={t.activo ? {} : { opacity: 0.5 }}>
+                      <td>{t.orden}</td>
+                      <td>{t.nombre}</td>
+                      <td>{t.requiere_descuento ? 'Si' : 'No'}</td>
+                      <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.texto_predeterminado || '-'}
+                      </td>
+                      <td>
+                        <span className={t.activo ? styles.statusActiva : styles.statusAnulada}>
+                          {t.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className={styles.actions}>
+                          <button className={styles.btnView} onClick={() => openEditTipo(t)} title="Editar">
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            className={t.activo ? styles.btnAnular : styles.btnView}
+                            onClick={() => handleToggleTipoActivo(t)}
+                            title={t.activo ? 'Desactivar' : 'Activar'}
+                          >
+                            {t.activo ? <Ban size={14} /> : <RotateCcw size={14} />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Formulario crear/editar tipo */}
+              <div className={styles.configForm}>
+                <h3 className={styles.configFormTitle}>
+                  {editingTipo ? `Editar: ${editingTipo.nombre}` : 'Nuevo tipo de sancion'}
+                </h3>
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Nombre</label>
+                    <input
+                      type="text"
+                      className={styles.input}
+                      value={tipoForm.nombre}
+                      onChange={(e) => setTipoForm({ ...tipoForm, nombre: e.target.value })}
+                      placeholder="Ej: Apercibimiento"
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Orden</label>
+                    <input
+                      type="number"
+                      className={styles.input}
+                      value={tipoForm.orden}
+                      onChange={(e) => setTipoForm({ ...tipoForm, orden: Number(e.target.value) })}
+                      min={0}
+                    />
+                  </div>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Descripcion</label>
+                  <input
+                    type="text"
+                    className={styles.input}
+                    value={tipoForm.descripcion}
+                    onChange={(e) => setTipoForm({ ...tipoForm, descripcion: e.target.value })}
+                    placeholder="Descripcion breve del tipo"
+                  />
+                </div>
+                <label className={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={tipoForm.requiere_descuento}
+                    onChange={(e) => setTipoForm({ ...tipoForm, requiere_descuento: e.target.checked })}
+                  />
+                  Requiere descuento salarial
+                </label>
+                <div className={styles.formGroup} style={{ marginTop: 'var(--spacing-md)' }}>
+                  <div className={styles.labelRow}>
+                    <label>Texto predeterminado (con placeholders)</label>
+                    <button
+                      type="button"
+                      className={styles.btnHelp}
+                      onClick={() => setShowPlaceholderHelp(true)}
+                      title="Ver placeholders disponibles"
+                    >
+                      <HelpCircle size={14} />
+                    </button>
+                  </div>
+                  <textarea
+                    className={styles.textarea}
+                    value={tipoForm.texto_predeterminado}
+                    onChange={(e) => setTipoForm({ ...tipoForm, texto_predeterminado: e.target.value })}
+                    rows={6}
+                    placeholder="Ej: Se notifica a {nombre_empleado} legajo {legajo} que queda suspendido por {dias_suspension} dias..."
+                  />
+                  {tipoForm.texto_predeterminado && (
+                    <div className={styles.placeholderPreview}>
+                      <span className={styles.previewLabel}>Placeholders detectados:</span>
+                      {extractPlaceholders(tipoForm.texto_predeterminado).map((ph) => (
+                        <code key={ph} className={ph in knownPlaceholders ? styles.phKnown : styles.phCustom}>
+                          {`{${ph}}`}
+                        </code>
+                      ))}
+                      {extractPlaceholders(tipoForm.texto_predeterminado).length === 0 && (
+                        <span style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)' }}>
+                          Ninguno. Usa {'{nombre}'} para agregar placeholders.
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {tipoError && <div className={styles.formError}>{tipoError}</div>}
+                <div className={styles.configFormActions}>
+                  {editingTipo && (
+                    <button className={styles.btnCancel} onClick={openNewTipo}>
+                      Cancelar edicion
+                    </button>
+                  )}
+                  <button className={styles.btnSave} onClick={handleSaveTipo} disabled={tipoSaving}>
+                    {tipoSaving ? 'Guardando...' : editingTipo ? 'Guardar cambios' : 'Crear tipo'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => { setConfigModalOpen(false); setEditingTipo(null); }}>
                 Cerrar
               </button>
             </div>

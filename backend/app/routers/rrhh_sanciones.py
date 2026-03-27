@@ -162,15 +162,19 @@ def get_placeholders_sancion(
 
 @router.get("/tipos-sancion", response_model=list[TipoSancionResponse])
 def list_tipos_sancion(
+    incluir_inactivos: bool = Query(default=False),
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[TipoSancionResponse]:
-    """Listar tipos de sanción (activos e inactivos)."""
+    """Listar tipos de sanción. Por defecto solo activos."""
     svc = PermisosService(db)
     if not svc.tiene_permiso(current_user, "rrhh.ver"):
         raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
 
-    tipos = db.query(RRHHTipoSancion).order_by(RRHHTipoSancion.orden, RRHHTipoSancion.nombre).all()
+    query = db.query(RRHHTipoSancion)
+    if not incluir_inactivos:
+        query = query.filter(RRHHTipoSancion.activo.is_(True))
+    tipos = query.order_by(RRHHTipoSancion.orden, RRHHTipoSancion.nombre).all()
     return [TipoSancionResponse.model_validate(t) for t in tipos]
 
 

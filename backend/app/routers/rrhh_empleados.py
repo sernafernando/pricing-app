@@ -347,7 +347,7 @@ class HistorialResponse(BaseModel):
 @router.get("/empleados", response_model=EmpleadoListResponse)
 def listar_empleados(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
+    page_size: int = Query(default=50, ge=1, le=10000),
     search: Optional[str] = Query(default=None, max_length=200),
     estado: Optional[str] = Query(default=None, max_length=20),
     area: Optional[str] = Query(default=None, max_length=100),
