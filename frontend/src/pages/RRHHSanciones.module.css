@@ -255,6 +255,72 @@
   gap: var(--spacing-xs);
 }
 
+/* Header actions */
+.headerActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.btnConfig {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+/* Config form */
+.configForm {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.configFormTitle {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.configFormActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+  margin-top: var(--spacing-md);
+}
+
+/* Placeholder preview in config */
+.placeholderPreview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+.previewLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-weight: 500;
+}
+
+.phKnown {
+  font-size: var(--font-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+}
+
+.phCustom {
+  font-size: var(--font-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
 /* Label row with help button */
 .labelRow {
   display: flex;
