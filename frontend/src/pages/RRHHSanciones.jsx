@@ -65,6 +65,7 @@ export default function RRHHSanciones() {
 
   // ── Tipos sancion (for select) ──
   const [tiposSancion, setTiposSancion] = useState([]);
+  const [loadError, setLoadError] = useState(null);
 
   // ── Create modal ──
   const [crearModalOpen, setCrearModalOpen] = useState(false);
@@ -91,13 +92,26 @@ export default function RRHHSanciones() {
   const [currentPlaceholders, setCurrentPlaceholders] = useState([]);
   const [showPlaceholderHelp, setShowPlaceholderHelp] = useState(false);
 
-  // ── Config tipos modal ──
+  // ── Config modal (tipos + textos predefinidos) ──
   const puedeConfig = tienePermiso('rrhh.config');
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configTab, setConfigTab] = useState('tipos'); // 'tipos' | 'textos'
   const [editingTipo, setEditingTipo] = useState(null); // null = crear, obj = editar
-  const [tipoForm, setTipoForm] = useState({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: 0 });
+  const [tipoForm, setTipoForm] = useState({ nombre: '', descripcion: '', requiere_descuento: false, orden: 0 });
   const [tipoSaving, setTipoSaving] = useState(false);
   const [tipoError, setTipoError] = useState(null);
+
+  // ── Textos predefinidos state ──
+  const [textosPredefinidos, setTextosPredefinidos] = useState([]);
+  const [textosPredLoading, setTextosPredLoading] = useState(false);
+  const [editingTexto, setEditingTexto] = useState(null);
+  const [textoForm, setTextoForm] = useState({ nombre: '', texto: '', orden: 0 });
+  const [textoSaving, setTextoSaving] = useState(false);
+  const [textoError, setTextoError] = useState(null);
+  const [deleteConfirmTexto, setDeleteConfirmTexto] = useState(null);
+
+  // ── Create sancion modal: texto predefinido select ──
+  const [selectedTextoPredefinidoId, setSelectedTextoPredefinidoId] = useState('');
 
   // ── PDF modal ──
   const [pdfTarget, setPdfTarget] = useState(null);
@@ -110,6 +124,7 @@ export default function RRHHSanciones() {
         setTiposSancion(Array.isArray(data) ? data : data.items || []);
       } catch {
         setTiposSancion([]);
+        setLoadError('Error al cargar tipos de sancion');
       }
     };
     const fetchPlaceholders = async () => {
@@ -124,6 +139,24 @@ export default function RRHHSanciones() {
     fetchPlaceholders();
   }, []);
 
+  // ── Load textos predefinidos on mount ──
+  const reloadTextosPredefinidos = useCallback(async () => {
+    setTextosPredLoading(true);
+    try {
+      const { data } = await rrhhAPI.listarTextosPredefinidosSancion({ activo: false });
+      setTextosPredefinidos(Array.isArray(data) ? data : data.items || []);
+    } catch {
+      setTextosPredefinidos([]);
+      setLoadError('Error al cargar textos predefinidos');
+    } finally {
+      setTextosPredLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadTextosPredefinidos();
+  }, [reloadTextosPredefinidos]);
+
   // ── Load empleados on mount ──
   useEffect(() => {
     const fetchEmpleados = async () => {
@@ -132,6 +165,7 @@ export default function RRHHSanciones() {
         setEmpleados(Array.isArray(data) ? data : data.items || []);
       } catch {
         setEmpleados([]);
+        setLoadError('Error al cargar empleados');
       }
     };
     fetchEmpleados();
@@ -193,12 +227,14 @@ export default function RRHHSanciones() {
       }
       if (crearForm.fecha_desde) payload.fecha_desde = crearForm.fecha_desde;
       if (crearForm.fecha_hasta) payload.fecha_hasta = crearForm.fecha_hasta;
+      if (selectedTextoPredefinidoId) payload.texto_predefinido_id = Number(selectedTextoPredefinidoId);
 
       await rrhhAPI.crearSancion(payload);
       setCrearModalOpen(false);
       setCrearForm(INITIAL_FORM);
       setCurrentPlaceholders([]);
       setPlaceholderValues({});
+      setSelectedTextoPredefinidoId('');
       cargarSanciones();
     } catch (err) {
       setCrearError(err.response?.data?.detail || 'Error al crear la sancion');
@@ -231,6 +267,9 @@ export default function RRHHSanciones() {
   const openCrear = () => {
     setCrearForm({ ...INITIAL_FORM, fecha: new Date().toISOString().slice(0, 10) });
     setCrearError(null);
+    setSelectedTextoPredefinidoId('');
+    setCurrentPlaceholders([]);
+    setPlaceholderValues({});
     setCrearModalOpen(true);
   };
 
@@ -308,7 +347,7 @@ export default function RRHHSanciones() {
       const { data } = await rrhhAPI.listarTiposSancion({ incluir_inactivos: true });
       setTiposSancion(Array.isArray(data) ? data : data.items || []);
     } catch {
-      /* noop */
+      setTipoError('Error al recargar tipos');
     }
   };
 
@@ -326,7 +365,7 @@ export default function RRHHSanciones() {
 
   const openNewTipo = () => {
     setEditingTipo(null);
-    setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: tiposSancion.length + 1 });
+    setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, orden: tiposSancion.length + 1 });
     setTipoError(null);
   };
 
@@ -345,7 +384,7 @@ export default function RRHHSanciones() {
       }
       await reloadTipos();
       setEditingTipo(null);
-      setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, texto_predeterminado: '', orden: 0 });
+      setTipoForm({ nombre: '', descripcion: '', requiere_descuento: false, orden: 0 });
     } catch (err) {
       setTipoError(err.response?.data?.detail || 'Error al guardar tipo');
     } finally {
@@ -353,12 +392,85 @@ export default function RRHHSanciones() {
     }
   };
 
+  // ── Textos predefinidos: CRUD helpers ──
+  const textosActivos = textosPredefinidos.filter((t) => t.activo);
+
+  const openEditTexto = (texto) => {
+    setEditingTexto(texto);
+    setTextoForm({ nombre: texto.nombre, texto: texto.texto, orden: texto.orden });
+    setTextoError(null);
+  };
+
+  const openNewTexto = () => {
+    setEditingTexto(null);
+    setTextoForm({ nombre: '', texto: '', orden: textosPredefinidos.length + 1 });
+    setTextoError(null);
+  };
+
+  const handleSaveTexto = async () => {
+    if (!textoForm.nombre.trim()) {
+      setTextoError('El nombre es obligatorio');
+      return;
+    }
+    if (!textoForm.texto.trim()) {
+      setTextoError('El texto es obligatorio');
+      return;
+    }
+    setTextoSaving(true);
+    setTextoError(null);
+    try {
+      if (editingTexto) {
+        await rrhhAPI.actualizarTextoPredefinidoSancion(editingTexto.id, textoForm);
+      } else {
+        await rrhhAPI.crearTextoPredefinidoSancion(textoForm);
+      }
+      await reloadTextosPredefinidos();
+      setEditingTexto(null);
+      setTextoForm({ nombre: '', texto: '', orden: 0 });
+    } catch (err) {
+      setTextoError(err.response?.data?.detail || 'Error al guardar texto');
+    } finally {
+      setTextoSaving(false);
+    }
+  };
+
+  const handleDeleteTexto = async () => {
+    if (!deleteConfirmTexto) return;
+    try {
+      await rrhhAPI.eliminarTextoPredefinidoSancion(deleteConfirmTexto.id);
+      await reloadTextosPredefinidos();
+    } catch {
+      setTextoError('Error al desactivar texto predefinido');
+    } finally {
+      setDeleteConfirmTexto(null);
+    }
+  };
+
+  // ── Texto predefinido selection in create modal ──
+  const handleSelectTextoPredefinido = (textoId) => {
+    setSelectedTextoPredefinidoId(textoId);
+    if (!textoId) {
+      setCrearForm((prev) => ({ ...prev, texto_sancion: '' }));
+      setCurrentPlaceholders([]);
+      setPlaceholderValues({});
+      return;
+    }
+    const texto = textosPredefinidos.find((t) => t.id === Number(textoId));
+    if (!texto) return;
+    const template = texto.texto;
+    const phs = extractPlaceholders(template);
+    const newForm = { ...crearForm, texto_sancion: template };
+    setCrearForm(newForm);
+    setCurrentPlaceholders(phs);
+    refreshPlaceholderValues(newForm, phs);
+  };
+
   const handleToggleTipoActivo = async (tipo) => {
     try {
       await rrhhAPI.actualizarTipoSancion(tipo.id, { activo: !tipo.activo });
       await reloadTipos();
     } catch {
-      /* noop */
+      setTipoError('Error al cambiar estado del tipo');
     }
   };
 
@@ -386,6 +498,10 @@ export default function RRHHSanciones() {
           )}
         </div>
       </div>
+
+      {loadError && (
+        <div className={styles.formError}>{loadError}</div>
+      )}
 
       {/* Filters */}
       <div className={styles.filters}>
@@ -506,7 +622,7 @@ export default function RRHHSanciones() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className={styles.filters} style={{ marginTop: 'var(--spacing-md)', justifyContent: 'center' }}>
+        <div className={styles.paginationBar}>
           <button
             className={styles.btnCancel}
             disabled={page <= 1}
@@ -514,7 +630,7 @@ export default function RRHHSanciones() {
           >
             Anterior
           </button>
-          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)' }}>
+          <span className={styles.paginationInfo}>
             Pagina {page} de {totalPages}
           </span>
           <button
@@ -533,7 +649,7 @@ export default function RRHHSanciones() {
           <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Nueva sancion</h2>
-              <button className="btn-close-tesla" onClick={() => setCrearModalOpen(false)} aria-label="Cerrar modal">✕</button>
+              <button className="btn-close-tesla" onClick={() => setCrearModalOpen(false)} aria-label="Cerrar modal"><X size={14} /></button>
             </div>
             <div className="modal-body-tesla">
               <div className={styles.formRow}>
@@ -547,7 +663,7 @@ export default function RRHHSanciones() {
                     onChange={(e) => setEmpleadoSearch(e.target.value)}
                   />
                   <select
-                    className={styles.select}
+                    className={`${styles.select} ${styles.empleadoSelect}`}
                     value={crearForm.empleado_id}
                     onChange={(e) => {
                       const newForm = { ...crearForm, empleado_id: e.target.value };
@@ -556,7 +672,6 @@ export default function RRHHSanciones() {
                     }}
                     required
                     size={5}
-                    style={{ marginTop: 'var(--spacing-xs)' }}
                   >
                     <option value="">Seleccionar empleado...</option>
                     {empleados
@@ -582,20 +697,7 @@ export default function RRHHSanciones() {
                   <select
                     className={styles.select}
                     value={crearForm.tipo_sancion_id}
-                    onChange={(e) => {
-                      const tipoId = e.target.value;
-                      const tipo = tiposSancion.find((t) => t.id === Number(tipoId));
-                      const template = tipo?.texto_predeterminado || '';
-                      const phs = extractPlaceholders(template);
-                      const newForm = {
-                        ...crearForm,
-                        tipo_sancion_id: tipoId,
-                        texto_sancion: template,
-                      };
-                      setCrearForm(newForm);
-                      setCurrentPlaceholders(phs);
-                      refreshPlaceholderValues(newForm, phs);
-                    }}
+                    onChange={(e) => setCrearForm({ ...crearForm, tipo_sancion_id: e.target.value })}
                     required
                   >
                     <option value="">Seleccionar...</option>
@@ -604,6 +706,29 @@ export default function RRHHSanciones() {
                     ))}
                   </select>
                 </div>
+              </div>
+              <div className={styles.formGroup}>
+                <div className={styles.labelRow}>
+                  <label>Texto predefinido (opcional)</label>
+                  <button
+                    type="button"
+                    className={styles.btnHelp}
+                    onClick={() => setShowPlaceholderHelp(true)}
+                    title="Ver placeholders disponibles"
+                  >
+                    <HelpCircle size={14} />
+                  </button>
+                </div>
+                <select
+                  className={styles.select}
+                  value={selectedTextoPredefinidoId}
+                  onChange={(e) => handleSelectTextoPredefinido(e.target.value)}
+                >
+                  <option value="">Seleccionar texto predefinido...</option>
+                  {textosActivos.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                  ))}
+                </select>
               </div>
               <div className={styles.formGroup}>
                 <label>Fecha</label>
@@ -741,10 +866,10 @@ export default function RRHHSanciones() {
           <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Anular sancion</h2>
-              <button className="btn-close-tesla" onClick={() => setAnularTarget(null)} aria-label="Cerrar modal">✕</button>
+              <button className="btn-close-tesla" onClick={() => setAnularTarget(null)} aria-label="Cerrar modal"><X size={14} /></button>
             </div>
             <div className="modal-body-tesla">
-              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
+              <p className={styles.hintText}>
                 Se anulara la sancion del empleado {anularTarget.empleado_nombre || `#${anularTarget.empleado_id}`}.
                 Esta accion no se puede deshacer.
               </p>
@@ -757,7 +882,7 @@ export default function RRHHSanciones() {
                   required
                 />
               </div>
-              {anularError && <div style={{ color: 'var(--cf-accent-red)', fontSize: 'var(--font-xs)' }}>{anularError}</div>}
+              {anularError && <div className={styles.inlineError}>{anularError}</div>}
             </div>
             <div className="modal-footer-tesla">
               <button className={styles.btnCancel} onClick={() => setAnularTarget(null)}>
@@ -777,19 +902,19 @@ export default function RRHHSanciones() {
           <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Detalle de sancion</h2>
-              <button className="btn-close-tesla" onClick={() => setDetalleOpen(null)} aria-label="Cerrar modal">✕</button>
+              <button className="btn-close-tesla" onClick={() => setDetalleOpen(null)} aria-label="Cerrar modal"><X size={14} /></button>
             </div>
             <div className="modal-body-tesla">
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Empleado</label>
-                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                  <div className={styles.detailValue}>
                     {detalleOpen.empleado_nombre || `#${detalleOpen.empleado_id}`}
                   </div>
                 </div>
                 <div className={styles.formGroup}>
                   <label>Tipo</label>
-                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                  <div className={styles.detailValue}>
                     {getTipoNombre(detalleOpen.tipo_sancion_id)}
                   </div>
                 </div>
@@ -797,7 +922,7 @@ export default function RRHHSanciones() {
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Fecha</label>
-                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                  <div className={styles.detailValue}>
                     {formatDate(detalleOpen.fecha)}
                   </div>
                 </div>
@@ -814,14 +939,14 @@ export default function RRHHSanciones() {
               </div>
               <div className={styles.formGroup}>
                 <label>Motivo</label>
-                <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                <div className={styles.detailValue}>
                   {detalleOpen.motivo}
                 </div>
               </div>
               {detalleOpen.descripcion && (
                 <div className={styles.formGroup}>
                   <label>Descripcion</label>
-                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                  <div className={styles.detailValue}>
                     {detalleOpen.descripcion}
                   </div>
                 </div>
@@ -829,7 +954,7 @@ export default function RRHHSanciones() {
               {detalleOpen.texto_sancion && (
                 <div className={styles.formGroup}>
                   <label>Texto de la sancion</label>
-                  <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)', whiteSpace: 'pre-wrap' }}>
+                  <div className={styles.detailValueWrap}>
                     {detalleOpen.texto_sancion}
                   </div>
                 </div>
@@ -838,13 +963,13 @@ export default function RRHHSanciones() {
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
                     <label>Suspension desde</label>
-                    <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                    <div className={styles.detailValue}>
                       {formatDate(detalleOpen.fecha_desde)}
                     </div>
                   </div>
                   <div className={styles.formGroup}>
                     <label>Suspension hasta</label>
-                    <div style={{ color: 'var(--cf-text-primary)', fontSize: 'var(--font-sm)' }}>
+                    <div className={styles.detailValue}>
                       {formatDate(detalleOpen.fecha_hasta)}
                     </div>
                   </div>
@@ -853,7 +978,7 @@ export default function RRHHSanciones() {
               {detalleOpen.anulada && detalleOpen.anulada_motivo && (
                 <div className={styles.formGroup}>
                   <label>Motivo de anulacion</label>
-                  <div style={{ color: 'var(--cf-accent-red)', fontSize: 'var(--font-sm)' }}>
+                  <div className={styles.detailValueError}>
                     {detalleOpen.anulada_motivo}
                   </div>
                 </div>
@@ -874,159 +999,245 @@ export default function RRHHSanciones() {
         </div>
       )}
 
-      {/* Config tipos modal */}
+      {/* Config modal (tipos + textos predefinidos) */}
       {configModalOpen && (
         <div className="modal-overlay-tesla">
           <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-tesla">
-              <h2 className="modal-title-tesla">Configurar tipos de sancion</h2>
-              <button className="btn-close-tesla" onClick={() => { setConfigModalOpen(false); setEditingTipo(null); }} aria-label="Cerrar modal">
+              <h2 className="modal-title-tesla">Configurar sanciones</h2>
+              <button className="btn-close-tesla" onClick={() => { setConfigModalOpen(false); setEditingTipo(null); setEditingTexto(null); }} aria-label="Cerrar modal">
                 <X size={14} />
               </button>
             </div>
             <div className="modal-body-tesla">
-              {/* Lista de tipos existentes */}
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Orden</th>
-                    <th>Nombre</th>
-                    <th>Descuento</th>
-                    <th>Texto predeterminado</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tiposSancion.map((t) => (
-                    <tr key={t.id} style={t.activo ? {} : { opacity: 0.5 }}>
-                      <td>{t.orden}</td>
-                      <td>{t.nombre}</td>
-                      <td>{t.requiere_descuento ? 'Si' : 'No'}</td>
-                      <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.texto_predeterminado || '-'}
-                      </td>
-                      <td>
-                        <span className={t.activo ? styles.statusActiva : styles.statusAnulada}>
-                          {t.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className={styles.actions}>
-                          <button className={styles.btnView} onClick={() => openEditTipo(t)} title="Editar">
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            className={t.activo ? styles.btnAnular : styles.btnView}
-                            onClick={() => handleToggleTipoActivo(t)}
-                            title={t.activo ? 'Desactivar' : 'Activar'}
-                          >
-                            {t.activo ? <Ban size={14} /> : <RotateCcw size={14} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* Tabs */}
+              <div className={styles.configTabs}>
+                <button
+                  className={configTab === 'tipos' ? styles.configTabActive : styles.configTab}
+                  onClick={() => setConfigTab('tipos')}
+                >
+                  Tipos de sancion
+                </button>
+                <button
+                  className={configTab === 'textos' ? styles.configTabActive : styles.configTab}
+                  onClick={() => setConfigTab('textos')}
+                >
+                  Textos predefinidos
+                </button>
+              </div>
 
-              {/* Formulario crear/editar tipo */}
-              <div className={styles.configForm}>
-                <h3 className={styles.configFormTitle}>
-                  {editingTipo ? `Editar: ${editingTipo.nombre}` : 'Nuevo tipo de sancion'}
-                </h3>
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Nombre</label>
-                    <input
-                      type="text"
-                      className={styles.input}
-                      value={tipoForm.nombre}
-                      onChange={(e) => setTipoForm({ ...tipoForm, nombre: e.target.value })}
-                      placeholder="Ej: Apercibimiento"
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Orden</label>
-                    <input
-                      type="number"
-                      className={styles.input}
-                      value={tipoForm.orden}
-                      onChange={(e) => setTipoForm({ ...tipoForm, orden: Number(e.target.value) })}
-                      min={0}
-                    />
-                  </div>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Descripcion</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    value={tipoForm.descripcion}
-                    onChange={(e) => setTipoForm({ ...tipoForm, descripcion: e.target.value })}
-                    placeholder="Descripcion breve del tipo"
-                  />
-                </div>
-                <label className={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={tipoForm.requiere_descuento}
-                    onChange={(e) => setTipoForm({ ...tipoForm, requiere_descuento: e.target.checked })}
-                  />
-                  Requiere descuento salarial
-                </label>
-                <div className={styles.formGroup} style={{ marginTop: 'var(--spacing-md)' }}>
-                  <div className={styles.labelRow}>
-                    <label>Texto predeterminado (con placeholders)</label>
-                    <button
-                      type="button"
-                      className={styles.btnHelp}
-                      onClick={() => setShowPlaceholderHelp(true)}
-                      title="Ver placeholders disponibles"
-                    >
-                      <HelpCircle size={14} />
-                    </button>
-                  </div>
-                  <textarea
-                    className={styles.textarea}
-                    value={tipoForm.texto_predeterminado}
-                    onChange={(e) => setTipoForm({ ...tipoForm, texto_predeterminado: e.target.value })}
-                    rows={6}
-                    placeholder="Ej: Se notifica a {nombre_empleado} legajo {legajo} que queda suspendido por {dias_suspension} dias..."
-                  />
-                  {tipoForm.texto_predeterminado && (
-                    <div className={styles.placeholderPreview}>
-                      <span className={styles.previewLabel}>Placeholders detectados:</span>
-                      {extractPlaceholders(tipoForm.texto_predeterminado).map((ph) => (
-                        <code key={ph} className={ph in knownPlaceholders ? styles.phKnown : styles.phCustom}>
-                          {`{${ph}}`}
-                        </code>
+              {/* Tab: Tipos de sancion */}
+              {configTab === 'tipos' && (
+                <div className={styles.tabContent}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Orden</th>
+                        <th>Nombre</th>
+                        <th>Descuento</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tiposSancion.map((t) => (
+                        <tr key={t.id} style={t.activo ? {} : { opacity: 0.5 }}>
+                          <td>{t.orden}</td>
+                          <td>{t.nombre}</td>
+                          <td>{t.requiere_descuento ? 'Si' : 'No'}</td>
+                          <td>
+                            <span className={t.activo ? styles.statusActiva : styles.statusAnulada}>
+                              {t.activo ? 'Activo' : 'Inactivo'}
+                            </span>
+                          </td>
+                          <td>
+                            <div className={styles.actions}>
+                              <button className={styles.btnView} onClick={() => openEditTipo(t)} title="Editar">
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                className={t.activo ? styles.btnAnular : styles.btnView}
+                                onClick={() => handleToggleTipoActivo(t)}
+                                title={t.activo ? 'Desactivar' : 'Activar'}
+                              >
+                                {t.activo ? <Ban size={14} /> : <RotateCcw size={14} />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
                       ))}
-                      {extractPlaceholders(tipoForm.texto_predeterminado).length === 0 && (
-                        <span style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)' }}>
-                          Ninguno. Usa {'{nombre}'} para agregar placeholders.
-                        </span>
+                    </tbody>
+                  </table>
+                  <div className={styles.configForm}>
+                    <h3 className={styles.configFormTitle}>
+                      {editingTipo ? `Editar: ${editingTipo.nombre}` : 'Nuevo tipo de sancion'}
+                    </h3>
+                    <div className={styles.formRow}>
+                      <div className={styles.formGroup}>
+                        <label>Nombre</label>
+                        <input type="text" className={styles.input} value={tipoForm.nombre} onChange={(e) => setTipoForm({ ...tipoForm, nombre: e.target.value })} placeholder="Ej: Apercibimiento" />
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>Orden</label>
+                        <input type="number" className={styles.input} value={tipoForm.orden} onChange={(e) => setTipoForm({ ...tipoForm, orden: Number(e.target.value) })} min={0} />
+                      </div>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Descripcion</label>
+                      <input type="text" className={styles.input} value={tipoForm.descripcion} onChange={(e) => setTipoForm({ ...tipoForm, descripcion: e.target.value })} placeholder="Descripcion breve" />
+                    </div>
+                    <label className={styles.checkboxLabel}>
+                      <input type="checkbox" checked={tipoForm.requiere_descuento} onChange={(e) => setTipoForm({ ...tipoForm, requiere_descuento: e.target.checked })} />
+                      Requiere descuento salarial
+                    </label>
+                    {tipoError && <div className={styles.formError}>{tipoError}</div>}
+                    <div className={styles.configFormActions}>
+                      {editingTipo && <button className={styles.btnCancel} onClick={openNewTipo}>Cancelar edicion</button>}
+                      <button className={styles.btnSave} onClick={handleSaveTipo} disabled={tipoSaving}>
+                        {tipoSaving ? 'Guardando...' : editingTipo ? 'Guardar cambios' : 'Crear tipo'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Textos predefinidos */}
+              {configTab === 'textos' && (
+                <div className={styles.tabContent}>
+                  {textosPredLoading ? (
+                    <div className={styles.loading}>Cargando textos...</div>
+                  ) : (
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Orden</th>
+                          <th>Nombre</th>
+                          <th>Placeholders</th>
+                          <th>Estado</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {textosPredefinidos.map((t) => (
+                          <tr key={t.id} style={t.activo ? {} : { opacity: 0.5 }}>
+                            <td>{t.orden}</td>
+                            <td>{t.nombre}</td>
+                            <td>
+                              <div className={styles.phBadges}>
+                                {extractPlaceholders(t.texto).map((ph) => (
+                                  <code key={ph} className={ph in knownPlaceholders ? styles.phKnown : styles.phCustom}>
+                                    {ph}
+                                  </code>
+                                ))}
+                                {extractPlaceholders(t.texto).length === 0 && <span className={styles.hintSmall}>sin placeholders</span>}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={t.activo ? styles.statusActiva : styles.statusAnulada}>
+                                {t.activo ? 'Activo' : 'Inactivo'}
+                              </span>
+                            </td>
+                            <td>
+                              <div className={styles.actions}>
+                                <button className={styles.btnView} onClick={() => openEditTexto(t)} title="Editar">
+                                  <Pencil size={14} />
+                                </button>
+                                {t.activo && (
+                                  <button
+                                    className={styles.btnAnular}
+                                    onClick={() => setDeleteConfirmTexto(t)}
+                                    title="Desactivar"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  <div className={styles.configForm}>
+                    <h3 className={styles.configFormTitle}>
+                      {editingTexto ? `Editar: ${editingTexto.nombre}` : 'Nuevo texto predefinido'}
+                    </h3>
+                    <div className={styles.formRow}>
+                      <div className={styles.formGroup}>
+                        <label>Nombre / Motivo</label>
+                        <input type="text" className={styles.input} value={textoForm.nombre} onChange={(e) => setTextoForm({ ...textoForm, nombre: e.target.value })} placeholder="Ej: Llegada tarde" />
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>Orden</label>
+                        <input type="number" className={styles.input} value={textoForm.orden} onChange={(e) => setTextoForm({ ...textoForm, orden: Number(e.target.value) })} min={0} />
+                      </div>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <div className={styles.labelRow}>
+                        <label>Texto con placeholders</label>
+                        <button type="button" className={styles.btnHelp} onClick={() => setShowPlaceholderHelp(true)} title="Ver placeholders disponibles">
+                          <HelpCircle size={14} />
+                        </button>
+                      </div>
+                      <textarea
+                        className={styles.textarea}
+                        value={textoForm.texto}
+                        onChange={(e) => setTextoForm({ ...textoForm, texto: e.target.value })}
+                        rows={6}
+                        placeholder="Ej: Se notifica a {nombre_empleado} legajo {legajo} que..."
+                      />
+                      {textoForm.texto && (
+                        <div className={styles.placeholderPreview}>
+                          <span className={styles.previewLabel}>Placeholders detectados:</span>
+                          {extractPlaceholders(textoForm.texto).map((ph) => (
+                            <code key={ph} className={ph in knownPlaceholders ? styles.phKnown : styles.phCustom}>
+                              {`{${ph}}`}
+                            </code>
+                          ))}
+                          {extractPlaceholders(textoForm.texto).length === 0 && (
+                        <span className={styles.hintSmall}>
+                          Ninguno. Usa {'{nombre}'} para agregar.
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                    {textoError && <div className={styles.formError}>{textoError}</div>}
+                    <div className={styles.configFormActions}>
+                      {editingTexto && <button className={styles.btnCancel} onClick={openNewTexto}>Cancelar edicion</button>}
+                      <button className={styles.btnSave} onClick={handleSaveTexto} disabled={textoSaving}>
+                        {textoSaving ? 'Guardando...' : editingTexto ? 'Guardar cambios' : 'Crear texto'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                {tipoError && <div className={styles.formError}>{tipoError}</div>}
-                <div className={styles.configFormActions}>
-                  {editingTipo && (
-                    <button className={styles.btnCancel} onClick={openNewTipo}>
-                      Cancelar edicion
-                    </button>
-                  )}
-                  <button className={styles.btnSave} onClick={handleSaveTipo} disabled={tipoSaving}>
-                    {tipoSaving ? 'Guardando...' : editingTipo ? 'Guardar cambios' : 'Crear tipo'}
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
             <div className="modal-footer-tesla">
-              <button className={styles.btnCancel} onClick={() => { setConfigModalOpen(false); setEditingTipo(null); }}>
+              <button className={styles.btnCancel} onClick={() => { setConfigModalOpen(false); setEditingTipo(null); setEditingTexto(null); }}>
                 Cerrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm texto modal */}
+      {deleteConfirmTexto && (
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Desactivar texto predefinido</h2>
+              <button className="btn-close-tesla" onClick={() => setDeleteConfirmTexto(null)} aria-label="Cerrar modal"><X size={14} /></button>
+            </div>
+            <div className="modal-body-tesla">
+              <p className={styles.hintText}>
+                Se desactivara el texto <strong>{deleteConfirmTexto.nombre}</strong>. Las sanciones existentes que lo usen no se veran afectadas.
+              </p>
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setDeleteConfirmTexto(null)}>Cancelar</button>
+              <button className={styles.btnAnular} onClick={handleDeleteTexto}>Desactivar</button>
             </div>
           </div>
         </div>
@@ -1043,8 +1254,8 @@ export default function RRHHSanciones() {
               </button>
             </div>
             <div className="modal-body-tesla">
-              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
-                Usa estos nombres entre llaves en el texto predeterminado del tipo de sancion. Los marcados como <strong>auto</strong> se completan automaticamente.
+              <p className={styles.hintText}>
+                Usa estos nombres entre llaves en el texto predefinido. Los marcados como <strong>auto</strong> se completan automaticamente.
               </p>
               <table className={styles.table}>
                 <thead>
@@ -1062,7 +1273,7 @@ export default function RRHHSanciones() {
                   ))}
                 </tbody>
               </table>
-              <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginTop: 'var(--spacing-md)' }}>
+              <p className={styles.hintSmall}>
                 Tambien podes usar placeholders custom (ej: {'{motivo_detallado}'}). Se mostraran como campo de texto libre.
               </p>
             </div>

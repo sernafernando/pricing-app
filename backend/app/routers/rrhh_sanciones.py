@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.rrhh_empleado import RRHHEmpleado
-from app.models.rrhh_sancion import RRHHSancion, RRHHTipoSancion
+from app.models.rrhh_sancion import (
+    RRHHSancion,
+    RRHHTextoPredefinidoSancion,
+    RRHHTipoSancion,
+)
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 
@@ -55,7 +59,6 @@ class TipoSancionCreate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=500)
     dias_suspension: Optional[int] = None
     requiere_descuento: bool = False
-    texto_predeterminado: Optional[str] = None
     orden: int = 0
 
 
@@ -64,7 +67,6 @@ class TipoSancionUpdate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=500)
     dias_suspension: Optional[int] = None
     requiere_descuento: Optional[bool] = None
-    texto_predeterminado: Optional[str] = None
     activo: Optional[bool] = None
     orden: Optional[int] = None
 
@@ -75,12 +77,46 @@ class TipoSancionResponse(BaseModel):
     descripcion: Optional[str] = None
     dias_suspension: Optional[int] = None
     requiere_descuento: bool
-    texto_predeterminado: Optional[str] = None
     activo: bool
     orden: int
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Textos predefinidos schemas ──
+
+
+class TextoPredefinidoSancionCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=200)
+    texto: str = Field(min_length=1)
+    orden: int = 0
+
+
+class TextoPredefinidoSancionUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, max_length=200)
+    texto: Optional[str] = None
+    activo: Optional[bool] = None
+    orden: Optional[int] = None
+
+
+class TextoPredefinidoSancionResponse(BaseModel):
+    id: int
+    nombre: str
+    texto: str
+    activo: bool
+    orden: int
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReorderItem(BaseModel):
+    id: int
+    orden: int
+
+
+# ── Sancion schemas ──
 
 
 class SancionCreate(BaseModel):
@@ -90,6 +126,7 @@ class SancionCreate(BaseModel):
     motivo: str = Field(min_length=1)
     descripcion: Optional[str] = None
     texto_sancion: Optional[str] = None
+    texto_predefinido_id: Optional[int] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
 
@@ -114,8 +151,10 @@ class SancionResponse(BaseModel):
     anulada_at: Optional[datetime] = None
     aplicada_por_id: int
     created_at: Optional[datetime] = None
+    texto_predefinido_id: Optional[int] = None
     # Joined
     tipo_sancion_nombre: Optional[str] = None
+    texto_predefinido_nombre: Optional[str] = None
     empleado_nombre: Optional[str] = None
     empleado_legajo: Optional[str] = None
     empleado_sector: Optional[str] = None
@@ -140,6 +179,8 @@ def _sancion_to_response(s: RRHHSancion) -> SancionResponse:
     data = SancionResponse.model_validate(s)
     if s.tipo_sancion:
         data.tipo_sancion_nombre = s.tipo_sancion.nombre
+    if s.texto_predefinido:
+        data.texto_predefinido_nombre = s.texto_predefinido.nombre
     if s.empleado:
         data.empleado_nombre = s.empleado.nombre_completo
         data.empleado_legajo = s.empleado.legajo
@@ -230,6 +271,153 @@ def update_tipo_sancion(
 
 
 # ──────────────────────────────────────────────
+# ENDPOINTS — Textos Predefinidos
+# ──────────────────────────────────────────────
+
+
+@router.get(
+    "/textos-predefinidos-sancion",
+    response_model=list[TextoPredefinidoSancionResponse],
+)
+def list_textos_predefinidos_sancion(
+    activo: Optional[bool] = Query(default=True),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[TextoPredefinidoSancionResponse]:
+    """Listar textos predefinidos. Por defecto solo activos."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    query = db.query(RRHHTextoPredefinidoSancion)
+    if activo:
+        query = query.filter(RRHHTextoPredefinidoSancion.activo.is_(True))
+    textos = query.order_by(
+        RRHHTextoPredefinidoSancion.orden,
+        RRHHTextoPredefinidoSancion.nombre,
+    ).all()
+    return [TextoPredefinidoSancionResponse.model_validate(t) for t in textos]
+
+
+@router.post(
+    "/textos-predefinidos-sancion",
+    response_model=TextoPredefinidoSancionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_texto_predefinido_sancion(
+    body: TextoPredefinidoSancionCreate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TextoPredefinidoSancionResponse:
+    """Crear texto predefinido para sanciones."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    existing = db.query(RRHHTextoPredefinidoSancion).filter(RRHHTextoPredefinidoSancion.nombre == body.nombre).first()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe un texto predefinido con ese nombre",
+        )
+
+    texto = RRHHTextoPredefinidoSancion(**body.model_dump())
+    db.add(texto)
+    db.commit()
+    db.refresh(texto)
+    return TextoPredefinidoSancionResponse.model_validate(texto)
+
+
+# IMPORTANT: /reorder MUST be registered BEFORE /{texto_id} to avoid path conflict
+@router.put("/textos-predefinidos-sancion/reorder")
+def reorder_textos_predefinidos_sancion(
+    items: list[ReorderItem],
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Reordenar textos predefinidos."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    for item in items:
+        texto = db.query(RRHHTextoPredefinidoSancion).filter(RRHHTextoPredefinidoSancion.id == item.id).first()
+        if texto:
+            texto.orden = item.orden
+    db.commit()
+    return {"ok": True}
+
+
+@router.put(
+    "/textos-predefinidos-sancion/{texto_id}",
+    response_model=TextoPredefinidoSancionResponse,
+)
+def update_texto_predefinido_sancion(
+    texto_id: int,
+    body: TextoPredefinidoSancionUpdate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TextoPredefinidoSancionResponse:
+    """Actualizar texto predefinido (parcial)."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    texto = db.query(RRHHTextoPredefinidoSancion).filter(RRHHTextoPredefinidoSancion.id == texto_id).first()
+    if not texto:
+        raise HTTPException(status_code=404, detail="Texto predefinido no encontrado")
+
+    update_data = body.model_dump(exclude_unset=True)
+
+    # Verificar unicidad de nombre si se está cambiando
+    if "nombre" in update_data and update_data["nombre"] != texto.nombre:
+        conflict = (
+            db.query(RRHHTextoPredefinidoSancion)
+            .filter(
+                RRHHTextoPredefinidoSancion.nombre == update_data["nombre"],
+                RRHHTextoPredefinidoSancion.id != texto_id,
+            )
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=400,
+                detail="Ya existe un texto predefinido con ese nombre",
+            )
+
+    for field, value in update_data.items():
+        setattr(texto, field, value)
+
+    db.commit()
+    db.refresh(texto)
+    return TextoPredefinidoSancionResponse.model_validate(texto)
+
+
+@router.delete(
+    "/textos-predefinidos-sancion/{texto_id}",
+    response_model=TextoPredefinidoSancionResponse,
+)
+def delete_texto_predefinido_sancion(
+    texto_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TextoPredefinidoSancionResponse:
+    """Soft-delete: desactivar texto predefinido (idempotente)."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    texto = db.query(RRHHTextoPredefinidoSancion).filter(RRHHTextoPredefinidoSancion.id == texto_id).first()
+    if not texto:
+        raise HTTPException(status_code=404, detail="Texto predefinido no encontrado")
+
+    texto.activo = False
+    db.commit()
+    db.refresh(texto)
+    return TextoPredefinidoSancionResponse.model_validate(texto)
+
+
+# ──────────────────────────────────────────────
 # ENDPOINTS — Sanciones
 # ──────────────────────────────────────────────
 
@@ -253,6 +441,7 @@ def list_sanciones(
 
     query = db.query(RRHHSancion).options(
         joinedload(RRHHSancion.tipo_sancion),
+        joinedload(RRHHSancion.texto_predefinido),
         joinedload(RRHHSancion.empleado),
     )
 
@@ -305,6 +494,21 @@ def create_sancion(
     if not tipo.activo:
         raise HTTPException(status_code=400, detail="Tipo de sanción inactivo")
 
+    # Validar texto predefinido si fue proporcionado
+    if body.texto_predefinido_id is not None:
+        texto_pred = (
+            db.query(RRHHTextoPredefinidoSancion)
+            .filter(RRHHTextoPredefinidoSancion.id == body.texto_predefinido_id)
+            .first()
+        )
+        if not texto_pred:
+            raise HTTPException(status_code=400, detail="Texto predefinido no encontrado")
+        if not texto_pred.activo:
+            raise HTTPException(
+                status_code=400,
+                detail="El texto predefinido seleccionado está inactivo",
+            )
+
     sancion = RRHHSancion(
         empleado_id=body.empleado_id,
         tipo_sancion_id=body.tipo_sancion_id,
@@ -312,6 +516,7 @@ def create_sancion(
         motivo=body.motivo,
         descripcion=body.descripcion,
         texto_sancion=body.texto_sancion,
+        texto_predefinido_id=body.texto_predefinido_id,
         fecha_desde=body.fecha_desde,
         fecha_hasta=body.fecha_hasta,
         aplicada_por_id=current_user.id,
@@ -325,6 +530,7 @@ def create_sancion(
         db.query(RRHHSancion)
         .options(
             joinedload(RRHHSancion.tipo_sancion),
+            joinedload(RRHHSancion.texto_predefinido),
             joinedload(RRHHSancion.empleado),
         )
         .filter(RRHHSancion.id == sancion.id)
@@ -348,6 +554,7 @@ def get_sancion(
         db.query(RRHHSancion)
         .options(
             joinedload(RRHHSancion.tipo_sancion),
+            joinedload(RRHHSancion.texto_predefinido),
             joinedload(RRHHSancion.empleado),
         )
         .filter(RRHHSancion.id == sancion_id)
