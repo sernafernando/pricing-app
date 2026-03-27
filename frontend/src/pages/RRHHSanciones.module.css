@@ -254,3 +254,74 @@
   display: flex;
   gap: var(--spacing-xs);
 }
+
+/* Label row with help button */
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
+}
+
+.labelRow label {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: 0;
+}
+
+.btnHelp {
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-200) var(--ease-out);
+}
+
+.btnHelp:hover {
+  color: var(--cf-accent-blue);
+}
+
+/* Placeholder dynamic fields grid */
+.placeholderGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+}
+
+.placeholderField label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: 2px;
+  text-transform: capitalize;
+}
+
+.autoTag {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+/* Text preview */
+.textPreview {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  white-space: pre-wrap;
+  line-height: 1.6;
+  min-height: 80px;
+}

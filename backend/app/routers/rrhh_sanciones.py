@@ -24,6 +24,28 @@ router = APIRouter(prefix="/rrhh", tags=["rrhh-sanciones"])
 
 
 # ──────────────────────────────────────────────
+# PLACEHOLDERS CONOCIDOS (auto-fill desde datos del sistema)
+# ──────────────────────────────────────────────
+
+KNOWN_PLACEHOLDERS: dict[str, str] = {
+    "nombre_empleado": "Nombre completo del empleado (ej: PÉREZ, JUAN)",
+    "legajo": "Número de legajo",
+    "dni": "DNI del empleado",
+    "cuil": "CUIL del empleado",
+    "area": "Área / sector del empleado",
+    "puesto": "Puesto del empleado",
+    "fecha_ingreso": "Fecha de ingreso (dd/mm/aaaa)",
+    "tipo_sancion": "Nombre del tipo de sanción",
+    "dias_suspension": "Cantidad de días de suspensión (calculado de fecha desde/hasta)",
+    "fecha_sancion": "Fecha de la sanción (dd/mm/aaaa)",
+    "fecha_desde": "Fecha inicio de suspensión (dd/mm/aaaa)",
+    "fecha_hasta": "Fecha fin de suspensión (dd/mm/aaaa)",
+}
+"""Placeholders que se auto-completan con datos del empleado y la sanción.
+El usuario puede usar {nombre_empleado}, {legajo}, etc. en texto_predeterminado."""
+
+
+# ──────────────────────────────────────────────
 # SCHEMAS
 # ──────────────────────────────────────────────
 
@@ -128,6 +150,14 @@ def _sancion_to_response(s: RRHHSancion) -> SancionResponse:
 # ──────────────────────────────────────────────
 # ENDPOINTS — Tipos de Sanción
 # ──────────────────────────────────────────────
+
+
+@router.get("/sanciones/placeholders")
+def get_placeholders_sancion(
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, str]:
+    """Devuelve los placeholders conocidos que se auto-completan al crear sanciones."""
+    return KNOWN_PLACEHOLDERS
 
 
 @router.get("/tipos-sancion", response_model=list[TipoSancionResponse])
