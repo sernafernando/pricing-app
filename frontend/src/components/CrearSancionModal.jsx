@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { rrhhAPI } from '../services/api';
-import { HelpCircle, X } from 'lucide-react';
+import { HelpCircle, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { extractPlaceholders, interpolateText } from '../hooks/usePlaceholders';
 import styles from '../pages/RRHHSanciones.module.css';
 
@@ -40,13 +40,14 @@ export default function CrearSancionModal({
   const [form, setForm] = useState({ ...INITIAL_FORM, fecha: new Date().toISOString().slice(0, 10) });
   const [empleadoSearch, setEmpleadoSearch] = useState('');
   const [selectedTextoPredefinidoId, setSelectedTextoPredefinidoId] = useState('');
+  const [showObservacion, setShowObservacion] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
   const handleSelectTextoPredefinido = (textoId) => {
     setSelectedTextoPredefinidoId(textoId);
     if (!textoId) {
-      setForm((prev) => ({ ...prev, texto_sancion: '' }));
+      setForm((prev) => ({ ...prev, texto_sancion: '', motivo: '' }));
       setCurrentPlaceholders([]);
       setPlaceholderValues({});
       return;
@@ -55,7 +56,7 @@ export default function CrearSancionModal({
     if (!texto) return;
     const template = texto.texto;
     const phs = extractPlaceholders(template);
-    const newForm = { ...form, texto_sancion: template };
+    const newForm = { ...form, texto_sancion: template, motivo: texto.nombre };
     setForm(newForm);
     setCurrentPlaceholders(phs);
     refreshPlaceholderValues(newForm, phs);
@@ -200,76 +201,93 @@ export default function CrearSancionModal({
             />
           </div>
           <div className={styles.formGroup}>
-            <label>Motivo (obligatorio)</label>
-            <textarea
-              className={styles.textarea}
+            <label>Motivo</label>
+            <input
+              type="text"
+              className={styles.input}
               value={form.motivo}
               onChange={(e) => setForm({ ...form, motivo: e.target.value })}
+              placeholder="Se completa automaticamente con el texto predefinido"
               required
             />
           </div>
+          {/* Placeholders dinámicos si el texto tiene */}
+          {currentPlaceholders.length > 0 && (
+            <div className={styles.formGroup}>
+              <div className={styles.labelRow}>
+                <label>Campos del documento</label>
+                <button
+                  type="button"
+                  className={styles.btnHelp}
+                  onClick={() => setShowPlaceholderHelp(true)}
+                  title="Ver placeholders disponibles"
+                >
+                  <HelpCircle size={14} />
+                </button>
+              </div>
+              <div className={styles.placeholderGrid}>
+                {currentPlaceholders.map((ph) => {
+                  const isKnown = ph in knownPlaceholders;
+                  return (
+                    <div key={ph} className={styles.placeholderField}>
+                      <label>
+                        {ph.replace(/_/g, ' ')}
+                        {isKnown && <span className={styles.autoTag}>auto</span>}
+                      </label>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={placeholderValues[ph] || ''}
+                        onChange={(e) => {
+                          setPlaceholderValues((prev) => ({ ...prev, [ph]: e.target.value }));
+                        }}
+                        placeholder={knownPlaceholders[ph] || `Valor para {${ph}}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Cuerpo del documento: pre-llenado con texto interpolado, siempre editable */}
           <div className={styles.formGroup}>
-            <label>Descripcion adicional</label>
+            <label>Cuerpo del documento</label>
             <textarea
               className={styles.textarea}
-              value={form.descripcion}
-              onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+              value={currentPlaceholders.length > 0
+                ? interpolateText(form.texto_sancion, placeholderValues)
+                : form.texto_sancion}
+              onChange={(e) => {
+                if (currentPlaceholders.length > 0) {
+                  // Si tiene placeholders, al editar se desacoplan y pasa a texto libre
+                  setCurrentPlaceholders([]);
+                  setPlaceholderValues({});
+                  setForm({ ...form, texto_sancion: e.target.value });
+                } else {
+                  setForm({ ...form, texto_sancion: e.target.value });
+                }
+              }}
+              rows={6}
+              placeholder="Se completa automaticamente con el texto predefinido..."
             />
           </div>
-          {/* Texto de sanción: si hay placeholders → form dinámico, sino → textarea libre */}
-          {currentPlaceholders.length > 0 ? (
-            <>
-              <div className={styles.formGroup}>
-                <div className={styles.labelRow}>
-                  <label>Campos del documento</label>
-                  <button
-                    type="button"
-                    className={styles.btnHelp}
-                    onClick={() => setShowPlaceholderHelp(true)}
-                    title="Ver placeholders disponibles"
-                  >
-                    <HelpCircle size={14} />
-                  </button>
-                </div>
-                <div className={styles.placeholderGrid}>
-                  {currentPlaceholders.map((ph) => {
-                    const isKnown = ph in knownPlaceholders;
-                    return (
-                      <div key={ph} className={styles.placeholderField}>
-                        <label>
-                          {ph.replace(/_/g, ' ')}
-                          {isKnown && <span className={styles.autoTag}>auto</span>}
-                        </label>
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={placeholderValues[ph] || ''}
-                          onChange={(e) => {
-                            setPlaceholderValues((prev) => ({ ...prev, [ph]: e.target.value }));
-                          }}
-                          placeholder={knownPlaceholders[ph] || `Valor para {${ph}}`}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Vista previa del texto</label>
-                <div className={styles.textPreview}>
-                  {interpolateText(form.texto_sancion, placeholderValues)}
-                </div>
-              </div>
-            </>
-          ) : (
+          {/* Observación adicional — spoiler */}
+          <button
+            type="button"
+            className={styles.spoilerToggle}
+            onClick={() => setShowObservacion(!showObservacion)}
+          >
+            {showObservacion ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            Agregar observacion
+          </button>
+          {showObservacion && (
             <div className={styles.formGroup}>
-              <label>Texto de la sancion (cuerpo del documento)</label>
               <textarea
                 className={styles.textarea}
-                value={form.texto_sancion}
-                onChange={(e) => setForm({ ...form, texto_sancion: e.target.value })}
-                rows={6}
-                placeholder="Texto completo que aparecera en el documento de sancion..."
+                value={form.descripcion}
+                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                rows={3}
+                placeholder="Notas internas, no aparece en el documento..."
               />
             </div>
           )}
