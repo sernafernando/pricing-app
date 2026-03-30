@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useTheme } from '../contexts/ThemeContext';
-import { Menu, CloudRain, Droplets, Wind } from 'lucide-react';
+import { Menu, CloudRain, Droplets, Wind, Fingerprint } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
@@ -198,6 +198,20 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
                 </button>
               </div>
               
+              {user?.tiene_empleado && (
+                <>
+                  <div className={styles.dropdownDivider}></div>
+                  <Link
+                    to="/fichaje"
+                    className={styles.fichajeLink}
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <Fingerprint size={16} />
+                    Fichaje
+                  </Link>
+                </>
+              )}
+
               <div className={styles.dropdownDivider}></div>
               
               <button onClick={handleLogout} className={styles.logoutBtn}>

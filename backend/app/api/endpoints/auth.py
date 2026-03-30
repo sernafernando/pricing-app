@@ -15,6 +15,7 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.models.usuario import Usuario, AuthProvider
+from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rol import Rol
 from app.api.deps import get_current_user
 
@@ -149,15 +150,20 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/auth/me", responses={401: {"model": ErrorResponse}})
-async def get_me(current_user: Usuario = Depends(get_current_user)):
+async def get_me(
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Obtiene información del usuario actual"""
+    tiene_empleado = db.query(RRHHEmpleado.id).filter(RRHHEmpleado.usuario_id == current_user.id).first() is not None
     return {
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "nombre": current_user.nombre,
-        "rol": current_user.rol_codigo,  # Usar property en lugar del enum
+        "rol": current_user.rol_codigo,
         "activo": current_user.activo,
+        "tiene_empleado": tiene_empleado,
     }
 
 
