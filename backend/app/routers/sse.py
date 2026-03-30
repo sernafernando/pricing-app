@@ -34,6 +34,8 @@ VALID_CHANNELS = {
     "alertas:updated",
     "claims:updated",
     "shipments:webhook",
+    "tickets:badge",
+    "tickets:changed",
 }
 
 

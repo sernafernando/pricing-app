@@ -619,7 +619,7 @@ def eliminar_fichada(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> None:
-    """Elimina una fichada. Solo se pueden eliminar fichadas manuales."""
+    """Elimina una fichada manual o mobile. Las de Hikvision no se eliminan."""
     _check_permiso(db, current_user, "rrhh.gestionar")
 
     fichada = db.query(RRHHFichada).filter(RRHHFichada.id == fichada_id).first()
@@ -629,10 +629,11 @@ def eliminar_fichada(
             detail=f"Fichada {fichada_id} no encontrada",
         )
 
-    if fichada.origen != OrigenFichada.MANUAL.value:
+    origenes_eliminables = {OrigenFichada.MANUAL.value, OrigenFichada.MOBILE.value}
+    if fichada.origen not in origenes_eliminables:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Solo se pueden eliminar fichadas manuales. Las fichadas de Hikvision no se eliminan.",
+            detail="Solo se pueden eliminar fichadas manuales o mobile. Las de Hikvision no se eliminan.",
         )
 
     db.delete(fichada)
