@@ -158,6 +158,7 @@ export const rrhhAPI = {
   eliminarEmpleado: (id) => api.delete(`/rrhh/empleados/${id}`),
   crearUsuarioFichaje: (empleadoId, data = {}) =>
     api.post(`/rrhh/empleados/${empleadoId}/crear-usuario-fichaje`, data),
+  listarUsuariosSistema: () => api.get('/usuarios'),
 
   // Documentos
   listarDocumentos: (empleadoId) => api.get(`/rrhh/empleados/${empleadoId}/documentos`),
