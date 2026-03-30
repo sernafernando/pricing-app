@@ -14,6 +14,7 @@ Dedup fichadas: serialNo → event_id (unique index en rrhh_fichadas).
 Mapeo empleado: employeeNoString → rrhh_empleados.hikvision_employee_no.
 """
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
@@ -32,6 +33,12 @@ from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_fichada import RRHHFichada
 
 logger = get_logger(__name__)
+
+# Retry config para 401 intermitente durante paginación Digest Auth.
+# El DS-K1T804AMF invalida la sesión Digest entre requests de paginación
+# cuando hay muchos eventos, causando 401 en páginas posteriores a la primera.
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 
 class HikvisionClient:
@@ -60,12 +67,16 @@ class HikvisionClient:
 
     def _make_request(self, method: str, path: str, json_body: Optional[dict] = None) -> dict:
         """
-        Hace request HTTP al dispositivo con Digest Auth.
+        Hace request HTTP al dispositivo con Digest Auth + retry en 401.
 
         Usa `requests` (no httpx) porque httpx 0.25.x tiene un bug con
         Digest Auth donde el body no se reenvía correctamente en el segundo
         request del handshake, causando "Server disconnected" o 400 en
         algunos entornos.
+
+        Retry: El DS-K1T804AMF invalida sesiones Digest Auth entre requests
+        de paginación cuando hay muchos eventos. Un retry con nueva sesión
+        de auth resuelve el 401 intermitente.
 
         Siempre usa ?format=json (requerido por firmware V1.3.43).
         """
@@ -75,39 +86,59 @@ class HikvisionClient:
         elif "format=" not in path:
             url += "&format=json"
 
-        auth = HTTPDigestAuth(self.username or "", self.password or "")
+        last_error: Optional[Exception] = None
 
-        try:
-            response = requests.request(
-                method,
-                url,
-                json=json_body,
-                auth=auth,
-                timeout=30,
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.ConnectionError:
-            logger.error("Hikvision: dispositivo no alcanzable en %s", url)
-            raise ConnectionError(f"No se puede conectar al dispositivo Hikvision en {self.host}:{self.port}")
-        except requests.Timeout:
-            logger.error("Hikvision: timeout en %s", url)
-            raise ConnectionError(f"Timeout conectando al dispositivo Hikvision en {self.host}:{self.port}")
-        except requests.HTTPError as e:
-            # Log response body para diagnosticar 400/401
-            body_text = ""
+        for attempt in range(1, MAX_RETRIES + 1):
+            # Nueva instancia de auth en cada intento — fuerza re-handshake Digest
+            auth = HTTPDigestAuth(self.username or "", self.password or "")
+
             try:
-                body_text = (e.response.text or "")[:500]
-            except Exception:
-                body_text = "<no se pudo leer body>"
-            logger.error(
-                "Hikvision: HTTP error %s en %s — body: %s",
-                e.response.status_code if e.response is not None else "?",
-                url,
-                body_text,
-            )
-            status = e.response.status_code if e.response is not None else "?"
-            raise ConnectionError(f"Hikvision respondió con error HTTP {status}: {body_text}")
+                response = requests.request(
+                    method,
+                    url,
+                    json=json_body,
+                    auth=auth,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.ConnectionError:
+                logger.error("Hikvision: dispositivo no alcanzable en %s", url)
+                raise ConnectionError(f"No se puede conectar al dispositivo Hikvision en {self.host}:{self.port}")
+            except requests.Timeout:
+                logger.error("Hikvision: timeout en %s (intento %d/%d)", url, attempt, MAX_RETRIES)
+                last_error = ConnectionError(f"Timeout conectando al dispositivo Hikvision en {self.host}:{self.port}")
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                body_text = ""
+                try:
+                    body_text = (e.response.text or "")[:500]
+                except Exception:
+                    body_text = "<no se pudo leer body>"
+
+                if status == 401 and attempt < MAX_RETRIES:
+                    # Digest Auth expiró — retry con nueva sesión
+                    logger.warning(
+                        "Hikvision: 401 en %s (intento %d/%d) — reintentando con nuevo handshake Digest",
+                        url,
+                        attempt,
+                        MAX_RETRIES,
+                    )
+                    last_error = ConnectionError(f"Hikvision respondió con error HTTP 401: {body_text}")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+
+                # Error no retryable (400, 403, 500, etc.) o último intento 401
+                logger.error(
+                    "Hikvision: HTTP error %s en %s — body: %s",
+                    status or "?",
+                    url,
+                    body_text,
+                )
+                raise ConnectionError(f"Hikvision respondió con error HTTP {status}: {body_text}")
+
+        # Si llegamos acá, todos los reintentos fallaron
+        raise last_error or ConnectionError("Hikvision: todos los reintentos fallaron")
 
     # ──────────────────────────────────────────────
     # Usuarios registrados en el dispositivo
@@ -172,7 +203,9 @@ class HikvisionClient:
         """
         Obtiene eventos de acceso del dispositivo Hikvision.
 
-        Pagina automáticamente (max 100 resultados por request).
+        Pagina automáticamente (max 30 resultados por request).
+        Si una página falla tras reintentos, devuelve los eventos que ya trajo
+        en vez de perder todo (graceful degradation).
 
         IMPORTANTE: El DS-K1T804AMF requiere timestamps en hora local Argentina
         (UTC-3), SIN info de timezone. Si se envían timestamps UTC, el dispositivo
@@ -185,7 +218,7 @@ class HikvisionClient:
                    Si None, usa el momento actual en hora Argentina.
 
         Returns:
-            Lista de eventos raw del dispositivo.
+            Lista de eventos raw del dispositivo (puede ser parcial si hubo error de paginación).
         """
         self._check_configured()
 
@@ -209,8 +242,11 @@ class HikvisionClient:
 
         all_events: list[dict] = []
         position = 0
-        # DS-K1T804AMF: page size conservador para evitar 401/intermitencia.
-        page_size = 100
+        # DS-K1T804AMF: page size reducido a 30 para minimizar 401 por sesión
+        # Digest expirada. Con 100, el dispositivo invalida auth entre páginas
+        # cuando hay muchos eventos. Con 30, hay más requests pero cada uno
+        # es más liviano y el Digest se renegocia exitosamente.
+        page_size = 30
         # DS-K1T804AMF: searchID max 16 chars (24+ causa 400 badParameters)
         search_id = f"evt-{uuid4().hex[:8]}"
 
@@ -227,7 +263,17 @@ class HikvisionClient:
                 }
             }
 
-            data = self._make_request("POST", "/ISAPI/AccessControl/AcsEvent", search_body)
+            try:
+                data = self._make_request("POST", "/ISAPI/AccessControl/AcsEvent", search_body)
+            except ConnectionError as e:
+                # Graceful degradation: devolver lo que ya tenemos en vez de perder todo
+                logger.warning(
+                    "Hikvision: error en página %d — devolviendo %d eventos parciales. Error: %s",
+                    position,
+                    len(all_events),
+                    e,
+                )
+                break
 
             acs_event = data.get("AcsEvent", {})
             info_list = acs_event.get("InfoList", [])
