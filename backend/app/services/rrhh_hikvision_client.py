@@ -40,6 +40,11 @@ logger = get_logger(__name__)
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
+# Employee IDs del Hikvision que se ignoran al sincronizar.
+# El DS-K1T804AMF a veces genera eventos con employeeNoString="0"
+# que corresponden a autenticaciones fallidas o lecturas fantasma.
+EMPLOYEE_NO_BANLIST: set[str] = {"0"}
+
 
 class HikvisionClient:
     """Cliente para sincronizar fichadas desde terminal Hikvision DS-K1T804AMF."""
@@ -358,6 +363,9 @@ class HikvisionClient:
 
                 # Map employee (puede ser None si no está mapeado aún)
                 employee_no = str(event.get("employeeNoString", ""))
+                if employee_no in EMPLOYEE_NO_BANLIST:
+                    duplicadas += 1
+                    continue
                 empleado_id = hik_map.get(employee_no)
 
                 # Parse timestamp early for proximity check
