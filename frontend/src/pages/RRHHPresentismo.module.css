@@ -181,6 +181,18 @@
   color: var(--cf-accent-green);
 }
 
+.estadoPresenteTolerancia {
+  composes: estadoCell;
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--cf-accent-orange);
+}
+
+.estadoPresenteTarde {
+  composes: estadoCell;
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--cf-accent-red);
+}
+
 .estadoHomeOffice {
   composes: estadoCell;
   background: rgba(20, 184, 166, 0.15);
@@ -296,6 +308,26 @@
   background: var(--cf-text-tertiary);
   opacity: 0.65;
   border: 1px dashed var(--cf-text-secondary);
+}
+
+/* Tardiness counters in the summary column */
+.tardeCount {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tardeCountOrange {
+  color: var(--cf-accent-orange);
+  font-weight: 600;
+}
+
+.tardeCountRed {
+  color: var(--cf-accent-red);
+  font-weight: 600;
 }
 
 /* Marcación rápida dropdown */

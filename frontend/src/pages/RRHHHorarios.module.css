@@ -225,6 +225,21 @@
   font-size: var(--font-sm);
 }
 
+.fichadaHoraOk {
+  composes: fichadaHora;
+  color: var(--cf-accent-green);
+}
+
+.fichadaHoraTolerancia {
+  composes: fichadaHora;
+  color: var(--cf-accent-orange);
+}
+
+.fichadaHoraTarde {
+  composes: fichadaHora;
+  color: var(--cf-accent-red);
+}
+
 .empleadoCell {
   display: flex;
   flex-direction: column;

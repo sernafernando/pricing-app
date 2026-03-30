@@ -40,6 +40,7 @@ import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
 import RRHHHorarios from './pages/RRHHHorarios';
 import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
+import FichajeMobile from './pages/FichajeMobile';
 import Tickets from './pages/Tickets';
 import TicketsAdmin from './pages/TicketsAdmin';
 import AdministracionProveedores from './pages/AdministracionProveedores';
@@ -101,6 +102,7 @@ function App() {
           />
           <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/fichaje" element={<FichajeMobile />} />
           <Route path="/" element={<ProtectedRoute><SmartRedirect /></ProtectedRoute>} />
           <Route element={
             <ProtectedRoute>

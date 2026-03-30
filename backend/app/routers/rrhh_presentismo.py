@@ -105,6 +105,8 @@ class DiaPresentismo(BaseModel):
     estado: Optional[str] = None
     origen: Optional[str] = None  # "manual" | "auto" | None
     fichada: Optional[str] = None  # "HH:MM - HH:MM" (primera entrada - última salida)
+    minutos_tarde: Optional[int] = None
+    puntualidad: Optional[str] = None  # "a_tiempo" | "tolerancia" | "tarde" | None
 
 
 class EmpleadoPresentismoRow(BaseModel):
@@ -320,6 +322,16 @@ def get_presentismo_grilla(
                         dias_set.add(int(d_stripped))
         emp_dias_laborales[emp_id] = dias_set
 
+    # Build per-employee horario info for tardiness (highest priority = lowest prioridad)
+    emp_horario_info: dict[int, tuple[time, int]] = {}  # emp_id → (hora_entrada, tolerancia)
+    sorted_asigs = sorted(asignaciones, key=lambda a: a.prioridad)
+    for asig in sorted_asigs:
+        if asig.empleado_id in emp_horario_info:
+            continue
+        h = horarios_map.get(asig.horario_config_id)
+        if h:
+            emp_horario_info[asig.empleado_id] = (h.hora_entrada, h.tolerancia_minutos)
+
     # ── 5. Fichadas del rango (entrada + salida para detectar "presente" y mostrar horarios) ──
     from sqlalchemy import func as sa_func
 
@@ -408,6 +420,26 @@ def get_presentismo_grilla(
             parts.append("--:--")
         return " - ".join(parts)
 
+    def _calc_tardanza(emp_id: int, fecha_iso: str) -> tuple[Optional[int], Optional[str]]:
+        """Compute tardiness for the first entry on a work day."""
+        info = emp_horario_info.get(emp_id)
+        if not info:
+            return None, None
+        primera = fichadas_entrada_map.get((emp_id, fecha_iso))
+        if not primera:
+            return None, None
+        hora_entrada, tolerancia = info
+        entrada_local = primera.astimezone(ART_TZ)
+        hora_real = entrada_local.time()
+        scheduled = datetime.combine(entrada_local.date(), hora_entrada)
+        actual = datetime.combine(entrada_local.date(), hora_real)
+        diff = int((actual - scheduled).total_seconds() / 60)
+        if diff <= 0:
+            return 0, "a_tiempo"
+        if diff <= tolerancia:
+            return diff, "tolerancia"
+        return diff, "tarde"
+
     rows: list[EmpleadoPresentismoRow] = []
     for emp in empleados:
         dias: dict[str, Optional[DiaPresentismo]] = {}
@@ -420,7 +452,16 @@ def get_presentismo_grilla(
             # Prioridad 1: Manual
             manual_estado = marc_map.get((emp.id, f))
             if manual_estado is not None:
-                dias[f] = DiaPresentismo(estado=manual_estado, origen="manual", fichada=fichada_str)
+                mt, pt = (None, None)
+                if manual_estado == "presente":
+                    mt, pt = _calc_tardanza(emp.id, f)
+                dias[f] = DiaPresentismo(
+                    estado=manual_estado,
+                    origen="manual",
+                    fichada=fichada_str,
+                    minutos_tarde=mt,
+                    puntualidad=pt,
+                )
                 continue
 
             # Prioridad 2: Feriado no laborable
@@ -437,7 +478,14 @@ def get_presentismo_grilla(
 
             # Prioridad 4: Fichada de entrada → presente
             if (emp.id, f) in fichadas_set:
-                dias[f] = DiaPresentismo(estado="presente", origen="auto", fichada=fichada_str)
+                mt, pt = _calc_tardanza(emp.id, f)
+                dias[f] = DiaPresentismo(
+                    estado="presente",
+                    origen="auto",
+                    fichada=fichada_str,
+                    minutos_tarde=mt,
+                    puntualidad=pt,
+                )
                 continue
 
             # Sin dato

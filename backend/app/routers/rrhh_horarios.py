@@ -55,6 +55,13 @@ class FichadaResponse(BaseModel):
     registrado_por_nombre: str = ""
     motivo_manual: Optional[str] = None
     horas_dia: Optional[float] = None
+    minutos_tarde: Optional[int] = None
+    puntualidad: Optional[str] = None  # "a_tiempo" | "tolerancia" | "tarde" | None
+    # Mobile geo fields (informative, NULL for non-mobile fichadas)
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
+    accuracy_metros: Optional[float] = None
+    distancia_oficina_metros: Optional[float] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -265,6 +272,96 @@ def _validate_dias_semana(dias: str) -> str:
 
 
 # ──────────────────────────────────────────────
+# Tardanza helpers
+# ──────────────────────────────────────────────
+
+
+def _build_horario_map(
+    db: Session,
+    emp_ids: list[int],
+) -> dict[int, tuple[time, int, set[int]]]:
+    """
+    Build a map of empleado_id → (hora_entrada, tolerancia_minutos, dias_laborales).
+
+    Uses the highest-priority (lowest prioridad value) active horario per employee.
+    Returns empty dict entries are omitted — callers should .get() with None fallback.
+    """
+    if not emp_ids:
+        return {}
+
+    asignaciones = (
+        db.query(RRHHEmpleadoHorario)
+        .filter(RRHHEmpleadoHorario.empleado_id.in_(emp_ids))
+        .order_by(RRHHEmpleadoHorario.prioridad.asc())
+        .all()
+    )
+    horario_ids = list({a.horario_config_id for a in asignaciones})
+    if not horario_ids:
+        return {}
+
+    horarios = (
+        db.query(RRHHHorarioConfig)
+        .filter(RRHHHorarioConfig.id.in_(horario_ids), RRHHHorarioConfig.activo.is_(True))
+        .all()
+    )
+    horarios_by_id = {h.id: h for h in horarios}
+
+    result: dict[int, tuple[time, int, set[int]]] = {}
+    for asig in asignaciones:
+        if asig.empleado_id in result:
+            continue  # ya tiene el de mayor prioridad
+        h = horarios_by_id.get(asig.horario_config_id)
+        if not h:
+            continue
+        dias = set()
+        if h.dias_semana:
+            for d in h.dias_semana.split(","):
+                d_stripped = d.strip()
+                if d_stripped.isdigit():
+                    dias.add(int(d_stripped))
+        result[asig.empleado_id] = (h.hora_entrada, h.tolerancia_minutos, dias)
+
+    return result
+
+
+def _calc_puntualidad(
+    primera_entrada: datetime,
+    hora_entrada: time,
+    tolerancia_min: int,
+    dias_laborales: set[int],
+) -> tuple[Optional[int], Optional[str]]:
+    """
+    Compare first entry timestamp against scheduled time.
+
+    Returns (minutos_tarde, puntualidad):
+    - (0, "a_tiempo") — arrived on time or early
+    - (N, "tolerancia") — arrived 1..tolerancia minutes late
+    - (N, "tarde") — arrived >tolerancia minutes late
+    - (None, None) — not a work day for this employee
+    """
+    from datetime import timedelta as td, timezone as tz
+
+    ART_TZ = tz(td(hours=-3))
+    entrada_local = primera_entrada.astimezone(ART_TZ)
+
+    # Skip non-work days
+    if dias_laborales and entrada_local.isoweekday() not in dias_laborales:
+        return None, None
+
+    hora_real = entrada_local.time()
+    scheduled = datetime.combine(entrada_local.date(), hora_entrada)
+    actual = datetime.combine(entrada_local.date(), hora_real)
+
+    diff_minutes = int((actual - scheduled).total_seconds() / 60)
+
+    if diff_minutes <= 0:
+        return 0, "a_tiempo"
+    if diff_minutes <= tolerancia_min:
+        return diff_minutes, "tolerancia"
+    return diff_minutes, "tarde"
+
+
+# ──────────────────────────────────────────────
 # ENDPOINTS — Fichadas
 # ──────────────────────────────────────────────
 
@@ -325,13 +422,11 @@ def listar_fichadas(
     )
 
     # ── Calculate horas_dia per employee+day ──
-    # Collect all unique employee+day combos from current page
     emp_day_pairs: set[tuple[int, date]] = set()
     for f in fichadas:
         if f.empleado_id and hasattr(f.timestamp, "date"):
             emp_day_pairs.add((f.empleado_id, f.timestamp.date()))
 
-    # Query ALL fichadas for those employee+day combos to calculate full-day hours
     horas_dia_map: dict[tuple[int, date], float] = {}
     if emp_day_pairs:
         for emp_id, dia in emp_day_pairs:
@@ -354,12 +449,56 @@ def listar_fichadas(
                 minutos += max(delta.total_seconds() / 60, 0)
             horas_dia_map[(emp_id, dia)] = round(minutos / 60, 2)
 
+    # ── Tardiness: build horario map + first-entry map ──
+    page_emp_ids = list({f.empleado_id for f in fichadas if f.empleado_id})
+    horario_map = _build_horario_map(db, page_emp_ids)
+
+    # First entry per (employee, day) — to mark only the first entry, not salidas
+    from sqlalchemy import func as sa_func
+
+    primera_entrada_map: dict[tuple[int, str], datetime] = {}
+    if page_emp_ids and emp_day_pairs:
+        first_entries = (
+            db.query(
+                RRHHFichada.empleado_id,
+                sa_func.date(RRHHFichada.timestamp).label("fecha"),
+                sa_func.min(RRHHFichada.timestamp).label("primera"),
+            )
+            .filter(
+                RRHHFichada.empleado_id.in_(page_emp_ids),
+                RRHHFichada.tipo == "entrada",
+                RRHHFichada.timestamp >= datetime.combine(min(d for _, d in emp_day_pairs), time.min),
+                RRHHFichada.timestamp <= datetime.combine(max(d for _, d in emp_day_pairs), time(23, 59, 59)),
+            )
+            .group_by(RRHHFichada.empleado_id, sa_func.date(RRHHFichada.timestamp))
+            .all()
+        )
+        for row in first_entries:
+            fecha_iso = row.fecha if isinstance(row.fecha, str) else row.fecha.isoformat()
+            primera_entrada_map[(row.empleado_id, fecha_iso)] = row.primera
+
     items = []
     for f in fichadas:
         emp = f.empleado
         horas = None
+        minutos_tarde = None
+        puntualidad = None
         if f.empleado_id and hasattr(f.timestamp, "date"):
             horas = horas_dia_map.get((f.empleado_id, f.timestamp.date()))
+            # Tardiness: only for "entrada" fichadas that are the first of the day
+            if f.tipo == "entrada":
+                horario_info = horario_map.get(f.empleado_id)
+                if horario_info:
+                    fecha_iso = f.timestamp.date().isoformat()
+                    primera = primera_entrada_map.get((f.empleado_id, fecha_iso))
+                    if primera and abs((f.timestamp - primera).total_seconds()) < 60:
+                        h_entrada, h_tolerancia, h_dias = horario_info
+                        minutos_tarde, puntualidad = _calc_puntualidad(
+                            f.timestamp,
+                            h_entrada,
+                            h_tolerancia,
+                            h_dias,
+                        )
         items.append(
             FichadaResponse(
                 id=f.id,
@@ -375,6 +514,12 @@ def listar_fichadas(
                 registrado_por_nombre=(f.registrado_por.nombre if f.registrado_por else ""),
                 motivo_manual=f.motivo_manual,
                 horas_dia=horas,
+                minutos_tarde=minutos_tarde,
+                puntualidad=puntualidad,
+                latitud=float(f.latitud) if f.latitud is not None else None,
+                longitud=float(f.longitud) if f.longitud is not None else None,
+                accuracy_metros=f.accuracy_metros,
+                distancia_oficina_metros=f.distancia_oficina_metros,
                 created_at=f.created_at,
             )
         )
