@@ -88,66 +88,87 @@ async def badge_count(
     current_user: Usuario = Depends(get_current_user),
 ) -> TicketBadgeCount:
     """
-    Retorna la cantidad de tickets pendientes de revisión para el usuario.
+    Retorna la cantidad de tickets con actividad no leída para el usuario.
 
-    Cuenta tickets donde:
-    - El usuario está asignado activamente (asignación sin fecha_finalizacion)
-    - El ticket NO tiene una entrada 'revisado' en historial por este usuario
-      POSTERIOR al último cambio de estado
+    Lógica:
+    Un ticket cuenta como "pendiente" si tiene actividad (comentario,
+    cambio de estado, asignación) POSTERIOR a la última vez que el usuario
+    lo marcó como revisado.  Si nunca lo revisó, cuenta siempre.
+
+    Alcance:
+    - tickets.ver → tickets de sus sectores (asignados o no) + los que creó
+    - sin tickets.ver → solo tickets que creó el usuario
 
     Usado por TicketBadge en el TopBar.
-
-    - Si tiene tickets.ver → cuenta tickets asignados sin revisar (gestores)
-    - Si no tiene tickets.ver → cuenta sus tickets propios con cambios sin leer
     """
-    puede_ver_todos = PermisosService(db).tiene_permiso(current_user, "tickets.ver")
+    from sqlalchemy import func, or_
 
-    if not puede_ver_todos:
-        # Para usuarios normales: contar sus tickets con actividad nueva
-        from sqlalchemy import func
+    puede_ver = PermisosService(db).tiene_permiso(current_user, "tickets.ver")
 
-        pendientes = (
-            db.query(func.count(Ticket.id))
-            .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
-            .filter(
-                Ticket.creador_id == current_user.id,
-                EstadoTicket.es_final.is_(False),
-            )
-            .scalar()
-        ) or 0
-        return TicketBadgeCount(pendientes=pendientes)
-
-    # Sub-query: tickets asignados al usuario activamente
-    from sqlalchemy import func
-
-    asignados_ids = (
-        db.query(AsignacionTicket.ticket_id)
-        .filter(
-            AsignacionTicket.asignado_a_id == current_user.id,
-            AsignacionTicket.fecha_finalizacion.is_(None),
+    # ── Sub-query: última revisión del usuario por ticket ────────────
+    ultima_revision = (
+        db.query(
+            HistorialTicket.ticket_id,
+            func.max(HistorialTicket.fecha).label("ultima_fecha"),
         )
+        .filter(
+            HistorialTicket.accion == "revisado",
+            HistorialTicket.usuario_id == current_user.id,
+        )
+        .group_by(HistorialTicket.ticket_id)
         .subquery()
     )
 
-    # Count tickets that are assigned to user, not closed, and not yet reviewed
-    pendientes = (
+    # ── Sub-query: última actividad real por ticket ──────────────────
+    # Actividad = cualquier acción que NO sea "revisado"
+    ultima_actividad = (
+        db.query(
+            HistorialTicket.ticket_id,
+            func.max(HistorialTicket.fecha).label("ultima_fecha"),
+        )
+        .filter(HistorialTicket.accion != "revisado")
+        .group_by(HistorialTicket.ticket_id)
+        .subquery()
+    )
+
+    # ── Query base: tickets abiertos ─────────────────────────────────
+    query = (
         db.query(func.count(Ticket.id))
         .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
+        .outerjoin(ultima_actividad, Ticket.id == ultima_actividad.c.ticket_id)
         .filter(
-            Ticket.id.in_(asignados_ids),
             EstadoTicket.es_final.is_(False),
-            ~Ticket.id.in_(
-                db.query(HistorialTicket.ticket_id)
-                .filter(
-                    HistorialTicket.accion == "revisado",
-                    HistorialTicket.usuario_id == current_user.id,
-                )
-                .distinct()
+            # Tiene actividad Y (nunca revisado O actividad posterior a revisión)
+            ultima_actividad.c.ultima_fecha.isnot(None),
+            or_(
+                ultima_revision.c.ultima_fecha.is_(None),
+                ultima_actividad.c.ultima_fecha > ultima_revision.c.ultima_fecha,
             ),
         )
-        .scalar()
-    ) or 0
+    )
 
+    if puede_ver:
+        # Gestores: tickets de sus sectores + los que crearon
+        mis_sectores = (
+            db.query(SectorUsuario.sector_id)
+            .filter(
+                SectorUsuario.usuario_id == current_user.id,
+                SectorUsuario.activo.is_(True),
+            )
+            .subquery()
+        )
+        query = query.filter(
+            or_(
+                Ticket.sector_id.in_(mis_sectores),
+                Ticket.creador_id == current_user.id,
+            )
+        )
+    else:
+        # Usuarios normales: solo sus tickets
+        query = query.filter(Ticket.creador_id == current_user.id)
+
+    pendientes = query.scalar() or 0
     return TicketBadgeCount(pendientes=pendientes)
 
 
@@ -160,16 +181,18 @@ async def marcar_revisado(
     """
     Marca un ticket como revisado por el usuario actual.
 
-    Crea una entrada 'revisado' en el historial. La siguiente mutación
-    de estado invalidará esta marca (el badge volverá a contar el ticket).
+    Crea una entrada 'revisado' en el historial. La siguiente actividad
+    (comentario, cambio de estado, asignación) invalidará esta marca
+    y el badge volverá a contar el ticket.
 
-    Requiere: tickets.ver
+    Acceso: gestores con tickets.ver O el creador del ticket.
     """
-    _check_permiso(db, current_user, "tickets.ver")
-
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    # Gestores o creador del ticket pueden marcar como revisado
+    _check_acceso_ticket(db, current_user, ticket)
 
     historial_entry = HistorialTicket(
         ticket_id=ticket.id,
@@ -641,6 +664,7 @@ async def agregar_comentario(
     db.refresh(nuevo_comentario)
 
     await sse_publish("tickets:changed", {"hint": "reload"})
+    await sse_publish("tickets:badge", {"hint": "reload"})
 
     return nuevo_comentario
 

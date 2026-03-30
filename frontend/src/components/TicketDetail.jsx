@@ -42,6 +42,56 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+/**
+ * Picks a button CSS class based on the destination state semantics.
+ *
+ * Priority: es_final with negative name → danger, es_final → success,
+ * then maps hex color to the closest Tesla outline-subtle variant,
+ * falls back to default (primary).
+ */
+const NEGATIVE_CODES = ['rechazado', 'cancelado', 'cerrado_sin_resolver', 'descartado'];
+const COLOR_TO_VARIANT = {
+  '#ef4444': 'btnTransitionDanger',
+  '#f87171': 'btnTransitionDanger',
+  '#dc2626': 'btnTransitionDanger',
+  '#22c55e': 'btnTransitionSuccess',
+  '#10b981': 'btnTransitionSuccess',
+  '#16a34a': 'btnTransitionSuccess',
+  '#f59e0b': 'btnTransitionWarning',
+  '#eab308': 'btnTransitionWarning',
+  '#f97316': 'btnTransitionWarning',
+  '#3b82f6': 'btnTransitionInfo',
+  '#6366f1': 'btnTransitionPurple',
+  '#8b5cf6': 'btnTransitionPurple',
+  '#a855f7': 'btnTransitionPurple',
+};
+
+const getTransitionBtnClass = (trans) => {
+  const dest = trans.estado_destino;
+  if (!dest) return styles.btnTransition;
+
+  const codigo = (dest.codigo || '').toLowerCase();
+
+  // Final + negative name → danger (red)
+  if (dest.es_final && NEGATIVE_CODES.some((neg) => codigo.includes(neg))) {
+    return styles.btnTransitionDanger;
+  }
+
+  // Final state (resolved, approved, etc.) → success (green)
+  if (dest.es_final) {
+    return styles.btnTransitionSuccess;
+  }
+
+  // Map by hex color if available
+  if (dest.color) {
+    const match = COLOR_TO_VARIANT[dest.color.toLowerCase()];
+    if (match) return styles[match];
+  }
+
+  // Default → primary (blue)
+  return styles.btnTransition;
+};
+
 export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('tickets.gestionar');
@@ -382,7 +432,7 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
           {availableTransitions.map((trans) => (
             <button
               key={trans.id}
-              className={styles.btnTransition}
+              className={getTransitionBtnClass(trans)}
               onClick={() => handleTransition(trans)}
               disabled={transitioning}
               title={trans.descripcion || ''}
