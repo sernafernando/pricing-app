@@ -246,13 +246,28 @@ def _compute_distance_to_nearest_office(db: Session, lat: float, lon: float) -> 
     return round(min(distancias), 1)
 
 
-def _sugerencia_tipo(ultima: Optional[RRHHFichada]) -> str:
-    """Sugiere el próximo tipo de fichada basado en la última del día."""
-    if ultima is None:
-        return TipoFichada.ENTRADA.value
-    if ultima.tipo == TipoFichada.ENTRADA.value:
-        return TipoFichada.SALIDA.value
-    return TipoFichada.ENTRADA.value
+def _sugerencia_tipo(db: Session, empleado_id: int) -> str:
+    """Sugiere el tipo de fichada basado en si ya hay una entrada hoy.
+
+    - Sin fichadas hoy → entrada
+    - Ya existe al menos una entrada hoy → salida (siempre)
+
+    Esto permite fichar salida múltiples veces (ej: fichó salida
+    por error y necesita fichar la salida real más tarde).
+    """
+    inicio_dia, fin_dia = _get_hoy_rango()
+    tiene_entrada = (
+        db.query(RRHHFichada)
+        .filter(
+            RRHHFichada.empleado_id == empleado_id,
+            RRHHFichada.timestamp >= inicio_dia,
+            RRHHFichada.timestamp <= fin_dia,
+            RRHHFichada.tipo == TipoFichada.ENTRADA.value,
+        )
+        .first()
+    ) is not None
+
+    return TipoFichada.SALIDA.value if tiene_entrada else TipoFichada.ENTRADA.value
 
 
 # ──────────────────────────────────────────────
@@ -291,7 +306,7 @@ def get_estado_fichaje(
     return FichajeMobileEstado(
         empleado_id=empleado.id,
         empleado_nombre=f"{empleado.apellido}, {empleado.nombre}",
-        sugerencia=_sugerencia_tipo(ultima),
+        sugerencia=_sugerencia_tipo(db, empleado.id),
         ultima_fichada=ultima_info,
         fichadas_hoy=fichadas_hoy,
     )
@@ -327,8 +342,7 @@ def registrar_fichada_mobile(
     _check_proximity_dedup(db, empleado.id)
 
     # Auto-detect tipo
-    ultima = _get_ultima_fichada_hoy(db, empleado.id)
-    tipo = _sugerencia_tipo(ultima)
+    tipo = _sugerencia_tipo(db, empleado.id)
 
     # Distance to nearest office
     distancia: Optional[float] = None

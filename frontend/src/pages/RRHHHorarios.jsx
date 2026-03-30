@@ -905,7 +905,7 @@ export default function RRHHHorarios() {
                       </td>
                       {puedeGestionar && (
                         <td>
-                          {f.origen === 'manual' && (
+                          {(f.origen === 'manual' || f.origen === 'mobile') && (
                             <button
                               className={styles.btnDeleteAction}
                               onClick={() => handleDeleteFichada(f.id)}
