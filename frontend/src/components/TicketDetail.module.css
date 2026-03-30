@@ -119,13 +119,14 @@
 }
 
 .metadataGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--spacing-xs);
 }
 
 .metadataItem {
   font-size: var(--font-xs);
+  line-height: 1.4;
 }
 
 .metadataKey {
@@ -136,6 +137,7 @@
   color: var(--cf-text-primary);
   font-weight: 500;
   margin-left: var(--spacing-xs);
+  word-break: break-word;
 }
 
 /* Action bar */
@@ -150,6 +152,26 @@
 
 .btnTransition {
   composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.btnTransitionDanger {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+}
+
+.btnTransitionSuccess {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+}
+
+.btnTransitionWarning {
+  composes: btn-tesla outline-subtle-warning sm from '../styles/buttons-tesla.css';
+}
+
+.btnTransitionInfo {
+  composes: btn-tesla outline-subtle-info sm from '../styles/buttons-tesla.css';
+}
+
+.btnTransitionPurple {
+  composes: btn-tesla outline-subtle-purple sm from '../styles/buttons-tesla.css';
 }
 
 .btnAssign {
