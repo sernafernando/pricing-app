@@ -25,6 +25,7 @@ import {
   Navigation,
   ExternalLink,
   FileDown,
+  Smartphone,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -136,6 +137,14 @@ export default function Empleados() {
   const [editandoMotivo, setEditandoMotivo] = useState(null);
   const [savingMotivo, setSavingMotivo] = useState(false);
   const [motivoError, setMotivoError] = useState(null);
+
+  // --- Crear usuario fichaje ---
+  const [fichajeModalOpen, setFichajeModalOpen] = useState(false);
+  const [fichajeEmpleado, setFichajeEmpleado] = useState(null);
+  const [fichajeUsarSegundo, setFichajeUsarSegundo] = useState(false);
+  const [fichajeCreando, setFichajeCreando] = useState(false);
+  const [fichajeResult, setFichajeResult] = useState(null);
+  const [fichajeError, setFichajeError] = useState(null);
 
   const PAGE_SIZE = 50;
 
@@ -351,6 +360,33 @@ export default function Empleados() {
       cargarContadores();
     } catch (err) {
       setActionError(err.response?.data?.detail || 'Error al desactivar empleado');
+    }
+  };
+
+  // ── Handler: Crear usuario fichaje ──
+  const handleOpenFichajeModal = (emp) => {
+    setFichajeEmpleado(emp);
+    setFichajeUsarSegundo(false);
+    setFichajeResult(null);
+    setFichajeError(null);
+    setFichajeModalOpen(true);
+  };
+
+  const handleCrearUsuarioFichaje = async () => {
+    if (!fichajeEmpleado) return;
+    setFichajeCreando(true);
+    setFichajeError(null);
+    setFichajeResult(null);
+    try {
+      const { data } = await rrhhAPI.crearUsuarioFichaje(fichajeEmpleado.id, {
+        usar_segundo_nombre: fichajeUsarSegundo,
+      });
+      setFichajeResult(data);
+      cargarEmpleados();
+    } catch (err) {
+      setFichajeError(err.response?.data?.detail || 'Error al crear usuario');
+    } finally {
+      setFichajeCreando(false);
     }
   };
 
@@ -1084,6 +1120,15 @@ export default function Empleados() {
                           <Trash2 size={14} />
                         </button>
                       )}
+                      {puedeGestionar && !emp.usuario_id && emp.estado === 'activo' && (
+                        <button
+                          onClick={() => handleOpenFichajeModal(emp)}
+                          className={styles.btnEdit}
+                          title="Crear usuario de fichaje"
+                        >
+                          <Smartphone size={14} />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -1808,6 +1853,80 @@ export default function Empleados() {
         contexto="rrhh"
         entityData={docGenEmpleado}
       />
+
+      {/* Modal crear usuario fichaje */}
+      {fichajeModalOpen && fichajeEmpleado && (
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla">
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Crear usuario de fichaje</h2>
+              <button
+                className="btn-close-tesla"
+                onClick={() => setFichajeModalOpen(false)}
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
+                Se creará un usuario con acceso exclusivo a fichaje mobile para <strong>{fichajeEmpleado.nombre} {fichajeEmpleado.apellido}</strong>.
+                El password será el DNI del empleado.
+              </p>
+
+              <div className={styles.formGroup}>
+                <label>Inicial del nombre para el username</label>
+                <select
+                  className={styles.select}
+                  value={fichajeUsarSegundo ? 'segundo' : 'primero'}
+                  onChange={(e) => setFichajeUsarSegundo(e.target.value === 'segundo')}
+                >
+                  <option value="primero">
+                    Primer nombre ({fichajeEmpleado.nombre?.split(' ')[0]?.[0]?.toLowerCase() || '?'}{fichajeEmpleado.apellido?.toLowerCase()})
+                  </option>
+                  {fichajeEmpleado.nombre?.split(' ').length > 1 && (
+                    <option value="segundo">
+                      Segundo nombre ({fichajeEmpleado.nombre?.split(' ')[1]?.[0]?.toLowerCase() || '?'}{fichajeEmpleado.apellido?.toLowerCase()})
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              {fichajeError && (
+                <div className={styles.formError}>{fichajeError}</div>
+              )}
+
+              {fichajeResult && (
+                <div style={{ background: 'rgba(34, 197, 94, 0.1)', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginTop: 'var(--spacing-sm)' }}>
+                  <p style={{ color: 'var(--cf-accent-green)', fontWeight: 600 }}>
+                    {fichajeResult.message}
+                  </p>
+                  <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginTop: 'var(--spacing-xs)' }}>
+                    Usuario: <strong>{fichajeResult.username}</strong>
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer-tesla">
+              <button
+                className={styles.btnCancel}
+                onClick={() => setFichajeModalOpen(false)}
+              >
+                {fichajeResult ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {!fichajeResult && (
+                <button
+                  className={styles.btnSave}
+                  onClick={handleCrearUsuarioFichaje}
+                  disabled={fichajeCreando}
+                >
+                  {fichajeCreando ? 'Creando...' : 'Crear usuario'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

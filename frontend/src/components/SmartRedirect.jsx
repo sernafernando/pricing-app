@@ -72,22 +72,12 @@ export default function SmartRedirect() {
     }
   }
 
-  // Si no tiene acceso a ninguna ruta, mostrar mensaje
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      height: '100vh',
-      background: 'var(--cf-bg-app)',
-      color: 'var(--cf-text-primary)',
-      textAlign: 'center',
-      padding: '20px'
-    }}>
-      <h2>Sin acceso</h2>
-      <p>No tienes permisos para acceder a ninguna sección del sistema.</p>
-      <p>Contacta al administrador para que te asigne los permisos necesarios.</p>
-    </div>
-  );
+  // User has zero permissions but is authenticated → likely FICHAJE role → redirect to /fichaje
+  const token = localStorage.getItem('token');
+  if (token) {
+    return <Navigate to="/fichaje" replace />;
+  }
+
+  // Not authenticated at all
+  return <Navigate to="/login" replace />;
 }

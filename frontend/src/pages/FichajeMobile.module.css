@@ -1,0 +1,311 @@
+/* FichajeMobile — Standalone mobile-first clock-in/out page */
+
+.container {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-family: 'Inter', sans-serif;
+  padding: var(--spacing-md);
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ── Header ── */
+
+.header {
+  text-align: center;
+  padding: var(--spacing-lg) 0 var(--spacing-md);
+  width: 100%;
+  max-width: 400px;
+}
+
+.employeeName {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0 0 var(--spacing-xs);
+}
+
+.clock {
+  font-size: 2.5rem;
+  font-weight: 300;
+  color: var(--cf-text-secondary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.date {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  margin-top: var(--spacing-xs);
+}
+
+/* ── Main Action ── */
+
+.actionArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 400px;
+  gap: var(--spacing-md);
+}
+
+.fichajeButton {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.fichajeButton:active {
+  transform: scale(0.95);
+}
+
+.fichajeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.entrada {
+  background: linear-gradient(135deg, #059669, #10b981);
+  border-color: #34d399;
+}
+
+.entrada:hover:not(:disabled) {
+  box-shadow: 0 4px 32px rgba(16, 185, 129, 0.4);
+}
+
+.salida {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  border-color: #f87171;
+}
+
+.salida:hover:not(:disabled) {
+  box-shadow: 0 4px 32px rgba(239, 68, 68, 0.4);
+}
+
+.buttonIcon {
+  width: 40px;
+  height: 40px;
+}
+
+.buttonLabel {
+  font-size: var(--font-md);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ── Status Info ── */
+
+.statusCard {
+  width: 100%;
+  max-width: 400px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.statusRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-xs) 0;
+}
+
+.statusRow + .statusRow {
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+.statusLabel {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.statusValue {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  font-weight: 500;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+}
+
+.badgeEntrada {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.badgeSalida {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+/* ── GPS Info ── */
+
+.gpsInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+  margin-top: var(--spacing-sm);
+}
+
+.gpsIcon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Feedback ── */
+
+.successMessage {
+  width: 100%;
+  max-width: 400px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  text-align: center;
+  margin-top: var(--spacing-md);
+}
+
+.successTitle {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: #34d399;
+  margin-bottom: var(--spacing-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+.successDetail {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.errorMessage {
+  width: 100%;
+  max-width: 400px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  text-align: center;
+  color: #f87171;
+  font-size: var(--font-sm);
+  margin-top: var(--spacing-md);
+}
+
+/* ── Loading ── */
+
+.loadingContainer {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-md);
+}
+
+.errorContainer {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  padding: var(--spacing-lg);
+  text-align: center;
+  gap: var(--spacing-md);
+}
+
+.errorTitle {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  color: #f87171;
+}
+
+.errorDesc {
+  font-size: var(--font-md);
+  color: var(--cf-text-secondary);
+  max-width: 300px;
+}
+
+.retryButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.retryButton:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* ── Light mode adjustments ── */
+
+:global([data-theme="light"]) .fichajeButton {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+:global([data-theme="light"]) .badgeEntrada {
+  background: rgba(5, 150, 105, 0.1);
+  color: #059669;
+}
+
+:global([data-theme="light"]) .badgeSalida {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+:global([data-theme="light"]) .successMessage {
+  background: rgba(5, 150, 105, 0.05);
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+:global([data-theme="light"]) .successTitle {
+  color: #059669;
+}
+
+:global([data-theme="light"]) .errorMessage {
+  background: rgba(220, 38, 38, 0.05);
+  border-color: rgba(220, 38, 38, 0.2);
+  color: #dc2626;
+}

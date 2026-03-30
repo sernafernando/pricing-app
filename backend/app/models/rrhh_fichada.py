@@ -1,8 +1,12 @@
 """
 Fichadas (clock-in/out) de empleados — Phase 7.
 
-Registra fichadas de entrada/salida desde el dispositivo Hikvision DS-K1T804AMF
-(face + fingerprint) o ingreso manual. Dedup por event_id (serialNo del device).
+Registra fichadas de entrada/salida desde:
+- Dispositivo Hikvision DS-K1T804AMF (face + fingerprint)
+- Ingreso manual por RRHH
+- Fichaje mobile (PWA self-service con geolocalización)
+
+Dedup: event_id (serialNo Hikvision) + proximity dedup (120s window).
 
 Mapeo empleado: employeeNoString → hikvision_employee_no → rrhh_empleados.
 empleado_id puede ser NULL si el usuario Hikvision aún no fue mapeado.
@@ -14,9 +18,11 @@ import enum
 from sqlalchemy import (
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
 )
 from sqlalchemy.orm import relationship
@@ -28,6 +34,7 @@ from app.core.database import Base
 class OrigenFichada(str, enum.Enum):
     HIKVISION = "hikvision"
     MANUAL = "manual"
+    MOBILE = "mobile"
 
 
 class TipoFichada(str, enum.Enum):
@@ -61,6 +68,12 @@ class RRHHFichada(Base):
     # Manual entry
     registrado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     motivo_manual = Column(String(500), nullable=True)
+
+    # Mobile geolocation (informative — never blocks fichada)
+    latitud = Column(Numeric(10, 8), nullable=True)
+    longitud = Column(Numeric(11, 8), nullable=True)
+    accuracy_metros = Column(Float, nullable=True)
+    distancia_oficina_metros = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

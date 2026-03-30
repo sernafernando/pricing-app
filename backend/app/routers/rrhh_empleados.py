@@ -10,6 +10,7 @@ Endpoints:
 """
 
 import os
+import unicodedata
 import uuid
 from datetime import date, datetime, UTC
 from typing import Optional
@@ -23,7 +24,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.security import get_password_hash
 from app.models.rrhh_documento import RRHHDocumento
+from app.models.rol import Rol
 from app.models.rrhh_empleado import EstadoEmpleado, RRHHEmpleado
 from app.models.rrhh_legajo_historial import RRHHLegajoHistorial
 from app.models.rrhh_motivo_baja import RRHHMotivoBaja
@@ -148,6 +151,20 @@ class EmpleadoUpdate(BaseModel):
         if isinstance(data, dict):
             return {k: _empty_to_none(v) for k, v in data.items()}
         return data
+
+
+class CrearUsuarioFichajeRequest(BaseModel):
+    """Datos para crear usuario de fichaje desde empleado."""
+
+    usar_segundo_nombre: bool = Field(default=False, description="Usar inicial del segundo nombre en vez del primero")
+
+
+class CrearUsuarioFichajeResponse(BaseModel):
+    """Resultado de crear usuario de fichaje."""
+
+    usuario_id: int
+    username: str
+    message: str
 
 
 class EmpleadoResponse(BaseModel):
@@ -1266,3 +1283,111 @@ async def geocodificar_empleado(
         "longitud": float(lng),
         "direccion_geocodificada": direccion_completa,
     }
+
+
+# ═══════════════════════════════════════════════
+# ENDPOINTS — Crear usuario de fichaje desde empleado
+# ═══════════════════════════════════════════════
+
+
+def _strip_accents(text: str) -> str:
+    """Remove accents from text, returning ASCII-only lowercase."""
+    normalized = unicodedata.normalize("NFD", text)
+    return normalized.encode("ascii", "ignore").decode("ascii").lower()
+
+
+@router.post(
+    "/empleados/{empleado_id}/crear-usuario-fichaje",
+    response_model=CrearUsuarioFichajeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_usuario_fichaje(
+    empleado_id: int,
+    data: CrearUsuarioFichajeRequest,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CrearUsuarioFichajeResponse:
+    """
+    Crea un usuario con rol FICHAJE a partir de un empleado existente.
+
+    El username se genera automáticamente: inicial del nombre + apellido (sin acentos).
+    El password inicial es el DNI del empleado.
+    Requiere permiso rrhh.gestionar.
+    """
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.gestionar"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.gestionar")
+
+    # 1. Buscar empleado
+    empleado = db.query(RRHHEmpleado).filter(RRHHEmpleado.id == empleado_id).first()
+    if not empleado:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+
+    # 2. Verificar que no tenga usuario vinculado
+    if empleado.usuario_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este empleado ya tiene un usuario vinculado",
+        )
+
+    # 3. Generar username: inicial + apellido
+    nombre_parts = empleado.nombre.strip().split()
+    if data.usar_segundo_nombre and len(nombre_parts) > 1:
+        inicial = _strip_accents(nombre_parts[1][0])
+    else:
+        inicial = _strip_accents(nombre_parts[0][0])
+
+    apellido_clean = _strip_accents(empleado.apellido.strip().replace(" ", ""))
+    base_username = f"{inicial}{apellido_clean}"
+
+    # 4. Asegurar unicidad del username
+    username = base_username
+    suffix = 1
+    while db.query(Usuario).filter(Usuario.username == username).first():
+        username = f"{base_username}{suffix}"
+        suffix += 1
+
+    # 5. Buscar rol FICHAJE
+    fichaje_rol = db.query(Rol).filter(Rol.codigo == "FICHAJE").first()
+    if not fichaje_rol:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Rol FICHAJE no encontrado. Ejecutar migración 20260330_rol_fichaje.",
+        )
+
+    # 6. Crear usuario
+    hashed_password = get_password_hash(empleado.dni)
+    new_user = Usuario(
+        username=username,
+        nombre=f"{empleado.nombre} {empleado.apellido}",
+        password_hash=hashed_password,
+        rol=None,
+        rol_id=fichaje_rol.id,
+        auth_provider="local",
+        activo=True,
+    )
+    db.add(new_user)
+    db.flush()
+
+    # 7. Vincular empleado al usuario
+    empleado.usuario_id = new_user.id
+    empleado.updated_at = datetime.now(UTC)
+
+    # 8. Registrar en historial
+    _registrar_cambio(
+        db,
+        empleado.id,
+        "usuario_fichaje_creado",
+        None,
+        f"Usuario '{username}' (id={new_user.id})",
+        current_user.id,
+    )
+
+    db.commit()
+    db.refresh(new_user)
+
+    return CrearUsuarioFichajeResponse(
+        usuario_id=new_user.id,
+        username=username,
+        message=f"Usuario '{username}' creado. Password: DNI del empleado.",
+    )

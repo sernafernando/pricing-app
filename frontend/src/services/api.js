@@ -156,6 +156,8 @@ export const rrhhAPI = {
   crearEmpleado: (data) => api.post('/rrhh/empleados', data),
   actualizarEmpleado: (id, data) => api.put(`/rrhh/empleados/${id}`, data),
   eliminarEmpleado: (id) => api.delete(`/rrhh/empleados/${id}`),
+  crearUsuarioFichaje: (empleadoId, data = {}) =>
+    api.post(`/rrhh/empleados/${empleadoId}/crear-usuario-fichaje`, data),
 
   // Documentos
   listarDocumentos: (empleadoId) => api.get(`/rrhh/empleados/${empleadoId}/documentos`),
@@ -303,6 +305,10 @@ export const rrhhAPI = {
   crearExcepcion: (data) => api.post('/rrhh/horarios/excepciones', data),
   actualizarExcepcion: (id, data) => api.put(`/rrhh/horarios/excepciones/${id}`, data),
   eliminarExcepcion: (id) => api.delete(`/rrhh/horarios/excepciones/${id}`),
+
+  // ── Fichaje Mobile ───────────────────────────
+  getEstadoFichaje: () => api.get('/rrhh/fichaje-mobile/estado'),
+  ficharMobile: (data) => api.post('/rrhh/fichaje-mobile/fichar', data),
 
   // ── Reportes ────────────────────────────────
   reportePresentismoMensual: (params) =>
