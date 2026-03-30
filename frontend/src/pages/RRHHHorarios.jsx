@@ -5,7 +5,7 @@ import {
   Clock, Plus, RefreshCw, Trash2, Edit2, Link, Unlink,
   Fingerprint, Settings, CalendarOff, LogIn, LogOut,
   ArrowUpDown, Check, X, Timer, Users, UserPlus, UserMinus,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, MapPin,
 } from 'lucide-react';
 import styles from './RRHHHorarios.module.css';
 
@@ -766,6 +766,7 @@ export default function RRHHHorarios() {
                     <th>Fichada</th>
                     <th>Empleado</th>
                     <th>Origen</th>
+                    <th>Ubic.</th>
                     <th>Hs Día</th>
                     <th>Motivo</th>
                     {puedeGestionar && <th>Acciones</th>}
@@ -813,9 +814,33 @@ export default function RRHHHorarios() {
                         </div>
                       </td>
                       <td>
-                        <span className={f.origen === 'hikvision' ? styles.badgeHikvision : styles.badgeManual}>
+                        <span className={f.origen === 'hikvision' ? styles.badgeHikvision : (f.origen === 'mobile' ? styles.badgeMobile : styles.badgeManual)}>
                           {f.origen}
                         </span>
+                      </td>
+                      <td>
+                        {f.latitud != null && f.longitud != null ? (
+                          <a
+                            href={`https://www.google.com/maps?q=${f.latitud},${f.longitud}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.geoLink}
+                            title={f.distancia_oficina_metros != null
+                              ? `A ${Math.round(f.distancia_oficina_metros)}m de la oficina`
+                              : 'Ver en Google Maps'}
+                          >
+                            <MapPin size={14} />
+                            {f.distancia_oficina_metros != null && (
+                              <span className={styles.geoDistance}>
+                                {f.distancia_oficina_metros < 1000
+                                  ? `${Math.round(f.distancia_oficina_metros)}m`
+                                  : `${(f.distancia_oficina_metros / 1000).toFixed(1)}km`}
+                              </span>
+                            )}
+                          </a>
+                        ) : (
+                          <span style={{ color: 'var(--cf-text-tertiary)' }}>-</span>
+                        )}
                       </td>
                       <td className={styles.cellHoras}>
                         {f.horas_dia != null ? (

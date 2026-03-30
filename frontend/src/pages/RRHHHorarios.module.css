@@ -182,6 +182,31 @@
   color: var(--cf-accent-orange);
 }
 
+.badgeMobile {
+  composes: badge;
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+}
+
+.geoLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  font-size: var(--font-xs);
+  transition: color var(--duration-200) var(--ease-out);
+}
+
+.geoLink:hover {
+  color: var(--cf-accent-blue-hover, #60a5fa);
+  text-decoration: underline;
+}
+
+.geoDistance {
+  font-variant-numeric: tabular-nums;
+}
+
 .badgeActivo {
   composes: badge;
   background: rgba(34, 197, 94, 0.1);
