@@ -27,6 +27,7 @@ const formatTime = (isoString) => {
   return d.toLocaleTimeString('es-AR', {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
     timeZone: 'America/Argentina/Buenos_Aires',
   });
 };
@@ -37,6 +38,7 @@ const formatClock = (date) =>
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    hour12: false,
     timeZone: 'America/Argentina/Buenos_Aires',
   });
 
