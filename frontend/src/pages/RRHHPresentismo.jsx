@@ -292,49 +292,87 @@ export default function RRHHPresentismo() {
                 {grilla.fechas.map((f) => (
                   <th key={f}>{formatDateShort(f)}</th>
                 ))}
+                <th title="Llegadas tarde (tolerancia / fuera de tolerancia)">Tardes</th>
               </tr>
             </thead>
             <tbody>
-              {grilla.empleados.map((emp) => (
-                <tr key={emp.empleado_id}>
-                  <td>
-                    <div className={styles.empleadoCell}>
-                      <span className={styles.empleadoNombre}>{emp.nombre_completo}</span>
-                      <span className={styles.empleadoLegajo}>{emp.legajo}</span>
-                    </div>
-                  </td>
-                  {grilla.fechas.map((f) => {
-                    const dia = emp.dias[f];
-                    const estado = dia?.estado || null;
-                    const origen = dia?.origen || null;
-                    const styleName = estado ? ESTADO_STYLE_MAP[estado] : 'estadoEmpty';
-                    const isAuto = origen === 'auto';
-                    const label = estado
-                      ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.label || estado
-                      : '-';
-                    const fullLabel = estado
-                      ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.fullLabel
-                      : 'Sin marcar';
-                    const fichadaStr = dia?.fichada ? ` | ${dia.fichada}` : '';
-                    const title = isAuto ? `${fullLabel} (auto)${fichadaStr}` : `${fullLabel}${fichadaStr}`;
-                    return (
-                      <td key={f}>
-                        <div className={styles.cellWrapper} onClick={(e) => handleCellClick(emp.empleado_id, f, e)}>
-                          <span
-                            className={`${styles[styleName]} ${isAuto ? styles.autoCalc : ''}`}
-                            title={title}
-                          >
-                            {label}
-                          </span>
-                          {dia?.fichada && (
-                            <span className={styles.fichadaLabel}>{dia.fichada}</span>
+              {grilla.empleados.map((emp) => {
+                let countTolerancia = 0;
+                let countTarde = 0;
+                const cells = grilla.fechas.map((f) => {
+                  const dia = emp.dias[f];
+                  const estado = dia?.estado || null;
+                  const origen = dia?.origen || null;
+                  const puntualidad = dia?.puntualidad || null;
+                  const isAuto = origen === 'auto';
+
+                  // Pick style: override "presente" with tardiness variant
+                  let styleName = estado ? ESTADO_STYLE_MAP[estado] : 'estadoEmpty';
+                  if (estado === 'presente' && puntualidad === 'tolerancia') {
+                    styleName = 'estadoPresenteTolerancia';
+                    countTolerancia += 1;
+                  } else if (estado === 'presente' && puntualidad === 'tarde') {
+                    styleName = 'estadoPresenteTarde';
+                    countTarde += 1;
+                  }
+
+                  const label = estado
+                    ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.label || estado
+                    : '-';
+                  const fullLabel = estado
+                    ? ESTADOS_PRESENTISMO.find((e) => e.value === estado)?.fullLabel
+                    : 'Sin marcar';
+                  const fichadaStr = dia?.fichada ? ` | ${dia.fichada}` : '';
+                  const tardeStr = dia?.minutos_tarde > 0 ? ` (+${dia.minutos_tarde}min)` : '';
+                  const title = isAuto
+                    ? `${fullLabel} (auto)${fichadaStr}${tardeStr}`
+                    : `${fullLabel}${fichadaStr}${tardeStr}`;
+                  return (
+                    <td key={f}>
+                      <div className={styles.cellWrapper} onClick={(e) => handleCellClick(emp.empleado_id, f, e)}>
+                        <span
+                          className={`${styles[styleName]} ${isAuto ? styles.autoCalc : ''}`}
+                          title={title}
+                        >
+                          {label}
+                        </span>
+                        {dia?.fichada && (
+                          <span className={styles.fichadaLabel}>{dia.fichada}</span>
+                        )}
+                      </div>
+                    </td>
+                  );
+                });
+                return (
+                  <tr key={emp.empleado_id}>
+                    <td>
+                      <div className={styles.empleadoCell}>
+                        <span className={styles.empleadoNombre}>{emp.nombre_completo}</span>
+                        <span className={styles.empleadoLegajo}>{emp.legajo}</span>
+                      </div>
+                    </td>
+                    {cells}
+                    <td>
+                      {(countTolerancia > 0 || countTarde > 0) ? (
+                        <div className={styles.tardeCount}>
+                          {countTolerancia > 0 && (
+                            <span className={styles.tardeCountOrange} title={`${countTolerancia} dentro de tolerancia`}>
+                              {countTolerancia}
+                            </span>
+                          )}
+                          {countTarde > 0 && (
+                            <span className={styles.tardeCountRed} title={`${countTarde} fuera de tolerancia`}>
+                              {countTarde}
+                            </span>
                           )}
                         </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                      ) : (
+                        <span style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)' }}>-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

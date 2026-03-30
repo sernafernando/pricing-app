@@ -54,6 +54,12 @@ const formatDiasSemana = (dias) => {
 
 const PAGE_SIZE = 50;
 
+const PUNTUALIDAD_STYLE = {
+  a_tiempo: 'fichadaHoraOk',
+  tolerancia: 'fichadaHoraTolerancia',
+  tarde: 'fichadaHoraTarde',
+};
+
 const getErrorMessage = (err, fallback) => {
   const data = err?.response?.data;
   if (typeof data === 'string' && data.trim()) return data;
@@ -775,7 +781,12 @@ export default function RRHHHorarios() {
                             {f.tipo === 'entrada' ? <LogIn size={12} /> : <LogOut size={12} />}
                             {' '}{f.tipo}
                           </span>
-                          <span className={styles.fichadaHora}>{formatFichadaTime(f.timestamp)}</span>
+                          <span
+                            className={styles[PUNTUALIDAD_STYLE[f.puntualidad]] || styles.fichadaHora}
+                            title={f.minutos_tarde > 0 ? `${f.minutos_tarde} min tarde` : undefined}
+                          >
+                            {formatFichadaTime(f.timestamp)}
+                          </span>
                         </div>
                       </td>
                       <td>
