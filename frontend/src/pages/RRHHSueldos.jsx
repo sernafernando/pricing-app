@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
 import { DollarSign, Download, Search, RotateCcw, AlertTriangle } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import styles from './RRHHSueldos.module.css';
 
 export default function RRHHSueldos() {
@@ -44,22 +45,27 @@ export default function RRHHSueldos() {
 
   const incompleteCount = filteredData.filter((e) => !e.banco_cbu).length;
 
-  const handleExportCSV = () => {
-    const headers = ['Legajo', 'Apellido', 'Nombre', 'CUIL', 'Banco', 'Tipo Cuenta', 'CBU', 'Alias CBU', 'Nro Cuenta'];
-    const rows = filteredData.map((e) => [
-      e.legajo, e.apellido, e.nombre, e.cuil || '', e.banco_nombre || '',
-      e.banco_tipo_cuenta || '', e.banco_cbu || '', e.banco_alias || '', e.banco_nro_cuenta || '',
-    ]);
-    const csvContent = [headers, ...rows].map((r) => r.map((c) => `"${(c || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `datos_bancarios_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+  const handleExportXLSX = () => {
+    const wsData = filteredData.map((e) => ({
+      Legajo: e.legajo,
+      Apellido: e.apellido,
+      Nombre: e.nombre,
+      CUIL: e.cuil || '',
+      Banco: e.banco_nombre || '',
+      'Tipo Cuenta': e.banco_tipo_cuenta || '',
+      CBU: e.banco_cbu || '',
+      'Alias CBU': e.banco_alias || '',
+      'Nro Cuenta': e.banco_nro_cuenta || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(wsData);
+    // Auto-width columns
+    const colWidths = Object.keys(wsData[0] || {}).map((key) => ({
+      wch: Math.max(key.length, ...wsData.map((r) => String(r[key] || '').length)) + 2,
+    }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Datos Bancarios');
+    XLSX.writeFile(wb, `datos_bancarios_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   return (
@@ -70,7 +76,7 @@ export default function RRHHSueldos() {
           <h1>Sueldos — Datos Bancarios</h1>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.btnExport} onClick={handleExportCSV} disabled={filteredData.length === 0}>
+          <button className={styles.btnExport} onClick={handleExportXLSX} disabled={filteredData.length === 0}>
             <Download size={14} />
             Exportar CSV
           </button>
