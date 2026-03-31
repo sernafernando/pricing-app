@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI):
     # ── Background tasks ─────────────────────────────────────────
     background_task = asyncio.create_task(sync_pedidos_preparacion_task())
     free_shipping_task = asyncio.create_task(free_shipping_auto_fix_task())
+    sale_orders_task = asyncio.create_task(sync_sale_orders_task())
 
     yield
 
@@ -132,6 +133,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pricing API shutting down")
     background_task.cancel()
     free_shipping_task.cancel()
+    sale_orders_task.cancel()
     try:
         await background_task
     except asyncio.CancelledError:
@@ -279,6 +281,27 @@ async def sync_pedidos_preparacion_task():
 
         # Esperar 5 minutos
         await asyncio.sleep(300)
+
+
+async def sync_sale_orders_task():
+    """
+    Tarea de background que sincroniza sale orders del ERP cada 10 minutos.
+    Trae headers + details actualizados de los últimos 7 días.
+    """
+    from app.scripts.sync_sale_orders_all import main_async
+
+    # Esperar 60 segundos para no competir con el startup
+    await asyncio.sleep(60)
+    logger.info("Background task started: sync sale orders (interval=600s)")
+
+    while True:
+        try:
+            await main_async(days=7)
+        except Exception as e:
+            logger.error("Sync sale orders failed: %s", e, exc_info=True)
+
+        # Esperar 10 minutos
+        await asyncio.sleep(600)
 
 
 async def free_shipping_auto_fix_task():

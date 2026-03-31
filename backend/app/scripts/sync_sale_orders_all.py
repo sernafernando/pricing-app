@@ -44,6 +44,23 @@ from app.models.sale_order_detail_history import SaleOrderDetailHistory
 GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
 
 
+def parse_dt(val: str | None) -> datetime | None:
+    """Parse fecha del ERP. Soporta ISO format y US format con AM/PM."""
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val.replace("T", " ").replace("Z", ""))
+    except ValueError:
+        pass
+    # Fallback: US format "3/3/2026 4:00:59 PM" del GBP
+    from dateutil import parser as dateutil_parser
+
+    try:
+        return dateutil_parser.parse(val)
+    except (ValueError, TypeError):
+        return None
+
+
 async def sync_sale_order_header(db: Session, days: int = 7):
     """
     Sincroniza cabecera de órdenes de venta.
@@ -105,15 +122,6 @@ async def sync_sale_order_header(db: Session, days: int = 7):
                     )
                     .first()
                 )
-
-                # Helper para fechas
-                def parse_dt(val):
-                    if not val:
-                        return None
-                    try:
-                        return datetime.fromisoformat(val.replace("T", " ").replace("Z", ""))
-                    except:
-                        return None
 
                 # Datos principales + campos necesarios para traza/envíos
                 datos = {
@@ -370,14 +378,6 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
                     .first()
                 )
 
-                def parse_dt(val):
-                    if not val:
-                        return None
-                    try:
-                        return datetime.fromisoformat(val.replace("T", " ").replace("Z", ""))
-                    except:
-                        return None
-
                 # Mapear TODAS las columnas del JSON al modelo
                 datos = {
                     "comp_id": comp_id,
@@ -516,14 +516,6 @@ async def sync_sale_order_detail_history(db: Session, days: int = 7):
                     )
                     .first()
                 )
-
-                def parse_dt(val):
-                    if not val:
-                        return None
-                    try:
-                        return datetime.fromisoformat(val.replace("T", " ").replace("Z", ""))
-                    except:
-                        return None
 
                 # Mapear TODAS las columnas del JSON al modelo
                 datos = {

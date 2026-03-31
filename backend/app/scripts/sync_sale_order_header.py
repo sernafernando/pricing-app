@@ -96,8 +96,14 @@ def sync_sale_order_header(db: Session, data: list):
                 if not value:
                     return None
                 try:
-                    return datetime.fromisoformat(value.replace("T", " "))
-                except:
+                    return datetime.fromisoformat(value.replace("T", " ").replace("Z", ""))
+                except ValueError:
+                    pass
+                from dateutil import parser as dateutil_parser
+
+                try:
+                    return dateutil_parser.parse(value)
+                except (ValueError, TypeError):
                     return None
 
             # Preparar datos (mapear keys del ERP a nombres de columnas en minúsculas)
