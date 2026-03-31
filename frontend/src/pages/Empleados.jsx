@@ -2227,7 +2227,7 @@ const PAGE_SIZE = 50;
               )}
               {!fichajeResult && fichajeEmpleado.usuario_id && (
                 <button
-                  className={styles.btnDanger}
+                  className={styles.btnDangerText}
                   onClick={handleDesvincularUsuario}
                   disabled={fichajeCreando}
                 >

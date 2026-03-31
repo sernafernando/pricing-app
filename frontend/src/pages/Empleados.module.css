@@ -182,6 +182,10 @@
   composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
 }
 
+.btnDangerText {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+}
+
 .btnLinked {
   composes: btn-tesla outline-subtle-success icon-only sm from '../styles/buttons-tesla.css';
 }
