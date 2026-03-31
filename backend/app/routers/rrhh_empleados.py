@@ -1401,3 +1401,71 @@ def crear_usuario_fichaje(
         username=username,
         message=f"Usuario '{username}' creado. Password: DNI del empleado.",
     )
+
+
+# ──────────────────────────────────────────────
+# ENDPOINT — Datos bancarios para sueldos
+# ──────────────────────────────────────────────
+
+
+class DatosBancariosRow(BaseModel):
+    """Fila de datos bancarios de un empleado para transferencias de sueldos."""
+
+    empleado_id: int
+    legajo: str
+    apellido: str
+    nombre: str
+    cuil: Optional[str] = None
+    banco_nombre: Optional[str] = None
+    banco_cbu: Optional[str] = None
+    banco_alias: Optional[str] = None
+    banco_tipo_cuenta: Optional[str] = None
+    banco_nro_cuenta: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/empleados/datos-bancarios",
+    response_model=list[DatosBancariosRow],
+    summary="Listado de datos bancarios de empleados activos",
+)
+def listar_datos_bancarios(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[DatosBancariosRow]:
+    """
+    Retorna los datos bancarios de todos los empleados activos.
+
+    Usado para la pantalla de sueldos (transferencias bancarias).
+    Requiere: rrhh.ver
+    """
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    empleados = (
+        db.query(RRHHEmpleado)
+        .filter(
+            RRHHEmpleado.activo.is_(True),
+            RRHHEmpleado.estado == "activo",
+        )
+        .order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre)
+        .all()
+    )
+
+    return [
+        DatosBancariosRow(
+            empleado_id=emp.id,
+            legajo=emp.legajo,
+            apellido=emp.apellido,
+            nombre=emp.nombre,
+            cuil=emp.cuil,
+            banco_nombre=emp.banco_nombre,
+            banco_cbu=emp.banco_cbu,
+            banco_alias=emp.banco_alias,
+            banco_tipo_cuenta=emp.banco_tipo_cuenta,
+            banco_nro_cuenta=emp.banco_nro_cuenta,
+        )
+        for emp in empleados
+    ]

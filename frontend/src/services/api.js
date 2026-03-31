@@ -159,6 +159,7 @@ export const rrhhAPI = {
   crearUsuarioFichaje: (empleadoId, data = {}) =>
     api.post(`/rrhh/empleados/${empleadoId}/crear-usuario-fichaje`, data),
   listarUsuariosSistema: () => api.get('/usuarios'),
+  listarDatosBancarios: () => api.get('/rrhh/empleados/datos-bancarios'),
 
   // Documentos
   listarDocumentos: (empleadoId) => api.get(`/rrhh/empleados/${empleadoId}/documentos`),

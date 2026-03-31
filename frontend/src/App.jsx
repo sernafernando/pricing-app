@@ -38,6 +38,7 @@ import RRHHSanciones from './pages/RRHHSanciones';
 import RRHHVacaciones from './pages/RRHHVacaciones';
 import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
 import RRHHHorarios from './pages/RRHHHorarios';
+import RRHHSueldos from './pages/RRHHSueldos';
 import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import FichajeMobile from './pages/FichajeMobile';
@@ -262,6 +263,11 @@ function App() {
             <Route path="/rrhh/horarios" element={
               <ProtectedRoute permiso="rrhh.ver">
                 <RRHHHorarios />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/sueldos" element={
+              <ProtectedRoute permiso="rrhh.ver">
+                <RRHHSueldos />
               </ProtectedRoute>
             } />
             <Route path="/cumpleanos" element={<RRHHCumpleanos />} />
