@@ -2129,7 +2129,7 @@ const PAGE_SIZE = 50;
                 </div>
               )}
 
-              {fichajeTab === 'crear' && !fichajeResult && (
+              {!fichajeEmpleado.usuario_id && fichajeTab === 'crear' && !fichajeResult && (
                 <>
                   <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginBottom: 'var(--spacing-sm)' }}>
                     Se crea un usuario con rol FICHAJE (solo acceso a fichaje mobile). Password: DNI del empleado.
@@ -2154,7 +2154,7 @@ const PAGE_SIZE = 50;
                 </>
               )}
 
-              {fichajeTab === 'vincular' && !fichajeResult && (
+              {!fichajeEmpleado.usuario_id && fichajeTab === 'vincular' && !fichajeResult && (
                 <>
                   <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginBottom: 'var(--spacing-sm)' }}>
                     Vincular un usuario que ya existe en el sistema a este empleado.
