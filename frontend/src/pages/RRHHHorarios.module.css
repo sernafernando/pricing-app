@@ -706,3 +706,65 @@
 }
 
 /* btnIcon replaced by tesla compose buttons above */
+
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-sm);
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .headerTitle h1 {
+    font-size: var(--font-lg);
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters .select,
+  .filters .input {
+    width: 100%;
+  }
+
+  .table th,
+  .table td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .cellMotivo {
+    max-width: 120px;
+  }
+
+  .fichadaCell {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .horariosGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .tab {
+    white-space: nowrap;
+    font-size: var(--font-xs);
+  }
+}

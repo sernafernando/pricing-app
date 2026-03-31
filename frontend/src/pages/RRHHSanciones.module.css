@@ -507,3 +507,16 @@
 .spoilerToggle:hover {
   color: var(--cf-accent-blue);
 }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container { padding: var(--spacing-sm); }
+  .header { flex-direction: column; align-items: flex-start; gap: var(--spacing-sm); }
+  .headerTitle h1 { font-size: var(--font-lg); }
+  .filters { flex-direction: column; align-items: stretch; }
+  .table th, .table td { padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px; white-space: nowrap; }
+  .formRow { grid-template-columns: 1fr; }
+  .configTabs { overflow-x: auto; flex-wrap: nowrap; }
+  .configTab, .configTabActive { white-space: nowrap; font-size: var(--font-xs); }
+  .placeholderGrid { grid-template-columns: 1fr; }
+}

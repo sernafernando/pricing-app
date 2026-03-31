@@ -787,22 +787,21 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .filters {
-    flex-wrap: wrap;
-  }
-
-  .searchBox {
-    max-width: 100%;
-    flex-basis: 100%;
-  }
-
-  .formGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .header {
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    align-items: flex-start;
-  }
+  .container { padding: var(--spacing-sm); }
+  .header { flex-direction: column; align-items: flex-start; gap: var(--spacing-sm); }
+  .headerTitle h1 { font-size: var(--font-lg); }
+  .filters { flex-direction: column; align-items: stretch; }
+  .table th, .table td { padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px; white-space: nowrap; }
+  .formGrid { grid-template-columns: 1fr; }
+  .searchBox { max-width: 100%; flex-basis: 100%; }
+  .pageTabs { overflow-x: auto; flex-wrap: nowrap; }
+  .pageTab { white-space: nowrap; font-size: var(--font-xs); }
+  .modalTabs { overflow-x: auto; flex-wrap: nowrap; }
+  .modalTab { white-space: nowrap; font-size: var(--font-xs); }
+  .direccionGrid { flex-direction: column; }
+  .coordsRow { flex-direction: column; }
+  .coordsRow .formGroup { flex: 1; }
+  .bajaGrid { grid-template-columns: 1fr; }
+  .docUploadRow { flex-direction: column; align-items: stretch; }
+  .turnosAsignarRow { flex-direction: column; align-items: stretch; }
 }

@@ -539,3 +539,88 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--spacing-md);
 }
+
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-sm);
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .headerTitle h1 {
+    font-size: var(--font-lg);
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gridWrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .grid th,
+  .grid td {
+    padding: 2px 4px;
+    font-size: 10px;
+  }
+
+  .estadoCell {
+    min-width: 22px;
+    padding: 2px 4px;
+    font-size: 9px;
+  }
+
+  .fichadaLabel {
+    font-size: 7px;
+  }
+
+  .empleadoNombre {
+    font-size: 10px;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .empleadoLegajo {
+    font-size: 8px;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .tab,
+  .tabActive {
+    white-space: nowrap;
+    font-size: var(--font-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .table th,
+  .table td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 11px;
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+  }
+
+  .legend {
+    gap: var(--spacing-sm);
+  }
+
+  .legendItem {
+    font-size: 9px;
+  }
+}

@@ -256,3 +256,15 @@
   color: var(--cf-text-secondary);
   font-size: var(--font-sm);
 }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container { padding: var(--spacing-sm); }
+  .header { flex-direction: column; align-items: flex-start; gap: var(--spacing-sm); }
+  .headerTitle h1 { font-size: var(--font-lg); }
+  .calendario { grid-template-columns: repeat(7, 1fr); font-size: 9px; }
+  .celda { min-height: 60px; padding: 2px; }
+  .celdaVacia { min-height: 60px; }
+  .cumpleNombre { max-width: 50px; }
+  .mesLabel { font-size: var(--font-md); min-width: 150px; }
+}
