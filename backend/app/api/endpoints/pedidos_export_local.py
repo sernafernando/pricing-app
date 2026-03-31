@@ -129,11 +129,15 @@ async def obtener_pedidos_local(
     if ssos_id is not None:
         query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
         # Cuando se filtra por estado activo, excluir pedidos cerrados en tb_sale_order_times
-        # (ssot_id=40 indica cerrado). Sin filtro de estado, se muestran todos.
-        subquery_cerrados = (
-            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        # (ssot_id=40 indica cerrado). Filtra por comp_id + bra_id + soh_id para evitar
+        # colisiones entre sucursales/empresas con el mismo soh_id.
+        subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+            SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED,
+            SaleOrderTimes.comp_id == SaleOrderHeader.comp_id,
+            SaleOrderTimes.bra_id == SaleOrderHeader.bra_id,
+            SaleOrderTimes.soh_id == SaleOrderHeader.soh_id,
         )
-        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
+        query = query.filter(~subquery_cerrados.exists())
 
     # Filtros adicionales
     if solo_tn:
@@ -453,10 +457,13 @@ async def obtener_usuarios_disponibles_local(
     )
     if ssos_id is not None:
         query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
-        subquery_cerrados = (
-            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+            SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED,
+            SaleOrderTimes.comp_id == SaleOrderHeader.comp_id,
+            SaleOrderTimes.bra_id == SaleOrderHeader.bra_id,
+            SaleOrderTimes.soh_id == SaleOrderHeader.soh_id,
         )
-        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
+        query = query.filter(~subquery_cerrados.exists())
 
     usuarios = query.distinct().order_by(TBUser.user_name.asc().nullslast()).all()
 
@@ -487,10 +494,13 @@ async def obtener_provincias_disponibles_local(
     )
     if ssos_id is not None:
         query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
-        subquery_cerrados = (
-            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+            SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED,
+            SaleOrderTimes.comp_id == SaleOrderHeader.comp_id,
+            SaleOrderTimes.bra_id == SaleOrderHeader.bra_id,
+            SaleOrderTimes.soh_id == SaleOrderHeader.soh_id,
         )
-        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
+        query = query.filter(~subquery_cerrados.exists())
 
     provincias = query.distinct().order_by(provincia_efectiva.asc()).all()
 
@@ -598,14 +608,19 @@ async def obtener_estadisticas_local(
     EXCLUYE pedidos cerrados (ssot_id = 40 en tb_sale_order_times).
     EXCLUYE pedidos con más de dias_atras días de antigüedad.
     """
-    # Subquery para excluir pedidos cerrados
-    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+    # Subquery correlada para excluir pedidos cerrados (respeta comp_id + bra_id)
+    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+        SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED,
+        SaleOrderTimes.comp_id == SaleOrderHeader.comp_id,
+        SaleOrderTimes.bra_id == SaleOrderHeader.bra_id,
+        SaleOrderTimes.soh_id == SaleOrderHeader.soh_id,
+    )
 
     # Filtro de fecha: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
     fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
 
     # Base query
-    base_filter = [~SaleOrderHeader.soh_id.in_(subquery_cerrados), SaleOrderHeader.soh_cd >= fecha_limite]
+    base_filter = [~subquery_cerrados.exists(), SaleOrderHeader.soh_cd >= fecha_limite]
     if ssos_id is not None:
         base_filter.append(SaleOrderHeader.ssos_id == ssos_id)
 

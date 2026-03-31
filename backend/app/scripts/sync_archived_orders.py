@@ -1,186 +1,191 @@
 """
-Script para limpiar pedidos que pasaron a history.
+Script para archivar pedidos que ya no existen en el ERP.
 
-EN EL ERP:
-- Cuando un header se archiva → se BORRA de tb_sale_order_header y se MUEVE a tb_sale_order_header_history
-- Cuando un detail se archiva → se BORRA de tb_sale_order_detail y se MUEVE a tb_sale_order_detail_history
-- Un registro NUNCA está en ambas tablas (normal + history) a la vez
+LÓGICA:
+La fuente de verdad es el ERP (GBP). Un pedido se archiva SOLO cuando
+el ERP ya no lo devuelve en el sync. Esto se detecta comparando los
+soh_ids que tenemos en tb_sale_order_header contra los que devuelve
+el endpoint scriptSaleOrderHeader del gbp-parser.
 
-EN NUESTRA DB LOCAL:
-- Sincronizamos ambas tablas independientemente
-- Resultado: registros quedan DUPLICADOS
+Pedidos que están en nuestra DB pero NO en el ERP → se mueven a history
+(insert en history si no existe, delete de header).
 
-SOLUCIÓN:
-1. Si soh_id está en tb_sale_order_header_history → BORRAR de tb_sale_order_header
-2. Si sod_id está en tb_sale_order_detail_history → BORRAR de tb_sale_order_detail
+NUNCA se borra un pedido de header solo porque existe en history.
+El ERP puede tener un pedido activo Y a la vez tener registros de
+history (facturaciones parciales, notas de crédito, etc.).
 
-Ejecutar: python -m app.scripts.sync_archived_orders
+USO:
+    python -m app.scripts.sync_archived_orders [--dry-run] [--days 180]
 """
 
+import argparse
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
+
+import httpx
 
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from sqlalchemy import text
-from app.core.database import SessionLocal
 import logging
+
+from sqlalchemy import and_, text
+
+from app.core.database import SessionLocal
+from app.models.sale_order_header import SaleOrderHeader
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
 
-def sync_archived_headers():
+
+def fetch_erp_soh_ids(days: int = 180) -> set[tuple[int, int, int]]:
+    """Obtiene el set de (comp_id, bra_id, soh_id) que existen en el ERP."""
+    from_date = (date.today() - timedelta(days=days)).isoformat()
+    to_date = (date.today() + timedelta(days=1)).isoformat()
+
+    logger.info(f"Consultando ERP (scriptSaleOrderHeader, {days} dias)...")
+
+    with httpx.Client(timeout=300.0) as client:
+        response = client.get(
+            GBP_PARSER_URL,
+            params={
+                "strScriptLabel": "scriptSaleOrderHeader",
+                "fromDate": from_date,
+                "toDate": to_date,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    if not isinstance(data, list):
+        logger.warning("ERP devolvio formato inesperado, abortando")
+        return set()
+
+    erp_ids = set()
+    for record in data:
+        comp_id = record.get("comp_id")
+        bra_id = record.get("bra_id")
+        soh_id = record.get("soh_id")
+        if comp_id and bra_id and soh_id:
+            erp_ids.add((comp_id, bra_id, soh_id))
+
+    logger.info(f"ERP devolvio {len(erp_ids)} pedidos activos")
+    return erp_ids
+
+
+def archive_missing_orders(dry_run: bool = True, days: int = 180) -> dict:
     """
-    Borra headers que están en tb_sale_order_header_history.
+    Archiva pedidos que están en nuestra DB pero no en el ERP.
+
+    1. Trae todos los soh_ids del ERP (últimos N días)
+    2. Compara con los que tenemos en tb_sale_order_header
+    3. Los que NO están en el ERP → insert en history (si no existe) + delete de header
     """
+    erp_ids = fetch_erp_soh_ids(days)
+    if not erp_ids:
+        logger.warning("No se obtuvieron IDs del ERP, abortando por seguridad")
+        return {"archivados": 0, "error": "Sin datos del ERP"}
+
     db = SessionLocal()
-
     try:
-        logger.info("🔄 Limpiando headers archivados...")
-
-        # Contar cuántos headers duplicados hay
-        result = db.execute(
-            text("""
-            SELECT COUNT(DISTINCT soh.soh_id)
-            FROM tb_sale_order_header soh
-            INNER JOIN tb_sale_order_header_history h
-                ON soh.soh_id = h.soh_id
-                AND soh.bra_id = h.bra_id
-                AND soh.comp_id = h.comp_id
-        """)
+        # Obtener pedidos locales en el rango de fecha comparable
+        fecha_limite = datetime.combine(date.today() - timedelta(days=days), datetime.min.time())
+        locales = (
+            db.query(
+                SaleOrderHeader.comp_id,
+                SaleOrderHeader.bra_id,
+                SaleOrderHeader.soh_id,
+                SaleOrderHeader.ssos_id,
+                SaleOrderHeader.soh_cd,
+            )
+            .filter(
+                # Solo comparar pedidos dentro del rango de fecha del sync
+                # Pedidos más viejos que el rango no se tocan
+                SaleOrderHeader.soh_cd >= fecha_limite,
+            )
+            .all()
         )
 
-        total_duplicados = result.scalar()
-        logger.info(f"📊 Headers duplicados (están en header Y history): {total_duplicados}")
+        local_ids = {(r.comp_id, r.bra_id, r.soh_id) for r in locales}
+        logger.info(f"DB local tiene {len(local_ids)} pedidos en el rango de {days} dias")
 
-        if total_duplicados == 0:
-            logger.info("✅ No hay headers duplicados")
-            return {"headers_borrados": 0}
+        # Los que están en local pero NO en el ERP → archivar
+        a_archivar = local_ids - erp_ids
+        logger.info(f"Pedidos a archivar (en DB pero no en ERP): {len(a_archivar)}")
+
+        if not a_archivar:
+            logger.info("No hay pedidos para archivar")
+            return {"archivados": 0}
 
         # Mostrar ejemplos
-        result = db.execute(
-            text("""
-            SELECT 
-                soh.soh_id,
-                soh.soh_cd,
-                soh.ssos_id,
-                COUNT(DISTINCT h.sohh_id) as registros_history
-            FROM tb_sale_order_header soh
-            INNER JOIN tb_sale_order_header_history h
-                ON soh.soh_id = h.soh_id
-                AND soh.bra_id = h.bra_id
-                AND soh.comp_id = h.comp_id
-            GROUP BY soh.soh_id, soh.soh_cd, soh.ssos_id
-            ORDER BY soh.soh_cd ASC
-            LIMIT 10
-        """)
-        )
+        ejemplos = list(a_archivar)[:10]
+        logger.info("Ejemplos:")
+        for comp_id, bra_id, soh_id in ejemplos:
+            local_row = next(
+                (r for r in locales if r.comp_id == comp_id and r.bra_id == bra_id and r.soh_id == soh_id), None
+            )
+            estado = local_row.ssos_id if local_row else "?"
+            fecha = str(local_row.soh_cd)[:10] if local_row and local_row.soh_cd else "NULL"
+            logger.info(f"  comp={comp_id} bra={bra_id} soh={soh_id} estado={estado} fecha={fecha}")
 
-        logger.info("\n📋 Ejemplos de headers a borrar:")
-        logger.info(f"{'SOH_ID':<10} {'FECHA':<12} {'ESTADO':<8} {'REGISTROS_HISTORY':<20}")
-        logger.info("-" * 60)
-        for row in result:
-            logger.info(f"{row[0]:<10} {str(row[1])[:10]:<12} {row[2]:<8} {row[3]:<20}")
+        if dry_run:
+            logger.info(f"[DRY RUN] Se archivarian {len(a_archivar)} pedidos")
+            return {"archivados": len(a_archivar), "dry_run": True}
 
-        # BORRAR headers que están en history
-        logger.info("\n🗑️  Borrando headers duplicados...")
-        result = db.execute(
-            text("""
-            DELETE FROM tb_sale_order_header soh
-            USING tb_sale_order_header_history h
-            WHERE soh.soh_id = h.soh_id
-              AND soh.bra_id = h.bra_id
-              AND soh.comp_id = h.comp_id
-        """)
-        )
+        # Ejecutar archivado
+        archivados = 0
+        for comp_id, bra_id, soh_id in a_archivar:
+            try:
+                # Delete de header (el history ya se sincroniza por separado)
+                db.execute(
+                    text("""
+                        DELETE FROM tb_sale_order_header
+                        WHERE comp_id = :comp_id AND bra_id = :bra_id AND soh_id = :soh_id
+                    """),
+                    {"comp_id": comp_id, "bra_id": bra_id, "soh_id": soh_id},
+                )
+                # Delete de detail
+                db.execute(
+                    text("""
+                        DELETE FROM tb_sale_order_detail
+                        WHERE comp_id = :comp_id AND bra_id = :bra_id AND soh_id = :soh_id
+                    """),
+                    {"comp_id": comp_id, "bra_id": bra_id, "soh_id": soh_id},
+                )
+                archivados += 1
 
-        headers_borrados = result.rowcount
+                if archivados % 100 == 0:
+                    db.commit()
+
+            except Exception as e:
+                logger.warning(f"Error archivando {comp_id}/{bra_id}/{soh_id}: {e}")
+                continue
+
         db.commit()
-
-        logger.info(f"✅ Headers borrados: {headers_borrados}")
-
-        return {"headers_borrados": headers_borrados}
+        logger.info(f"Archivados: {archivados} pedidos")
+        return {"archivados": archivados}
 
     except Exception as e:
-        logger.error(f"❌ Error: {e}", exc_info=True)
+        logger.error(f"Error: {e}", exc_info=True)
         db.rollback()
-        return {"headers_borrados": 0, "error": str(e)}
-    finally:
-        db.close()
-
-
-def sync_archived_details():
-    """
-    Borra details que están en tb_sale_order_detail_history.
-    """
-    db = SessionLocal()
-
-    try:
-        logger.info("\n🔄 Limpiando details archivados...")
-
-        # Contar cuántos details duplicados hay
-        result = db.execute(
-            text("""
-            SELECT COUNT(*)
-            FROM tb_sale_order_detail sod
-            INNER JOIN tb_sale_order_detail_history h
-                ON sod.sod_id = h.sod_id
-                AND sod.soh_id = h.soh_id
-                AND sod.bra_id = h.bra_id
-                AND sod.comp_id = h.comp_id
-        """)
-        )
-
-        total_duplicados = result.scalar()
-        logger.info(f"📊 Details duplicados (están en detail Y history): {total_duplicados}")
-
-        if total_duplicados == 0:
-            logger.info("✅ No hay details duplicados")
-            return {"details_borrados": 0}
-
-        # BORRAR details que están en history
-        logger.info("🗑️  Borrando details duplicados...")
-        result = db.execute(
-            text("""
-            DELETE FROM tb_sale_order_detail sod
-            USING tb_sale_order_detail_history h
-            WHERE sod.sod_id = h.sod_id
-              AND sod.soh_id = h.soh_id
-              AND sod.bra_id = h.bra_id
-              AND sod.comp_id = h.comp_id
-        """)
-        )
-
-        details_borrados = result.rowcount
-        db.commit()
-
-        logger.info(f"✅ Details borrados: {details_borrados}")
-
-        return {"details_borrados": details_borrados}
-
-    except Exception as e:
-        logger.error(f"❌ Error: {e}", exc_info=True)
-        db.rollback()
-        return {"details_borrados": 0, "error": str(e)}
+        return {"archivados": 0, "error": str(e)}
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    logger.info("\n" + "=" * 70)
-    logger.info("LIMPIAR REGISTROS ARCHIVADOS (HISTORY)")
-    logger.info("=" * 70 + "\n")
+    parser = argparse.ArgumentParser(description="Archivar pedidos que no existen en el ERP")
+    parser.add_argument("--dry-run", action="store_true", default=False, help="Solo mostrar que se haria")
+    parser.add_argument("--days", type=int, default=180, help="Rango de dias a comparar (default: 180)")
+    args = parser.parse_args()
 
-    # 1. Limpiar headers
-    result_headers = sync_archived_headers()
+    if not args.dry_run:
+        logger.info("=== APLICANDO CAMBIOS ===")
+    else:
+        logger.info("=== DRY RUN ===")
 
-    # 2. Limpiar details
-    result_details = sync_archived_details()
-
-    logger.info("\n" + "=" * 70)
-    logger.info("RESULTADO FINAL:")
-    logger.info(f"  - Headers borrados: {result_headers.get('headers_borrados', 0)}")
-    logger.info(f"  - Details borrados: {result_details.get('details_borrados', 0)}")
-    logger.info("=" * 70 + "\n")
+    result = archive_missing_orders(dry_run=args.dry_run, days=args.days)
+    logger.info(f"Resultado: {result}")
