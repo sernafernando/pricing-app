@@ -494,6 +494,22 @@ const PAGE_SIZE = 50;
     }
   };
 
+  const handleDesvincularUsuario = async () => {
+    if (!fichajeEmpleado) return;
+    setFichajeCreando(true);
+    setFichajeError(null);
+    setFichajeResult(null);
+    try {
+      await rrhhAPI.actualizarEmpleado(fichajeEmpleado.id, { usuario_id: null });
+      setFichajeResult({ message: 'Usuario desvinculado del empleado.' });
+      cargarEmpleados();
+    } catch (err) {
+      setFichajeError(err.response?.data?.detail || 'Error al desvincular usuario');
+    } finally {
+      setFichajeCreando(false);
+    }
+  };
+
   const handleVincularUsuario = async () => {
     if (!fichajeEmpleado || !vincularUsuarioId) return;
     setFichajeCreando(true);
@@ -1247,11 +1263,11 @@ const PAGE_SIZE = 50;
                           <Trash2 size={14} />
                         </button>
                       )}
-                      {puedeGestionar && !emp.usuario_id && emp.estado === 'activo' && (
+                      {puedeGestionar && emp.estado === 'activo' && (
                         <button
                           onClick={() => handleOpenFichajeModal(emp)}
-                          className={styles.btnEdit}
-                          title="Crear usuario de fichaje"
+                          className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
+                          title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
                         >
                           <Smartphone size={14} />
                         </button>
@@ -2080,7 +2096,21 @@ const PAGE_SIZE = 50;
                 Empleado: <strong>{fichajeEmpleado.nombre} {fichajeEmpleado.apellido}</strong> ({fichajeEmpleado.legajo})
               </p>
 
-              {!fichajeResult && (
+              {/* Si ya tiene usuario vinculado, mostrar info + desvincular */}
+              {fichajeEmpleado.usuario_id && !fichajeResult && (
+                <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-md)' }}>
+                  <p style={{ color: 'var(--cf-accent-blue)', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>
+                    Usuario vinculado
+                  </p>
+                  <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                    {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.username || `ID #${fichajeEmpleado.usuario_id}`}
+                    {' — '}
+                    {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.nombre || ''}
+                  </p>
+                </div>
+              )}
+
+              {!fichajeEmpleado.usuario_id && !fichajeResult && (
                 <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
                   <button
                     className={fichajeTab === 'crear' ? styles.btnSave : styles.btnCancel}
@@ -2177,7 +2207,7 @@ const PAGE_SIZE = 50;
               >
                 {fichajeResult ? 'Cerrar' : 'Cancelar'}
               </button>
-              {!fichajeResult && fichajeTab === 'crear' && (
+              {!fichajeResult && !fichajeEmpleado.usuario_id && fichajeTab === 'crear' && (
                 <button
                   className={styles.btnSave}
                   onClick={handleCrearUsuarioFichaje}
@@ -2186,13 +2216,22 @@ const PAGE_SIZE = 50;
                   {fichajeCreando ? 'Creando...' : 'Crear usuario'}
                 </button>
               )}
-              {!fichajeResult && fichajeTab === 'vincular' && (
+              {!fichajeResult && !fichajeEmpleado.usuario_id && fichajeTab === 'vincular' && (
                 <button
                   className={styles.btnSave}
                   onClick={handleVincularUsuario}
                   disabled={fichajeCreando || !vincularUsuarioId}
                 >
                   {fichajeCreando ? 'Vinculando...' : 'Vincular'}
+                </button>
+              )}
+              {!fichajeResult && fichajeEmpleado.usuario_id && (
+                <button
+                  className={styles.btnDanger}
+                  onClick={handleDesvincularUsuario}
+                  disabled={fichajeCreando}
+                >
+                  {fichajeCreando ? 'Desvinculando...' : 'Desvincular usuario'}
                 </button>
               )}
             </div>
