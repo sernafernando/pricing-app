@@ -143,6 +143,11 @@ class EmpleadoUpdate(BaseModel):
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
     hikvision_employee_no: Optional[str] = Field(default=None, max_length=20)
+    banco_nombre: Optional[str] = Field(default=None, max_length=100)
+    banco_cbu: Optional[str] = Field(default=None, max_length=22)
+    banco_alias: Optional[str] = Field(default=None, max_length=100)
+    banco_tipo_cuenta: Optional[str] = Field(default=None, max_length=20)
+    banco_nro_cuenta: Optional[str] = Field(default=None, max_length=50)
 
     @model_validator(mode="before")
     @classmethod
@@ -200,6 +205,11 @@ class EmpleadoResponse(BaseModel):
     usuario_id: Optional[int] = None
     hikvision_employee_no: Optional[str] = None
     foto_path: Optional[str] = None
+    banco_nombre: Optional[str] = None
+    banco_cbu: Optional[str] = None
+    banco_alias: Optional[str] = None
+    banco_tipo_cuenta: Optional[str] = None
+    banco_nro_cuenta: Optional[str] = None
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
     activo: bool

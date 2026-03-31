@@ -103,6 +103,13 @@ class RRHHEmpleado(Base):
     # --- Foto (path relativo en uploads/rrhh/{id}/) ---
     foto_path = Column(String(500), nullable=True)
 
+    # --- Datos bancarios (cuenta sueldo) ---
+    banco_nombre = Column(String(100), nullable=True)
+    banco_cbu = Column(String(22), nullable=True)
+    banco_alias = Column(String(100), nullable=True)
+    banco_tipo_cuenta = Column(String(20), nullable=True)  # "CA $", "CC $", "CU $"
+    banco_nro_cuenta = Column(String(50), nullable=True)
+
     # --- Campos custom definidos en rrhh_schema_legajo ---
     datos_custom = Column(JSONB, nullable=True, default={})
 

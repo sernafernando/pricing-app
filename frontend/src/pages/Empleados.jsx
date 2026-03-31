@@ -26,6 +26,7 @@ import {
   ExternalLink,
   FileDown,
   Smartphone,
+  Landmark,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -308,6 +309,11 @@ export default function Empleados() {
       contacto_emergencia: emp.contacto_emergencia || '',
       contacto_emergencia_tel: emp.contacto_emergencia_tel || '',
       observaciones: emp.observaciones || '',
+      banco_nombre: emp.banco_nombre || '',
+      banco_cbu: emp.banco_cbu || '',
+      banco_alias: emp.banco_alias || '',
+      banco_tipo_cuenta: emp.banco_tipo_cuenta || '',
+      banco_nro_cuenta: emp.banco_nro_cuenta || '',
     });
     setFormError(null);
     setModalOpen(true);
@@ -1267,6 +1273,12 @@ export default function Empleados() {
                   )}
                 </button>
                 <button
+                  className={`${styles.modalTab} ${modalTab === 'banco' ? styles.modalTabActive : ''}`}
+                  onClick={() => setModalTab('banco')}
+                >
+                  <Landmark size={14} /> Banco
+                </button>
+                <button
                   className={`${styles.modalTab} ${modalTab === 'baja' ? styles.modalTabActive : ''} ${editando?.estado === 'baja' ? styles.modalTabBaja : ''}`}
                   onClick={() => setModalTab('baja')}
                 >
@@ -1793,6 +1805,73 @@ export default function Empleados() {
                 </div>
               )}
 
+              {/* ─── TAB: Banco ─── */}
+              {editando && modalTab === 'banco' && (
+                <div>
+                  {formError && <div className={styles.formError}>{formError}</div>}
+                  <div className={styles.formGrid}>
+                    <div className={styles.formGroup}>
+                      <label>Banco</label>
+                      <input
+                        className={styles.input}
+                        type="text"
+                        value={formData.banco_nombre || ''}
+                        onChange={(e) => handleField('banco_nombre', e.target.value)}
+                        placeholder="Ej: Banco Nación"
+                        disabled={!puedeGestionar}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Tipo de cuenta</label>
+                      <select
+                        className={styles.select}
+                        value={formData.banco_tipo_cuenta || ''}
+                        onChange={(e) => handleField('banco_tipo_cuenta', e.target.value)}
+                        disabled={!puedeGestionar}
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="CA $">Caja de Ahorro $</option>
+                        <option value="CC $">Cuenta Corriente $</option>
+                        <option value="CU $">Cuenta Única $</option>
+                      </select>
+                    </div>
+                    <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                      <label>CBU</label>
+                      <input
+                        className={styles.input}
+                        type="text"
+                        value={formData.banco_cbu || ''}
+                        onChange={(e) => handleField('banco_cbu', e.target.value)}
+                        placeholder="22 dígitos"
+                        maxLength={22}
+                        disabled={!puedeGestionar}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Alias CBU</label>
+                      <input
+                        className={styles.input}
+                        type="text"
+                        value={formData.banco_alias || ''}
+                        onChange={(e) => handleField('banco_alias', e.target.value)}
+                        placeholder="Ej: JUAN.PEREZ.SUELDO"
+                        disabled={!puedeGestionar}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Nro. de cuenta</label>
+                      <input
+                        className={styles.input}
+                        type="text"
+                        value={formData.banco_nro_cuenta || ''}
+                        onChange={(e) => handleField('banco_nro_cuenta', e.target.value)}
+                        disabled={!puedeGestionar}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ─── TAB: Baja ─── */}
               {editando && modalTab === 'baja' && (
                 <div className={styles.bajaSection}>
@@ -1871,7 +1950,7 @@ export default function Empleados() {
               >
                 {editando && (modalTab === 'turnos' || modalTab === 'documentos') ? 'Cerrar' : 'Cancelar'}
               </button>
-              {(modalTab === 'datos' || modalTab === 'direccion' || modalTab === 'baja' || !editando) && (
+              {(modalTab === 'datos' || modalTab === 'direccion' || modalTab === 'banco' || modalTab === 'baja' || !editando) && (
                 <button
                   className={styles.btnSave}
                   onClick={handleGuardar}
