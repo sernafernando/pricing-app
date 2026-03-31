@@ -698,50 +698,25 @@ async def obtener_estadisticas_local(
 @router.post("/pedidos-local/sincronizar")
 async def sincronizar_pedidos_local(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
-    Sincroniza las tablas de pedidos desde el ERP y limpia registros archivados.
+    Sincroniza las tablas de pedidos desde el ERP (últimos 7 días).
 
-    Pasos:
-    1. Sincroniza tb_sale_order_header desde ERP
-    2. Sincroniza tb_sale_order_detail desde ERP
-    3. Sincroniza tb_tiendanube_orders desde TiendaNube
-    4. Limpia pedidos archivados (ejecuta sync_archived_orders.py)
-
-    Este endpoint reemplaza la sincronización vía export_id=80 que incluía pedidos archivados.
+    Trae headers y details actualizados del GBP parser y los
+    inserta/actualiza en la DB local.
     """
-    from app.scripts.sync_archived_orders import sync_archived_headers, sync_archived_details
+    from app.scripts.sync_sale_orders_all import main_async
 
-    logger.info("🔄 Iniciando sincronización de pedidos local...")
+    logger.info("Iniciando sincronizacion de pedidos local (7 dias)...")
 
     try:
-        # Limpiar headers archivados
-        logger.info("📋 Limpiando headers archivados...")
-        result_headers = sync_archived_headers()
-        headers_borrados = result_headers.get("headers_borrados", 0)
+        await main_async(days=7)
 
-        if "error" in result_headers:
-            logger.error(f"❌ Error en headers: {result_headers['error']}")
-            raise HTTPException(500, f"Error limpiando headers: {result_headers['error']}")
-
-        # Limpiar details archivados
-        logger.info("📋 Limpiando details archivados...")
-        result_details = sync_archived_details()
-        details_borrados = result_details.get("details_borrados", 0)
-
-        if "error" in result_details:
-            logger.error(f"❌ Error en details: {result_details['error']}")
-            raise HTTPException(500, f"Error limpiando details: {result_details['error']}")
-
-        logger.info(f"✅ Sincronización completada: {headers_borrados} headers y {details_borrados} details limpiados")
+        logger.info("Sincronizacion completada")
 
         return {
             "mensaje": "Sincronización completada exitosamente",
-            "headers_archivados_limpiados": headers_borrados,
-            "details_archivados_limpiados": details_borrados,
-            "detalle": "Los pedidos archivados han sido removidos de las tablas locales",
+            "detalle": "Pedidos de los últimos 7 días sincronizados desde el ERP",
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"❌ Error inesperado: {e}", exc_info=True)
+        logger.error(f"Error inesperado: {e}", exc_info=True)
         raise HTTPException(500, f"Error inesperado: {str(e)}")
