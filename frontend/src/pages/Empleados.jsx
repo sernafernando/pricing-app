@@ -151,7 +151,89 @@ export default function Empleados() {
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
   const [vincularUsuarioId, setVincularUsuarioId] = useState('');
 
-  const PAGE_SIZE = 50;
+  // Código de entidad BCRA (primeros 3 dígitos del CBU) → nombre del banco
+const CBU_BANCOS = {
+  '005': 'Banco de la Nación Argentina',
+  '007': 'Banco de Galicia y Buenos Aires',
+  '011': 'Banco de la Provincia de Buenos Aires',
+  '014': 'Banco de la Ciudad de Buenos Aires',
+  '015': 'Banco Industrial y Comercial',
+  '016': 'Citibank',
+  '017': 'Banco BBVA Argentina',
+  '018': 'Banco de la Provincia de Córdoba',
+  '020': 'Banco de la Provincia de Santa Fe',
+  '027': 'Banco Supervielle',
+  '029': 'Banco de la Ciudad de Buenos Aires',
+  '034': 'Banco Patagonia',
+  '044': 'Banco Hipotecario',
+  '045': 'Banco de San Juan',
+  '060': 'Banco de Tucumán',
+  '065': 'Banco Municipal de Rosario',
+  '072': 'Banco Santander Argentina',
+  '083': 'Banco del Chubut',
+  '086': 'Banco de Santa Cruz',
+  '093': 'Banco de la Pampa',
+  '094': 'Banco de Corrientes',
+  '097': 'Banco Provincia del Neuquén',
+  '143': 'Brubank',
+  '147': 'Banco Interfinanzas',
+  '150': 'HSBC Bank Argentina',
+  '165': 'Banco Credicoop',
+  '191': 'Banco Credicoop',
+  '198': 'Banco de Valores',
+  '247': 'Banco Roela',
+  '254': 'Banco Mariva',
+  '259': 'Banco Itaú Argentina',
+  '262': 'Banco del Sol',
+  '266': 'BNA (Banco de la Nación)',
+  '268': 'Banco Dino',
+  '269': 'Banco Provincia de Tierra del Fuego',
+  '277': 'Banco Saenz',
+  '281': 'Banco Meridian',
+  '285': 'Banco Macro',
+  '295': 'Banco de Entre Ríos',
+  '299': 'Banco del Oeste',
+  '300': 'Banco Comafi',
+  '301': 'Banco Piano',
+  '305': 'Banco de Formosa',
+  '309': 'Banco CMF',
+  '310': 'Banco de Santiago del Estero',
+  '311': 'Banco del Chaco',
+  '312': 'Banco de San Luis',
+  '315': 'Banco de Jujuy',
+  '319': 'Banco de Misiones',
+  '321': 'Banco Santiago del Estero',
+  '322': 'Banco Industrial',
+  '330': 'Nuevo Banco de Santa Fe',
+  '331': 'Banco Cetelem Argentina',
+  '332': 'Banco de La Rioja',
+  '336': 'Banco Columbia',
+  '338': 'Banco de Servicios y Transacciones',
+  '339': 'RCI Banque',
+  '340': 'BACS Banco de Crédito y Securitización',
+  '341': 'Banco Masventas',
+  '384': 'Wilobank',
+  '386': 'Nuevo Banco de Entre Ríos',
+  '389': 'Banco Columbia',
+  '405': 'Ford Credit',
+  '408': 'Compañía Financiera Argentina',
+  '415': 'Nación Bursátil',
+  '426': 'Banco Bica',
+  '431': 'Banco Coinag',
+  '432': 'Banco de Comercio',
+  '438': 'Openbank',
+  '440': 'Mercado Pago',
+  '441': 'BIND Banco Industrial',
+  '442': 'Naranja X',
+  '443': 'Ualá',
+  '444': 'Prex',
+  '445': 'Personal Pay',
+  '446': 'Reba',
+  '448': 'Lemon Cash',
+  '515': 'Nación Fideicomisos',
+};
+
+const PAGE_SIZE = 50;
 
   // --- Debounce search ---
   useEffect(() => {
@@ -1841,7 +1923,14 @@ export default function Empleados() {
                         className={styles.input}
                         type="text"
                         value={formData.banco_cbu || ''}
-                        onChange={(e) => handleField('banco_cbu', e.target.value)}
+                        onChange={(e) => {
+                          const cbu = e.target.value.replace(/\D/g, '');
+                          handleField('banco_cbu', cbu);
+                          if (cbu.length >= 3) {
+                            const banco = CBU_BANCOS[cbu.substring(0, 3)];
+                            if (banco) handleField('banco_nombre', banco);
+                          }
+                        }}
                         placeholder="22 dígitos"
                         maxLength={22}
                         disabled={!puedeGestionar}
