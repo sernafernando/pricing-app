@@ -131,6 +131,7 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
                 es_turbo = _detectar_turbo_desde_json(data)
+                substatus = data.get("substatus")
 
                 # Actualizar solo si hay algo que guardar
                 if lat is not None or direccion or comentario or es_outlet or es_turbo:
@@ -149,6 +150,17 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                             etiqueta.es_turbo = True
 
                         enriquecidas += 1
+
+                # Persistir substatus en la tabla de ML shipping
+                # (independiente de si la etiqueta se enriqueció)
+                if substatus is not None:
+                    ml_shipping = (
+                        db.query(MercadoLibreOrderShipping)
+                        .filter(MercadoLibreOrderShipping.mlshippingid == shipping_id)
+                        .first()
+                    )
+                    if ml_shipping and ml_shipping.mlsubstatus != substatus:
+                        ml_shipping.mlsubstatus = substatus
 
                 # Pequeño yield para no bloquear el event loop
                 await asyncio.sleep(0.05)
@@ -405,6 +417,16 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
                 etiqueta.es_turbo = True
                 cambio = True
 
+            # Persistir substatus del preview en la tabla de ML shipping
+            preview_substatus = extra.get("substatus")
+            if preview_substatus:
+                ml_shipping = (
+                    db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlshippingid == sid).first()
+                )
+                if ml_shipping and ml_shipping.mlsubstatus != preview_substatus:
+                    ml_shipping.mlsubstatus = preview_substatus
+                    cambio = True
+
             if cambio:
                 actualizadas += 1
 
@@ -464,6 +486,7 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
                 es_turbo = _detectar_turbo_desde_json(data)
+                substatus = data.get("substatus")
 
                 if lat is not None or direccion or comentario or es_outlet or es_turbo:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
@@ -480,6 +503,16 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                         if es_turbo:
                             etiqueta.es_turbo = True
                         actualizadas += 1
+
+                # Persistir substatus en la tabla de ML shipping
+                if substatus is not None:
+                    ml_shipping = (
+                        db.query(MercadoLibreOrderShipping)
+                        .filter(MercadoLibreOrderShipping.mlshippingid == shipping_id)
+                        .first()
+                    )
+                    if ml_shipping and ml_shipping.mlsubstatus != substatus:
+                        ml_shipping.mlsubstatus = substatus
 
                 await asyncio.sleep(0.05)
 

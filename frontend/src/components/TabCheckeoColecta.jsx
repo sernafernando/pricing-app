@@ -18,6 +18,16 @@ const ML_STATUS_LABELS = {
   not_delivered: 'No entregado',
 };
 
+const ML_SUBSTATUS_LABELS = {
+  out_for_delivery: 'En camino',
+  soon_deliver: 'Próximo a entregar',
+  waiting_for_withdrawal: 'Esperando retiro',
+  in_hub: 'En centro de distribución',
+  claimed_me: 'Reclamo',
+  returning_to_sender: 'Devolviendo',
+  delivery_behind_schedule: 'Con demora',
+};
+
 const getMlStatusClass = (status) => {
   switch (status) {
     case 'ready_to_ship': return styles.mlReadyToShip;
@@ -738,6 +748,11 @@ export default function TabCheckeoColecta() {
                             {e.mlstatus ? (
                               <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
                                 {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
+                                {e.mlsubstatus && ML_SUBSTATUS_LABELS[e.mlsubstatus] && (
+                                  <span className={styles.substatus}>
+                                    {' '}({ML_SUBSTATUS_LABELS[e.mlsubstatus]})
+                                  </span>
+                                )}
                               </span>
                             ) : (
                               <span className={styles.cellMuted}>—</span>

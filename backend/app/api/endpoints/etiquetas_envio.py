@@ -43,6 +43,7 @@ from app.models.transporte import Transporte
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.sale_order_header import SaleOrderHeader
+from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.sale_order_status import SaleOrderStatus
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.models.operador import Operador
@@ -274,6 +275,7 @@ class EtiquetaEnvioResponse(BaseModel):
     mlzip_code: Optional[str] = None
     mlcity_name: Optional[str] = None
     mlstatus: Optional[str] = None
+    mlsubstatus: Optional[str] = None
 
     # Cordón
     cordon: Optional[str] = None
@@ -717,6 +719,86 @@ def _manual_soh_status_subquery(db: Session, shipping_ids_sub=None):
     )
 
 
+def _facturado_ml_subquery(db: Session, shipping_ids_sub=None):
+    """
+    Subquery: detecta envíos ML cuyo pedido fue facturado.
+
+    Un pedido está facturado cuando:
+    1. Ya no existe en sale_order_header (el JOIN principal da NULL)
+    2. Existe en sale_order_header_history con ct_transaction IS NOT NULL
+
+    Retorna una fila por shipping_id con is_facturado=True para los que aplican.
+    Se usa como fallback cuando soh_sub.soh_ssos_id es NULL.
+    """
+    base_q = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(SaleOrderHeaderHistory.sohh_cd),
+            )
+            .label("rn"),
+        )
+        .join(
+            SaleOrderHeaderHistory,
+            MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id,
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeaderHistory.ct_transaction.isnot(None),
+        )
+    )
+
+    if shipping_ids_sub is not None:
+        base_q = base_q.filter(MercadoLibreOrderShipping.mlshippingid.in_(shipping_ids_sub))
+
+    ranked = base_q.subquery()
+
+    return db.query(ranked.c.shipping_id_str).filter(ranked.c.rn == 1).subquery()
+
+
+def _facturado_manual_subquery(db: Session, shipping_ids_sub=None):
+    """
+    Subquery: detecta envíos manuales cuyo pedido fue facturado.
+
+    Mismo concepto que _facturado_ml_subquery pero para envíos manuales
+    que tienen manual_soh_id + manual_bra_id referenciando al pedido.
+    """
+    base_q = (
+        db.query(
+            EtiquetaEnvio.shipping_id.label("shipping_id_str"),
+            func.row_number()
+            .over(
+                partition_by=EtiquetaEnvio.shipping_id,
+                order_by=desc(SaleOrderHeaderHistory.sohh_cd),
+            )
+            .label("rn"),
+        )
+        .join(
+            SaleOrderHeaderHistory,
+            and_(
+                EtiquetaEnvio.manual_soh_id == SaleOrderHeaderHistory.soh_id,
+                EtiquetaEnvio.manual_bra_id == SaleOrderHeaderHistory.bra_id,
+            ),
+        )
+        .filter(
+            EtiquetaEnvio.es_manual.is_(True),
+            EtiquetaEnvio.manual_soh_id.isnot(None),
+            EtiquetaEnvio.manual_bra_id.isnot(None),
+            SaleOrderHeaderHistory.ct_transaction.isnot(None),
+        )
+    )
+
+    if shipping_ids_sub is not None:
+        base_q = base_q.filter(EtiquetaEnvio.shipping_id.in_(shipping_ids_sub))
+
+    ranked = base_q.subquery()
+
+    return db.query(ranked.c.shipping_id_str).filter(ranked.c.rn == 1).subquery()
+
+
 def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
     """
     Subquery deduplicada: una fila por mlshippingid de MercadoLibreOrderShipping.
@@ -740,6 +822,7 @@ def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
         MercadoLibreOrderShipping.mlzip_code,
         MercadoLibreOrderShipping.mlcity_name,
         MercadoLibreOrderShipping.mlstatus,
+        MercadoLibreOrderShipping.mlsubstatus,
         func.row_number()
         .over(
             partition_by=MercadoLibreOrderShipping.mlshippingid,
@@ -763,6 +846,7 @@ def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
             ranked.c.mlzip_code,
             ranked.c.mlcity_name,
             ranked.c.mlstatus,
+            ranked.c.mlsubstatus,
         )
         .filter(ranked.c.rn == 1)
         .subquery()
@@ -1007,6 +1091,8 @@ def listar_etiquetas(
 
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
     manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
+    facturado_ml_sub = _facturado_ml_subquery(db, shipping_ids_sub=ids_fecha_sub)
+    facturado_manual_sub = _facturado_manual_subquery(db, shipping_ids_sub=ids_fecha_sub)
     ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
@@ -1114,10 +1200,37 @@ def listar_etiquetas(
             eff_zip.label("mlzip_code"),
             eff_city.label("mlcity_name"),
             eff_status.label("mlstatus"),
+            func.coalesce(EtiquetaEnvio.manual_status, shipping_sub.c.mlsubstatus).label("mlsubstatus"),
             CodigoPostalCordon.cordon,
             func.coalesce(soh_sub.c.soh_ssos_id, manual_soh_sub.c.manual_ssos_id).label("ssos_id"),
-            func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).label("ssos_name"),
-            func.coalesce(SaleOrderStatus.ssos_color, ManualSaleOrderStatus.ssos_color).label("ssos_color"),
+            case(
+                (
+                    func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).isnot(None),
+                    func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name),
+                ),
+                (
+                    or_(
+                        facturado_ml_sub.c.shipping_id_str.isnot(None),
+                        facturado_manual_sub.c.shipping_id_str.isnot(None),
+                    ),
+                    "Facturado",
+                ),
+                else_=None,
+            ).label("ssos_name"),
+            case(
+                (
+                    func.coalesce(SaleOrderStatus.ssos_color, ManualSaleOrderStatus.ssos_color).isnot(None),
+                    func.coalesce(SaleOrderStatus.ssos_color, ManualSaleOrderStatus.ssos_color),
+                ),
+                (
+                    or_(
+                        facturado_ml_sub.c.shipping_id_str.isnot(None),
+                        facturado_manual_sub.c.shipping_id_str.isnot(None),
+                    ),
+                    "#22c55e",
+                ),
+                else_=None,
+            ).label("ssos_color"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
                 _build_costo_case(
@@ -1173,6 +1286,14 @@ def listar_etiquetas(
         .outerjoin(
             ManualSaleOrderStatus,
             manual_soh_sub.c.manual_ssos_id == ManualSaleOrderStatus.ssos_id,
+        )
+        .outerjoin(
+            facturado_ml_sub,
+            facturado_ml_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            facturado_manual_sub,
+            facturado_manual_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
         )
         .outerjoin(
             Operador,
@@ -1274,6 +1395,7 @@ def listar_etiquetas(
             mlzip_code=row.mlzip_code,
             mlcity_name=row.mlcity_name,
             mlstatus=row.mlstatus,
+            mlsubstatus=row.mlsubstatus,
             cordon=row.cordon,
             latitud=row.latitud,
             longitud=row.longitud,
@@ -1375,6 +1497,8 @@ def estadisticas_etiquetas(
     shipping_stats = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_stats)
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
     manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
+    facturado_ml_stats = _facturado_ml_subquery(db, shipping_ids_sub=ids_fecha_stats)
+    facturado_manual_stats = _facturado_manual_subquery(db, shipping_ids_sub=ids_fecha_stats)
 
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
@@ -1573,6 +1697,40 @@ def estadisticas_etiquetas(
     )
     for row in manual_erp_rows:
         por_estado_erp[row.ssos_name] = por_estado_erp.get(row.ssos_name, 0) + row.cantidad
+
+    # Contar "Facturado": envíos sin estado ERP activo pero con ct_transaction en history
+    facturado_count = (
+        db.query(func.count())
+        .select_from(EtiquetaEnvio)
+        .outerjoin(
+            soh_sub,
+            soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            manual_soh_sub,
+            manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            facturado_ml_stats,
+            facturado_ml_stats.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            facturado_manual_stats,
+            facturado_manual_stats.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .filter(
+            ids_filter,
+            soh_sub.c.soh_ssos_id.is_(None),
+            manual_soh_sub.c.manual_ssos_id.is_(None),
+            or_(
+                facturado_ml_stats.c.shipping_id_str.isnot(None),
+                facturado_manual_stats.c.shipping_id_str.isnot(None),
+            ),
+        )
+        .scalar()
+    ) or 0
+    if facturado_count > 0:
+        por_estado_erp["Facturado"] = facturado_count
 
     # ── Costos de envío ─────────────────────────────────────────
     # max(id) como criterio único — evita duplicados cuando hay múltiples registros
@@ -1889,6 +2047,8 @@ def exportar_etiquetas(
     # Reusar subquery deduplicada de estado ERP
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_exp)
     manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_exp)
+    facturado_ml_exp = _facturado_ml_subquery(db, shipping_ids_sub=ids_fecha_exp)
+    facturado_manual_exp = _facturado_manual_subquery(db, shipping_ids_sub=ids_fecha_exp)
     ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     hoy_export = date.today()
@@ -1948,7 +2108,20 @@ def exportar_etiquetas(
             exp_city.label("mlcity_name"),
             exp_status.label("mlstatus"),
             CodigoPostalCordon.cordon,
-            func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).label("ssos_name"),
+            case(
+                (
+                    func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).isnot(None),
+                    func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name),
+                ),
+                (
+                    or_(
+                        facturado_ml_exp.c.shipping_id_str.isnot(None),
+                        facturado_manual_exp.c.shipping_id_str.isnot(None),
+                    ),
+                    "Facturado",
+                ),
+                else_=None,
+            ).label("ssos_name"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
                 _build_costo_case(
@@ -1976,6 +2149,8 @@ def exportar_etiquetas(
         .outerjoin(SaleOrderStatus, soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id)
         .outerjoin(manual_soh_sub, manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
         .outerjoin(ManualSaleOrderStatus, manual_soh_sub.c.manual_ssos_id == ManualSaleOrderStatus.ssos_id)
+        .outerjoin(facturado_ml_exp, facturado_ml_exp.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+        .outerjoin(facturado_manual_exp, facturado_manual_exp.c.shipping_id_str == EtiquetaEnvio.shipping_id)
         .outerjoin(Operador, EtiquetaEnvio.pistoleado_operador_id == Operador.id)
         .outerjoin(
             costo_exp,
