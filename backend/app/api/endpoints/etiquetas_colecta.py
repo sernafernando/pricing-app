@@ -23,7 +23,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, case, func, desc, or_
+from sqlalchemy import case, func, desc
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
