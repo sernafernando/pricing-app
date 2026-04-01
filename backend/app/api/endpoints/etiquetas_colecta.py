@@ -23,7 +23,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import case, func, desc
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +35,7 @@ from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.tb_item import TBItem
 from app.models.sale_order_header import SaleOrderHeader
+from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.sale_order_status import SaleOrderStatus
 from app.services.permisos_service import verificar_permiso
 from app.core.sse import sse_publish, sse_publish_bg
@@ -68,6 +69,7 @@ class EtiquetaColectaResponse(BaseModel):
     fecha_carga: date
     mlreceiver_name: Optional[str] = None
     mlstatus: Optional[str] = None
+    mlsubstatus: Optional[str] = None
     ml_order_id: Optional[str] = None
     ssos_id: Optional[int] = None
     ssos_name: Optional[str] = None
@@ -432,6 +434,7 @@ def listar_etiquetas_colecta(
             MercadoLibreOrderShipping.mlo_id,
             MercadoLibreOrderShipping.mlreceiver_name,
             MercadoLibreOrderShipping.mlstatus,
+            MercadoLibreOrderShipping.mlsubstatus,
             func.row_number()
             .over(
                 partition_by=MercadoLibreOrderShipping.mlshippingid,
@@ -451,6 +454,7 @@ def listar_etiquetas_colecta(
             ranked_ship.c.mlo_id,
             ranked_ship.c.mlreceiver_name,
             ranked_ship.c.mlstatus,
+            ranked_ship.c.mlsubstatus,
         )
         .filter(ranked_ship.c.rn == 1)
         .subquery()
@@ -501,6 +505,32 @@ def listar_etiquetas_colecta(
         .subquery()
     )
 
+    # 4b) Subquery facturado: envíos cuyo pedido ya no está en sale_order_header
+    # pero sí en sale_order_header_history con ct_transaction (= facturado)
+    ranked_fact = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(SaleOrderHeaderHistory.sohh_cd),
+            )
+            .label("rn"),
+        )
+        .join(
+            SaleOrderHeaderHistory,
+            MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id,
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeaderHistory.ct_transaction.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+        )
+        .subquery()
+    )
+    facturado_sub = db.query(ranked_fact.c.shipping_id_str).filter(ranked_fact.c.rn == 1).subquery()
+
     # 5) Query principal con JOINs a subqueries acotadas
     query = (
         db.query(
@@ -508,9 +538,18 @@ def listar_etiquetas_colecta(
             EtiquetaColecta.fecha_carga,
             shipping_sub.c.mlreceiver_name,
             shipping_sub.c.mlstatus,
+            shipping_sub.c.mlsubstatus,
             soh_sub.c.soh_ssos_id.label("ssos_id"),
-            SaleOrderStatus.ssos_name,
-            SaleOrderStatus.ssos_color,
+            case(
+                (SaleOrderStatus.ssos_name.isnot(None), SaleOrderStatus.ssos_name),
+                (facturado_sub.c.shipping_id_str.isnot(None), "Facturado"),
+                else_=None,
+            ).label("ssos_name"),
+            case(
+                (SaleOrderStatus.ssos_color.isnot(None), SaleOrderStatus.ssos_color),
+                (facturado_sub.c.shipping_id_str.isnot(None), "#22c55e"),
+                else_=None,
+            ).label("ssos_color"),
             mlo_sub.c.mlorder_id.label("ml_order_id"),
         )
         .outerjoin(
@@ -524,6 +563,10 @@ def listar_etiquetas_colecta(
         .outerjoin(
             SaleOrderStatus,
             soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
+        )
+        .outerjoin(
+            facturado_sub,
+            EtiquetaColecta.shipping_id == facturado_sub.c.shipping_id_str,
         )
         .outerjoin(
             mlo_sub,
@@ -556,6 +599,7 @@ def listar_etiquetas_colecta(
             fecha_carga=row.fecha_carga,
             mlreceiver_name=row.mlreceiver_name,
             mlstatus=row.mlstatus,
+            mlsubstatus=row.mlsubstatus,
             ml_order_id=row.ml_order_id,
             ssos_id=row.ssos_id,
             ssos_name=row.ssos_name,

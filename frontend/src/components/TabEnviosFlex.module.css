@@ -712,6 +712,12 @@
   color: var(--text-tertiary);
 }
 
+.substatus {
+  font-weight: 400;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
 /* Estado ERP badge — color from ssos_color */
 .erpBadge {
   display: inline-block;

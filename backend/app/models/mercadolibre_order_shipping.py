@@ -26,6 +26,7 @@ class MercadoLibreOrderShipping(Base):
     mlcost = Column(Numeric(18, 4))
     mllogistic_type = Column(String(50))
     mlstatus = Column(String(50), index=True)
+    mlsubstatus = Column(String(100), index=True)
 
     # Fechas de envío
     mlestimated_handling_limit = Column(DateTime, index=True)
