@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useDebounce } from '../hooks/useDebounce';
 import { rrhhAPI } from '../services/api';
 import {
   Plus,
@@ -40,6 +41,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
+import CBU_BANCOS from '../utils/cbuBancos';
 import styles from './Empleados.module.css';
 
 const ESTADOS = [
@@ -54,6 +56,20 @@ const ESTADO_COLORS = {
   licencia: 'statusLicencia',
   baja: 'statusBaja',
 };
+
+const SortHeader = ({ field, sortBy, sortOrder, onSort, children }) => (
+  <th
+    className={styles.sortableHeader}
+    onClick={() => onSort(field)}
+  >
+    {children}
+    {sortBy === field && (
+      <span className={styles.sortIndicator}>
+        {sortOrder === 'asc' ? '\u25B2' : '\u25BC'}
+      </span>
+    )}
+  </th>
+);
 
 export default function Empleados() {
   const { tienePermiso } = usePermisos();
@@ -71,7 +87,6 @@ export default function Empleados() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [estado, setEstado] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [area, setArea] = useState('');
   const [puesto, setPuesto] = useState('');
   const [sortBy, setSortBy] = useState('');
@@ -151,105 +166,9 @@ export default function Empleados() {
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
   const [vincularUsuarioId, setVincularUsuarioId] = useState('');
 
-  // Código de entidad BCRA (primeros 3 dígitos del CBU) → nombre del banco
-// Código entidad BCRA (primeros 3 dígitos del CBU) → nombre del banco
-// Fuente: BCRA / Wikipedia "Clave Bancaria Uniforme"
-const CBU_BANCOS = {
-  '005': 'The Royal Bank of Scotland',
-  '007': 'Banco de Galicia y Buenos Aires',
-  '011': 'Banco de la Nación Argentina',
-  '014': 'Banco de la Provincia de Buenos Aires',
-  '015': 'ICBC Argentina',
-  '016': 'Citibank',
-  '017': 'BBVA Banco Francés',
-  '018': 'The Bank of Tokyo-Mitsubishi UFJ',
-  '020': 'Banco de la Provincia de Córdoba',
-  '027': 'Banco Supervielle',
-  '029': 'Banco de la Ciudad de Buenos Aires',
-  '030': 'Central de la República Argentina',
-  '034': 'Banco Patagonia',
-  '044': 'Banco Hipotecario',
-  '045': 'Banco de San Juan',
-  '046': 'Banco do Brasil',
-  '060': 'Banco de Tucumán',
-  '065': 'Banco Municipal de Rosario',
-  '072': 'Banco Santander Río',
-  '083': 'Banco del Chubut',
-  '086': 'Banco de Santa Cruz',
-  '093': 'Banco de la Pampa',
-  '094': 'Banco de Corrientes',
-  '097': 'Banco Provincia del Neuquén',
-  '143': 'Brubank',
-  '147': 'Banco Interfinanzas',
-  '150': 'HSBC Bank Argentina',
-  '158': 'Openbank',
-  '165': 'JP Morgan Chase Bank',
-  '191': 'Banco Credicoop',
-  '198': 'Banco de Valores',
-  '247': 'Banco Roela',
-  '254': 'Banco Mariva',
-  '259': 'Banco Itaú Argentina',
-  '262': 'Bank of America',
-  '266': 'BNP Paribas',
-  '268': 'Banco Provincia de Tierra del Fuego',
-  '269': 'Banco de la República Oriental del Uruguay',
-  '277': 'Banco Sáenz',
-  '281': 'Banco Meridian',
-  '285': 'Banco Macro',
-  '295': 'American Express Bank',
-  '299': 'Banco Comafi',
-  '300': 'Banco de Inversión y Comercio Exterior',
-  '301': 'Banco Piano',
-  '305': 'Banco Julio',
-  '309': 'Nuevo Banco de la Rioja',
-  '310': 'Banco del Sol',
-  '311': 'Nuevo Banco del Chaco',
-  '312': 'MBA Lazard Banco de Inversiones',
-  '315': 'Banco de Formosa',
-  '319': 'Banco CMF',
-  '321': 'Banco de Santiago del Estero',
-  '322': 'Banco Industrial',
-  '325': 'Deutsche Bank',
-  '330': 'Nuevo Banco de Santa Fe',
-  '331': 'Banco Cetelem Argentina',
-  '332': 'Banco de Servicios Financieros',
-  '336': 'Banco Bradesco Argentina',
-  '338': 'Banco de Servicios y Transacciones',
-  '339': 'RCI Banque',
-  '340': 'BACS Banco de Crédito y Securitización',
-  '341': 'Más Ventas',
-  '384': 'Wilobank',
-  '386': 'Nuevo Banco de Entre Ríos',
-  '389': 'Banco Columbia',
-  '405': 'Ford Credit Compañía Financiera',
-  '406': 'Metrópolis Compañía Financiera',
-  '408': 'Compañía Financiera Argentina',
-  '413': 'Montemar Compañía Financiera',
-  '415': 'Transatlántica Compañía Financiera',
-  '428': 'Caja de Crédito La Capital del Plata',
-  '431': 'Banco Coinag',
-  '432': 'Banco de Comercio',
-  '434': 'Caja de Crédito Cuenca',
-  '437': 'Volkswagen Credit Compañía Financiera',
-  '438': 'Cordial Compañía Financiera',
-  '440': 'Fiat Crédito Compañía Financiera',
-  '441': 'GPAT Compañía Financiera',
-  '442': 'Mercedes-Benz Compañía Financiera',
-  '443': 'Rombo Compañía Financiera',
-  '444': 'John Deere Credit Compañía Financiera',
-  '445': 'PSA Finance Argentina',
-  '446': 'Toyota Compañía Financiera',
-  '448': 'Finandino Compañía Financiera',
-  '453': 'Naranja X',
-};
-
 const PAGE_SIZE = 50;
 
-  // --- Debounce search ---
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 400);
-    return () => clearTimeout(timer);
-  }, [search]);
+  const debouncedSearch = useDebounce(search, 400);
 
   // --- Contadores por estado ---
   const [contadores, setContadores] = useState({ activos: 0, licencia: 0, bajas: 0 });
@@ -267,7 +186,7 @@ const PAGE_SIZE = 50;
         bajas: bajaRes.data.total,
       });
     } catch {
-      // silently fail
+      // Non-critical: badge counters use fallback zeros
     }
   }, []);
 
@@ -665,22 +584,36 @@ const PAGE_SIZE = 50;
     }
   }, [modalOpen]);
 
-  const handleSubirDocumento = async (file) => {
-    if (!editando || !docForm.tipo_documento_id) return;
+  const handleSubirDocumentos = async (files) => {
+    if (!editando || !docForm.tipo_documento_id || files.length === 0) return;
     setUploadingDoc(true);
     setDocError(null);
+    const errores = [];
     try {
-      const fd = new FormData();
-      fd.append('file', file);
       const params = { tipo_documento_id: parseInt(docForm.tipo_documento_id, 10) };
       if (docForm.descripcion) params.descripcion = docForm.descripcion;
       if (docForm.fecha_vencimiento) params.fecha_vencimiento = docForm.fecha_vencimiento;
       if (docForm.numero_documento) params.numero_documento = docForm.numero_documento;
-      await rrhhAPI.subirDocumento(editando.id, fd, params);
-      setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+
+      for (const file of files) {
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          await rrhhAPI.subirDocumento(editando.id, fd, params);
+        } catch (err) {
+          const detail = err.response?.data?.detail || 'Error al subir documento';
+          errores.push(`${file.name}: ${detail}`);
+        }
+      }
+
+      if (errores.length > 0) {
+        setDocError(errores.join(' | '));
+      } else {
+        setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+      }
       cargarDocumentos(editando.id);
     } catch (err) {
-      setDocError(err.response?.data?.detail || 'Error al subir documento');
+      setDocError(err.response?.data?.detail || 'Error al subir documentos');
     } finally {
       setUploadingDoc(false);
     }
@@ -880,29 +813,14 @@ const PAGE_SIZE = 50;
     }
   };
 
-  const SortHeader = ({ field, children }) => {
-    const isActive = sortBy === field;
-    return (
-      <th
-        className={styles.sortableHeader}
-        onClick={() => {
-          if (sortBy === field) {
-            setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-          } else {
-            setSortBy(field);
-            setSortOrder('asc');
-          }
-          setPage(1);
-        }}
-      >
-        {children}
-        {isActive && (
-          <span className={styles.sortIndicator}>
-            {sortOrder === 'asc' ? '\u25B2' : '\u25BC'}
-          </span>
-        )}
-      </th>
-    );
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+    setPage(1);
   };
 
   return (
@@ -1202,13 +1120,13 @@ const PAGE_SIZE = 50;
         <table className={styles.table}>
           <thead>
             <tr>
-              <SortHeader field="legajo">Legajo</SortHeader>
-              <SortHeader field="nombre">Nombre</SortHeader>
+              <SortHeader field="legajo" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Legajo</SortHeader>
+              <SortHeader field="nombre" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Nombre</SortHeader>
               <th>DNI</th>
-              <SortHeader field="puesto">Puesto</SortHeader>
-              <SortHeader field="area">Area</SortHeader>
+              <SortHeader field="puesto" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Puesto</SortHeader>
+              <SortHeader field="area" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Area</SortHeader>
               <th>Estado</th>
-              <SortHeader field="fecha_ingreso">Ingreso</SortHeader>
+              <SortHeader field="fecha_ingreso" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Ingreso</SortHeader>
               {puedeGestionar && <th>Acciones</th>}
             </tr>
           </thead>
@@ -1323,10 +1241,10 @@ const PAGE_SIZE = 50;
           <div className="modal-tesla">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Confirmar desactivación</h2>
-              <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar">✕</button>
+              <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar"><X size={14} /></button>
             </div>
             <div className="modal-body-tesla">
-              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+              <p className={styles.confirmText}>
                 ¿Desactivar a <strong>{confirmDelete.apellido}, {confirmDelete.nombre}</strong> (Legajo: {confirmDelete.legajo})?
                 Esta acción cambiará su estado a baja.
               </p>
@@ -1347,7 +1265,7 @@ const PAGE_SIZE = 50;
           <div className="modal-tesla lg">
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
-              <button className="btn-close-tesla" onClick={() => setModalOpen(false)}>✕</button>
+              <button className="btn-close-tesla" onClick={() => setModalOpen(false)} aria-label="Cerrar"><X size={14} /></button>
             </div>
 
             {/* Tabs (solo en edición) */}
@@ -1542,7 +1460,7 @@ const PAGE_SIZE = 50;
                   {geoError && <div className={styles.formError}>{geoError}</div>}
 
                   <div className={styles.direccionGrid}>
-                    <div className={styles.formGroup} style={{ flex: 3 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow3}`}>
                       <label>Calle</label>
                       <input
                         className={styles.input}
@@ -1551,7 +1469,7 @@ const PAGE_SIZE = 50;
                         placeholder="Av. Corrientes"
                       />
                     </div>
-                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow1}`}>
                       <label>Número</label>
                       <input
                         className={styles.input}
@@ -1560,7 +1478,7 @@ const PAGE_SIZE = 50;
                         placeholder="1234"
                       />
                     </div>
-                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow1}`}>
                       <label>Piso/Depto</label>
                       <input
                         className={styles.input}
@@ -1572,7 +1490,7 @@ const PAGE_SIZE = 50;
                   </div>
 
                   <div className={styles.direccionGrid}>
-                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow2}`}>
                       <label>Entre calles</label>
                       <input
                         className={styles.input}
@@ -1581,7 +1499,7 @@ const PAGE_SIZE = 50;
                         placeholder="Entre Av. Callao y Riobamba"
                       />
                     </div>
-                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow2}`}>
                       <label>Localidad</label>
                       <input
                         className={styles.input}
@@ -1593,7 +1511,7 @@ const PAGE_SIZE = 50;
                   </div>
 
                   <div className={styles.direccionGrid}>
-                    <div className={styles.formGroup} style={{ flex: 2 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow2}`}>
                       <label>Provincia</label>
                       <input
                         className={styles.input}
@@ -1602,7 +1520,7 @@ const PAGE_SIZE = 50;
                         placeholder="Buenos Aires"
                       />
                     </div>
-                    <div className={styles.formGroup} style={{ flex: 1 }}>
+                    <div className={`${styles.formGroup} ${styles.flexGrow1}`}>
                       <label>Código Postal</label>
                       <input
                         className={styles.input}
@@ -1647,7 +1565,7 @@ const PAGE_SIZE = 50;
                         <MapPin size={12} /> Editar coordenadas manualmente
                       </summary>
                       <div className={styles.coordsRow}>
-                        <div className={styles.formGroup} style={{ flex: '1 1 100%' }}>
+                        <div className={`${styles.formGroup} ${styles.flexFull}`}>
                           <label>Pegar coordenadas de Google Maps</label>
                           <input
                             className={styles.input}
@@ -1774,10 +1692,9 @@ const PAGE_SIZE = 50;
                           ))}
                       </select>
                       <select
-                        className={styles.select}
+                        className={`${styles.select} ${styles.selectNarrow}`}
                         value={nuevaTurnoPrioridad}
                         onChange={(e) => setNuevaTurnoPrioridad(e.target.value)}
-                        style={{ width: '70px' }}
                         title="Prioridad"
                       >
                         <option value="1">P1</option>
@@ -1841,14 +1758,15 @@ const PAGE_SIZE = 50;
                         />
                         <label className={styles.btnUpload}>
                           <Upload size={14} />
-                          {uploadingDoc ? 'Subiendo...' : 'Subir archivo'}
+                          {uploadingDoc ? 'Subiendo...' : 'Subir archivo(s)'}
                           <input
                             type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                            multiple
+                            accept="image/*,.pdf,.doc,.docx"
                             style={{ display: 'none' }}
                             disabled={!docForm.tipo_documento_id || uploadingDoc}
                             onChange={(e) => {
-                              if (e.target.files?.[0]) handleSubirDocumento(e.target.files[0]);
+                              if (e.target.files?.length) handleSubirDocumentos([...e.target.files]);
                               e.target.value = '';
                             }}
                           />
@@ -2098,21 +2016,21 @@ const PAGE_SIZE = 50;
                 onClick={() => setFichajeModalOpen(false)}
                 aria-label="Cerrar"
               >
-                ✕
+                <X size={14} />
               </button>
             </div>
             <div className="modal-body-tesla">
-              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
+              <p className={styles.fichajeSubtext}>
                 Empleado: <strong>{fichajeEmpleado.nombre} {fichajeEmpleado.apellido}</strong> ({fichajeEmpleado.legajo})
               </p>
 
               {/* Si ya tiene usuario vinculado, mostrar info + desvincular */}
               {fichajeEmpleado.usuario_id && !fichajeResult && (
-                <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-md)' }}>
-                  <p style={{ color: 'var(--cf-accent-blue)', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>
+                <div className={styles.fichajeLinkedBox}>
+                  <p className={styles.fichajeLinkedTitle}>
                     Usuario vinculado
                   </p>
-                  <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                  <p className={styles.fichajeLinkedDetail}>
                     {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.username || `ID #${fichajeEmpleado.usuario_id}`}
                     {' — '}
                     {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.nombre || ''}
@@ -2121,18 +2039,16 @@ const PAGE_SIZE = 50;
               )}
 
               {!fichajeEmpleado.usuario_id && !fichajeResult && (
-                <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
+                <div className={styles.fichajeTabRow}>
                   <button
                     className={fichajeTab === 'crear' ? styles.btnSave : styles.btnCancel}
                     onClick={() => { setFichajeTab('crear'); setFichajeError(null); }}
-                    style={{ flex: 1 }}
                   >
                     <UserPlus size={14} /> Crear nuevo
                   </button>
                   <button
                     className={fichajeTab === 'vincular' ? styles.btnSave : styles.btnCancel}
                     onClick={() => { setFichajeTab('vincular'); setFichajeError(null); }}
-                    style={{ flex: 1 }}
                   >
                     <User size={14} /> Vincular existente
                   </button>
@@ -2141,7 +2057,7 @@ const PAGE_SIZE = 50;
 
               {!fichajeEmpleado.usuario_id && fichajeTab === 'crear' && !fichajeResult && (
                 <>
-                  <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginBottom: 'var(--spacing-sm)' }}>
+                  <p className={styles.fichajeHint}>
                     Se crea un usuario con rol FICHAJE (solo acceso a fichaje mobile). Password: DNI del empleado.
                   </p>
                   <div className={styles.formGroup}>
@@ -2166,13 +2082,13 @@ const PAGE_SIZE = 50;
 
               {!fichajeEmpleado.usuario_id && fichajeTab === 'vincular' && !fichajeResult && (
                 <>
-                  <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)', marginBottom: 'var(--spacing-sm)' }}>
+                  <p className={styles.fichajeHint}>
                     Vincular un usuario que ya existe en el sistema a este empleado.
                   </p>
                   <div className={styles.formGroup}>
                     <label>Usuario existente</label>
                     {loadingUsuarios ? (
-                      <p style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-sm)' }}>Cargando usuarios...</p>
+                      <p className={styles.fichajeHint}>Cargando usuarios...</p>
                     ) : (
                       <select
                         className={styles.select}
@@ -2198,12 +2114,12 @@ const PAGE_SIZE = 50;
               )}
 
               {fichajeResult && (
-                <div style={{ background: 'rgba(34, 197, 94, 0.1)', padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)', marginTop: 'var(--spacing-sm)' }}>
-                  <p style={{ color: 'var(--cf-accent-green)', fontWeight: 600 }}>
+                <div className={styles.fichajeSuccessBox}>
+                  <p className={styles.fichajeSuccessTitle}>
                     {fichajeResult.message}
                   </p>
                   {fichajeResult.username && (
-                    <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginTop: 'var(--spacing-xs)' }}>
+                    <p className={styles.fichajeSuccessDetail}>
                       Usuario: <strong>{fichajeResult.username}</strong>
                     </p>
                   )}
