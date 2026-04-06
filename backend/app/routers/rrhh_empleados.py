@@ -721,6 +721,10 @@ def exportar_empleados_excel(
     for cat in selected:
         columns.extend(EXPORT_CATEGORIES[cat])
 
+    # Legajo siempre en la primera columna, sin importar las categorías elegidas
+    columns = [c for c in columns if c[0] != "legajo"]
+    columns.insert(0, ("legajo", "Legajo"))
+
     # Generate Excel
     import openpyxl
     from openpyxl.styles import Font, PatternFill
