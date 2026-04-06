@@ -12,6 +12,7 @@ import {
   Download,
   FileText,
   CalendarRange,
+  X,
 } from 'lucide-react';
 import styles from './RRHHPresentismo.module.css';
 
@@ -93,6 +94,12 @@ export default function RRHHPresentismo() {
   // --- Error feedback ---
   const [markError, setMarkError] = useState(null);
 
+  // --- Motivo ausencia modal ---
+  const [motivosAusencia, setMotivosAusencia] = useState([]);
+  const [ausenteModal, setAusenteModal] = useState(null); // { empleadoId, fecha }
+  const [ausenteForm, setAusenteForm] = useState({ motivo_ausencia_id: '', observaciones: '' });
+  const [ausenteSaving, setAusenteSaving] = useState(false);
+
   // ── Range marking modal ──
   const [rangoModalOpen, setRangoModalOpen] = useState(false);
   const [rangoForm, setRangoForm] = useState({
@@ -109,7 +116,7 @@ export default function RRHHPresentismo() {
   // --- Empleados for ART select ---
   const [empleados, setEmpleados] = useState([]);
 
-  // ── Fetch empleados for ART form ──
+  // ── Fetch empleados + motivos ausencia ──
   useEffect(() => {
     const fetchEmpleados = async () => {
       try {
@@ -119,7 +126,16 @@ export default function RRHHPresentismo() {
         setEmpleados([]);
       }
     };
+    const fetchMotivos = async () => {
+      try {
+        const { data } = await rrhhAPI.listarMotivosAusencia({ activo: true });
+        setMotivosAusencia(Array.isArray(data) ? data : []);
+      } catch {
+        setMotivosAusencia([]);
+      }
+    };
     fetchEmpleados();
+    fetchMotivos();
   }, []);
 
   // ── Fetch presentismo grid ──
@@ -187,9 +203,16 @@ export default function RRHHPresentismo() {
     if (!dropdown) return;
     const { empleadoId, fecha } = dropdown;
     setDropdown(null);
+
+    // Si es "ausente", abrir modal de motivo en vez de marcar directo
+    if (estado === 'ausente') {
+      setAusenteForm({ motivo_ausencia_id: '', observaciones: '' });
+      setAusenteModal({ empleadoId, fecha });
+      return;
+    }
+
     try {
       await rrhhAPI.marcarPresentismo(empleadoId, fecha, { estado });
-      // Update local grilla (marcación manual → siempre origen "manual")
       setGrilla((prev) => ({
         ...prev,
         empleados: prev.empleados.map((emp) =>
@@ -201,6 +224,46 @@ export default function RRHHPresentismo() {
     } catch {
       setMarkError('Error al marcar presentismo. Intentá de nuevo.');
       setTimeout(() => setMarkError(null), 4000);
+    }
+  };
+
+  const handleAusenteSubmit = async () => {
+    if (!ausenteModal) return;
+    const { empleadoId, fecha } = ausenteModal;
+    setAusenteSaving(true);
+    try {
+      const payload = {
+        estado: 'ausente',
+        motivo_ausencia_id: ausenteForm.motivo_ausencia_id ? Number(ausenteForm.motivo_ausencia_id) : null,
+        observaciones: ausenteForm.observaciones || null,
+      };
+      await rrhhAPI.marcarPresentismo(empleadoId, fecha, payload);
+      const motivoNombre = motivosAusencia.find((m) => m.id === Number(ausenteForm.motivo_ausencia_id))?.nombre || null;
+      setGrilla((prev) => ({
+        ...prev,
+        empleados: prev.empleados.map((emp) =>
+          emp.empleado_id === empleadoId
+            ? {
+                ...emp,
+                dias: {
+                  ...emp.dias,
+                  [fecha]: {
+                    estado: 'ausente',
+                    origen: 'manual',
+                    motivo_ausencia: motivoNombre,
+                    observaciones: ausenteForm.observaciones || null,
+                  },
+                },
+              }
+            : emp
+        ),
+      }));
+      setAusenteModal(null);
+    } catch {
+      setMarkError('Error al marcar ausente. Intentá de nuevo.');
+      setTimeout(() => setMarkError(null), 4000);
+    } finally {
+      setAusenteSaving(false);
     }
   };
 
@@ -324,9 +387,11 @@ export default function RRHHPresentismo() {
                     : 'Sin marcar';
                   const fichadaStr = dia?.fichada ? ` | ${dia.fichada}` : '';
                   const tardeStr = dia?.minutos_tarde > 0 ? ` (+${dia.minutos_tarde}min)` : '';
+                  const motivoStr = dia?.motivo_ausencia ? ` — ${dia.motivo_ausencia}` : '';
+                  const obsStr = dia?.observaciones ? ` (${dia.observaciones})` : '';
                   const title = isAuto
                     ? `${fullLabel} (auto)${fichadaStr}${tardeStr}`
-                    : `${fullLabel}${fichadaStr}${tardeStr}`;
+                    : `${fullLabel}${motivoStr}${obsStr}${fichadaStr}${tardeStr}`;
                   return (
                     <td key={f}>
                       <div className={styles.cellWrapper} onClick={(e) => handleCellClick(emp.empleado_id, f, e)}>
@@ -367,7 +432,7 @@ export default function RRHHPresentismo() {
                           )}
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--cf-text-tertiary)', fontSize: 'var(--font-xs)' }}>-</span>
+                        <span className={styles.tardeEmpty}>-</span>
                       )}
                     </td>
                   </tr>
@@ -449,7 +514,6 @@ export default function RRHHPresentismo() {
                           className={styles.btnEditAction}
                           onClick={() => openArtEdit(c)}
                           title="Editar"
-                          style={{ marginLeft: 4 }}
                         >
                           <Edit3 size={14} />
                         </button>
@@ -485,7 +549,7 @@ export default function RRHHPresentismo() {
         <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header-tesla">
             <h3 className="modal-title-tesla">Caso ART #{artDetalle.id}</h3>
-            <button className="btn-close-tesla" onClick={() => setArtDetalle(null)} aria-label="Cerrar">✕</button>
+            <button className="btn-close-tesla" onClick={() => setArtDetalle(null)} aria-label="Cerrar"><X size={14} /></button>
           </div>
           <div className="modal-body-tesla">
             <div className={styles.formRow}>
@@ -592,7 +656,7 @@ export default function RRHHPresentismo() {
         <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header-tesla">
             <h3 className="modal-title-tesla">{artForm.id ? 'Editar Caso ART' : 'Nuevo Caso ART'}</h3>
-            <button className="btn-close-tesla" onClick={() => setArtModalOpen(false)} aria-label="Cerrar">✕</button>
+            <button className="btn-close-tesla" onClick={() => setArtModalOpen(false)} aria-label="Cerrar"><X size={14} /></button>
           </div>
           <form onSubmit={handleArtSubmit}>
             <div className="modal-body-tesla">
@@ -888,7 +952,7 @@ export default function RRHHPresentismo() {
             <div className="modal-header-tesla">
               <h2 className="modal-title-tesla">Cargar por rango de fechas</h2>
               <button className="btn-close-tesla" onClick={() => setRangoModalOpen(false)} aria-label="Cerrar modal">
-                ✕
+                <X size={14} />
               </button>
             </div>
             <div className="modal-body-tesla">
@@ -983,6 +1047,52 @@ export default function RRHHPresentismo() {
               </button>
               <button className={styles.btnSave} onClick={handleRangoSubmit} disabled={rangoSaving}>
                 {rangoSaving ? 'Guardando...' : 'Aplicar rango'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Motivo de ausencia modal */}
+      {ausenteModal && (
+        <div className="modal-overlay-tesla">
+          <div className="modal-tesla">
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Marcar ausencia</h2>
+              <button className="btn-close-tesla" onClick={() => setAusenteModal(null)} aria-label="Cerrar">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="modal-body-tesla">
+              <div className={styles.formGroup}>
+                <label>Motivo de ausencia</label>
+                <select
+                  className={styles.select}
+                  value={ausenteForm.motivo_ausencia_id}
+                  onChange={(e) => setAusenteForm({ ...ausenteForm, motivo_ausencia_id: e.target.value })}
+                >
+                  <option value="">Sin motivo especificado</option>
+                  {motivosAusencia.map((m) => (
+                    <option key={m.id} value={m.id}>{m.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Observaciones (opcional)</label>
+                <textarea
+                  className={styles.textarea}
+                  value={ausenteForm.observaciones}
+                  onChange={(e) => setAusenteForm({ ...ausenteForm, observaciones: e.target.value })}
+                  placeholder="Ej: Avisó por WhatsApp a las 7am"
+                />
+              </div>
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setAusenteModal(null)}>
+                Cancelar
+              </button>
+              <button className={styles.btnSave} onClick={handleAusenteSubmit} disabled={ausenteSaving}>
+                {ausenteSaving ? 'Guardando...' : 'Marcar ausente'}
               </button>
             </div>
           </div>

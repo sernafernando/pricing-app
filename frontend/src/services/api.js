@@ -209,6 +209,11 @@ export const rrhhAPI = {
   marcarPresentismoBulk: (data) => api.put('/rrhh/presentismo/bulk', data),
   marcarPresentismoRango: (data) => api.put('/rrhh/presentismo/rango', data),
 
+  // ── Motivos de ausencia ─────────────
+  listarMotivosAusencia: (params) => api.get('/rrhh/motivos-ausencia', { params }),
+  crearMotivoAusencia: (data) => api.post('/rrhh/motivos-ausencia', data),
+  actualizarMotivoAusencia: (id, data) => api.put(`/rrhh/motivos-ausencia/${id}`, data),
+
   // ── ART (Accidentes de Trabajo) ─────────────
   listarArtCasos: (params) => api.get('/rrhh/art', { params }),
   crearArtCaso: (data) => api.post('/rrhh/art', data),
