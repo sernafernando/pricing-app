@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
-import { rrhhAPI } from '../services/api';
+import { rrhhAPI, empresasAPI } from '../services/api';
 import {
   Plus,
   Search,
@@ -100,6 +100,7 @@ export default function Empleados() {
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
   const [filtroOpciones, setFiltroOpciones] = useState({ areas: [], puestos: [] });
+  const [empresasList, setEmpresasList] = useState([]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -198,7 +199,16 @@ export default function Empleados() {
         setFiltroOpciones({ areas: [], puestos: [] });
       }
     };
+    const fetchEmpresas = async () => {
+      try {
+        const { data } = await empresasAPI.listar({ activo: true });
+        setEmpresasList(Array.isArray(data) ? data : []);
+      } catch {
+        setEmpresasList([]);
+      }
+    };
     fetchFiltros();
+    fetchEmpresas();
   }, []);
 
   // --- Escape to close modals ---
@@ -263,6 +273,7 @@ export default function Empleados() {
       puesto: '',
       area: '',
       estado: 'activo',
+      empresa_id: '',
       calle: '',
       numero: '',
       piso_depto: '',
@@ -297,6 +308,7 @@ export default function Empleados() {
       puesto: emp.puesto || '',
       area: emp.area || '',
       estado: emp.estado || 'activo',
+      empresa_id: emp.empresa_id || '',
       motivo_baja_id: emp.motivo_baja_id || null,
       detalle_baja: emp.detalle_baja || '',
       calle: emp.calle || '',
@@ -1331,6 +1343,19 @@ export default function Empleados() {
                         <option value="activo">Activo</option>
                         <option value="licencia">Licencia</option>
                         <option value="baja">Baja</option>
+                      </select>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label>Empresa</label>
+                      <select
+                        className={styles.select}
+                        value={formData.empresa_id}
+                        onChange={(e) => handleField('empresa_id', e.target.value ? parseInt(e.target.value, 10) : null)}
+                      >
+                        <option value="">Sin asignar</option>
+                        {empresasList.map((emp) => (
+                          <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                        ))}
                       </select>
                     </div>
                     <div className={styles.formGroup}>

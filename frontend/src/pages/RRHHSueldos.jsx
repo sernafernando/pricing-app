@@ -51,6 +51,7 @@ export default function RRHHSueldos() {
       Apellido: e.apellido,
       Nombre: e.nombre,
       CUIL: e.cuil || '',
+      Empresa: e.empresa_nombre || '',
       Banco: e.banco_nombre || '',
       'Tipo Cuenta': e.banco_tipo_cuenta || '',
       CBU: e.banco_cbu || '',
@@ -119,6 +120,7 @@ export default function RRHHSueldos() {
                   <th>Apellido</th>
                   <th>Nombre</th>
                   <th>CUIL</th>
+                  <th>Empresa</th>
                   <th>Banco</th>
                   <th>Tipo Cuenta</th>
                   <th>CBU</th>
@@ -133,6 +135,7 @@ export default function RRHHSueldos() {
                     <td>{e.apellido}</td>
                     <td>{e.nombre}</td>
                     <td>{e.cuil || '-'}</td>
+                    <td>{e.empresa_nombre || '-'}</td>
                     <td>{e.banco_nombre || '-'}</td>
                     <td>{e.banco_tipo_cuenta || '-'}</td>
                     <td>{e.banco_cbu || '-'}</td>

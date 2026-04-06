@@ -71,6 +71,7 @@ from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.weather_history import WeatherHistory
 
 # RRHH — Recursos Humanos
+from app.models.empresa import Empresa
 from app.models.rrhh_empleado import RRHHEmpleado, EstadoEmpleado
 from app.models.rrhh_schema_legajo import RRHHSchemaLegajo
 from app.models.rrhh_tipo_documento import RRHHTipoDocumento
@@ -211,6 +212,7 @@ __all__ = [
     "EstadoPresentismo",
     "RRHHArtCaso",
     "EstadoArt",
+    "Empresa",
     "RRHHArtDocumento",
     # RRHH — Sanciones
     "RRHHTipoSancion",

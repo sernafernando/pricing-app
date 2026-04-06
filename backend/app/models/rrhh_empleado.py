@@ -78,6 +78,7 @@ class RRHHEmpleado(Base):
     puesto = Column(String(100), nullable=True)
     area = Column(String(100), nullable=True)
     estado = Column(String(20), nullable=False, default="activo", index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True, index=True)
 
     # --- Datos de baja ---
     motivo_baja_id = Column(
@@ -126,6 +127,7 @@ class RRHHEmpleado(Base):
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     motivo_baja = relationship("RRHHMotivoBaja")
+    empresa = relationship("Empresa")
     documentos = relationship("RRHHDocumento", back_populates="empleado", cascade="all, delete-orphan")
     historial = relationship(
         "RRHHLegajoHistorial",

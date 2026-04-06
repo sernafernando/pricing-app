@@ -64,6 +64,7 @@ from app.routers import (
     alertas,
     claims_dashboard,
     document_templates,
+    empresas,
     free_shipping_alerts,
     rrhh_empleados,
     rrhh_fichaje_mobile,
@@ -280,6 +281,7 @@ app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
 
 # ── Módulo Administración (sector empresa) ────────────────────────
+app.include_router(empresas.router, prefix="/api", tags=["admin-empresas"])
 app.include_router(administracion_proveedores.router, prefix="/api", tags=["Administración - Proveedores"])
 app.include_router(administracion_bancos.router, prefix="/api", tags=["Administración - Bancos"])
 app.include_router(administracion_impuestos.router, prefix="/api", tags=["Administración - Impuestos"])

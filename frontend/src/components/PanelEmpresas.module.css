@@ -1,0 +1,134 @@
+/* PanelEmpresas */
+.container { padding: var(--spacing-md) 0; }
+
+.title {
+  font-size: var(--font-lg);
+  color: var(--cf-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.desc {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.form {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.formRow {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.formGroup {
+  flex: 1;
+}
+
+.formGroup label {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.formActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.btnSave {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.loading, .empty {
+  color: var(--cf-text-tertiary);
+  text-align: center;
+  padding: var(--spacing-lg);
+  font-size: var(--font-sm);
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.table {
+  composes: table-tesla from '../styles/table-tesla.css';
+}
+
+.table th {
+  composes: th-tesla from '../styles/table-tesla.css';
+}
+
+.table td {
+  composes: td-tesla from '../styles/table-tesla.css';
+}
+
+.statusActive {
+  color: var(--cf-accent-green);
+  font-weight: 600;
+  font-size: var(--font-xs);
+}
+
+.statusInactive {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.btnEdit {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
+}
+
+.btnDeactivate {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+}

@@ -3,6 +3,7 @@ import api from '../services/api';
 import styles from './Admin.module.css';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
+import PanelEmpresas from '../components/PanelEmpresas';
 import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
 import PanelSubcategorias from '../components/PanelSubcategorias';
@@ -13,6 +14,7 @@ registrarPagina({
   pageLabel: 'Admin',
   tabs: [
     { tabKey: 'general', label: 'General' },
+    { tabKey: 'empresas', label: 'Empresas' },
     { tabKey: 'comisiones', label: 'Comisiones' },
     { tabKey: 'subcategorias', label: 'Subcategorías' },
     { tabKey: 'constantes', label: 'Constantes Pricing' },
@@ -158,6 +160,12 @@ export default function Admin() {
           General
         </button>
         <button
+          className={`${styles.tab} ${tabActiva === 'empresas' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('empresas')}
+        >
+          Empresas
+        </button>
+        <button
           className={`${styles.tab} ${tabActiva === 'comisiones' ? styles.tabActive : ''}`}
           onClick={() => setTabActiva('comisiones')}
         >
@@ -267,6 +275,10 @@ export default function Admin() {
 	  	  </div>
 	  	</div>
       </>
+      )}
+
+      {tabActiva === 'empresas' && (
+        <PanelEmpresas />
       )}
 
       {tabActiva === 'comisiones' && (
