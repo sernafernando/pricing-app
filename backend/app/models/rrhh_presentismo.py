@@ -71,6 +71,13 @@ class RRHHPresentismoDiario(Base):
         nullable=True,
     )
 
+    # Motivo de ausencia (if estado='ausente')
+    motivo_ausencia_id = Column(
+        Integer,
+        ForeignKey("rrhh_motivo_ausencia.id"),
+        nullable=True,
+    )
+
     # Audit
     registrado_por_id = Column(
         Integer,
@@ -83,6 +90,7 @@ class RRHHPresentismoDiario(Base):
     # --- Relaciones ---
     empleado = relationship("RRHHEmpleado")
     art_caso = relationship("RRHHArtCaso")
+    motivo_ausencia = relationship("RRHHMotivoAusencia")
     registrado_por = relationship("Usuario")
 
     __table_args__ = (

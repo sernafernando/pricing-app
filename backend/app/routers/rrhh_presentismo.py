@@ -28,6 +28,7 @@ from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_fichada import RRHHFichada
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
+from app.models.rrhh_motivo_ausencia import RRHHMotivoAusencia
 from app.models.rrhh_presentismo import EstadoPresentismo, RRHHPresentismoDiario
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -68,6 +69,7 @@ class PresentismoMarcacion(BaseModel):
     hora_egreso: Optional[time] = None
     observaciones: Optional[str] = None
     art_caso_id: Optional[int] = None
+    motivo_ausencia_id: Optional[int] = None
 
 
 class PresentismoBulkItem(BaseModel):
@@ -107,6 +109,8 @@ class DiaPresentismo(BaseModel):
     fichada: Optional[str] = None  # "HH:MM - HH:MM" (primera entrada - última salida)
     minutos_tarde: Optional[int] = None
     puntualidad: Optional[str] = None  # "a_tiempo" | "tolerancia" | "tarde" | None
+    motivo_ausencia: Optional[str] = None  # nombre del motivo (solo si ausente)
+    observaciones: Optional[str] = None
 
 
 class EmpleadoPresentismoRow(BaseModel):
@@ -267,6 +271,7 @@ def get_presentismo_grilla(
     # ── 2. Marcaciones manuales del rango ──
     marcaciones = (
         db.query(RRHHPresentismoDiario)
+        .options(selectinload(RRHHPresentismoDiario.motivo_ausencia))
         .filter(
             RRHHPresentismoDiario.empleado_id.in_(emp_ids),
             RRHHPresentismoDiario.fecha >= fecha_desde,
@@ -274,9 +279,13 @@ def get_presentismo_grilla(
         )
         .all()
     )
-    marc_map: dict[tuple[int, str], str] = {}
+    marc_map: dict[tuple[int, str], dict] = {}
     for m in marcaciones:
-        marc_map[(m.empleado_id, m.fecha.isoformat())] = m.estado
+        marc_map[(m.empleado_id, m.fecha.isoformat())] = {
+            "estado": m.estado,
+            "motivo_ausencia": m.motivo_ausencia.nombre if m.motivo_ausencia else None,
+            "observaciones": m.observaciones,
+        }
 
     # ── 3. Excepciones (feriados) del rango ──
     excepciones = (
@@ -450,8 +459,9 @@ def get_presentismo_grilla(
             fichada_str = _format_fichada(emp.id, f)
 
             # Prioridad 1: Manual
-            manual_estado = marc_map.get((emp.id, f))
-            if manual_estado is not None:
+            manual_data = marc_map.get((emp.id, f))
+            if manual_data is not None:
+                manual_estado = manual_data["estado"]
                 mt, pt = (None, None)
                 if manual_estado == "presente":
                     mt, pt = _calc_tardanza(emp.id, f)
@@ -461,6 +471,8 @@ def get_presentismo_grilla(
                     fichada=fichada_str,
                     minutos_tarde=mt,
                     puntualidad=pt,
+                    motivo_ausencia=manual_data.get("motivo_ausencia"),
+                    observaciones=manual_data.get("observaciones"),
                 )
                 continue
 
@@ -517,6 +529,7 @@ class PresentismoRangoRequest(BaseModel):
     fecha_hasta: date
     observaciones: Optional[str] = None
     art_caso_id: Optional[int] = None
+    motivo_ausencia_id: Optional[int] = None
 
 
 @router.put("/presentismo/rango", response_model=dict)
@@ -575,10 +588,14 @@ def mark_presentismo_rango(
             .first()
         )
 
+        rango_motivo_id = body.motivo_ausencia_id if body.estado == EstadoPresentismo.AUSENTE.value else None
+        rango_art_id = body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None
+
         if registro:
             registro.estado = body.estado
             registro.observaciones = body.observaciones
-            registro.art_caso_id = body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None
+            registro.art_caso_id = rango_art_id
+            registro.motivo_ausencia_id = rango_motivo_id
             registro.registrado_por_id = current_user.id
         else:
             registro = RRHHPresentismoDiario(
@@ -586,7 +603,8 @@ def mark_presentismo_rango(
                 fecha=current,
                 estado=body.estado,
                 observaciones=body.observaciones,
-                art_caso_id=body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None,
+                art_caso_id=rango_art_id,
+                motivo_ausencia_id=rango_motivo_id,
                 registrado_por_id=current_user.id,
             )
             db.add(registro)
@@ -658,12 +676,16 @@ def mark_presentismo(
         .first()
     )
 
+    motivo_id = body.motivo_ausencia_id if body.estado == EstadoPresentismo.AUSENTE.value else None
+    art_id = body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None
+
     if registro:
         registro.estado = body.estado
         registro.hora_ingreso = body.hora_ingreso
         registro.hora_egreso = body.hora_egreso
         registro.observaciones = body.observaciones
-        registro.art_caso_id = body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None
+        registro.art_caso_id = art_id
+        registro.motivo_ausencia_id = motivo_id
         registro.registrado_por_id = current_user.id
     else:
         registro = RRHHPresentismoDiario(
@@ -673,7 +695,8 @@ def mark_presentismo(
             hora_ingreso=body.hora_ingreso,
             hora_egreso=body.hora_egreso,
             observaciones=body.observaciones,
-            art_caso_id=body.art_caso_id if body.estado == EstadoPresentismo.ART.value else None,
+            art_caso_id=art_id,
+            motivo_ausencia_id=motivo_id,
             registrado_por_id=current_user.id,
         )
         db.add(registro)
@@ -1024,3 +1047,87 @@ def delete_art_documento(
 
     db.delete(documento)
     db.commit()
+
+
+# ══════════════════════════════════════════════
+# MOTIVOS DE AUSENCIA — CRUD
+# ══════════════════════════════════════════════
+
+
+class MotivoAusenciaResponse(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+    activo: bool
+    orden: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MotivoAusenciaCreate(BaseModel):
+    nombre: str = Field(max_length=100)
+    descripcion: Optional[str] = Field(default=None, max_length=500)
+    activo: bool = True
+    orden: int = 0
+
+
+@router.get("/motivos-ausencia", response_model=list[MotivoAusenciaResponse])
+def listar_motivos_ausencia(
+    activo: Optional[bool] = Query(default=None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[MotivoAusenciaResponse]:
+    """Lista motivos de ausencia. Filtro opcional por activo."""
+    query = db.query(RRHHMotivoAusencia)
+    if activo is not None:
+        query = query.filter(RRHHMotivoAusencia.activo == activo)
+    return query.order_by(RRHHMotivoAusencia.orden, RRHHMotivoAusencia.nombre).all()
+
+
+@router.post(
+    "/motivos-ausencia",
+    response_model=MotivoAusenciaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_motivo_ausencia(
+    body: MotivoAusenciaCreate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MotivoAusenciaResponse:
+    """Crear un motivo de ausencia. Requiere rrhh.config."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    existente = db.query(RRHHMotivoAusencia).filter(RRHHMotivoAusencia.nombre == body.nombre).first()
+    if existente:
+        raise HTTPException(status_code=400, detail=f"Ya existe un motivo con nombre '{body.nombre}'")
+
+    motivo = RRHHMotivoAusencia(**body.model_dump())
+    db.add(motivo)
+    db.commit()
+    db.refresh(motivo)
+    return motivo
+
+
+@router.put("/motivos-ausencia/{motivo_id}", response_model=MotivoAusenciaResponse)
+def actualizar_motivo_ausencia(
+    motivo_id: int,
+    body: MotivoAusenciaCreate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MotivoAusenciaResponse:
+    """Actualizar un motivo de ausencia. Requiere rrhh.config."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.config"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.config")
+
+    motivo = db.query(RRHHMotivoAusencia).filter(RRHHMotivoAusencia.id == motivo_id).first()
+    if not motivo:
+        raise HTTPException(status_code=404, detail="Motivo no encontrado")
+
+    for field, value in body.model_dump().items():
+        setattr(motivo, field, value)
+    db.commit()
+    db.refresh(motivo)
+    return motivo

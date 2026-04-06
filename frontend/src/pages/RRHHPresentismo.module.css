@@ -330,6 +330,11 @@
   font-weight: 600;
 }
 
+.tardeEmpty {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
 /* Marcación rápida dropdown */
 .dropdown {
   position: absolute;

@@ -95,6 +95,7 @@ from app.models.rrhh_fichada import RRHHFichada, OrigenFichada, TipoFichada
 from app.models.rrhh_horario import RRHHHorarioConfig, RRHHHorarioExcepcion
 from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_hikvision_user import RRHHHikvisionUser
+from app.models.rrhh_motivo_ausencia import RRHHMotivoAusencia
 from app.models.rrhh_motivo_baja import RRHHMotivoBaja
 
 # Documentos — Templates PDF
@@ -231,6 +232,7 @@ __all__ = [
     "RRHHHorarioExcepcion",
     "RRHHEmpleadoHorario",
     "RRHHHikvisionUser",
+    "RRHHMotivoAusencia",
     "RRHHMotivoBaja",
     # Documentos
     "DocumentTemplate",
