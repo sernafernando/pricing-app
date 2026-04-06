@@ -665,7 +665,11 @@ async def get_operaciones_con_metricas(
             ) as pricelist_id,
 
             -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
-            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type,
+
+            -- Costo real de envío que pagó el vendedor según ML (con IVA)
+            -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
+            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -851,6 +855,9 @@ async def get_operaciones_con_metricas(
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
             db_session=db,
             ml_logistic_type=row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
+            seller_shipping_cost=float(row.seller_shipping_cost)
+            if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
+            else None,
         )
 
         # Mapeo de pricelist_id a nombre
@@ -1035,7 +1042,11 @@ async def exportar_operaciones(
             ) as pricelist_id,
 
             -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
-            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type,
+
+            -- Costo real de envío que pagó el vendedor según ML (con IVA)
+            -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
+            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost
 
         FROM tb_mercadolibre_orders_detail tmlod
         LEFT JOIN tb_mercadolibre_orders_header tmloh
@@ -1155,6 +1166,9 @@ async def exportar_operaciones(
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
             db_session=db,
             ml_logistic_type=row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
+            seller_shipping_cost=float(row.seller_shipping_cost)
+            if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
+            else None,
         )
 
         pricelist_names = {
