@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, Calendar, Table, ExternalLink,
@@ -372,20 +372,26 @@ export default function TabCheckeoColecta() {
     setVista('tabla');
   };
 
-  // ── Derived data ─────────────────────────────────────────────
+  // ── Derived data (memoized) ───────────────────────────────────
 
-  const erpStatesMap = new Map();
-  const erpColorMap = new Map(); // name → ssos_color
-  for (const e of etiquetas) {
-    if (e.ssos_id && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
-      erpStatesMap.set(e.ssos_id, e.ssos_name);
+  const { erpStatesMap, erpColorMap } = useMemo(() => {
+    const states = new Map();
+    const colors = new Map();
+    for (const e of etiquetas) {
+      if (e.ssos_id && e.ssos_name && !states.has(e.ssos_id)) {
+        states.set(e.ssos_id, e.ssos_name);
+      }
+      if (e.ssos_name && e.ssos_color && !colors.has(e.ssos_name)) {
+        colors.set(e.ssos_name, e.ssos_color);
+      }
     }
-    if (e.ssos_name && e.ssos_color && !erpColorMap.has(e.ssos_name)) {
-      erpColorMap.set(e.ssos_name, e.ssos_color);
-    }
-  }
+    return { erpStatesMap: states, erpColorMap: colors };
+  }, [etiquetas]);
 
-  const mlStatuses = [...new Set(etiquetas.map((e) => e.mlstatus).filter(Boolean))];
+  const mlStatuses = useMemo(
+    () => [...new Set(etiquetas.map((e) => e.mlstatus).filter(Boolean))],
+    [etiquetas],
+  );
 
   // ── Render ───────────────────────────────────────────────────
 
