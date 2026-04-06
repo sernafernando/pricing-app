@@ -100,7 +100,6 @@
 .table {
   composes: table-tesla from '../styles/table-tesla.css';
 }
-}
 
 .statusActive {
   color: var(--cf-accent-green);
