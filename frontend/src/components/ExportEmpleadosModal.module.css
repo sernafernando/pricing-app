@@ -62,11 +62,11 @@
 }
 
 .btnCancel {
-  composes: btn-tesla outline-subtle sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
 .btnExport {
-  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
