@@ -793,63 +793,12 @@
   min-width: auto;
 }
 
-/* ── Fichaje Modal ── */
-.fichajeSubtext {
-  color: var(--cf-text-secondary);
-  font-size: var(--font-sm);
-  margin-bottom: var(--spacing-md);
-}
-
-.fichajeLinkedBox {
-  background: rgba(59, 130, 246, 0.1);
-  padding: var(--spacing-md);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-md);
-}
-
-.fichajeLinkedTitle {
-  color: var(--cf-accent-blue);
-  font-weight: 600;
-  margin-bottom: var(--spacing-xs);
-}
-
-.fichajeLinkedDetail {
-  color: var(--cf-text-secondary);
-  font-size: var(--font-sm);
-}
-
-.fichajeTabRow {
-  display: flex;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
-}
-
-.fichajeTabRow > button {
-  flex: 1;
-}
-
-.fichajeHint {
-  color: var(--cf-text-tertiary);
-  font-size: var(--font-xs);
-  margin-bottom: var(--spacing-sm);
-}
-
-.fichajeSuccessBox {
-  background: rgba(34, 197, 94, 0.1);
-  padding: var(--spacing-md);
-  border-radius: var(--radius-md);
-  margin-top: var(--spacing-sm);
-}
-
-.fichajeSuccessTitle {
-  color: var(--cf-accent-green);
-  font-weight: 600;
-}
-
-.fichajeSuccessDetail {
-  color: var(--cf-text-secondary);
-  font-size: var(--font-sm);
-  margin-top: var(--spacing-xs);
+/* ── Export Excel button ── */
+.btnExport {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
 /* ── Confirm Delete Modal ── */

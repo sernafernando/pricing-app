@@ -9,6 +9,7 @@ Endpoints:
 - Historial de cambios del legajo (auditoría)
 """
 
+import io
 import os
 import unicodedata
 import uuid
@@ -16,7 +17,7 @@ from datetime import date, datetime, UTC
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
@@ -475,6 +476,35 @@ def listar_empleados(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/empleados/contadores")
+def contadores_empleados(
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Contadores por estado de empleados activos en una sola query."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    from sqlalchemy import func, case
+
+    result = (
+        db.query(
+            func.count(case((RRHHEmpleado.estado == "activo", 1))).label("activos"),
+            func.count(case((RRHHEmpleado.estado == "licencia", 1))).label("licencia"),
+            func.count(case((RRHHEmpleado.estado == "baja", 1))).label("bajas"),
+        )
+        .filter(RRHHEmpleado.activo.is_(True))
+        .one()
+    )
+
+    return {
+        "activos": result.activos,
+        "licencia": result.licencia,
+        "bajas": result.bajas,
+    }
 
 
 @router.get("/empleados/filtros/opciones")
@@ -1560,6 +1590,188 @@ def crear_usuario_fichaje(
         usuario_id=new_user.id,
         username=username,
         message=f"Usuario '{username}' creado. Password: DNI del empleado.",
+    )
+
+
+# ══════════════════════════════════════════════
+# ENDPOINT — Exportar empleados a Excel
+# ══════════════════════════════════════════════
+
+# Categorías de columnas disponibles para exportación
+EXPORT_CATEGORIES: dict[str, list[tuple[str, str]]] = {
+    "datos_personales": [
+        ("apellido", "Apellido"),
+        ("nombre", "Nombre"),
+        ("dni", "DNI"),
+        ("cuil", "CUIL"),
+        ("fecha_nacimiento", "Fecha Nacimiento"),
+        ("telefono", "Teléfono"),
+        ("email_personal", "Email Personal"),
+        ("contacto_emergencia", "Contacto Emergencia"),
+        ("contacto_emergencia_tel", "Tel. Emergencia"),
+    ],
+    "datos_laborales": [
+        ("legajo", "Legajo"),
+        ("puesto", "Puesto"),
+        ("area", "Área"),
+        ("estado", "Estado"),
+        ("fecha_ingreso", "Fecha Ingreso"),
+        ("fecha_egreso", "Fecha Egreso"),
+        ("observaciones", "Observaciones"),
+    ],
+    "direccion": [
+        ("calle", "Calle"),
+        ("numero", "Número"),
+        ("piso_depto", "Piso/Depto"),
+        ("entre_calles", "Entre Calles"),
+        ("localidad", "Localidad"),
+        ("provincia", "Provincia"),
+        ("codigo_postal", "Código Postal"),
+    ],
+    "datos_bancarios": [
+        ("banco_nombre", "Banco"),
+        ("banco_tipo_cuenta", "Tipo Cuenta"),
+        ("banco_cbu", "CBU"),
+        ("banco_alias", "Alias CBU"),
+        ("banco_nro_cuenta", "Nro. Cuenta"),
+    ],
+    "baja": [
+        ("motivo_baja_nombre", "Motivo Baja"),
+        ("detalle_baja", "Detalle Baja"),
+    ],
+}
+
+ALL_CATEGORY_KEYS = list(EXPORT_CATEGORIES.keys())
+
+
+@router.get(
+    "/empleados/exportar-excel",
+    summary="Exportar empleados a Excel con selector de categorías",
+)
+def exportar_empleados_excel(
+    categorias: Optional[str] = Query(
+        default=None,
+        description="Categorías separadas por coma. Opciones: datos_personales, datos_laborales, "
+        "direccion, datos_bancarios, baja. Si no se envía, se exportan todas.",
+    ),
+    estado: Optional[str] = Query(default=None, max_length=20),
+    area: Optional[str] = Query(default=None, max_length=100),
+    puesto: Optional[str] = Query(default=None, max_length=100),
+    search: Optional[str] = Query(default=None, max_length=200),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """
+    Exporta la ficha completa de empleados a Excel (.xlsx).
+
+    Permite seleccionar categorías de columnas para incluir.
+    Aplica los mismos filtros que el listado (estado, area, puesto, search).
+    Requiere permiso rrhh.ver.
+    """
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.ver"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.ver")
+
+    # Parse categorías
+    if categorias:
+        selected = [c.strip() for c in categorias.split(",") if c.strip()]
+        invalid = [c for c in selected if c not in EXPORT_CATEGORIES]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Categorías inválidas: {', '.join(invalid)}. Opciones: {', '.join(ALL_CATEGORY_KEYS)}",
+            )
+    else:
+        selected = ALL_CATEGORY_KEYS
+
+    # Build query (same filters as listar_empleados)
+    query = db.query(RRHHEmpleado).filter(RRHHEmpleado.activo.is_(True))
+
+    if estado:
+        query = query.filter(RRHHEmpleado.estado == estado)
+    if area:
+        query = query.filter(RRHHEmpleado.area == area)
+    if puesto:
+        query = query.filter(RRHHEmpleado.puesto == puesto)
+    if search:
+        term = f"%{search}%"
+        query = query.filter(
+            or_(
+                RRHHEmpleado.nombre.ilike(term),
+                RRHHEmpleado.apellido.ilike(term),
+                RRHHEmpleado.dni.ilike(term),
+                RRHHEmpleado.legajo.ilike(term),
+                RRHHEmpleado.cuil.ilike(term),
+            )
+        )
+
+    empleados = (
+        query.options(selectinload(RRHHEmpleado.motivo_baja)).order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre).all()
+    )
+
+    # Build columns from selected categories
+    columns: list[tuple[str, str]] = []
+    for cat in selected:
+        columns.extend(EXPORT_CATEGORIES[cat])
+
+    # Generate Excel
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Empleados"
+
+    # Header
+    headers = [col[1] for col in columns]
+    ws.append(headers)
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+
+    # Data rows
+    for emp in empleados:
+        row = []
+        for field_name, _ in columns:
+            if field_name == "motivo_baja_nombre":
+                val = emp.motivo_baja.nombre if emp.motivo_baja else None
+            else:
+                val = getattr(emp, field_name, None)
+
+            # Format dates
+            if isinstance(val, date):
+                val = val.strftime("%d/%m/%Y")
+            elif val is None:
+                val = ""
+            else:
+                val = str(val)
+            row.append(val)
+        ws.append(row)
+
+    # Auto-width
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_length = max(max_length, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_length + 4, 50)
+
+    # Write to buffer
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M")
+    filename = f"empleados_{timestamp}.xlsx"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

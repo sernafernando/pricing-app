@@ -1,0 +1,108 @@
+/* FichajeModal */
+
+.subtext {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.linkedBox {
+  background: rgba(59, 130, 246, 0.1);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.linkedTitle {
+  color: var(--cf-accent-blue);
+  font-weight: 600;
+  margin-bottom: var(--spacing-xs);
+}
+
+.linkedDetail {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.tabRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.tabRow > button {
+  flex: 1;
+}
+
+.hint {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.formGroup {
+  margin-bottom: var(--spacing-sm);
+}
+
+.formGroup label {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+}
+
+.select {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.successBox {
+  background: rgba(34, 197, 94, 0.1);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-sm);
+}
+
+.successTitle {
+  color: var(--cf-accent-green);
+  font-weight: 600;
+}
+
+.successDetail {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.btnActive {
+  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnInactive {
+  composes: btn-tesla outline-subtle sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnDanger {
+  composes: btn-tesla danger-outline sm from '../styles/buttons-tesla.css';
+}

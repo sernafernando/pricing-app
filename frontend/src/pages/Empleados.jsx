@@ -26,23 +26,29 @@ import {
   Navigation,
   ExternalLink,
   FileDown,
+  FileSpreadsheet,
   Smartphone,
   Landmark,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-
-// Fix Leaflet default marker icon
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
+import ExportEmpleadosModal from '../components/ExportEmpleadosModal';
+import FichajeModal from '../components/FichajeModal';
 import CBU_BANCOS from '../utils/cbuBancos';
 import styles from './Empleados.module.css';
+
+// Fix Leaflet default marker icon — use bundled assets instead of CDN
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
 
 const ESTADOS = [
   { value: '', label: 'Todos' },
@@ -56,6 +62,8 @@ const ESTADO_COLORS = {
   licencia: 'statusLicencia',
   baja: 'statusBaja',
 };
+
+const PAGE_SIZE = 50;
 
 const SortHeader = ({ field, sortBy, sortOrder, onSort, children }) => (
   <th
@@ -102,6 +110,7 @@ export default function Empleados() {
 
   // Delete confirmation state
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState(null);
 
   // Turnos asignados (en modal de edición)
@@ -154,19 +163,12 @@ export default function Empleados() {
   const [savingMotivo, setSavingMotivo] = useState(false);
   const [motivoError, setMotivoError] = useState(null);
 
+  // --- Export Excel modal ---
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+
   // --- Crear/vincular usuario fichaje ---
   const [fichajeModalOpen, setFichajeModalOpen] = useState(false);
   const [fichajeEmpleado, setFichajeEmpleado] = useState(null);
-  const [fichajeTab, setFichajeTab] = useState('crear'); // 'crear' | 'vincular'
-  const [fichajeUsarSegundo, setFichajeUsarSegundo] = useState(false);
-  const [fichajeCreando, setFichajeCreando] = useState(false);
-  const [fichajeResult, setFichajeResult] = useState(null);
-  const [fichajeError, setFichajeError] = useState(null);
-  const [usuariosSistema, setUsuariosSistema] = useState([]);
-  const [loadingUsuarios, setLoadingUsuarios] = useState(false);
-  const [vincularUsuarioId, setVincularUsuarioId] = useState('');
-
-const PAGE_SIZE = 50;
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -175,16 +177,8 @@ const PAGE_SIZE = 50;
 
   const cargarContadores = useCallback(async () => {
     try {
-      const [actRes, licRes, bajaRes] = await Promise.all([
-        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'activo' }),
-        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'licencia' }),
-        rrhhAPI.listarEmpleados({ page: 1, page_size: 1, estado: 'baja' }),
-      ]);
-      setContadores({
-        activos: actRes.data.total,
-        licencia: licRes.data.total,
-        bajas: bajaRes.data.total,
-      });
+      const { data } = await rrhhAPI.contadoresEmpleados();
+      setContadores(data);
     } catch {
       // Non-critical: badge counters use fallback zeros
     }
@@ -374,6 +368,7 @@ const PAGE_SIZE = 50;
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return;
     setActionError(null);
+    setDeleting(true);
     try {
       await rrhhAPI.eliminarEmpleado(confirmDelete.id);
       setConfirmDelete(null);
@@ -381,84 +376,8 @@ const PAGE_SIZE = 50;
       cargarContadores();
     } catch (err) {
       setActionError(err.response?.data?.detail || 'Error al desactivar empleado');
-    }
-  };
-
-  // ── Handler: Crear/vincular usuario fichaje ──
-  const handleOpenFichajeModal = async (emp) => {
-    setFichajeEmpleado(emp);
-    setFichajeTab('crear');
-    setFichajeUsarSegundo(false);
-    setFichajeResult(null);
-    setFichajeError(null);
-    setVincularUsuarioId('');
-    setFichajeModalOpen(true);
-    // Cargar usuarios del sistema para tab vincular
-    setLoadingUsuarios(true);
-    try {
-      const { data } = await rrhhAPI.listarUsuariosSistema();
-      setUsuariosSistema(Array.isArray(data) ? data : []);
-    } catch {
-      setUsuariosSistema([]);
     } finally {
-      setLoadingUsuarios(false);
-    }
-  };
-
-  const handleCrearUsuarioFichaje = async () => {
-    if (!fichajeEmpleado) return;
-    setFichajeCreando(true);
-    setFichajeError(null);
-    setFichajeResult(null);
-    try {
-      const { data } = await rrhhAPI.crearUsuarioFichaje(fichajeEmpleado.id, {
-        usar_segundo_nombre: fichajeUsarSegundo,
-      });
-      setFichajeResult(data);
-      cargarEmpleados();
-    } catch (err) {
-      setFichajeError(err.response?.data?.detail || 'Error al crear usuario');
-    } finally {
-      setFichajeCreando(false);
-    }
-  };
-
-  const handleDesvincularUsuario = async () => {
-    if (!fichajeEmpleado) return;
-    setFichajeCreando(true);
-    setFichajeError(null);
-    setFichajeResult(null);
-    try {
-      await rrhhAPI.actualizarEmpleado(fichajeEmpleado.id, { usuario_id: null });
-      setFichajeResult({ message: 'Usuario desvinculado del empleado.' });
-      cargarEmpleados();
-    } catch (err) {
-      setFichajeError(err.response?.data?.detail || 'Error al desvincular usuario');
-    } finally {
-      setFichajeCreando(false);
-    }
-  };
-
-  const handleVincularUsuario = async () => {
-    if (!fichajeEmpleado || !vincularUsuarioId) return;
-    setFichajeCreando(true);
-    setFichajeError(null);
-    setFichajeResult(null);
-    try {
-      await rrhhAPI.actualizarEmpleado(fichajeEmpleado.id, {
-        usuario_id: parseInt(vincularUsuarioId, 10),
-      });
-      const usuario = usuariosSistema.find((u) => u.id === parseInt(vincularUsuarioId, 10));
-      setFichajeResult({
-        usuario_id: parseInt(vincularUsuarioId, 10),
-        username: usuario?.username || '',
-        message: `Usuario "${usuario?.username || vincularUsuarioId}" vinculado al empleado.`,
-      });
-      cargarEmpleados();
-    } catch (err) {
-      setFichajeError(err.response?.data?.detail || 'Error al vincular usuario');
-    } finally {
-      setFichajeCreando(false);
+      setDeleting(false);
     }
   };
 
@@ -835,6 +754,12 @@ const PAGE_SIZE = 50;
           <span className={`${styles.badge} ${styles.badgeRed}`} title="Bajas">{contadores.bajas}</span>
         </div>
         <div className={styles.headerActions}>
+          {pageTab === 'empleados' && (
+            <button className={styles.btnExport} onClick={() => setExportModalOpen(true)}>
+              <FileSpreadsheet size={16} />
+              Exportar Excel
+            </button>
+          )}
           {puedeGestionar && pageTab === 'empleados' && (
             <button className={styles.btnCreate} onClick={handleNuevo}>
               <Plus size={16} />
@@ -1127,19 +1052,19 @@ const PAGE_SIZE = 50;
               <SortHeader field="area" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Area</SortHeader>
               <th>Estado</th>
               <SortHeader field="fecha_ingreso" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Ingreso</SortHeader>
-              {puedeGestionar && <th>Acciones</th>}
+              {(puedeGestionar || puedeImprimir) && <th>Acciones</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={puedeGestionar ? 8 : 7} className={styles.loadingCell}>
+                <td colSpan={(puedeGestionar || puedeImprimir) ? 8 : 7} className={styles.loadingCell}>
                   Cargando...
                 </td>
               </tr>
             ) : empleados.length === 0 ? (
               <tr>
-                <td colSpan={puedeGestionar ? 8 : 7} className={styles.emptyCell}>
+                <td colSpan={(puedeGestionar || puedeImprimir) ? 8 : 7} className={styles.emptyCell}>
                   No se encontraron empleados
                 </td>
               </tr>
@@ -1193,7 +1118,7 @@ const PAGE_SIZE = 50;
                       )}
                       {puedeGestionar && emp.estado === 'activo' && (
                         <button
-                          onClick={() => handleOpenFichajeModal(emp)}
+                          onClick={() => { setFichajeEmpleado(emp); setFichajeModalOpen(true); }}
                           className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
                           title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
                         >
@@ -1251,8 +1176,10 @@ const PAGE_SIZE = 50;
               {actionError && <div className={styles.formError}>{actionError}</div>}
             </div>
             <div className="modal-footer-tesla">
-              <button className={styles.btnCancel} onClick={() => setConfirmDelete(null)}>Cancelar</button>
-              <button className={styles.btnDanger} onClick={handleConfirmDelete}>Confirmar</button>
+              <button className={styles.btnCancel} onClick={() => setConfirmDelete(null)} disabled={deleting}>Cancelar</button>
+              <button className={styles.btnDanger} onClick={handleConfirmDelete} disabled={deleting}>
+                {deleting ? 'Desactivando...' : 'Confirmar'}
+              </button>
             </div>
           </div>
         </div>
@@ -2007,162 +1934,19 @@ const PAGE_SIZE = 50;
 
       {/* Modal crear/vincular usuario fichaje */}
       {fichajeModalOpen && fichajeEmpleado && (
-        <div className="modal-overlay-tesla">
-          <div className="modal-tesla lg">
-            <div className="modal-header-tesla">
-              <h2 className="modal-title-tesla">Usuario de fichaje</h2>
-              <button
-                className="btn-close-tesla"
-                onClick={() => setFichajeModalOpen(false)}
-                aria-label="Cerrar"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="modal-body-tesla">
-              <p className={styles.fichajeSubtext}>
-                Empleado: <strong>{fichajeEmpleado.nombre} {fichajeEmpleado.apellido}</strong> ({fichajeEmpleado.legajo})
-              </p>
+        <FichajeModal
+          empleado={fichajeEmpleado}
+          onClose={() => { setFichajeModalOpen(false); setFichajeEmpleado(null); }}
+          onUpdated={cargarEmpleados}
+        />
+      )}
 
-              {/* Si ya tiene usuario vinculado, mostrar info + desvincular */}
-              {fichajeEmpleado.usuario_id && !fichajeResult && (
-                <div className={styles.fichajeLinkedBox}>
-                  <p className={styles.fichajeLinkedTitle}>
-                    Usuario vinculado
-                  </p>
-                  <p className={styles.fichajeLinkedDetail}>
-                    {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.username || `ID #${fichajeEmpleado.usuario_id}`}
-                    {' — '}
-                    {usuariosSistema.find((u) => u.id === fichajeEmpleado.usuario_id)?.nombre || ''}
-                  </p>
-                </div>
-              )}
-
-              {!fichajeEmpleado.usuario_id && !fichajeResult && (
-                <div className={styles.fichajeTabRow}>
-                  <button
-                    className={fichajeTab === 'crear' ? styles.btnSave : styles.btnCancel}
-                    onClick={() => { setFichajeTab('crear'); setFichajeError(null); }}
-                  >
-                    <UserPlus size={14} /> Crear nuevo
-                  </button>
-                  <button
-                    className={fichajeTab === 'vincular' ? styles.btnSave : styles.btnCancel}
-                    onClick={() => { setFichajeTab('vincular'); setFichajeError(null); }}
-                  >
-                    <User size={14} /> Vincular existente
-                  </button>
-                </div>
-              )}
-
-              {!fichajeEmpleado.usuario_id && fichajeTab === 'crear' && !fichajeResult && (
-                <>
-                  <p className={styles.fichajeHint}>
-                    Se crea un usuario con rol FICHAJE (solo acceso a fichaje mobile). Password: DNI del empleado.
-                  </p>
-                  <div className={styles.formGroup}>
-                    <label>Inicial del nombre para el username</label>
-                    <select
-                      className={styles.select}
-                      value={fichajeUsarSegundo ? 'segundo' : 'primero'}
-                      onChange={(e) => setFichajeUsarSegundo(e.target.value === 'segundo')}
-                    >
-                      <option value="primero">
-                        Primer nombre ({fichajeEmpleado.nombre?.split(' ')[0]?.[0]?.toLowerCase() || '?'}{fichajeEmpleado.apellido?.toLowerCase()})
-                      </option>
-                      {fichajeEmpleado.nombre?.split(' ').length > 1 && (
-                        <option value="segundo">
-                          Segundo nombre ({fichajeEmpleado.nombre?.split(' ')[1]?.[0]?.toLowerCase() || '?'}{fichajeEmpleado.apellido?.toLowerCase()})
-                        </option>
-                      )}
-                    </select>
-                  </div>
-                </>
-              )}
-
-              {!fichajeEmpleado.usuario_id && fichajeTab === 'vincular' && !fichajeResult && (
-                <>
-                  <p className={styles.fichajeHint}>
-                    Vincular un usuario que ya existe en el sistema a este empleado.
-                  </p>
-                  <div className={styles.formGroup}>
-                    <label>Usuario existente</label>
-                    {loadingUsuarios ? (
-                      <p className={styles.fichajeHint}>Cargando usuarios...</p>
-                    ) : (
-                      <select
-                        className={styles.select}
-                        value={vincularUsuarioId}
-                        onChange={(e) => setVincularUsuarioId(e.target.value)}
-                      >
-                        <option value="">Seleccionar usuario...</option>
-                        {usuariosSistema
-                          .filter((u) => u.activo)
-                          .map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.username} — {u.nombre}
-                            </option>
-                          ))}
-                      </select>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {fichajeError && (
-                <div className={styles.formError}>{fichajeError}</div>
-              )}
-
-              {fichajeResult && (
-                <div className={styles.fichajeSuccessBox}>
-                  <p className={styles.fichajeSuccessTitle}>
-                    {fichajeResult.message}
-                  </p>
-                  {fichajeResult.username && (
-                    <p className={styles.fichajeSuccessDetail}>
-                      Usuario: <strong>{fichajeResult.username}</strong>
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="modal-footer-tesla">
-              <button
-                className={styles.btnCancel}
-                onClick={() => setFichajeModalOpen(false)}
-              >
-                {fichajeResult ? 'Cerrar' : 'Cancelar'}
-              </button>
-              {!fichajeResult && !fichajeEmpleado.usuario_id && fichajeTab === 'crear' && (
-                <button
-                  className={styles.btnSave}
-                  onClick={handleCrearUsuarioFichaje}
-                  disabled={fichajeCreando}
-                >
-                  {fichajeCreando ? 'Creando...' : 'Crear usuario'}
-                </button>
-              )}
-              {!fichajeResult && !fichajeEmpleado.usuario_id && fichajeTab === 'vincular' && (
-                <button
-                  className={styles.btnSave}
-                  onClick={handleVincularUsuario}
-                  disabled={fichajeCreando || !vincularUsuarioId}
-                >
-                  {fichajeCreando ? 'Vinculando...' : 'Vincular'}
-                </button>
-              )}
-              {!fichajeResult && fichajeEmpleado.usuario_id && (
-                <button
-                  className={styles.btnDangerText}
-                  onClick={handleDesvincularUsuario}
-                  disabled={fichajeCreando}
-                >
-                  {fichajeCreando ? 'Desvinculando...' : 'Desvincular usuario'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Modal exportar Excel */}
+      {exportModalOpen && (
+        <ExportEmpleadosModal
+          onClose={() => setExportModalOpen(false)}
+          filtros={{ estado, area, puesto, search: debouncedSearch }}
+        />
       )}
     </div>
   );

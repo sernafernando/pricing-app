@@ -151,6 +151,7 @@ export const permisosAPI = {
 export const rrhhAPI = {
   // Empleados
   listarEmpleados: (params) => api.get('/rrhh/empleados', { params }),
+  contadoresEmpleados: () => api.get('/rrhh/empleados/contadores'),
   obtenerFiltrosEmpleados: () => api.get('/rrhh/empleados/filtros/opciones'),
   obtenerEmpleado: (id) => api.get(`/rrhh/empleados/${id}`),
   crearEmpleado: (data) => api.post('/rrhh/empleados', data),
@@ -160,6 +161,8 @@ export const rrhhAPI = {
     api.post(`/rrhh/empleados/${empleadoId}/crear-usuario-fichaje`, data),
   listarUsuariosSistema: () => api.get('/usuarios'),
   listarDatosBancarios: () => api.get('/rrhh/empleados/datos-bancarios'),
+  exportarEmpleadosExcel: (params) =>
+    api.get('/rrhh/empleados/exportar-excel', { params, responseType: 'blob' }),
 
   // Documentos
   listarDocumentos: (empleadoId) => api.get(`/rrhh/empleados/${empleadoId}/documentos`),
