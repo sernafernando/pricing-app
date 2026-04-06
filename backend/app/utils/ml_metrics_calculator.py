@@ -27,6 +27,9 @@ def calcular_metricas_ml(
     db_session=None,  # Sesión de DB para pricing_constants
     # Parámetros para offset Flex
     ml_logistic_type: Optional[str] = None,
+    # Costo real de envío que pagó el vendedor según ML (con IVA)
+    # Viene de mlshippmentcost4seller. Si es 0 o None, el vendedor no pagó envío.
+    seller_shipping_cost: Optional[float] = None,
 ) -> dict:
     """
     Calcula métricas ML usando la fórmula EXACTA de pricing de productos
@@ -37,13 +40,16 @@ def calcular_metricas_ml(
         iva_porcentaje: Porcentaje de IVA (ej: 10.5)
         costo_unitario_sin_iva: Costo unitario sin IVA
         comision_ml: Comisión ML en pesos (sin IVA) - OPCIONAL si se pasan subcat_id y pricelist_id
-        costo_envio_ml: Costo de envío del producto (con IVA), None si no aplica
+        costo_envio_ml: Costo de envío del producto (con IVA), None si no aplica (fallback threshold)
         count_per_pack: Items en el pack (DEPRECADO - no se usa)
         subcat_id: ID de subcategoría (para calcular comisión dinámicamente)
         pricelist_id: ID de pricelist (para calcular comisión dinámicamente)
         fecha_venta: Fecha de la venta (para calcular comisión dinámicamente)
         comision_base_porcentaje: Porcentaje base de comisión (para calcular comisión dinámicamente)
         ml_logistic_type: Tipo de logística ML ('self_service' = Flex, 'fulfillment' = Full, etc.)
+        seller_shipping_cost: Costo real de envío que pagó el vendedor según ML (con IVA),
+            de mlshippmentcost4seller. Si es 0/None, el vendedor no pagó envío.
+            Cuando se provee, reemplaza la lógica de threshold con costo_envio_ml.
 
     Returns:
         Dict con: monto_limpio, costo_total, ganancia, markup_porcentaje, costo_envio, comision_ml, offset_flex
@@ -81,10 +87,15 @@ def calcular_metricas_ml(
             if constants.offset_flex is not None:
                 offset_flex_valor = float(constants.offset_flex)
 
-    # Costo de envío sin IVA - SOLO si precio >= monto_tier3 (envío gratis)
-    # El pricing calcula por unidad, pero en ventas se multiplica por cantidad
+    # Costo de envío sin IVA
+    # Prioridad: seller_shipping_cost (dato real de ML) > fallback threshold con costo_envio_ml
     envio_unitario_sin_iva = 0
-    if monto_unitario >= monto_tier3 and costo_envio_ml:
+    if seller_shipping_cost is not None and seller_shipping_cost > 0:
+        # Dato real de mlshippmentcost4seller: ya es el costo TOTAL del envío (no unitario),
+        # y es 0 cuando el comprador paga. No necesita chequeo de threshold.
+        envio_unitario_sin_iva = (seller_shipping_cost / 1.21) / cantidad
+    elif seller_shipping_cost is None and monto_unitario >= monto_tier3 and costo_envio_ml:
+        # Fallback: lógica anterior por threshold (para pricing calculator que no tiene dato ML)
         envio_unitario_sin_iva = costo_envio_ml / 1.21
 
     costo_envio_sin_iva = envio_unitario_sin_iva * cantidad
