@@ -756,13 +756,103 @@ def eliminar_empleado(
 # ═══════════════════════════════════════════════
 
 ALLOWED_MIME_TYPES = {
+    # PDF
     "application/pdf",
+    # Imágenes comunes
     "image/jpeg",
     "image/png",
     "image/webp",
+    "image/gif",
+    "image/bmp",
+    "image/tiff",
+    "image/avif",
+    "image/heic",
+    "image/heif",
+    "image/svg+xml",
+    # Word
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+# Magic bytes: firma real del archivo (los primeros N bytes identifican el formato)
+# Esto evita que alguien renombre un .exe a .pdf y pase la validación.
+MAGIC_BYTES: dict[str, list[bytes]] = {
+    "PDF": [b"%PDF"],
+    "JPEG": [b"\xff\xd8\xff"],
+    "PNG": [b"\x89PNG\r\n\x1a\n"],
+    "GIF": [b"GIF87a", b"GIF89a"],
+    "BMP": [b"BM"],
+    "TIFF": [b"II\x2a\x00", b"MM\x00\x2a"],  # little-endian / big-endian
+    "WebP": [b"RIFF"],  # RIFF....WEBP (se valida más abajo)
+    "AVIF/HEIC": [b"\x00\x00\x00"],  # ftyp box (ISO BMFF container, se valida más abajo)
+    # Word .doc (OLE2 compound) y .docx (ZIP/PK)
+    "DOC": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],
+    "DOCX/ZIP": [b"PK\x03\x04"],
+    # SVG es XML-based, se valida por contenido textual
+}
+
+
+def _validate_magic_bytes(content: bytes, filename: str) -> bool:
+    """
+    Valida que los primeros bytes del archivo correspondan a un formato permitido.
+    Devuelve True si el archivo es válido, False si no se reconoce.
+    """
+    if len(content) < 8:
+        return False
+
+    header = content[:16]
+
+    # PDF
+    if header.startswith(b"%PDF"):
+        return True
+
+    # JPEG
+    if header.startswith(b"\xff\xd8\xff"):
+        return True
+
+    # PNG
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+
+    # GIF
+    if header[:6] in (b"GIF87a", b"GIF89a"):
+        return True
+
+    # BMP
+    if header.startswith(b"BM"):
+        return True
+
+    # TIFF (little-endian o big-endian)
+    if header[:4] in (b"II\x2a\x00", b"MM\x00\x2a"):
+        return True
+
+    # WebP (RIFF container con "WEBP" en offset 8)
+    if header[:4] == b"RIFF" and len(content) >= 12 and content[8:12] == b"WEBP":
+        return True
+
+    # AVIF / HEIC / HEIF (ISO BMFF container — ftyp box)
+    # Estructura: 4 bytes size + "ftyp" + brand (avif, heic, mif1, etc.)
+    if len(content) >= 12 and content[4:8] == b"ftyp":
+        brand = content[8:12].lower()
+        if brand in (b"avif", b"heic", b"heix", b"mif1", b"msf1"):
+            return True
+
+    # Word .doc (OLE2 Compound Document)
+    if header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return True
+
+    # Word .docx (ZIP/PK — Office Open XML)
+    if header.startswith(b"PK\x03\x04"):
+        return True
+
+    # SVG (XML-based, puede empezar con BOM, <?xml, o <svg directamente)
+    file_ext = os.path.splitext(filename or "")[-1].lower()
+    if file_ext == ".svg":
+        text_start = content[:500].decode("utf-8", errors="ignore").strip().lower()
+        if "<svg" in text_start or "<?xml" in text_start:
+            return True
+
+    return False
 
 
 @router.get(
@@ -842,20 +932,27 @@ async def subir_documento(
     if not tipo_doc:
         raise HTTPException(status_code=400, detail="Tipo de documento no encontrado o inactivo")
 
-    # Validar MIME type
-    if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tipo de archivo no permitido: {file.content_type}",
-        )
-
-    # Leer archivo
+    # Leer archivo primero (necesitamos los bytes para validar magic bytes)
     content = await file.read()
     max_bytes = settings.RRHH_MAX_FILE_SIZE_MB * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=400,
             detail=f"Archivo demasiado grande. Máximo: {settings.RRHH_MAX_FILE_SIZE_MB}MB",
+        )
+
+    # Validar contenido real del archivo via magic bytes.
+    # No confiamos solo en content_type (lo manda el browser, manipulable)
+    # ni en la extensión (renombrable). Los magic bytes son la fuente de verdad.
+    if not _validate_magic_bytes(content, file.filename):
+        file_ext = os.path.splitext(file.filename or "")[-1].lower()
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El contenido del archivo no corresponde a un formato permitido "
+                f"(content-type: {file.content_type}, extensión: {file_ext or 'sin extensión'}). "
+                f"Formatos aceptados: PDF, imágenes (JPG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC, SVG), Word."
+            ),
         )
 
     # Guardar en disco: uploads/rrhh/{empleado_id}/{uuid}_{filename}

@@ -665,22 +665,36 @@ const PAGE_SIZE = 50;
     }
   }, [modalOpen]);
 
-  const handleSubirDocumento = async (file) => {
-    if (!editando || !docForm.tipo_documento_id) return;
+  const handleSubirDocumentos = async (files) => {
+    if (!editando || !docForm.tipo_documento_id || files.length === 0) return;
     setUploadingDoc(true);
     setDocError(null);
+    const errores = [];
     try {
-      const fd = new FormData();
-      fd.append('file', file);
       const params = { tipo_documento_id: parseInt(docForm.tipo_documento_id, 10) };
       if (docForm.descripcion) params.descripcion = docForm.descripcion;
       if (docForm.fecha_vencimiento) params.fecha_vencimiento = docForm.fecha_vencimiento;
       if (docForm.numero_documento) params.numero_documento = docForm.numero_documento;
-      await rrhhAPI.subirDocumento(editando.id, fd, params);
-      setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+
+      for (const file of files) {
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          await rrhhAPI.subirDocumento(editando.id, fd, params);
+        } catch (err) {
+          const detail = err.response?.data?.detail || 'Error al subir documento';
+          errores.push(`${file.name}: ${detail}`);
+        }
+      }
+
+      if (errores.length > 0) {
+        setDocError(errores.join(' | '));
+      } else {
+        setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+      }
       cargarDocumentos(editando.id);
     } catch (err) {
-      setDocError(err.response?.data?.detail || 'Error al subir documento');
+      setDocError(err.response?.data?.detail || 'Error al subir documentos');
     } finally {
       setUploadingDoc(false);
     }
@@ -1841,14 +1855,15 @@ const PAGE_SIZE = 50;
                         />
                         <label className={styles.btnUpload}>
                           <Upload size={14} />
-                          {uploadingDoc ? 'Subiendo...' : 'Subir archivo'}
+                          {uploadingDoc ? 'Subiendo...' : 'Subir archivo(s)'}
                           <input
                             type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                            multiple
+                            accept="image/*,.pdf,.doc,.docx"
                             style={{ display: 'none' }}
                             disabled={!docForm.tipo_documento_id || uploadingDoc}
                             onChange={(e) => {
-                              if (e.target.files?.[0]) handleSubirDocumento(e.target.files[0]);
+                              if (e.target.files?.length) handleSubirDocumentos([...e.target.files]);
                               e.target.value = '';
                             }}
                           />
