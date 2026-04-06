@@ -40,49 +40,19 @@ Use these skills for detailed patterns on-demand:
 
 ### Auto-invoke Skills
 
-When performing these actions, ALWAYS invoke the corresponding skill FIRST:
+ALWAYS load the matching skill BEFORE writing any code. No exceptions.
 
-| Action | Skill |
+| Domain | Skill |
 |--------|-------|
-| After creating/modifying a skill | `skill-sync` |
-| Calculating product prices | `pricing-app-pricing-logic` |
-| Checking user permissions in backend | `pricing-app-permissions` |
-| Computing ML commissions | `pricing-app-pricing-logic` |
-| Creating Alembic migrations | `pricing-app-backend` |
-| Creating branches | `git-workflow` |
-| Creating custom hooks | `pricing-app-frontend` |
-| Creating design tokens | `pricing-app-design` |
-| Creating git commits | `git-workflow` |
-| Creating new skills | `skill-creator` |
-| Creating/modifying FastAPI endpoints | `pricing-app-backend` |
-| Creating/modifying React components | `pricing-app-frontend` |
-| Creating/modifying SQLAlchemy models | `pricing-app-backend` |
-| Currency conversion (USD/ARS) | `pricing-app-pricing-logic` |
-| Git workflow questions | `git-workflow` |
-| Implementing ML OAuth flow | `pricing-app-ml-integration` |
-| Implementing dark mode | `pricing-app-frontend` |
-| Implementing dark mode theming | `pricing-app-design` |
-| Implementing permission checks | `pricing-app-permissions` |
-| Managing user permission overrides | `pricing-app-permissions` |
-| Opening pull requests | `git-workflow` |
-| Processing ML webhooks | `pricing-app-ml-integration` |
-| Regenerate AGENTS.md Auto-invoke tables (sync.sh) | `skill-sync` |
-| Styling with CSS Modules or Tesla Design | `pricing-app-frontend` |
-| Styling with Tesla Design System | `pricing-app-design` |
-| Syncing items to/from MercadoLibre | `pricing-app-ml-integration` |
-| Troubleshoot why a skill is missing from AGENTS.md auto-invoke | `skill-sync` |
-| Using CSS composition | `pricing-app-design` |
-| Using PermisosContext | `pricing-app-permissions` |
-| Using PermisosContext or ThemeContext | `pricing-app-frontend` |
-| Using Zustand stores | `zustand-5` |
-| Working with MercadoLibre API | `pricing-app-ml-integration` |
-| Working with Zustand store | `pricing-app-frontend` |
-| Working with auth/permissions in backend | `pricing-app-backend` |
-| Working with pricing tiers | `pricing-app-pricing-logic` |
-| Writing Python tests with pytest | `pytest` |
-| Writing React components | `react-19` |
-| Writing TypeScript types/interfaces | `typescript` |
-| Writing backend business logic | `pricing-app-backend` |
+| Backend: FastAPI endpoints, SQLAlchemy models, Alembic migrations, auth, business logic | `pricing-app-backend` |
+| Frontend: React components, custom hooks, CSS Modules, Tesla Design, Zustand store, PermisosContext, ThemeContext | `pricing-app-frontend` |
+| MercadoLibre: API calls, OAuth, webhooks, item sync | `pricing-app-ml-integration` |
+| Pricing: markup, fees, tiers, ML commissions, currency conversion (USD/ARS) | `pricing-app-pricing-logic` |
+| Permissions: role checks, permission overrides, PermisosContext (backend) | `pricing-app-permissions` |
+| Design: design tokens, CSS composition, dark mode theming, Tesla Design System | `pricing-app-design` |
+| Git: branches, commits, PRs, workflow questions | `git-workflow` |
+| Skills: after creating/modifying a skill run `skill-sync`; to create new skills use `skill-creator` |
+| Tests: Python tests → `pytest`; React components → `react-19`; TypeScript types → `typescript`; Zustand state → `zustand-5` |
 
 ---
 
