@@ -99,6 +99,7 @@ class EmpleadoCreate(BaseModel):
     puesto: Optional[str] = Field(default=None, max_length=100)
     area: Optional[str] = Field(default=None, max_length=100)
     estado: str = Field(default="activo", max_length=20)
+    empresa_id: Optional[int] = None
     usuario_id: Optional[int] = None
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
@@ -144,6 +145,7 @@ class EmpleadoUpdate(BaseModel):
     datos_custom: Optional[dict] = None
     observaciones: Optional[str] = None
     hikvision_employee_no: Optional[str] = Field(default=None, max_length=20)
+    empresa_id: Optional[int] = None
     banco_nombre: Optional[str] = Field(default=None, max_length=100)
     banco_cbu: Optional[str] = Field(default=None, max_length=22)
     banco_alias: Optional[str] = Field(default=None, max_length=100)
@@ -181,6 +183,7 @@ class DatosBancariosRow(BaseModel):
     apellido: str
     nombre: str
     cuil: Optional[str] = None
+    empresa_nombre: Optional[str] = None
     banco_nombre: Optional[str] = None
     banco_cbu: Optional[str] = None
     banco_alias: Optional[str] = None
@@ -217,6 +220,8 @@ class EmpleadoResponse(BaseModel):
     puesto: Optional[str] = None
     area: Optional[str] = None
     estado: str
+    empresa_id: Optional[int] = None
+    empresa_nombre: Optional[str] = None
     motivo_baja_id: Optional[int] = None
     motivo_baja_nombre: Optional[str] = None
     detalle_baja: Optional[str] = None
@@ -460,7 +465,11 @@ def listar_empleados(
         sort_col = sort_col.desc()
 
     empleados = (
-        query.options(selectinload(RRHHEmpleado.motivo_baja)).order_by(sort_col).offset(offset).limit(page_size).all()
+        query.options(selectinload(RRHHEmpleado.motivo_baja), selectinload(RRHHEmpleado.empresa))
+        .order_by(sort_col)
+        .offset(offset)
+        .limit(page_size)
+        .all()
     )
 
     items = []
@@ -468,6 +477,8 @@ def listar_empleados(
         resp = EmpleadoResponse.model_validate(e)
         if e.motivo_baja:
             resp.motivo_baja_nombre = e.motivo_baja.nombre
+        if e.empresa:
+            resp.empresa_nombre = e.empresa.nombre
         items.append(resp)
 
     return EmpleadoListResponse(
@@ -559,6 +570,7 @@ def listar_datos_bancarios(
 
     empleados = (
         db.query(RRHHEmpleado)
+        .options(selectinload(RRHHEmpleado.empresa))
         .filter(
             RRHHEmpleado.activo.is_(True),
             RRHHEmpleado.estado == "activo",
@@ -574,6 +586,7 @@ def listar_datos_bancarios(
             apellido=emp.apellido,
             nombre=emp.nombre,
             cuil=emp.cuil,
+            empresa_nombre=emp.empresa.nombre if emp.empresa else None,
             banco_nombre=emp.banco_nombre,
             banco_cbu=emp.banco_cbu,
             banco_alias=emp.banco_alias,
@@ -606,6 +619,7 @@ EXPORT_CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("puesto", "Puesto"),
         ("area", "Área"),
         ("estado", "Estado"),
+        ("empresa_nombre", "Empresa"),
         ("fecha_ingreso", "Fecha Ingreso"),
         ("fecha_egreso", "Fecha Egreso"),
         ("observaciones", "Observaciones"),
@@ -697,13 +711,19 @@ def exportar_empleados_excel(
         )
 
     empleados = (
-        query.options(selectinload(RRHHEmpleado.motivo_baja)).order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre).all()
+        query.options(selectinload(RRHHEmpleado.motivo_baja), selectinload(RRHHEmpleado.empresa))
+        .order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre)
+        .all()
     )
 
     # Build columns from selected categories
     columns: list[tuple[str, str]] = []
     for cat in selected:
         columns.extend(EXPORT_CATEGORIES[cat])
+
+    # Legajo siempre en la primera columna, sin importar las categorías elegidas
+    columns = [c for c in columns if c[0] != "legajo"]
+    columns.insert(0, ("legajo", "Legajo"))
 
     # Generate Excel
     import openpyxl
@@ -729,6 +749,8 @@ def exportar_empleados_excel(
         for field_name, _ in columns:
             if field_name == "motivo_baja_nombre":
                 val = emp.motivo_baja.nombre if emp.motivo_baja else None
+            elif field_name == "empresa_nombre":
+                val = emp.empresa.nombre if emp.empresa else None
             else:
                 val = getattr(emp, field_name, None)
 
@@ -779,7 +801,11 @@ def obtener_empleado(
 
     empleado = (
         db.query(RRHHEmpleado)
-        .options(selectinload(RRHHEmpleado.documentos), selectinload(RRHHEmpleado.motivo_baja))
+        .options(
+            selectinload(RRHHEmpleado.documentos),
+            selectinload(RRHHEmpleado.motivo_baja),
+            selectinload(RRHHEmpleado.empresa),
+        )
         .filter(RRHHEmpleado.id == empleado_id)
         .first()
     )
@@ -788,6 +814,8 @@ def obtener_empleado(
     resp = EmpleadoResponse.model_validate(empleado)
     if empleado.motivo_baja:
         resp.motivo_baja_nombre = empleado.motivo_baja.nombre
+    if empleado.empresa:
+        resp.empresa_nombre = empleado.empresa.nombre
     return resp
 
 

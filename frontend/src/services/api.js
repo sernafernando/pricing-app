@@ -449,4 +449,13 @@ export const documentTemplatesAPI = {
   eliminar: (id) => api.delete(`/document-templates/${id}`),
 };
 
+// =============================================================================
+// Empresas API (Admin)
+// =============================================================================
+export const empresasAPI = {
+  listar: (params) => api.get('/admin/empresas', { params }),
+  crear: (data) => api.post('/admin/empresas', data),
+  actualizar: (id, data) => api.put(`/admin/empresas/${id}`, data),
+};
+
 export default api;
