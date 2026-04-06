@@ -100,13 +100,6 @@
 .table {
   composes: table-tesla from '../styles/table-tesla.css';
 }
-
-.table th {
-  composes: th-tesla from '../styles/table-tesla.css';
-}
-
-.table td {
-  composes: td-tesla from '../styles/table-tesla.css';
 }
 
 .statusActive {
