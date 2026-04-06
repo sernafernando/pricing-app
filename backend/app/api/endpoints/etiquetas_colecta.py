@@ -23,7 +23,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import case, func, desc
+from sqlalchemy import func, desc
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -409,28 +409,33 @@ def listar_etiquetas_colecta(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[EtiquetaColectaResponse]:
     """
-    Lista etiquetas de colecta con JOINs a:
-    - tb_mercadolibre_orders_shipping (estado ML, destinatario)
-    - tb_sale_order_header + tb_sale_order_status (estado ERP)
+    Lista etiquetas de colecta con estados ML y ERP.
 
-    Optimización: primero filtra los shipping_ids por fecha en etiquetas_colecta,
-    luego hace subqueries de dedup acotadas solo a esos IDs (evita escanear
-    tablas completas de orders_shipping y sale_order_header).
+    Estrategia: queries separadas + join en Python.
+    Un solo JOIN gigante genera planes catastróficos en PostgreSQL
+    (~minutos). Queries separadas corren en ~2s total.
     """
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    # 1) Pre-filtrar shipping_ids de colecta por fecha (query muy rápida sobre tabla pequeña)
-    ids_query = db.query(EtiquetaColecta.shipping_id)
-    if fecha_desde:
-        ids_query = ids_query.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
-    if fecha_hasta:
-        ids_query = ids_query.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
-    target_ids_sub = ids_query.subquery()
+    from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 
-    # 2) Subquery dedup de shipping ACOTADA a los IDs que necesitamos
+    # ── 1) Etiquetas base ──────────────────────────────────────────
+    q = db.query(EtiquetaColecta.shipping_id, EtiquetaColecta.fecha_carga)
+    if fecha_desde:
+        q = q.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
+    if fecha_hasta:
+        q = q.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
+    etiquetas_rows = q.order_by(EtiquetaColecta.shipping_id).all()
+
+    if not etiquetas_rows:
+        return []
+
+    target_ids = [r.shipping_id for r in etiquetas_rows]
+
+    # ── 2) Shipping dedup (estado ML, destinatario) ────────────────
     ranked_ship = (
         db.query(
-            MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
+            MercadoLibreOrderShipping.mlshippingid,
             MercadoLibreOrderShipping.mlo_id,
             MercadoLibreOrderShipping.mlreceiver_name,
             MercadoLibreOrderShipping.mlstatus,
@@ -444,27 +449,18 @@ def listar_etiquetas_colecta(
         )
         .filter(
             MercadoLibreOrderShipping.mlshippingid.isnot(None),
-            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
         )
         .subquery()
     )
-    shipping_sub = (
-        db.query(
-            ranked_ship.c.mlshippingid,
-            ranked_ship.c.mlo_id,
-            ranked_ship.c.mlreceiver_name,
-            ranked_ship.c.mlstatus,
-            ranked_ship.c.mlsubstatus,
-        )
-        .filter(ranked_ship.c.rn == 1)
-        .subquery()
-    )
+    shipping_rows = db.query(ranked_ship).filter(ranked_ship.c.rn == 1).all()
+    shipping_map = {r.mlshippingid: r for r in shipping_rows}
 
-    # 3) Subquery dedup de estado ERP ACOTADA a los IDs que necesitamos
+    # ── 3) ERP status dedup ────────────────────────────────────────
     ranked_soh = (
         db.query(
-            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
-            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+            MercadoLibreOrderShipping.mlshippingid,
+            SaleOrderHeader.ssos_id,
             func.row_number()
             .over(
                 partition_by=MercadoLibreOrderShipping.mlshippingid,
@@ -472,44 +468,22 @@ def listar_etiquetas_colecta(
             )
             .label("rn"),
         )
-        .join(
-            SaleOrderHeader,
-            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
-        )
+        .join(SaleOrderHeader, MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id)
         .filter(
             MercadoLibreOrderShipping.mlshippingid.isnot(None),
             MercadoLibreOrderShipping.mlo_id.isnot(None),
             SaleOrderHeader.mlo_id.isnot(None),
-            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
         )
         .subquery()
     )
-    soh_sub = (
-        db.query(
-            ranked_soh.c.shipping_id_str,
-            ranked_soh.c.soh_ssos_id,
-        )
-        .filter(ranked_soh.c.rn == 1)
-        .subquery()
-    )
+    soh_rows = db.query(ranked_soh).filter(ranked_soh.c.rn == 1).all()
+    soh_map = {r.mlshippingid: r.ssos_id for r in soh_rows}
 
-    from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
-
-    # 4) Subquery para ml_order_id (solo los mlo_ids relevantes)
-    mlo_sub = (
-        db.query(
-            MercadoLibreOrderHeader.mlo_id,
-            MercadoLibreOrderHeader.mlorder_id,
-        )
-        .distinct(MercadoLibreOrderHeader.mlo_id)
-        .subquery()
-    )
-
-    # 4b) Subquery facturado: envíos cuyo pedido ya no está en sale_order_header
-    # pero sí en sale_order_header_history con ct_transaction (= facturado)
+    # ── 4) Facturado (history con ct_transaction) ──────────────────
     ranked_fact = (
         db.query(
-            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
+            MercadoLibreOrderShipping.mlshippingid,
             func.row_number()
             .over(
                 partition_by=MercadoLibreOrderShipping.mlshippingid,
@@ -517,96 +491,82 @@ def listar_etiquetas_colecta(
             )
             .label("rn"),
         )
-        .join(
-            SaleOrderHeaderHistory,
-            MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id,
-        )
+        .join(SaleOrderHeaderHistory, MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id)
         .filter(
             MercadoLibreOrderShipping.mlshippingid.isnot(None),
             MercadoLibreOrderShipping.mlo_id.isnot(None),
             SaleOrderHeaderHistory.ct_transaction.isnot(None),
-            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
         )
         .subquery()
     )
-    facturado_sub = db.query(ranked_fact.c.shipping_id_str).filter(ranked_fact.c.rn == 1).subquery()
+    facturado_ids = {r.mlshippingid for r in db.query(ranked_fact.c.mlshippingid).filter(ranked_fact.c.rn == 1).all()}
 
-    # 5) Query principal con JOINs a subqueries acotadas
-    query = (
-        db.query(
-            EtiquetaColecta.shipping_id,
-            EtiquetaColecta.fecha_carga,
-            shipping_sub.c.mlreceiver_name,
-            shipping_sub.c.mlstatus,
-            shipping_sub.c.mlsubstatus,
-            soh_sub.c.soh_ssos_id.label("ssos_id"),
-            case(
-                (SaleOrderStatus.ssos_name.isnot(None), SaleOrderStatus.ssos_name),
-                (facturado_sub.c.shipping_id_str.isnot(None), "Facturado"),
-                else_=None,
-            ).label("ssos_name"),
-            case(
-                (SaleOrderStatus.ssos_color.isnot(None), SaleOrderStatus.ssos_color),
-                (facturado_sub.c.shipping_id_str.isnot(None), "#22c55e"),
-                else_=None,
-            ).label("ssos_color"),
-            mlo_sub.c.mlorder_id.label("ml_order_id"),
+    # ── 5) ml_order_id lookup ──────────────────────────────────────
+    mlo_ids = {r.mlo_id for r in shipping_rows if r.mlo_id}
+    mlo_map = {}
+    if mlo_ids:
+        mlo_rows = (
+            db.query(MercadoLibreOrderHeader.mlo_id, MercadoLibreOrderHeader.mlorder_id)
+            .filter(MercadoLibreOrderHeader.mlo_id.in_(mlo_ids))
+            .all()
         )
-        .outerjoin(
-            shipping_sub,
-            EtiquetaColecta.shipping_id == shipping_sub.c.mlshippingid,
-        )
-        .outerjoin(
-            soh_sub,
-            EtiquetaColecta.shipping_id == soh_sub.c.shipping_id_str,
-        )
-        .outerjoin(
-            SaleOrderStatus,
-            soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
-        )
-        .outerjoin(
-            facturado_sub,
-            EtiquetaColecta.shipping_id == facturado_sub.c.shipping_id_str,
-        )
-        .outerjoin(
-            mlo_sub,
-            shipping_sub.c.mlo_id == mlo_sub.c.mlo_id,
-        )
-    )
+        mlo_map = {r.mlo_id: r.mlorder_id for r in mlo_rows}
 
-    # 6) Filtros sobre query principal
-    if fecha_desde:
-        query = query.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
-    if fecha_hasta:
-        query = query.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
-    if mlstatus:
-        query = query.filter(shipping_sub.c.mlstatus == mlstatus)
-    if ssos_id is not None:
-        query = query.filter(soh_sub.c.soh_ssos_id == ssos_id)
-    if search:
-        search_like = f"%{search}%"
-        query = query.filter(
-            EtiquetaColecta.shipping_id.ilike(search_like) | shipping_sub.c.mlreceiver_name.ilike(search_like)
+    # ── 6) Estado ERP nombres/colores (tabla pequeña) ──────────────
+    ssos_ids = set(soh_map.values())
+    status_map = {}
+    if ssos_ids:
+        status_rows = db.query(SaleOrderStatus).filter(SaleOrderStatus.ssos_id.in_(ssos_ids)).all()
+        status_map = {s.ssos_id: s for s in status_rows}
+
+    # ── 7) Ensamblar respuesta en Python ───────────────────────────
+    results = []
+    for et in etiquetas_rows:
+        sid = et.shipping_id
+        ship = shipping_map.get(sid)
+        erp_ssos_id = soh_map.get(sid)
+        erp_status = status_map.get(erp_ssos_id) if erp_ssos_id else None
+        is_facturado = sid in facturado_ids
+
+        # Resolver nombre/color ERP
+        ssos_name = None
+        ssos_color = None
+        if erp_status:
+            ssos_name = erp_status.ssos_name
+            ssos_color = erp_status.ssos_color
+        elif is_facturado:
+            ssos_name = "Facturado"
+            ssos_color = "#22c55e"
+
+        row = EtiquetaColectaResponse(
+            shipping_id=sid,
+            fecha_carga=et.fecha_carga,
+            mlreceiver_name=ship.mlreceiver_name if ship else None,
+            mlstatus=ship.mlstatus if ship else None,
+            mlsubstatus=ship.mlsubstatus if ship else None,
+            ml_order_id=mlo_map.get(ship.mlo_id) if ship and ship.mlo_id else None,
+            ssos_id=erp_ssos_id,
+            ssos_name=ssos_name,
+            ssos_color=ssos_color,
         )
 
-    query = query.order_by(EtiquetaColecta.shipping_id)
+        # Aplicar filtros en Python (antes estaban en SQL)
+        if mlstatus and row.mlstatus != mlstatus:
+            continue
+        if ssos_id is not None and row.ssos_id != ssos_id:
+            continue
+        if search:
+            search_lower = search.lower()
+            matches = (search_lower in (row.shipping_id or "").lower()) or (
+                search_lower in (row.mlreceiver_name or "").lower()
+            )
+            if not matches:
+                continue
 
-    results = query.all()
+        results.append(row)
 
-    return [
-        EtiquetaColectaResponse(
-            shipping_id=row.shipping_id,
-            fecha_carga=row.fecha_carga,
-            mlreceiver_name=row.mlreceiver_name,
-            mlstatus=row.mlstatus,
-            mlsubstatus=row.mlsubstatus,
-            ml_order_id=row.ml_order_id,
-            ssos_id=row.ssos_id,
-            ssos_name=row.ssos_name,
-            ssos_color=row.ssos_color,
-        )
-        for row in results
-    ]
+    return results
 
 
 @router.get(
