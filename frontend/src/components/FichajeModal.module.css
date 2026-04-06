@@ -90,19 +90,19 @@
 }
 
 .btnActive {
-  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
 .btnInactive {
-  composes: btn-tesla outline-subtle sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
 .btnDanger {
-  composes: btn-tesla danger-outline sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla outline-danger sm from '../styles/buttons-tesla.css';
 }
