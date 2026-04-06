@@ -91,6 +91,29 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ── Worker-level lock for background tasks ───────────────────────
+# With multiple uvicorn workers, lifespan() runs on EACH worker.
+# Without a lock, background tasks run N times (once per worker),
+# causing duplicated DB writes, TRUNCATE races, and wasted resources.
+# Only one worker acquires the lock; the rest skip background tasks.
+
+_BG_LOCK_PATH = "/tmp/pricing-bg-tasks.lock"
+
+
+def _try_acquire_bg_lock():
+    """Try to acquire exclusive lock for background tasks. Returns fd or None."""
+    import fcntl
+    import os
+
+    try:
+        lock_fd = open(_BG_LOCK_PATH, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+        return lock_fd  # Keep fd open — lock releases when process exits
+    except OSError:
+        return None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -122,31 +145,45 @@ async def lifespan(app: FastAPI):
         app.state.sse_manager = None
         app.state.sse_heartbeat_seconds = 30
 
-    # ── Background tasks ─────────────────────────────────────────
-    background_task = asyncio.create_task(sync_pedidos_preparacion_task())
-    free_shipping_task = asyncio.create_task(free_shipping_auto_fix_task())
-    sale_orders_task = asyncio.create_task(sync_sale_orders_task())
+    # ── Background tasks (only on ONE worker) ─────────────────────
+    bg_lock_fd = _try_acquire_bg_lock()
+    bg_tasks = []
+
+    if bg_lock_fd:
+        import os
+
+        logger.info("This worker (pid=%d) owns background tasks", os.getpid())
+        bg_tasks = [
+            asyncio.create_task(sync_pedidos_preparacion_task()),
+            asyncio.create_task(free_shipping_auto_fix_task()),
+            asyncio.create_task(sync_sale_orders_task()),
+        ]
+    else:
+        import os
+
+        logger.info("This worker (pid=%d) skips background tasks (another worker owns them)", os.getpid())
 
     yield
 
     # Shutdown
     logger.info("Pricing API shutting down")
-    background_task.cancel()
-    free_shipping_task.cancel()
-    sale_orders_task.cancel()
-    try:
-        await background_task
-    except asyncio.CancelledError:
-        logger.info("Background task cancelled successfully")
-    try:
-        await free_shipping_task
-    except asyncio.CancelledError:
-        logger.info("Free shipping auto-fix task cancelled successfully")
+    for task in bg_tasks:
+        task.cancel()
+    for task in bg_tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     if sse_manager:
         await sse_manager.stop()
     if redis:
         await redis.close()
+    if bg_lock_fd:
+        import fcntl
+
+        fcntl.flock(bg_lock_fd, fcntl.LOCK_UN)
+        bg_lock_fd.close()
 
 
 app = FastAPI(

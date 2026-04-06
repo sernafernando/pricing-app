@@ -427,51 +427,32 @@ def listar_etiquetas_colecta(
         ids_query = ids_query.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
     target_ids_sub = ids_query.subquery()
 
-    # 2) Subquery dedup de shipping ACOTADA a los IDs que necesitamos
-    ranked_ship = (
+    # 2) Subquery dedup de shipping — DISTINCT ON (PostgreSQL) en vez de ROW_NUMBER
+    #    Mucho más rápido: PG puede usar index scan y parar en el primer row por partición
+    shipping_sub = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
             MercadoLibreOrderShipping.mlo_id,
             MercadoLibreOrderShipping.mlreceiver_name,
             MercadoLibreOrderShipping.mlstatus,
             MercadoLibreOrderShipping.mlsubstatus,
-            func.row_number()
-            .over(
-                partition_by=MercadoLibreOrderShipping.mlshippingid,
-                order_by=desc(MercadoLibreOrderShipping.mlm_id),
-            )
-            .label("rn"),
         )
+        .distinct(MercadoLibreOrderShipping.mlshippingid)
         .filter(
             MercadoLibreOrderShipping.mlshippingid.isnot(None),
             MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
         )
-        .subquery()
-    )
-    shipping_sub = (
-        db.query(
-            ranked_ship.c.mlshippingid,
-            ranked_ship.c.mlo_id,
-            ranked_ship.c.mlreceiver_name,
-            ranked_ship.c.mlstatus,
-            ranked_ship.c.mlsubstatus,
-        )
-        .filter(ranked_ship.c.rn == 1)
+        .order_by(MercadoLibreOrderShipping.mlshippingid, desc(MercadoLibreOrderShipping.mlm_id))
         .subquery()
     )
 
-    # 3) Subquery dedup de estado ERP ACOTADA a los IDs que necesitamos
-    ranked_soh = (
+    # 3) Subquery dedup de estado ERP — DISTINCT ON en vez de ROW_NUMBER
+    soh_sub = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("soh_ssos_id"),
-            func.row_number()
-            .over(
-                partition_by=MercadoLibreOrderShipping.mlshippingid,
-                order_by=desc(SaleOrderHeader.soh_cd),
-            )
-            .label("rn"),
         )
+        .distinct(MercadoLibreOrderShipping.mlshippingid)
         .join(
             SaleOrderHeader,
             MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
@@ -482,14 +463,7 @@ def listar_etiquetas_colecta(
             SaleOrderHeader.mlo_id.isnot(None),
             MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
         )
-        .subquery()
-    )
-    soh_sub = (
-        db.query(
-            ranked_soh.c.shipping_id_str,
-            ranked_soh.c.soh_ssos_id,
-        )
-        .filter(ranked_soh.c.rn == 1)
+        .order_by(MercadoLibreOrderShipping.mlshippingid, desc(SaleOrderHeader.soh_cd))
         .subquery()
     )
 
@@ -505,18 +479,13 @@ def listar_etiquetas_colecta(
         .subquery()
     )
 
-    # 4b) Subquery facturado: envíos cuyo pedido ya no está en sale_order_header
-    # pero sí en sale_order_header_history con ct_transaction (= facturado)
-    ranked_fact = (
+    # 4b) Subquery facturado — DISTINCT ON en vez de ROW_NUMBER
+    #     Envíos cuyo pedido está en history con ct_transaction (= facturado)
+    facturado_sub = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
-            func.row_number()
-            .over(
-                partition_by=MercadoLibreOrderShipping.mlshippingid,
-                order_by=desc(SaleOrderHeaderHistory.sohh_cd),
-            )
-            .label("rn"),
         )
+        .distinct(MercadoLibreOrderShipping.mlshippingid)
         .join(
             SaleOrderHeaderHistory,
             MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id,
@@ -527,9 +496,9 @@ def listar_etiquetas_colecta(
             SaleOrderHeaderHistory.ct_transaction.isnot(None),
             MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
         )
+        .order_by(MercadoLibreOrderShipping.mlshippingid, desc(SaleOrderHeaderHistory.sohh_cd))
         .subquery()
     )
-    facturado_sub = db.query(ranked_fact.c.shipping_id_str).filter(ranked_fact.c.rn == 1).subquery()
 
     # 5) Query principal con JOINs a subqueries acotadas
     query = (
