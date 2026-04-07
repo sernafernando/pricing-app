@@ -1148,43 +1148,45 @@ export default function Empleados() {
                   </td>
                   <td className={styles.nowrap}>{emp.fecha_ingreso}</td>
                   {(puedeGestionar || puedeImprimir) && (
-                    <td className={styles.actions}>
-                      {puedeImprimir && (
-                        <button
-                          onClick={() => { setDocGenEmpleado(emp); setDocGenOpen(true); }}
-                          className={styles.btnEdit}
-                          title="Generar documento PDF"
-                        >
-                          <FileDown size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && (
-                        <button
-                          onClick={() => handleEditar(emp)}
-                          className={styles.btnEdit}
-                          title="Editar"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && (
-                        <button
-                          onClick={() => handleEliminar(emp)}
-                          className={styles.btnDanger}
-                          title="Desactivar"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && emp.estado === 'activo' && (
-                        <button
-                          onClick={() => { setFichajeEmpleado(emp); setFichajeModalOpen(true); }}
-                          className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
-                          title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
-                        >
-                          <Smartphone size={14} />
-                        </button>
-                      )}
+                    <td>
+                      <div className={styles.actions}>
+                        {puedeImprimir && (
+                          <button
+                            onClick={() => { setDocGenEmpleado(emp); setDocGenOpen(true); }}
+                            className={styles.btnEdit}
+                            title="Generar documento PDF"
+                          >
+                            <FileDown size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && (
+                          <button
+                            onClick={() => handleEditar(emp)}
+                            className={styles.btnEdit}
+                            title="Editar"
+                          >
+                            <Edit3 size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && (
+                          <button
+                            onClick={() => handleEliminar(emp)}
+                            className={styles.btnDanger}
+                            title="Desactivar"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && emp.estado === 'activo' && (
+                          <button
+                            onClick={() => { setFichajeEmpleado(emp); setFichajeModalOpen(true); }}
+                            className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
+                            title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
+                          >
+                            <Smartphone size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
