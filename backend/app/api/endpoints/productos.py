@@ -4017,15 +4017,18 @@ async def exportar_rebate(
             if mla.mla in mlas_baneados_set:
                 continue
 
-            # Determinar PVP LLENO según la pricelist del MLA
+            # Determinar PVP LLENO según la pricelist del MLA (con fallback)
             es_mla_pvp = pricelist_pvp_equivalente and mla.pricelist_id == pricelist_pvp_equivalente
-            if pricelist_id == 4:
-                # Clásica: PVP LLENO = precio de la pricelist del MLA (web o pvp)
-                pvp_lleno = precio_pricelist_pvp if es_mla_pvp else precio_pricelist
+            # Usar precio PVP si existe, sino fallback al precio web (o viceversa)
+            if es_mla_pvp:
+                precio_base_lleno = precio_pricelist_pvp if precio_pricelist_pvp > 0 else precio_pricelist
             else:
-                # Cuotas: PVP LLENO con offset
+                precio_base_lleno = precio_pricelist if precio_pricelist > 0 else precio_pricelist_pvp
+
+            if pricelist_id == 4:
+                pvp_lleno = precio_base_lleno
+            else:
                 offset_lleno = request.offset_pvp_lleno if request.offset_pvp_lleno is not None else 0
-                precio_base_lleno = precio_pricelist_pvp if es_mla_pvp else precio_pricelist
                 pvp_lleno = precio_base_lleno * (1 + offset_lleno / 100)
 
             # Si no hay PVP LLENO válido para este MLA, skip
