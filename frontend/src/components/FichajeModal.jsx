@@ -3,9 +3,19 @@ import { X, UserPlus, User } from 'lucide-react';
 import { rrhhAPI } from '../services/api';
 import styles from './FichajeModal.module.css';
 
+const stripAccents = (str) =>
+  str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+
 export default function FichajeModal({ empleado, onClose, onUpdated }) {
   const [tab, setTab] = useState('crear');
   const [usarSegundo, setUsarSegundo] = useState(false);
+
+  const apellidoClean = stripAccents(empleado.apellido?.replace(/\s+/g, '') || '');
+  const nombreParts = empleado.nombre?.trim().split(/\s+/) || [];
+  const previewPrimero = `${stripAccents(nombreParts[0]?.[0] || '?')}${apellidoClean}`;
+  const previewSegundo = nombreParts.length > 1
+    ? `${stripAccents(nombreParts[1]?.[0] || '?')}${apellidoClean}`
+    : null;
   const [creando, setCreando] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -135,11 +145,11 @@ export default function FichajeModal({ empleado, onClose, onUpdated }) {
                   onChange={(e) => setUsarSegundo(e.target.value === 'segundo')}
                 >
                   <option value="primero">
-                    Primer nombre ({empleado.nombre?.split(' ')[0]?.[0]?.toLowerCase() || '?'}{empleado.apellido?.toLowerCase()})
+                    Primer nombre ({previewPrimero})
                   </option>
-                  {empleado.nombre?.split(' ').length > 1 && (
+                  {previewSegundo && (
                     <option value="segundo">
-                      Segundo nombre ({empleado.nombre?.split(' ')[1]?.[0]?.toLowerCase() || '?'}{empleado.apellido?.toLowerCase()})
+                      Segundo nombre ({previewSegundo})
                     </option>
                   )}
                 </select>
