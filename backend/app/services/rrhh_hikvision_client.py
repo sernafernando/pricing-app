@@ -424,8 +424,13 @@ class HikvisionClient:
 
         if nuevas > 0:
             self.db.flush()
-            # Reclasificar entrada/salida para los días afectados
-            self._classify_entry_exit(desde, hasta)
+
+        # Reclasificar entrada/salida SIEMPRE (no solo con fichadas nuevas).
+        # El dispositivo no distingue entrada/salida — todas llegan como "entrada".
+        # Si un sync previo guardó fichadas parciales (ej: solo la entrada de la
+        # mañana), la reclasificación necesita correr de nuevo cuando la salida
+        # ya existe para alternar correctamente los tipos por día.
+        self._classify_entry_exit(desde, hasta)
 
         logger.info(
             "Hikvision sync: nuevas=%d, duplicadas=%d, sin_empleado=%d, errores=%d",
