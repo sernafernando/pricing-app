@@ -263,6 +263,7 @@ class DocumentoResponse(BaseModel):
     mime_type: Optional[str] = None
     tamano_bytes: Optional[int] = None
     descripcion: Optional[str] = None
+    fecha_documento: Optional[date] = None
     fecha_vencimiento: Optional[date] = None
     numero_documento: Optional[str] = None
     subido_por_id: int
@@ -270,6 +271,16 @@ class DocumentoResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentoUpdate(BaseModel):
+    """Schema para editar metadata de un documento sin re-subir el archivo."""
+
+    tipo_documento_id: Optional[int] = None
+    descripcion: Optional[str] = Field(default=None, max_length=500)
+    fecha_documento: Optional[date] = None
+    fecha_vencimiento: Optional[date] = None
+    numero_documento: Optional[str] = Field(default=None, max_length=100)
 
 
 # ──────────────────────────────────────────────
@@ -1143,7 +1154,8 @@ async def subir_documento(
     empleado_id: int,
     tipo_documento_id: int = Query(..., description="ID del tipo de documento"),
     descripcion: Optional[str] = Query(default=None, max_length=500),
-    fecha_vencimiento: Optional[date] = Query(default=None),
+    fecha_documento: Optional[date] = Query(default=None, description="Fecha de emisión del documento"),
+    fecha_vencimiento: Optional[date] = Query(default=None, description="Fecha de vencimiento"),
     numero_documento: Optional[str] = Query(default=None, max_length=100),
     file: UploadFile = File(...),
     current_user: Usuario = Depends(get_current_user),
@@ -1216,6 +1228,7 @@ async def subir_documento(
         mime_type=file.content_type,
         tamano_bytes=len(content),
         descripcion=descripcion,
+        fecha_documento=fecha_documento,
         fecha_vencimiento=fecha_vencimiento,
         numero_documento=numero_documento,
         subido_por_id=current_user.id,
@@ -1305,6 +1318,54 @@ def eliminar_documento(
 
     db.delete(documento)
     db.commit()
+
+
+@router.put("/documentos/{documento_id}", response_model=DocumentoResponse)
+def editar_documento(
+    documento_id: int,
+    body: DocumentoUpdate,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DocumentoResponse:
+    """Edita la metadata de un documento (fechas, descripción, número, tipo). Requiere rrhh.gestionar."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(current_user, "rrhh.gestionar"):
+        raise HTTPException(status_code=403, detail="Sin permiso: rrhh.gestionar")
+
+    documento = (
+        db.query(RRHHDocumento)
+        .options(
+            selectinload(RRHHDocumento.tipo_documento),
+            selectinload(RRHHDocumento.subido_por),
+        )
+        .filter(RRHHDocumento.id == documento_id)
+        .first()
+    )
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    # Validar tipo_documento si se cambia
+    if body.tipo_documento_id is not None:
+        tipo_doc = (
+            db.query(RRHHTipoDocumento)
+            .filter(RRHHTipoDocumento.id == body.tipo_documento_id, RRHHTipoDocumento.activo.is_(True))
+            .first()
+        )
+        if not tipo_doc:
+            raise HTTPException(status_code=400, detail="Tipo de documento no encontrado o inactivo")
+
+    # Aplicar solo los campos enviados (exclude_unset para no pisar con None)
+    update_data = body.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(documento, field, value)
+
+    db.commit()
+    db.refresh(documento)
+
+    resp = DocumentoResponse.model_validate(documento)
+    resp.tipo_documento_nombre = documento.tipo_documento.nombre if documento.tipo_documento else None
+    resp.subido_por_nombre = documento.subido_por.nombre if documento.subido_por else None
+    return resp
 
 
 # ═══════════════════════════════════════════════

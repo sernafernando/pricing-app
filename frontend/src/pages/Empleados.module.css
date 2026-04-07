@@ -816,6 +816,69 @@
 /* ── Turno select width ── */
 .selectNarrow { width: 70px; }
 
+/* ── Document date field with label ── */
+.docDateField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.docDateLabel {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.docDates {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ── Document inline edit ── */
+.docItemEditing {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+}
+
+.docEditForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  width: 100%;
+}
+
+.docEditHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.docEditActions {
+  display: flex;
+  gap: var(--spacing-xs);
+  justify-content: flex-end;
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+.btnSaveDoc {
+  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+}
+
+.btnCancelDoc {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .container { padding: var(--spacing-sm); }
