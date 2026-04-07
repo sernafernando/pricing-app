@@ -242,9 +242,14 @@
   gap: var(--spacing-xs);
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 .actions {
   display: flex;
   gap: var(--spacing-xs);
+  white-space: nowrap;
 }
 
 .loadingCell,

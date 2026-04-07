@@ -1146,7 +1146,7 @@ export default function Empleados() {
                       {emp.estado}
                     </span>
                   </td>
-                  <td>{emp.fecha_ingreso}</td>
+                  <td className={styles.nowrap}>{emp.fecha_ingreso}</td>
                   {(puedeGestionar || puedeImprimir) && (
                     <td className={styles.actions}>
                       {puedeImprimir && (
