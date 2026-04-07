@@ -165,6 +165,7 @@ class CrearUsuarioFichajeRequest(BaseModel):
     """Datos para crear usuario de fichaje desde empleado."""
 
     usar_segundo_nombre: bool = Field(default=False, description="Usar inicial del segundo nombre en vez del primero")
+    solo_primer_apellido: bool = Field(default=False, description="Usar solo el primer apellido (ignorar compuesto)")
 
 
 class CrearUsuarioFichajeResponse(BaseModel):
@@ -1808,7 +1809,10 @@ def crear_usuario_fichaje(
     else:
         inicial = _strip_accents(nombre_parts[0][0])
 
-    apellido_clean = _strip_accents(empleado.apellido.strip().replace(" ", ""))
+    if data.solo_primer_apellido:
+        apellido_clean = _strip_accents(empleado.apellido.strip().split()[0])
+    else:
+        apellido_clean = _strip_accents(empleado.apellido.strip().replace(" ", ""))
     base_username = f"{inicial}{apellido_clean}"
 
     # 4. Asegurar unicidad del username

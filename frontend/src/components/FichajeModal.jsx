@@ -6,16 +6,65 @@ import styles from './FichajeModal.module.css';
 const stripAccents = (str) =>
   str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
 
+function buildUsernameOptions(nombre, apellido) {
+  const nombreParts = nombre?.trim().split(/\s+/) || [];
+  const apellidoParts = apellido?.trim().split(/\s+/) || [];
+  const apellidoFull = stripAccents(apellido?.replace(/\s+/g, '') || '');
+  const apellidoFirst = stripAccents(apellidoParts[0] || '');
+  const tieneApellidoCompuesto = apellidoParts.length > 1;
+
+  const options = [];
+  const seen = new Set();
+
+  const add = (label, username, params) => {
+    if (seen.has(username)) return;
+    seen.add(username);
+    options.push({ label, username, ...params });
+  };
+
+  // Primer nombre + primer apellido
+  const ini1 = stripAccents(nombreParts[0]?.[0] || '?');
+  add(
+    `${nombreParts[0]} ${apellidoParts[0]}`,
+    `${ini1}${apellidoFirst}`,
+    { usar_segundo_nombre: false, solo_primer_apellido: true },
+  );
+
+  // Primer nombre + apellido compuesto
+  if (tieneApellidoCompuesto) {
+    add(
+      `${nombreParts[0]} ${apellido}`,
+      `${ini1}${apellidoFull}`,
+      { usar_segundo_nombre: false, solo_primer_apellido: false },
+    );
+  }
+
+  // Segundo nombre + primer apellido
+  if (nombreParts.length > 1) {
+    const ini2 = stripAccents(nombreParts[1]?.[0] || '?');
+    add(
+      `${nombreParts[1]} ${apellidoParts[0]}`,
+      `${ini2}${apellidoFirst}`,
+      { usar_segundo_nombre: true, solo_primer_apellido: true },
+    );
+
+    // Segundo nombre + apellido compuesto
+    if (tieneApellidoCompuesto) {
+      add(
+        `${nombreParts[1]} ${apellido}`,
+        `${ini2}${apellidoFull}`,
+        { usar_segundo_nombre: true, solo_primer_apellido: false },
+      );
+    }
+  }
+
+  return options;
+}
+
 export default function FichajeModal({ empleado, onClose, onUpdated }) {
   const [tab, setTab] = useState('crear');
-  const [usarSegundo, setUsarSegundo] = useState(false);
-
-  const apellidoClean = stripAccents(empleado.apellido?.replace(/\s+/g, '') || '');
-  const nombreParts = empleado.nombre?.trim().split(/\s+/) || [];
-  const previewPrimero = `${stripAccents(nombreParts[0]?.[0] || '?')}${apellidoClean}`;
-  const previewSegundo = nombreParts.length > 1
-    ? `${stripAccents(nombreParts[1]?.[0] || '?')}${apellidoClean}`
-    : null;
+  const usernameOptions = buildUsernameOptions(empleado.nombre, empleado.apellido);
+  const [selectedOption, setSelectedOption] = useState(0);
   const [creando, setCreando] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -42,8 +91,10 @@ export default function FichajeModal({ empleado, onClose, onUpdated }) {
     setCreando(true);
     setError(null);
     try {
+      const opt = usernameOptions[selectedOption] || {};
       const { data } = await rrhhAPI.crearUsuarioFichaje(empleado.id, {
-        usar_segundo_nombre: usarSegundo,
+        usar_segundo_nombre: opt.usar_segundo_nombre || false,
+        solo_primer_apellido: opt.solo_primer_apellido ?? false,
       });
       setResult(data);
       onUpdated();
@@ -138,20 +189,17 @@ export default function FichajeModal({ empleado, onClose, onUpdated }) {
                 Se crea un usuario con rol FICHAJE (solo acceso a fichaje mobile). Password: DNI del empleado.
               </p>
               <div className={styles.formGroup}>
-                <label>Inicial del nombre para el username</label>
+                <label>Username</label>
                 <select
                   className={styles.select}
-                  value={usarSegundo ? 'segundo' : 'primero'}
-                  onChange={(e) => setUsarSegundo(e.target.value === 'segundo')}
+                  value={selectedOption}
+                  onChange={(e) => setSelectedOption(parseInt(e.target.value, 10))}
                 >
-                  <option value="primero">
-                    Primer nombre ({previewPrimero})
-                  </option>
-                  {previewSegundo && (
-                    <option value="segundo">
-                      Segundo nombre ({previewSegundo})
+                  {usernameOptions.map((opt, i) => (
+                    <option key={i} value={i}>
+                      {opt.label} ({opt.username})
                     </option>
-                  )}
+                  ))}
                 </select>
               </div>
             </>
