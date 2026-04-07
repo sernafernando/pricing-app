@@ -4056,9 +4056,9 @@ async def exportar_rebate(
                 ws.cell(row=row, column=7, value=fecha_hasta)
                 ws.cell(row=row, column=8, value=round(pvp_lleno, 2))
                 ws.cell(row=row, column=9, value=round(pvp_seller, 2))
-                # Columna T (20): porcentaje de rebate
+                # Columna T (20): porcentaje de rebate formateado (ej: "3,80%")
                 rebate_mostrar = porcentaje_cuotas if pricelist_id != 4 else porcentaje_rebate
-                ws.cell(row=row, column=20, value=rebate_mostrar)
+                ws.cell(row=row, column=20, value=f"{rebate_mostrar:.2f}%".replace(".", ","))
             else:
                 # Formato tradicional
                 rebate_mostrar = porcentaje_cuotas if pricelist_id != 4 else porcentaje_rebate
