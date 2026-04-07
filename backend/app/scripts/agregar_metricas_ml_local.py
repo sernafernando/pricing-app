@@ -148,8 +148,11 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
-            -- Costo de envío del producto (viene con IVA)
+            -- Costo de envío del producto (viene con IVA) - fallback para pricing
             pe.envio as envio_producto,
+            -- Costo real de envío que pagó el vendedor según ML (con IVA)
+            -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
+            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost,
 
             -- Obtener el porcentaje de comisión (comision_base + adicional_cuota según pricelist)
             -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
@@ -301,6 +304,9 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         comision_base_porcentaje=comision_porcentaje,
         db_session=db_session,  # Pasar sesión para obtener pricing_constants
         ml_logistic_type=row.tipo_logistica,
+        seller_shipping_cost=float(row.seller_shipping_cost)
+        if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
+        else None,
     )
 
     return {
