@@ -173,6 +173,7 @@ export const rrhhAPI = {
     }),
   descargarDocumento: (docId) =>
     api.get(`/rrhh/documentos/${docId}/descargar`, { responseType: 'blob' }),
+  editarDocumento: (docId, data) => api.put(`/rrhh/documentos/${docId}`, data),
   eliminarDocumento: (docId) => api.delete(`/rrhh/documentos/${docId}`),
 
   // Tipos de documento

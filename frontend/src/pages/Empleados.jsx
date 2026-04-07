@@ -29,6 +29,8 @@ import {
   FileSpreadsheet,
   Smartphone,
   Landmark,
+  Pencil,
+  Save,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -130,8 +132,10 @@ export default function Empleados() {
   const [docError, setDocError] = useState(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [docForm, setDocForm] = useState({
-    tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '',
+    tipo_documento_id: '', descripcion: '', fecha_documento: '', fecha_vencimiento: '', numero_documento: '',
   });
+  const [editingDocId, setEditingDocId] = useState(null);
+  const [savingDoc, setSavingDoc] = useState(false);
 
   // Modal tab (solo en edición)
   const [modalTab, setModalTab] = useState('datos');
@@ -511,7 +515,8 @@ export default function Empleados() {
       setModalTab('datos');
       setDocumentos([]);
       setDocError(null);
-      setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+      setDocForm({ tipo_documento_id: '', descripcion: '', fecha_documento: '', fecha_vencimiento: '', numero_documento: '' });
+      setEditingDocId(null);
     }
   }, [modalOpen]);
 
@@ -523,6 +528,7 @@ export default function Empleados() {
     try {
       const params = { tipo_documento_id: parseInt(docForm.tipo_documento_id, 10) };
       if (docForm.descripcion) params.descripcion = docForm.descripcion;
+      if (docForm.fecha_documento) params.fecha_documento = docForm.fecha_documento;
       if (docForm.fecha_vencimiento) params.fecha_vencimiento = docForm.fecha_vencimiento;
       if (docForm.numero_documento) params.numero_documento = docForm.numero_documento;
 
@@ -537,12 +543,15 @@ export default function Empleados() {
         }
       }
 
+      // Recargar lista (puede haber subido algunos de varios archivos)
+      await cargarDocumentos(editando.id);
+
+      // Setear error DESPUÉS de recargar para que no lo pise el setDocError(null) de cargarDocumentos
       if (errores.length > 0) {
         setDocError(errores.join(' | '));
       } else {
-        setDocForm({ tipo_documento_id: '', descripcion: '', fecha_vencimiento: '', numero_documento: '' });
+        setDocForm({ tipo_documento_id: '', descripcion: '', fecha_documento: '', fecha_vencimiento: '', numero_documento: '' });
       }
-      cargarDocumentos(editando.id);
     } catch (err) {
       setDocError(err.response?.data?.detail || 'Error al subir documentos');
     } finally {
@@ -573,6 +582,45 @@ export default function Empleados() {
     } catch (err) {
       setDocError(err.response?.data?.detail || 'Error al eliminar documento');
     }
+  };
+
+  const handleEditarDocumento = (doc) => {
+    setEditingDocId(doc.id);
+    setDocForm({
+      tipo_documento_id: String(doc.tipo_documento_id),
+      descripcion: doc.descripcion || '',
+      fecha_documento: doc.fecha_documento || '',
+      fecha_vencimiento: doc.fecha_vencimiento || '',
+      numero_documento: doc.numero_documento || '',
+    });
+    setDocError(null);
+  };
+
+  const handleGuardarDocumento = async () => {
+    if (!editingDocId) return;
+    setSavingDoc(true);
+    setDocError(null);
+    try {
+      const data = {};
+      if (docForm.tipo_documento_id) data.tipo_documento_id = parseInt(docForm.tipo_documento_id, 10);
+      if (docForm.descripcion !== undefined) data.descripcion = docForm.descripcion || null;
+      if (docForm.fecha_documento !== undefined) data.fecha_documento = docForm.fecha_documento || null;
+      if (docForm.fecha_vencimiento !== undefined) data.fecha_vencimiento = docForm.fecha_vencimiento || null;
+      if (docForm.numero_documento !== undefined) data.numero_documento = docForm.numero_documento || null;
+      await rrhhAPI.editarDocumento(editingDocId, data);
+      setEditingDocId(null);
+      setDocForm({ tipo_documento_id: '', descripcion: '', fecha_documento: '', fecha_vencimiento: '', numero_documento: '' });
+      await cargarDocumentos(editando.id);
+    } catch (err) {
+      setDocError(err.response?.data?.detail || err.response?.data?.error?.message || 'Error al guardar cambios');
+    } finally {
+      setSavingDoc(false);
+    }
+  };
+
+  const handleCancelarEdicion = () => {
+    setEditingDocId(null);
+    setDocForm({ tipo_documento_id: '', descripcion: '', fecha_documento: '', fecha_vencimiento: '', numero_documento: '' });
   };
 
   const formatFileSize = (bytes) => {
@@ -1671,8 +1719,8 @@ export default function Empleados() {
                 <div className={styles.docsSection}>
                   {docError && <div className={styles.formError}>{docError}</div>}
 
-                  {/* Upload form */}
-                  {puedeGestionar && (
+                   {/* Upload form */}
+                   {puedeGestionar && !editingDocId && (
                     <div className={styles.docUploadForm}>
                       <div className={styles.docUploadRow}>
                         <select
@@ -1701,13 +1749,24 @@ export default function Empleados() {
                           value={docForm.numero_documento}
                           onChange={(e) => setDocForm({ ...docForm, numero_documento: e.target.value })}
                         />
-                        <input
-                          className={styles.input}
-                          type="date"
-                          title="Fecha vencimiento (opcional)"
-                          value={docForm.fecha_vencimiento}
-                          onChange={(e) => setDocForm({ ...docForm, fecha_vencimiento: e.target.value })}
-                        />
+                        <div className={styles.docDateField}>
+                          <label className={styles.docDateLabel}>Emisión</label>
+                          <input
+                            className={styles.input}
+                            type="date"
+                            value={docForm.fecha_documento}
+                            onChange={(e) => setDocForm({ ...docForm, fecha_documento: e.target.value })}
+                          />
+                        </div>
+                        <div className={styles.docDateField}>
+                          <label className={styles.docDateLabel}>Vencimiento</label>
+                          <input
+                            className={styles.input}
+                            type="date"
+                            value={docForm.fecha_vencimiento}
+                            onChange={(e) => setDocForm({ ...docForm, fecha_vencimiento: e.target.value })}
+                          />
+                        </div>
                         <label className={styles.btnUpload}>
                           <Upload size={14} />
                           {uploadingDoc ? 'Subiendo...' : 'Subir archivo(s)'}
@@ -1735,47 +1794,137 @@ export default function Empleados() {
                   ) : (
                     <div className={styles.docsList}>
                       {documentos.map((doc) => (
-                        <div key={doc.id} className={styles.docItem}>
-                          <div className={styles.docItemInfo}>
-                            <FileText size={14} className={styles.docIcon} />
-                            <div className={styles.docItemDetail}>
-                              <span className={styles.docItemName}>{doc.nombre_archivo}</span>
-                              <span className={styles.docItemMeta}>
-                                {doc.tipo_documento_nombre}
-                                {doc.numero_documento && ` — ${doc.numero_documento}`}
-                                {' — '}{formatFileSize(doc.tamano_bytes)}
-                                {doc.subido_por_nombre && ` — ${doc.subido_por_nombre}`}
-                                {doc.created_at && ` — ${formatDateShort(doc.created_at.slice(0, 10))}`}
-                              </span>
-                              {doc.descripcion && (
-                                <span className={styles.docItemDesc}>{doc.descripcion}</span>
-                              )}
-                              {doc.fecha_vencimiento && (
-                                <span className={isVencido(doc.fecha_vencimiento) ? styles.docVencido : styles.docVencimiento}>
-                                  {isVencido(doc.fecha_vencimiento) && <AlertCircle size={10} />}
-                                  Vence: {formatDateShort(doc.fecha_vencimiento)}
-                                </span>
-                              )}
+                        <div key={doc.id} className={`${styles.docItem} ${editingDocId === doc.id ? styles.docItemEditing : ''}`}>
+                          {editingDocId === doc.id ? (
+                            /* ── Inline edit form ── */
+                            <div className={styles.docEditForm}>
+                              <div className={styles.docEditHeader}>
+                                <FileText size={14} className={styles.docIcon} />
+                                <span className={styles.docItemName}>{doc.nombre_archivo}</span>
+                              </div>
+                              <div className={styles.docUploadRow}>
+                                <select
+                                  className={styles.select}
+                                  value={docForm.tipo_documento_id}
+                                  onChange={(e) => setDocForm({ ...docForm, tipo_documento_id: e.target.value })}
+                                >
+                                  <option value="">Tipo de documento...</option>
+                                  {tiposDocumento.map((t) => (
+                                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  className={styles.input}
+                                  type="text"
+                                  placeholder="Descripción (opcional)"
+                                  value={docForm.descripcion}
+                                  onChange={(e) => setDocForm({ ...docForm, descripcion: e.target.value })}
+                                />
+                              </div>
+                              <div className={styles.docUploadRow}>
+                                <input
+                                  className={styles.input}
+                                  type="text"
+                                  placeholder="Nro. documento (opcional)"
+                                  value={docForm.numero_documento}
+                                  onChange={(e) => setDocForm({ ...docForm, numero_documento: e.target.value })}
+                                />
+                                <div className={styles.docDateField}>
+                                  <label className={styles.docDateLabel}>Emisión</label>
+                                  <input
+                                    className={styles.input}
+                                    type="date"
+                                    value={docForm.fecha_documento}
+                                    onChange={(e) => setDocForm({ ...docForm, fecha_documento: e.target.value })}
+                                  />
+                                </div>
+                                <div className={styles.docDateField}>
+                                  <label className={styles.docDateLabel}>Vencimiento</label>
+                                  <input
+                                    className={styles.input}
+                                    type="date"
+                                    value={docForm.fecha_vencimiento}
+                                    onChange={(e) => setDocForm({ ...docForm, fecha_vencimiento: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+                              <div className={styles.docEditActions}>
+                                <button
+                                  className={styles.btnSaveDoc}
+                                  onClick={handleGuardarDocumento}
+                                  disabled={savingDoc}
+                                >
+                                  <Save size={12} />
+                                  {savingDoc ? 'Guardando...' : 'Guardar'}
+                                </button>
+                                <button
+                                  className={styles.btnCancelDoc}
+                                  onClick={handleCancelarEdicion}
+                                  disabled={savingDoc}
+                                >
+                                  <X size={12} />
+                                  Cancelar
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                          <div className={styles.docItemActions}>
-                            <button
-                              className={styles.btnDownload}
-                              onClick={() => handleDescargarDocumento(doc.id, doc.nombre_archivo)}
-                              title="Descargar"
-                            >
-                              <Download size={12} />
-                            </button>
-                            {puedeGestionar && (
-                              <button
-                                className={styles.btnDesasignar}
-                                onClick={() => handleEliminarDocumento(doc.id)}
-                                title="Eliminar"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            )}
-                          </div>
+                          ) : (
+                            /* ── Normal display ── */
+                            <>
+                              <div className={styles.docItemInfo}>
+                                <FileText size={14} className={styles.docIcon} />
+                                <div className={styles.docItemDetail}>
+                                  <span className={styles.docItemName}>{doc.nombre_archivo}</span>
+                                  <span className={styles.docItemMeta}>
+                                    {doc.tipo_documento_nombre}
+                                    {doc.numero_documento && ` — ${doc.numero_documento}`}
+                                    {' — '}{formatFileSize(doc.tamano_bytes)}
+                                    {doc.subido_por_nombre && ` — ${doc.subido_por_nombre}`}
+                                    {doc.created_at && ` — ${formatDateShort(doc.created_at.slice(0, 10))}`}
+                                  </span>
+                                  {doc.descripcion && (
+                                    <span className={styles.docItemDesc}>{doc.descripcion}</span>
+                                  )}
+                                  <span className={styles.docDates}>
+                                    {doc.fecha_documento && `Emitido: ${formatDateShort(doc.fecha_documento)}`}
+                                    {doc.fecha_documento && doc.fecha_vencimiento && ' — '}
+                                    {doc.fecha_vencimiento && (
+                                      <span className={isVencido(doc.fecha_vencimiento) ? styles.docVencido : styles.docVencimiento}>
+                                        {isVencido(doc.fecha_vencimiento) && <AlertCircle size={10} />}
+                                        Vence: {formatDateShort(doc.fecha_vencimiento)}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className={styles.docItemActions}>
+                                {puedeGestionar && (
+                                  <button
+                                    className={styles.btnDownload}
+                                    onClick={() => handleEditarDocumento(doc)}
+                                    title="Editar"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                )}
+                                <button
+                                  className={styles.btnDownload}
+                                  onClick={() => handleDescargarDocumento(doc.id, doc.nombre_archivo)}
+                                  title="Descargar"
+                                >
+                                  <Download size={12} />
+                                </button>
+                                {puedeGestionar && (
+                                  <button
+                                    className={styles.btnDesasignar}
+                                    onClick={() => handleEliminarDocumento(doc.id)}
+                                    title="Eliminar"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>

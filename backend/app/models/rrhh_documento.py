@@ -46,6 +46,7 @@ class RRHHDocumento(Base):
 
     # Metadata
     descripcion = Column(Text, nullable=True)
+    fecha_documento = Column(Date, nullable=True)
     fecha_vencimiento = Column(Date, nullable=True)
     numero_documento = Column(String(100), nullable=True)
 
