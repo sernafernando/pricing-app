@@ -63,10 +63,10 @@ fi
 if [ "$SKIP_BUILD" = false ]; then
   log "Instalando dependencias frontend..."
   cd "$FRONTEND_DIR"
-  npm install --silent
+  pnpm install --frozen-lockfile
 
   log "Building frontend..."
-  npm run build
+  pnpm run build
 else
   warn "Skipping frontend build"
 fi
