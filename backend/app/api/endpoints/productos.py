@@ -4065,6 +4065,11 @@ async def exportar_rebate(
 
             row += 1
 
+    # Ocultar columnas vacías J-S (10 a 19) en formato nuevo
+    if request.formato == "nuevo":
+        for col_letter in ["J", "K", "L", "M", "N", "O", "P", "Q", "R", "S"]:
+            ws.column_dimensions[col_letter].hidden = True
+
     # Guardar en memoria
     output = BytesIO()
     wb.save(output)
