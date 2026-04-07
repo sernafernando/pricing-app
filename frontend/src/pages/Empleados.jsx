@@ -263,14 +263,28 @@ export default function Empleados() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   // --- Handlers ---
-  const handleNuevo = () => {
+  const handleNuevo = async () => {
     setEditando(null);
+
+    // Calcular siguiente legajo disponible
+    let siguienteLegajo = '';
+    try {
+      const { data } = await rrhhAPI.listarEmpleados({ page_size: 1, sort_by: 'legajo', sort_order: 'desc' });
+      const items = data.items || data;
+      if (Array.isArray(items) && items.length > 0) {
+        const ultimo = parseInt(items[0].legajo, 10);
+        if (!isNaN(ultimo)) siguienteLegajo = String(ultimo + 1);
+      }
+    } catch {
+      // Si falla, queda vacío y el usuario lo carga manual
+    }
+
     setFormData({
       nombre: '',
       apellido: '',
       dni: '',
       cuil: '',
-      legajo: '',
+      legajo: siguienteLegajo,
       fecha_nacimiento: '',
       fecha_ingreso: new Date().toISOString().split('T')[0],
       fecha_egreso: '',
