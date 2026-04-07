@@ -3910,6 +3910,12 @@ async def exportar_rebate(
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
 
+    # Header columna T para formato nuevo
+    if request.formato == "nuevo":
+        cell = ws.cell(row=1, column=20, value="REBATE %")
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center")
+
     # Datos
     row = 2
     for producto_erp, producto_pricing in productos:
@@ -4027,7 +4033,7 @@ async def exportar_rebate(
                 continue
 
             if request.formato == "nuevo":
-                # Formato DXI (9 columnas)
+                # Formato DXI (9 columnas + col T = rebate%)
                 ws.cell(row=row, column=1, value=mla.mla)
                 ws.cell(row=row, column=2, value="")
                 ws.cell(row=row, column=3, value="")
@@ -4037,6 +4043,9 @@ async def exportar_rebate(
                 ws.cell(row=row, column=7, value=fecha_hasta)
                 ws.cell(row=row, column=8, value=round(pvp_lleno, 2))
                 ws.cell(row=row, column=9, value=round(pvp_seller, 2))
+                # Columna T (20): porcentaje de rebate
+                rebate_mostrar = porcentaje_cuotas if pricelist_id != 4 else porcentaje_rebate
+                ws.cell(row=row, column=20, value=rebate_mostrar)
             else:
                 # Formato tradicional
                 rebate_mostrar = porcentaje_cuotas if pricelist_id != 4 else porcentaje_rebate
