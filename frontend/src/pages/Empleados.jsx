@@ -263,14 +263,28 @@ export default function Empleados() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   // --- Handlers ---
-  const handleNuevo = () => {
+  const handleNuevo = async () => {
     setEditando(null);
+
+    // Calcular siguiente legajo disponible
+    let siguienteLegajo = '';
+    try {
+      const { data } = await rrhhAPI.listarEmpleados({ page_size: 1, sort_by: 'legajo', sort_order: 'desc' });
+      const items = data.items || data;
+      if (Array.isArray(items) && items.length > 0) {
+        const ultimo = parseInt(items[0].legajo, 10);
+        if (!isNaN(ultimo)) siguienteLegajo = String(ultimo + 1);
+      }
+    } catch {
+      // Si falla, queda vacío y el usuario lo carga manual
+    }
+
     setFormData({
       nombre: '',
       apellido: '',
       dni: '',
       cuil: '',
-      legajo: '',
+      legajo: siguienteLegajo,
       fecha_nacimiento: '',
       fecha_ingreso: new Date().toISOString().split('T')[0],
       fecha_egreso: '',
@@ -1148,43 +1162,45 @@ export default function Empleados() {
                   </td>
                   <td className={styles.nowrap}>{emp.fecha_ingreso}</td>
                   {(puedeGestionar || puedeImprimir) && (
-                    <td className={styles.actions}>
-                      {puedeImprimir && (
-                        <button
-                          onClick={() => { setDocGenEmpleado(emp); setDocGenOpen(true); }}
-                          className={styles.btnEdit}
-                          title="Generar documento PDF"
-                        >
-                          <FileDown size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && (
-                        <button
-                          onClick={() => handleEditar(emp)}
-                          className={styles.btnEdit}
-                          title="Editar"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && (
-                        <button
-                          onClick={() => handleEliminar(emp)}
-                          className={styles.btnDanger}
-                          title="Desactivar"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                      {puedeGestionar && emp.estado === 'activo' && (
-                        <button
-                          onClick={() => { setFichajeEmpleado(emp); setFichajeModalOpen(true); }}
-                          className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
-                          title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
-                        >
-                          <Smartphone size={14} />
-                        </button>
-                      )}
+                    <td>
+                      <div className={styles.actions}>
+                        {puedeImprimir && (
+                          <button
+                            onClick={() => { setDocGenEmpleado(emp); setDocGenOpen(true); }}
+                            className={styles.btnEdit}
+                            title="Generar documento PDF"
+                          >
+                            <FileDown size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && (
+                          <button
+                            onClick={() => handleEditar(emp)}
+                            className={styles.btnEdit}
+                            title="Editar"
+                          >
+                            <Edit3 size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && (
+                          <button
+                            onClick={() => handleEliminar(emp)}
+                            className={styles.btnDanger}
+                            title="Desactivar"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        {puedeGestionar && emp.estado === 'activo' && (
+                          <button
+                            onClick={() => { setFichajeEmpleado(emp); setFichajeModalOpen(true); }}
+                            className={emp.usuario_id ? styles.btnLinked : styles.btnEdit}
+                            title={emp.usuario_id ? 'Usuario vinculado — Click para gestionar' : 'Crear usuario de fichaje'}
+                          >
+                            <Smartphone size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
