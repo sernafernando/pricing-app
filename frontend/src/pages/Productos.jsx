@@ -597,7 +597,7 @@ export default function Productos() {
 
         // Acción 3: segundo enlace
         if (accion === 3) {
-          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
+          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=${itemCode}&sort=lowest_price`;
           navigator.clipboard.writeText(url).then(() => {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
           }).catch(() => {

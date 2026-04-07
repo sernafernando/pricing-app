@@ -3573,9 +3573,9 @@ async def exportar_rebate(
     pricelist_map = {"clasica": 4, "3": 17, "6": 14, "9": 13, "12": 23}
     pricelist_id = pricelist_map.get(request.tipo_cuotas, 4)
 
-    # Mapeo cuotas → PVP equivalente para buscar MLAs en ambas listas
-    cuotas_pvp_map = {"3": 18, "6": 19, "9": 20, "12": 21}
-    pricelist_pvp_equivalente = cuotas_pvp_map.get(request.tipo_cuotas)
+    # Mapeo lista web → PVP equivalente para buscar MLAs en ambas listas
+    pvp_equivalente_map = {"clasica": 12, "3": 18, "6": 19, "9": 20, "12": 21}
+    pricelist_pvp_equivalente = pvp_equivalente_map.get(request.tipo_cuotas)
 
     # Construir query con filtros
     query = (
@@ -3957,7 +3957,18 @@ async def exportar_rebate(
 
         precio_pricelist = float(precio_lista.precio) if precio_lista and precio_lista.precio else 0
 
-        if precio_pricelist == 0:
+        # También obtener precio de la pricelist PVP equivalente (para MLAs que vengan de PVP)
+        precio_pricelist_pvp = 0
+        if pricelist_pvp_equivalente:
+            precio_lista_pvp = (
+                db.query(PrecioML)
+                .filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == pricelist_pvp_equivalente)
+                .first()
+            )
+            precio_pricelist_pvp = float(precio_lista_pvp.precio) if precio_lista_pvp and precio_lista_pvp.precio else 0
+
+        # Skip si no tiene precio en ninguna de las dos listas
+        if precio_pricelist == 0 and precio_pricelist_pvp == 0:
             continue
 
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
@@ -3967,10 +3978,9 @@ async def exportar_rebate(
             if not producto_pricing.precio_lista_ml:
                 continue
             precio_base = float(producto_pricing.precio_lista_ml)
-            # PVP LLENO = PrecioML.precio (pricelist 4)
             # PVP SELLER = precio_lista_ml / (1 - rebate%)
-            pvp_lleno = precio_pricelist
             pvp_seller = precio_base / (1 - porcentaje_rebate / 100)
+            # PVP LLENO se determina por MLA (web o pvp) más abajo
         else:
             # Cuotas: usar el precio editado de la columna de cuotas (ProductoPricing)
             # como base para PVP SELLER, y el precio de la pricelist (PrecioML) como PVP LLENO
@@ -3994,13 +4004,26 @@ async def exportar_rebate(
             )
             # PVP SELLER = precio editado de cuotas / (1 - rebate%)
             pvp_seller = precio_cuota_editado / (1 - porcentaje_cuotas / 100)
-            offset_lleno = request.offset_pvp_lleno if request.offset_pvp_lleno is not None else 0
-            pvp_lleno = precio_pricelist * (1 + offset_lleno / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
             # Saltar si el MLA está en la banlist
             if mla.mla in mlas_baneados_set:
+                continue
+
+            # Determinar PVP LLENO según la pricelist del MLA
+            es_mla_pvp = pricelist_pvp_equivalente and mla.pricelist_id == pricelist_pvp_equivalente
+            if pricelist_id == 4:
+                # Clásica: PVP LLENO = precio de la pricelist del MLA (web o pvp)
+                pvp_lleno = precio_pricelist_pvp if es_mla_pvp else precio_pricelist
+            else:
+                # Cuotas: PVP LLENO con offset
+                offset_lleno = request.offset_pvp_lleno if request.offset_pvp_lleno is not None else 0
+                precio_base_lleno = precio_pricelist_pvp if es_mla_pvp else precio_pricelist
+                pvp_lleno = precio_base_lleno * (1 + offset_lleno / 100)
+
+            # Si no hay PVP LLENO válido para este MLA, skip
+            if not pvp_lleno or pvp_lleno == 0:
                 continue
 
             if request.formato == "nuevo":
@@ -7210,11 +7233,11 @@ async def exportar_vista_actual(
                     value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None,
                 )
 
-                # Calcular precio rebate dinámicamente
+                # Calcular precio rebate dinámicamente (misma fórmula que el listado)
                 precio_rebate = None
                 if producto_pricing.participa_rebate and producto_pricing.precio_lista_ml:
                     porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
-                    precio_rebate = float(producto_pricing.precio_lista_ml) * (1 + porcentaje_rebate / 100)
+                    precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
                 ws.cell(row=row_num, column=8, value=precio_rebate)
 
                 ws.cell(
