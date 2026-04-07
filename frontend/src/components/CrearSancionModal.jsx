@@ -131,7 +131,6 @@ export default function CrearSancionModal({
                 value={form.empleado_id}
                 onChange={(e) => updateFormAndRefresh({ empleado_id: e.target.value })}
                 required
-                size={5}
               >
                 <option value="">Seleccionar empleado...</option>
                 {empleados
