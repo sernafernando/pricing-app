@@ -43,7 +43,11 @@ class Settings(BaseSettings):
 
     # Google Sheets
     GOOGLE_SHEETS_ID: str = ""
+    GOOGLE_CAJA_ID: str = ""
     GOOGLE_SERVICE_ACCOUNT_FILE: str = "app/credentials/service-account.json"
+
+    # Caja (Cash Register) — file uploads
+    CAJA_UPLOADS_PATH: str = "./uploads/caja/"
 
     # MercadoLibre API
     ML_CLIENT_ID: Optional[str] = None

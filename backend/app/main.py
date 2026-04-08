@@ -59,6 +59,7 @@ from app.api.endpoints import (
 )
 from app.routers import (
     administracion_bancos,
+    administracion_caja,
     administracion_impuestos,
     administracion_proveedores,
     alertas,
@@ -285,6 +286,7 @@ app.include_router(empresas.router, prefix="/api", tags=["admin-empresas"])
 app.include_router(administracion_proveedores.router, prefix="/api", tags=["Administración - Proveedores"])
 app.include_router(administracion_bancos.router, prefix="/api", tags=["Administración - Bancos"])
 app.include_router(administracion_impuestos.router, prefix="/api", tags=["Administración - Impuestos"])
+app.include_router(administracion_caja.router, prefix="/api", tags=["Administración - Caja"])
 
 # ── Tickets module ────────────────────────────────────────────────
 app.include_router(tickets_ep.router, prefix="/api/tickets", tags=["tickets"])
