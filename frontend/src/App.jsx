@@ -47,6 +47,7 @@ import TicketsAdmin from './pages/TicketsAdmin';
 import AdministracionProveedores from './pages/AdministracionProveedores';
 import AdministracionBancos from './pages/AdministracionBancos';
 import AdministracionImpuestos from './pages/AdministracionImpuestos';
+import AdministracionCaja from './pages/AdministracionCaja';
 import ProtectedRoute from './components/ProtectedRoute';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
@@ -290,6 +291,11 @@ function App() {
             <Route path="/administracion/impuestos" element={
               <ProtectedRoute permiso="administracion.ver_proveedores">
                 <AdministracionImpuestos />
+              </ProtectedRoute>
+            } />
+            <Route path="/administracion/caja" element={
+              <ProtectedRoute permiso="administracion.ver_caja">
+                <AdministracionCaja />
               </ProtectedRoute>
             } />
             <Route path="/tickets" element={

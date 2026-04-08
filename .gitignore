@@ -53,6 +53,9 @@ Thumbs.db
 .env.local
 /backend/.env.example
 
+# Credentials / Secrets
+backend/app/credentials/
+
 # Logs
 *.log
 

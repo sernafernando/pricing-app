@@ -557,7 +557,7 @@
 
 .tableOperaciones {
   width: 100%;
-  min-width: 1800px; /* Ancho mínimo para forzar scroll horizontal */
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -585,7 +585,8 @@
   padding: 10px 8px;
   border-bottom: 1px solid var(--border-primary);
   color: var(--text-primary);
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .tableOperaciones tbody tr:hover {
