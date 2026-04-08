@@ -69,6 +69,32 @@ class CajaUpdate(BaseModel):
 # --- Movimiento ---
 
 
+class TagResponse(BaseModel):
+    id: int
+    nombre: str
+    color: Optional[str] = None
+    activo: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+    color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class TagUpdate(BaseModel):
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
+    color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    activo: Optional[bool] = None
+
+
+class ClasificacionUpdate(BaseModel):
+    categoria_id: Optional[int] = None
+    clear_categoria: bool = False
+    tag_ids: Optional[list[int]] = None
+
+
 class MovimientoResponse(BaseModel):
     id: int
     caja_id: int
@@ -83,6 +109,7 @@ class MovimientoResponse(BaseModel):
     registrado_por_nombre: Optional[str] = None
     observaciones: Optional[str] = None
     documentos_count: int = 0
+    tags: list[TagResponse] = []
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -242,8 +269,9 @@ def _build_caja_response(caja) -> CajaResponse:
     )
 
 
-def _build_movimiento_response(mov, doc_count: int = 0) -> MovimientoResponse:
+def _build_movimiento_response(mov, doc_count: int = 0, tags: Optional[list[dict]] = None) -> MovimientoResponse:
     """Builds MovimientoResponse from ORM object."""
+    tag_responses = [TagResponse(**t) for t in (tags or [])]
     return MovimientoResponse(
         id=mov.id,
         caja_id=mov.caja_id,
@@ -258,6 +286,7 @@ def _build_movimiento_response(mov, doc_count: int = 0) -> MovimientoResponse:
         registrado_por_nombre=mov.registrado_por.nombre if mov.registrado_por else None,
         observaciones=mov.observaciones,
         documentos_count=doc_count,
+        tags=tag_responses,
         created_at=mov.created_at,
     )
 
@@ -407,6 +436,7 @@ def listar_movimientos(
     fecha_hasta: Optional[date] = None,
     tipo: Optional[str] = Query(None, pattern="^(ingreso|egreso)$"),
     categoria_id: Optional[int] = None,
+    tag_id: Optional[int] = None,
     busqueda: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -422,15 +452,17 @@ def listar_movimientos(
         fecha_hasta=fecha_hasta,
         tipo=tipo,
         categoria_id=categoria_id,
+        tag_id=tag_id,
         busqueda=busqueda,
     )
 
-    # Get document counts for this page of movements
+    # Batch-load document counts and tags for this page of movements
     mov_ids = [m.id for m in items]
     doc_counts = svc.documentos_count_por_movimiento(mov_ids)
+    tags_map = svc.tags_por_movimientos_batch(mov_ids)
 
     return MovimientosListResponse(
-        items=[_build_movimiento_response(m, doc_counts.get(m.id, 0)) for m in items],
+        items=[_build_movimiento_response(m, doc_counts.get(m.id, 0), tags_map.get(m.id, [])) for m in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -846,3 +878,114 @@ def eliminar_archivo(
     svc = CajaService(db)
     svc.eliminar_archivo(archivo_id)
     db.commit()
+
+
+# ──────────────────────────────────────────────
+# ENDPOINTS — Tags
+# ──────────────────────────────────────────────
+
+
+@router.get(
+    "/tags",
+    response_model=list[TagResponse],
+    summary="Listar tags",
+)
+def listar_tags(
+    activo: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[TagResponse]:
+    """Lista todos los tags de caja."""
+    _check_permiso(db, current_user, "administracion.ver_caja")
+    svc = CajaService(db)
+    tags = svc.listar_tags(solo_activos=activo is True)
+    return [TagResponse.model_validate(t) for t in tags]
+
+
+@router.post(
+    "/tags",
+    response_model=TagResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear tag",
+)
+def crear_tag(
+    data: TagCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TagResponse:
+    """Crea un nuevo tag."""
+    _check_permiso(db, current_user, "administracion.gestionar_caja")
+    svc = CajaService(db)
+    tag = svc.crear_tag(nombre=data.nombre, color=data.color)
+    db.commit()
+    db.refresh(tag)
+    return TagResponse.model_validate(tag)
+
+
+@router.put(
+    "/tags/{tag_id}",
+    response_model=TagResponse,
+    summary="Actualizar tag",
+)
+def actualizar_tag(
+    tag_id: int,
+    data: TagUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TagResponse:
+    """Actualiza nombre, color o estado de un tag."""
+    _check_permiso(db, current_user, "administracion.gestionar_caja")
+    svc = CajaService(db)
+    tag = svc.actualizar_tag(tag_id, nombre=data.nombre, color=data.color, activo=data.activo)
+    db.commit()
+    db.refresh(tag)
+    return TagResponse.model_validate(tag)
+
+
+@router.delete(
+    "/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar tag",
+)
+def eliminar_tag(
+    tag_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """Elimina tag (solo si no está vinculado a movimientos)."""
+    _check_permiso(db, current_user, "administracion.gestionar_caja")
+    svc = CajaService(db)
+    svc.eliminar_tag(tag_id)
+    db.commit()
+
+
+# ──────────────────────────────────────────────
+# ENDPOINTS — Clasificación de movimientos
+# ──────────────────────────────────────────────
+
+
+@router.patch(
+    "/movimientos/{mov_id}/clasificacion",
+    response_model=MovimientoResponse,
+    summary="Clasificar movimiento",
+)
+def clasificar_movimiento(
+    mov_id: int,
+    data: ClasificacionUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> MovimientoResponse:
+    """Actualiza categoría y/o tags de un movimiento existente."""
+    _check_permiso(db, current_user, "administracion.gestionar_caja")
+    svc = CajaService(db)
+    mov = svc.clasificar_movimiento(
+        mov_id=mov_id,
+        categoria_id=data.categoria_id,
+        clear_categoria=data.clear_categoria,
+        tag_ids=data.tag_ids,
+    )
+    db.commit()
+    db.refresh(mov)
+    tags_map = svc.tags_por_movimientos_batch([mov.id])
+    doc_counts = svc.documentos_count_por_movimiento([mov.id])
+    return _build_movimiento_response(mov, doc_counts.get(mov.id, 0), tags_map.get(mov.id, []))

@@ -28,6 +28,8 @@ from app.models.caja import (
     CajaDocumento,
     CajaDocumentoMovimiento,
     CajaMovimiento,
+    CajaMovimientoTag,
+    CajaTag,
     CajaTipoDocumento,
 )
 
@@ -202,6 +204,7 @@ class CajaService:
         fecha_hasta: Optional[date] = None,
         tipo: Optional[str] = None,
         categoria_id: Optional[int] = None,
+        tag_id: Optional[int] = None,
         busqueda: Optional[str] = None,
     ) -> tuple[list[CajaMovimiento], int, dict]:
         """
@@ -226,6 +229,12 @@ class CajaService:
             query = query.filter(CajaMovimiento.tipo == tipo)
         if categoria_id is not None:
             query = query.filter(CajaMovimiento.categoria_id == categoria_id)
+        if tag_id is not None:
+            query = query.filter(
+                CajaMovimiento.id.in_(
+                    self.db.query(CajaMovimientoTag.movimiento_id).filter(CajaMovimientoTag.tag_id == tag_id)
+                )
+            )
         if busqueda:
             query = query.filter(CajaMovimiento.detalle.ilike(f"%{busqueda}%"))
 
@@ -244,6 +253,12 @@ class CajaService:
             summary_query = summary_query.filter(CajaMovimiento.tipo == tipo)
         if categoria_id is not None:
             summary_query = summary_query.filter(CajaMovimiento.categoria_id == categoria_id)
+        if tag_id is not None:
+            summary_query = summary_query.filter(
+                CajaMovimiento.id.in_(
+                    self.db.query(CajaMovimientoTag.movimiento_id).filter(CajaMovimientoTag.tag_id == tag_id)
+                )
+            )
         if busqueda:
             summary_query = summary_query.filter(CajaMovimiento.detalle.ilike(f"%{busqueda}%"))
 
@@ -704,3 +719,172 @@ class CajaService:
             .all()
         )
         return {row.movimiento_id: row.cnt for row in rows}
+
+    # ──────────────────────────────────────────────
+    # Tags — CRUD
+    # ──────────────────────────────────────────────
+
+    def listar_tags(self, solo_activos: bool = False) -> list[CajaTag]:
+        """List all tags, optionally only active ones."""
+        q = self.db.query(CajaTag)
+        if solo_activos:
+            q = q.filter(CajaTag.activo.is_(True))
+        return q.order_by(CajaTag.nombre.asc()).all()
+
+    def crear_tag(self, nombre: str, color: Optional[str] = None) -> CajaTag:
+        """Create a new tag. Raises 409 if name already exists (case-insensitive)."""
+        existing = self.db.query(CajaTag).filter(sa_func.lower(CajaTag.nombre) == nombre.strip().lower()).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ya existe un tag con el nombre '{existing.nombre}'",
+            )
+        tag = CajaTag(nombre=nombre.strip(), color=color)
+        self.db.add(tag)
+        self.db.flush()
+        return tag
+
+    def actualizar_tag(
+        self,
+        tag_id: int,
+        nombre: Optional[str] = None,
+        color: Optional[str] = None,
+        activo: Optional[bool] = None,
+    ) -> CajaTag:
+        """Update tag fields. Raises 404/409."""
+        tag = self.db.query(CajaTag).filter(CajaTag.id == tag_id).first()
+        if not tag:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag no encontrado")
+        if nombre is not None:
+            nombre = nombre.strip()
+            dup = (
+                self.db.query(CajaTag)
+                .filter(sa_func.lower(CajaTag.nombre) == nombre.lower(), CajaTag.id != tag_id)
+                .first()
+            )
+            if dup:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ya existe un tag con el nombre '{dup.nombre}'",
+                )
+            tag.nombre = nombre
+        if color is not None:
+            tag.color = color
+        if activo is not None:
+            tag.activo = activo
+        self.db.flush()
+        return tag
+
+    def eliminar_tag(self, tag_id: int) -> None:
+        """Delete tag if unused. Raises 404/409."""
+        tag = self.db.query(CajaTag).filter(CajaTag.id == tag_id).first()
+        if not tag:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag no encontrado")
+        usage_count = (
+            self.db.query(sa_func.count(CajaMovimientoTag.id)).filter(CajaMovimientoTag.tag_id == tag_id).scalar()
+        )
+        if usage_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Tag '{tag.nombre}' está vinculado a {usage_count} movimiento(s). Desactivalo en vez de eliminarlo.",
+            )
+        self.db.delete(tag)
+        self.db.flush()
+
+    # ──────────────────────────────────────────────
+    # Classification — edit category + tags on movement
+    # ──────────────────────────────────────────────
+
+    def clasificar_movimiento(
+        self,
+        mov_id: int,
+        categoria_id: Optional[int] = None,
+        clear_categoria: bool = False,
+        tag_ids: Optional[list[int]] = None,
+    ) -> CajaMovimiento:
+        """
+        Update classification fields on an existing movement.
+
+        - categoria_id: set category (None + clear_categoria=True → clear)
+        - tag_ids: SET semantics — full replacement of current tags
+        """
+        mov = (
+            self.db.query(CajaMovimiento)
+            .options(joinedload(CajaMovimiento.tags))
+            .filter(CajaMovimiento.id == mov_id)
+            .first()
+        )
+        if not mov:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Movimiento no encontrado")
+
+        # Update category
+        if clear_categoria:
+            mov.categoria_id = None
+        elif categoria_id is not None:
+            cat = self.db.query(CajaCategoria).filter(CajaCategoria.id == categoria_id).first()
+            if not cat:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada")
+            if cat.tipo_aplicable != "ambos" and cat.tipo_aplicable != mov.tipo:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Categoría '{cat.nombre}' (tipo_aplicable={cat.tipo_aplicable}) no es compatible con movimiento tipo '{mov.tipo}'",
+                )
+            mov.categoria_id = categoria_id
+
+        # Update tags (SET semantics)
+        if tag_ids is not None:
+            # Validate all tag_ids exist
+            if tag_ids:
+                existing_tags = self.db.query(CajaTag).filter(CajaTag.id.in_(tag_ids)).all()
+                found_ids = {t.id for t in existing_tags}
+                missing = set(tag_ids) - found_ids
+                if missing:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Tags no encontrados: {sorted(missing)}",
+                    )
+
+            # Diff: remove old, add new
+            current_tag_ids = {t.id for t in mov.tags}
+            desired_tag_ids = set(tag_ids)
+
+            to_remove = current_tag_ids - desired_tag_ids
+            to_add = desired_tag_ids - current_tag_ids
+
+            if to_remove:
+                self.db.query(CajaMovimientoTag).filter(
+                    CajaMovimientoTag.movimiento_id == mov_id,
+                    CajaMovimientoTag.tag_id.in_(to_remove),
+                ).delete(synchronize_session=False)
+
+            for tid in to_add:
+                self.db.add(CajaMovimientoTag(movimiento_id=mov_id, tag_id=tid))
+
+            self.db.flush()
+
+        return mov
+
+    # ──────────────────────────────────────────────
+    # Helpers — tags batch loading
+    # ──────────────────────────────────────────────
+
+    def tags_por_movimientos_batch(self, movimiento_ids: list[int]) -> dict[int, list[dict]]:
+        """Returns {movimiento_id: [{id, nombre, color}, ...]} for a batch of movements."""
+        if not movimiento_ids:
+            return {}
+        rows = (
+            self.db.query(
+                CajaMovimientoTag.movimiento_id,
+                CajaTag.id,
+                CajaTag.nombre,
+                CajaTag.color,
+            )
+            .join(CajaTag, CajaMovimientoTag.tag_id == CajaTag.id)
+            .filter(CajaMovimientoTag.movimiento_id.in_(movimiento_ids))
+            .order_by(CajaTag.nombre.asc())
+            .all()
+        )
+        result: dict[int, list[dict]] = {}
+        for row in rows:
+            result.setdefault(row.movimiento_id, []).append({"id": row.id, "nombre": row.nombre, "color": row.color})
+        return result

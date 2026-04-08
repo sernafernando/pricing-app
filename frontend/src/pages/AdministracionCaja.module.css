@@ -598,6 +598,171 @@
   font-size: var(--font-xs);
 }
 
+/* ── Tags (T5/T6/T7) ─────────────────────────────────────────── */
+.tagsCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.tagChipNeutral {
+  composes: tagChip;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.editBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+.editBtn:hover {
+  color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+}
+
+/* ── Classification Modal (T6) ───────────────────────────────── */
+.modalContentWide {
+  composes: modalContent;
+  max-width: 560px;
+}
+
+.clasificacionHeader {
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.clasificacionHeader strong {
+  color: var(--cf-text-primary);
+  font-weight: 600;
+}
+
+.tagToggleGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--spacing-xs);
+}
+
+.tagToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+.tagToggle:hover {
+  border-color: var(--cf-text-tertiary);
+}
+
+.tagToggleActive {
+  composes: tagToggle;
+  color: white;
+  border-color: transparent;
+}
+
+.tagCreateRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.tagCreateRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.colorInput {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+}
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.colorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Tag Management View (T7) ────────────────────────────────── */
+.tagColorPreview {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  vertical-align: middle;
+  border: 1px solid var(--cf-border-default);
+}
+
+.tagMgmtForm {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toggleActivoBtn {
+  padding: 4px 10px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+.toggleActivoBtn:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+.toggleActivoBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .statsBar { grid-template-columns: 1fr; }

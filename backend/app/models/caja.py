@@ -79,8 +79,9 @@ class CajaMovimiento(Base):
     """
     Movimiento individual de caja (ingreso o egreso).
 
-    Los movimientos son inmutables: no se editan ni eliminan.
-    Para corregir errores, se registra un movimiento compensatorio.
+    Los campos financieros (monto, fecha, detalle, tipo, saldo_posterior)
+    son inmutables. Para corregir errores se registra un movimiento compensatorio.
+    Los campos de clasificación (categoria_id, tags) SÍ son editables post-creación.
     """
 
     __tablename__ = "caja_movimientos"
@@ -109,6 +110,7 @@ class CajaMovimiento(Base):
     )
     observaciones = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 
     # --- Relaciones ---
     caja = relationship("Caja", back_populates="movimientos")
@@ -117,6 +119,11 @@ class CajaMovimiento(Base):
     documentos = relationship(
         "CajaDocumento",
         secondary="caja_documento_movimientos",
+        back_populates="movimientos",
+    )
+    tags = relationship(
+        "CajaTag",
+        secondary="caja_movimiento_tags",
         back_populates="movimientos",
     )
 
@@ -284,3 +291,63 @@ class CajaArchivo(Base):
 
     def __repr__(self) -> str:
         return f"<CajaArchivo(id={self.id}, nombre='{self.nombre_archivo}')>"
+
+
+# ──────────────────────────────────────────────
+# Tags (v2 — classification)
+# ──────────────────────────────────────────────
+
+
+class CajaTag(Base):
+    """
+    Etiqueta libre para clasificar movimientos de caja.
+
+    Tags son globales (compartidos entre todas las cajas).
+    N:M con movimientos a través de caja_movimiento_tags.
+    """
+
+    __tablename__ = "caja_tags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(100), nullable=False)
+    color = Column(String(7), nullable=True)  # hex e.g. "#ef4444"
+    activo = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+
+    # --- Relaciones ---
+    movimientos = relationship(
+        "CajaMovimiento",
+        secondary="caja_movimiento_tags",
+        back_populates="tags",
+    )
+
+    __table_args__ = (UniqueConstraint("nombre", name="uq_caja_tag_nombre"),)
+
+    def __repr__(self) -> str:
+        return f"<CajaTag(id={self.id}, nombre='{self.nombre}')>"
+
+
+class CajaMovimientoTag(Base):
+    """Junction table: N:M entre movimientos y tags."""
+
+    __tablename__ = "caja_movimiento_tags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    movimiento_id = Column(
+        Integer,
+        ForeignKey("caja_movimientos.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tag_id = Column(
+        Integer,
+        ForeignKey("caja_tags.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("movimiento_id", "tag_id", name="uq_caja_mov_tag"),
+        Index("ix_caja_mov_tag_movimiento", "movimiento_id"),
+        Index("ix_caja_mov_tag_tag", "tag_id"),
+    )
