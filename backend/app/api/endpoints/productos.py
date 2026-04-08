@@ -5811,13 +5811,7 @@ async def exportar_web_transferencia(
 
     # Obtener productos con precio web transferencia
     query = (
-        db.query(
-            ProductoERP.item_id,
-            ProductoERP.codigo,
-            ProductoPricing.precio_web_transferencia,
-            ProductoERP.descripcion,
-            ProductoERP.stock,
-        )
+        db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoPricing.precio_web_transferencia)
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
         .filter(
             ProductoPricing.participa_web_transferencia == True, ProductoPricing.precio_web_transferencia.isnot(None)
@@ -6159,10 +6153,10 @@ async def exportar_web_transferencia(
     ws.title = "Web Transferencia"
 
     # Header
-    ws.append(["Código/EAN", "Descripción", "Stock", "Precio", "ID Moneda"])
+    ws.append(["Código/EAN", "Precio", "ID Moneda"])
 
     # Datos - todo como texto
-    for item_id, codigo, precio_base, descripcion, stock in productos:
+    for item_id, codigo, precio_base in productos:
         # Aplicar porcentaje adicional
         precio_final = float(precio_base) * (1 + porcentaje_adicional / 100)
 
@@ -6176,7 +6170,7 @@ async def exportar_web_transferencia(
             precio_final = round(precio_final / 10) * 10
             precio_str = str(int(precio_final))
 
-        ws.append([str(codigo), descripcion or "", stock or 0, precio_str, str(currency_id)])
+        ws.append([str(codigo), precio_str, str(currency_id)])
 
     # Guardar en memoria
     output = BytesIO()
@@ -7664,6 +7658,7 @@ async def exportar_lista_web_transferencia(
             "Subcategoría",
             "Código",
             "Descripción",
+            "Stock",
             f"Precio Web Transf. {moneda_texto} s/IVA",
             f"Precio Web Transf. {moneda_texto} c/IVA",
         ]
@@ -7695,13 +7690,14 @@ async def exportar_lista_web_transferencia(
             ws.cell(row=row_num, column=3, value=subcats_dict.get(producto_erp.subcategoria_id, "") or "")
             ws.cell(row=row_num, column=4, value=producto_erp.codigo or "")
             ws.cell(row=row_num, column=5, value=producto_erp.descripcion or "")
-            ws.cell(row=row_num, column=6, value=round(precio_sin_iva, 2))
-            ws.cell(row=row_num, column=7, value=round(precio_con_iva, 2))
+            ws.cell(row=row_num, column=6, value=producto_erp.stock or 0)
+            ws.cell(row=row_num, column=7, value=round(precio_sin_iva, 2))
+            ws.cell(row=row_num, column=8, value=round(precio_con_iva, 2))
 
             row_num += 1
 
         # Ajustar anchos de columna
-        column_widths = [15, 20, 20, 15, 50, 22, 22]
+        column_widths = [15, 20, 20, 15, 50, 10, 22, 22]
         for i, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
 
