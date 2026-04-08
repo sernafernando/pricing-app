@@ -125,6 +125,8 @@ from app.models.caja import (
     CajaDocumento,
     CajaDocumentoMovimiento,
     CajaArchivo,
+    CajaTag,
+    CajaMovimientoTag,
 )
 
 __all__ = [
@@ -269,4 +271,6 @@ __all__ = [
     "CajaDocumento",
     "CajaDocumentoMovimiento",
     "CajaArchivo",
+    "CajaTag",
+    "CajaMovimientoTag",
 ]

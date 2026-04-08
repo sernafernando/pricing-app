@@ -15,10 +15,19 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   X,
   Paperclip,
   Settings2,
   Search,
+  Upload,
+  FileText,
+  Trash2,
+  Unlink,
+  Eye,
+  Pencil,
+  Tag,
 } from 'lucide-react';
 
 registrarPagina({
@@ -50,8 +59,8 @@ export default function AdministracionCaja() {
   const canManage = tienePermiso('administracion.gestionar_caja');
   const canSync = tienePermiso('administracion.sincronizar_caja');
 
-  // ── Routing state (list / detail / categories) ──
-  const [view, setView] = useState('list'); // 'list' | 'detail' | 'categories'
+  // ── Routing state (list / detail / categories / tags) ──
+  const [view, setView] = useState('list'); // 'list' | 'detail' | 'categories' | 'tags'
   const [selectedCaja, setSelectedCaja] = useState(null);
 
   // ── List view ──
@@ -93,6 +102,46 @@ export default function AdministracionCaja() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
+  // ── Document section (T13b + T14b) ──
+  const [expandedMovIds, setExpandedMovIds] = useState(new Set());
+  const [movDocumentos, setMovDocumentos] = useState({}); // {movId: [docs]}
+  const [loadingDocs, setLoadingDocs] = useState(new Set());
+
+  // Document attachment modal
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docModalMovId, setDocModalMovId] = useState(null);
+  const [docFlow, setDocFlow] = useState('create'); // 'create' | 'link'
+  const [tipoDocumentos, setTipoDocumentos] = useState([]);
+  const [docForm, setDocForm] = useState({ tipo_documento_id: '', numero: '', descripcion: '', fecha_documento: '', monto_documento: '' });
+  const [docFiles, setDocFiles] = useState([]);
+  const [savingDoc, setSavingDoc] = useState(false);
+  const [docError, setDocError] = useState(null);
+
+  // Existing documents for linking
+  const [existingDocs, setExistingDocs] = useState([]);
+  const [loadingExistingDocs, setLoadingExistingDocs] = useState(false);
+  const [selectedLinkDocId, setSelectedLinkDocId] = useState(null);
+
+  // Unlink confirmation
+  const [unlinkTarget, setUnlinkTarget] = useState(null); // {docId, movId}
+
+  // ── Tags (T5/T6/T7) ──
+  const [tags, setTags] = useState([]);
+  const [filtroTag, setFiltroTag] = useState('');
+  const [showClasificacionModal, setShowClasificacionModal] = useState(false);
+  const [clasificacionMov, setClasificacionMov] = useState(null);
+  const [clasificacionCatId, setClasificacionCatId] = useState('');
+  const [clasificacionTagIds, setClasificacionTagIds] = useState([]);
+  const [savingClasificacion, setSavingClasificacion] = useState(false);
+  const [newTagNombre, setNewTagNombre] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#3b82f6');
+  const [creatingTag, setCreatingTag] = useState(false);
+  // Tag management form (T7)
+  const [tagMgmtNombre, setTagMgmtNombre] = useState('');
+  const [tagMgmtColor, setTagMgmtColor] = useState('#3b82f6');
+  const [savingTagMgmt, setSavingTagMgmt] = useState(false);
+  const [togglingTagId, setTogglingTagId] = useState(null);
+
   // ══════════════════════════════════════════════════════════════
   // Data fetching
   // ══════════════════════════════════════════════════════════════
@@ -119,6 +168,7 @@ export default function AdministracionCaja() {
       if (filtroTipo) params.append('tipo', filtroTipo);
       if (filtroCategoria) params.append('categoria_id', filtroCategoria);
       if (debouncedBusqueda) params.append('busqueda', debouncedBusqueda);
+      if (filtroTag) params.append('tag_id', filtroTag);
 
       const { data } = await api.get(`/administracion-caja/cajas/${selectedCaja.id}/movimientos?${params}`);
       setMovimientos(data.items);
@@ -133,7 +183,7 @@ export default function AdministracionCaja() {
     } finally {
       setLoadingMovimientos(false);
     }
-  }, [selectedCaja, movPage, filtroFechaDesde, filtroFechaHasta, filtroTipo, filtroCategoria, debouncedBusqueda]);
+  }, [selectedCaja, movPage, filtroFechaDesde, filtroFechaHasta, filtroTipo, filtroCategoria, debouncedBusqueda, filtroTag]);
 
   const fetchCategorias = useCallback(async () => {
     try {
@@ -153,11 +203,57 @@ export default function AdministracionCaja() {
     }
   }, []);
 
-  useEffect(() => { fetchCajas(); fetchCategorias(); }, [fetchCajas, fetchCategorias]);
+  const fetchTipoDocumentos = useCallback(async () => {
+    try {
+      const { data } = await api.get('/administracion-caja/tipo-documentos');
+      setTipoDocumentos(data);
+    } catch {
+      setTipoDocumentos([]);
+    }
+  }, []);
+
+  const fetchDocsForMovimiento = useCallback(async (movId) => {
+    setLoadingDocs(prev => new Set(prev).add(movId));
+    try {
+      const { data } = await api.get(`/administracion-caja/movimientos/${movId}/documentos`);
+      setMovDocumentos(prev => ({ ...prev, [movId]: data }));
+    } catch {
+      setMovDocumentos(prev => ({ ...prev, [movId]: [] }));
+    } finally {
+      setLoadingDocs(prev => {
+        const next = new Set(prev);
+        next.delete(movId);
+        return next;
+      });
+    }
+  }, []);
+
+  const fetchExistingDocs = useCallback(async () => {
+    setLoadingExistingDocs(true);
+    try {
+      const { data } = await api.get('/administracion-caja/documentos');
+      setExistingDocs(data);
+    } catch {
+      setExistingDocs([]);
+    } finally {
+      setLoadingExistingDocs(false);
+    }
+  }, []);
+
+  const fetchTags = useCallback(async () => {
+    try {
+      const { data } = await api.get('/administracion-caja/tags');
+      setTags(data);
+    } catch {
+      setTags([]);
+    }
+  }, []);
+
+  useEffect(() => { fetchCajas(); fetchCategorias(); fetchTags(); }, [fetchCajas, fetchCategorias, fetchTags]);
   useEffect(() => { if (view === 'detail') fetchMovimientos(); }, [view, fetchMovimientos]);
 
   // Reset page when filters change
-  useEffect(() => { setMovPage(1); }, [filtroFechaDesde, filtroFechaHasta, filtroTipo, filtroCategoria, debouncedBusqueda]);
+  useEffect(() => { setMovPage(1); }, [filtroFechaDesde, filtroFechaHasta, filtroTipo, filtroCategoria, debouncedBusqueda, filtroTag]);
 
   // ══════════════════════════════════════════════════════════════
   // Actions
@@ -172,6 +268,7 @@ export default function AdministracionCaja() {
     setFiltroCategoria('');
     setFiltroFechaDesde('');
     setFiltroFechaHasta('');
+    setFiltroTag('');
   };
 
   const handleBackToList = () => {
@@ -274,6 +371,101 @@ export default function AdministracionCaja() {
     }
   };
 
+  // ── Classification Modal (T6) ──
+  const handleOpenClasificacion = (mov) => {
+    setClasificacionMov(mov);
+    setClasificacionCatId(mov.categoria_id ? String(mov.categoria_id) : '');
+    setClasificacionTagIds(mov.tags ? mov.tags.map(t => t.id) : []);
+    setNewTagNombre('');
+    setNewTagColor('#3b82f6');
+    setFormError(null);
+    setShowClasificacionModal(true);
+  };
+
+  const handleToggleClasificacionTag = (tagId) => {
+    setClasificacionTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    );
+  };
+
+  const handleCreateTagInline = async () => {
+    if (!newTagNombre.trim()) return;
+    setCreatingTag(true);
+    try {
+      const { data } = await api.post('/administracion-caja/tags', {
+        nombre: newTagNombre.trim(),
+        color: newTagColor,
+      });
+      await fetchTags();
+      setClasificacionTagIds(prev => [...prev, data.id]);
+      setNewTagNombre('');
+      setNewTagColor('#3b82f6');
+    } catch (err) {
+      setFormError(err.response?.data?.detail || 'Error al crear tag');
+    } finally {
+      setCreatingTag(false);
+    }
+  };
+
+  const handleSaveClasificacion = async () => {
+    if (!clasificacionMov) return;
+    setSavingClasificacion(true);
+    setFormError(null);
+    try {
+      const payload = {
+        tag_ids: clasificacionTagIds,
+      };
+      if (clasificacionCatId) {
+        payload.categoria_id = Number(clasificacionCatId);
+      } else if (clasificacionMov.categoria_id) {
+        payload.clear_categoria = true;
+      }
+      await api.patch(`/administracion-caja/movimientos/${clasificacionMov.id}/clasificacion`, payload);
+      setShowClasificacionModal(false);
+      fetchMovimientos();
+    } catch (err) {
+      setFormError(err.response?.data?.detail || 'Error al guardar clasificación');
+    } finally {
+      setSavingClasificacion(false);
+    }
+  };
+
+  // ── Tag Management (T7) ──
+  const handleCreateTagMgmt = async (e) => {
+    e.preventDefault();
+    if (!tagMgmtNombre.trim()) {
+      setFormError('Nombre es requerido');
+      return;
+    }
+    setSavingTagMgmt(true);
+    setFormError(null);
+    try {
+      await api.post('/administracion-caja/tags', {
+        nombre: tagMgmtNombre.trim(),
+        color: tagMgmtColor,
+      });
+      setTagMgmtNombre('');
+      setTagMgmtColor('#3b82f6');
+      fetchTags();
+    } catch (err) {
+      setFormError(err.response?.data?.detail || 'Error al crear tag');
+    } finally {
+      setSavingTagMgmt(false);
+    }
+  };
+
+  const handleToggleTagActivo = async (tag) => {
+    setTogglingTagId(tag.id);
+    try {
+      await api.put(`/administracion-caja/tags/${tag.id}`, { activo: !tag.activo });
+      fetchTags();
+    } catch {
+      // silently fail
+    } finally {
+      setTogglingTagId(null);
+    }
+  };
+
   // ── Sync ──
   const handleSync = async () => {
     setSyncing(true);
@@ -310,6 +502,11 @@ export default function AdministracionCaja() {
             {canManage && (
               <button className={styles.btnPrimary} onClick={() => { setView('categories'); setFormError(null); }}>
                 <Settings2 size={16} /> Categorías
+              </button>
+            )}
+            {canManage && (
+              <button className={styles.btnPrimary} onClick={() => { setView('tags'); setFormError(null); }}>
+                <Tag size={16} /> Tags
               </button>
             )}
             {canSync && (
@@ -487,6 +684,69 @@ export default function AdministracionCaja() {
     );
   }
 
+  // ── TAGS MANAGEMENT VIEW (T7) ──
+  if (view === 'tags') {
+    return (
+      <div className={styles.container}>
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <button className={styles.backBtn} onClick={handleBackToList}><ArrowLeft size={16} /> Volver</button>
+            <h1 className={styles.title}>Tags de Caja</h1>
+            <span className={styles.badge}>{tags.length}</span>
+          </div>
+        </div>
+
+        {/* New tag form */}
+        {canManage && (
+          <form onSubmit={handleCreateTagMgmt} className={styles.tagMgmtForm}>
+            <input className={styles.input} placeholder="Nombre del tag..." value={tagMgmtNombre} onChange={e => setTagMgmtNombre(e.target.value)} />
+            <input type="color" className={styles.colorInput} value={tagMgmtColor} onChange={e => setTagMgmtColor(e.target.value)} title="Color del tag" />
+            <button type="submit" className={styles.btnSuccess} disabled={savingTagMgmt}><Plus size={14} /> Crear</button>
+          </form>
+        )}
+        {formError && <div className={styles.formError}>{formError}</div>}
+
+        <div className={styles.tableWrapper}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Color</th>
+                <th>Nombre</th>
+                <th>Estado</th>
+                {canManage && <th>Acciones</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {tags.map(tag => (
+                <tr key={tag.id}>
+                  <td><span className={styles.tagColorPreview} style={{ backgroundColor: tag.color || 'var(--cf-bg-hover)' }} /></td>
+                  <td className={styles.catNombreTd}>{tag.nombre}</td>
+                  <td className={tag.activo ? styles.catEstadoActiva : styles.catEstadoInactiva}>
+                    {tag.activo ? 'Activo' : 'Inactivo'}
+                  </td>
+                  {canManage && (
+                    <td>
+                      <button
+                        className={styles.toggleActivoBtn}
+                        onClick={() => handleToggleTagActivo(tag)}
+                        disabled={togglingTagId === tag.id}
+                      >
+                        {togglingTagId === tag.id ? '...' : tag.activo ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {tags.length === 0 && (
+                <tr><td colSpan={canManage ? 4 : 3} className={styles.emptyState}>No hay tags creados</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
   // ── DETAIL VIEW ──
   return (
     <div className={styles.container}>
@@ -542,6 +802,10 @@ export default function AdministracionCaja() {
           <option value="">Todas las categorías</option>
           {activeCategorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
         </select>
+        <select className={styles.select} value={filtroTag} onChange={e => setFiltroTag(e.target.value)}>
+          <option value="">Todos los tags</option>
+          {tags.filter(t => t.activo).map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+        </select>
         <div className={styles.searchWrapper}>
           <Search size={14} className={styles.searchIcon} />
           <input className={styles.searchInputWithIcon} placeholder="Buscar en detalle..." value={filtroBusqueda} onChange={e => setFiltroBusqueda(e.target.value)} />
@@ -564,8 +828,10 @@ export default function AdministracionCaja() {
                 <th className={styles.thRight}>Monto</th>
                 <th className={styles.thRight}>Saldo</th>
                 <th>Categoría</th>
+                <th>Tags</th>
                 <th>Origen</th>
                 <th></th>
+                {canManage && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -586,6 +852,19 @@ export default function AdministracionCaja() {
                     {formatCurrency(mov.saldo_posterior, selectedCaja?.moneda)}
                   </td>
                   <td className={styles.tdSecondary}>{mov.categoria_nombre || '—'}</td>
+                  <td>
+                    <div className={styles.tagsCell}>
+                      {mov.tags && mov.tags.length > 0 ? mov.tags.map(t => (
+                        <span
+                          key={t.id}
+                          className={t.color ? styles.tagChip : styles.tagChipNeutral}
+                          style={t.color ? { backgroundColor: t.color } : undefined}
+                        >
+                          {t.nombre}
+                        </span>
+                      )) : <span className={styles.tdSecondary}>—</span>}
+                    </div>
+                  </td>
                   <td className={styles.tdMeta}>{mov.origen}</td>
                   <td>
                     {mov.documentos_count > 0 && (
@@ -594,6 +873,13 @@ export default function AdministracionCaja() {
                       </span>
                     )}
                   </td>
+                  {canManage && (
+                    <td>
+                      <button className={styles.editBtn} onClick={() => handleOpenClasificacion(mov)} aria-label="Clasificar movimiento">
+                        <Pencil size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -677,6 +963,96 @@ export default function AdministracionCaja() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Classification Modal (T6) ── */}
+      {showClasificacionModal && clasificacionMov && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContentWide}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>Clasificar Movimiento</span>
+              <button className={styles.modalCloseBtn} onClick={() => setShowClasificacionModal(false)}><X size={18} /></button>
+            </div>
+
+            {/* Movement info header */}
+            <div className={styles.clasificacionHeader}>
+              <div><span>Fecha: </span><strong>{formatDate(clasificacionMov.fecha)}</strong></div>
+              <div><span>Tipo: </span><strong>{clasificacionMov.tipo}</strong></div>
+              <div><span>Detalle: </span><strong>{clasificacionMov.detalle}</strong></div>
+              <div><span>Monto: </span><strong>{formatCurrency(clasificacionMov.monto, selectedCaja?.moneda)}</strong></div>
+            </div>
+
+            {formError && <div className={styles.formError}>{formError}</div>}
+
+            {/* Category dropdown */}
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Categoría</label>
+              <select className={styles.formSelect} value={clasificacionCatId} onChange={e => setClasificacionCatId(e.target.value)}>
+                <option value="">Sin categoría</option>
+                {activeCategorias
+                  .filter(c => c.tipo_aplicable === 'ambos' || c.tipo_aplicable === clasificacionMov.tipo)
+                  .map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)
+                }
+              </select>
+            </div>
+
+            {/* Tags toggle grid */}
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Tags</label>
+              <div className={styles.tagToggleGrid}>
+                {tags.filter(t => t.activo).map(t => {
+                  const isActive = clasificacionTagIds.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={isActive ? styles.tagToggleActive : styles.tagToggle}
+                      style={isActive && t.color ? { backgroundColor: t.color, borderColor: t.color } : undefined}
+                      onClick={() => handleToggleClasificacionTag(t.id)}
+                    >
+                      {t.nombre}
+                    </button>
+                  );
+                })}
+                {tags.filter(t => t.activo).length === 0 && (
+                  <span className={styles.tdSecondary}>No hay tags creados</span>
+                )}
+              </div>
+
+              {/* Inline create tag */}
+              <div className={styles.tagCreateRow}>
+                <input
+                  className={styles.input}
+                  placeholder="Nuevo tag..."
+                  value={newTagNombre}
+                  onChange={e => setNewTagNombre(e.target.value)}
+                />
+                <input
+                  type="color"
+                  className={styles.colorInput}
+                  value={newTagColor}
+                  onChange={e => setNewTagColor(e.target.value)}
+                  title="Color del tag"
+                />
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={handleCreateTagInline}
+                  disabled={creatingTag || !newTagNombre.trim()}
+                >
+                  <Plus size={14} /> {creatingTag ? '...' : 'Crear'}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.formActions}>
+              <button type="button" className={styles.btnPrimary} onClick={() => setShowClasificacionModal(false)}>Cancelar</button>
+              <button type="button" className={styles.btnSuccess} onClick={handleSaveClasificacion} disabled={savingClasificacion}>
+                {savingClasificacion ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
