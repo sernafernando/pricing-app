@@ -128,11 +128,18 @@ class CajaSheetsSync:
 
         headers = [h.strip().upper() for h in all_values[header_idx]]
 
-        # Find column indexes
+        # Find column indexes.
+        # Some tabs have an empty or whitespace-only header for the date column
+        # (the actual dates start in row 1). Fall back to column 0 for FECHA.
         col_fecha = headers.index("FECHA") if "FECHA" in headers else None
         col_detalle = headers.index("DETALLE") if "DETALLE" in headers else None
         col_ingresos = headers.index("INGRESOS") if "INGRESOS" in headers else None
         col_egresos = headers.index("EGRESOS") if "EGRESOS" in headers else None
+
+        # Fallback: if FECHA column not found but DETALLE exists,
+        # assume column 0 is the date (common in hand-made sheets).
+        if col_fecha is None and col_detalle is not None:
+            col_fecha = 0
 
         if col_fecha is None or col_detalle is None:
             result.errores.append(
@@ -158,11 +165,35 @@ class CajaSheetsSync:
         for m in existing_movs:
             existing_keys.add((m.fecha, m.detalle, m.tipo, float(m.monto)))
 
-        # Process data rows
-        new_movements: list[dict] = []
-        skipped_other_year: int = 0
+        # Find where the current year starts.
+        # Dates in the sheet are dd/mm without year. We detect the LAST
+        # dec→jan transition (month >=11 → month <=2) and only import
+        # rows from that point onward. Rows with an explicit year that
+        # matches SYNC_YEAR are always included.
+        data_rows = all_values[header_idx + 1 :]
+        last_transition_idx: Optional[int] = None
+        prev_month: Optional[int] = None
+        for i, row in enumerate(data_rows):
+            fecha_str = row[col_fecha].strip() if col_fecha < len(row) else ""
+            if "/" not in fecha_str:
+                continue
+            parts = fecha_str.split("/")
+            try:
+                month = int(parts[1])
+            except (ValueError, IndexError):
+                continue
+            if prev_month is not None and prev_month >= 11 and month <= 2:
+                last_transition_idx = i
+            prev_month = month
 
-        for row_num, row in enumerate(all_values[header_idx + 1 :], start=header_idx + 2):
+        # Only process rows from the last transition onward.
+        # If no transition found, process all rows (single-year sheet).
+        start_idx = last_transition_idx if last_transition_idx is not None else 0
+
+        new_movements: list[dict] = []
+        skipped_before_transition: int = 0
+
+        for row_num, row in enumerate(data_rows[start_idx:], start=header_idx + 2 + start_idx):
             result.total_procesadas += 1
 
             # Get cell values
@@ -180,9 +211,8 @@ class CajaSheetsSync:
                 result.errores.append({"row": row_num, "error": f"Invalid date format: '{fecha_str}'"})
                 continue
 
-            # Only import rows from SYNC_YEAR
-            if fecha.year != SYNC_YEAR:
-                skipped_other_year += 1
+            # Skip rows with explicit year different from SYNC_YEAR
+            if has_explicit_year and fecha.year != SYNC_YEAR:
                 continue
 
             # Parse amounts
@@ -219,11 +249,12 @@ class CajaSheetsSync:
                 }
             )
 
-        if skipped_other_year > 0:
+        if last_transition_idx is not None:
+            skipped_before_transition = last_transition_idx
             result.errores.append(
                 {
                     "tab": caja.nombre,
-                    "info": f"Skipped {skipped_other_year} rows with explicit year != {SYNC_YEAR}",
+                    "info": f"Skipped {skipped_before_transition} rows before last year transition (pre-{SYNC_YEAR})",
                 }
             )
 

@@ -68,49 +68,23 @@
 
 /* ── Buttons ─────────────────────────────────────────────────── */
 .btnPrimary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  font-size: var(--font-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
-.btnPrimary:hover:not(:disabled) { background: var(--cf-bg-hover); border-color: var(--cf-text-tertiary); }
-.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btnSuccess {
-  composes: btnPrimary;
-  background: var(--cf-accent-green);
-  color: white;
-  border-color: var(--cf-accent-green);
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
-.btnSuccess:hover:not(:disabled) { filter: brightness(1.1); background: var(--cf-accent-green); }
 
 .btnDanger {
-  composes: btnPrimary;
-  background: var(--cf-accent-red);
-  color: white;
-  border-color: var(--cf-accent-red);
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
 }
-.btnDanger:hover:not(:disabled) { filter: brightness(1.1); background: var(--cf-accent-red); }
 
 .btnSync {
-  composes: btnPrimary;
-  background: var(--cf-accent-orange);
-  color: white;
-  border-color: var(--cf-accent-orange);
+  composes: btn-tesla outline-subtle-warning sm from '../styles/buttons-tesla.css';
 }
-.btnSync:hover:not(:disabled) { filter: brightness(1.1); background: var(--cf-accent-orange); }
 
-.btnSmall {
-  padding: 4px 8px;
-  font-size: var(--font-xs);
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
 /* ── Caja Cards (List View) ──────────────────────────────────── */
@@ -315,16 +289,8 @@
 }
 
 .pageBtn {
-  padding: 4px 10px;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  color: var(--cf-text-primary);
-  font-size: var(--font-sm);
-  cursor: pointer;
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
-.pageBtn:hover:not(:disabled) { background: var(--cf-bg-hover); }
-.pageBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Modal ───────────────────────────────────────────────────── */
 .modalOverlay {
@@ -625,20 +591,7 @@
 }
 
 .editBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--cf-text-tertiary);
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
-}
-.editBtn:hover {
-  color: var(--cf-accent-blue);
-  background: var(--cf-bg-hover);
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
 }
 
 /* ── Classification Modal (T6) ───────────────────────────────── */
@@ -745,22 +698,7 @@
 }
 
 .toggleActivoBtn {
-  padding: 4px 10px;
-  font-size: var(--font-xs);
-  font-weight: 500;
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-secondary);
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
-}
-.toggleActivoBtn:hover:not(:disabled) {
-  background: var(--cf-bg-hover);
-}
-.toggleActivoBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
 /* ── Responsive ──────────────────────────────────────────────── */
