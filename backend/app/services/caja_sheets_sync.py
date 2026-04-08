@@ -128,11 +128,18 @@ class CajaSheetsSync:
 
         headers = [h.strip().upper() for h in all_values[header_idx]]
 
-        # Find column indexes
+        # Find column indexes.
+        # Some tabs have an empty or whitespace-only header for the date column
+        # (the actual dates start in row 1). Fall back to column 0 for FECHA.
         col_fecha = headers.index("FECHA") if "FECHA" in headers else None
         col_detalle = headers.index("DETALLE") if "DETALLE" in headers else None
         col_ingresos = headers.index("INGRESOS") if "INGRESOS" in headers else None
         col_egresos = headers.index("EGRESOS") if "EGRESOS" in headers else None
+
+        # Fallback: if FECHA column not found but DETALLE exists,
+        # assume column 0 is the date (common in hand-made sheets).
+        if col_fecha is None and col_detalle is not None:
+            col_fecha = 0
 
         if col_fecha is None or col_detalle is None:
             result.errores.append(
