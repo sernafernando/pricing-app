@@ -102,29 +102,6 @@ export default function AdministracionCaja() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
-  // ── Document section (T13b + T14b) ──
-  const [expandedMovIds, setExpandedMovIds] = useState(new Set());
-  const [movDocumentos, setMovDocumentos] = useState({}); // {movId: [docs]}
-  const [loadingDocs, setLoadingDocs] = useState(new Set());
-
-  // Document attachment modal
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [docModalMovId, setDocModalMovId] = useState(null);
-  const [docFlow, setDocFlow] = useState('create'); // 'create' | 'link'
-  const [tipoDocumentos, setTipoDocumentos] = useState([]);
-  const [docForm, setDocForm] = useState({ tipo_documento_id: '', numero: '', descripcion: '', fecha_documento: '', monto_documento: '' });
-  const [docFiles, setDocFiles] = useState([]);
-  const [savingDoc, setSavingDoc] = useState(false);
-  const [docError, setDocError] = useState(null);
-
-  // Existing documents for linking
-  const [existingDocs, setExistingDocs] = useState([]);
-  const [loadingExistingDocs, setLoadingExistingDocs] = useState(false);
-  const [selectedLinkDocId, setSelectedLinkDocId] = useState(null);
-
-  // Unlink confirmation
-  const [unlinkTarget, setUnlinkTarget] = useState(null); // {docId, movId}
-
   // ── Tags (T5/T6/T7) ──
   const [tags, setTags] = useState([]);
   const [filtroTag, setFiltroTag] = useState('');
@@ -200,43 +177,6 @@ export default function AdministracionCaja() {
       setEmpresas(data);
     } catch {
       setEmpresas([]);
-    }
-  }, []);
-
-  const fetchTipoDocumentos = useCallback(async () => {
-    try {
-      const { data } = await api.get('/administracion-caja/tipo-documentos');
-      setTipoDocumentos(data);
-    } catch {
-      setTipoDocumentos([]);
-    }
-  }, []);
-
-  const fetchDocsForMovimiento = useCallback(async (movId) => {
-    setLoadingDocs(prev => new Set(prev).add(movId));
-    try {
-      const { data } = await api.get(`/administracion-caja/movimientos/${movId}/documentos`);
-      setMovDocumentos(prev => ({ ...prev, [movId]: data }));
-    } catch {
-      setMovDocumentos(prev => ({ ...prev, [movId]: [] }));
-    } finally {
-      setLoadingDocs(prev => {
-        const next = new Set(prev);
-        next.delete(movId);
-        return next;
-      });
-    }
-  }, []);
-
-  const fetchExistingDocs = useCallback(async () => {
-    setLoadingExistingDocs(true);
-    try {
-      const { data } = await api.get('/administracion-caja/documentos');
-      setExistingDocs(data);
-    } catch {
-      setExistingDocs([]);
-    } finally {
-      setLoadingExistingDocs(false);
     }
   }, []);
 
