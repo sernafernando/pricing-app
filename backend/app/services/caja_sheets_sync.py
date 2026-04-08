@@ -18,15 +18,15 @@ from app.models.caja import Caja, CajaMovimiento
 from app.models.empresa import Empresa
 
 # Tab name → caja metadata.
-# start_year: year of the first entry in each tab (determined from analysis:
-# PASTORIZA ARS starts Jun 2023, has 3 dic→ene transitions → 2023,2024,2025,2026.
-# USD starts Jun 2023, some rows have explicit years confirming 2024/2025/2026.
-# GRUPO GAUSS starts Jun 2024, has 1 dic→ene transition → 2024,2025.)
 SHEET_TAB_MAPPING: dict[str, dict] = {
-    "CAJA $ PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "ARS", "start_year": 2023},
-    "CAJA USD PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "USD", "start_year": 2023},
-    "CAJA $ GRUPO GAUSS": {"empresa_nombre": "Grupo Gauss", "moneda": "ARS", "start_year": 2024},
+    "CAJA $ PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "ARS"},
+    "CAJA USD PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "USD"},
+    "CAJA $ GRUPO GAUSS": {"empresa_nombre": "Grupo Gauss", "moneda": "ARS"},
 }
+
+# Only import data from this year. The sheet has historical data without
+# year in dates (just dd/mm), so we can't reliably infer older years.
+SYNC_YEAR: int = 2026
 
 
 class SyncResult:
@@ -83,7 +83,7 @@ class CajaSheetsSync:
                 continue
 
             caja = self._get_or_create_caja(tab_name, meta)
-            self._process_tab(worksheet, caja, meta, result)
+            self._process_tab(worksheet, caja, result)
 
         self.db.flush()
         return result.to_dict()
@@ -106,8 +106,14 @@ class CajaSheetsSync:
             self.db.flush()
         return caja
 
-    def _process_tab(self, worksheet, caja: Caja, meta: dict, result: SyncResult) -> None:
-        """Processes all rows from a single worksheet tab."""
+    def _process_tab(self, worksheet, caja: Caja, result: SyncResult) -> None:
+        """
+        Processes rows from a single worksheet tab.
+
+        Only imports rows whose parsed year == SYNC_YEAR.
+        Dates without explicit year (dd/mm) are assumed to be SYNC_YEAR.
+        Dates with explicit year that differs from SYNC_YEAR are skipped.
+        """
         all_values = worksheet.get_all_values()
         if len(all_values) < 2:
             return
@@ -152,12 +158,10 @@ class CajaSheetsSync:
         for m in existing_movs:
             existing_keys.add((m.fecha, m.detalle, m.tipo, float(m.monto)))
 
-        # Year inference state: start_year from mapping, track month to detect year changes
-        current_year: int = meta.get("start_year", 2023)
-        prev_month: Optional[int] = None
-
         # Process data rows
         new_movements: list[dict] = []
+        skipped_other_year: int = 0
+
         for row_num, row in enumerate(all_values[header_idx + 1 :], start=header_idx + 2):
             result.total_procesadas += 1
 
@@ -170,24 +174,16 @@ class CajaSheetsSync:
             if not fecha_str or not detalle:
                 continue
 
-            # Parse date — pass current_year as default for dates without year
-            fecha, has_explicit_year = self._parse_fecha(fecha_str, default_year=current_year)
+            # Parse date — dates without year default to SYNC_YEAR
+            fecha, has_explicit_year = self._parse_fecha(fecha_str, default_year=SYNC_YEAR)
             if not fecha:
                 result.errores.append({"row": row_num, "error": f"Invalid date format: '{fecha_str}'"})
                 continue
 
-            # Infer year transitions for dates without explicit year.
-            # When month jumps from >=11 to <=2, it's a new year (dec→jan).
-            # Small jumps (e.g. typo 18/6→18/5→18/6) are NOT year changes.
-            if not has_explicit_year:
-                if prev_month is not None and prev_month >= 11 and fecha.month <= 2:
-                    current_year += 1
-                    fecha = fecha.replace(year=current_year)
-                prev_month = fecha.month
-            else:
-                # Explicit year: update tracking state
-                current_year = fecha.year
-                prev_month = fecha.month
+            # Only import rows from SYNC_YEAR
+            if fecha.year != SYNC_YEAR:
+                skipped_other_year += 1
+                continue
 
             # Parse amounts
             ingreso = self._parse_monto(ingreso_str)
@@ -220,6 +216,14 @@ class CajaSheetsSync:
                     "tipo": tipo,
                     "monto": Decimal(str(monto)),
                     "origen": "sync",
+                }
+            )
+
+        if skipped_other_year > 0:
+            result.errores.append(
+                {
+                    "tab": caja.nombre,
+                    "info": f"Skipped {skipped_other_year} rows with explicit year != {SYNC_YEAR}",
                 }
             )
 
