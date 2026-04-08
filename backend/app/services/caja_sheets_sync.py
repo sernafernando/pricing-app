@@ -17,11 +17,15 @@ from app.core.config import settings
 from app.models.caja import Caja, CajaMovimiento
 from app.models.empresa import Empresa
 
-# Tab name → caja metadata
+# Tab name → caja metadata.
+# start_year: year of the first entry in each tab (determined from analysis:
+# PASTORIZA ARS starts Jun 2023, has 3 dic→ene transitions → 2023,2024,2025,2026.
+# USD starts Jun 2023, some rows have explicit years confirming 2024/2025/2026.
+# GRUPO GAUSS starts Jun 2024, has 1 dic→ene transition → 2024,2025.)
 SHEET_TAB_MAPPING: dict[str, dict] = {
-    "CAJA $ PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "ARS"},
-    "CAJA USD PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "USD"},
-    "CAJA $ GRUPO GAUSS": {"empresa_nombre": "Grupo Gauss", "moneda": "ARS"},
+    "CAJA $ PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "ARS", "start_year": 2023},
+    "CAJA USD PASTORIZA": {"empresa_nombre": "Pastoriza", "moneda": "USD", "start_year": 2023},
+    "CAJA $ GRUPO GAUSS": {"empresa_nombre": "Grupo Gauss", "moneda": "ARS", "start_year": 2024},
 }
 
 
@@ -79,7 +83,7 @@ class CajaSheetsSync:
                 continue
 
             caja = self._get_or_create_caja(tab_name, meta)
-            self._process_tab(worksheet, caja, result)
+            self._process_tab(worksheet, caja, meta, result)
 
         self.db.flush()
         return result.to_dict()
@@ -102,7 +106,7 @@ class CajaSheetsSync:
             self.db.flush()
         return caja
 
-    def _process_tab(self, worksheet, caja: Caja, result: SyncResult) -> None:
+    def _process_tab(self, worksheet, caja: Caja, meta: dict, result: SyncResult) -> None:
         """Processes all rows from a single worksheet tab."""
         all_values = worksheet.get_all_values()
         if len(all_values) < 2:
@@ -148,6 +152,10 @@ class CajaSheetsSync:
         for m in existing_movs:
             existing_keys.add((m.fecha, m.detalle, m.tipo, float(m.monto)))
 
+        # Year inference state: start_year from mapping, track month to detect year changes
+        current_year: int = meta.get("start_year", 2023)
+        prev_month: Optional[int] = None
+
         # Process data rows
         new_movements: list[dict] = []
         for row_num, row in enumerate(all_values[header_idx + 1 :], start=header_idx + 2):
@@ -162,11 +170,24 @@ class CajaSheetsSync:
             if not fecha_str or not detalle:
                 continue
 
-            # Parse date
-            fecha = self._parse_fecha(fecha_str)
+            # Parse date — pass current_year as default for dates without year
+            fecha, has_explicit_year = self._parse_fecha(fecha_str, default_year=current_year)
             if not fecha:
                 result.errores.append({"row": row_num, "error": f"Invalid date format: '{fecha_str}'"})
                 continue
+
+            # Infer year transitions for dates without explicit year.
+            # When month jumps from >=11 to <=2, it's a new year (dec→jan).
+            # Small jumps (e.g. typo 18/6→18/5→18/6) are NOT year changes.
+            if not has_explicit_year:
+                if prev_month is not None and prev_month >= 11 and fecha.month <= 2:
+                    current_year += 1
+                    fecha = fecha.replace(year=current_year)
+                prev_month = fecha.month
+            else:
+                # Explicit year: update tracking state
+                current_year = fecha.year
+                prev_month = fecha.month
 
             # Parse amounts
             ingreso = self._parse_monto(ingreso_str)
@@ -242,36 +263,42 @@ class CajaSheetsSync:
         caja.saldo_actual = saldo
 
     @staticmethod
-    def _parse_fecha(fecha_str: str) -> Optional[date]:
+    def _parse_fecha(fecha_str: str, default_year: int = 2023) -> tuple[Optional[date], bool]:
         """
-        Parses dates in Argentine formats:
-        - dd/mm/yyyy
-        - dd/mm/yy
-        - dd/mm (assumes current year)
-        """
-        from datetime import datetime
+        Parses dates in Argentine formats.
 
+        Returns (parsed_date, has_explicit_year):
+        - dd/mm/yyyy → (date, True)
+        - dd/mm/yy   → (date, True)  (yy + 2000)
+        - dd/mm      → (date with default_year, False)
+        - invalid    → (None, False)
+
+        The caller uses has_explicit_year to decide whether to apply
+        chronological year-inference logic.
+        """
         fecha_str = fecha_str.strip()
         if not fecha_str:
-            return None
+            return None, False
 
         parts = fecha_str.split("/")
         if len(parts) < 2:
-            return None
+            return None, False
 
         try:
             day = int(parts[0])
             month = int(parts[1])
-            if len(parts) >= 3 and parts[2]:
+            has_explicit_year = False
+            if len(parts) >= 3 and parts[2].strip():
                 year = int(parts[2])
                 if year < 100:
                     year += 2000
+                has_explicit_year = True
             else:
-                year = datetime.now().year
+                year = default_year
 
-            return date(year, month, day)
+            return date(year, month, day), has_explicit_year
         except (ValueError, IndexError):
-            return None
+            return None, False
 
     @staticmethod
     def _parse_monto(monto_str: str) -> Optional[float]:
