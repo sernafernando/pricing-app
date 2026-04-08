@@ -842,6 +842,31 @@ PERMISOS_SISTEMA = [
         "orden": 156,
         "es_critico": True,
     },
+    # =========================================================================
+    # CAJA (Cash Register)
+    # =========================================================================
+    {
+        "codigo": "administracion.ver_caja",
+        "nombre": "Ver caja",
+        "descripcion": "Acceso de lectura a cajas, movimientos, documentos y archivos",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 157,
+    },
+    {
+        "codigo": "administracion.gestionar_caja",
+        "nombre": "Gestionar caja",
+        "descripcion": "Crear/editar cajas, registrar movimientos, gestionar categorías, documentos y archivos",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 158,
+    },
+    {
+        "codigo": "administracion.sincronizar_caja",
+        "nombre": "Sincronizar caja desde Google Sheets",
+        "descripcion": "Ejecutar importación masiva de movimientos desde Google Sheets",
+        "categoria": CategoriaPermiso.ADMINISTRACION_SECTOR,
+        "orden": 159,
+        "es_critico": True,
+    },
 ]
 
 
@@ -933,6 +958,7 @@ PERMISOS_POR_ROL = {
         "tickets.crear",
         "tickets.gestionar",
         "documentos.imprimir",
+        "administracion.ver_caja",
     ],
     "PRICING": [
         "productos.ver",

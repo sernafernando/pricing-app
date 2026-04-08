@@ -116,6 +116,17 @@ from app.models.banco_empresa import BancoEmpresa
 # Impuestos — Módulo Administración
 from app.models.impuesto_empresa import ImpuestoEmpresa
 
+# Caja — Módulo Administración
+from app.models.caja import (
+    Caja,
+    CajaMovimiento,
+    CajaCategoria,
+    CajaTipoDocumento,
+    CajaDocumento,
+    CajaDocumentoMovimiento,
+    CajaArchivo,
+)
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -250,4 +261,12 @@ __all__ = [
     "BancoEmpresa",
     # Impuestos — Módulo Administración
     "ImpuestoEmpresa",
+    # Caja — Módulo Administración
+    "Caja",
+    "CajaMovimiento",
+    "CajaCategoria",
+    "CajaTipoDocumento",
+    "CajaDocumento",
+    "CajaDocumentoMovimiento",
+    "CajaArchivo",
 ]
