@@ -7555,6 +7555,167 @@ async def exportar_lista_gremio(
         raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
 
 
+# ========== EXPORTAR LISTA WEB TRANSFERENCIA (FORMATO LISTA) ==========
+@router.get("/exportar-lista-web-transferencia")
+async def exportar_lista_web_transferencia(
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    colores: Optional[str] = None,
+    currency_id: int = 1,  # 1=ARS, 2=USD
+    offset_dolar: float = 0,  # Offset para el tipo de cambio
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Exporta Lista Web Transferencia a Excel con formato de lista (como Lista Gremio).
+    Usa el precio_web_transferencia almacenado. Soporta ARS y USD."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from sqlalchemy import text
+    from app.services.pricing_calculator import obtener_tipo_cambio_actual
+
+    try:
+        # Obtener tipo de cambio
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+        # Ajustar tipo de cambio con offset
+        tipo_cambio_ajustado = tipo_cambio + offset_dolar if tipo_cambio else None
+
+        # Cargar nombres de subcategorías
+        subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
+        subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
+
+        # Query base: solo productos con web transferencia activa y precio definido
+        query = (
+            db.query(ProductoERP, ProductoPricing)
+            .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
+            .filter(
+                ProductoPricing.participa_web_transferencia == True,
+                ProductoPricing.precio_web_transferencia.isnot(None),
+            )
+        )
+
+        # Aplicar filtros
+        if search:
+            search_normalized = search.replace("-", "").replace(" ", "").upper()
+            query = query.filter(
+                or_(
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
+                        f"%{search_normalized}%"
+                    ),
+                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
+                        f"%{search_normalized}%"
+                    ),
+                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
+                )
+            )
+
+        if con_stock is not None:
+            query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+
+        if marcas:
+            marcas_list = [m.strip().upper() for m in marcas.split(",")]
+            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        if subcategorias:
+            subcat_list = [int(s.strip()) for s in subcategorias.split(",")]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+        if colores:
+            colores_list = colores.split(",")
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
+                            ProductoPricing.color_marcado_tienda.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+
+        # Ejecutar query
+        results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
+
+        # Crear Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Lista Web Transferencia"
+
+        # Headers
+        moneda_texto = "USD" if currency_id == 2 else "ARS"
+        headers = [
+            "Marca",
+            "Categoría",
+            "Subcategoría",
+            "Código",
+            "Descripción",
+            f"Precio Web Transf. {moneda_texto} s/IVA",
+            f"Precio Web Transf. {moneda_texto} c/IVA",
+        ]
+        header_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        # Datos
+        row_num = 2
+        for producto_erp, producto_pricing in results:
+            precio_con_iva = float(producto_pricing.precio_web_transferencia)
+
+            # Derivar precio sin IVA
+            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+            precio_sin_iva = precio_con_iva / (1 + iva_producto / 100)
+
+            # Convertir a USD si es necesario
+            if currency_id == 2 and tipo_cambio_ajustado and tipo_cambio_ajustado > 0:
+                precio_sin_iva = precio_sin_iva / tipo_cambio_ajustado
+                precio_con_iva = precio_con_iva / tipo_cambio_ajustado
+
+            ws.cell(row=row_num, column=1, value=producto_erp.marca or "")
+            ws.cell(row=row_num, column=2, value=producto_erp.categoria or "")
+            ws.cell(row=row_num, column=3, value=subcats_dict.get(producto_erp.subcategoria_id, "") or "")
+            ws.cell(row=row_num, column=4, value=producto_erp.codigo or "")
+            ws.cell(row=row_num, column=5, value=producto_erp.descripcion or "")
+            ws.cell(row=row_num, column=6, value=round(precio_sin_iva, 2))
+            ws.cell(row=row_num, column=7, value=round(precio_con_iva, 2))
+
+            row_num += 1
+
+        # Ajustar anchos de columna
+        column_widths = [15, 20, 20, 15, 50, 22, 22]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+        # Guardar en BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=lista_web_transferencia.xlsx"},
+        )
+
+    except Exception as e:
+        import traceback
+
+        print(f"Error en exportar_lista_web_transferencia: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error al exportar lista web transferencia: {str(e)}")
+
+
 # ========== PRECIO GREMIO OVERRIDE (MANUAL) ==========
 @router.patch("/productos/{item_id}/precio-gremio-override")
 async def set_precio_gremio_override(
