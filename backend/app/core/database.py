@@ -36,21 +36,24 @@ if _is_script_context():
         poolclass=NullPool,
     )
 else:
-    # FastAPI/uvicorn: pool de conexiones reutilizables.
-    # pool_size=10       → 10 conexiones persistentes por worker
-    # max_overflow=10    → hasta 20 total por worker en picos
-    # pool_recycle=900   → recicla cada 15 min (evita stale connections por pg timeout)
-    # pool_timeout=30    → espera 30s antes de fallar (20s era agresivo en picos)
-    # pool_pre_ping=True → verifica que la conexión siga viva antes de usarla
+    # FastAPI/uvicorn: pool pequeño — PgBouncer hace el pooling pesado.
+    # pool_size=5        → 5 conexiones persistentes por worker a PgBouncer
+    # max_overflow=3     → hasta 8 total por worker en picos
+    # pool_recycle=600   → recicla cada 10 min (≤ PgBouncer server_idle_timeout)
+    # pool_timeout=30    → espera 30s antes de fallar
+    # pool_pre_ping=True → detecta conexiones que PgBouncer cerró por idle
+    # pool_use_lifo=True → reutiliza la conexión más fresca (menos chance de stale)
     #
-    # Con 4 workers: 4 × 20 = 80 conexiones worst-case (PostgreSQL max_connections=150)
+    # Con 8 workers: 8 × 8 = 64 client-conns a PgBouncer (max_client_conn=500)
+    # PgBouncer → PostgreSQL: ~80-90 conexiones reales (max_connections=200)
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=10,
-        pool_recycle=900,
+        pool_size=5,
+        max_overflow=3,
+        pool_recycle=600,
         pool_timeout=30,
+        pool_use_lifo=True,
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -119,9 +122,10 @@ def get_mlwebhook_engine():
             _mlwebhook_engine = create_engine(
                 url,
                 pool_pre_ping=True,
-                pool_size=3,
+                pool_size=2,
                 max_overflow=2,
-                pool_recycle=1800,
+                pool_recycle=600,
                 pool_timeout=10,
+                pool_use_lifo=True,
             )
     return _mlwebhook_engine

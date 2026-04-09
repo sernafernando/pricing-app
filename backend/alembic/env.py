@@ -6,7 +6,9 @@ from app.core.database import Base
 from app.models import *  # Importar todos los modelos
 
 config = context.config
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
+# Alembic DEBE usar conexión directa a PostgreSQL (bypassing PgBouncer).
+# DDL + transaction pooling mode = problemas. Usar DATABASE_URL_DIRECT si existe.
+config.set_main_option('sqlalchemy.url', settings.DATABASE_URL_DIRECT or settings.DATABASE_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

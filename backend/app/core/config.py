@@ -5,6 +5,9 @@ from typing import List, Optional
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
+    # Conexión directa a PostgreSQL (bypasses PgBouncer).
+    # Requerida para DDL/migrations (Alembic). Si no está seteada, usa DATABASE_URL.
+    DATABASE_URL_DIRECT: Optional[str] = None
 
     # JWT
     SECRET_KEY: str
