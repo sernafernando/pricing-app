@@ -1,0 +1,16 @@
+; ═══════════════════════════════════════════════════════════════════
+; PgBouncer userlist — mapea usuarios a sus passwords
+;
+; Formato: "username" "password"
+;
+; Para obtener el hash de tu usuario PostgreSQL:
+;   psql -c "SELECT usename, passwd FROM pg_shadow WHERE usename = 'tu_usuario';"
+;
+; Copiar el resultado acá. Ejemplo con SCRAM-SHA-256:
+; ═══════════════════════════════════════════════════════════════════
+
+; Reemplazar con tu usuario y hash real:
+; "pricing_app_user" "SCRAM-SHA-256$4096:..."
+
+; Admin para PgBouncer (SHOW POOLS, SHOW STATS, etc.)
+; "pgbouncer_admin" "SCRAM-SHA-256$4096:..."

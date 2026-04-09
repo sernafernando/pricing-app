@@ -1,0 +1,80 @@
+; ═══════════════════════════════════════════════════════════════════
+; PgBouncer config para pricing-app
+;
+; Instalar:   sudo apt install pgbouncer
+; Copiar:     sudo cp pgbouncer.ini.example /etc/pgbouncer/pgbouncer.ini
+; Userlist:   sudo cp userlist.txt.example /etc/pgbouncer/userlist.txt
+; Iniciar:    sudo systemctl enable --now pgbouncer
+; Verificar:  psql -h 127.0.0.1 -p 6432 -U <user> pricing_app
+; Admin:      psql -h 127.0.0.1 -p 6432 pgbouncer -c "SHOW POOLS;"
+; ═══════════════════════════════════════════════════════════════════
+
+[databases]
+; Conecta a PostgreSQL local en puerto 5432
+; Ajustar dbname si tu base se llama distinto
+pricing_app = host=127.0.0.1 port=5432 dbname=pricing_app
+mlwebhook   = host=127.0.0.1 port=5432 dbname=mlwebhook
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = 6432
+
+; ── Auth ──────────────────────────────────────────────────────────
+; Ajustar auth_type según tu pg_hba.conf (scram-sha-256 o md5)
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+
+; ── Pooling ───────────────────────────────────────────────────────
+; transaction: la conexión real se devuelve al pool después de cada
+;              COMMIT/ROLLBACK, no al cerrar la sesión del cliente.
+;              Requisito: no usar PREPARE, SET, LISTEN/NOTIFY, temp tables.
+pool_mode = transaction
+
+; ── Límites de conexión ───────────────────────────────────────────
+; max_client_conn: máximo de conexiones de la app → PgBouncer
+;   8 workers × 8 (pool_size+overflow) + scripts + admin ≈ 100
+;   500 da margen de sobra para escalar workers
+max_client_conn = 500
+
+; default_pool_size: conexiones reales PgBouncer → PostgreSQL (por user/db)
+;   80 de 200 max_connections deja espacio para mlwebhook + DBA + monitoring
+default_pool_size = 80
+
+; min_pool_size: mantener conexiones warm incluso sin tráfico
+min_pool_size = 10
+
+; reserve_pool_size: conexiones extras para picos extremos
+reserve_pool_size = 10
+reserve_pool_timeout = 3
+
+; ── Timeouts ──────────────────────────────────────────────────────
+; server_idle_timeout: cerrar conexiones idle a PG después de 10 min
+;   IMPORTANTE: SQLAlchemy pool_recycle (600s) debe ser ≤ este valor
+server_idle_timeout = 600
+
+; server_lifetime: reciclar conexiones a PG cada hora (evita stale)
+server_lifetime = 3600
+
+; client_idle_timeout: no matar clientes idle (la app maneja su pool)
+client_idle_timeout = 0
+
+; query_timeout: 0 = dejar que PG/app manejen timeouts de queries
+query_timeout = 0
+
+; query_wait_timeout: máximo que un cliente espera en cola por conexión
+;   120s es generoso — si llega a esto, hay un problema mayor
+query_wait_timeout = 120
+
+; ── Limpieza de sesión ────────────────────────────────────────────
+; DISCARD ALL limpia variables de sesión, prepared statements, temp tables
+; entre reusos de conexión. Costo: ~0.1ms. Seguridad: máxima.
+server_reset_query = DISCARD ALL
+
+; ── Logging ───────────────────────────────────────────────────────
+log_connections = 0
+log_disconnections = 0
+stats_period = 60
+
+; ── Admin ─────────────────────────────────────────────────────────
+; Usuarios que pueden conectarse a la DB virtual "pgbouncer" para SHOW POOLS, etc.
+admin_users = pgbouncer_admin
