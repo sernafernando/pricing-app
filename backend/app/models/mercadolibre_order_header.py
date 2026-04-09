@@ -27,7 +27,7 @@ class MercadoLibreOrderHeader(Base):
     # IDs de MercadoLibre (VARCHAR porque pueden ser muy grandes o tener formato especial)
     ml_id = Column(String(50), index=True)
     mlorder_id = Column(String(50), index=True)
-    mlshippingid = Column(String(50))
+    mlshippingid = Column(String(50), index=True)
     mlpickupid = Column(String(50))
     ml_pack_id = Column(String(50))
 
