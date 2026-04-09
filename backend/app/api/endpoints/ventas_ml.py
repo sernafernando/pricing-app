@@ -669,7 +669,17 @@ async def get_operaciones_con_metricas(
 
             -- Costo real de envío que pagó el vendedor según ML (con IVA)
             -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
-            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost
+            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost,
+
+            -- Monto total del shipment (para prorratear envío proporcional en packs)
+            -- Suma monto_unitario*cantidad de todas las orders que comparten el mismo shipping
+            COALESCE(
+                (SELECT SUM(od2.mlo_unit_price * od2.mlo_quantity)
+                 FROM tb_mercadolibre_orders_detail od2
+                 JOIN tb_mercadolibre_orders_header oh2 ON oh2.mlo_id = od2.mlo_id
+                 WHERE oh2.mlshippingid = tmloh.mlshippingid
+                ), tmlod.mlo_unit_price * tmlod.mlo_quantity
+            ) as shipment_total
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -858,6 +868,7 @@ async def get_operaciones_con_metricas(
             seller_shipping_cost=float(row.seller_shipping_cost)
             if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
             else None,
+            shipment_total=float(row.shipment_total) if hasattr(row, "shipment_total") and row.shipment_total else None,
         )
 
         # Mapeo de pricelist_id a nombre
@@ -1046,7 +1057,16 @@ async def exportar_operaciones(
 
             -- Costo real de envío que pagó el vendedor según ML (con IVA)
             -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
-            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost
+            COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost,
+
+            -- Monto total del shipment (para prorratear envío proporcional en packs)
+            COALESCE(
+                (SELECT SUM(od2.mlo_unit_price * od2.mlo_quantity)
+                 FROM tb_mercadolibre_orders_detail od2
+                 JOIN tb_mercadolibre_orders_header oh2 ON oh2.mlo_id = od2.mlo_id
+                 WHERE oh2.mlshippingid = tmloh.mlshippingid
+                ), tmlod.mlo_unit_price * tmlod.mlo_quantity
+            ) as shipment_total
 
         FROM tb_mercadolibre_orders_detail tmlod
         LEFT JOIN tb_mercadolibre_orders_header tmloh
@@ -1169,6 +1189,7 @@ async def exportar_operaciones(
             seller_shipping_cost=float(row.seller_shipping_cost)
             if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
             else None,
+            shipment_total=float(row.shipment_total) if hasattr(row, "shipment_total") and row.shipment_total else None,
         )
 
         pricelist_names = {
