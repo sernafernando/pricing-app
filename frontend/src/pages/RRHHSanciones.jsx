@@ -402,28 +402,27 @@ export default function RRHHSanciones() {
       )}
 
       {/* PDF Generator Modal */}
-      {pdfTarget && (
-        <DocumentGeneratorModal
-          entityType="sancion"
-          entityData={{
-            ...pdfTarget,
-            tipo_sancion_nombre: getTipoNombre(pdfTarget.tipo_sancion_id),
-            empleado_nombre: pdfTarget.empleado_nombre || '',
-            empleado_legajo: pdfTarget.empleado_legajo || '',
-            empleado_sector: pdfTarget.empleado_sector || '',
-            dias_suspension: (() => {
-              if (pdfTarget.fecha_desde && pdfTarget.fecha_hasta) {
-                const desde = new Date(pdfTarget.fecha_desde + 'T12:00:00');
-                const hasta = new Date(pdfTarget.fecha_hasta + 'T12:00:00');
-                const diff = Math.round((hasta - desde) / (1000 * 60 * 60 * 24)) + 1;
-                return diff > 0 ? String(diff) : '';
-              }
-              return '';
-            })(),
-          }}
-          onClose={() => setPdfTarget(null)}
-        />
-      )}
+      <DocumentGeneratorModal
+        isOpen={!!pdfTarget}
+        contexto="sanciones"
+        entityData={pdfTarget ? {
+          ...pdfTarget,
+          tipo_sancion_nombre: getTipoNombre(pdfTarget.tipo_sancion_id),
+          empleado_nombre: pdfTarget.empleado_nombre || '',
+          empleado_legajo: pdfTarget.empleado_legajo || '',
+          empleado_sector: pdfTarget.empleado_sector || '',
+          dias_suspension: (() => {
+            if (pdfTarget.fecha_desde && pdfTarget.fecha_hasta) {
+              const desde = new Date(pdfTarget.fecha_desde + 'T12:00:00');
+              const hasta = new Date(pdfTarget.fecha_hasta + 'T12:00:00');
+              const diff = Math.round((hasta - desde) / (1000 * 60 * 60 * 24)) + 1;
+              return diff > 0 ? String(diff) : '';
+            }
+            return '';
+          })(),
+        } : {}}
+        onClose={() => setPdfTarget(null)}
+      />
     </div>
   );
 }
