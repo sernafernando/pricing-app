@@ -154,6 +154,15 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             -- 0 cuando el comprador paga, > 0 cuando pagamos nosotros
             COALESCE(tmlos.mlshippmentcost4seller, 0) as seller_shipping_cost,
 
+            -- Monto total del shipment (para prorratear envío proporcional en packs)
+            COALESCE(
+                (SELECT SUM(od2.mlo_unit_price * od2.mlo_quantity)
+                 FROM tb_mercadolibre_orders_detail od2
+                 JOIN tb_mercadolibre_orders_header oh2 ON oh2.mlo_id = od2.mlo_id
+                 WHERE oh2.mlshippingid = tmloh.mlshippingid
+                ), tmlod.mlo_unit_price * tmlod.mlo_quantity
+            ) as shipment_total,
+
             -- Obtener el porcentaje de comisión (comision_base + adicional_cuota según pricelist)
             -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
             -- Usar comisiones versionadas (comisiones_base + comisiones_versiones)
@@ -307,6 +316,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         seller_shipping_cost=float(row.seller_shipping_cost)
         if hasattr(row, "seller_shipping_cost") and row.seller_shipping_cost
         else None,
+        shipment_total=float(row.shipment_total) if hasattr(row, "shipment_total") and row.shipment_total else None,
     )
 
     return {

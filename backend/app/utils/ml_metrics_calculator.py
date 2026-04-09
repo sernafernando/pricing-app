@@ -30,6 +30,10 @@ def calcular_metricas_ml(
     # Costo real de envío que pagó el vendedor según ML (con IVA)
     # Viene de mlshippmentcost4seller. Si es 0 o None, el vendedor no pagó envío.
     seller_shipping_cost: Optional[float] = None,
+    # Monto total del shipment (suma de todos los items del pack, con IVA)
+    # Para prorratear el envío proporcionalmente al precio de cada item.
+    # Si no se pasa, se asume que el item es el único en el shipment.
+    shipment_total: Optional[float] = None,
 ) -> dict:
     """
     Calcula métricas ML usando la fórmula EXACTA de pricing de productos
@@ -50,6 +54,9 @@ def calcular_metricas_ml(
         seller_shipping_cost: Costo real de envío que pagó el vendedor según ML (con IVA),
             de mlshippmentcost4seller. Si es 0/None, el vendedor no pagó envío.
             Cuando se provee, reemplaza la lógica de threshold con costo_envio_ml.
+        shipment_total: Monto total del shipment/pack (suma de monto_unitario*cantidad de
+            todos los items que comparten el mismo shipping_id). Se usa para prorratear
+            el envío proporcionalmente. Si es None, se usa monto_unitario*cantidad (item único).
 
     Returns:
         Dict con: monto_limpio, costo_total, ganancia, markup_porcentaje, costo_envio, comision_ml, offset_flex
@@ -89,16 +96,20 @@ def calcular_metricas_ml(
 
     # Costo de envío sin IVA
     # Prioridad: seller_shipping_cost (dato real de ML) > fallback threshold con costo_envio_ml
-    envio_unitario_sin_iva = 0
+    costo_envio_sin_iva = 0
     if seller_shipping_cost is not None and seller_shipping_cost > 0:
-        # Dato real de mlshippmentcost4seller: ya es el costo TOTAL del envío (no unitario),
-        # y es 0 cuando el comprador paga. No necesita chequeo de threshold.
-        envio_unitario_sin_iva = (seller_shipping_cost / 1.21) / cantidad
+        # Dato real de mlshippmentcost4seller: costo TOTAL del shipment (puede ser pack).
+        # Prorrateo proporcional: este item absorbe envío en proporción a su peso en el pack.
+        # Fórmula: envio_item = envio_total × (monto_item / monto_pack)
+        monto_este_item = monto_unitario * cantidad
+        monto_pack = shipment_total if shipment_total and shipment_total > 0 else monto_este_item
+        proporcion = monto_este_item / monto_pack
+        costo_envio_sin_iva = (seller_shipping_cost / 1.21) * proporcion
     elif seller_shipping_cost is None and monto_unitario >= monto_tier3 and costo_envio_ml:
         # Fallback: lógica anterior por threshold (para pricing calculator que no tiene dato ML)
-        envio_unitario_sin_iva = costo_envio_ml / 1.21
+        costo_envio_sin_iva = (costo_envio_ml / 1.21) * cantidad
 
-    costo_envio_sin_iva = envio_unitario_sin_iva * cantidad
+    envio_unitario_sin_iva = costo_envio_sin_iva / cantidad if cantidad > 0 else 0
 
     # FÓRMULA DE LIMPIO (exactamente como pricing de productos):
     # (precio_sin_iva - envio_sin_iva - comision_unitaria) * cantidad
