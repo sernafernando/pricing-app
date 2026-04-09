@@ -36,7 +36,12 @@ LINE_COLOR = "#1a6fa0"
 
 
 def _text(name: str, x: float, y: float, w: float, h: float, **kwargs) -> dict:
-    """Helper para crear un campo de texto."""
+    """Helper para crear un campo de texto.
+
+    Fonts disponibles en el sistema: Arial, Arial Bold.
+    NO existen variantes Italic — pdfme necesita TTF por variante
+    y no tenemos Arial-Italic.ttf cargado.
+    """
     field = {
         "name": name,
         "type": "text",
@@ -51,10 +56,7 @@ def _text(name: str, x: float, y: float, w: float, h: float, **kwargs) -> dict:
     }
     if kwargs.get("bold"):
         field["fontName"] = "Arial Bold"
-    if kwargs.get("italic"):
-        field["fontName"] = "Arial Italic"
-    if kwargs.get("boldItalic"):
-        field["fontName"] = "Arial Bold Italic"
+    # italic/boldItalic: no TTF disponible, usar regular/bold como fallback
     if kwargs.get("backgroundColor"):
         field["backgroundColor"] = kwargs["backgroundColor"]
     if kwargs.get("readOnly"):
