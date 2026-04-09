@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_mlwebhook_engine
+from app.core.database import get_background_db, get_mlwebhook_engine
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.services.ml_webhook_service import (
@@ -114,11 +114,10 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
 
     logger.info(f"Enriqueciendo {len(shipping_ids)} etiquetas en background...")
 
-    db: Session = SessionLocal()
     enriquecidas = 0
     errores = 0
 
-    try:
+    with get_background_db() as db:
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -169,14 +168,8 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 logger.error(f"Error enriqueciendo {shipping_id}: {e}")
                 errores += 1
 
-        db.commit()
+        # commit is handled by get_background_db() on exit
         logger.info(f"Enriquecimiento completo: {enriquecidas}/{len(shipping_ids)} OK, {errores} errores")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error en commit de enriquecimiento: {e}")
-    finally:
-        db.close()
 
 
 def enriquecer_etiquetas_sync(shipping_ids: List[str]) -> None:
@@ -292,12 +285,11 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     logger.info(f"Encontrados {len(previews)}/{len(shipping_ids)} previews en ml_previews")
 
     # 2) Actualizar etiquetas en pricing DB
-    db: Session = SessionLocal()
     actualizadas = 0
     sin_preview = 0
     ids_sin_preview: List[str] = []
 
-    try:
+    with get_background_db() as db:
         # IDs que no pudimos resolver turbo desde el preview (para fallback batch al GBP)
         ids_sin_turbo_en_preview: List[str] = []
 
@@ -430,18 +422,11 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
             if cambio:
                 actualizadas += 1
 
-        db.commit()
+        # commit is handled by get_background_db() on exit
         logger.info(
             f"Re-enrichment DB completo: {actualizadas} actualizadas, "
             f"{sin_preview} sin preview, {len(shipping_ids)} total"
         )
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error en re-enrichment: {e}")
-        raise
-    finally:
-        db.close()
 
     return {
         "actualizadas": actualizadas,
@@ -469,11 +454,10 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
 
     logger.info(f"Fallback HTTP: enriqueciendo {len(shipping_ids)} etiquetas...")
 
-    db: Session = SessionLocal()
     actualizadas = 0
     errores = 0
 
-    try:
+    with get_background_db() as db:
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -520,15 +504,8 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                 logger.error(f"Fallback HTTP error para {shipping_id}: {e}")
                 errores += 1
 
-        db.commit()
+        # commit is handled by get_background_db() on exit
         logger.info(f"Fallback HTTP completo: {actualizadas}/{len(shipping_ids)} OK, {errores} errores")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error en commit fallback HTTP: {e}")
-        raise
-    finally:
-        db.close()
 
     return {
         "actualizadas": actualizadas,

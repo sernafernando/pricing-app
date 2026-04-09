@@ -173,53 +173,49 @@ async def _geocode_envio_manual(
          dirección del transporte, guardar en AMBOS (transporte + etiqueta).
       3. Si no tiene transporte → geocodificar la dirección del cliente.
     """
-    from app.core.database import SessionLocal
+    from app.core.database import get_background_db
 
-    db = SessionLocal()
     try:
-        etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
-        if not etiqueta:
-            return
+        with get_background_db() as db:
+            etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+            if not etiqueta:
+                return
 
-        lat, lng = None, None
+            lat, lng = None, None
 
-        # Caso 1 y 2: tiene transporte
-        if transporte_id is not None:
-            transporte = db.query(Transporte).filter(Transporte.id == transporte_id).first()
-            if transporte:
-                if transporte.latitud and transporte.longitud:
-                    # Caso 1: transporte ya geocodificado
-                    lat, lng = transporte.latitud, transporte.longitud
-                elif transporte.direccion:
-                    # Caso 2: geocodificar dirección del transporte
-                    ciudad_transp = transporte.localidad or "Buenos Aires"
-                    coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
-                    if coords:
-                        lat, lng = coords
-                        transporte.latitud = lat
-                        transporte.longitud = lng
+            # Caso 1 y 2: tiene transporte
+            if transporte_id is not None:
+                transporte = db.query(Transporte).filter(Transporte.id == transporte_id).first()
+                if transporte:
+                    if transporte.latitud and transporte.longitud:
+                        # Caso 1: transporte ya geocodificado
+                        lat, lng = transporte.latitud, transporte.longitud
+                    elif transporte.direccion:
+                        # Caso 2: geocodificar dirección del transporte
+                        ciudad_transp = transporte.localidad or "Buenos Aires"
+                        coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
+                        if coords:
+                            lat, lng = coords
+                            transporte.latitud = lat
+                            transporte.longitud = lng
 
-        # Caso 3: sin transporte o transporte sin dirección → geocodificar cliente
-        if lat is None and street_name:
-            direccion_cliente = f"{street_name} {street_number}".strip()
-            ciudad = city_name or "Buenos Aires"
-            coords = await geocode_address(direccion_cliente, ciudad=ciudad, zip_code=zip_code, db=db)
-            if coords:
-                lat, lng = coords
+            # Caso 3: sin transporte o transporte sin dirección → geocodificar cliente
+            if lat is None and street_name:
+                direccion_cliente = f"{street_name} {street_number}".strip()
+                ciudad = city_name or "Buenos Aires"
+                coords = await geocode_address(direccion_cliente, ciudad=ciudad, zip_code=zip_code, db=db)
+                if coords:
+                    lat, lng = coords
 
-        if lat is not None and lng is not None:
-            etiqueta.latitud = lat
-            etiqueta.longitud = lng
-            db.commit()
-            logger.info("Geocoding OK para envío manual %s → (%.6f, %.6f)", shipping_id, lat, lng)
-        else:
-            logger.warning("Geocoding sin resultado para envío manual %s", shipping_id)
-
+            if lat is not None and lng is not None:
+                etiqueta.latitud = lat
+                etiqueta.longitud = lng
+                # commit is handled by get_background_db() on exit
+                logger.info("Geocoding OK para envío manual %s → (%.6f, %.6f)", shipping_id, lat, lng)
+            else:
+                logger.warning("Geocoding sin resultado para envío manual %s", shipping_id)
     except Exception:
         logger.exception("Error geocodificando envío manual %s", shipping_id)
-        db.rollback()
-    finally:
-        db.close()
 
 
 # ── Schemas ──────────────────────────────────────────────────────────

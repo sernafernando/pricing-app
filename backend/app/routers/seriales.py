@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.config import settings
-from app.core.database import get_db, get_mlwebhook_engine, SessionLocal
+from app.core.database import get_background_db, get_db, get_mlwebhook_engine
 from app.core.deps import get_current_user
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.rma_claim_ml_message import RmaClaimMLMessage
@@ -3146,12 +3146,11 @@ def _save_claim_to_cache(
     Uses a separate session so it doesn't interfere with the request's session.
     """
     try:
-        session = SessionLocal()
-        try:
-            claim_id_int = int(claim.claim_id) if claim.claim_id else None
-            if not claim_id_int:
-                return
+        claim_id_int = int(claim.claim_id) if claim.claim_id else None
+        if not claim_id_int:
+            return
 
+        with get_background_db() as session:
             existing = session.query(RmaClaimML).filter(RmaClaimML.claim_id == claim_id_int).first()
 
             # Build return_data JSONB for storage
@@ -3273,14 +3272,9 @@ def _save_claim_to_cache(
                 row = RmaClaimML(claim_id=claim_id_int, **values)
                 session.add(row)
 
-            session.commit()
-        except Exception:
-            session.rollback()
-            logger.warning("Failed to save claim %s to cache", claim.claim_id, exc_info=True)
-        finally:
-            session.close()
+            # commit is handled by get_background_db() on exit
     except Exception:
-        logger.warning("Failed to create session for claim cache", exc_info=True)
+        logger.warning("Failed to save claim %s to cache", claim.claim_id, exc_info=True)
 
 
 def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict | list]) -> None:
@@ -3300,8 +3294,7 @@ def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict | list])
 
     try:
         claim_id_int = int(claim_id)
-        session = SessionLocal()
-        try:
+        with get_background_db() as session:
             # Get existing message dates to avoid duplicates
             existing_dates = {
                 row.ml_date_created
@@ -3329,14 +3322,9 @@ def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict | list])
                 )
                 session.add(row)
 
-            session.commit()
-        except Exception:
-            session.rollback()
-            logger.warning("Failed to save messages for claim %s", claim_id, exc_info=True)
-        finally:
-            session.close()
+            # commit is handled by get_background_db() on exit
     except Exception:
-        logger.warning("Failed to create session for messages cache", exc_info=True)
+        logger.warning("Failed to save messages for claim %s", claim_id, exc_info=True)
 
 
 def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
@@ -3487,8 +3475,7 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
 
     # ── Step 1: Load local cache (rma_claims_ml) ────────────────────────────
     try:
-        session = SessionLocal()
-        try:
+        with get_background_db() as session:
             order_id_ints = []
             for oid in order_ids:
                 try:
@@ -3501,12 +3488,8 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
                 for row in cached_rows:
                     cid = str(row.claim_id)
                     cache_by_claim_id[cid] = row
-        except Exception:
-            logger.warning("Failed to read claims from local cache", exc_info=True)
-        finally:
-            session.close()
     except Exception:
-        logger.warning("Failed to create session for claims cache read", exc_info=True)
+        logger.warning("Failed to read claims from local cache", exc_info=True)
 
     # ── Step 2: Webhook DB (ml_previews) — invalidation source ──────────────
     webhook_db_available = False
