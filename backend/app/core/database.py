@@ -1,8 +1,11 @@
 import sys
+from contextlib import contextmanager
+from typing import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool
+
 from app.core.config import settings
 
 
@@ -34,20 +37,20 @@ if _is_script_context():
     )
 else:
     # FastAPI/uvicorn: pool de conexiones reutilizables.
-    # pool_size=8        → 8 conexiones persistentes por worker
-    # max_overflow=7     → hasta 15 total por worker en picos
-    # pool_recycle=1800  → recicla cada 30 min (evita stale connections por pg timeout)
-    # pool_timeout=20    → espera 20s antes de fallar (10s era muy agresivo en picos)
+    # pool_size=10       → 10 conexiones persistentes por worker
+    # max_overflow=10    → hasta 20 total por worker en picos
+    # pool_recycle=900   → recicla cada 15 min (evita stale connections por pg timeout)
+    # pool_timeout=30    → espera 30s antes de fallar (20s era agresivo en picos)
     # pool_pre_ping=True → verifica que la conexión siga viva antes de usarla
     #
-    # Con 4 workers: 4 × 15 = 60 conexiones worst-case (PostgreSQL max_connections=150)
+    # Con 4 workers: 4 × 20 = 80 conexiones worst-case (PostgreSQL max_connections=150)
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=8,
-        max_overflow=7,
-        pool_recycle=1800,
-        pool_timeout=20,
+        pool_size=10,
+        max_overflow=10,
+        pool_recycle=900,
+        pool_timeout=30,
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -55,11 +58,41 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# Dependency para FastAPI
+# Dependency para FastAPI (generator — requires DI to call __next__)
 def get_db():
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def get_background_db() -> Generator[Session, None, None]:
+    """
+    Context manager para código que corre FUERA del ciclo request/response
+    de FastAPI: background tasks, servicios standalone, helpers internos.
+
+    A diferencia de get_db() (generator para DI), este es un @contextmanager
+    que garantiza enter/exit eager — no depende de FastAPI para cerrar la sesión.
+
+    Uso:
+        with get_background_db() as db:
+            db.query(...)
+            db.commit()  # commit explícito si se necesita
+
+    Comportamiento:
+        - yield Session
+        - on success: commit + close
+        - on exception: rollback + close + re-raise
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

@@ -17,9 +17,9 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.core.database import get_mlwebhook_engine
+from app.core.database import get_background_db, get_mlwebhook_engine
 from app.core.deps import get_current_user
-from app.core.database import get_db, SessionLocal
+from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.free_shipping_fix_log import FreeShippingFixLog
 from app.services.permisos_service import PermisosService
@@ -157,10 +157,9 @@ def _get_auto_fix_statuses(mla_ids: list[str]) -> dict[str, AutoFixStatus]:
     if not mla_ids:
         return {}
 
-    db = SessionLocal()
-    try:
-        from sqlalchemy import desc  # noqa: E402 — lazy import to avoid circular
+    from sqlalchemy import desc  # noqa: E402 — lazy import to avoid circular
 
+    with get_background_db() as db:
         results = (
             db.query(FreeShippingFixLog)
             .filter(FreeShippingFixLog.mla_id.in_(mla_ids))
@@ -180,8 +179,6 @@ def _get_auto_fix_statuses(mla_ids: list[str]) -> dict[str, AutoFixStatus]:
                     attempted_at=log_entry.created_at.isoformat() if log_entry.created_at else None,
                 )
         return statuses
-    finally:
-        db.close()
 
 
 def _row_to_item(row: object, auto_fix_status: Optional[AutoFixStatus] = None) -> FreeShippingAlertItem:

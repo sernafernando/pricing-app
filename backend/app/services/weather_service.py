@@ -16,7 +16,7 @@ from typing import Optional
 import httpx
 
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import get_background_db
 from app.models.weather_history import WeatherHistory
 
 logger = logging.getLogger(__name__)
@@ -58,34 +58,31 @@ def _persist_weather(data: dict, weather_dt_unix: int) -> None:
     Se ejecuta en una sesión independiente para no bloquear
     el response al frontend si la BD tiene un problema.
     """
-    db = SessionLocal()
     try:
-        weather_dt = datetime.fromtimestamp(weather_dt_unix, tz=timezone.utc) if weather_dt_unix else None
+        with get_background_db() as db:
+            weather_dt = datetime.fromtimestamp(weather_dt_unix, tz=timezone.utc) if weather_dt_unix else None
 
-        record = WeatherHistory(
-            temp=data["temp"],
-            feels_like=data["feels_like"],
-            temp_min=data["temp_min"],
-            temp_max=data["temp_max"],
-            humidity=data["humidity"],
-            description=data["description"],
-            icon=data["icon"],
-            wind_speed=data["wind_speed"],
-            rain_1h=data["rain_1h"],
-            is_rainy=data["is_rainy"],
-            city=data["city"],
-            lat=settings.OPENWEATHER_LAT,
-            lon=settings.OPENWEATHER_LON,
-            weather_dt=weather_dt,
-        )
-        db.add(record)
-        db.commit()
-        logger.debug("Weather persisted to DB: id=%s", record.id)
+            record = WeatherHistory(
+                temp=data["temp"],
+                feels_like=data["feels_like"],
+                temp_min=data["temp_min"],
+                temp_max=data["temp_max"],
+                humidity=data["humidity"],
+                description=data["description"],
+                icon=data["icon"],
+                wind_speed=data["wind_speed"],
+                rain_1h=data["rain_1h"],
+                is_rainy=data["is_rainy"],
+                city=data["city"],
+                lat=settings.OPENWEATHER_LAT,
+                lon=settings.OPENWEATHER_LON,
+                weather_dt=weather_dt,
+            )
+            db.add(record)
+            # commit is handled by get_background_db() on exit
+            logger.debug("Weather persisted to DB: id=%s", record.id)
     except Exception as e:
         logger.error("Error persisting weather to DB: %s", e)
-        db.rollback()
-    finally:
-        db.close()
 
 
 async def get_current_weather() -> Optional[dict]:

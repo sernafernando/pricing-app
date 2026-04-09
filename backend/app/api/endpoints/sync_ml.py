@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from app.core.database import get_db, SessionLocal
+from app.core.database import get_background_db, get_db
 from app.services.sync_precios_ml import sincronizar_precios_ml, PRICELISTS
 from app.api.deps import get_current_user
 
@@ -84,23 +84,19 @@ async def sincronizar_publicaciones_full(
         try:
             # Paso 1: Sync items publicados desde GBP
             print(f"[{datetime.now().strftime('%H:%M:%S')}] === PASO 1/2: Sincronizar Items Publicados (GBP) ===")
-            db = SessionLocal()
             try:
-                await sync_items_publicados_full(db)
+                with get_background_db() as db:
+                    await sync_items_publicados_full(db)
             except Exception as e:
                 print(f"ERROR en items publicados: {e}")
-            finally:
-                db.close()
 
             # Paso 2: Sync publications incremental (API ML)
             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] === PASO 2/2: Sincronizar Publications (API ML) ===")
-            db2 = SessionLocal()
             try:
-                await sync_ml_publications_incremental(db2)
+                with get_background_db() as db2:
+                    await sync_ml_publications_incremental(db2)
             except Exception as e:
                 print(f"ERROR en publications: {e}")
-            finally:
-                db2.close()
 
             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] === SINCRONIZACIÓN COMPLETA ===")
         finally:

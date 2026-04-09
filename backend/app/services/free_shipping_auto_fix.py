@@ -14,7 +14,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_mlwebhook_engine, SessionLocal
+from app.core.database import get_background_db, get_mlwebhook_engine
 from app.core.logging import get_logger
 from app.models.free_shipping_fix_log import FreeShippingFixLog
 from app.services.ml_api_client import ml_client
@@ -108,8 +108,7 @@ async def run_free_shipping_auto_fix() -> dict:
     logger.info("Free shipping auto-fix: found %d items with free_shipping_error", len(rows))
 
     # 2. Procesar cada item — sin cooldown, ML reactiva cada ~10-15 min
-    db = SessionLocal()
-    try:
+    with get_background_db() as db:
         for row in rows:
             mla_id = row.mla_base
             price_str = str(row.price) if row.price is not None else None
@@ -167,9 +166,6 @@ async def run_free_shipping_auto_fix() -> dict:
                     skip_reason=f"exception: {str(e)[:80]}",
                 )
                 logger.error("Auto-fix ERROR for %s: %s", mla_id, e)
-
-    finally:
-        db.close()
 
     logger.info(
         "Free shipping auto-fix complete: %s",
