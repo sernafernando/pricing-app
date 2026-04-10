@@ -487,7 +487,7 @@ def listar_productos(
             .join(OfertaML, PublicacionML.mla == OfertaML.mla)
             .filter(OfertaML.fecha_desde <= hoy_date, OfertaML.fecha_hasta >= hoy_date, OfertaML.pvp_seller.isnot(None))
             .distinct()
-            .subquery()
+            .scalar_subquery()
         )
 
         if con_oferta:
@@ -1747,7 +1747,7 @@ def listar_productos_tienda(
             .join(OfertaML, PublicacionML.mla == OfertaML.mla)
             .filter(OfertaML.fecha_desde <= hoy_date, OfertaML.fecha_hasta >= hoy_date, OfertaML.pvp_seller.isnot(None))
             .distinct()
-            .subquery()
+            .scalar_subquery()
         )
 
         if con_oferta:
@@ -3145,7 +3145,7 @@ def obtener_stats_dinamicos(
             .join(OfertaML, PublicacionML.mla == OfertaML.mla)
             .filter(OfertaML.fecha_desde <= hoy, OfertaML.fecha_hasta >= hoy, OfertaML.pvp_seller.isnot(None))
             .distinct()
-            .subquery()
+            .scalar_subquery()
         )
 
         if con_oferta:

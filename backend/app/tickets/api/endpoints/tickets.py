@@ -156,7 +156,7 @@ async def badge_count(
                 SectorUsuario.usuario_id == current_user.id,
                 SectorUsuario.activo.is_(True),
             )
-            .subquery()
+            .scalar_subquery()
         )
         query = query.filter(
             or_(
@@ -335,7 +335,7 @@ async def listar_tickets(
         mis_sectores = (
             db.query(SectorUsuario.sector_id)
             .filter(SectorUsuario.usuario_id == current_user.id, SectorUsuario.activo.is_(True))
-            .subquery()
+            .scalar_subquery()
         )
         query = query.filter(
             or_(

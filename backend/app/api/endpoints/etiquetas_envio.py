@@ -1083,7 +1083,7 @@ def listar_etiquetas(
             ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
         if fecha_hasta:
             ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
-    ids_fecha_sub = ids_fecha_q.subquery()
+    ids_fecha_sub = ids_fecha_q.scalar_subquery()
 
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
     manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
@@ -1484,7 +1484,7 @@ def estadisticas_etiquetas(
     # ── Pre-filtrar shipping_ids por fecha ────────────────────────
     # Obtener solo los IDs del rango de fechas ANTES de armar subqueries
     # pesadas. Reduce scan de 88k+ filas a ~50-200 (performance).
-    ids_fecha_stats = db.query(EtiquetaEnvio.shipping_id).filter(fecha_filter).subquery()
+    ids_fecha_stats = db.query(EtiquetaEnvio.shipping_id).filter(fecha_filter).scalar_subquery()
 
     # ── Subquery de IDs filtrados ────────────────────────────────
     # Construye la misma lógica de filtros del listado como subquery
@@ -1870,7 +1870,7 @@ def estadisticas_por_dia(
             EtiquetaEnvio.fecha_envio >= fecha_desde,
             EtiquetaEnvio.fecha_envio <= fecha_hasta,
         )
-        .subquery()
+        .scalar_subquery()
     )
 
     shipping_stats = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_cal)
@@ -2037,7 +2037,7 @@ def exportar_etiquetas(
             EtiquetaEnvio.fecha_envio >= fecha_desde,
             EtiquetaEnvio.fecha_envio <= fecha_hasta,
         )
-        .subquery()
+        .scalar_subquery()
     )
 
     # Reusar subquery deduplicada de estado ERP
