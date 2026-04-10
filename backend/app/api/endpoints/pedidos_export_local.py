@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from pydantic import BaseModel, ConfigDict
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import json
 
 from app.core.database import get_db
@@ -122,7 +122,7 @@ async def obtener_pedidos_local(
     )
 
     # FILTRO POR FECHA: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
-    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+    fecha_limite = datetime.combine(datetime.now(UTC).date() - timedelta(days=dias_atras), datetime.min.time())
     query = query.filter(SaleOrderHeader.soh_cd >= fecha_limite)
 
     # Filtro por estado ERP (opcional)
@@ -444,7 +444,7 @@ def obtener_usuarios_disponibles_local(
     Usuarios (canales/vendedores) que tienen pedidos en la DB local.
     Usa la misma base de filtros que /pedidos-local.
     """
-    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+    fecha_limite = datetime.combine(datetime.now(UTC).date() - timedelta(days=dias_atras), datetime.min.time())
 
     query = db.query(SaleOrderHeader.user_id, TBUser.user_name).outerjoin(
         TBUser, SaleOrderHeader.user_id == TBUser.user_id
@@ -481,7 +481,7 @@ def obtener_provincias_disponibles_local(
     Provincias únicas en pedidos de la DB local.
     Prioriza override > TN.
     """
-    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+    fecha_limite = datetime.combine(datetime.now(UTC).date() - timedelta(days=dias_atras), datetime.min.time())
 
     provincia_efectiva = func.coalesce(
         SaleOrderHeader.override_shipping_province, SaleOrderHeader.tiendanube_shipping_province
@@ -617,7 +617,7 @@ def obtener_estadisticas_local(
     )
 
     # Filtro de fecha: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
-    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+    fecha_limite = datetime.combine(datetime.now(UTC).date() - timedelta(days=dias_atras), datetime.min.time())
 
     # Base query
     base_filter = [~subquery_cerrados.exists(), SaleOrderHeader.soh_cd >= fecha_limite]

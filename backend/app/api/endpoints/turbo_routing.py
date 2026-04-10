@@ -5,7 +5,7 @@ Sistema de asignación de envíos a motoqueros con zonas y optimización de ruta
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 import httpx
@@ -77,14 +77,14 @@ async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True
     """
     # Verificar cache
     if usar_cache and _envios_cache["timestamp"]:
-        cache_age = (datetime.now() - _envios_cache["timestamp"]).total_seconds()
+        cache_age = (datetime.now(UTC) - _envios_cache["timestamp"]).total_seconds()
         if cache_age < _envios_cache["ttl_seconds"]:
             logger.info(f"Usando cache de scriptEnvios (edad: {cache_age:.1f}s)")
             return _envios_cache["data"]
 
     try:
-        fecha_hasta = datetime.now().strftime("%Y-%m-%d")
-        fecha_desde = (datetime.now() - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
+        fecha_hasta = datetime.now(UTC).strftime("%Y-%m-%d")
+        fecha_desde = (datetime.now(UTC) - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
 
         logger.info(f"Consultando scriptEnvios (desde={fecha_desde}, hasta={fecha_hasta})")
 
@@ -103,7 +103,7 @@ async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True
             # Guardar en cache
             if usar_cache:
                 _envios_cache["data"] = data
-                _envios_cache["timestamp"] = datetime.now()
+                _envios_cache["timestamp"] = datetime.now(UTC)
                 logger.info(f"Cache actualizado con {len(data)} envíos")
 
             return data

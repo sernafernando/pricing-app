@@ -6,7 +6,7 @@ from app.models.publicacion_ml import PublicacionML
 from app.services.ml_webhook_client import ml_webhook_client
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ async def sync_catalog_status(
                 competitors_sharing_first_place=ptw_data.get("competitors_sharing_first_place"),
                 winner_mla=ptw_data.get("winner"),
                 winner_price=float(ptw_data.get("winner_price", 0)) if ptw_data.get("winner_price") else None,
-                fecha_consulta=datetime.now(),
+                fecha_consulta=datetime.now(UTC),
             )
 
             db.add(catalog_status)

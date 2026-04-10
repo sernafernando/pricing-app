@@ -10,7 +10,7 @@ Implementa una state machine configurable que:
 
 import logging
 from typing import Optional, Tuple, Dict, Any
-from datetime import datetime
+from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.tickets.models.ticket import Ticket
@@ -140,11 +140,11 @@ class WorkflowService:
 
         # Cambiar estado
         ticket.estado_id = nuevo_estado_id
-        ticket.updated_at = datetime.now()
+        ticket.updated_at = datetime.now(UTC)
 
         # Si es un estado final, marcar closed_at
         if nuevo_estado.es_final:
-            ticket.closed_at = datetime.now()
+            ticket.closed_at = datetime.now(UTC)
 
         # Registrar en historial
         self._crear_historial(

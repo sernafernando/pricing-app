@@ -7,16 +7,16 @@ from typing import Any
 import httpx
 import re
 import json
-import os
-from app.api.deps import get_user_or_localhost
+from app.api.deps import get_user_or_localhost, get_current_user
+from app.core.config import settings
 
 router = APIRouter()
 
-# Configuración del ERP desde variables de entorno
-P_USERNAME = os.getenv("GBP_USERNAME")
-P_PASSWORD = os.getenv("GBP_PASSWORD")
-P_COMPANY = os.getenv("GBP_COMPANY")
-P_WEBWS = os.getenv("GBP_WEBWS", "wsBasicQuery")
+# Configuración del ERP desde Settings (validadas por Pydantic)
+P_USERNAME = settings.GBP_USERNAME
+P_PASSWORD = settings.GBP_PASSWORD
+P_COMPANY = settings.GBP_COMPANY
+P_WEBWS = settings.GBP_WEBWS
 SOAP_URL = "http://ws.globalbluepoint.com/pastoriza/app_webservices/wsBasicQuery.asmx"
 
 # Cache en memoria para el token (simple, sin Redis)
@@ -429,6 +429,6 @@ async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
 
 
 @router.get("/gbp-parser/health")
-def health_check():
-    """Health check del parser"""
+def health_check(current_user=Depends(get_current_user)):
+    """Health check del parser. Requires authentication."""
     return {"status": "ok", "service": "gbp-parser"}

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
-from datetime import datetime, date
+from datetime import UTC, datetime, date
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -595,7 +595,7 @@ def exportar_clientes(
     output.seek(0)
 
     # Preparar respuesta
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"clientes_{timestamp}.xlsx"
 
     return StreamingResponse(

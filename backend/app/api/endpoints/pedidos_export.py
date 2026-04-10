@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, case, text
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date, timedelta
+from datetime import UTC, datetime, date, timedelta
 from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
@@ -419,14 +419,14 @@ def guardar_export_87_snapshot(data: List[Dict[str, Any]], db: Session) -> int:
     Returns:
         Cantidad de registros guardados
     """
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     # Borrar snapshots viejos (>7 días)
-    db.query(Export87Snapshot).filter(Export87Snapshot.snapshot_date < datetime.now() - timedelta(days=7)).delete(
+    db.query(Export87Snapshot).filter(Export87Snapshot.snapshot_date < datetime.now(UTC) - timedelta(days=7)).delete(
         synchronize_session=False
     )
 
-    snapshot_date = datetime.now()
+    snapshot_date = datetime.now(UTC)
     registros_guardados = 0
 
     # Agrupar por soh_id para evitar duplicados (Export 87 trae 1 fila por ITEM, no por PEDIDO)

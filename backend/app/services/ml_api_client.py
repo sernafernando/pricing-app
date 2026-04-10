@@ -1,7 +1,7 @@
 import httpx
 import os
 from typing import Dict, Optional, List
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class MercadoLibreAPIClient:
         """Obtiene o renueva el access token"""
         # Si tenemos un token válido, lo retornamos
         if self.access_token and self.token_expires_at:
-            if datetime.now() < self.token_expires_at:
+            if datetime.now(UTC) < self.token_expires_at:
                 return self.access_token
 
         # Renovar token usando refresh_token
@@ -46,7 +46,7 @@ class MercadoLibreAPIClient:
                 expires_in = data.get("expires_in", 21600)
                 from datetime import timedelta
 
-                self.token_expires_at = datetime.now() + timedelta(seconds=expires_in - 300)  # 5 min de margen
+                self.token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in - 300)  # 5 min de margen
 
                 # Actualizar refresh token si viene uno nuevo
                 if "refresh_token" in data:

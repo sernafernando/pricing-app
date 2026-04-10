@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -82,7 +82,7 @@ async def sincronizar_publicaciones_full(
 
         try:
             # Paso 1: Sync items publicados desde GBP
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] === PASO 1/2: Sincronizar Items Publicados (GBP) ===")
+            print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] === PASO 1/2: Sincronizar Items Publicados (GBP) ===")
             try:
                 with get_background_db() as db:
                     await sync_items_publicados_full(db)
@@ -90,14 +90,14 @@ async def sincronizar_publicaciones_full(
                 print(f"ERROR en items publicados: {e}")
 
             # Paso 2: Sync publications incremental (API ML)
-            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] === PASO 2/2: Sincronizar Publications (API ML) ===")
+            print(f"\n[{datetime.now(UTC).strftime('%H:%M:%S')}] === PASO 2/2: Sincronizar Publications (API ML) ===")
             try:
                 with get_background_db() as db2:
                     await sync_ml_publications_incremental(db2)
             except Exception as e:
                 print(f"ERROR en publications: {e}")
 
-            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] === SINCRONIZACIÓN COMPLETA ===")
+            print(f"\n[{datetime.now(UTC).strftime('%H:%M:%S')}] === SINCRONIZACIÓN COMPLETA ===")
         finally:
             sys.stdout = old_stdout
             # Señal de fin: None indica que no hay más output

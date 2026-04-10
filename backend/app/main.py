@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import UTC, datetime
 import asyncio
 from app.api.endpoints import (
     sync,
@@ -301,7 +301,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
 
 async def sync_pedidos_preparacion_task():

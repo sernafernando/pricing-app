@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 import pytz
 
@@ -229,10 +229,10 @@ async def sincronizar_pedidos(
             status=result.get("status", "unknown"),
             message=result.get("message", "Sincronización completada"),
             count=result.get("count", 0),
-            timestamp=result.get("timestamp", datetime.now().isoformat()),
+            timestamp=result.get("timestamp", datetime.now(UTC).isoformat()),
         )
     except Exception as e:
-        return SyncResponse(status="error", message=str(e), count=0, timestamp=datetime.now().isoformat())
+        return SyncResponse(status="error", message=str(e), count=0, timestamp=datetime.now(UTC).isoformat())
 
 
 @router.get("/pedidos-preparacion/componentes/{item_id}", response_model=List[ComponenteProductoResponse])

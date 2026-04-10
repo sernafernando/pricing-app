@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from typing import List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 import logging
 import re
@@ -468,7 +468,7 @@ def actualizar_bultos_domicilio(
 
     pedido.override_num_bultos = num_bultos
     pedido.override_tipo_domicilio = tipo_domicilio
-    pedido.override_modified_at = datetime.now()
+    pedido.override_modified_at = datetime.now(UTC)
 
     db.commit()
     db.refresh(pedido)
@@ -521,7 +521,7 @@ def actualizar_direccion_envio(
     pedido.override_shipping_phone = override_data.telefono
     pedido.override_shipping_recipient = override_data.destinatario
     pedido.override_notes = override_data.notas
-    pedido.override_modified_at = datetime.now()
+    pedido.override_modified_at = datetime.now(UTC)
     # TODO: pedido.override_modified_by = current_user.user_id cuando tengamos auth
 
     db.commit()

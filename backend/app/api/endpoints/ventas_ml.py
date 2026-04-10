@@ -1,9 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, desc
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import UTC, datetime, date, timedelta
 import httpx
 import io
 from openpyxl import Workbook
@@ -16,6 +18,8 @@ from app.api.deps import get_current_user
 from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
+
+logger = logging.getLogger(__name__)
 
 
 def get_pares_marca_cat_usuario_ventas(db: Session, usuario: Usuario) -> Optional[set]:
@@ -148,7 +152,7 @@ async def sync_ventas_ml(
                 ventas_insertadas += 1
 
             except Exception as e:
-                print(f"Error procesando venta {venta_json.get('ID_de_Operación')}: {str(e)}")
+                logger.error("Error procesando venta %s: %s", venta_json.get("ID_de_Operación"), e, exc_info=True)
                 ventas_errores += 1
                 continue
 
@@ -375,11 +379,11 @@ def get_ventas_detalladas(
 
     # Si no se especifican fechas, usar últimos N días
     if not from_date and not to_date:
-        fecha_hasta = datetime.now()
+        fecha_hasta = datetime.now(UTC)
         fecha_desde = fecha_hasta - timedelta(days=dias)
     else:
-        fecha_desde = datetime.fromisoformat(from_date) if from_date else datetime.now() - timedelta(days=30)
-        fecha_hasta = datetime.fromisoformat(to_date) if to_date else datetime.now()
+        fecha_desde = datetime.fromisoformat(from_date) if from_date else datetime.now(UTC) - timedelta(days=30)
+        fecha_hasta = datetime.fromisoformat(to_date) if to_date else datetime.now(UTC)
 
     # Agregar un día a fecha_hasta para incluir todo el día
     fecha_hasta = fecha_hasta + timedelta(days=1)

@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime, date
+from datetime import UTC, datetime, date
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
 from fastapi.responses import Response
@@ -600,9 +600,9 @@ def listar_productos(
 
     # Filtro de productos nuevos (últimos 7 días)
     if nuevos_ultimos_7_dias:
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
 
-        fecha_limite = datetime.now() - timedelta(days=7)
+        fecha_limite = datetime.now(UTC) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     # Filtro de Tienda Oficial
@@ -1851,7 +1851,7 @@ def listar_productos_tienda(
 
     # Filtro de productos nuevos (últimos 7 días)
     if nuevos_ultimos_7_dias:
-        fecha_limite = datetime.now() - timedelta(days=7)
+        fecha_limite = datetime.now(UTC) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     total = query.count()
@@ -3674,7 +3674,7 @@ def actualizar_rebate(
     else:
         pricing.participa_rebate = datos.participa_rebate
         pricing.porcentaje_rebate = datos.porcentaje_rebate
-        pricing.fecha_modificacion = datetime.now()
+        pricing.fecha_modificacion = datetime.now(UTC)
 
     db.commit()
     db.refresh(pricing)
@@ -3722,7 +3722,7 @@ def exportar_rebate(
     """Exporta productos con rebate a Excel"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment
-    from datetime import datetime, date
+    from datetime import UTC, datetime, date
     from calendar import monthrange
     from io import BytesIO
     from fastapi.responses import StreamingResponse
@@ -4321,7 +4321,7 @@ def actualizar_web_transferencia(
         pricing.participa_web_transferencia = participa
         pricing.porcentaje_markup_web = porcentaje_markup
         pricing.preservar_porcentaje_web = preservar_porcentaje
-        pricing.fecha_modificacion = datetime.now()
+        pricing.fecha_modificacion = datetime.now(UTC)
 
     precio_web = None
     markup_web_real = None
@@ -4691,7 +4691,7 @@ def calcular_web_masivo(
         producto_pricing.porcentaje_markup_web = porcentaje_adicional
         producto_pricing.precio_web_transferencia = resultado["precio"]
         producto_pricing.markup_web_real = resultado["markup_real"]
-        producto_pricing.fecha_modificacion = datetime.now()
+        producto_pricing.fecha_modificacion = datetime.now(UTC)
 
         procesados += 1
 
@@ -4939,11 +4939,11 @@ def calcular_pvp_masivo(
                 producto_pricing.precio_pvp_12_cuotas = resultado_12["precio"]
                 producto_pricing.markup_pvp_12_cuotas = resultado_12["markup_real"]
 
-            producto_pricing.fecha_modificacion = datetime.now()
+            producto_pricing.fecha_modificacion = datetime.now(UTC)
             procesados += 1
 
         except Exception as e:
-            print(f"Error procesando producto {producto_erp.item_id}: {str(e)}")
+            logger.error("Error procesando producto %s: %s", producto_erp.item_id, e, exc_info=True)
             continue
 
     db.commit()
@@ -5240,7 +5240,7 @@ def recalcular_cuotas_masivo(
                     setattr(producto_pricing, nombre_markup, None)
 
             producto_pricing.usuario_id = current_user.id
-            producto_pricing.fecha_modificacion = datetime.now()
+            producto_pricing.fecha_modificacion = datetime.now(UTC)
             procesados += 1
 
         except Exception as e:
@@ -5450,7 +5450,7 @@ def actualizar_config_cuotas_producto(
     producto_pricing.markup_adicional_cuotas_custom = markup_adicional_cuotas_custom
     producto_pricing.markup_adicional_cuotas_pvp_custom = markup_adicional_cuotas_pvp_custom
     producto_pricing.usuario_id = current_user.id
-    producto_pricing.fecha_modificacion = datetime.now()
+    producto_pricing.fecha_modificacion = datetime.now(UTC)
 
     db.commit()
     db.refresh(producto_pricing)
@@ -5756,7 +5756,7 @@ async def obtener_datos_ml_producto(
     from app.models.ml_venta_metrica import MLVentaMetrica
     from sqlalchemy import cast, Date
 
-    fecha_actual = datetime.now().date()
+    fecha_actual = datetime.now(UTC).date()
     ventas_stats = {}
 
     for dias in [7, 15, 30]:
@@ -6814,7 +6814,8 @@ def exportar_clasica(
                                 incluir = False
                         else:
                             incluir = False
-                    except:
+                    except Exception as e:
+                        logger.warning("Error calculando markup rebate para item %s: %s", item_id, e)
                         incluir = False
                 else:
                     incluir = False
@@ -7209,8 +7210,6 @@ def exportar_vista_actual(
 
         if tiendanube_no_publicado:
             logger.info("Aplicando filtro: tiendanube_no_publicado")
-            count_antes = query.count()
-            print(f"[DEBUG] Productos ANTES del filtro TN: {count_antes}")
             # Productos con stock pero NO en Tienda Nube
             from app.models.tienda_nube_producto import TiendaNubeProducto
             from sqlalchemy.sql import exists
@@ -7219,8 +7218,6 @@ def exportar_vista_actual(
                 and_(TiendaNubeProducto.item_id == ProductoERP.item_id, TiendaNubeProducto.activo == True)
             )
             query = query.filter(and_(ProductoERP.stock > 0, ~subquery))
-            count_despues = query.count()
-            print(f"[DEBUG] Productos DESPUÉS del filtro TN: {count_despues}")
 
         if out_of_cards is not None:
             if out_of_cards:
@@ -7497,8 +7494,8 @@ def exportar_vista_actual(
                 try:
                     if cell.value:
                         max_length = max(max_length, len(str(cell.value)))
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning("Error calculando ancho de columna %s: %s", column_letter, e)
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
 
@@ -7513,10 +7510,7 @@ def exportar_vista_actual(
             headers={"Content-Disposition": "attachment; filename=vista_actual.xlsx"},
         )
     except Exception as e:
-        import traceback
-
-        print(f"Error en exportar_vista_actual: {str(e)}")
-        print(traceback.format_exc())
+        logger.error("Error en exportar_vista_actual: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar vista actual: {str(e)}")
 
 
@@ -7724,10 +7718,7 @@ def exportar_lista_gremio(
         )
 
     except Exception as e:
-        import traceback
-
-        print(f"Error en exportar_lista_gremio: {str(e)}")
-        print(traceback.format_exc())
+        logger.error("Error en exportar_lista_gremio: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
 
 
@@ -7887,10 +7878,7 @@ def exportar_lista_web_transferencia(
         )
 
     except Exception as e:
-        import traceback
-
-        print(f"Error en exportar_lista_web_transferencia: {str(e)}")
-        print(traceback.format_exc())
+        logger.error("Error en exportar_lista_web_transferencia: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar lista web transferencia: {str(e)}")
 
 

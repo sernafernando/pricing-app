@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
 import httpx
-import os
 import logging
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import Usuario
@@ -18,9 +18,9 @@ from app.models.usuario import Usuario
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Configuración de Tienda Nube desde variables de entorno
-TN_STORE_ID = os.getenv("TN_STORE_ID")
-TN_ACCESS_TOKEN = os.getenv("TN_ACCESS_TOKEN")
+# Configuración de Tienda Nube desde Settings (validadas por Pydantic)
+TN_STORE_ID = settings.TN_STORE_ID
+TN_ACCESS_TOKEN = settings.TN_ACCESS_TOKEN
 
 
 class SyncTiendaNubeResponse(BaseModel):

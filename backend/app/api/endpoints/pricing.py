@@ -1,10 +1,14 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.usuario import Usuario
@@ -50,8 +54,8 @@ def calcular_markup_rebate(
             )
             markup_rebate_val = calcular_markup(limpio_rebate, costo_rebate) * 100
             return markup_rebate_val
-    except:
-        pass
+    except Exception as e:
+        logger.warning("Error calculando markup rebate para producto %s: %s", producto.item_id, e)
 
     return None
 
@@ -114,8 +118,8 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
                     )
                     markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
                     return markup_oferta_val
-    except:
-        pass
+    except Exception as e:
+        logger.warning("Error calculando markup oferta para producto %s: %s", producto.item_id, e)
 
     return None
 
@@ -394,7 +398,8 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
                             precios_cuotas_calculados[nombre_campo] = precio_calculado
                         else:
                             precios_cuotas_calculados[nombre_campo] = None
-                except:
+                except Exception as e:
+                    logger.warning("Error calculando cuota %s para item %s: %s", nombre_campo, request.item_id, e)
                     # Si falla el cálculo, dejar en None
                     precios_cuotas_calculados[nombre_campo] = None
 
@@ -424,7 +429,7 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         pricing.markup_calculado = markup_calculado
         pricing.usuario_id = current_user.id
         pricing.motivo_cambio = request.motivo
-        pricing.fecha_modificacion = datetime.now()
+        pricing.fecha_modificacion = datetime.now(UTC)
         pricing.participa_rebate = request.participa_rebate
         pricing.porcentaje_rebate = request.porcentaje_rebate
         # Actualizar precios con cuotas (usar los calculados si no se proporcionaron)
@@ -639,7 +644,7 @@ def setear_precio_rapido(
                 mensaje = "Precios Web borrados"
 
             pricing.usuario_id = current_user.id
-            pricing.fecha_modificacion = datetime.now()
+            pricing.fecha_modificacion = datetime.now(UTC)
 
             db.commit()
 
@@ -754,9 +759,8 @@ def setear_precio_rapido(
                     # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
-            except Exception:
-                # Si falla el cálculo, continuar con el siguiente
-                pass
+            except Exception as e:
+                logger.warning("Error calculando cuota %s para item %s: %s", nombre_campo, item_id, e)
 
     # Guardar precio (pricing ya se obtuvo arriba)
     if pricing:
@@ -805,7 +809,7 @@ def setear_precio_rapido(
             pricing.markup_calculado = round(markup * 100, 2)
 
         pricing.usuario_id = current_user.id
-        pricing.fecha_modificacion = datetime.now()
+        pricing.fecha_modificacion = datetime.now(UTC)
 
         # Actualizar precios de cuotas si se recalcularon
         if recalcular_cuotas:
@@ -956,7 +960,8 @@ def setear_precio_rapido(
                         )
                         markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
                         response[nombre_markup] = round(markup_calculado, 2)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Error calculando markup cuota %s para item %s: %s", nombre_markup, item_id, e)
                     response[nombre_markup] = None
 
     return response
@@ -1061,8 +1066,8 @@ def recalcular_cuotas_desde_clasica(
                 precio_calculado = round(resultado["precio"], 2)
                 if precio_calculado > 0:
                     precios_cuotas[nombre_campo] = precio_calculado
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error recalculando cuota %s para item %s: %s", nombre_campo, item_id, e)
 
     # Persistir cuotas recalculadas (sin tocar precio base)
     for nombre_campo, precio_cuota in precios_cuotas.items():
@@ -1105,12 +1110,13 @@ def recalcular_cuotas_desde_clasica(
                     markup_redondeado = round(markup_calculado, 2)
                     setattr(pricing, nombre_markup, markup_redondeado)
                     markups_cuotas[nombre_markup] = markup_redondeado
-            except Exception:
+            except Exception as e:
+                logger.warning("Error calculando markup cuota %s para item %s: %s", nombre_markup, item_id, e)
                 setattr(pricing, nombre_markup, None)
                 markups_cuotas[nombre_markup] = None
 
     pricing.usuario_id = current_user.id
-    pricing.fecha_modificacion = datetime.now()
+    pricing.fecha_modificacion = datetime.now(UTC)
 
     db.commit()
 
@@ -1171,7 +1177,7 @@ def setear_precio_cuota(
             setattr(pricing, campo_precio, None)
             setattr(pricing, campo_markup, None)
             pricing.usuario_id = current_user.id
-            pricing.fecha_modificacion = datetime.now()
+            pricing.fecha_modificacion = datetime.now(UTC)
             db.commit()
             db.refresh(pricing)
 
@@ -1223,7 +1229,7 @@ def setear_precio_cuota(
         # Actualizar el campo correspondiente
         setattr(pricing, campo_precio, precio)
         pricing.usuario_id = current_user.id
-        pricing.fecha_modificacion = datetime.now()
+        pricing.fecha_modificacion = datetime.now(UTC)
 
         # Calcular y actualizar markup_rebate y markup_oferta
         pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
