@@ -227,11 +227,13 @@ class HikvisionClient:
         """
         self._check_configured()
 
-        # Defaults en hora local Argentina (el dispositivo opera en ART)
+        # Defaults: día completo. El endTime se fija a 23:59:59 para
+        # asegurar que traiga TODOS los eventos del día sin importar
+        # diferencias de timezone entre el server y el dispositivo.
         if desde is None:
             desde = datetime.now(ART_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         if hasta is None:
-            hasta = datetime.now(ART_TZ)
+            hasta = datetime.now(ART_TZ).replace(hour=23, minute=59, second=59, microsecond=0)
 
         # Convertir a hora local Argentina si vienen en otro timezone
         if desde.tzinfo is not None:
