@@ -368,12 +368,17 @@ class HikvisionClient:
                     continue
                 empleado_id = hik_map.get(employee_no)
 
-                # Parse timestamp early for proximity check
+                # Parse timestamp early for proximity check.
+                # El Hikvision devuelve hora LOCAL Argentina sin timezone info
+                # (ej: "2026-04-10T11:23:00"). Hay que asignarle ART_TZ explícitamente,
+                # sino PostgreSQL lo interpreta como UTC y se desfasa 3 horas.
                 time_str = event.get("time", "")
                 try:
                     ts = datetime.fromisoformat(time_str)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=ART_TZ)
                 except (ValueError, AttributeError):
-                    ts = datetime.now(timezone.utc)
+                    ts = datetime.now(ART_TZ)
 
                 # Proximity dedup: mismo employee_no dentro de PROXIMITY_SECONDS
                 # El DS-K1T804AMF genera múltiples eventos (distintos serialNo)
