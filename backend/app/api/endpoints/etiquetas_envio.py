@@ -340,6 +340,20 @@ class EtiquetaEnvioResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EtiquetaPaginatedResponse(BaseModel):
+    """Respuesta paginada del listado de etiquetas.
+
+    Se devuelve cuando el cliente envía ?page=N explícitamente.
+    Si no se envía page, el endpoint devuelve List[EtiquetaEnvioResponse]
+    directamente (backwards compatible).
+    """
+
+    items: List[EtiquetaEnvioResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class EstadisticasEnvioResponse(BaseModel):
     """Estadísticas de distribución de etiquetas."""
 
@@ -1041,8 +1055,22 @@ def registrar_manual(
 
 @router.get(
     "/etiquetas-envio",
-    response_model=List[EtiquetaEnvioResponse],
     summary="Listar etiquetas con datos de envío",
+    responses={
+        200: {
+            "description": "Lista o paginado de etiquetas",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "oneOf": [
+                            {"type": "array", "items": {"$ref": "#/components/schemas/EtiquetaEnvioResponse"}},
+                            {"$ref": "#/components/schemas/EtiquetaPaginatedResponse"},
+                        ]
+                    }
+                }
+            },
+        }
+    },
 )
 def listar_etiquetas(
     fecha_envio: Optional[date] = Query(None, description="Filtrar por fecha de envío exacta"),
@@ -1058,9 +1086,11 @@ def listar_etiquetas(
     pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
     sin_cordon: bool = Query(False, description="Solo etiquetas sin cordón asignado"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
+    page: Optional[int] = Query(None, ge=1, description="Página (si se omite, devuelve lista completa)"),
+    page_size: int = Query(100, ge=1, le=500, description="Tamaño de página (default 100, max 500)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> List[EtiquetaEnvioResponse]:
+):
     """
     Lista etiquetas de envío con JOINs a:
     - tb_mercadolibre_orders_shipping (datos del envío)
@@ -1373,9 +1403,20 @@ def listar_etiquetas(
     # Ordenar por shipping_id desc (más recientes primero)
     query = query.order_by(EtiquetaEnvio.shipping_id.desc())
 
+    # ── Paginación (opcional, backwards compatible) ──────────
+    # Si page se envía explícitamente → respuesta paginada {items, total, page, page_size}
+    # Si page NO se envía (None) → lista plana [] (comportamiento original)
+    if page is not None:
+        # Count total ANTES de aplicar LIMIT/OFFSET.
+        # Usamos una subquery con los shipping_ids filtrados para evitar
+        # re-ejecutar todos los JOINs en el COUNT — solo contamos IDs.
+        total_count = query.with_entities(EtiquetaEnvio.shipping_id).count()
+        offset = (page - 1) * page_size
+        query = query.limit(page_size).offset(offset)
+
     rows = query.all()
 
-    return [
+    items = [
         EtiquetaEnvioResponse(
             shipping_id=row.shipping_id,
             sender_id=row.sender_id,
@@ -1433,6 +1474,16 @@ def listar_etiquetas(
         )
         for row in rows
     ]
+
+    if page is not None:
+        return EtiquetaPaginatedResponse(
+            items=items,
+            total=total_count,
+            page=page,
+            page_size=page_size,
+        )
+
+    return items
 
 
 @router.get(
@@ -1587,14 +1638,20 @@ def estadisticas_etiquetas(
     # Filtro reutilizable: restringe a los shipping_ids filtrados
     ids_filter = EtiquetaEnvio.shipping_id.in_(db.query(filtered_ids_sub.c.shipping_id))
 
-    # Base: total de etiquetas que coinciden con los filtros
-    total = db.query(EtiquetaEnvio).filter(ids_filter).count()
-
-    # Flaggeadas (mal pasado, cancelado, etc.)
-    flagged = db.query(EtiquetaEnvio).filter(ids_filter, EtiquetaEnvio.flag_envio.isnot(None)).count()
-
-    # Retornados (paquetes devueltos físicamente a la oficina)
-    retornados = db.query(EtiquetaEnvio).filter(ids_filter, EtiquetaEnvio.retornado.is_(True)).count()
+    # Base counts: total, flagged, retornados en UNA sola query con CASE/WHEN.
+    # Antes eran 3 queries separadas escaneando la misma tabla con el mismo filtro.
+    counts_row = (
+        db.query(
+            func.count().label("total"),
+            func.count(case((EtiquetaEnvio.flag_envio.isnot(None), 1))).label("flagged"),
+            func.count(case((EtiquetaEnvio.retornado.is_(True), 1))).label("retornados"),
+        )
+        .filter(ids_filter)
+        .one()
+    )
+    total = counts_row.total
+    flagged = counts_row.flagged
+    retornados = counts_row.retornados
 
     # Por cordón
     cordon_rows = (
