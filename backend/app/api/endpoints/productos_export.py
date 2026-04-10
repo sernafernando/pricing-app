@@ -1,12 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
-from typing import Optional, List
+from typing import Optional
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from pydantic import BaseModel, ConfigDict, Field
-from datetime import UTC, datetime, date
 from app.api.deps import get_current_user
 from fastapi.responses import Response
 import logging
@@ -27,7 +25,7 @@ def exportar_rebate(
     """Exporta productos con rebate a Excel"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment
-    from datetime import UTC, datetime, date
+    from datetime import datetime, date
     from calendar import monthrange
     from io import BytesIO
     from fastapi.responses import StreamingResponse

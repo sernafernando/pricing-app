@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, case, text
 from typing import List, Optional, Dict, Any
-from datetime import UTC, datetime, date, timedelta
+from datetime import datetime, date, timedelta
 from pydantic import BaseModel, ConfigDict
 import httpx
 import logging

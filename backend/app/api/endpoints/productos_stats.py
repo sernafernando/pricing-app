@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
-from typing import Optional, List
+from typing import Optional
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from datetime import UTC, datetime, date
 from app.api.deps import get_current_user
 import logging
 
