@@ -3486,6 +3486,11 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
             if order_id_ints:
                 cached_rows = session.query(RmaClaimML).filter(RmaClaimML.resource_id.in_(order_id_ints)).all()
                 for row in cached_rows:
+                    # Expunge para que el objeto sobreviva fuera de la sesión.
+                    # Sin esto, acceder a columnas JSONB (expected_resolutions_detail,
+                    # return_data, etc.) después de cerrar la sesión causa
+                    # DetachedInstanceError.
+                    session.expunge(row)
                     cid = str(row.claim_id)
                     cache_by_claim_id[cid] = row
     except Exception:
