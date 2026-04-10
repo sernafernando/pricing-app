@@ -111,7 +111,7 @@ class RebateUpdate(BaseModel):
 
 
 @router.get("/productos", response_model=ProductoListResponse)
-async def listar_productos(
+def listar_productos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=10000),
     search: Optional[str] = None,
@@ -685,10 +685,134 @@ async def listar_productos(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
+        obtener_constantes_pricing,
+        obtener_envio_promedio_grupo,
+        GRUPO_DEFAULT,
     )
+    from app.models.comision_config import SubcategoriaGrupo
+    from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
     from datetime import date
 
     hoy = date.today()
+
+    # ── T-3: Prefetch tipo_cambio + constantes ──────────────────────────
+    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
+    constantes = obtener_constantes_pricing(db)
+
+    # ── T-4: Prefetch SubcategoriaGrupo mapping ─────────────────────────
+    all_subcat_grupos = db.query(SubcategoriaGrupo).all()
+    subcat_to_grupo = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos}
+
+    # ── T-5: Prefetch comision lookup ───────────────────────────────────
+    _pricelist_pvp_to_web = {
+        12: 4,
+        18: 17,
+        19: 14,
+        20: 13,
+        21: 23,
+    }
+    _pricelist_to_cuotas = {17: 3, 14: 6, 13: 9, 23: 12}
+
+    _active_version = (
+        db.query(ComisionVersion)
+        .filter(
+            and_(
+                ComisionVersion.fecha_desde <= hoy,
+                or_(ComisionVersion.fecha_hasta.is_(None), ComisionVersion.fecha_hasta >= hoy),
+                ComisionVersion.activo == True,
+            )
+        )
+        .first()
+    )
+    _comision_base_map: dict = {}
+    _comision_adicional_map: dict = {}
+    if _active_version:
+        for cb in db.query(ComisionBase).filter(ComisionBase.version_id == _active_version.id).all():
+            _comision_base_map[(_active_version.id, cb.grupo_id)] = float(cb.comision_base)
+        for ca in (
+            db.query(ComisionAdicionalCuota).filter(ComisionAdicionalCuota.version_id == _active_version.id).all()
+        ):
+            _comision_adicional_map[(_active_version.id, ca.cuotas)] = float(ca.adicional)
+
+    def _lookup_comision(pricelist_id: int, grupo_id: int):
+        """Pure dict lookup replacement for obtener_comision_base."""
+        resolved_pl = _pricelist_pvp_to_web.get(pricelist_id, pricelist_id)
+        if not _active_version:
+            return None
+        base = _comision_base_map.get((_active_version.id, grupo_id))
+        if base is None:
+            return None
+        if resolved_pl == 4:
+            return base
+        cuotas = _pricelist_to_cuotas.get(resolved_pl)
+        if cuotas is None:
+            return base
+        adicional = _comision_adicional_map.get((_active_version.id, cuotas), 0)
+        return base + adicional
+
+    # ── T-6: Prefetch envio_promedio_grupo (single bulk query) ─────────
+    from app.models.producto import ProductoERP as _PE_envio
+
+    unique_grupo_ids = set(subcat_to_grupo.values())
+    envio_promedio_by_grupo: dict = {gid: 0.0 for gid in unique_grupo_ids}
+    # Build reverse map: grupo_id -> [subcat_ids]
+    _grupo_to_subcats: dict = {}
+    for sc_id, g_id in subcat_to_grupo.items():
+        _grupo_to_subcats.setdefault(g_id, []).append(sc_id)
+    # All subcat_ids that belong to any grupo
+    _all_subcat_ids_envio = list(subcat_to_grupo.keys())
+    if _all_subcat_ids_envio:
+        _envio_rows = (
+            db.query(_PE_envio.subcategoria_id, func.avg(_PE_envio.envio))
+            .filter(
+                _PE_envio.subcategoria_id.in_(_all_subcat_ids_envio),
+                _PE_envio.activo == True,
+                _PE_envio.envio > 0,
+            )
+            .group_by(_PE_envio.subcategoria_id)
+            .all()
+        )
+        # Aggregate per grupo
+        _subcat_envio_avg = {sc_id: float(avg_val) for sc_id, avg_val in _envio_rows}
+        for gid, sc_list in _grupo_to_subcats.items():
+            vals = [_subcat_envio_avg[sc] for sc in sc_list if sc in _subcat_envio_avg]
+            if vals:
+                envio_promedio_by_grupo[gid] = sum(vals) / len(vals)
+
+    # ── T-7: Batch-load PublicacionML + OfertaML ────────────────────────
+    all_item_ids_page = [r[0].item_id for r in results]
+    all_pubs = (
+        db.query(PublicacionML).filter(PublicacionML.item_id.in_(all_item_ids_page)).all() if all_item_ids_page else []
+    )
+    pubs_by_item: dict = {}
+    all_mla_list: list = []
+    for pub in all_pubs:
+        pubs_by_item.setdefault(pub.item_id, []).append(pub)
+        all_mla_list.append(pub.mla)
+
+    ofertas_by_mla: dict = {}
+    if all_mla_list:
+        all_ofertas = (
+            db.query(OfertaML)
+            .filter(
+                OfertaML.mla.in_(all_mla_list),
+                OfertaML.fecha_desde <= hoy,
+                OfertaML.fecha_hasta >= hoy,
+                OfertaML.pvp_seller.isnot(None),
+            )
+            .all()
+        )
+        for oferta in all_ofertas:
+            if oferta.mla not in ofertas_by_mla:
+                ofertas_by_mla[oferta.mla] = oferta
+
+    def _resolve_envio(producto_envio: float, grupo_id: int, precio: float) -> float:
+        """Resolve costo_envio, using grupo average when product has none and price >= MONTOT3."""
+        costo_envio = producto_envio or 0
+        montot3 = constantes["monto_tier3"] if constantes else 33000
+        if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
+            costo_envio = envio_promedio_by_grupo.get(grupo_id, 0.0)
+        return costo_envio
 
     productos = []
     for producto_erp, producto_pricing in results:
@@ -701,38 +825,27 @@ async def listar_productos(
         mejor_oferta_porcentaje = None
         mejor_oferta_fecha_hasta = None
 
-        # Buscar publicación del producto
-        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto_erp.item_id).all()
+        # T-7: Use prefetched pubs + ofertas (dict lookup instead of DB queries)
+        pubs = pubs_by_item.get(producto_erp.item_id, [])
 
         mejor_oferta = None
         mejor_pub = None
 
         for pub in pubs:
-            # Buscar oferta vigente para esta publicación
-            oferta = (
-                db.query(OfertaML)
-                .filter(
-                    OfertaML.mla == pub.mla,
-                    OfertaML.fecha_desde <= hoy,
-                    OfertaML.fecha_hasta >= hoy,
-                    OfertaML.pvp_seller.isnot(None),
-                )
-                .order_by(OfertaML.fecha_desde.desc())
-                .first()
-            )
+            oferta = ofertas_by_mla.get(pub.mla)
+            if oferta and not mejor_oferta:
+                mejor_oferta = oferta
+                mejor_pub = pub
 
-            if oferta:
-                # Tomar la primera que encuentre (o implementar lógica para elegir la mejor)
-                if not mejor_oferta:
-                    mejor_oferta = oferta
-                    mejor_pub = pub
+        # T-4: Resolve grupo_id once per product from prefetched map
+        grupo_id = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
 
         if mejor_oferta and mejor_pub:
             mejor_oferta_precio = float(mejor_oferta.precio_final) if mejor_oferta.precio_final else None
             mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
             mejor_oferta_porcentaje = (
                 float(mejor_oferta.aporte_meli_porcentaje) if mejor_oferta.aporte_meli_porcentaje else None
-            )  # ← AGREGAR
+            )
             mejor_oferta_fecha_hasta = mejor_oferta.fecha_hasta
 
             # Calcular monto rebate
@@ -741,23 +854,26 @@ async def listar_productos(
 
             # Calcular markup de la oferta
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                tipo_cambio = None
-                if producto_erp.moneda_costo == "USD":
-                    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+                # T-3: Use prefetched tipo_cambio_usd
+                tipo_cambio = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
 
                 costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-                grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                comision_base = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id)
+                # T-5: Use _lookup_comision instead of obtener_comision_base
+                comision_base = _lookup_comision(mejor_pub.pricelist_id, grupo_id)
 
                 if comision_base:
-                    comisiones = calcular_comision_ml_total(mejor_oferta_pvp, comision_base, producto_erp.iva, db=db)
+                    # T-3: Pass constantes instead of db
+                    comisiones = calcular_comision_ml_total(
+                        mejor_oferta_pvp, comision_base, producto_erp.iva, constantes=constantes
+                    )
+                    # T-6: Resolve envio with prefetched data
+                    costo_envio = _resolve_envio(producto_erp.envio or 0, grupo_id, mejor_oferta_pvp)
                     limpio = calcular_limpio(
                         mejor_oferta_pvp,
                         producto_erp.iva,
-                        producto_erp.envio or 0,
+                        costo_envio,
                         comisiones["comision_total"],
-                        db=db,
-                        grupo_id=grupo_id,
+                        constantes=constantes,
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
 
@@ -771,25 +887,22 @@ async def listar_productos(
             precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
             # Calcular markup del rebate
-            tipo_cambio_rebate = None
-            if producto_erp.moneda_costo == "USD":
-                tipo_cambio_rebate = obtener_tipo_cambio_actual(db, "USD")
+            tipo_cambio_rebate = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
 
             costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
-            grupo_id_rebate = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-            comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)  # Lista clásica
+            comision_base_rebate = _lookup_comision(4, grupo_id)  # Lista clásica
 
             if comision_base_rebate and precio_rebate > 0:
                 comisiones_rebate = calcular_comision_ml_total(
-                    precio_rebate, comision_base_rebate, producto_erp.iva, db=db
+                    precio_rebate, comision_base_rebate, producto_erp.iva, constantes=constantes
                 )
+                costo_envio_rebate = _resolve_envio(producto_erp.envio or 0, grupo_id, precio_rebate)
                 limpio_rebate = calcular_limpio(
                     precio_rebate,
                     producto_erp.iva,
-                    producto_erp.envio or 0,
+                    costo_envio_rebate,
                     comisiones_rebate["comision_total"],
-                    db=db,
-                    grupo_id=grupo_id_rebate,
+                    constantes=constantes,
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
 
@@ -822,30 +935,25 @@ async def listar_productos(
                 (producto_pricing.precio_12_cuotas, 23, "12_cuotas"),
             ]
 
+            tipo_cambio_cuota = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
+            costo_cuota = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota)
+
             for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
-                        tipo_cambio_cuota = None
-                        if producto_erp.moneda_costo == "USD":
-                            tipo_cambio_cuota = obtener_tipo_cambio_actual(db, "USD")
-
-                        costo_cuota = convertir_a_pesos(
-                            producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota
-                        )
-                        grupo_id_cuota = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                        comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
+                        comision_base_cuota = _lookup_comision(pricelist_id, grupo_id)
 
                         if comision_base_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
-                                float(precio_cuota), comision_base_cuota, producto_erp.iva, db=db
+                                float(precio_cuota), comision_base_cuota, producto_erp.iva, constantes=constantes
                             )
+                            costo_envio_cuota = _resolve_envio(producto_erp.envio or 0, grupo_id, float(precio_cuota))
                             limpio_cuota = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
-                                producto_erp.envio or 0,
+                                costo_envio_cuota,
                                 comisiones_cuota["comision_total"],
-                                db=db,
-                                grupo_id=grupo_id_cuota,
+                                constantes=constantes,
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
 
@@ -858,7 +966,6 @@ async def listar_productos(
                             elif nombre_cuota == "12_cuotas":
                                 markup_12_cuotas = markup_calculado
                     except Exception:
-                        # Si hay error calculando el markup, simplemente no lo mostramos
                         pass
 
         # Calcular markups para precios PVP
@@ -872,25 +979,22 @@ async def listar_productos(
             # Markup PVP clásica
             if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
                 try:
-                    tipo_cambio_pvp = None
-                    if producto_erp.moneda_costo == "USD":
-                        tipo_cambio_pvp = obtener_tipo_cambio_actual(db, "USD")
-
+                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
                     costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
-                    grupo_id_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                    comision_base_pvp = obtener_comision_base(db, 12, grupo_id_pvp)  # Pricelist 12 = PVP clásica
+                    comision_base_pvp = _lookup_comision(12, grupo_id)
 
                     if comision_base_pvp:
+                        pvp_precio = float(producto_pricing.precio_pvp)
                         comisiones_pvp = calcular_comision_ml_total(
-                            float(producto_pricing.precio_pvp), comision_base_pvp, producto_erp.iva, db=db
+                            pvp_precio, comision_base_pvp, producto_erp.iva, constantes=constantes
                         )
+                        costo_envio_pvp = _resolve_envio(producto_erp.envio or 0, grupo_id, pvp_precio)
                         limpio_pvp = calcular_limpio(
-                            float(producto_pricing.precio_pvp),
+                            pvp_precio,
                             producto_erp.iva,
-                            producto_erp.envio or 0,
+                            costo_envio_pvp,
                             comisiones_pvp["comision_total"],
-                            db=db,
-                            grupo_id=grupo_id_pvp,
+                            constantes=constantes,
                         )
                         markup_pvp = round(calcular_markup(limpio_pvp, costo_pvp) * 100, 2)
                 except Exception:
@@ -904,30 +1008,26 @@ async def listar_productos(
                 (producto_pricing.precio_pvp_12_cuotas, 21, "pvp_12_cuotas"),
             ]
 
+            tipo_cambio_cuota_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
+            costo_cuota_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp)
+
             for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
                 if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
                     try:
-                        tipo_cambio_cuota_pvp = None
-                        if producto_erp.moneda_costo == "USD":
-                            tipo_cambio_cuota_pvp = obtener_tipo_cambio_actual(db, "USD")
-
-                        costo_cuota_pvp = convertir_a_pesos(
-                            producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp
-                        )
-                        grupo_id_cuota_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                        comision_base_cuota_pvp = obtener_comision_base(db, pricelist_id_pvp, grupo_id_cuota_pvp)
+                        comision_base_cuota_pvp = _lookup_comision(pricelist_id_pvp, grupo_id)
 
                         if comision_base_cuota_pvp:
+                            pvp_cuota_val = float(precio_cuota_pvp)
                             comisiones_cuota_pvp = calcular_comision_ml_total(
-                                float(precio_cuota_pvp), comision_base_cuota_pvp, producto_erp.iva, db=db
+                                pvp_cuota_val, comision_base_cuota_pvp, producto_erp.iva, constantes=constantes
                             )
+                            costo_envio_pvp_c = _resolve_envio(producto_erp.envio or 0, grupo_id, pvp_cuota_val)
                             limpio_cuota_pvp = calcular_limpio(
-                                float(precio_cuota_pvp),
+                                pvp_cuota_val,
                                 producto_erp.iva,
-                                producto_erp.envio or 0,
+                                costo_envio_pvp_c,
                                 comisiones_cuota_pvp["comision_total"],
-                                db=db,
-                                grupo_id=grupo_id_cuota_pvp,
+                                constantes=constantes,
                             )
                             markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
 
@@ -1039,29 +1139,20 @@ async def listar_productos(
     if productos:
         from sqlalchemy import text
 
-        item_ids = [p.item_id for p in productos]
-
-        # Obtener MLAs de estos items
-        mla_query = db.query(PublicacionML.item_id, PublicacionML.mla).filter(PublicacionML.item_id.in_(item_ids)).all()
-
-        # Crear diccionario item_id -> [mla_ids]
+        # Reuse T-7 prefetched pubs_by_item instead of re-querying PublicacionML
         item_to_mlas = {}
-        all_mlas = []
-        for item_id, mla in mla_query:
-            if item_id not in item_to_mlas:
-                item_to_mlas[item_id] = []
-            item_to_mlas[item_id].append(mla)
-            all_mlas.append(mla)
+        for item_id, pub_list in pubs_by_item.items():
+            item_to_mlas[item_id] = [pub.mla for pub in pub_list]
 
         # Consultar catalog status de estos MLAs
-        if all_mlas:
+        if all_mla_list:
             catalog_statuses = db.execute(
                 text("""
                 SELECT mla, catalog_product_id, status, price_to_win, winner_price
                 FROM v_ml_catalog_status_latest
                 WHERE mla = ANY(:mla_ids)
             """),
-                {"mla_ids": all_mlas},
+                {"mla_ids": all_mla_list},
             ).fetchall()
 
             # Crear diccionario mla -> datos de catálogo
@@ -1125,17 +1216,11 @@ async def listar_productos(
     # Obtener precios PVP desde precios_ml
     if productos:
         from app.models.precio_ml import PrecioML
-        from app.services.pricing_calculator import (
-            calcular_comision_ml_total,
-            calcular_limpio,
-            calcular_markup,
-            obtener_tipo_cambio_actual,
-            convertir_a_pesos,
-            obtener_grupo_subcategoria,
-            obtener_comision_base,
-        )
 
         item_ids = [p.item_id for p in productos]
+
+        # Build producto_erp lookup from original results (avoid per-product DB query)
+        erp_by_item_id = {r[0].item_id: r[0] for r in results}
 
         # Query para obtener precios PVP (listas 12, 18, 19, 20, 21)
         precios_pvp_query = (
@@ -1151,7 +1236,7 @@ async def listar_productos(
                 pvp_dict[item_id] = {}
             pvp_dict[item_id][pricelist_id] = float(precio) if precio else None
 
-        # Asignar precios PVP y calcular markups
+        # Asignar precios PVP y calcular markups (using prefetched data)
         for producto in productos:
             if producto.item_id in pvp_dict:
                 precios = pvp_dict[producto.item_id]
@@ -1163,11 +1248,15 @@ async def listar_productos(
                 producto.precio_pvp_9_cuotas = precios.get(20)
                 producto.precio_pvp_12_cuotas = precios.get(21)
 
-                # Calcular markups PVP
-                # Necesitamos el producto_erp para obtener costo, iva, envio, etc.
-                producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == producto.item_id).first()
+                # Use prefetched producto_erp from original results
+                producto_erp = erp_by_item_id.get(producto.item_id)
 
                 if producto_erp:
+                    # Use prefetched tipo_cambio + grupo + comision
+                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
+                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
+                    grupo_id_pvp = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+
                     pvp_configs = [
                         (producto.precio_pvp, 12, "pvp"),
                         (producto.precio_pvp_3_cuotas, 18, "pvp_3_cuotas"),
@@ -1179,27 +1268,19 @@ async def listar_productos(
                     for precio_pvp, pricelist_id, nombre_pvp in pvp_configs:
                         if precio_pvp and precio_pvp > 0:
                             try:
-                                tipo_cambio_pvp = None
-                                if producto_erp.moneda_costo == "USD":
-                                    tipo_cambio_pvp = obtener_tipo_cambio_actual(db, "USD")
-
-                                costo_pvp = convertir_a_pesos(
-                                    producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp
-                                )
-                                grupo_id_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                                comision_base_pvp = obtener_comision_base(db, pricelist_id, grupo_id_pvp)
+                                comision_base_pvp = _lookup_comision(pricelist_id, grupo_id_pvp)
 
                                 if comision_base_pvp:
                                     comisiones_pvp = calcular_comision_ml_total(
-                                        precio_pvp, comision_base_pvp, producto_erp.iva, db=db
+                                        precio_pvp, comision_base_pvp, producto_erp.iva, constantes=constantes
                                     )
+                                    costo_envio_pvp = _resolve_envio(producto_erp.envio or 0, grupo_id_pvp, precio_pvp)
                                     limpio_pvp = calcular_limpio(
                                         precio_pvp,
                                         producto_erp.iva,
-                                        producto_erp.envio or 0,
+                                        costo_envio_pvp,
                                         comisiones_pvp["comision_total"],
-                                        db=db,
-                                        grupo_id=grupo_id_pvp,
+                                        constantes=constantes,
                                     )
                                     markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
 
@@ -1260,7 +1341,7 @@ async def listar_productos(
 
 
 @router.get("/productos/precios-listas")
-async def listar_productos_con_precios_listas(
+def listar_productos_con_precios_listas(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: Optional[str] = None,
@@ -1410,7 +1491,7 @@ class ProductoTiendaListResponse(BaseModel):
 
 
 @router.get("/productos/tienda", response_model=ProductoTiendaListResponse)
-async def listar_productos_tienda(
+def listar_productos_tienda(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=10000),
     search: Optional[str] = None,
@@ -1832,19 +1913,130 @@ async def listar_productos_tienda(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
+        obtener_envio_promedio_grupo,
+        GRUPO_DEFAULT,
     )
+    from app.models.comision_config import SubcategoriaGrupo
+    from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
 
     hoy = date.today()
     productos = []
 
-    # Obtener tipo de cambio para conversión USD -> ARS
-    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+    # ── T-8/T-3: Prefetch tipo_cambio + constantes (reuse constantes_pricing) ──
+    tipo_cambio_usd_t = obtener_tipo_cambio_actual(db, "USD")
+    constantes_t = constantes_pricing  # Already fetched above
+
+    # ── T-8/T-4: Prefetch SubcategoriaGrupo mapping ─────────────────────
+    all_subcat_grupos_t = db.query(SubcategoriaGrupo).all()
+    subcat_to_grupo_t = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos_t}
+
+    # ── T-8/T-5: Prefetch comision lookup ────────────────────────────────
+    _pricelist_pvp_to_web_t = {12: 4, 18: 17, 19: 14, 20: 13, 21: 23}
+    _pricelist_to_cuotas_t = {17: 3, 14: 6, 13: 9, 23: 12}
+
+    _active_version_t = (
+        db.query(ComisionVersion)
+        .filter(
+            and_(
+                ComisionVersion.fecha_desde <= hoy,
+                or_(ComisionVersion.fecha_hasta.is_(None), ComisionVersion.fecha_hasta >= hoy),
+                ComisionVersion.activo == True,
+            )
+        )
+        .first()
+    )
+    _comision_base_map_t: dict = {}
+    _comision_adicional_map_t: dict = {}
+    if _active_version_t:
+        for cb in db.query(ComisionBase).filter(ComisionBase.version_id == _active_version_t.id).all():
+            _comision_base_map_t[(_active_version_t.id, cb.grupo_id)] = float(cb.comision_base)
+        for ca in (
+            db.query(ComisionAdicionalCuota).filter(ComisionAdicionalCuota.version_id == _active_version_t.id).all()
+        ):
+            _comision_adicional_map_t[(_active_version_t.id, ca.cuotas)] = float(ca.adicional)
+
+    def _lookup_comision_t(pricelist_id: int, grupo_id: int):
+        resolved_pl = _pricelist_pvp_to_web_t.get(pricelist_id, pricelist_id)
+        if not _active_version_t:
+            return None
+        base = _comision_base_map_t.get((_active_version_t.id, grupo_id))
+        if base is None:
+            return None
+        if resolved_pl == 4:
+            return base
+        cuotas = _pricelist_to_cuotas_t.get(resolved_pl)
+        if cuotas is None:
+            return base
+        adicional = _comision_adicional_map_t.get((_active_version_t.id, cuotas), 0)
+        return base + adicional
+
+    # ── T-8/T-6: Prefetch envio_promedio_grupo (single bulk query) ──────
+    from app.models.producto import ProductoERP as _PE_envio_t
+
+    unique_grupo_ids_t = set(subcat_to_grupo_t.values())
+    envio_promedio_by_grupo_t: dict = {gid: 0.0 for gid in unique_grupo_ids_t}
+    _grupo_to_subcats_t: dict = {}
+    for sc_id, g_id in subcat_to_grupo_t.items():
+        _grupo_to_subcats_t.setdefault(g_id, []).append(sc_id)
+    _all_subcat_ids_envio_t = list(subcat_to_grupo_t.keys())
+    if _all_subcat_ids_envio_t:
+        _envio_rows_t = (
+            db.query(_PE_envio_t.subcategoria_id, func.avg(_PE_envio_t.envio))
+            .filter(
+                _PE_envio_t.subcategoria_id.in_(_all_subcat_ids_envio_t),
+                _PE_envio_t.activo == True,
+                _PE_envio_t.envio > 0,
+            )
+            .group_by(_PE_envio_t.subcategoria_id)
+            .all()
+        )
+        _subcat_envio_avg_t = {sc_id: float(avg_val) for sc_id, avg_val in _envio_rows_t}
+        for gid, sc_list in _grupo_to_subcats_t.items():
+            vals = [_subcat_envio_avg_t[sc] for sc in sc_list if sc in _subcat_envio_avg_t]
+            if vals:
+                envio_promedio_by_grupo_t[gid] = sum(vals) / len(vals)
+
+    # ── T-8/T-7: Batch-load PublicacionML + OfertaML ─────────────────────
+    all_pubs_t = (
+        db.query(PublicacionML).filter(PublicacionML.item_id.in_(item_ids_results)).all() if item_ids_results else []
+    )
+    pubs_by_item_t: dict = {}
+    all_mla_list_t: list = []
+    for pub in all_pubs_t:
+        pubs_by_item_t.setdefault(pub.item_id, []).append(pub)
+        all_mla_list_t.append(pub.mla)
+
+    ofertas_by_mla_t: dict = {}
+    if all_mla_list_t:
+        all_ofertas_t = (
+            db.query(OfertaML)
+            .filter(
+                OfertaML.mla.in_(all_mla_list_t),
+                OfertaML.fecha_desde <= hoy,
+                OfertaML.fecha_hasta >= hoy,
+                OfertaML.pvp_seller.isnot(None),
+            )
+            .all()
+        )
+        for oferta in all_ofertas_t:
+            if oferta.mla not in ofertas_by_mla_t:
+                ofertas_by_mla_t[oferta.mla] = oferta
+
+    def _resolve_envio_t(producto_envio: float, grupo_id: int, precio: float) -> float:
+        costo_envio = producto_envio or 0
+        montot3 = constantes_t["monto_tier3"] if constantes_t else 33000
+        if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
+            costo_envio = envio_promedio_by_grupo_t.get(grupo_id, 0.0)
+        return costo_envio
 
     for producto_erp, producto_pricing in results:
         # Calcular costo en ARS
-        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_usd_t)
 
-        # Mejor oferta
+        # T-4: Resolve grupo_id once per product
+        grupo_id = subcat_to_grupo_t.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+
+        # Mejor oferta (T-7: dict lookup)
         (
             mejor_oferta_precio,
             mejor_oferta_monto,
@@ -1853,20 +2045,10 @@ async def listar_productos_tienda(
             mejor_oferta_porcentaje,
             mejor_oferta_fecha_hasta,
         ) = None, None, None, None, None, None
-        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto_erp.item_id).all()
+        pubs = pubs_by_item_t.get(producto_erp.item_id, [])
         mejor_oferta, mejor_pub = None, None
         for pub in pubs:
-            oferta = (
-                db.query(OfertaML)
-                .filter(
-                    OfertaML.mla == pub.mla,
-                    OfertaML.fecha_desde <= hoy,
-                    OfertaML.fecha_hasta >= hoy,
-                    OfertaML.pvp_seller.isnot(None),
-                )
-                .order_by(OfertaML.fecha_desde.desc())
-                .first()
-            )
+            oferta = ofertas_by_mla_t.get(pub.mla)
             if oferta and not mejor_oferta:
                 mejor_oferta, mejor_pub = oferta, pub
         if mejor_oferta and mejor_pub:
@@ -1879,19 +2061,20 @@ async def listar_productos_tienda(
             if mejor_oferta_precio and mejor_oferta_pvp:
                 mejor_oferta_monto = mejor_oferta_pvp - mejor_oferta_precio
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                tipo_cambio = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-                grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                comision_base = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id)
+                tc_oferta = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
+                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_oferta)
+                comision_base = _lookup_comision_t(mejor_pub.pricelist_id, grupo_id)
                 if comision_base:
-                    comisiones = calcular_comision_ml_total(mejor_oferta_pvp, comision_base, producto_erp.iva, db=db)
+                    comisiones = calcular_comision_ml_total(
+                        mejor_oferta_pvp, comision_base, producto_erp.iva, constantes=constantes_t
+                    )
+                    costo_envio_of = _resolve_envio_t(producto_erp.envio or 0, grupo_id, mejor_oferta_pvp)
                     limpio = calcular_limpio(
                         mejor_oferta_pvp,
                         producto_erp.iva,
-                        producto_erp.envio or 0,
+                        costo_envio_of,
                         comisiones["comision_total"],
-                        db=db,
-                        grupo_id=grupo_id,
+                        constantes=constantes_t,
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
 
@@ -1902,21 +2085,20 @@ async def listar_productos_tienda(
                 producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8
             )
             precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
-            tipo_cambio_rebate = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
-            grupo_id_rebate = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-            comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
+            tc_rebate = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
+            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_rebate)
+            comision_base_rebate = _lookup_comision_t(4, grupo_id)
             if comision_base_rebate and precio_rebate > 0:
                 comisiones_rebate = calcular_comision_ml_total(
-                    precio_rebate, comision_base_rebate, producto_erp.iva, db=db
+                    precio_rebate, comision_base_rebate, producto_erp.iva, constantes=constantes_t
                 )
+                costo_envio_reb = _resolve_envio_t(producto_erp.envio or 0, grupo_id, precio_rebate)
                 limpio_rebate = calcular_limpio(
                     precio_rebate,
                     producto_erp.iva,
-                    producto_erp.envio or 0,
+                    costo_envio_reb,
                     comisiones_rebate["comision_total"],
-                    db=db,
-                    grupo_id=grupo_id_rebate,
+                    constantes=constantes_t,
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
 
@@ -1959,6 +2141,9 @@ async def listar_productos_tienda(
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
         if producto_pricing:
+            tc_cuota = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
+            cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_cuota)
+
             for precio_cuota, pricelist_id, nombre in [
                 (producto_pricing.precio_3_cuotas, 17, "3"),
                 (producto_pricing.precio_6_cuotas, 14, "6"),
@@ -1967,19 +2152,18 @@ async def listar_productos_tienda(
             ]:
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
-                        tc = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-                        cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc)
-                        gi = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                        cb = obtener_comision_base(db, pricelist_id, gi)
+                        cb = _lookup_comision_t(pricelist_id, grupo_id)
                         if cb:
-                            com = calcular_comision_ml_total(float(precio_cuota), cb, producto_erp.iva, db=db)
+                            com = calcular_comision_ml_total(
+                                float(precio_cuota), cb, producto_erp.iva, constantes=constantes_t
+                            )
+                            ce = _resolve_envio_t(producto_erp.envio or 0, grupo_id, float(precio_cuota))
                             lim = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
-                                producto_erp.envio or 0,
+                                ce,
                                 com["comision_total"],
-                                db=db,
-                                grupo_id=gi,
+                                constantes=constantes_t,
                             )
                             mc = calcular_markup(lim, cc) * 100
                             if nombre == "3":
@@ -1990,7 +2174,7 @@ async def listar_productos_tienda(
                                 markup_9_cuotas = mc
                             elif nombre == "12":
                                 markup_12_cuotas = mc
-                    except:
+                    except Exception:
                         pass
 
         productos.append(
@@ -2070,20 +2254,18 @@ async def listar_productos_tienda(
             )
         )
 
-    # Catalog status
+    # Catalog status (reuse T-8/T-7 prefetched pubs_by_item_t)
     if productos:
-        item_ids = [p.item_id for p in productos]
-        mla_query = db.query(PublicacionML.item_id, PublicacionML.mla).filter(PublicacionML.item_id.in_(item_ids)).all()
-        item_to_mlas, all_mlas = {}, []
-        for item_id, mla in mla_query:
-            item_to_mlas.setdefault(item_id, []).append(mla)
-            all_mlas.append(mla)
-        if all_mlas:
+        item_to_mlas = {}
+        for item_id, pub_list in pubs_by_item_t.items():
+            item_to_mlas[item_id] = [pub.mla for pub in pub_list]
+
+        if all_mla_list_t:
             catalog_statuses = db.execute(
                 text(
                     "SELECT mla, catalog_product_id, status, price_to_win, winner_price FROM v_ml_catalog_status_latest WHERE mla = ANY(:mla_ids)"
                 ),
-                {"mla_ids": all_mlas},
+                {"mla_ids": all_mla_list_t},
             ).fetchall()
             mla_to_catalog = {
                 mla: {
@@ -2130,9 +2312,7 @@ async def listar_productos_tienda(
 
 
 @router.get("/productos/{item_id}", response_model=ProductoResponse)
-async def obtener_producto(
-    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     result = (
         db.query(ProductoERP, ProductoPricing)
         .outerjoin(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
@@ -2329,7 +2509,7 @@ async def obtener_producto(
 
 
 @router.get("/productos/{item_id}/pricing-stored")
-async def obtener_precio_stored(
+def obtener_precio_stored(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -2348,7 +2528,7 @@ async def obtener_precio_stored(
 
 
 @router.get("/stats")
-async def obtener_estadisticas(
+def obtener_estadisticas(
     # Filtros de búsqueda
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
@@ -2692,7 +2872,7 @@ async def obtener_estadisticas(
 
 
 @router.get("/stats-dinamicos")
-async def obtener_stats_dinamicos(
+def obtener_stats_dinamicos(
     search: Optional[str] = None,
     categoria: Optional[str] = None,
     marcas: Optional[str] = None,
@@ -3205,13 +3385,13 @@ async def obtener_stats_dinamicos(
 
 
 @router.get("/categorias")
-async def listar_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     categorias = db.query(ProductoERP.categoria).distinct().order_by(ProductoERP.categoria).all()
     return {"categorias": [c[0] for c in categorias if c[0]]}
 
 
 @router.get("/marcas")
-async def listar_marcas(
+def listar_marcas(
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -3335,7 +3515,7 @@ async def listar_marcas(
 
 
 @router.get("/productos/{item_id}/ofertas-vigentes")
-async def obtener_ofertas_vigentes(
+def obtener_ofertas_vigentes(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     from app.models.publicacion_ml import PublicacionML
@@ -3420,7 +3600,7 @@ async def obtener_ofertas_vigentes(
 
 
 @router.patch("/productos/{producto_id}/precio")
-async def actualizar_precio(
+def actualizar_precio(
     producto_id: int,
     datos: PrecioUpdate,
     db: Session = Depends(get_db),
@@ -3468,7 +3648,7 @@ async def actualizar_precio(
 
 
 @router.patch("/productos/{item_id}/rebate")
-async def actualizar_rebate(
+def actualizar_rebate(
     item_id: int, datos: RebateUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """Actualiza configuración de rebate de un producto"""
@@ -3542,7 +3722,7 @@ class ExportRebateRequest(BaseModel):
 
 
 @router.post("/productos/exportar-rebate")
-async def exportar_rebate(
+def exportar_rebate(
     request: ExportRebateRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Exporta productos con rebate a Excel"""
@@ -4096,7 +4276,7 @@ async def exportar_rebate(
 
 
 @router.patch("/productos/{item_id}/web-transferencia")
-async def actualizar_web_transferencia(
+def actualizar_web_transferencia(
     item_id: int,
     participa: bool,
     porcentaje_markup: float = 6.0,
@@ -4226,7 +4406,7 @@ class CalculoPVPMasivoRequest(BaseModel):
 
 
 @router.post("/productos/calcular-web-masivo")
-async def calcular_web_masivo(
+def calcular_web_masivo(
     request: CalculoWebMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Calcula precio web transferencia masivamente"""
@@ -4550,7 +4730,7 @@ async def calcular_web_masivo(
 
 
 @router.post("/productos/calcular-pvp-masivo")
-async def calcular_pvp_masivo(
+def calcular_pvp_masivo(
     request: CalculoPVPMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Calcula precios PVP masivamente (clásica + cuotas con markup convergente)"""
@@ -4806,7 +4986,7 @@ class RecalcularCuotasMasivoRequest(BaseModel):
 
 
 @router.post("/productos/recalcular-cuotas-masivo")
-async def recalcular_cuotas_masivo(
+def recalcular_cuotas_masivo(
     request: RecalcularCuotasMasivoRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -5102,7 +5282,7 @@ async def recalcular_cuotas_masivo(
 
 
 @router.post("/productos/limpiar-rebate")
-async def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva rebate en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria
     from app.models.auditoria import TipoAccion
@@ -5127,7 +5307,7 @@ async def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = 
 
 
 @router.post("/productos/limpiar-web-transferencia")
-async def limpiar_web_transferencia(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def limpiar_web_transferencia(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva web transferencia en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria
     from app.models.auditoria import TipoAccion
@@ -5158,7 +5338,7 @@ async def limpiar_web_transferencia(db: Session = Depends(get_db), current_user:
 
 
 @router.patch("/productos/{item_id}/color")
-async def actualizar_color_producto(
+def actualizar_color_producto(
     item_id: int, request: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de un producto"""
@@ -5191,7 +5371,7 @@ async def actualizar_color_producto(
 
 
 @router.patch("/productos/{item_id}/color-tienda")
-async def actualizar_color_producto_tienda(
+def actualizar_color_producto_tienda(
     item_id: int, request: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de tienda de un producto"""
@@ -5230,7 +5410,7 @@ class ConfigCuotasRequest(BaseModel):
 
 
 @router.patch("/productos/{item_id}/config-cuotas")
-async def actualizar_config_cuotas_producto(
+def actualizar_config_cuotas_producto(
     item_id: int,
     body: ConfigCuotasRequest,
     db: Session = Depends(get_db),
@@ -5299,7 +5479,7 @@ class ColorLoteRequest(BaseModel):
 
 
 @router.post("/productos/actualizar-color-lote")
-async def actualizar_color_productos_lote(
+def actualizar_color_productos_lote(
     request: ColorLoteRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de múltiples productos"""
@@ -5323,7 +5503,7 @@ async def actualizar_color_productos_lote(
 
 
 @router.post("/productos/actualizar-color-tienda-lote")
-async def actualizar_color_productos_tienda_lote(
+def actualizar_color_productos_tienda_lote(
     request: ColorLoteRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado tienda de múltiples productos"""
@@ -5347,7 +5527,7 @@ async def actualizar_color_productos_tienda_lote(
 
 
 @router.get("/productos/{item_id}/detalle")
-async def obtener_detalle_producto(
+def obtener_detalle_producto(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene información detallada de un producto (sin datos de ML - se cargan lazy)"""
@@ -5621,7 +5801,7 @@ async def obtener_datos_ml_producto(
 
 
 @router.get("/subcategorias")
-async def listar_subcategorias(
+def listar_subcategorias(
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -5765,7 +5945,7 @@ async def listar_subcategorias(
 
 
 @router.post("/sincronizar-subcategorias")
-async def sincronizar_subcategorias_endpoint(current_user: Usuario = Depends(get_current_user)):
+def sincronizar_subcategorias_endpoint(current_user: Usuario = Depends(get_current_user)):
     """Sincroniza subcategorías desde el worker"""
     from app.scripts.sync_subcategorias import sincronizar_subcategorias
 
@@ -5774,7 +5954,7 @@ async def sincronizar_subcategorias_endpoint(current_user: Usuario = Depends(get
 
 
 @router.get("/exportar-web-transferencia")
-async def exportar_web_transferencia(
+def exportar_web_transferencia(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
     currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
     offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
@@ -6185,7 +6365,7 @@ async def exportar_web_transferencia(
 
 
 @router.get("/exportar-clasica")
-async def exportar_clasica(
+def exportar_clasica(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
     tipo_cuotas: str = Query(
         "clasica", description="Tipo de cuotas: clasica, 3, 6, 9, 12, pvp, pvp_3, pvp_6, pvp_9, pvp_12"
@@ -6879,7 +7059,7 @@ async def exportar_clasica(
 
 
 @router.patch("/productos/{item_id}/out-of-cards")
-async def actualizar_out_of_cards(
+def actualizar_out_of_cards(
     item_id: int, data: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el estado de out_of_cards de un producto"""
@@ -6916,7 +7096,7 @@ async def actualizar_out_of_cards(
 
 
 @router.get("/exportar-vista-actual")
-async def exportar_vista_actual(
+def exportar_vista_actual(
     page: int = 1,
     page_size: int = 10000,
     search: Optional[str] = None,
@@ -7348,7 +7528,7 @@ async def exportar_vista_actual(
 
 # ========== EXPORTAR LISTA GREMIO ==========
 @router.get("/exportar-lista-gremio")
-async def exportar_lista_gremio(
+def exportar_lista_gremio(
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     marcas: Optional[str] = None,
@@ -7559,7 +7739,7 @@ async def exportar_lista_gremio(
 
 # ========== EXPORTAR LISTA WEB TRANSFERENCIA (FORMATO LISTA) ==========
 @router.get("/exportar-lista-web-transferencia")
-async def exportar_lista_web_transferencia(
+def exportar_lista_web_transferencia(
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     marcas: Optional[str] = None,
@@ -7722,7 +7902,7 @@ async def exportar_lista_web_transferencia(
 
 # ========== PRECIO GREMIO OVERRIDE (MANUAL) ==========
 @router.patch("/productos/{item_id}/precio-gremio-override")
-async def set_precio_gremio_override(
+def set_precio_gremio_override(
     item_id: int,
     precio_sin_iva: float,
     precio_con_iva: float,
@@ -7776,7 +7956,7 @@ async def set_precio_gremio_override(
 
 
 @router.delete("/productos/{item_id}/precio-gremio-override")
-async def delete_precio_gremio_override(
+def delete_precio_gremio_override(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -7803,7 +7983,7 @@ async def delete_precio_gremio_override(
 
 
 @router.delete("/productos/precio-gremio-override/todos")
-async def delete_all_precio_gremio_overrides(
+def delete_all_precio_gremio_overrides(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
