@@ -680,13 +680,10 @@ def listar_productos(
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
-        obtener_grupo_subcategoria,
-        obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
         obtener_constantes_pricing,
-        obtener_envio_promedio_grupo,
         GRUPO_DEFAULT,
     )
     from app.models.comision_config import SubcategoriaGrupo
@@ -1908,12 +1905,9 @@ def listar_productos_tienda(
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
-        obtener_grupo_subcategoria,
-        obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        obtener_envio_promedio_grupo,
         GRUPO_DEFAULT,
     )
     from app.models.comision_config import SubcategoriaGrupo
