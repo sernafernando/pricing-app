@@ -46,7 +46,7 @@ class RmaClaimML(Base):
 
     # --- Motivo ---
     reason_id = Column(String(50), nullable=True)  # PDD9549, PNR3430, etc.
-    reason_category = Column(String(10), nullable=True)  # PDD, PNR, CS
+    reason_category = Column(String(100), nullable=True)  # Producto Diferente o Defectuoso, etc.
     reason_detail = Column(Text, nullable=True)  # Texto legible del motivo
     reason_name = Column(String(255), nullable=True)  # Nombre de la reason
 

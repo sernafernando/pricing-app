@@ -2974,7 +2974,7 @@ def _build_claim_from_ml_api(
         claim_stage=claim_data.get("stage"),
         status=claim_data.get("status"),
         reason_id=claim_data.get("reason_id"),
-        reason_category=(claim_data.get("reason_id") or "")[:3] or None,
+        reason_category=None,  # populated by enriched webhook path (ed.get("reason_category"))
         reason_detail=reason_detail or det.get("problem") or reason_name,
         triage_tags=triage_tags,
         expected_resolutions=expected_resolutions,

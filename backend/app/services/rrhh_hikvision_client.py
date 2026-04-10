@@ -227,11 +227,13 @@ class HikvisionClient:
         """
         self._check_configured()
 
-        # Defaults en hora local Argentina (el dispositivo opera en ART)
+        # Defaults: día completo. El endTime se fija a 23:59:59 para
+        # asegurar que traiga TODOS los eventos del día sin importar
+        # diferencias de timezone entre el server y el dispositivo.
         if desde is None:
             desde = datetime.now(ART_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         if hasta is None:
-            hasta = datetime.now(ART_TZ)
+            hasta = datetime.now(ART_TZ).replace(hour=23, minute=59, second=59, microsecond=0)
 
         # Convertir a hora local Argentina si vienen en otro timezone
         if desde.tzinfo is not None:
@@ -368,12 +370,17 @@ class HikvisionClient:
                     continue
                 empleado_id = hik_map.get(employee_no)
 
-                # Parse timestamp early for proximity check
+                # Parse timestamp early for proximity check.
+                # El Hikvision devuelve hora LOCAL Argentina sin timezone info
+                # (ej: "2026-04-10T11:23:00"). Hay que asignarle ART_TZ explícitamente,
+                # sino PostgreSQL lo interpreta como UTC y se desfasa 3 horas.
                 time_str = event.get("time", "")
                 try:
                     ts = datetime.fromisoformat(time_str)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=ART_TZ)
                 except (ValueError, AttributeError):
-                    ts = datetime.now(timezone.utc)
+                    ts = datetime.now(ART_TZ)
 
                 # Proximity dedup: mismo employee_no dentro de PROXIMITY_SECONDS
                 # El DS-K1T804AMF genera múltiples eventos (distintos serialNo)

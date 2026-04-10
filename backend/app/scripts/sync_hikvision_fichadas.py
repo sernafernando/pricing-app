@@ -72,9 +72,11 @@ def main() -> None:
         if last_ts:
             # Buscar desde 1 hora antes de la última fichada (margen para proximity dedup)
             desde = last_ts - timedelta(hours=1)
-            # Asegurar timezone ART
+            # La DB guarda timestamps naive en hora ART pero PostgreSQL los
+            # devuelve en UTC (offset +3h). Compensar para que la consulta
+            # al Hikvision (que opera en hora local ART) use la hora correcta.
             if desde.tzinfo is None:
-                desde = desde.replace(tzinfo=ART_TZ)
+                desde = (desde + timedelta(hours=3)).replace(tzinfo=ART_TZ)
             else:
                 desde = desde.astimezone(ART_TZ)
             print(f"[{datetime.now()}] Última fichada en DB: {last_ts} — buscando desde {desde}")

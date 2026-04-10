@@ -171,7 +171,7 @@ async def sync_ventas_ml(
 
 
 @router.get("/ventas-ml", response_model=List[VentaMLResponse])
-async def get_ventas_ml(
+def get_ventas_ml(
     from_date: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
@@ -210,7 +210,7 @@ async def get_ventas_ml(
 
 
 @router.get("/ventas-ml/stats")
-async def get_ventas_stats(
+def get_ventas_stats(
     from_date: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
@@ -260,7 +260,7 @@ async def get_ventas_stats(
 
 
 @router.get("/ventas-ml/top-productos")
-async def get_top_productos(
+def get_top_productos(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(10, le=100),
@@ -305,7 +305,7 @@ async def get_top_productos(
 
 
 @router.get("/ventas-ml/por-marca")
-async def get_ventas_por_marca(
+def get_ventas_por_marca(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -357,7 +357,7 @@ class VentaDetalladaResponse(BaseModel):
 
 
 @router.get("/ventas-ml/detalladas", response_model=List[VentaDetalladaResponse])
-async def get_ventas_detalladas(
+def get_ventas_detalladas(
     from_date: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     item_id: Optional[int] = Query(None, description="ID de item específico"),
@@ -423,6 +423,42 @@ async def get_ventas_detalladas(
         .all()
     )
 
+    # Batch-fetch latest ml_price_free_shipping and monto_unitario per item_id
+    # to avoid N+1 queries inside the loop
+    item_ids = [v.item_id for v in ventas_agrupadas if v.item_id is not None]
+
+    envio_by_item: dict = {}
+    upv_by_item: dict = {}
+
+    if item_ids:
+        # Latest ml_price_free_shipping per item using window function
+        envio_subq = (
+            db.query(
+                VentaML.item_id,
+                VentaML.ml_price_free_shipping,
+                func.row_number().over(partition_by=VentaML.item_id, order_by=desc(VentaML.fecha)).label("rn"),
+            )
+            .filter(VentaML.item_id.in_(item_ids))
+            .subquery()
+        )
+        envio_rows = (
+            db.query(envio_subq.c.item_id, envio_subq.c.ml_price_free_shipping).filter(envio_subq.c.rn == 1).all()
+        )
+        envio_by_item = {r[0]: r[1] for r in envio_rows}
+
+        # Latest monto_unitario per item using window function
+        upv_subq = (
+            db.query(
+                VentaML.item_id,
+                VentaML.monto_unitario,
+                func.row_number().over(partition_by=VentaML.item_id, order_by=desc(VentaML.fecha)).label("rn"),
+            )
+            .filter(VentaML.item_id.in_(item_ids))
+            .subquery()
+        )
+        upv_rows = db.query(upv_subq.c.item_id, upv_subq.c.monto_unitario).filter(upv_subq.c.rn == 1).all()
+        upv_by_item = {r[0]: r[1] for r in upv_rows}
+
     # Construir respuesta con datos adicionales
     resultados = []
     for venta in ventas_agrupadas:
@@ -432,23 +468,9 @@ async def get_ventas_detalladas(
         proveedor = None
         ufc = None
 
-        # Obtener precio de envío gratis (ml_price_free_shipping)
-        envio_query = (
-            db.query(VentaML.ml_price_free_shipping)
-            .filter(VentaML.item_id == venta.item_id)
-            .order_by(desc(VentaML.fecha))
-            .first()
-        )
-        envio = envio_query[0] if envio_query else None
-
-        # Obtener último precio de venta
-        upv_query = (
-            db.query(VentaML.monto_unitario)
-            .filter(VentaML.item_id == venta.item_id)
-            .order_by(desc(VentaML.fecha))
-            .first()
-        )
-        upv = upv_query[0] if upv_query else None
+        # Lookup from batch-fetched dicts (no per-item queries)
+        envio = envio_by_item.get(venta.item_id)
+        upv = upv_by_item.get(venta.item_id)
 
         resultados.append(
             {
@@ -509,7 +531,7 @@ class OperacionConMetricasResponse(BaseModel):
 
 
 @router.get("/ventas-ml/operaciones-con-metricas", response_model=List[OperacionConMetricasResponse])
-async def get_operaciones_con_metricas(
+def get_operaciones_con_metricas(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
@@ -924,7 +946,7 @@ async def get_operaciones_con_metricas(
 
 
 @router.get("/ventas-ml/exportar-operaciones")
-async def exportar_operaciones(
+def exportar_operaciones(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     marcas: Optional[str] = Query(None),

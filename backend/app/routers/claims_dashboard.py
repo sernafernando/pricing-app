@@ -197,7 +197,7 @@ def _parse_search_claim(c: dict) -> dict:
         "claim_stage": c.get("stage"),
         "status": c.get("status"),
         "reason_id": reason_id,
-        "reason_category": (reason_id or "")[:3] or None,
+        "reason_category": None,  # populated by enriched webhook path
         "fulfilled": c.get("fulfilled"),
         "quantity_type": c.get("quantity_type"),
         "claimed_quantity": c.get("claimed_quantity"),
