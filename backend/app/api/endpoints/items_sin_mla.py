@@ -202,7 +202,7 @@ async def get_items_sin_mla(
     listas_relevantes = list(LISTAS_PRECIOS.keys())
 
     # Subquery: items en banlist
-    items_baneados_subq = db.query(ItemSinMLABanlist.item_id).subquery()
+    items_baneados_subq = db.query(ItemSinMLABanlist.item_id).scalar_subquery()
 
     # Query principal: productos activos y no baneados
     query = db.query(ProductoERP).filter(
@@ -457,11 +457,11 @@ async def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuari
         db.query(MercadoLibreItemPublicado.item_id)
         .distinct()
         .filter(MercadoLibreItemPublicado.item_id.isnot(None))
-        .subquery()
+        .scalar_subquery()
     )
 
     # Items baneados
-    items_baneados_subq = db.query(ItemSinMLABanlist.item_id).subquery()
+    items_baneados_subq = db.query(ItemSinMLABanlist.item_id).scalar_subquery()
 
     # Marcas de productos sin MLA y no baneados
     marcas = (
@@ -518,7 +518,7 @@ async def get_comparacion_listas(
         raise HTTPException(status_code=403, detail="No tienes permiso para ver la comparación de listas")
 
     # Subquery: mla_ids baneados en la banlist de comparación
-    mla_baneados_subq = db.query(ComparacionListasBanlist.mla_id).subquery()
+    mla_baneados_subq = db.query(ComparacionListasBanlist.mla_id).scalar_subquery()
 
     # Subquery para obtener el snapshot más reciente de cada publicación (sin filtrar por fecha)
     latest_snapshots = (

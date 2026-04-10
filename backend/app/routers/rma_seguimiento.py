@@ -624,7 +624,7 @@ async def listar_casos(
             db.query(RmaCasoItem.caso_id)
             .filter((RmaCasoItem.serial_number.ilike(search_term)) | (RmaCasoItem.producto_desc.ilike(search_term)))
             .distinct()
-            .subquery()
+            .scalar_subquery()
         )
         query = query.filter(
             (RmaCaso.numero_caso.ilike(search_term))
