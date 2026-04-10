@@ -466,7 +466,7 @@ def get_ventas_tienda_nube_query():
 
 
 @router.get("/ventas-tienda-nube", response_model=List[VentaTiendaNubeResponse])
-async def get_ventas_tienda_nube(
+def get_ventas_tienda_nube(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -534,7 +534,7 @@ async def get_ventas_tienda_nube(
 
 
 @router.get("/ventas-tienda-nube/stats")
-async def get_ventas_tienda_nube_stats(
+def get_ventas_tienda_nube_stats(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
@@ -700,7 +700,7 @@ async def get_ventas_tienda_nube_stats(
 
 
 @router.get("/ventas-tienda-nube/operaciones", response_model=List[OperacionTiendaNubeResponse])
-async def get_operaciones_tn_desde_metricas(
+def get_operaciones_tn_desde_metricas(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -816,7 +816,7 @@ async def get_operaciones_tn_desde_metricas(
 
 
 @router.get("/ventas-tienda-nube/operaciones/count", response_model=CountResponse)
-async def get_operaciones_tn_count(
+def get_operaciones_tn_count(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -869,7 +869,7 @@ async def get_operaciones_tn_count(
 
 
 @router.get("/ventas-tienda-nube/por-marca", response_model=List[VentaTiendaNubePorMarcaResponse])
-async def get_ventas_tienda_nube_por_marca(
+def get_ventas_tienda_nube_por_marca(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
@@ -942,7 +942,7 @@ async def get_ventas_tienda_nube_por_marca(
 
 
 @router.get("/ventas-tienda-nube/top-productos")
-async def get_top_productos_tienda_nube(
+def get_top_productos_tienda_nube(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(20, le=100, description="Límite de resultados"),
@@ -1010,7 +1010,7 @@ async def get_top_productos_tienda_nube(
 
 
 @router.get("/ventas-tienda-nube/por-categoria")
-async def get_ventas_tienda_nube_por_categoria(
+def get_ventas_tienda_nube_por_categoria(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
@@ -1057,7 +1057,7 @@ async def get_ventas_tienda_nube_por_categoria(
 
 
 @router.get("/ventas-tienda-nube/por-subcategoria")
-async def get_ventas_tienda_nube_por_subcategoria(
+def get_ventas_tienda_nube_por_subcategoria(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
@@ -1136,7 +1136,7 @@ class ActualizarMetricaTNRequest(BaseModel):
 
 
 @router.put("/ventas-tienda-nube/metricas/{metrica_id}/costo")
-async def actualizar_costo_operacion_tn(
+def actualizar_costo_operacion_tn(
     metrica_id: int,
     request: ActualizarCostoTNRequest,
     db: Session = Depends(get_db),
@@ -1193,7 +1193,7 @@ async def actualizar_costo_operacion_tn(
 
 
 @router.patch("/ventas-tienda-nube/metricas/{metrica_id}")
-async def actualizar_metrica_tn(
+def actualizar_metrica_tn(
     metrica_id: int,
     request: ActualizarMetricaTNRequest,
     db: Session = Depends(get_db),
@@ -1282,7 +1282,7 @@ async def actualizar_metrica_tn(
 
 
 @router.get("/ventas-tienda-nube/metricas/{metrica_id}")
-async def get_metrica_detalle_tn(
+def get_metrica_detalle_tn(
     metrica_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1334,7 +1334,7 @@ class MetodoPagoBulkRequest(BaseModel):
 
 
 @router.get("/ventas-tienda-nube/metodos-pago")
-async def get_metodos_pago_tn(
+def get_metodos_pago_tn(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
@@ -1367,7 +1367,7 @@ async def get_metodos_pago_tn(
 
 
 @router.post("/ventas-tienda-nube/metodo-pago")
-async def set_metodo_pago_tn(
+def set_metodo_pago_tn(
     request: MetodoPagoRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1399,7 +1399,7 @@ async def set_metodo_pago_tn(
 
 
 @router.post("/ventas-tienda-nube/metodos-pago/bulk")
-async def set_metodos_pago_bulk_tn(
+def set_metodos_pago_bulk_tn(
     request: MetodoPagoBulkRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1493,7 +1493,7 @@ class VentaOverrideResponse(BaseModel):
 
 
 @router.get("/ventas-tienda-nube/jerarquia-productos")
-async def get_jerarquia_productos_tn(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def get_jerarquia_productos_tn(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene la jerarquía de productos (marca -> categoría -> subcategoría)
     para los selects dependientes en el frontend.
@@ -1539,7 +1539,7 @@ async def get_jerarquia_productos_tn(db: Session = Depends(get_db), current_user
 
 
 @router.get("/ventas-tienda-nube/overrides")
-async def get_overrides_tn(
+def get_overrides_tn(
     from_date: str = Query(...),
     to_date: str = Query(...),
     db: Session = Depends(get_db),
@@ -1586,7 +1586,7 @@ async def get_overrides_tn(
 
 
 @router.post("/ventas-tienda-nube/override")
-async def set_override_tn(
+def set_override_tn(
     request: VentaOverrideRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1645,7 +1645,7 @@ async def set_override_tn(
 
 
 @router.delete("/ventas-tienda-nube/override/{it_transaction}")
-async def delete_override_tn(
+def delete_override_tn(
     it_transaction: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Elimina un override de venta TN."""

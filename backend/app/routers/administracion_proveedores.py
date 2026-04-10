@@ -305,7 +305,7 @@ def _datos_fiscales_to_response(datos: object) -> DatosFiscalesResponse:
 
 
 @router.get("", response_model=ProveedorListResponse)
-async def listar_proveedores(
+def listar_proveedores(
     search: Optional[str] = Query(None, description="Buscar por nombre, CUIT o ciudad"),
     solo_activos: bool = Query(True, description="Solo proveedores activos"),
     page: int = Query(1, ge=1),
@@ -333,7 +333,7 @@ async def listar_proveedores(
 
 
 @router.get("/{proveedor_id}", response_model=ProveedorDetalleResponse)
-async def obtener_proveedor(
+def obtener_proveedor(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -364,7 +364,7 @@ async def obtener_proveedor(
 
 
 @router.post("", response_model=ProveedorResponse, status_code=status.HTTP_201_CREATED)
-async def crear_proveedor(
+def crear_proveedor(
     data: ProveedorCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -391,7 +391,7 @@ async def crear_proveedor(
 
 
 @router.put("/{proveedor_id}", response_model=ProveedorResponse)
-async def actualizar_proveedor(
+def actualizar_proveedor(
     proveedor_id: int,
     data: ProveedorUpdate,
     db: Session = Depends(get_db),
@@ -424,7 +424,7 @@ async def actualizar_proveedor(
 
 
 @router.post("/sync-erp", status_code=status.HTTP_200_OK)
-async def sync_proveedores_erp(
+def sync_proveedores_erp(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
@@ -478,7 +478,7 @@ async def consultar_afip(
 
 
 @router.get("/{proveedor_id}/datos-fiscales", response_model=DatosFiscalesResponse)
-async def obtener_datos_fiscales(
+def obtener_datos_fiscales(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -505,7 +505,7 @@ async def obtener_datos_fiscales(
 
 
 @router.get("/{proveedor_id}/direcciones", response_model=list[DireccionResponse])
-async def listar_direcciones(
+def listar_direcciones(
     proveedor_id: int,
     incluir_inactivas: bool = Query(False),
     db: Session = Depends(get_db),
@@ -523,7 +523,7 @@ async def listar_direcciones(
 
 
 @router.post("/{proveedor_id}/direcciones", response_model=DireccionResponse, status_code=201)
-async def crear_direccion(
+def crear_direccion(
     proveedor_id: int,
     data: DireccionCreate,
     db: Session = Depends(get_db),
@@ -542,7 +542,7 @@ async def crear_direccion(
 
 
 @router.put("/direcciones/{direccion_id}", response_model=DireccionResponse)
-async def actualizar_direccion(
+def actualizar_direccion(
     direccion_id: int,
     data: DireccionCreate,
     db: Session = Depends(get_db),
@@ -564,7 +564,7 @@ async def actualizar_direccion(
 
 
 @router.patch("/direcciones/{direccion_id}/toggle", response_model=DireccionResponse)
-async def toggle_direccion(
+def toggle_direccion(
     direccion_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -589,7 +589,7 @@ async def toggle_direccion(
 
 
 @router.get("/{proveedor_id}/bancos", response_model=list[BancoResponse])
-async def listar_bancos(
+def listar_bancos(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -609,7 +609,7 @@ async def listar_bancos(
 
 
 @router.post("/{proveedor_id}/bancos", response_model=BancoResponse, status_code=201)
-async def crear_banco(
+def crear_banco(
     proveedor_id: int,
     data: BancoCreate,
     db: Session = Depends(get_db),
@@ -628,7 +628,7 @@ async def crear_banco(
 
 
 @router.put("/bancos/{banco_id}", response_model=BancoResponse)
-async def actualizar_banco(
+def actualizar_banco(
     banco_id: int,
     data: BancoCreate,
     db: Session = Depends(get_db),
@@ -650,7 +650,7 @@ async def actualizar_banco(
 
 
 @router.delete("/bancos/{banco_id}", status_code=204)
-async def eliminar_banco(
+def eliminar_banco(
     banco_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -673,7 +673,7 @@ async def eliminar_banco(
 
 
 @router.get("/{proveedor_id}/contactos", response_model=list[ContactoResponse])
-async def listar_contactos(
+def listar_contactos(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -693,7 +693,7 @@ async def listar_contactos(
 
 
 @router.post("/{proveedor_id}/contactos", response_model=ContactoResponse, status_code=201)
-async def crear_contacto(
+def crear_contacto(
     proveedor_id: int,
     data: ContactoCreate,
     db: Session = Depends(get_db),
@@ -712,7 +712,7 @@ async def crear_contacto(
 
 
 @router.put("/contactos/{contacto_id}", response_model=ContactoResponse)
-async def actualizar_contacto(
+def actualizar_contacto(
     contacto_id: int,
     data: ContactoCreate,
     db: Session = Depends(get_db),
@@ -734,7 +734,7 @@ async def actualizar_contacto(
 
 
 @router.delete("/contactos/{contacto_id}", status_code=204)
-async def eliminar_contacto(
+def eliminar_contacto(
     contacto_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -757,7 +757,7 @@ async def eliminar_contacto(
 
 
 @router.get("/{proveedor_id}/marcas", response_model=list[MarcaProveedorResponse])
-async def marcas_por_proveedor(
+def marcas_por_proveedor(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -802,7 +802,7 @@ async def marcas_por_proveedor(
 
 
 @router.get("/buscar-por-marca", response_model=list[ProveedorResponse])
-async def buscar_proveedores_por_marca(
+def buscar_proveedores_por_marca(
     marca: str = Query(..., min_length=1, description="Nombre de marca a buscar"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),

@@ -131,7 +131,7 @@ class OffsetGananciaResponse(BaseModel):
 
 
 @router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
-async def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los grupos de offsets con sus filtros"""
     grupos = db.query(OffsetGrupo).order_by(OffsetGrupo.nombre).all()
 
@@ -158,7 +158,7 @@ async def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = D
 
 
 @router.post("/offset-grupos")
-async def crear_grupo(
+def crear_grupo(
     grupo: OffsetGrupoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo grupo de offsets con filtros opcionales"""
@@ -213,9 +213,7 @@ async def crear_grupo(
 
 
 @router.delete("/offset-grupos/{grupo_id}")
-async def eliminar_grupo(
-    grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un grupo de offsets (solo si no tiene offsets asociados)"""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
@@ -238,7 +236,7 @@ async def eliminar_grupo(
 
 
 @router.post("/offset-grupos/{grupo_id}/filtros")
-async def agregar_filtro_a_grupo(
+def agregar_filtro_a_grupo(
     grupo_id: int,
     filtro: OffsetGrupoFiltroCreate,
     db: Session = Depends(get_db),
@@ -278,7 +276,7 @@ async def agregar_filtro_a_grupo(
 
 
 @router.delete("/offset-grupos/{grupo_id}/filtros/{filtro_id}")
-async def eliminar_filtro_de_grupo(
+def eliminar_filtro_de_grupo(
     grupo_id: int, filtro_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un filtro de un grupo"""
@@ -299,7 +297,7 @@ async def eliminar_filtro_de_grupo(
 
 
 @router.put("/offset-grupos/{grupo_id}/filtros")
-async def actualizar_filtros_grupo(
+def actualizar_filtros_grupo(
     grupo_id: int,
     filtros: List[OffsetGrupoFiltroCreate],
     db: Session = Depends(get_db),
@@ -355,7 +353,7 @@ async def actualizar_filtros_grupo(
 
 
 @router.get("/offset-grupos/{grupo_id}/filtros")
-async def obtener_filtros_grupo(
+def obtener_filtros_grupo(
     grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene todos los filtros de un grupo"""
@@ -388,7 +386,7 @@ async def obtener_filtros_grupo(
 
 
 @router.get("/offset-filtros-opciones")
-async def obtener_opciones_filtros(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_opciones_filtros(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene las opciones disponibles para filtros con sus relaciones.
     Devuelve marcas, categorías y subcategorías con información de relación
@@ -464,7 +462,7 @@ async def obtener_opciones_filtros(db: Session = Depends(get_db), current_user: 
 
 
 @router.get("/offsets-ganancia", response_model=List[OffsetGananciaResponse])
-async def listar_offsets(
+def listar_offsets(
     marca: Optional[str] = None,
     categoria: Optional[str] = None,
     subcategoria_id: Optional[int] = None,
@@ -529,7 +527,7 @@ async def listar_offsets(
 
 
 @router.post("/offsets-ganancia")
-async def crear_offset(
+def crear_offset(
     offset: OffsetGananciaCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo offset de ganancia. Si se pasan múltiples item_ids, crea uno por cada producto."""
@@ -650,7 +648,7 @@ async def crear_offset(
 
 
 @router.put("/offsets-ganancia/{offset_id}", response_model=OffsetGananciaResponse)
-async def actualizar_offset(
+def actualizar_offset(
     offset_id: int,
     offset_update: OffsetGananciaUpdate,
     db: Session = Depends(get_db),
@@ -752,9 +750,7 @@ async def actualizar_offset(
 
 
 @router.delete("/offsets-ganancia/{offset_id}")
-async def eliminar_offset(
-    offset_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def eliminar_offset(offset_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un offset"""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
@@ -770,7 +766,7 @@ async def eliminar_offset(
 
 
 @router.get("/tipo-cambio-hoy")
-async def obtener_tipo_cambio(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_tipo_cambio(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el tipo de cambio USD/ARS más reciente (primero tipo_cambio, fallback CurExchHistory)"""
     from app.models.tipo_cambio import TipoCambio
 
@@ -801,7 +797,7 @@ class ProductoBusquedaGeneral(BaseModel):
 
 
 @router.get("/buscar-productos-erp")
-async def buscar_productos_erp(
+def buscar_productos_erp(
     q: str = Query(..., min_length=2, description="Buscar por código o descripción"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -877,7 +873,7 @@ class OffsetGrupoResumenResponse(BaseModel):
 
 
 @router.get("/offset-grupos/{grupo_id}/consumo")
-async def obtener_consumo_grupo(
+def obtener_consumo_grupo(
     grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el detalle de consumo de un grupo de offsets"""
@@ -917,7 +913,7 @@ async def obtener_consumo_grupo(
 
 
 @router.get("/offset-grupos-resumen")
-async def obtener_resumen_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_resumen_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el resumen de consumo de todos los grupos con límites"""
     # Obtener grupos que tienen offsets con límites
     grupos_con_limites = (
@@ -990,7 +986,7 @@ async def obtener_resumen_grupos(db: Session = Depends(get_db), current_user: Us
 
 
 @router.post("/offset-grupos/{grupo_id}/recalcular")
-async def recalcular_consumo_grupo(
+def recalcular_consumo_grupo(
     grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -1385,7 +1381,7 @@ async def recalcular_consumo_grupo(
 
 
 @router.get("/offset-individuales-resumen")
-async def obtener_resumen_offsets_individuales(
+def obtener_resumen_offsets_individuales(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el resumen de consumo de todos los offsets individuales con límites"""
@@ -1473,7 +1469,7 @@ async def obtener_resumen_offsets_individuales(
 
 
 @router.get("/offsets/{offset_id}/consumo")
-async def obtener_consumo_offset_individual(
+def obtener_consumo_offset_individual(
     offset_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el detalle de consumo de un offset individual"""
@@ -1552,7 +1548,7 @@ async def obtener_consumo_offset_individual(
 
 
 @router.post("/offsets/{offset_id}/recalcular")
-async def recalcular_consumo_offset_individual(
+def recalcular_consumo_offset_individual(
     offset_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Recalcula el consumo de un offset individual desde cero."""
@@ -1726,7 +1722,7 @@ async def recalcular_consumo_offset_individual(
 
 
 @router.get("/offsets-con-limites-resumen")
-async def obtener_resumen_todos_offsets_con_limites(
+def obtener_resumen_todos_offsets_con_limites(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene un resumen combinado de todos los offsets con límites (grupos e individuales)"""

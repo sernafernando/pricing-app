@@ -83,9 +83,7 @@ async def sync_catalog_status(
 
 
 @router.get("/catalog-status/{mla_id}")
-async def get_catalog_status(
-    mla_id: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def get_catalog_status(mla_id: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el último estado de catálogo de un MLA"""
 
     status = (
@@ -111,7 +109,7 @@ async def get_catalog_status(
 
 
 @router.get("/catalog-status")
-async def get_all_catalog_status(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_all_catalog_status(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el último estado de catálogo de todos los MLAs"""
 
     # Usar la vista para obtener el último estado de cada MLA

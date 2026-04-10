@@ -1,6 +1,6 @@
 from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.core.database import get_background_db, get_db
@@ -29,13 +29,25 @@ async def get_current_user(
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Token inválido")
 
     # Buscar por username (nuevo) o email (backward compatibility)
-    usuario = db.query(Usuario).filter((Usuario.username == username) | (Usuario.email == username)).first()
+    # Eager-load rol_obj to avoid lazy load on es_superadmin check
+    usuario = (
+        db.query(Usuario)
+        .options(joinedload(Usuario.rol_obj))
+        .filter((Usuario.username == username) | (Usuario.email == username))
+        .first()
+    )
 
     if usuario is None:
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Usuario no encontrado")
 
     if not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
+
+    # Pre-load permissions once so downstream checks use the cache
+    from app.services.permisos_service import PermisosService
+
+    svc = PermisosService(db)
+    usuario._permisos_cache = svc.obtener_permisos_usuario(usuario)
 
     return usuario
 

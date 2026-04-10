@@ -247,7 +247,7 @@ class DeleteResponse(BaseModel):
 
 
 @router.get("/turbo/envios/pendientes", response_model=List[EnvioTurboResponse])
-async def obtener_envios_turbo_pendientes(
+def obtener_envios_turbo_pendientes(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     incluir_asignados: bool = Query(False, description="Incluir envíos ya asignados"),
@@ -412,7 +412,7 @@ async def obtener_envios_turbo_pendientes(
 
 
 @router.get("/turbo/motoqueros", response_model=List[MotoqueroResponse])
-async def obtener_motoqueros(
+def obtener_motoqueros(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     solo_activos: bool = Query(True, description="Solo motoqueros activos"),
@@ -430,7 +430,7 @@ async def obtener_motoqueros(
 
 
 @router.post("/turbo/motoqueros", response_model=MotoqueroResponse)
-async def crear_motoquero(
+def crear_motoquero(
     motoquero: MotoqueroCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Crea un nuevo motoquero."""
@@ -446,7 +446,7 @@ async def crear_motoquero(
 
 
 @router.put("/turbo/motoqueros/{motoquero_id}", response_model=MotoqueroResponse)
-async def actualizar_motoquero(
+def actualizar_motoquero(
     motoquero_id: int,
     motoquero: MotoqueroCreate,
     db: Session = Depends(get_db),
@@ -470,7 +470,7 @@ async def actualizar_motoquero(
 
 
 @router.delete("/turbo/motoqueros/{motoquero_id}", response_model=DeleteResponse)
-async def desactivar_motoquero(
+def desactivar_motoquero(
     motoquero_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Desactiva un motoquero (no lo elimina físicamente)."""
@@ -491,7 +491,7 @@ async def desactivar_motoquero(
 
 
 @router.get("/turbo/zonas", response_model=List[ZonaRepartoResponse])
-async def obtener_zonas(
+def obtener_zonas(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     solo_activas: bool = Query(True, description="Solo zonas activas"),
@@ -509,7 +509,7 @@ async def obtener_zonas(
 
 
 @router.post("/turbo/zonas", response_model=ZonaRepartoResponse)
-async def crear_zona(
+def crear_zona(
     zona: ZonaRepartoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea una nueva zona de reparto MANUAL."""
@@ -529,7 +529,7 @@ async def crear_zona(
 
 
 @router.delete("/turbo/zonas/{zona_id}", response_model=DeleteResponse)
-async def eliminar_zona(zona_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def eliminar_zona(zona_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Desactiva una zona (no la elimina físicamente)."""
     if not verificar_permiso(db, current_user, "ordenes.gestionar_turbo_routing"):
         raise HTTPException(status_code=403, detail="Sin permiso")
@@ -545,7 +545,7 @@ async def eliminar_zona(zona_id: int, db: Session = Depends(get_db), current_use
 
 
 @router.put("/turbo/zonas/{zona_id}/toggle", response_model=ZonaRepartoResponse)
-async def toggle_zona(zona_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def toggle_zona(zona_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Activa/desactiva una zona de reparto (toggle del campo activa).
 
@@ -576,7 +576,7 @@ async def toggle_zona(zona_id: int, db: Session = Depends(get_db), current_user:
 
 
 @router.post("/turbo/zonas/auto-generar", response_model=List[ZonaRepartoResponse])
-async def auto_generar_zonas(
+def auto_generar_zonas(
     cantidad_motoqueros: int = Query(..., description="Cantidad de zonas a generar"),
     eliminar_anteriores: bool = Query(False, description="Eliminar zonas auto-generadas anteriores"),
     db: Session = Depends(get_db),
@@ -747,7 +747,7 @@ async def auto_generar_zonas(
 
 
 @router.post("/turbo/asignacion/manual", response_model=List[AsignacionResponse])
-async def asignar_envios_manual(
+def asignar_envios_manual(
     asignacion: AsignacionRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -826,7 +826,7 @@ async def asignar_envios_manual(
 
 
 @router.get("/turbo/asignaciones/resumen", response_model=List[EnvioPorMotoqueroStat])
-async def obtener_resumen_asignaciones(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def obtener_resumen_asignaciones(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene resumen de asignaciones agrupadas por motoquero.
     """
@@ -925,7 +925,7 @@ async def obtener_estadisticas(
 
 
 @router.post("/turbo/cache/invalidar", response_model=DeleteResponse)
-async def invalidar_cache_envios(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def invalidar_cache_envios(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Invalida el cache de scriptEnvios para forzar actualización inmediata.
     Útil después de asignar envíos o cuando se necesitan datos frescos.
@@ -1274,9 +1274,7 @@ async def geocodificar_batch_ml_webhook(db: Session = Depends(get_db), current_u
 
 
 @router.post("/turbo/asignar-automatico")
-async def asignar_automaticamente_por_zona(
-    db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
-):
+def asignar_automaticamente_por_zona(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Asigna automáticamente envíos pendientes a motoqueros según su zona.
 
@@ -1444,7 +1442,7 @@ async def asignar_automaticamente_por_zona(
 
 
 @router.get("/turbo/envios/todos")
-async def obtener_todos_los_envios_turbo(
+def obtener_todos_los_envios_turbo(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     estado: Optional[str] = Query(None, description="Filtrar por estado (ready_to_ship, delivered, etc.)"),
@@ -1652,7 +1650,7 @@ async def obtener_detalle_envio_actualizado(
 
 
 @router.get("/turbo/banlist")
-async def listar_envios_baneados(
+def listar_envios_baneados(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     limit: int = Query(100, ge=1, le=500),
@@ -1699,7 +1697,7 @@ class BanearEnvioRequest(BaseModel):
 
 
 @router.post("/turbo/banlist")
-async def banear_envio_turbo(
+def banear_envio_turbo(
     request: BanearEnvioRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1739,7 +1737,7 @@ async def banear_envio_turbo(
 
 
 @router.delete("/turbo/banlist/{banlist_id}")
-async def desbanear_envio_turbo(
+def desbanear_envio_turbo(
     banlist_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1768,7 +1766,7 @@ async def desbanear_envio_turbo(
 
 
 @router.get("/turbo/asignaciones/hoy")
-async def obtener_asignaciones_del_dia(
+def obtener_asignaciones_del_dia(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     fecha: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD (default: hoy)"),

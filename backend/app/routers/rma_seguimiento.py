@@ -499,7 +499,7 @@ def _build_item_query(db: Session) -> object:
 
 
 @router.get("/opciones", response_model=list[OpcionResponse])
-async def listar_opciones(
+def listar_opciones(
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
     solo_activas: bool = Query(True, description="Solo opciones activas"),
     db: Session = Depends(get_db),
@@ -515,7 +515,7 @@ async def listar_opciones(
 
 
 @router.get("/opciones/categorias")
-async def listar_categorias(
+def listar_categorias(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[str]:
@@ -525,7 +525,7 @@ async def listar_categorias(
 
 
 @router.post("/opciones", response_model=OpcionResponse, status_code=status.HTTP_201_CREATED)
-async def crear_opcion(
+def crear_opcion(
     data: OpcionCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -558,7 +558,7 @@ async def crear_opcion(
 
 
 @router.put("/opciones/{opcion_id}", response_model=OpcionResponse)
-async def actualizar_opcion(
+def actualizar_opcion(
     opcion_id: int,
     data: OpcionUpdate,
     db: Session = Depends(get_db),
@@ -583,7 +583,7 @@ async def actualizar_opcion(
 
 
 @router.get("/depositos", response_model=list[DepositoResponse])
-async def listar_depositos(
+def listar_depositos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[DepositoResponse]:
@@ -598,7 +598,7 @@ async def listar_depositos(
 
 
 @router.get("", response_model=CasoListResponse)
-async def listar_casos(
+def listar_casos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: Optional[str] = Query(None, description="Buscar por nro caso, cliente, ML ID, serial"),
@@ -648,7 +648,7 @@ async def listar_casos(
 
 
 @router.get("/{caso_id}", response_model=CasoResponse)
-async def obtener_caso(
+def obtener_caso(
     caso_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -768,7 +768,7 @@ async def actualizar_caso(
 
 
 @router.post("/{caso_id}/items", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)
-async def agregar_item(
+def agregar_item(
     caso_id: int,
     data: ItemCreate,
     db: Session = Depends(get_db),
@@ -814,7 +814,7 @@ async def agregar_item(
 
 
 @router.put("/{caso_id}/items/{item_id}", response_model=ItemResponse)
-async def actualizar_item(
+def actualizar_item(
     caso_id: int,
     item_id: int,
     data: ItemUpdate,
@@ -858,7 +858,7 @@ async def actualizar_item(
 
 
 @router.delete("/{caso_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def eliminar_item(
+def eliminar_item(
     caso_id: int,
     item_id: int,
     db: Session = Depends(get_db),
@@ -894,7 +894,7 @@ class EliminarCasoBody(BaseModel):
 
 
 @router.delete("/{caso_id}", status_code=status.HTTP_200_OK)
-async def eliminar_caso(
+def eliminar_caso(
     caso_id: int,
     body: EliminarCasoBody = EliminarCasoBody(),
     db: Session = Depends(get_db),
@@ -938,7 +938,7 @@ async def eliminar_caso(
 
 
 @router.get("/{caso_id}/historial", response_model=list[HistorialResponse])
-async def obtener_historial(
+def obtener_historial(
     caso_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -975,7 +975,7 @@ async def obtener_historial(
 
 
 @router.get("/stats/resumen")
-async def obtener_resumen(
+def obtener_resumen(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
@@ -1059,7 +1059,7 @@ def _serialize_proveedor(prov: Optional[RmaProveedor], fallback_nombre: Optional
 
 
 @router.get("/envios-proveedor/pendientes")
-async def listar_items_envio_proveedor(
+def listar_items_envio_proveedor(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list:
@@ -1158,7 +1158,7 @@ class CrearEnvioProveedorResponse(BaseModel):
 
 
 @router.post("/envios-proveedor/crear-envio", response_model=CrearEnvioProveedorResponse)
-async def crear_envio_proveedor(
+def crear_envio_proveedor(
     data: CrearEnvioProveedorRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -1309,7 +1309,7 @@ def _serialize_cliente(cust: Optional[TBCustomer], caso: RmaCaso) -> dict:
 
 
 @router.get("/envios-cliente/pendientes")
-async def listar_items_envio_cliente(
+def listar_items_envio_cliente(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list:
@@ -1410,7 +1410,7 @@ class CrearEnvioClienteResponse(BaseModel):
 
 
 @router.post("/envios-cliente/crear-envio", response_model=CrearEnvioClienteResponse)
-async def crear_envio_cliente(
+def crear_envio_cliente(
     data: CrearEnvioClienteRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),

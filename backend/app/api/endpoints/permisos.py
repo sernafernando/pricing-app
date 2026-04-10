@@ -70,7 +70,7 @@ class PermisosUsuarioResponse(BaseModel):
 
 
 @router.get("/catalogo")
-async def obtener_catalogo(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_catalogo(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene el catálogo completo de permisos agrupado por categoría.
     Útil para el panel de administración.
@@ -80,7 +80,7 @@ async def obtener_catalogo(db: Session = Depends(get_db), current_user: Usuario 
 
 
 @router.get("/mis-permisos")
-async def obtener_mis_permisos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_mis_permisos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene los permisos del usuario actual.
     Devuelve lista de códigos de permisos que el usuario tiene.
@@ -96,7 +96,7 @@ async def obtener_mis_permisos(db: Session = Depends(get_db), current_user: Usua
 
 
 @router.get("/usuario/{usuario_id}")
-async def obtener_permisos_usuario(
+def obtener_permisos_usuario(
     usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -127,7 +127,7 @@ async def obtener_permisos_usuario(
 
 
 @router.get("/usuario/{usuario_id}/overrides")
-async def obtener_overrides_usuario(
+def obtener_overrides_usuario(
     usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene solo los overrides de un usuario"""
@@ -141,7 +141,7 @@ async def obtener_overrides_usuario(
 
 
 @router.post("/override")
-async def crear_override(
+def crear_override(
     request: OverrideRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -181,7 +181,7 @@ async def crear_override(
 
 
 @router.delete("/override/{usuario_id}/{permiso_codigo}")
-async def eliminar_override(
+def eliminar_override(
     usuario_id: int,
     permiso_codigo: str,
     db: Session = Depends(get_db),
@@ -214,7 +214,7 @@ async def eliminar_override(
 
 
 @router.get("/verificar/{permiso_codigo}")
-async def verificar_mi_permiso(
+def verificar_mi_permiso(
     permiso_codigo: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -226,7 +226,7 @@ async def verificar_mi_permiso(
 
 
 @router.post("/verificar-multiples")
-async def verificar_multiples_permisos(
+def verificar_multiples_permisos(
     permisos: List[str], db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -240,7 +240,7 @@ async def verificar_multiples_permisos(
 
 
 @router.get("/roles/{rol_codigo}/permisos")
-async def obtener_permisos_rol(
+def obtener_permisos_rol(
     rol_codigo: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los permisos base de un rol por código"""

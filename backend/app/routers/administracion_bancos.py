@@ -100,7 +100,7 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 
 
 @router.get("", response_model=BancoEmpresaListResponse)
-async def listar_bancos(
+def listar_bancos(
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -120,7 +120,7 @@ async def listar_bancos(
 
 
 @router.get("/{banco_id}", response_model=BancoEmpresaResponse)
-async def obtener_banco(
+def obtener_banco(
     banco_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -135,7 +135,7 @@ async def obtener_banco(
 
 
 @router.post("", response_model=BancoEmpresaResponse, status_code=status.HTTP_201_CREATED)
-async def crear_banco(
+def crear_banco(
     data: BancoEmpresaCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -160,7 +160,7 @@ async def crear_banco(
 
 
 @router.put("/{banco_id}", response_model=BancoEmpresaResponse)
-async def actualizar_banco(
+def actualizar_banco(
     banco_id: int,
     data: BancoEmpresaUpdate,
     db: Session = Depends(get_db),

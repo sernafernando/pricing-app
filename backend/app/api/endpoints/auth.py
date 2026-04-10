@@ -46,7 +46,7 @@ class RegisterRequest(BaseModel):
 
 
 @router.post("/auth/login", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Login con username o email (detecta automáticamente por presencia de @)"""
 
     # Detectar si es email o username por la presencia de @
@@ -90,7 +90,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/register")
-async def register(request: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
     """
     Registrar nuevo usuario.
     NOTA: Este endpoint requiere un token de invitación en producción.
@@ -150,7 +150,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/auth/me", responses={401: {"model": ErrorResponse}})
-async def get_me(
+def get_me(
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -168,7 +168,7 @@ async def get_me(
 
 
 @router.post("/auth/refresh", responses={401: {"model": ErrorResponse}})
-async def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
     """
     Renueva el access_token usando un refresh_token válido.
     Devuelve un nuevo access_token (el refresh_token sigue siendo el mismo hasta que expire).

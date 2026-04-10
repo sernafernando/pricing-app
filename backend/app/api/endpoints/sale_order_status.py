@@ -30,7 +30,7 @@ class SaleOrderStatusResponse(BaseModel):
 
 
 @router.get("/sale-order-status", response_model=List[SaleOrderStatusResponse])
-async def obtener_estados_pedido(
+def obtener_estados_pedido(
     db: Session = Depends(get_db), only_active: bool = True, current_user=Depends(get_current_user)
 ):
     """
@@ -58,9 +58,7 @@ async def obtener_estados_pedido(
 
 
 @router.get("/sale-order-status/by-category/{category}", response_model=List[SaleOrderStatusResponse])
-async def obtener_estados_por_categoria(
-    category: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)
-):
+def obtener_estados_por_categoria(category: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """
     Obtiene estados de pedidos filtrados por categoría.
 

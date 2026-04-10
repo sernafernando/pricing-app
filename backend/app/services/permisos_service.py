@@ -4,7 +4,7 @@ Implementa el sistema híbrido: rol base + overrides por usuario.
 """
 
 from typing import List, Optional, Set
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.usuario import Usuario
@@ -36,14 +36,19 @@ class PermisosService:
         else:
             permisos_rol = self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS")
 
-        # Obtener overrides del usuario
-        overrides = self.db.query(UsuarioPermisoOverride).filter(UsuarioPermisoOverride.usuario_id == usuario.id).all()
+        # Obtener overrides del usuario (con permiso eager-loaded para evitar N+1)
+        overrides = (
+            self.db.query(UsuarioPermisoOverride)
+            .options(joinedload(UsuarioPermisoOverride.permiso))
+            .filter(UsuarioPermisoOverride.usuario_id == usuario.id)
+            .all()
+        )
 
         # Aplicar overrides
         permisos_finales = set(permisos_rol)
 
         for override in overrides:
-            permiso = self.db.query(Permiso).filter(Permiso.id == override.permiso_id).first()
+            permiso = override.permiso  # Already loaded via joinedload
             if permiso:
                 if override.concedido:
                     permisos_finales.add(permiso.codigo)
@@ -99,6 +104,11 @@ class PermisosService:
         if usuario.es_superadmin:
             return True
 
+        # Fast path: use pre-loaded cache from get_current_user
+        if hasattr(usuario, "_permisos_cache"):
+            return permiso_codigo in usuario._permisos_cache
+
+        # Fallback for scripts/detached users without cache
         permisos = self.obtener_permisos_usuario(usuario)
         return permiso_codigo in permisos
 
@@ -107,6 +117,11 @@ class PermisosService:
         if usuario.es_superadmin:
             return True
 
+        # Fast path: use pre-loaded cache from get_current_user
+        if hasattr(usuario, "_permisos_cache"):
+            return bool(usuario._permisos_cache.intersection(permisos))
+
+        # Fallback for scripts/detached users without cache
         permisos_usuario = self.obtener_permisos_usuario(usuario)
         return bool(permisos_usuario.intersection(permisos))
 
@@ -115,6 +130,11 @@ class PermisosService:
         if usuario.es_superadmin:
             return True
 
+        # Fast path: use pre-loaded cache from get_current_user
+        if hasattr(usuario, "_permisos_cache"):
+            return all(p in usuario._permisos_cache for p in permisos)
+
+        # Fallback for scripts/detached users without cache
         permisos_usuario = self.obtener_permisos_usuario(usuario)
         return all(p in permisos_usuario for p in permisos)
 
@@ -291,6 +311,13 @@ class PermisosService:
 
 def verificar_permiso(db: Session, usuario: Usuario, permiso: str) -> bool:
     """Helper function para verificar permisos de forma rápida"""
+    # Fast path: use pre-loaded cache from get_current_user
+    if hasattr(usuario, "_permisos_cache"):
+        if usuario.es_superadmin:
+            return True
+        return permiso in usuario._permisos_cache
+
+    # Fallback for scripts/detached users without cache
     service = PermisosService(db)
     return service.tiene_permiso(usuario, permiso)
 

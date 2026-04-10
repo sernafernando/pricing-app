@@ -240,7 +240,7 @@ async def sincronizar_tienda_nube(db: Session = Depends(get_db), current_user: U
 
 
 @router.get("/productos")
-async def listar_productos_tienda_nube(
+def listar_productos_tienda_nube(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """

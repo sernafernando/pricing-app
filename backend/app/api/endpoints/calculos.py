@@ -61,7 +61,7 @@ class CantidadUpdate(BaseModel):
 
 
 @router.post("/calculos", response_model=CalculoResponse)
-async def crear_calculo(
+def crear_calculo(
     calculo: CalculoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo cálculo de pricing guardado"""
@@ -95,7 +95,7 @@ async def crear_calculo(
 
 
 @router.get("/calculos", response_model=List[CalculoResponse])
-async def listar_calculos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_calculos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los cálculos del usuario"""
 
     calculos = (
@@ -109,9 +109,7 @@ async def listar_calculos(db: Session = Depends(get_db), current_user: Usuario =
 
 
 @router.get("/calculos/{calculo_id}", response_model=CalculoResponse)
-async def obtener_calculo(
-    calculo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_calculo(calculo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene un cálculo específico"""
 
     calculo = (
@@ -127,7 +125,7 @@ async def obtener_calculo(
 
 
 @router.put("/calculos/{calculo_id}", response_model=CalculoResponse)
-async def actualizar_calculo(
+def actualizar_calculo(
     calculo_id: int,
     calculo: CalculoRequest,
     db: Session = Depends(get_db),
@@ -170,7 +168,7 @@ async def actualizar_calculo(
 
 
 @router.patch("/calculos/{calculo_id}/cantidad")
-async def actualizar_cantidad(
+def actualizar_cantidad(
     calculo_id: int,
     cantidad_data: CantidadUpdate,
     db: Session = Depends(get_db),
@@ -197,9 +195,7 @@ async def actualizar_cantidad(
 
 
 @router.delete("/calculos/{calculo_id}")
-async def eliminar_calculo(
-    calculo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def eliminar_calculo(calculo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un cálculo"""
 
     calculo = (
@@ -222,7 +218,7 @@ class AccionMasivaRequest(BaseModel):
 
 
 @router.post("/calculos/acciones/eliminar-masivo")
-async def eliminar_calculos_masivo(
+def eliminar_calculos_masivo(
     request: AccionMasivaRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina múltiples cálculos"""
@@ -271,7 +267,7 @@ class PrecioCuotaResponse(BaseModel):
 
 
 @router.post("/calculos/calcular-cuotas", response_model=List[PrecioCuotaResponse])
-async def calcular_precios_cuotas(
+def calcular_precios_cuotas(
     request: CalcularCuotasRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -344,7 +340,7 @@ async def calcular_precios_cuotas(
 
 
 @router.patch("/calculos/{calculo_id}/cuotas")
-async def actualizar_cuotas_calculo(
+def actualizar_cuotas_calculo(
     calculo_id: int,
     precios_cuotas: dict,
     db: Session = Depends(get_db),
@@ -368,7 +364,7 @@ async def actualizar_cuotas_calculo(
 
 
 @router.get("/calculos/exportar/excel")
-async def exportar_calculos_excel(
+def exportar_calculos_excel(
     filtro: Optional[str] = None,  # 'todos', 'con_cantidad', 'seleccionados'
     ids: Optional[str] = None,  # comma-separated IDs for 'seleccionados'
     db: Session = Depends(get_db),

@@ -94,7 +94,7 @@ class MarkupProductoResponse(BaseModel):
 
 
 @router.get("/brands", response_model=List[BrandWithMarkup])
-async def listar_brands_con_markups(
+def listar_brands_con_markups(
     busqueda: Optional[str] = None,
     solo_con_markup: bool = False,
     db: Session = Depends(get_db),
@@ -157,7 +157,7 @@ async def listar_brands_con_markups(
 
 
 @router.post("/brands/{comp_id}/{brand_id}/markup", response_model=MarkupBrandResponse)
-async def crear_o_actualizar_markup_brand(
+def crear_o_actualizar_markup_brand(
     comp_id: int,
     brand_id: int,
     data: MarkupBrandCreate,
@@ -207,7 +207,7 @@ async def crear_o_actualizar_markup_brand(
 
 
 @router.delete("/brands/{comp_id}/{brand_id}/markup")
-async def eliminar_markup_brand(
+def eliminar_markup_brand(
     comp_id: int, brand_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -234,9 +234,7 @@ async def eliminar_markup_brand(
 
 
 @router.get("/stats")
-async def obtener_estadisticas_markups(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_estadisticas_markups(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene estadísticas de los markups configurados.
     """
@@ -274,7 +272,7 @@ async def obtener_estadisticas_markups(
 
 
 @router.get("/productos", response_model=List[MarkupProductoResponse])
-async def listar_productos_con_markup(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_productos_con_markup(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Lista todos los productos con markups individuales configurados.
     """
@@ -307,7 +305,7 @@ async def listar_productos_con_markup(db: Session = Depends(get_db), current_use
 
 
 @router.post("/productos/{item_id}/markup", response_model=MarkupProductoResponse)
-async def crear_o_actualizar_markup_producto(
+def crear_o_actualizar_markup_producto(
     item_id: int,
     data: MarkupProductoCreate,
     db: Session = Depends(get_db),
@@ -375,7 +373,7 @@ async def crear_o_actualizar_markup_producto(
 
 
 @router.delete("/productos/{item_id}/markup")
-async def eliminar_markup_producto(
+def eliminar_markup_producto(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -407,7 +405,7 @@ class ConfigUpdate(BaseModel):
 
 
 @router.get("/config")
-async def obtener_config_tienda(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_config_tienda(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene toda la configuración de tienda.
     """
@@ -421,9 +419,7 @@ async def obtener_config_tienda(db: Session = Depends(get_db), current_user: Usu
 
 
 @router.get("/config/{clave}")
-async def obtener_config_valor(
-    clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_config_valor(clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene un valor de configuración específico.
     """
@@ -439,7 +435,7 @@ async def obtener_config_valor(
 
 
 @router.put("/config/{clave}")
-async def actualizar_config_valor(
+def actualizar_config_valor(
     clave: str, data: ConfigUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """

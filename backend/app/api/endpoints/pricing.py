@@ -142,7 +142,7 @@ class CalcularPorPrecioRequest(BaseModel):
 
 
 @router.post("/precios/calcular-por-markup")
-async def calcular_por_markup(
+def calcular_por_markup(
     request: CalcularPorMarkupRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un markup objetivo, calcula el precio necesario"""
@@ -183,7 +183,7 @@ async def calcular_por_markup(
 
 
 @router.get("/precios/calcular-markup")
-async def calcular_markup_get(
+def calcular_markup_get(
     precio: float,
     item_id: Optional[int] = None,
     item_code: Optional[str] = None,
@@ -242,7 +242,7 @@ async def calcular_markup_get(
 
 
 @router.post("/precios/calcular-por-precio")
-async def calcular_por_precio(
+def calcular_por_precio(
     request: CalcularPorPrecioRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un precio manual, calcula qué markup resulta"""
@@ -310,9 +310,7 @@ class SetPrecioRequest(BaseModel):
 
 
 @router.post("/precios/set")
-async def setear_precio(
-    request: SetPrecioRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)
-):
+def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Setea el precio de lista ML para un producto"""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
@@ -471,9 +469,7 @@ async def setear_precio(
 
 
 @router.get("/precios/historial/{item_id}")
-async def obtener_historial(
-    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_historial(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el histórico de cambios de precio"""
 
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -516,7 +512,7 @@ class CalcularPreciosCompletosRequest(BaseModel):
 
 
 @router.post("/precios/calcular-completo")
-async def calcular_precios_completos(
+def calcular_precios_completos(
     request: CalcularPreciosCompletosRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -601,7 +597,7 @@ async def calcular_precios_completos(
 
 
 @router.post("/precios/set-rapido")
-async def setear_precio_rapido(
+def setear_precio_rapido(
     item_id: int,
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
     recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
@@ -967,7 +963,7 @@ async def setear_precio_rapido(
 
 
 @router.post("/precios/recalcular-cuotas")
-async def recalcular_cuotas_desde_clasica(
+def recalcular_cuotas_desde_clasica(
     item_id: int,
     lista_tipo: str = Query("web", pattern="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
@@ -1138,7 +1134,7 @@ async def recalcular_cuotas_desde_clasica(
 
 
 @router.post("/precios/set-cuota")
-async def setear_precio_cuota(
+def setear_precio_cuota(
     item_id: int,
     tipo_cuota: str = Query(pattern="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios

@@ -105,7 +105,7 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 
 
 @router.get("", response_model=ImpuestoListResponse)
-async def listar_impuestos(
+def listar_impuestos(
     solo_activos: bool = Query(True),
     tipo: Optional[str] = Query(None, description="Filtrar por tipo: iva, retencion, percepcion, otro"),
     db: Session = Depends(get_db),
@@ -128,7 +128,7 @@ async def listar_impuestos(
 
 
 @router.get("/{impuesto_id}", response_model=ImpuestoResponse)
-async def obtener_impuesto(
+def obtener_impuesto(
     impuesto_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -143,7 +143,7 @@ async def obtener_impuesto(
 
 
 @router.post("", response_model=ImpuestoResponse, status_code=status.HTTP_201_CREATED)
-async def crear_impuesto(
+def crear_impuesto(
     data: ImpuestoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -159,7 +159,7 @@ async def crear_impuesto(
 
 
 @router.put("/{impuesto_id}", response_model=ImpuestoResponse)
-async def actualizar_impuesto(
+def actualizar_impuesto(
     impuesto_id: int,
     data: ImpuestoUpdate,
     db: Session = Depends(get_db),

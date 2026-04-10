@@ -29,7 +29,7 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
-async def obtener_workflow(
+def obtener_workflow(
     workflow_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -54,7 +54,7 @@ async def obtener_workflow(
 
 
 @router.post("/workflows", response_model=WorkflowResponse, status_code=201)
-async def crear_workflow(
+def crear_workflow(
     workflow_data: WorkflowCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -98,7 +98,7 @@ async def crear_workflow(
 
 
 @router.patch("/workflows/{workflow_id}", response_model=WorkflowResponse)
-async def actualizar_workflow(
+def actualizar_workflow(
     workflow_id: int,
     workflow_data: WorkflowUpdate,
     db: Session = Depends(get_db),
@@ -141,7 +141,7 @@ async def actualizar_workflow(
 
 
 @router.delete("/workflows/{workflow_id}", status_code=204)
-async def eliminar_workflow(
+def eliminar_workflow(
     workflow_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -182,7 +182,7 @@ async def eliminar_workflow(
 
 
 @router.post("/workflows/{workflow_id}/estados", response_model=EstadoTicketResponse, status_code=201)
-async def crear_estado(
+def crear_estado(
     workflow_id: int,
     estado_data: EstadoTicketCreate,
     db: Session = Depends(get_db),
@@ -251,7 +251,7 @@ async def crear_estado(
 
 
 @router.post("/workflows/{workflow_id}/transiciones", response_model=TransicionEstadoResponse, status_code=201)
-async def crear_transicion(
+def crear_transicion(
     workflow_id: int,
     transicion_data: TransicionEstadoCreate,
     db: Session = Depends(get_db),
@@ -348,7 +348,7 @@ async def crear_transicion(
 
 
 @router.patch("/workflows/{workflow_id}/estados/{estado_id}", response_model=EstadoTicketResponse)
-async def actualizar_estado(
+def actualizar_estado(
     workflow_id: int,
     estado_id: int,
     estado_data: EstadoTicketUpdate,
@@ -388,7 +388,7 @@ async def actualizar_estado(
 
 
 @router.delete("/workflows/{workflow_id}/estados/{estado_id}", status_code=204)
-async def eliminar_estado(
+def eliminar_estado(
     workflow_id: int,
     estado_id: int,
     db: Session = Depends(get_db),
@@ -430,7 +430,7 @@ async def eliminar_estado(
 
 
 @router.patch("/workflows/{workflow_id}/transiciones/{transicion_id}", response_model=TransicionEstadoResponse)
-async def actualizar_transicion(
+def actualizar_transicion(
     workflow_id: int,
     transicion_id: int,
     transicion_data: TransicionEstadoUpdate,
@@ -466,7 +466,7 @@ async def actualizar_transicion(
 
 
 @router.delete("/workflows/{workflow_id}/transiciones/{transicion_id}", status_code=204)
-async def eliminar_transicion(
+def eliminar_transicion(
     workflow_id: int,
     transicion_id: int,
     db: Session = Depends(get_db),

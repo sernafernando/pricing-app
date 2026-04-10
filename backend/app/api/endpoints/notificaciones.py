@@ -89,7 +89,7 @@ class NotificacionAgrupada(BaseModel):
 
 
 @router.get("/notificaciones", response_model=List[NotificacionResponse])
-async def listar_notificaciones(
+def listar_notificaciones(
     limit: int = 50,
     offset: int = 0,
     solo_no_leidas: bool = False,
@@ -148,7 +148,7 @@ async def listar_notificaciones(
 
 
 @router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])
-async def listar_notificaciones_agrupadas(
+def listar_notificaciones_agrupadas(
     solo_no_leidas: bool = False,
     tipo: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -224,7 +224,7 @@ async def listar_notificaciones_agrupadas(
 
 
 @router.get("/notificaciones/stats", response_model=NotificacionStats)
-async def obtener_estadisticas_notificaciones(
+def obtener_estadisticas_notificaciones(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -557,7 +557,7 @@ async def descartar_notificaciones_bulk(
 
 
 @router.get("/notificaciones/dashboard")
-async def dashboard_notificaciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def dashboard_notificaciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Dashboard con métricas clave de notificaciones
     """
@@ -633,7 +633,7 @@ class ReglaIgnoradaResponse(BaseModel):
 
 
 @router.get("/notificaciones/ignoradas", response_model=List[ReglaIgnoradaResponse])
-async def listar_reglas_ignoradas(
+def listar_reglas_ignoradas(
     limit: int = 100,
     offset: int = 0,
     tipo: Optional[str] = None,
@@ -712,7 +712,7 @@ async def eliminar_reglas_ignoradas_bulk(
 
 
 @router.get("/notificaciones/ignoradas/stats")
-async def stats_reglas_ignoradas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def stats_reglas_ignoradas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Estadísticas sobre las reglas de ignorar del usuario.
     """

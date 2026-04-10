@@ -106,7 +106,7 @@ class UsuarioPMResponse(BaseModel):
 
 
 @router.get("/marcas-pm", response_model=List[MarcaPMResponse])
-async def listar_marcas_pm(
+def listar_marcas_pm(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[MarcaPMResponse]:
     """
@@ -139,7 +139,7 @@ async def listar_marcas_pm(
 
 
 @router.get("/marcas-pm/categorias-disponibles", response_model=CategoriasPorMarcaResponse)
-async def categorias_disponibles_por_marca(
+def categorias_disponibles_por_marca(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> CategoriasPorMarcaResponse:
     """
@@ -174,7 +174,7 @@ async def categorias_disponibles_por_marca(
 
 
 @router.patch("/marcas-pm/{marca_id}", response_model=MarcaPMUpdateResponse)
-async def actualizar_pm_marca(
+def actualizar_pm_marca(
     marca_id: int,
     datos: MarcaPMUpdate,
     db: Session = Depends(get_db),
@@ -203,7 +203,7 @@ async def actualizar_pm_marca(
 
 
 @router.put("/marcas-pm/asignar", response_model=AsignacionMarcaResponse)
-async def asignar_pm_por_categorias(
+def asignar_pm_por_categorias(
     datos: AsignacionMarcaRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> AsignacionMarcaResponse:
     """
@@ -244,7 +244,7 @@ async def asignar_pm_por_categorias(
 
 
 @router.post("/marcas-pm/sync", response_model=SyncMarcasResponse)
-async def sincronizar_marcas(
+def sincronizar_marcas(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> SyncMarcasResponse:
     """
@@ -283,7 +283,7 @@ async def sincronizar_marcas(
 
 
 @router.get("/pms/marcas", response_model=MarcasCategoriasListResponse)
-async def obtener_marcas_por_pms(
+def obtener_marcas_por_pms(
     pm_ids: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> MarcasCategoriasListResponse:
     """
@@ -310,7 +310,7 @@ async def obtener_marcas_por_pms(
 
 
 @router.get("/pms/subcategorias", response_model=SubcategoriasListResponse)
-async def obtener_subcategorias_por_pms(
+def obtener_subcategorias_por_pms(
     pm_ids: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> SubcategoriasListResponse:
     """
@@ -355,7 +355,7 @@ async def obtener_subcategorias_por_pms(
 
 
 @router.get("/usuarios/pms", response_model=List[UsuarioPMResponse])
-async def listar_usuarios_pm(
+def listar_usuarios_pm(
     solo_con_marcas: bool = False, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[UsuarioPMResponse]:
     """Lista usuarios disponibles para filtrar como PMs (todos los usuarios)."""

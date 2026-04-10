@@ -31,7 +31,7 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 
 
 @router.get("/sectores", response_model=List[SectorResponse])
-async def listar_sectores(
+def listar_sectores(
     activos_solo: bool = True,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -53,7 +53,7 @@ async def listar_sectores(
 
 
 @router.post("/sectores", response_model=SectorResponse, status_code=201)
-async def crear_sector(
+def crear_sector(
     sector_data: SectorCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -88,9 +88,7 @@ async def crear_sector(
 
 
 @router.get("/sectores/{sector_id}", response_model=SectorResponse)
-async def obtener_sector(
-    sector_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_sector(sector_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene un sector por ID con su configuración completa.
 
@@ -107,7 +105,7 @@ async def obtener_sector(
 
 
 @router.patch("/sectores/{sector_id}", response_model=SectorResponse)
-async def actualizar_sector(
+def actualizar_sector(
     sector_id: int,
     sector_data: SectorUpdate,
     db: Session = Depends(get_db),
@@ -155,7 +153,7 @@ async def actualizar_sector(
 
 
 @router.get("/sectores/{sector_id}/workflows", response_model=List[WorkflowResponse])
-async def listar_workflows_sector(
+def listar_workflows_sector(
     sector_id: int,
     activos_solo: bool = True,
     db: Session = Depends(get_db),
@@ -195,7 +193,7 @@ async def listar_workflows_sector(
 
 
 @router.get("/sectores/{sector_id}/usuarios", response_model=List[SectorUsuarioResponse])
-async def listar_usuarios_sector(
+def listar_usuarios_sector(
     sector_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -217,7 +215,7 @@ async def listar_usuarios_sector(
 
 
 @router.post("/sectores/{sector_id}/usuarios", response_model=SectorUsuarioResponse, status_code=201)
-async def agregar_usuario_sector(
+def agregar_usuario_sector(
     sector_id: int,
     data: SectorUsuarioCreate,
     db: Session = Depends(get_db),
@@ -268,7 +266,7 @@ async def agregar_usuario_sector(
 
 
 @router.delete("/sectores/{sector_id}/usuarios/{usuario_id}", status_code=204)
-async def remover_usuario_sector(
+def remover_usuario_sector(
     sector_id: int,
     usuario_id: int,
     db: Session = Depends(get_db),
@@ -299,7 +297,7 @@ async def remover_usuario_sector(
 
 
 @router.get("/sectores/{sector_id}/tipos-ticket", response_model=List[TipoTicketResponse])
-async def listar_tipos_ticket_sector(
+def listar_tipos_ticket_sector(
     sector_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -322,7 +320,7 @@ async def listar_tipos_ticket_sector(
 
 
 @router.post("/sectores/{sector_id}/tipos-ticket", response_model=TipoTicketResponse, status_code=201)
-async def crear_tipo_ticket(
+def crear_tipo_ticket(
     sector_id: int,
     tipo_data: TipoTicketCreate,
     db: Session = Depends(get_db),
@@ -375,7 +373,7 @@ async def crear_tipo_ticket(
 
 
 @router.patch("/sectores/{sector_id}/tipos-ticket/{tipo_id}", response_model=TipoTicketResponse)
-async def actualizar_tipo_ticket(
+def actualizar_tipo_ticket(
     sector_id: int,
     tipo_id: int,
     tipo_data: TipoTicketUpdate,
@@ -418,7 +416,7 @@ async def actualizar_tipo_ticket(
 
 
 @router.delete("/sectores/{sector_id}/tipos-ticket/{tipo_id}", status_code=204)
-async def eliminar_tipo_ticket(
+def eliminar_tipo_ticket(
     sector_id: int,
     tipo_id: int,
     db: Session = Depends(get_db),

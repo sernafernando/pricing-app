@@ -429,6 +429,6 @@ async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
 
 
 @router.get("/gbp-parser/health")
-async def health_check():
+def health_check():
     """Health check del parser"""
     return {"status": "ok", "service": "gbp-parser"}

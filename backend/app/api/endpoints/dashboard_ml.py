@@ -225,7 +225,7 @@ class TopProductoResponse(BaseModel):
 
 
 @router.get("/dashboard-ml/metricas-generales", response_model=MetricasGeneralesResponse)
-async def get_metricas_generales(
+def get_metricas_generales(
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
@@ -299,7 +299,7 @@ async def get_metricas_generales(
 
 
 @router.get("/dashboard-ml/por-marca", response_model=List[VentaPorMarcaResponse])
-async def get_ventas_por_marca(
+def get_ventas_por_marca(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
@@ -347,7 +347,7 @@ async def get_ventas_por_marca(
 
 
 @router.get("/dashboard-ml/por-categoria", response_model=List[VentaPorCategoriaResponse])
-async def get_ventas_por_categoria(
+def get_ventas_por_categoria(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
@@ -393,7 +393,7 @@ async def get_ventas_por_categoria(
 
 
 @router.get("/dashboard-ml/por-logistica", response_model=List[VentaPorLogisticaResponse])
-async def get_ventas_por_logistica(
+def get_ventas_por_logistica(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
@@ -435,7 +435,7 @@ async def get_ventas_por_logistica(
 
 
 @router.get("/dashboard-ml/por-dia", response_model=List[VentaDiariaResponse])
-async def get_ventas_por_dia(
+def get_ventas_por_dia(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
@@ -481,7 +481,7 @@ async def get_ventas_por_dia(
 
 
 @router.get("/dashboard-ml/top-productos", response_model=List[TopProductoResponse])
-async def get_top_productos(
+def get_top_productos(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
@@ -539,7 +539,7 @@ async def get_top_productos(
 
 
 @router.get("/dashboard-ml/marcas-disponibles")
-async def get_marcas_disponibles(
+def get_marcas_disponibles(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     tiendas_oficiales: Optional[str] = Query(None),
@@ -574,7 +574,7 @@ async def get_marcas_disponibles(
 
 
 @router.get("/dashboard-ml/categorias-disponibles")
-async def get_categorias_disponibles(
+def get_categorias_disponibles(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
     tiendas_oficiales: Optional[str] = Query(None),
@@ -609,7 +609,7 @@ async def get_categorias_disponibles(
 
 
 @router.get("/dashboard-ml/mis-marcas")
-async def get_mis_marcas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_mis_marcas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene los pares marca+categoría asignados al usuario actual.
     Si es admin/gerente, retorna None indicando que puede ver todo.

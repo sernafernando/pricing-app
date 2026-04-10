@@ -216,7 +216,7 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
 
 
 @router.get("/rentabilidad-fuera", response_model=RentabilidadFueraResponse)
-async def obtener_rentabilidad_fuera(
+def obtener_rentabilidad_fuera(
     fecha_desde: date = Query(..., description="Fecha inicio del período"),
     fecha_hasta: date = Query(..., description="Fecha fin del período"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -835,7 +835,7 @@ async def obtener_rentabilidad_fuera(
 
 
 @router.get("/rentabilidad-fuera/buscar-productos", response_model=List[ProductoBusquedaFuera])
-async def buscar_productos_fuera(
+def buscar_productos_fuera(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
@@ -898,7 +898,7 @@ async def buscar_productos_fuera(
 
 
 @router.get("/rentabilidad-fuera/filtros")
-async def obtener_filtros_disponibles_fuera(
+def obtener_filtros_disponibles_fuera(
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),

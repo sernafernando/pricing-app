@@ -508,7 +508,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
 
 @router.get("/ventas-fuera-ml/operaciones", response_model=List[OperacionFueraMLResponse])
-async def get_operaciones_desde_metricas(
+def get_operaciones_desde_metricas(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -628,7 +628,7 @@ async def get_operaciones_desde_metricas(
 
 
 @router.get("/ventas-fuera-ml/operaciones/count", response_model=CountResponse)
-async def get_operaciones_count(
+def get_operaciones_count(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -689,7 +689,7 @@ async def get_operaciones_count(
 
 
 @router.get("/ventas-fuera-ml", response_model=List[VentaFueraMLResponse])
-async def get_ventas_fuera_ml(
+def get_ventas_fuera_ml(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
@@ -742,7 +742,7 @@ async def get_ventas_fuera_ml(
 
 
 @router.get("/ventas-fuera-ml/stats")
-async def get_ventas_fuera_ml_stats(
+def get_ventas_fuera_ml_stats(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
@@ -888,7 +888,7 @@ async def get_ventas_fuera_ml_stats(
 
 
 @router.get("/ventas-fuera-ml/por-marca", response_model=List[VentaFueraMLPorMarcaResponse])
-async def get_ventas_fuera_ml_por_marca(
+def get_ventas_fuera_ml_por_marca(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
@@ -960,7 +960,7 @@ async def get_ventas_fuera_ml_por_marca(
 
 
 @router.get("/ventas-fuera-ml/top-productos")
-async def get_top_productos_fuera_ml(
+def get_top_productos_fuera_ml(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(20, le=100, description="Límite de resultados"),
@@ -1049,7 +1049,7 @@ class ActualizarMetricaRequest(BaseModel):
 
 
 @router.put("/ventas-fuera-ml/metricas/{metrica_id}/costo")
-async def actualizar_costo_operacion(
+def actualizar_costo_operacion(
     metrica_id: int,
     request: ActualizarCostoRequest,
     db: Session = Depends(get_db),
@@ -1106,7 +1106,7 @@ async def actualizar_costo_operacion(
 
 
 @router.patch("/ventas-fuera-ml/metricas/{metrica_id}")
-async def actualizar_metrica(
+def actualizar_metrica(
     metrica_id: int,
     request: ActualizarMetricaRequest,
     db: Session = Depends(get_db),
@@ -1193,9 +1193,7 @@ async def actualizar_metrica(
 
 
 @router.get("/ventas-fuera-ml/metricas/{metrica_id}")
-async def get_metrica_detalle(
-    metrica_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
-):
+def get_metrica_detalle(metrica_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene el detalle de una métrica específica.
     """
@@ -1264,7 +1262,7 @@ class VentaFueraOverrideResponse(BaseModel):
 
 
 @router.get("/ventas-fuera-ml/overrides")
-async def get_overrides_fuera_ml(
+def get_overrides_fuera_ml(
     from_date: str = Query(...),
     to_date: str = Query(...),
     db: Session = Depends(get_db),
@@ -1309,7 +1307,7 @@ async def get_overrides_fuera_ml(
 
 
 @router.post("/ventas-fuera-ml/override")
-async def set_override_fuera_ml(
+def set_override_fuera_ml(
     request: VentaFueraOverrideRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1368,7 +1366,7 @@ async def set_override_fuera_ml(
 
 
 @router.delete("/ventas-fuera-ml/override/{it_transaction}")
-async def delete_override_fuera_ml(
+def delete_override_fuera_ml(
     it_transaction: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Elimina un override de venta fuera ML."""
@@ -1387,7 +1385,7 @@ async def delete_override_fuera_ml(
 
 
 @router.get("/ventas-fuera-ml/jerarquia-productos")
-async def get_jerarquia_productos(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def get_jerarquia_productos(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Devuelve la jerarquía de marca -> categorías -> subcategorías
     basada en los productos existentes en el ERP.

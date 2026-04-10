@@ -102,7 +102,7 @@ class EstadisticasExportResponse(BaseModel):
 
 
 @router.get("/pedidos-export/por-export/{export_id}", response_model=List[PedidoExportResponse])
-async def obtener_pedidos_por_export(
+def obtener_pedidos_por_export(
     export_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
@@ -197,7 +197,7 @@ async def obtener_pedidos_por_export(
 
 
 @router.get("/pedidos-export/estadisticas/{export_id}", response_model=EstadisticasExportResponse)
-async def obtener_estadisticas_export(
+def obtener_estadisticas_export(
     export_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Obtiene estadísticas de pedidos de un export específico"""
@@ -252,7 +252,7 @@ async def obtener_estadisticas_export(
 
 
 @router.post("/pedidos-export/asignar-codigo-envio/{soh_id}")
-async def asignar_codigo_envio(
+def asignar_codigo_envio(
     soh_id: int, codigo: str, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Asigna un código de envío interno a un pedido (para QR en etiqueta)"""
@@ -279,7 +279,7 @@ async def asignar_codigo_envio(
 
 
 @router.get("/pedidos-export/todos", response_model=List[PedidoExportResponse])
-async def obtener_todos_pedidos_export(
+def obtener_todos_pedidos_export(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     export_id: Optional[int] = Query(None, description="Filtrar por export_id"),
@@ -793,9 +793,7 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
 
 
 @router.get("/pedidos-export/{soh_id}/items", response_model=List[PedidoExportItem])
-async def obtener_items_pedido(
-    soh_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
-):
+def obtener_items_pedido(soh_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Obtiene los items/productos de un pedido específico"""
 
     items = db.query(SaleOrderDetail).filter(SaleOrderDetail.soh_id == soh_id).all()
@@ -816,7 +814,7 @@ async def obtener_items_pedido(
 
 
 @router.get("/pedidos-export/estadisticas-sincronizacion")
-async def estadisticas_sincronizacion(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def estadisticas_sincronizacion(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Obtiene estadísticas de la última sincronización del export 80"""
 
     total_export_80 = db.query(func.count(SaleOrderHeader.soh_id)).filter(SaleOrderHeader.export_id == 80).scalar() or 0

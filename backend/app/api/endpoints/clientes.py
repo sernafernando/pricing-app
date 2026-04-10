@@ -126,7 +126,7 @@ CAMPOS_DISPONIBLES = {
 
 
 @router.get("/campos-disponibles")
-async def obtener_campos_disponibles(current_user: Usuario = Depends(get_current_user)):
+def obtener_campos_disponibles(current_user: Usuario = Depends(get_current_user)):
     """
     Retorna la lista de campos disponibles para exportación
     """
@@ -134,7 +134,7 @@ async def obtener_campos_disponibles(current_user: Usuario = Depends(get_current
 
 
 @router.get("", response_model=ClienteListResponse)
-async def listar_clientes(
+def listar_clientes(
     page: int = Query(1, ge=1, description="Número de página"),
     page_size: int = Query(50, ge=1, le=1000, description="Cantidad de registros por página"),
     search: Optional[str] = Query(None, description="Buscar por nombre, CUIT, email o ciudad"),
@@ -307,7 +307,7 @@ async def listar_clientes(
 
 
 @router.get("/{cust_id}", response_model=ClienteResponse)
-async def obtener_cliente(
+def obtener_cliente(
     cust_id: int,
     comp_id: int = Query(1, description="ID de compañía"),
     db: Session = Depends(get_db),
@@ -391,7 +391,7 @@ async def obtener_cliente(
 
 
 @router.post("/exportar")
-async def exportar_clientes(
+def exportar_clientes(
     export_request: ExportClientesRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -606,7 +606,7 @@ async def exportar_clientes(
 
 
 @router.get("/filtros/provincias")
-async def obtener_provincias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_provincias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Retorna lista de provincias para el filtro
     """
@@ -623,9 +623,7 @@ async def obtener_provincias(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.get("/filtros/condiciones-fiscales")
-async def obtener_condiciones_fiscales(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_condiciones_fiscales(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Retorna lista de condiciones fiscales que tienen clientes asignados
     """
@@ -642,7 +640,7 @@ async def obtener_condiciones_fiscales(
 
 
 @router.get("/filtros/sucursales")
-async def obtener_sucursales(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_sucursales(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Retorna lista de sucursales para el filtro
     """
@@ -657,7 +655,7 @@ async def obtener_sucursales(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.get("/filtros/vendedores")
-async def obtener_vendedores(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_vendedores(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Retorna lista de vendedores para el filtro
     """
@@ -672,7 +670,7 @@ async def obtener_vendedores(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.patch("/{cust_id}", response_model=ClienteResponse)
-async def actualizar_cliente(
+def actualizar_cliente(
     cust_id: int,
     datos: ClienteUpdateRequest,
     comp_id: int = Query(1, description="ID de compañía"),

@@ -2891,7 +2891,7 @@ def crear_envio_manual(
     response_model=dict,
     summary="Editar envío manual existente",
 )
-async def editar_envio_manual(
+def editar_envio_manual(
     shipping_id: str,
     payload: CrearEnvioManualRequest,
     background_tasks: BackgroundTasks,
@@ -4134,7 +4134,7 @@ _logger = logging.getLogger(__name__)
     "/etiquetas-envio/{shipping_id}/etiqueta-manual",
     summary="Genera etiqueta ZPL local para un envío manual",
 )
-async def generar_etiqueta_manual_zpl(
+def generar_etiqueta_manual_zpl(
     shipping_id: str,
     num_bultos: int = Query(1, ge=1),
     tipo_envio_manual: Optional[str] = Query(None),

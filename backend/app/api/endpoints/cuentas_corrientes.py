@@ -162,7 +162,7 @@ def _query_filtered(
 
 
 @router.get("/cuentas-corrientes/sucursales")
-async def listar_sucursales_cc(
+def listar_sucursales_cc(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> list[dict]:
@@ -249,7 +249,7 @@ async def sincronizar_cuentas_corrientes(
 
 
 @router.get("/cuentas-corrientes/proveedores")
-async def listar_cuentas_corrientes_proveedores(
+def listar_cuentas_corrientes_proveedores(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
     buscar: Optional[str] = Query(None, description="Buscar por nombre de proveedor"),
@@ -266,7 +266,7 @@ async def listar_cuentas_corrientes_proveedores(
 
 
 @router.get("/cuentas-corrientes/clientes")
-async def listar_cuentas_corrientes_clientes(
+def listar_cuentas_corrientes_clientes(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
     buscar: Optional[str] = Query(None, description="Buscar por nombre de cliente"),
@@ -288,7 +288,7 @@ async def listar_cuentas_corrientes_clientes(
 
 
 @router.get("/cuentas-corrientes/exportar")
-async def exportar_cuentas_corrientes(
+def exportar_cuentas_corrientes(
     tipo: str = Query(..., description="'proveedores' o 'clientes'"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
