@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.core.database import get_db
+from app.core.database import get_background_db, get_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario
@@ -36,6 +36,45 @@ async def get_current_user(
 
     if not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
+
+    return usuario
+
+
+async def get_current_user_transient(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Usuario:
+    """
+    Autentica al usuario SIN retener una sesión de DB abierta.
+
+    Usa get_background_db() para abrir, consultar y CERRAR la sesión
+    inmediatamente. Ideal para endpoints long-lived (SSE, WebSocket)
+    donde el dependency injection de FastAPI mantendría la sesión
+    de get_db() abierta durante toda la vida de la conexión.
+
+    El objeto Usuario retornado es DETACHED — no tiene sesión activa.
+    Solo usar para leer atributos ya cargados (username, rol, etc.).
+    """
+    token = credentials.credentials
+    payload = decode_token(token)
+
+    if payload is None:
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Token inválido o expirado")
+
+    username: str = payload.get("sub")
+    if username is None:
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Token inválido")
+
+    with get_background_db() as db:
+        usuario = db.query(Usuario).filter((Usuario.username == username) | (Usuario.email == username)).first()
+
+        if usuario is None:
+            raise api_error(401, ErrorCode.INVALID_TOKEN, "Usuario no encontrado")
+
+        if not usuario.activo:
+            raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
+
+        # Expunge para que el objeto sobreviva después de cerrar la sesión
+        db.expunge(usuario)
 
     return usuario
 

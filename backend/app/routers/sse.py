@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator
 
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user_transient
 from app.core.logging import get_logger
 from app.core.sse import SSEConnectionManager
 from app.models.usuario import Usuario
@@ -47,7 +47,7 @@ async def sse_stream(
         description="Comma-separated channel names to subscribe to",
         examples=["etiquetas:changed,alertas:updated"],
     ),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user_transient),
 ) -> StreamingResponse:
     """
     Server-Sent Events stream endpoint.
