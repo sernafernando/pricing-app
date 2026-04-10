@@ -63,7 +63,7 @@ class ComisionCalculadaResponse(BaseModel):
 
 
 @router.get("/comisiones/versiones", response_model=List[ComisionVersionResponse])
-async def listar_versiones_comisiones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_versiones_comisiones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todas las versiones de comisiones ordenadas por fecha"""
     versiones = db.query(ComisionVersion).order_by(ComisionVersion.fecha_desde.desc()).all()
 
@@ -94,7 +94,7 @@ async def listar_versiones_comisiones(db: Session = Depends(get_db), current_use
 
 
 @router.get("/comisiones/version/{version_id}", response_model=ComisionVersionResponse)
-async def obtener_version_comision(
+def obtener_version_comision(
     version_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene una versión específica de comisiones"""
@@ -124,7 +124,7 @@ async def obtener_version_comision(
 
 
 @router.get("/comisiones/vigente", response_model=ComisionVersionResponse)
-async def obtener_comisiones_vigentes(
+def obtener_comisiones_vigentes(
     fecha: Optional[date] = None, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene la versión de comisiones vigente para una fecha (por defecto hoy)"""
@@ -167,7 +167,7 @@ async def obtener_comisiones_vigentes(
 
 
 @router.get("/comisiones/calculadas", response_model=List[ComisionCalculadaResponse])
-async def obtener_comisiones_calculadas(
+def obtener_comisiones_calculadas(
     fecha: Optional[date] = None, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene la matriz completa de comisiones calculadas (base + adicionales) para una fecha"""
@@ -212,7 +212,7 @@ async def obtener_comisiones_calculadas(
 
 
 @router.post("/comisiones/nueva-version", response_model=ComisionVersionResponse)
-async def crear_nueva_version_comisiones(
+def crear_nueva_version_comisiones(
     data: ComisionVersionCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -295,7 +295,7 @@ async def crear_nueva_version_comisiones(
 
 
 @router.patch("/comisiones/version/{version_id}")
-async def actualizar_version_comisiones(
+def actualizar_version_comisiones(
     version_id: int,
     data: ComisionVersionCreate,
     db: Session = Depends(get_db),
@@ -376,7 +376,7 @@ class EliminarVersionRequest(BaseModel):
 
 
 @router.delete("/comisiones/version/{version_id}")
-async def eliminar_version_comisiones(
+def eliminar_version_comisiones(
     version_id: int,
     request: EliminarVersionRequest,
     db: Session = Depends(get_db),
@@ -443,7 +443,7 @@ async def eliminar_version_comisiones(
 
 
 @router.get("/comisiones/grupos")
-async def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los grupos de comisiones disponibles"""
     grupos = db.query(GrupoComision).filter(GrupoComision.activo == True).all()
     return {"grupos": [{"id": g.id, "nombre": g.nombre, "descripcion": g.descripcion} for g in grupos]}

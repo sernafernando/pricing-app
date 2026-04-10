@@ -34,7 +34,7 @@ class QueueWriter:
 
 
 @router.post("/sync-ml/precios")
-async def sincronizar_precios(
+def sincronizar_precios(
     background_tasks: BackgroundTasks,
     pricelist_id: int = None,
     current_user=Depends(get_current_user),
@@ -55,7 +55,7 @@ async def sincronizar_precios(
 
 
 @router.get("/sync-ml/listas")
-async def listar_listas(current_user=Depends(get_current_user)):
+def listar_listas(current_user=Depends(get_current_user)):
     """Lista las pricelists disponibles"""
     return {"listas": PRICELISTS}
 

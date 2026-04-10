@@ -49,7 +49,7 @@ def normalizar_mla(mla_input: str) -> str:
 
 
 @router.get("/mla-banlist", response_model=List[MLABanlistResponse])
-async def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los MLAs baneados"""
     mlas = db.query(MLABanlist).filter(MLABanlist.activo == True).all()
 
@@ -71,7 +71,7 @@ async def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = 
 
 
 @router.post("/mla-banlist")
-async def agregar_a_banlist(
+def agregar_a_banlist(
     datos: MLABanlistCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega uno o múltiples MLAs a la banlist (todos los usuarios)"""
@@ -118,9 +118,7 @@ async def agregar_a_banlist(
 
 
 @router.delete("/mla-banlist/{mla_id}")
-async def eliminar_de_banlist(
-    mla_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def eliminar_de_banlist(mla_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un MLA de la banlist (solo admin/superadmin)"""
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "Solo administradores pueden eliminar de la banlist")
@@ -137,9 +135,7 @@ async def eliminar_de_banlist(
 
 
 @router.get("/mla-banlist/check/{mla}")
-async def verificar_mla_baneado(
-    mla: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def verificar_mla_baneado(mla: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Verifica si un MLA está en la banlist"""
     mla_normalizado = normalizar_mla(mla)
 

@@ -165,7 +165,7 @@ class UnbanComparacionRequest(BaseModel):
 
 
 @router.get("/items-sin-mla", response_model=List[ItemSinMLAResponse])
-async def get_items_sin_mla(
+def get_items_sin_mla(
     prli_id: Optional[int] = Query(None, description="Filtrar por lista de precios específica"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
@@ -330,7 +330,7 @@ async def get_items_sin_mla(
 
 
 @router.get("/items-baneados", response_model=List[ItemBaneadoResponse])
-async def get_items_baneados(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_items_baneados(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene todos los items en la banlist (que no deben aparecer en el reporte de sin MLA)
     """
@@ -365,7 +365,7 @@ async def get_items_baneados(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.post("/banear-item")
-async def banear_item(
+def banear_item(
     request: BanItemRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -397,7 +397,7 @@ async def banear_item(
 
 
 @router.post("/desbanear-item")
-async def desbanear_item(
+def desbanear_item(
     request: UnbanItemRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -423,7 +423,7 @@ async def desbanear_item(
 
 
 @router.get("/listas-precios")
-async def get_listas_precios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_listas_precios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene las listas de precios relevantes (solo Web, sin PVP duplicado)
     """
@@ -433,7 +433,7 @@ async def get_listas_precios(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.get("/tiendas-oficiales", response_model=List[TiendaOficialResponse])
-async def get_tiendas_oficiales(
+def get_tiendas_oficiales(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[TiendaOficialResponse]:
     """
@@ -447,7 +447,7 @@ async def get_tiendas_oficiales(
 
 
 @router.get("/marcas")
-async def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene las marcas de productos sin MLA (para filtros)
     """
@@ -503,7 +503,7 @@ LISTA_SISTEMA_A_CAMPANA_ML = {
 
 
 @router.get("/comparacion-listas", response_model=List[ComparacionListaResponse])
-async def get_comparacion_listas(
+def get_comparacion_listas(
     buscar: Optional[str] = Query(None, description="Buscar en código o descripción"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
     db: Session = Depends(get_db),
@@ -609,7 +609,7 @@ async def get_comparacion_listas(
 
 
 @router.get("/comparacion-baneados", response_model=List[ComparacionBaneadoResponse])
-async def get_comparacion_baneados(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_comparacion_baneados(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene todos los items en la banlist de comparación de listas
     """
@@ -672,7 +672,7 @@ async def get_comparacion_baneados(db: Session = Depends(get_db), current_user: 
 
 
 @router.post("/banear-comparacion")
-async def banear_comparacion(
+def banear_comparacion(
     request: BanComparacionRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -702,7 +702,7 @@ async def banear_comparacion(
 
 
 @router.post("/desbanear-comparacion")
-async def desbanear_comparacion(
+def desbanear_comparacion(
     request: UnbanComparacionRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """

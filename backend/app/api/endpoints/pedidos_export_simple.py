@@ -123,7 +123,7 @@ class EstadisticasPedidos(BaseModel):
 
 
 @router.get("/pedidos-simple", response_model=List[PedidoDetallado])
-async def obtener_pedidos(
+def obtener_pedidos(
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
     solo_activos: bool = Query(True),
@@ -334,7 +334,7 @@ async def obtener_pedidos(
 
 
 @router.get("/pedidos-simple/estadisticas", response_model=EstadisticasPedidos)
-async def obtener_estadisticas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_estadisticas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Estadísticas de pedidos desde tb_sale_order_header"""
 
     base_query = db.query(SaleOrderHeader).filter(
@@ -396,9 +396,7 @@ async def obtener_estadisticas(db: Session = Depends(get_db), current_user: Usua
 
 
 @router.get("/pedidos-simple/usuarios-disponibles")
-async def obtener_usuarios_disponibles(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_usuarios_disponibles(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene la lista de usuarios (canales) que tienen pedidos activos.
     Retorna lista con user_id y user_name.
@@ -423,9 +421,7 @@ async def obtener_usuarios_disponibles(
 
 
 @router.get("/pedidos-simple/provincias-disponibles")
-async def obtener_provincias_disponibles(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_provincias_disponibles(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene la lista de provincias únicas en pedidos activos.
     Prioriza override > TN > ERP.
@@ -454,7 +450,7 @@ async def obtener_provincias_disponibles(
 
 
 @router.put("/pedidos-simple/{soh_id}/bultos-domicilio")
-async def actualizar_bultos_domicilio(
+def actualizar_bultos_domicilio(
     soh_id: int,
     num_bultos: int = Query(1, ge=1),
     tipo_domicilio: Optional[str] = Query(None),
@@ -500,7 +496,7 @@ class ShippingOverride(BaseModel):
 
 
 @router.put("/pedidos-simple/{soh_id}/override-shipping")
-async def actualizar_direccion_envio(
+def actualizar_direccion_envio(
     soh_id: int,
     override_data: ShippingOverride,
     db: Session = Depends(get_db),
@@ -541,7 +537,7 @@ async def actualizar_direccion_envio(
 
 
 @router.delete("/pedidos-simple/{soh_id}/override-shipping")
-async def eliminar_override_direccion(
+def eliminar_override_direccion(
     soh_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -605,7 +601,7 @@ async def sincronizar_pedidos(db: Session = Depends(get_db), current_user: Usuar
 
 
 @router.get("/pedidos-simple/{soh_id}/etiqueta-zpl")
-async def generar_etiqueta_zpl(
+def generar_etiqueta_zpl(
     soh_id: int,
     num_bultos: int = Query(1, ge=1),
     tipo_envio_manual: Optional[str] = Query(None),

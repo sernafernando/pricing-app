@@ -34,7 +34,7 @@ class ProductoBanlistResponse(BaseModel):
 
 
 @router.get("/producto-banlist", response_model=List[ProductoBanlistResponse])
-async def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los productos baneados"""
     productos = db.query(ProductoBanlist).filter(ProductoBanlist.activo == True).all()
 
@@ -72,7 +72,7 @@ async def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = 
 
 
 @router.post("/producto-banlist")
-async def agregar_a_banlist(
+def agregar_a_banlist(
     datos: ProductoBanlistCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega uno o múltiples productos a la banlist por item_id o EAN"""
@@ -174,7 +174,7 @@ async def agregar_a_banlist(
 
 
 @router.delete("/producto-banlist/{producto_id}")
-async def eliminar_de_banlist(
+def eliminar_de_banlist(
     producto_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un producto de la banlist (solo admin/superadmin)"""

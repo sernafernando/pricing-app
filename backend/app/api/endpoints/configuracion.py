@@ -47,7 +47,7 @@ class PricingConstantsCreate(BaseModel):
 
 
 @router.get("/pricing-constants", response_model=List[PricingConstantsResponse])
-async def listar_pricing_constants(
+def listar_pricing_constants(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
 ):
@@ -57,9 +57,7 @@ async def listar_pricing_constants(
 
 
 @router.get("/pricing-constants/actual")
-async def obtener_pricing_constants_actual(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def obtener_pricing_constants_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene las constantes de pricing vigentes para hoy"""
     hoy = date.today()
     constants = (
@@ -97,7 +95,7 @@ async def obtener_pricing_constants_actual(
 
 
 @router.post("/pricing-constants")
-async def crear_pricing_constants(
+def crear_pricing_constants(
     data: PricingConstantsCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
@@ -148,7 +146,7 @@ async def crear_pricing_constants(
 
 
 @router.put("/pricing-constants/{id}")
-async def actualizar_pricing_constants(
+def actualizar_pricing_constants(
     id: int,
     data: PricingConstantsCreate,
     db: Session = Depends(get_db),
@@ -193,7 +191,7 @@ async def actualizar_pricing_constants(
 
 
 @router.delete("/pricing-constants/{id}")
-async def eliminar_pricing_constants(
+def eliminar_pricing_constants(
     id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),

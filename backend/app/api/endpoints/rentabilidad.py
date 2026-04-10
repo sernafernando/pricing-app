@@ -153,7 +153,7 @@ class RentabilidadResponse(BaseModel):
 
 
 @router.get("/rentabilidad", response_model=RentabilidadResponse)
-async def obtener_rentabilidad(
+def obtener_rentabilidad(
     fecha_desde: date = Query(..., description="Fecha inicio del período"),
     fecha_hasta: date = Query(..., description="Fecha fin del período"),
     marcas: Optional[str] = Query(None, description="Marcas separadas por coma"),
@@ -1497,7 +1497,7 @@ class ProductoBusqueda(BaseModel):
 
 
 @router.get("/rentabilidad/buscar-productos", response_model=List[ProductoBusqueda])
-async def buscar_productos(
+def buscar_productos(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
@@ -1547,7 +1547,7 @@ async def buscar_productos(
 
 
 @router.get("/rentabilidad/filtros")
-async def obtener_filtros_disponibles(
+def obtener_filtros_disponibles(
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
     marcas: Optional[str] = Query(None),

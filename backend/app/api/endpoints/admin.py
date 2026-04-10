@@ -79,7 +79,7 @@ class GrupoComisionUpdate(BaseModel):
 
 
 @router.get("/admin/comisiones/{grupo_id}")
-async def obtener_comisiones_grupo(
+def obtener_comisiones_grupo(
     grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> dict:
     """Obtiene todas las comisiones de un grupo (legacy)"""
@@ -92,7 +92,7 @@ async def obtener_comisiones_grupo(
 
 
 @router.get("/admin/comision/{pricelist_id}/{grupo_id}")
-async def obtener_comision_especifica(
+def obtener_comision_especifica(
     pricelist_id: int, grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> dict:
     """Obtiene la comisión para una lista y grupo específicos (legacy)"""
@@ -114,7 +114,7 @@ async def obtener_comision_especifica(
 
 
 @router.get("/admin/subcategorias-grupos", response_model=List[SubcategoriaGrupoResponse])
-async def listar_subcategorias_grupos(
+def listar_subcategorias_grupos(
     categoria: Optional[str] = Query(default=None, description="Filtrar por cat_id"),
     grupo_id: Optional[int] = Query(default=None, description="Filtrar por grupo_id"),
     sin_grupo: Optional[bool] = Query(default=None, description="Solo subcategorías sin grupo asignado"),
@@ -162,7 +162,7 @@ async def listar_subcategorias_grupos(
 
 
 @router.patch("/admin/subcategorias-grupos/asignar")
-async def asignar_grupo_a_subcategorias(
+def asignar_grupo_a_subcategorias(
     data: AsignarGrupoRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_admin),
@@ -205,7 +205,7 @@ async def asignar_grupo_a_subcategorias(
 
 
 @router.patch("/admin/subcategorias-grupos/banlist")
-async def toggle_banlist_subcategorias(
+def toggle_banlist_subcategorias(
     data: BanlistRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_admin),
@@ -240,7 +240,7 @@ async def toggle_banlist_subcategorias(
 
 
 @router.get("/admin/grupos-comision", response_model=List[GrupoComisionResponse])
-async def listar_grupos_comision(
+def listar_grupos_comision(
     incluir_inactivos: bool = Query(default=False, description="Incluir grupos inactivos"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -270,7 +270,7 @@ async def listar_grupos_comision(
 
 
 @router.post("/admin/grupos-comision", response_model=GrupoComisionResponse, status_code=201)
-async def crear_grupo_comision(
+def crear_grupo_comision(
     data: GrupoComisionCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_admin),
@@ -300,7 +300,7 @@ async def crear_grupo_comision(
 
 
 @router.patch("/admin/grupos-comision/{grupo_id}", response_model=GrupoComisionResponse)
-async def actualizar_grupo_comision(
+def actualizar_grupo_comision(
     grupo_id: int,
     data: GrupoComisionUpdate,
     db: Session = Depends(get_db),
@@ -346,7 +346,7 @@ async def actualizar_grupo_comision(
 
 
 @router.get("/admin/subcategorias-categorias")
-async def listar_categorias_unicas(
+def listar_categorias_unicas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
@@ -373,7 +373,7 @@ async def actualizar_tc_manual(db: Session = Depends(get_db), current_user: Usua
 
 
 @router.get("/admin/tipo-cambio-actual")
-async def obtener_tc_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_tc_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el tipo de cambio actual"""
     from app.models.tipo_cambio import TipoCambio
 
@@ -401,7 +401,7 @@ class ConfiguracionUpdate(BaseModel):
 
 
 @router.get("/admin/configuracion")
-async def obtener_configuraciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
+def obtener_configuraciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Obtiene todas las configuraciones"""
     configs = db.query(Configuracion).all()
     return {
@@ -412,7 +412,7 @@ async def obtener_configuraciones(db: Session = Depends(get_db), current_user: U
 
 
 @router.get("/admin/configuracion/{clave}")
-async def obtener_configuracion(
+def obtener_configuracion(
     clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)
 ):
     """Obtiene una configuración específica"""
@@ -425,7 +425,7 @@ async def obtener_configuracion(
 
 
 @router.patch("/admin/configuracion/{clave}")
-async def actualizar_configuracion(
+def actualizar_configuracion(
     clave: str,
     update: ConfiguracionUpdate,
     db: Session = Depends(get_db),

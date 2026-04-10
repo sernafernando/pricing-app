@@ -26,7 +26,7 @@ class AuditoriaResponse(BaseModel):
 
 
 @router.get("/productos/{producto_id}/auditoria", response_model=List[AuditoriaResponse])
-async def obtener_auditoria_producto(
+def obtener_auditoria_producto(
     producto_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el historial de cambios de un producto"""
@@ -54,7 +54,7 @@ async def obtener_auditoria_producto(
 
 
 @router.get("/auditoria/ultimos-cambios", response_model=List[dict])
-async def obtener_ultimos_cambios(
+def obtener_ultimos_cambios(
     limit: int = 50, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los últimos N cambios de todos los productos"""
@@ -127,7 +127,7 @@ class AuditoriaListResponse(BaseModel):
 
 
 @router.get("/auditoria", response_model=AuditoriaListResponse)
-async def listar_auditoria_general(
+def listar_auditoria_general(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     usuarios: Optional[str] = None,
@@ -199,13 +199,13 @@ async def listar_auditoria_general(
 
 
 @router.get("/auditoria/tipos-accion")
-async def listar_tipos_accion(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_tipos_accion(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los tipos de acción disponibles"""
     return {"tipos": [tipo.value for tipo in TipoAccion]}
 
 
 @router.get("/auditoria/usuarios")
-async def listar_usuarios_auditoria(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_usuarios_auditoria(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista usuarios que han realizado modificaciones"""
     usuarios = db.query(Usuario).join(Auditoria, Usuario.id == Auditoria.usuario_id).distinct().all()
 

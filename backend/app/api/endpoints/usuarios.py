@@ -57,7 +57,7 @@ class UsuarioResponse(BaseModel):
 
 
 @router.get("/usuarios", response_model=List[UsuarioResponse])
-async def listar_usuarios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_usuarios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los usuarios (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
@@ -67,7 +67,7 @@ async def listar_usuarios(db: Session = Depends(get_db), current_user: Usuario =
 
 
 @router.post("/usuarios", response_model=UsuarioResponse)
-async def crear_usuario(
+def crear_usuario(
     usuario: UsuarioCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo usuario (solo admin)"""
@@ -110,7 +110,7 @@ async def crear_usuario(
 
 
 @router.patch("/usuarios/{usuario_id}", response_model=UsuarioResponse)
-async def actualizar_usuario(
+def actualizar_usuario(
     usuario_id: int,
     datos: UsuarioUpdate,
     db: Session = Depends(get_db),
@@ -172,7 +172,7 @@ async def actualizar_usuario(
 
 
 @router.patch("/usuarios/{usuario_id}/password")
-async def cambiar_password_usuario(
+def cambiar_password_usuario(
     usuario_id: int,
     datos: PasswordUpdate,
     db: Session = Depends(get_db),
@@ -202,9 +202,7 @@ async def cambiar_password_usuario(
 
 
 @router.delete("/usuarios/{usuario_id}")
-async def eliminar_usuario(
-    usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
+def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un usuario (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")

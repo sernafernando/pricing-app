@@ -40,7 +40,7 @@ async def sincronizar_ml(db: Session = Depends(get_db), current_user: Usuario = 
 
 
 @router.post("/sync-sheets")
-async def sincronizar_sheets(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
+def sincronizar_sheets(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
     """Sincroniza ofertas desde Google Sheets"""
     try:
         resultado = sincronizar_ofertas_sheets(db)
@@ -50,9 +50,7 @@ async def sincronizar_sheets(db: Session = Depends(get_db), current_user: Usuari
 
 
 @router.post("/sync-tipo-cambio")
-async def sincronizar_tipo_cambio(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)
-):
+def sincronizar_tipo_cambio(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
     """Sincroniza tipo de cambio desde BNA"""
     try:
         from app.services.tipo_cambio_service import actualizar_tipo_cambio_bna
@@ -64,7 +62,7 @@ async def sincronizar_tipo_cambio(
 
 
 @router.get("/tipo-cambio/actual")
-async def obtener_tipo_cambio_actual_endpoint(
+def obtener_tipo_cambio_actual_endpoint(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el tipo de cambio más reciente"""
@@ -79,7 +77,7 @@ async def obtener_tipo_cambio_actual_endpoint(
 
 
 @router.get("/tipo-cambio/fecha/{fecha}")
-async def obtener_tipo_cambio_por_fecha(
+def obtener_tipo_cambio_por_fecha(
     fecha: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
@@ -119,9 +117,7 @@ async def obtener_tipo_cambio_por_fecha(
 
 
 @router.post("/recalcular-markups")
-async def recalcular_markups_endpoint(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)
-):
+def recalcular_markups_endpoint(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
     """Recalcula markups de todos los productos con precio"""
     from app.services.recalcular_markups_service import recalcular_markups
 

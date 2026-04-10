@@ -74,7 +74,7 @@ class EstadisticasPedidos(BaseModel):
 
 
 @router.get("/pedidos-export-v2", response_model=List[PedidoResumen])
-async def obtener_pedidos(
+def obtener_pedidos(
     db: Session = Depends(get_db),
     # current_user: dict = Depends(get_current_user),  # Deshabilitado para testing
     solo_activos: bool = Query(True, description="Solo pedidos activos"),
@@ -174,7 +174,7 @@ async def obtener_pedidos(
 
 
 @router.get("/pedidos-export-v2/estadisticas", response_model=EstadisticasPedidos)
-async def obtener_estadisticas(
+def obtener_estadisticas(
     db: Session = Depends(get_db),
     # current_user: dict = Depends(get_current_user)
 ):
@@ -323,7 +323,7 @@ async def sincronizar_pedidos(
 
 
 @router.post("/pedidos-export-v2/enriquecer-tiendanube")
-async def enriquecer_tiendanube(
+def enriquecer_tiendanube(
     db: Session = Depends(get_db),
     # current_user: dict = Depends(get_current_user)  # Sin auth
 ):

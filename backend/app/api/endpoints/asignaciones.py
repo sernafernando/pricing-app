@@ -210,7 +210,7 @@ def _build_asignacion_response(
 
 
 @router.post("/asignar", response_model=List[AsignacionResponse])
-async def asignar_item(
+def asignar_item(
     request: AsignarItemRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
@@ -294,7 +294,7 @@ async def asignar_item(
 
 
 @router.post("/asignar-masivo", response_model=List[AsignacionResponse])
-async def asignar_masivo(
+def asignar_masivo(
     request: AsignarMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
@@ -372,7 +372,7 @@ async def asignar_masivo(
 
 
 @router.post("/desasignar")
-async def desasignar(
+def desasignar(
     request: DesasignarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> dict:
     """
@@ -404,7 +404,7 @@ async def desasignar(
 
 
 @router.post("/reasignar", response_model=List[AsignacionResponse])
-async def reasignar(
+def reasignar(
     request: ReasignarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
@@ -465,7 +465,7 @@ async def reasignar(
 
 
 @router.get("/items-sin-mla", response_model=List[AsignacionResponse])
-async def get_asignaciones_items_sin_mla(
+def get_asignaciones_items_sin_mla(
     estado: Optional[str] = Query(
         "pendiente", description="Filtrar por estado: pendiente, completado, cancelado, todos"
     ),
@@ -518,7 +518,7 @@ async def get_asignaciones_items_sin_mla(
 
 
 @router.get("/mis-asignaciones", response_model=List[AsignacionResponse])
-async def get_mis_asignaciones(
+def get_mis_asignaciones(
     tipo: Optional[str] = Query(None, description="Filtrar por tipo: item_sin_mla, etc."),
     estado: Optional[str] = Query("pendiente", description="Filtrar por estado"),
     db: Session = Depends(get_db),
@@ -551,7 +551,7 @@ async def get_mis_asignaciones(
 
 
 @router.get("/usuarios-asignables")
-async def get_usuarios_asignables(
+def get_usuarios_asignables(
     db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[dict]:
     """
@@ -572,7 +572,7 @@ async def get_usuarios_asignables(
 
 
 @router.post("/verificar-estado", response_model=List[VerificarHashResponse])
-async def verificar_estado_asignaciones(
+def verificar_estado_asignaciones(
     asignacion_ids: Optional[List[int]] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),

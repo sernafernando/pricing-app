@@ -91,7 +91,7 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 
 
 @router.get("", response_model=ProveedorListResponse)
-async def listar_proveedores(
+def listar_proveedores(
     search: Optional[str] = Query(None, description="Buscar por nombre, CUIT o ciudad"),
     solo_activos: bool = Query(True, description="Solo proveedores activos"),
     page: int = Query(1, ge=1),
@@ -138,7 +138,7 @@ async def listar_proveedores(
 
 
 @router.get("/{proveedor_id}", response_model=ProveedorResponse)
-async def obtener_proveedor(
+def obtener_proveedor(
     proveedor_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -154,7 +154,7 @@ async def obtener_proveedor(
 
 
 @router.put("/{proveedor_id}", response_model=ProveedorResponse)
-async def actualizar_proveedor(
+def actualizar_proveedor(
     proveedor_id: int,
     data: ProveedorUpdate,
     db: Session = Depends(get_db),
@@ -178,7 +178,7 @@ async def actualizar_proveedor(
 
 
 @router.post("/sync", status_code=status.HTTP_200_OK)
-async def sync_proveedores_desde_erp(
+def sync_proveedores_desde_erp(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:

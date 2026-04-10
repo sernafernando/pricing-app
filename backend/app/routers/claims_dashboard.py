@@ -216,7 +216,7 @@ def _parse_search_claim(c: dict) -> dict:
 
 
 @router.post("/sync", response_model=SyncResponse)
-async def sync_claims(
+def sync_claims(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> SyncResponse:
@@ -345,7 +345,7 @@ async def sync_claims(
 
 
 @router.get("", response_model=ClaimListResponse)
-async def listar_claims(
+def listar_claims(
     status: Optional[str] = Query(None, description="opened, closed"),
     stage: Optional[str] = Query(None, description="claim, dispute, recontact, stale"),
     claim_type: Optional[str] = Query(None, description="mediations, return, fulfillment"),
@@ -500,7 +500,7 @@ async def listar_claims(
 
 
 @router.get("/stats", response_model=ClaimStatsResponse)
-async def claim_stats(
+def claim_stats(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ClaimStatsResponse:
@@ -649,7 +649,7 @@ async def claim_stats(
 
 
 @router.get("/{claim_id}")
-async def obtener_claim(
+def obtener_claim(
     claim_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),

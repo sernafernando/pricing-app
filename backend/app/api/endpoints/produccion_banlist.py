@@ -52,14 +52,14 @@ class PrearmadoRequest(BaseModel):
 
 
 @router.get("/produccion-banlist", response_model=List[BanlistItemResponse])
-async def obtener_banlist(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def obtener_banlist(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Obtiene todos los items en el banlist de producción"""
     items = db.query(ProduccionBanlist).order_by(ProduccionBanlist.fecha_creacion.desc()).all()
     return items
 
 
 @router.post("/produccion-banlist", response_model=BanlistItemResponse)
-async def agregar_a_banlist(
+def agregar_a_banlist(
     request: BanlistItemRequest, db: Session = Depends(get_db), current_user=Depends(get_current_admin)
 ):
     """Agrega un item al banlist de producción (solo admin)"""
@@ -85,7 +85,7 @@ async def agregar_a_banlist(
 
 
 @router.delete("/produccion-banlist/{item_id}")
-async def quitar_de_banlist(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+def quitar_de_banlist(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     """Quita un item del banlist de producción (solo admin)"""
 
     banlist_item = db.query(ProduccionBanlist).filter(ProduccionBanlist.item_id == item_id).first()
@@ -104,14 +104,14 @@ async def quitar_de_banlist(item_id: int, db: Session = Depends(get_db), current
 
 
 @router.get("/produccion-prearmado", response_model=List[PrearmadoItemResponse])
-async def obtener_prearmados(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def obtener_prearmados(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Obtiene todos los items marcados como pre-armados"""
     items = db.query(ProduccionPrearmado).order_by(ProduccionPrearmado.fecha_creacion.desc()).all()
     return items
 
 
 @router.post("/produccion-prearmado/{item_id}", response_model=PrearmadoItemResponse)
-async def marcar_prearmado(
+def marcar_prearmado(
     item_id: int, request: PrearmadoRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """Marca un item como pre-armado con cantidad específica"""
@@ -142,7 +142,7 @@ async def marcar_prearmado(
 
 
 @router.delete("/produccion-prearmado/{item_id}")
-async def desmarcar_prearmado(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def desmarcar_prearmado(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Desmarca un item como pre-armado"""
 
     prearmado_item = db.query(ProduccionPrearmado).filter(ProduccionPrearmado.item_id == item_id).first()
@@ -156,7 +156,7 @@ async def desmarcar_prearmado(item_id: int, db: Session = Depends(get_db), curre
 
 
 @router.post("/produccion-prearmado/limpiar-desaparecidos")
-async def limpiar_prearmados_desaparecidos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def limpiar_prearmados_desaparecidos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """
     Limpia marcas de pre-armado de productos que ya no existen en el ERP.
     Esto se ejecuta automáticamente o manualmente.

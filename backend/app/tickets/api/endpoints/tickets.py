@@ -83,7 +83,7 @@ def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
 
 
 @router.get("/tickets/mis-pendientes/count", response_model=TicketBadgeCount)
-async def badge_count(
+def badge_count(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TicketBadgeCount:
@@ -300,7 +300,7 @@ async def crear_ticket(
 
 
 @router.get("/tickets", response_model=TicketListPaginatedResponse)
-async def listar_tickets(
+def listar_tickets(
     sector_id: Optional[int] = Query(None, description="Filtrar por sector"),
     estado_id: Optional[int] = Query(None, description="Filtrar por estado"),
     asignado_a_id: Optional[int] = Query(None, description="Filtrar por usuario asignado"),
@@ -397,7 +397,7 @@ async def listar_tickets(
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
-async def obtener_ticket(
+def obtener_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -670,7 +670,7 @@ async def agregar_comentario(
 
 
 @router.get("/tickets/{ticket_id}/comentarios", response_model=List[ComentarioResponse])
-async def listar_comentarios(
+def listar_comentarios(
     ticket_id: int,
     incluir_internos: bool = Query(True, description="Incluir comentarios internos"),
     db: Session = Depends(get_db),
@@ -705,7 +705,7 @@ async def listar_comentarios(
 
 
 @router.get("/tickets/{ticket_id}/historial", response_model=List[HistorialResponse])
-async def obtener_historial(
+def obtener_historial(
     ticket_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -805,7 +805,7 @@ async def subir_adjunto(
 
 
 @router.get("/tickets/{ticket_id}/adjuntos", response_model=List[AdjuntoResponse])
-async def listar_adjuntos(
+def listar_adjuntos(
     ticket_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -833,7 +833,7 @@ async def listar_adjuntos(
 
 
 @router.get("/tickets/{ticket_id}/adjuntos/{adjunto_id}/descargar")
-async def descargar_adjunto(
+def descargar_adjunto(
     ticket_id: int,
     adjunto_id: int,
     db: Session = Depends(get_db),

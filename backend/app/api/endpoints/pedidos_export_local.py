@@ -434,7 +434,7 @@ async def obtener_pedidos_local(
 
 
 @router.get("/pedidos-local/usuarios-disponibles")
-async def obtener_usuarios_disponibles_local(
+def obtener_usuarios_disponibles_local(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     ssos_id: Optional[int] = Query(None),
@@ -471,7 +471,7 @@ async def obtener_usuarios_disponibles_local(
 
 
 @router.get("/pedidos-local/provincias-disponibles")
-async def obtener_provincias_disponibles_local(
+def obtener_provincias_disponibles_local(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     ssos_id: Optional[int] = Query(None),
@@ -528,7 +528,7 @@ class EnvioFlexInfo(BaseModel):
 
 
 @router.post("/pedidos-local/envios-flex")
-async def obtener_envios_flex_por_pedidos(
+def obtener_envios_flex_por_pedidos(
     soh_ids: List[int] = Body(..., embed=True),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -596,7 +596,7 @@ async def obtener_envios_flex_por_pedidos(
 
 
 @router.get("/pedidos-local/estadisticas")
-async def obtener_estadisticas_local(
+def obtener_estadisticas_local(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     ssos_id: Optional[int] = Query(None, description="Filtrar estadísticas por estado ERP (20=Pendiente)"),

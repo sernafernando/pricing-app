@@ -63,7 +63,7 @@ def verificar_admin(current_user: Usuario):
 
 
 @router.get("/vendedores-excluidos", response_model=List[VendedorExcluidoResponse])
-async def listar_vendedores_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def listar_vendedores_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los vendedores excluidos"""
     verificar_admin(current_user)
 
@@ -72,7 +72,7 @@ async def listar_vendedores_excluidos(db: Session = Depends(get_db), current_use
 
 
 @router.get("/vendedores-excluidos/disponibles", response_model=List[VendedorDisponible])
-async def listar_vendedores_disponibles(
+def listar_vendedores_disponibles(
     buscar: Optional[str] = Query(None, description="Buscar por nombre"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -114,7 +114,7 @@ async def listar_vendedores_disponibles(
 
 
 @router.post("/vendedores-excluidos", response_model=VendedorExcluidoResponse)
-async def agregar_vendedor_excluido(
+def agregar_vendedor_excluido(
     vendedor: VendedorExcluidoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega un vendedor a la lista de excluidos"""
@@ -145,7 +145,7 @@ async def agregar_vendedor_excluido(
 
 
 @router.delete("/vendedores-excluidos/{sm_id}")
-async def eliminar_vendedor_excluido(
+def eliminar_vendedor_excluido(
     sm_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un vendedor de la lista de excluidos"""
@@ -163,7 +163,7 @@ async def eliminar_vendedor_excluido(
 
 
 @router.get("/vendedores-excluidos/ids")
-async def obtener_ids_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_ids_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene solo los IDs de vendedores excluidos (para uso interno)"""
     vendedores = db.query(VendedorExcluido.sm_id).all()
     return [v.sm_id for v in vendedores]

@@ -29,7 +29,7 @@ class UsuarioERPResponse(BaseModel):
 
 
 @router.get("/usuarios-erp", response_model=List[UsuarioERPResponse])
-async def listar_usuarios_erp(
+def listar_usuarios_erp(
     db: Session = Depends(get_db), current_user: dict = Depends(get_current_user), solo_activos: bool = True
 ):
     """
@@ -49,9 +49,7 @@ async def listar_usuarios_erp(
 
 
 @router.get("/usuarios-erp/{user_id}", response_model=UsuarioERPResponse)
-async def obtener_usuario_erp(
-    user_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
-):
+def obtener_usuario_erp(user_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Obtiene un usuario específico del ERP por su ID"""
     usuario = db.query(TBUser).filter(TBUser.user_id == user_id).first()
 

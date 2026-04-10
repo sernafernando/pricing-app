@@ -138,7 +138,7 @@ def get_ventas_tienda_nube_base_query():
 
 
 @router.get("/rentabilidad-tienda-nube", response_model=RentabilidadResponse)
-async def obtener_rentabilidad_tienda_nube(
+def obtener_rentabilidad_tienda_nube(
     fecha_desde: date = Query(..., description="Fecha inicio del período"),
     fecha_hasta: date = Query(..., description="Fecha fin del período"),
     marcas: Optional[str] = Query(None, description="Marcas separadas por |"),
@@ -885,7 +885,7 @@ async def obtener_rentabilidad_tienda_nube(
 
 
 @router.get("/rentabilidad-tienda-nube/filtros")
-async def obtener_filtros_tienda_nube(
+def obtener_filtros_tienda_nube(
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
     marcas: Optional[str] = Query(None),
@@ -971,7 +971,7 @@ class ProductoBusqueda(BaseModel):
 
 
 @router.get("/rentabilidad-tienda-nube/buscar-productos", response_model=List[ProductoBusqueda])
-async def buscar_productos_tienda_nube(
+def buscar_productos_tienda_nube(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),

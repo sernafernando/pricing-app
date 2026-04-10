@@ -261,7 +261,7 @@ async def sync_commercial_transactions(
 
 
 @router.get("/commercial-transactions", response_model=List[CommercialTransactionResponse])
-async def get_commercial_transactions(
+def get_commercial_transactions(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     ct_kindOf: Optional[str] = Query(None, description="Tipo de documento"),
@@ -295,7 +295,7 @@ async def get_commercial_transactions(
 
 
 @router.get("/commercial-transactions/stats")
-async def get_commercial_transactions_stats(
+def get_commercial_transactions_stats(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),

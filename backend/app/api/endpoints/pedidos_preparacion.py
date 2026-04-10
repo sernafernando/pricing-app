@@ -88,7 +88,7 @@ PRODUCCION_PATRONES = ["Notebook%", "NB%", "NB %", "PC ARMADA%", "AIO%", "AIO %"
 
 
 @router.get("/pedidos-preparacion/resumen", response_model=List[ResumenProductoResponse])
-async def obtener_resumen(
+def obtener_resumen(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     logistic_type: Optional[str] = Query(None, description="Filtrar por tipo de envío"),
@@ -156,7 +156,7 @@ async def obtener_resumen(
 
 
 @router.get("/pedidos-preparacion/estadisticas", response_model=EstadisticasResponse)
-async def obtener_estadisticas(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def obtener_estadisticas(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene estadísticas de pedidos en preparación.
     """
@@ -203,7 +203,7 @@ async def obtener_estadisticas(db: Session = Depends(get_db), current_user: dict
 
 
 @router.get("/pedidos-preparacion/tipos-envio")
-async def obtener_tipos_envio(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def obtener_tipos_envio(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene los tipos de envío disponibles.
     """
@@ -236,9 +236,7 @@ async def sincronizar_pedidos(
 
 
 @router.get("/pedidos-preparacion/componentes/{item_id}", response_model=List[ComponenteProductoResponse])
-async def obtener_componentes(
-    item_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
-):
+def obtener_componentes(item_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene los componentes de un producto de producción desde tb_item_association.
 
