@@ -1009,6 +1009,9 @@ async def geocodificar_batch(
     """
     Geocodifica múltiples envíos en batch.
     IMPORTANTE: Esto puede tomar tiempo. Mapbox permite ~10 req/seg.
+
+    Usa sesiones cortas (get_background_db) por cada item para no retener
+    una conexión del pool durante todo el batch (10-20s con rate limiting).
     """
     if not verificar_permiso(db, current_user, "ordenes.gestionar_turbo_routing"):
         raise HTTPException(status_code=403, detail="Sin permiso")
@@ -1019,68 +1022,71 @@ async def geocodificar_batch(
     resultados = {"total": len(shipment_ids), "exitosos": 0, "fallidos": 0, "detalles": []}
 
     for shipment_id in shipment_ids:
-        # Buscar envío
-        envio = (
-            db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlshippingid == shipment_id).first()
-        )
-
-        if not envio:
-            resultados["fallidos"] += 1
-            resultados["detalles"].append(
-                {"shipment_id": shipment_id, "status": "error", "mensaje": "Envío no encontrado"}
+        with get_background_db() as bg_db:
+            # Buscar envío
+            envio = (
+                bg_db.query(MercadoLibreOrderShipping)
+                .filter(MercadoLibreOrderShipping.mlshippingid == shipment_id)
+                .first()
             )
-            continue
 
-        # Construir dirección
-        direccion_partes = []
-        if envio.mlstreet_name:
-            direccion_partes.append(envio.mlstreet_name)
-        if envio.mlstreet_number:
-            direccion_partes.append(envio.mlstreet_number)
+            if not envio:
+                resultados["fallidos"] += 1
+                resultados["detalles"].append(
+                    {"shipment_id": shipment_id, "status": "error", "mensaje": "Envío no encontrado"}
+                )
+                continue
 
-        direccion = " ".join(direccion_partes) if direccion_partes else None
-        ciudad = envio.mlcity_name or "Buenos Aires"
+            # Construir dirección
+            direccion_partes = []
+            if envio.mlstreet_name:
+                direccion_partes.append(envio.mlstreet_name)
+            if envio.mlstreet_number:
+                direccion_partes.append(envio.mlstreet_number)
 
-        if not direccion:
-            resultados["fallidos"] += 1
-            resultados["detalles"].append(
-                {"shipment_id": shipment_id, "status": "error", "mensaje": "Sin dirección válida"}
+            direccion = " ".join(direccion_partes) if direccion_partes else None
+            ciudad = envio.mlcity_name or "Buenos Aires"
+
+            if not direccion:
+                resultados["fallidos"] += 1
+                resultados["detalles"].append(
+                    {"shipment_id": shipment_id, "status": "error", "mensaje": "Sin dirección válida"}
+                )
+                continue
+
+            # Geocodificar (HTTP call a Mapbox — la sesión queda open pero es breve)
+            coords = await geocode_address(direccion, ciudad=ciudad, db=bg_db)
+
+            if not coords:
+                resultados["fallidos"] += 1
+                resultados["detalles"].append(
+                    {"shipment_id": shipment_id, "status": "error", "mensaje": "No se pudo geocodificar"}
+                )
+                continue
+
+            latitud, longitud = coords
+
+            # Actualizar asignación si existe
+            asignacion = (
+                bg_db.query(AsignacionTurbo)
+                .filter(AsignacionTurbo.mlshippingid == shipment_id, AsignacionTurbo.estado != "cancelado")
+                .first()
             )
-            continue
 
-        # Geocodificar
-        coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+            if asignacion:
+                asignacion.latitud = latitud
+                asignacion.longitud = longitud
+                asignacion.direccion = f"{direccion}, {ciudad}"
 
-        if not coords:
-            resultados["fallidos"] += 1
+            resultados["exitosos"] += 1
             resultados["detalles"].append(
-                {"shipment_id": shipment_id, "status": "error", "mensaje": "No se pudo geocodificar"}
+                {"shipment_id": shipment_id, "status": "success", "latitud": latitud, "longitud": longitud}
             )
-            continue
 
-        latitud, longitud = coords
+            # commit is handled by get_background_db() on exit
 
-        # Actualizar asignación si existe
-        asignacion = (
-            db.query(AsignacionTurbo)
-            .filter(AsignacionTurbo.mlshippingid == shipment_id, AsignacionTurbo.estado != "cancelado")
-            .first()
-        )
-
-        if asignacion:
-            asignacion.latitud = latitud
-            asignacion.longitud = longitud
-            asignacion.direccion = f"{direccion}, {ciudad}"
-
-        resultados["exitosos"] += 1
-        resultados["detalles"].append(
-            {"shipment_id": shipment_id, "status": "success", "latitud": latitud, "longitud": longitud}
-        )
-
-        # Rate limiting: Mapbox permite ~10 req/seg (100ms delay)
+        # Rate limiting FUERA de la sesión — la conexión ya se devolvió al pool
         await asyncio.sleep(0.1)
-
-    db.commit()
 
     return resultados
 

@@ -1,14 +1,22 @@
 import requests
-from sqlalchemy.orm import Session
+from app.core.database import get_background_db
 from app.models.precio_ml import PrecioML
 from datetime import datetime
 
 PRICELISTS = {4: "Clásica", 17: "ML PREMIUM 3C", 14: "ML PREMIUM 6C", 13: "ML PREMIUM 9C", 23: "ML PREMIUM 12C"}
 
 
-def sincronizar_precios_ml(db: Session, pricelist_id: int = None):
-    """Sincroniza precios de ML - Simple y directo"""
+def sincronizar_precios_ml(pricelist_id: int = None):
+    """
+    Sincroniza precios de ML desde GBP Parser.
 
+    Maneja su propia sesión de DB via get_background_db() para no retener
+    la sesión del endpoint que lo invoca (especialmente cuando corre como
+    BackgroundTask de FastAPI).
+
+    Cada pricelist se procesa en su propia sesión — si una falla, las
+    anteriores ya están committeadas.
+    """
     listas = {pricelist_id: PRICELISTS[pricelist_id]} if pricelist_id else PRICELISTS
 
     resultados = {"exitosos": 0, "errores": 0, "listas_procesadas": []}
@@ -30,34 +38,38 @@ def sincronizar_precios_ml(db: Session, pricelist_id: int = None):
             datos = response.json()
             items_procesados = 0
 
-            for item in datos:
-                item_id = int(item.get("item_id", 0))
-                precio = float(item.get("prli_price_Final_Pesos", 0))
-                cotizacion_dolar = float(item.get("Cotizacion_Dolar", 0))
+            # Sesión propia por pricelist — se cierra al terminar cada lista
+            with get_background_db() as db:
+                for item in datos:
+                    item_id = int(item.get("item_id", 0))
+                    precio = float(item.get("prli_price_Final_Pesos", 0))
+                    cotizacion_dolar = float(item.get("Cotizacion_Dolar", 0))
 
-                if not item_id or not precio:
-                    continue
+                    if not item_id or not precio:
+                        continue
 
-                # Buscar o crear
-                precio_ml = (
-                    db.query(PrecioML).filter(PrecioML.item_id == item_id, PrecioML.pricelist_id == pl_id).first()
-                )
-
-                if precio_ml:
-                    precio_ml.precio = precio
-                    precio_ml.cotizacion_dolar = cotizacion_dolar
-                    precio_ml.fecha_actualizacion = datetime.now()
-                else:
-                    db.add(
-                        PrecioML(item_id=item_id, pricelist_id=pl_id, precio=precio, cotizacion_dolar=cotizacion_dolar)
+                    # Buscar o crear
+                    precio_ml = (
+                        db.query(PrecioML).filter(PrecioML.item_id == item_id, PrecioML.pricelist_id == pl_id).first()
                     )
 
-                items_procesados += 1
+                    if precio_ml:
+                        precio_ml.precio = precio
+                        precio_ml.cotizacion_dolar = cotizacion_dolar
+                        precio_ml.fecha_actualizacion = datetime.now()
+                    else:
+                        db.add(
+                            PrecioML(
+                                item_id=item_id, pricelist_id=pl_id, precio=precio, cotizacion_dolar=cotizacion_dolar
+                            )
+                        )
 
-                if items_procesados % 100 == 0:
-                    db.commit()
+                    items_procesados += 1
 
-            db.commit()
+                    if items_procesados % 100 == 0:
+                        db.flush()
+
+                # commit is handled by get_background_db() on exit
 
             resultados["exitosos"] += items_procesados
             resultados["listas_procesadas"].append({"pricelist_id": pl_id, "nombre": nombre, "items": items_procesados})
@@ -67,6 +79,5 @@ def sincronizar_precios_ml(db: Session, pricelist_id: int = None):
         except Exception as e:
             print(f"✗ Error en lista {pl_id}: {e}")
             resultados["errores"] += 1
-            db.rollback()
 
     return resultados

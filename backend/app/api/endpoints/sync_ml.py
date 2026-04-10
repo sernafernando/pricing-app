@@ -4,8 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from app.core.database import get_background_db, get_db
+from app.core.database import get_background_db
 from app.services.sync_precios_ml import sincronizar_precios_ml, PRICELISTS
 from app.api.deps import get_current_user
 
@@ -38,16 +37,16 @@ class QueueWriter:
 async def sincronizar_precios(
     background_tasks: BackgroundTasks,
     pricelist_id: int = None,
-    db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """
-    Sincroniza precios de MercadoLibre
-    Si pricelist_id es None, sincroniza todas las listas
-    """
+    Sincroniza precios de MercadoLibre.
+    Si pricelist_id es None, sincroniza todas las listas.
 
-    # Ejecutar en background para no bloquear
-    background_tasks.add_task(sincronizar_precios_ml, db, pricelist_id)
+    La función de sync maneja su propia sesión de DB internamente
+    (get_background_db), así no retiene la sesión del endpoint.
+    """
+    background_tasks.add_task(sincronizar_precios_ml, pricelist_id)
 
     return {
         "message": "Sincronización iniciada",
