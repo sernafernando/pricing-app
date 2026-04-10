@@ -228,6 +228,14 @@ async def sync_claims(
     4. Detail/messages/return data are fetched on-demand when user clicks
 
     Fast operation (~2-5s regardless of claim count).
+
+    Connection resilience note (ACCEPTED RISK):
+        The `db` session from Depends(get_db) is held idle during the HTTP
+        fetch loop (Step 1, ~2-5s). This is acceptable because:
+        - The session is idle (no open transaction during HTTP calls)
+        - The HTTP loop is bounded (typically 1-3 pages, 2-5 seconds)
+        - The DB upsert after the loop (Step 2-3) is fast
+        - Refactoring would require splitting the endpoint for marginal gain
     """
     _check_permiso(db, current_user, "rma.gestionar")
 

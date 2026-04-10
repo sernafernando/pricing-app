@@ -56,7 +56,10 @@ async def sincronizar_tienda_nube(db: Session = Depends(get_db), current_user: U
         "User-Agent": "GAUSS Pricing App (pricing@gaussonline.com.ar)",
     }
 
-    # Obtener todos los productos con paginación
+    # Phase 1: HTTP fetch — collect ALL products before touching DB.
+    # The `db` session from Depends(get_db) is idle during this phase.
+    # This is intentional: all DB writes happen in Phase 2 (lines 100+)
+    # after the HTTP loop completes, keeping the session hold time short.
     async with httpx.AsyncClient(timeout=30.0) as client:
         while True:
             url = f"{base_url}?per_page={per_page}&page={page}"
@@ -97,7 +100,8 @@ async def sincronizar_tienda_nube(db: Session = Depends(get_db), current_user: U
 
     logger.info(f"Total productos obtenidos: {len(all_products)}")
 
-    # Procesar productos y variantes
+    # Phase 2: DB processing — all HTTP fetching is complete.
+    # From here on, `db` is actively used for writes. This is fast.
     nuevos = 0
     actualizados = 0
     errores = 0
