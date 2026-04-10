@@ -1,7 +1,7 @@
 import requests
 from app.core.database import get_background_db
 from app.models.precio_ml import PrecioML
-from datetime import datetime
+from datetime import UTC, datetime
 
 PRICELISTS = {4: "Clásica", 17: "ML PREMIUM 3C", 14: "ML PREMIUM 6C", 13: "ML PREMIUM 9C", 23: "ML PREMIUM 12C"}
 
@@ -56,7 +56,7 @@ def sincronizar_precios_ml(pricelist_id: int = None):
                     if precio_ml:
                         precio_ml.precio = precio
                         precio_ml.cotizacion_dolar = cotizacion_dolar
-                        precio_ml.fecha_actualizacion = datetime.now()
+                        precio_ml.fecha_actualizacion = datetime.now(UTC)
                     else:
                         db.add(
                             PrecioML(

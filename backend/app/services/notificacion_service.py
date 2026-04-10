@@ -294,9 +294,9 @@ class NotificacionService:
         Returns:
             True si existe una similar, False si no
         """
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
 
-        fecha_limite = datetime.now() - timedelta(hours=tolerancia_horas)
+        fecha_limite = datetime.now(UTC) - timedelta(hours=tolerancia_horas)
 
         query = self.db.query(Notificacion).filter(
             Notificacion.user_id == user_id,

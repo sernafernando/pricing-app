@@ -10,7 +10,7 @@ Usa el patrón Strategy para soportar diferentes algoritmos de asignación:
 
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.tickets.models.ticket import Ticket
@@ -137,7 +137,7 @@ class AsignacionService:
         # Finalizar asignación actual si existe
         asignacion_actual = ticket.asignacion_actual
         if asignacion_actual:
-            asignacion_actual.fecha_finalizacion = datetime.now()
+            asignacion_actual.fecha_finalizacion = datetime.now(UTC)
             self.db.add(asignacion_actual)
 
         # Crear nueva asignación
@@ -192,7 +192,7 @@ class AsignacionService:
         # Finalizar asignación actual
         asignacion_actual = ticket.asignacion_actual
         if asignacion_actual:
-            asignacion_actual.fecha_finalizacion = datetime.now()
+            asignacion_actual.fecha_finalizacion = datetime.now(UTC)
             self.db.add(asignacion_actual)
 
         # TODO: Determinar supervisor/gerente según jerarquía
@@ -235,7 +235,7 @@ class AsignacionService:
         # Finalizar asignación actual si existe
         asignacion_actual = ticket.asignacion_actual
         if asignacion_actual:
-            asignacion_actual.fecha_finalizacion = datetime.now()
+            asignacion_actual.fecha_finalizacion = datetime.now(UTC)
             self.db.add(asignacion_actual)
 
         # Crear nueva asignación

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from typing import List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
@@ -288,7 +288,7 @@ async def sincronizar_pedidos(
                 "orden_tn": record.get("Orden TN"),
                 "order_id_tn": str(record.get("orderID")) if record.get("orderID") else None,
                 "activo": True,
-                "fecha_sync": datetime.now(),
+                "fecha_sync": datetime.now(UTC),
             }
 
             if pedido:

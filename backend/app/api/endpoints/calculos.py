@@ -1,9 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+from datetime import UTC, datetime
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -12,6 +14,8 @@ from app.core.database import get_db
 from app.models.calculo_pricing import CalculoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -159,7 +163,7 @@ def actualizar_calculo(
     calculo_db.tipo_cambio_usado = calculo.tipo_cambio_usado
     calculo_db.cantidad = calculo.cantidad
     calculo_db.precios_cuotas = calculo.precios_cuotas  # ← AGREGAR ESTO
-    calculo_db.fecha_modificacion = datetime.now()
+    calculo_db.fecha_modificacion = datetime.now(UTC)
 
     db.commit()
     db.refresh(calculo_db)
@@ -186,7 +190,7 @@ def actualizar_cantidad(
         raise HTTPException(status_code=404, detail="Cálculo no encontrado")
 
     calculo.cantidad = cantidad_data.cantidad
-    calculo.fecha_modificacion = datetime.now()
+    calculo.fecha_modificacion = datetime.now(UTC)
 
     db.commit()
     db.refresh(calculo)
@@ -276,9 +280,6 @@ def calcular_precios_cuotas(
     Dado un markup objetivo (ej: 15%), calcula el precio necesario para cada plan de cuotas
     de manera que mantengan el mismo markup después de aplicar las comisiones específicas de cada plan.
     """
-    print(f"🔍 Request recibido: {request}")
-    print(f"🔍 User: {current_user.username if current_user else 'None'}")
-
     from app.services.pricing_calculator import calcular_precio_producto
 
     # Configuración de cuotas: nombre -> (cantidad_cuotas, pricelist_id)
@@ -324,16 +325,12 @@ def calcular_precios_cuotas(
         except Exception as e:
             # Si falla el cálculo de una cuota, continuar con las demás
             error_msg = f"{cuotas}C: {str(e)}"
-            print(f"❌ Error calculando cuotas {cuotas}: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error("Error calculando cuotas %s: %s", cuotas, e, exc_info=True)
             errores.append(error_msg)
             continue
 
     if not resultados:
         error_detail = f"No se pudieron calcular precios de cuotas. Errores: {'; '.join(errores)}"
-        print(f"❌ {error_detail}")
         raise HTTPException(status_code=400, detail=error_detail)
 
     return resultados
@@ -507,7 +504,7 @@ def exportar_calculos_excel(
     output.seek(0)
 
     # Nombre de archivo según filtro
-    filename = f"calculos_pricing_{filtro or 'todos'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"calculos_pricing_{filtro or 'todos'}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xlsx"
 
     return StreamingResponse(
         output,

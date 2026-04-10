@@ -5,7 +5,7 @@ Sistema de asignación de envíos a motoqueros con zonas y optimización de ruta
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 import httpx
@@ -77,14 +77,14 @@ async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True
     """
     # Verificar cache
     if usar_cache and _envios_cache["timestamp"]:
-        cache_age = (datetime.now() - _envios_cache["timestamp"]).total_seconds()
+        cache_age = (datetime.now(UTC) - _envios_cache["timestamp"]).total_seconds()
         if cache_age < _envios_cache["ttl_seconds"]:
             logger.info(f"Usando cache de scriptEnvios (edad: {cache_age:.1f}s)")
             return _envios_cache["data"]
 
     try:
-        fecha_hasta = datetime.now().strftime("%Y-%m-%d")
-        fecha_desde = (datetime.now() - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
+        fecha_hasta = datetime.now(UTC).strftime("%Y-%m-%d")
+        fecha_desde = (datetime.now(UTC) - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
 
         logger.info(f"Consultando scriptEnvios (desde={fecha_desde}, hasta={fecha_hasta})")
 
@@ -103,7 +103,7 @@ async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True
             # Guardar en cache
             if usar_cache:
                 _envios_cache["data"] = data
-                _envios_cache["timestamp"] = datetime.now()
+                _envios_cache["timestamp"] = datetime.now(UTC)
                 logger.info(f"Cache actualizado con {len(data)} envíos")
 
             return data
@@ -345,11 +345,26 @@ def obtener_envios_turbo_pendientes(
         asignaciones_map = {str(asig.mlshippingid): asig for asig in asignaciones}
 
     # 8. Construir respuesta con paginación
-    len(envios_turbo_actualizados)
     envios_paginados = envios_turbo_actualizados[offset : offset + limit]
 
+    # Pre-compute geocoding hashes and batch-fetch from cache (1 query instead of N)
+    hash_to_item_idx: Dict[str, List[int]] = {}
+    item_hashes: List[str] = []
+    for idx, item in enumerate(envios_paginados):
+        envio_bd = item["envio_bd"]
+        direccion_normalizada = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
+        h = GeocodingCache.hash_direccion(direccion_normalizada)
+        item_hashes.append(h)
+        hash_to_item_idx.setdefault(h, []).append(idx)
+
+    unique_hashes = list(hash_to_item_idx.keys())
+    geocoding_map: Dict[str, GeocodingCache] = {}
+    if unique_hashes:
+        cache_rows = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash.in_(unique_hashes)).all()
+        geocoding_map = {row.direccion_hash: row for row in cache_rows}
+
     resultado = []
-    for item in envios_paginados:
+    for idx, item in enumerate(envios_paginados):
         envio_bd = item["envio_bd"]
         envio_erp = item["envio_erp"]
         estado_real = item["estado_real"]
@@ -364,15 +379,10 @@ def obtener_envios_turbo_pendientes(
             # Fallback: construir desde BD
             direccion_completa = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
 
-        # Obtener coordenadas: SOLO desde geocoding_cache (más rápido)
-        # El batch geocodificar_batch_ml_webhook ya pobló el cache
+        # Obtener coordenadas desde batch pre-fetched geocoding_cache
         latitud = None
         longitud = None
-
-        direccion_normalizada = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
-        direccion_hash = GeocodingCache.hash_direccion(direccion_normalizada)
-        cache = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash == direccion_hash).first()
-
+        cache = geocoding_map.get(item_hashes[idx])
         if cache and cache.latitud and cache.longitud:
             latitud = float(cache.latitud)
             longitud = float(cache.longitud)
@@ -644,16 +654,22 @@ def auto_generar_zonas(
 
         logger.info(f"📦 {len(envios_sin_asignar)} envíos Turbo sin asignar")
 
-        # 2. Filtrar envíos geocodificados (lat/lng válidos)
-        envios_coords = []
+        # 2. Filtrar envíos geocodificados (lat/lng válidos) — batch lookup
+        # Pre-compute all hashes and fetch in a single query
+        envio_hashes = []
         for envio in envios_sin_asignar:
-            # Construir dirección normalizada
             direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+            envio_hashes.append(GeocodingCache.hash_direccion(direccion))
 
-            # Buscar en cache de geocoding
-            direccion_hash = GeocodingCache.hash_direccion(direccion)
-            cache = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash == direccion_hash).first()
+        unique_hashes = list(set(envio_hashes))
+        geo_map: Dict[str, GeocodingCache] = {}
+        if unique_hashes:
+            cache_rows = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash.in_(unique_hashes)).all()
+            geo_map = {row.direccion_hash: row for row in cache_rows}
 
+        envios_coords = []
+        for envio, h in zip(envios_sin_asignar, envio_hashes):
+            cache = geo_map.get(h)
             if cache and cache.latitud and cache.longitud:
                 envios_coords.append((float(cache.latitud), float(cache.longitud), envio.mlm_id))
 
@@ -1317,14 +1333,21 @@ def asignar_automaticamente_por_zona(db: Session = Depends(get_db), current_user
             "mensaje": "No hay envíos pendientes sin asignar",
         }
 
-    # 2. Obtener coordenadas desde geocoding_cache
-    envios_coords = []
+    # 2. Obtener coordenadas desde geocoding_cache — batch lookup (1 query)
+    envio_hashes_auto = []
     for envio in envios_sin_asignar:
         direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
-        direccion_hash = GeocodingCache.hash_direccion(direccion)
+        envio_hashes_auto.append(GeocodingCache.hash_direccion(direccion))
 
-        cache = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash == direccion_hash).first()
+    unique_hashes_auto = list(set(envio_hashes_auto))
+    geo_map_auto: Dict[str, GeocodingCache] = {}
+    if unique_hashes_auto:
+        cache_rows = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash.in_(unique_hashes_auto)).all()
+        geo_map_auto = {row.direccion_hash: row for row in cache_rows}
 
+    envios_coords = []
+    for envio, h in zip(envios_sin_asignar, envio_hashes_auto):
+        cache = geo_map_auto.get(h)
         if cache and cache.latitud and cache.longitud:
             envios_coords.append((str(envio.mlshippingid), float(cache.latitud), float(cache.longitud)))
 
@@ -1384,26 +1407,45 @@ def asignar_automaticamente_por_zona(db: Session = Depends(get_db), current_user
     # 4. Asignar usando point-in-polygon
     resultado = asignar_envios_automaticamente(envios_coords, zonas_motoqueros)
 
-    # 5. Crear asignaciones en BD
+    # 5. Crear asignaciones en BD — batch fetch envíos + geocoding
+    asig_shipment_ids = [a["mlshippingid"] for a in resultado["asignaciones"]]
+
+    # Batch fetch envíos (1 query instead of N)
+    envios_para_asignar = (
+        (
+            db.query(MercadoLibreOrderShipping)
+            .filter(MercadoLibreOrderShipping.mlshippingid.in_(asig_shipment_ids))
+            .all()
+        )
+        if asig_shipment_ids
+        else []
+    )
+    envios_map_asig = {str(e.mlshippingid): e for e in envios_para_asignar}
+
+    # Batch fetch geocoding for these envíos (1 query instead of N)
+    asig_hashes: Dict[str, str] = {}  # shipment_id -> hash
+    for sid, envio in envios_map_asig.items():
+        direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+        asig_hashes[sid] = GeocodingCache.hash_direccion(direccion)
+
+    unique_asig_hashes = list(set(asig_hashes.values()))
+    geo_map_asig: Dict[str, GeocodingCache] = {}
+    if unique_asig_hashes:
+        cache_rows = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash.in_(unique_asig_hashes)).all()
+        geo_map_asig = {row.direccion_hash: row for row in cache_rows}
+
     asignaciones_creadas = []
     for asignacion_data in resultado["asignaciones"]:
-        # Obtener datos del envío
-        envio = (
-            db.query(MercadoLibreOrderShipping)
-            .filter(MercadoLibreOrderShipping.mlshippingid == asignacion_data["mlshippingid"])
-            .first()
-        )
-
+        envio = envios_map_asig.get(asignacion_data["mlshippingid"])
         if not envio:
             continue
 
         # Construir dirección
         direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
 
-        # Obtener coordenadas
-        direccion_hash = GeocodingCache.hash_direccion(direccion)
-        cache = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash == direccion_hash).first()
-
+        # Obtener coordenadas from pre-fetched map
+        h = asig_hashes.get(asignacion_data["mlshippingid"], "")
+        cache = geo_map_asig.get(h)
         latitud = float(cache.latitud) if cache else None
         longitud = float(cache.longitud) if cache else None
 
@@ -1520,21 +1562,31 @@ def obtener_todos_los_envios_turbo(
         asignaciones = db.query(AsignacionTurbo).filter(AsignacionTurbo.mlshippingid.in_(envios_ids)).all()
         asignaciones_map = {str(a.mlshippingid): a for a in asignaciones}
 
+    # Batch-fetch geocoding cache for all envíos in page (1 query instead of N)
+    todos_hashes: List[str] = []
+    for envio in envios:
+        direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+        todos_hashes.append(GeocodingCache.hash_direccion(direccion))
+
+    unique_todos_hashes = list(set(todos_hashes))
+    geo_map_todos: Dict[str, GeocodingCache] = {}
+    if unique_todos_hashes:
+        cache_rows = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash.in_(unique_todos_hashes)).all()
+        geo_map_todos = {row.direccion_hash: row for row in cache_rows}
+
     # Construir respuesta
     resultado = []
-    for envio in envios:
+    for idx, envio in enumerate(envios):
         shipment_id = str(envio.mlshippingid)
         asignacion = asignaciones_map.get(shipment_id)
 
         # Construir dirección
         direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
 
-        # Obtener coordenadas desde cache
+        # Obtener coordenadas desde pre-fetched cache
         latitud = None
         longitud = None
-        direccion_hash = GeocodingCache.hash_direccion(direccion)
-        cache = db.query(GeocodingCache).filter(GeocodingCache.direccion_hash == direccion_hash).first()
-
+        cache = geo_map_todos.get(todos_hashes[idx])
         if cache and cache.latitud and cache.longitud:
             latitud = float(cache.latitud)
             longitud = float(cache.longitud)

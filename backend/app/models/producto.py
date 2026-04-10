@@ -17,8 +17,8 @@ class ProductoERP(Base):
     codigo = Column(String(100), index=True)
     descripcion = Column(String(500), index=True)
     marca = Column(String(100), index=True)
-    categoria = Column(String(100))
-    subcategoria_id = Column(Integer)
+    categoria = Column(String(100), index=True)
+    subcategoria_id = Column(Integer, index=True)
 
     costo = Column(Float)
     moneda_costo = Column(SQLEnum(TipoMoneda), default=TipoMoneda.ARS)

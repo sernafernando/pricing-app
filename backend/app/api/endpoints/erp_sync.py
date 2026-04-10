@@ -2,10 +2,14 @@
 Endpoints para sincronizar tablas maestras del ERP desde Cloudflare Worker
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.api.deps import get_current_admin
@@ -537,15 +541,15 @@ async def sync_customers(
             if cust_data.get("cust_cd"):
                 try:
                     cust_cd = datetime.fromisoformat(str(cust_data["cust_cd"]).replace("Z", "+00:00"))
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning("Error parsing cust_cd for customer %s: %s", cust_id_val, e)
 
             cust_lastupdate = None
             if cust_data.get("cust_LastUpdate"):
                 try:
                     cust_lastupdate = datetime.fromisoformat(str(cust_data["cust_LastUpdate"]).replace("Z", "+00:00"))
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning("Error parsing cust_LastUpdate for customer %s: %s", cust_id_val, e)
 
             # Parsear booleanos
             def parse_bool(value):
@@ -1083,10 +1087,5 @@ async def sync_all(db: Session = Depends(get_db)):
         return {"success": True, "message": "Sincronización completa exitosa", "results": results}
 
     except Exception as e:
-        import traceback
-
-        error_traceback = traceback.format_exc()
-        print(f"Error en sync_all: {error_traceback}")
-        raise HTTPException(
-            status_code=500, detail=f"Error durante la sincronización completa: {str(e)}\n{error_traceback}"
-        )
+        logger.error("Error en sync_all: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error durante la sincronización completa: {str(e)}")

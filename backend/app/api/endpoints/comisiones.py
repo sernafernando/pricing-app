@@ -415,10 +415,10 @@ def eliminar_version_comisiones(
     )
 
     # Registrar en auditoría (usando el campo de descripción como log)
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     log_eliminacion = (
-        f"[ELIMINADA {datetime.now().isoformat()}] Usuario: {current_user.email} | Motivo: {request.motivo}"
+        f"[ELIMINADA {datetime.now(UTC).isoformat()}] Usuario: {current_user.email} | Motivo: {request.motivo}"
     )
     version.descripcion = (version.descripcion or "") + "\n" + log_eliminacion
 

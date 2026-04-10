@@ -9,7 +9,7 @@ Flujo:
   GET  /exportar → genera XLSX desde la tabla local (con filtros)
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, Query
@@ -374,7 +374,7 @@ def exportar_cuentas_corrientes(
     wb.save(buffer)
     buffer.seek(0)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"cuentas_corrientes_{tipo}_{timestamp}.xlsx"
 
     return StreamingResponse(

@@ -10,8 +10,8 @@ class OfertaML(Base):
     id = Column(Integer, primary_key=True, index=True)
     mla = Column(String(50), ForeignKey("publicaciones_ml.mla"), index=True, nullable=False)
 
-    fecha_desde = Column(Date, nullable=False)
-    fecha_hasta = Column(Date, nullable=False)
+    fecha_desde = Column(Date, nullable=False, index=True)
+    fecha_hasta = Column(Date, nullable=False, index=True)
 
     precio_final = Column(Float)
     pvp_seller = Column(Float)

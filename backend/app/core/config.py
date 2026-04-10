@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     SSE_HEARTBEAT_SECONDS: int = 30
     SSE_MAX_CONNECTIONS: int = 100
 
+    # GBP (ERP SOAP credentials)
+    GBP_USERNAME: Optional[str] = None
+    GBP_PASSWORD: Optional[str] = None
+    GBP_COMPANY: Optional[str] = None
+    GBP_WEBWS: str = "wsBasicQuery"
+
+    # Tienda Nube
+    TN_STORE_ID: Optional[str] = None
+    TN_ACCESS_TOKEN: Optional[str] = None
+
     # GBP Parser (internal service) - SIEMPRE localhost porque corre en el mismo servidor
     GBP_PARSER_URL: str = "http://localhost:8002/api/gbp-parser"
 

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_admin_or_localhost
@@ -6,6 +8,8 @@ from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
 from app.services.ml_sync import sincronizar_publicaciones_ml
 from app.services.google_sheets_sync import sincronizar_ofertas_sheets
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -15,18 +19,19 @@ async def sync_erp(db: Session = Depends(get_db), current_user: Usuario = Depend
     """Sincroniza productos desde el ERP y precios de ML"""
     try:
         # Sincronizar ERP
-        print("=== Iniciando sincronización ERP ===")
+        logger.info("=== Iniciando sincronización ERP ===")
         resultado_erp = await sincronizar_erp(db)
 
         # Sincronizar precios de MercadoLibre
-        print("=== Iniciando sincronización de precios ML ===")
+        logger.info("=== Iniciando sincronización de precios ML ===")
         from app.services.sync_precios_ml import sincronizar_precios_ml
 
         resultado_ml = sincronizar_precios_ml(db)
 
         return {"status": "success", "erp": resultado_erp, "precios_ml": resultado_ml}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error("Sync ERP failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
 
 
 @router.post("/sync-ml")
@@ -36,7 +41,8 @@ async def sincronizar_ml(db: Session = Depends(get_db), current_user: Usuario = 
         resultado = await sincronizar_publicaciones_ml(db)
         return resultado
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error("Sync ML failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
 
 
 @router.post("/sync-sheets")
@@ -46,7 +52,8 @@ def sincronizar_sheets(db: Session = Depends(get_db), current_user: Usuario = De
         resultado = sincronizar_ofertas_sheets(db)
         return resultado
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error("Sync Sheets failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
 
 
 @router.post("/sync-tipo-cambio")
@@ -58,7 +65,8 @@ def sincronizar_tipo_cambio(db: Session = Depends(get_db), current_user: Usuario
         resultado = actualizar_tipo_cambio_bna(db)
         return resultado
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error("Sync tipo cambio failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
 
 
 @router.get("/tipo-cambio/actual")
@@ -125,4 +133,5 @@ def recalcular_markups_endpoint(db: Session = Depends(get_db), current_user: Usu
         return recalcular_markups(db)
     except Exception as e:
         db.rollback()
-        return {"status": "error", "message": str(e)}
+        logger.error("Recalcular markups failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")

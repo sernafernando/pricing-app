@@ -3,7 +3,7 @@ Servicio para gestionar el historial de costos de productos.
 Crea registros automáticamente cuando se actualiza el costo en productos_erp.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP
@@ -46,7 +46,7 @@ def crear_registro_historial_costo(
         iclh_price=costo,
         iclh_price_aw=None,
         curr_id=curr_id,
-        iclh_cd=datetime.now(),
+        iclh_cd=datetime.now(UTC),
         user_id_lastupdate=user_id,
     )
 

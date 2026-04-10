@@ -1,15 +1,20 @@
+import logging
+import uuid
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import List, Optional
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from typing import List, Optional
-from datetime import datetime, timedelta
-import httpx
+from pydantic import BaseModel, ConfigDict
+
 from app.core.database import get_db
 from app.models.commercial_transaction import CommercialTransaction
 from app.api.deps import get_current_user
-from pydantic import BaseModel, ConfigDict
-from decimal import Decimal
-import uuid
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -93,8 +98,8 @@ async def sync_commercial_transactions(
                 if guid_str:
                     try:
                         guid_value = uuid.UUID(guid_str)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning("Error parsing GUID '%s' for ct_transaction %s: %s", guid_str, ct_transaction, e)
 
                 # Procesar fechas
                 def parse_date(date_str):
@@ -104,7 +109,8 @@ async def sync_commercial_transactions(
                         if isinstance(date_str, str):
                             return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                         return date_str
-                    except:
+                    except Exception as e:
+                        logger.warning("Error parsing date '%s': %s", date_str, e)
                         return None
 
                 if trans_existente:
@@ -237,7 +243,7 @@ async def sync_commercial_transactions(
                     db.commit()
 
             except Exception as e:
-                print(f"Error procesando transacción {trans_json.get('ct_transaction')}: {str(e)}")
+                logger.error("Error procesando transacción %s: %s", trans_json.get("ct_transaction"), e, exc_info=True)
                 transacciones_errores += 1
                 continue
 

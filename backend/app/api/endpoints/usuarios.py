@@ -85,6 +85,10 @@ def crear_usuario(
         if existe_email:
             raise HTTPException(400, "El email ya está registrado")
 
+    # Validar longitud mínima de password
+    if len(usuario.password) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres")
+
     # Buscar el rol por código para obtener rol_id
     rol_obj = db.query(Rol).filter(Rol.codigo == usuario.rol.upper()).first()
     if not rol_obj:
@@ -187,8 +191,8 @@ def cambiar_password_usuario(
         raise HTTPException(404, "Usuario no encontrado")
 
     # Validar longitud mínima
-    if len(datos.nueva_password) < 6:
-        raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
+    if len(datos.nueva_password) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres")
 
     # PROTECCIÓN: Solo superadmin puede cambiar password de otro superadmin
     if usuario.rol_codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.sse import sse_publish
@@ -266,7 +266,7 @@ async def marcar_notificacion_leida(
 
     if not notificacion.leida:
         notificacion.leida = True
-        notificacion.fecha_lectura = datetime.now()
+        notificacion.fecha_lectura = datetime.now(UTC)
         db.commit()
         await sse_publish("notificaciones:updated", {"hint": "reload"})
 
@@ -310,7 +310,7 @@ async def marcar_todas_leidas(
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
 
-    count = query.update({"leida": True, "fecha_lectura": datetime.now()})
+    count = query.update({"leida": True, "fecha_lectura": datetime.now(UTC)})
 
     db.commit()
     await sse_publish("notificaciones:updated", {"hint": "reload"})
@@ -411,7 +411,7 @@ async def cambiar_estado_notificacion(
         notificacion.notas_revision = request.notas
 
     # Actualizar fechas según el estado
-    ahora = datetime.now()
+    ahora = datetime.now(UTC)
     if request.estado == EstadoNotificacion.REVISADA and not notificacion.fecha_revision:
         notificacion.fecha_revision = ahora
     elif request.estado == EstadoNotificacion.DESCARTADA:
@@ -539,7 +539,7 @@ async def descartar_notificaciones_bulk(
                 )
 
     # Descartar las notificaciones
-    ahora = datetime.now()
+    ahora = datetime.now(UTC)
 
     count = (
         db.query(Notificacion)

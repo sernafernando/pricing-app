@@ -96,11 +96,8 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     NOTA: Este endpoint requiere un token de invitación en producción.
     TODO: Implementar sistema de invitaciones.
     """
-    # SEGURIDAD: En producción, este endpoint debería estar deshabilitado
-    # o requerir un token de invitación. Por ahora se deshabilita.
-    import os
-
-    if os.getenv("ENVIRONMENT", "production") == "production":
+    # SEGURIDAD: Registro solo habilitado en development (deny by default)
+    if settings.ENVIRONMENT != "development":
         raise api_error(
             403, ErrorCode.REGISTRATION_DISABLED, "Registro público deshabilitado. Contacta al administrador."
         )
