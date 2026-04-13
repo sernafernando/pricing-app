@@ -113,12 +113,14 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const puedeExportarClasica = tienePermiso('productos.exportar_clasica');
   const puedeExportarPVP = tienePermiso('productos.exportar_pvp');
   const puedeExportarGremio = tienePermiso('tienda.exportar_lista_gremio');
+  const puedeExportarSugerido = tienePermiso('tienda.exportar_lista_sugerido');
   const puedeExportarListaTienda = tienePermiso('tienda.exportar_lista_tienda');
 
   // Determinar tabs disponibles según permisos y contexto
   const tabsDisponibles = [];
   if (puedeExportarVistaActual) tabsDisponibles.push('vista_actual');
   if (esTienda && puedeExportarGremio) tabsDisponibles.push('lista_gremio');
+  if (esTienda && puedeExportarSugerido) tabsDisponibles.push('lista_sugerido');
   if (esTienda && puedeExportarListaTienda) tabsDisponibles.push('lista_web_transf');
   if (!esTienda && puedeExportarRebate) tabsDisponibles.push('rebate');
   if (puedeExportarWebTransf) tabsDisponibles.push('web_transf');
@@ -142,6 +144,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [monedaPVP, setMonedaPVP] = useState('ARS'); // ARS o USD
   const [monedaWebTransf, setMonedaWebTransf] = useState('ARS'); // ARS o USD
   const [monedaGremio, setMonedaGremio] = useState('ARS'); // ARS o USD para lista gremio
+  const [monedaSugerido, setMonedaSugerido] = useState('ARS'); // ARS o USD para lista sugerido
   const [monedaListaWebTransf, setMonedaListaWebTransf] = useState('ARS'); // ARS o USD para lista web transf
   const [dolarVenta, setDolarVenta] = useState(null);
   const [offsetDolar, setOffsetDolar] = useState('0');
@@ -434,6 +437,38 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     }
   };
 
+  const exportarListaSugerido = async () => {
+    setExportando(true);
+    try {
+      let params = `con_precio_sugerido=true`;
+
+      // Agregar moneda y offset
+      const currencyId = monedaSugerido === 'USD' ? 2 : 1;
+      params += `&currency_id=${currencyId}`;
+      if (monedaSugerido === 'USD') {
+        const offset = parseFloat(offsetDolar.toString().replace(',', '.')) || 0;
+        params += `&offset_dolar=${offset}`;
+      }
+
+      if (aplicarFiltros) {
+        params += buildFilterQueryString(filtrosActivos);
+      }
+
+      const response = await api.get(`/exportar-lista-sugerido?${params}`, {
+        responseType: 'blob'
+      });
+      const timestamp = toLocalTimestamp();
+      const monedaSufijo = monedaSugerido === 'USD' ? '_USD' : '_ARS';
+      descargarBlob(response.data, `lista_sugerido${monedaSufijo}_${timestamp}.xlsx`);
+      showToast('Exportación completada');
+      onClose();
+    } catch {
+      showToast('Error al exportar Lista Sugerido', 'error');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const exportarListaWebTransf = async () => {
     setExportando(true);
     try {
@@ -564,6 +599,14 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 className={`${styles.tab} ${tab === 'lista_gremio' ? styles.active : ''}`}
               >
                 Lista Gremio
+              </button>
+            )}
+            {esTienda && puedeExportarSugerido && (
+              <button
+                onClick={() => setTab('lista_sugerido')}
+                className={`${styles.tab} ${tab === 'lista_sugerido' ? styles.active : ''}`}
+              >
+                Lista Sugerido
               </button>
             )}
             {esTienda && puedeExportarListaTienda && (
@@ -714,6 +757,83 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 </button>
                 <button onClick={exportarListaGremio} disabled={exportando} className="btn-tesla outline-subtle-success">
                   {exportando ? 'Exportando...' : 'Exportar Lista Gremio'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'lista_sugerido' && puedeExportarSugerido && (
+            <div>
+              {hayFiltros && (
+                <div className={styles.filterCheckbox}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
+                </div>
+              )}
+
+              <p className={styles.description}>
+                Exporta la lista de precios sugeridos. El precio se calcula como:
+                <br />
+                <strong>costo × (1 + varios%) × (1 + (markup clásica + markup sugerido)%)</strong>
+                <br />
+                <strong>Incluye:</strong> Marca, Categoría, Subcategoría, Código, Descripción, Stock, Markups, Precio Sugerido s/IVA, Precio Sugerido c/IVA
+              </p>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Moneda:</label>
+                <select
+                  value={monedaSugerido}
+                  onChange={(e) => setMonedaSugerido(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="ARS">Pesos (ARS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              {monedaSugerido === 'USD' && dolarVenta && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    Dólar venta: ${dolarVenta.toFixed(2)}
+                  </label>
+                  <label className={styles.label}>Offset (±):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 10 o -10"
+                    value={offsetDolar}
+                    onChange={(e) => setOffsetDolar(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetDolar(numero.toString());
+                      } else {
+                        setOffsetDolar('0');
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Dólar ajustado: ${(dolarVenta + (parseFloat(offsetDolar.replace(',', '.')) || 0)).toFixed(2)}
+                  </small>
+                </div>
+              )}
+
+              <div className={styles.buttonGroup}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
+                  Cancelar
+                </button>
+                <button onClick={exportarListaSugerido} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Lista Sugerido'}
                 </button>
               </div>
             </div>

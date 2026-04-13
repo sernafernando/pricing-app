@@ -2362,6 +2362,223 @@ def exportar_lista_gremio(
         raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
 
 
+@router.get("/exportar-lista-sugerido")
+def exportar_lista_sugerido(
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    colores: Optional[str] = None,
+    con_precio_sugerido: Optional[bool] = None,
+    currency_id: int = 1,  # 1=ARS, 2=USD
+    offset_dolar: float = 0,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Exporta Lista Precio Sugerido a Excel. Fórmula: costo * (1+varios%) * (1 + (markup_clasica + markup_sugerido)%)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from sqlalchemy import text
+    from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
+    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
+
+    try:
+        # Obtener constantes y tipo de cambio
+        constantes = obtener_constantes_pricing(db)
+        varios_porcentaje = constantes.get("varios", 7)
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+        # Ajustar tipo de cambio con offset
+        tipo_cambio_ajustado = tipo_cambio + offset_dolar if tipo_cambio else None
+
+        # Cargar markups sugerido de tienda
+        markups_marca = db.query(MarkupTiendaBrand).filter(MarkupTiendaBrand.activo == True).all()
+        markups_sugerido_marca_dict = {
+            m.brand_desc.upper(): m.markup_sugerido
+            for m in markups_marca
+            if m.brand_desc and m.markup_sugerido is not None
+        }
+
+        markups_producto = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.activo == True).all()
+        markups_sugerido_producto_dict = {
+            m.item_id: m.markup_sugerido for m in markups_producto if m.markup_sugerido is not None
+        }
+
+        # Cargar nombres de subcategorías
+        subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
+        subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
+
+        # Query base
+        query = db.query(ProductoERP, ProductoPricing).outerjoin(
+            ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+        )
+
+        # Aplicar filtros
+        if search:
+            search_normalized = search.replace("-", "").replace(" ", "").upper()
+            query = query.filter(
+                or_(
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
+                        f"%{search_normalized}%"
+                    ),
+                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
+                        f"%{search_normalized}%"
+                    ),
+                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
+                )
+            )
+
+        if con_stock is not None:
+            query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+
+        if marcas:
+            marcas_list = [m.strip().upper() for m in marcas.split(",")]
+            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        if subcategorias:
+            subcat_list = [int(s.strip()) for s in subcategorias.split(",")]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+        if colores:
+            colores_list = colores.split(",")
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
+                            ProductoPricing.color_marcado_tienda.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+
+        # Ejecutar query
+        results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
+
+        # Función para convertir a pesos
+        def convertir_a_pesos(costo, moneda):
+            if costo is None:
+                return None
+            costo_float = float(costo)
+            if moneda and moneda.upper() == "USD" and tipo_cambio:
+                return costo_float * tipo_cambio
+            return costo_float
+
+        # Crear Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Lista Sugerido"
+
+        # Headers
+        moneda_texto = "USD" if currency_id == 2 else "ARS"
+        headers = [
+            "Marca",
+            "Categoría",
+            "Subcategoría",
+            "Código",
+            "Descripción",
+            "Stock",
+            "Markup Clásica %",
+            "Markup Sugerido %",
+            "Markup Total %",
+            f"Precio Sugerido {moneda_texto} s/IVA",
+            f"Precio Sugerido {moneda_texto} c/IVA",
+        ]
+        header_fill = PatternFill(start_color="4A7C59", end_color="4A7C59", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        # Datos
+        row_num = 2
+        for producto_erp, producto_pricing in results:
+            # Calcular costo en ARS
+            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo)
+
+            # Resolver markup_sugerido (producto > marca)
+            markup_sugerido_valor = None
+            if producto_erp.item_id in markups_sugerido_producto_dict:
+                markup_sugerido_valor = markups_sugerido_producto_dict[producto_erp.item_id]
+            elif producto_erp.marca and producto_erp.marca.upper() in markups_sugerido_marca_dict:
+                markup_sugerido_valor = markups_sugerido_marca_dict[producto_erp.marca.upper()]
+
+            # markup_clasica viene de markup_calculado
+            markup_clasica = producto_pricing.markup_calculado if producto_pricing else None
+
+            # Calcular precio sugerido
+            precio_sugerido_sin_iva = None
+            precio_sugerido_con_iva = None
+            markup_total = None
+
+            if markup_sugerido_valor is not None and markup_clasica is not None and costo_ars and costo_ars > 0:
+                markup_total = markup_clasica + markup_sugerido_valor
+                precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_total / 100)
+                iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+                precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva_producto / 100)
+
+            # Convertir a USD si es necesario
+            if currency_id == 2 and tipo_cambio_ajustado and tipo_cambio_ajustado > 0:
+                if precio_sugerido_sin_iva:
+                    precio_sugerido_sin_iva = precio_sugerido_sin_iva / tipo_cambio_ajustado
+                if precio_sugerido_con_iva:
+                    precio_sugerido_con_iva = precio_sugerido_con_iva / tipo_cambio_ajustado
+
+            # Filtro de solo productos con precio sugerido
+            if con_precio_sugerido and precio_sugerido_sin_iva is None:
+                continue
+
+            ws.cell(row=row_num, column=1, value=producto_erp.marca or "")
+            ws.cell(row=row_num, column=2, value=producto_erp.categoria or "")
+            ws.cell(row=row_num, column=3, value=subcats_dict.get(producto_erp.subcategoria_id, "") or "")
+            ws.cell(row=row_num, column=4, value=producto_erp.codigo or "")
+            ws.cell(row=row_num, column=5, value=producto_erp.descripcion or "")
+            ws.cell(row=row_num, column=6, value=producto_erp.stock or 0)
+            ws.cell(row=row_num, column=7, value=round(markup_clasica, 2) if markup_clasica is not None else None)
+            ws.cell(
+                row=row_num,
+                column=8,
+                value=round(markup_sugerido_valor, 2) if markup_sugerido_valor is not None else None,
+            )
+            ws.cell(row=row_num, column=9, value=round(markup_total, 2) if markup_total is not None else None)
+            ws.cell(
+                row=row_num, column=10, value=round(precio_sugerido_sin_iva, 2) if precio_sugerido_sin_iva else None
+            )
+            ws.cell(
+                row=row_num, column=11, value=round(precio_sugerido_con_iva, 2) if precio_sugerido_con_iva else None
+            )
+
+            row_num += 1
+
+        # Ajustar anchos de columna
+        column_widths = [15, 20, 20, 15, 50, 10, 16, 16, 14, 20, 20]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+        # Guardar en BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=lista_sugerido.xlsx"},
+        )
+
+    except Exception as e:
+        logger.error("Error en exportar_lista_sugerido: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al exportar lista sugerido: {str(e)}")
+
+
 @router.get("/exportar-lista-web-transferencia")
 def exportar_lista_web_transferencia(
     search: Optional[str] = None,

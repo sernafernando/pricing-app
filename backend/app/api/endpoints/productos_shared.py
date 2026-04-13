@@ -131,6 +131,10 @@ class ProductoTiendaResponse(BaseModel):
     precio_gremio_con_iva: Optional[float] = None
     markup_gremio: Optional[float] = None
     tiene_override_gremio: Optional[bool] = False  # Indica si tiene precio manual
+    precio_sugerido_sin_iva: Optional[float] = None
+    precio_sugerido_con_iva: Optional[float] = None
+    markup_sugerido_valor: Optional[float] = None  # % sugerido configurado (marca o producto)
+    markup_sugerido_total: Optional[float] = None  # markup_clasica + markup_sugerido
     participa_web_transferencia: Optional[bool] = False
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None

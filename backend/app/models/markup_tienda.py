@@ -21,8 +21,11 @@ class MarkupTiendaBrand(Base):
     brand_id = Column(Integer, nullable=False, index=True)
     brand_desc = Column(String(255), nullable=True)  # Desnormalizado para facilitar consultas
 
-    # Markup en porcentaje (ej: 15.5 para 15.5%)
+    # Markup gremio en porcentaje (ej: 15.5 para 15.5%)
     markup_porcentaje = Column(Float, nullable=False)
+
+    # Markup sugerido en porcentaje — se suma a markup_clasica para precio fuera de ML
+    markup_sugerido = Column(Float, nullable=True)
 
     # Si está activo o no
     activo = Column(Boolean, default=True, nullable=False)
@@ -41,7 +44,7 @@ class MarkupTiendaBrand(Base):
     updated_by = relationship("Usuario", foreign_keys=[updated_by_id])
 
     def __repr__(self):
-        return f"<MarkupTiendaBrand(brand_id={self.brand_id}, brand_desc='{self.brand_desc}', markup={self.markup_porcentaje}%)>"
+        return f"<MarkupTiendaBrand(brand_id={self.brand_id}, brand_desc='{self.brand_desc}', markup={self.markup_porcentaje}%, sugerido={self.markup_sugerido}%)>"
 
 
 class MarkupTiendaProducto(Base):
@@ -58,8 +61,11 @@ class MarkupTiendaProducto(Base):
     descripcion = Column(String(500), nullable=True)  # Desnormalizado
     marca = Column(String(255), nullable=True)  # Desnormalizado
 
-    # Markup en porcentaje (ej: 15.5 para 15.5%)
+    # Markup gremio en porcentaje (ej: 15.5 para 15.5%)
     markup_porcentaje = Column(Float, nullable=False)
+
+    # Markup sugerido en porcentaje — se suma a markup_clasica para precio fuera de ML
+    markup_sugerido = Column(Float, nullable=True)
 
     # Si está activo o no
     activo = Column(Boolean, default=True, nullable=False)
@@ -78,9 +84,7 @@ class MarkupTiendaProducto(Base):
     updated_by = relationship("Usuario", foreign_keys=[updated_by_id])
 
     def __repr__(self):
-        return (
-            f"<MarkupTiendaProducto(item_id={self.item_id}, codigo='{self.codigo}', markup={self.markup_porcentaje}%)>"
-        )
+        return f"<MarkupTiendaProducto(item_id={self.item_id}, codigo='{self.codigo}', markup={self.markup_porcentaje}%, sugerido={self.markup_sugerido}%)>"
 
 
 class TiendaConfig(Base):
