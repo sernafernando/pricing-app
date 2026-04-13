@@ -28,12 +28,14 @@ class MarkupBrandCreate(BaseModel):
     brand_id: int
     brand_desc: Optional[str] = None
     markup_porcentaje: float
+    markup_sugerido: Optional[float] = None
     activo: bool = True
     notas: Optional[str] = None
 
 
 class MarkupBrandUpdate(BaseModel):
     markup_porcentaje: Optional[float] = None
+    markup_sugerido: Optional[float] = None
     activo: Optional[bool] = None
     notas: Optional[str] = None
 
@@ -44,6 +46,7 @@ class MarkupBrandResponse(BaseModel):
     brand_id: int
     brand_desc: Optional[str]
     markup_porcentaje: float
+    markup_sugerido: Optional[float] = None
     activo: bool
     notas: Optional[str]
     created_at: Optional[datetime] = None
@@ -60,6 +63,7 @@ class BrandWithMarkup(BaseModel):
     brand_desc: str
     markup_id: Optional[int] = None
     markup_porcentaje: Optional[float] = None
+    markup_sugerido: Optional[float] = None
     markup_activo: Optional[bool] = None
     markup_notas: Optional[str] = None
 
@@ -70,6 +74,7 @@ class MarkupProductoCreate(BaseModel):
     descripcion: Optional[str] = None
     marca: Optional[str] = None
     markup_porcentaje: float
+    markup_sugerido: Optional[float] = None
     activo: bool = True
     notas: Optional[str] = None
 
@@ -81,6 +86,7 @@ class MarkupProductoResponse(BaseModel):
     descripcion: Optional[str]
     marca: Optional[str]
     markup_porcentaje: float
+    markup_sugerido: Optional[float] = None
     activo: bool
     notas: Optional[str]
     markup_id: Optional[int] = None  # Alias para compatibilidad con el frontend
@@ -124,6 +130,7 @@ def listar_brands_con_markups(
             b.brand_desc,
             m.id as markup_id,
             m.markup_porcentaje,
+            m.markup_sugerido,
             m.activo as markup_activo,
             m.notas as markup_notas
         FROM tb_brand b
@@ -148,6 +155,7 @@ def listar_brands_con_markups(
                 brand_desc=row.brand_desc,
                 markup_id=row.markup_id,
                 markup_porcentaje=row.markup_porcentaje,
+                markup_sugerido=row.markup_sugerido,
                 markup_activo=row.markup_activo,
                 markup_notas=row.markup_notas,
             )
@@ -182,6 +190,7 @@ def crear_o_actualizar_markup_brand(
     if existing:
         # Actualizar existente
         existing.markup_porcentaje = data.markup_porcentaje
+        existing.markup_sugerido = data.markup_sugerido
         existing.activo = data.activo
         existing.notas = data.notas
         existing.brand_desc = data.brand_desc
@@ -196,6 +205,7 @@ def crear_o_actualizar_markup_brand(
             brand_id=data.brand_id,
             brand_desc=data.brand_desc,
             markup_porcentaje=data.markup_porcentaje,
+            markup_sugerido=data.markup_sugerido,
             activo=data.activo,
             notas=data.notas,
             created_by_id=current_user.id,
@@ -296,6 +306,7 @@ def listar_productos_con_markup(db: Session = Depends(get_db), current_user: Usu
             descripcion=p.descripcion,
             marca=p.marca,
             markup_porcentaje=p.markup_porcentaje,
+            markup_sugerido=p.markup_sugerido,
             activo=p.activo,
             notas=p.notas,
             markup_id=p.id,  # Para compatibilidad con el frontend
@@ -325,6 +336,7 @@ def crear_o_actualizar_markup_producto(
     if existing:
         # Actualizar existente
         existing.markup_porcentaje = data.markup_porcentaje
+        existing.markup_sugerido = data.markup_sugerido
         existing.activo = data.activo
         existing.notas = data.notas
         existing.codigo = data.codigo
@@ -340,6 +352,7 @@ def crear_o_actualizar_markup_producto(
             descripcion=existing.descripcion,
             marca=existing.marca,
             markup_porcentaje=existing.markup_porcentaje,
+            markup_sugerido=existing.markup_sugerido,
             activo=existing.activo,
             notas=existing.notas,
             markup_id=existing.id,
@@ -352,6 +365,7 @@ def crear_o_actualizar_markup_producto(
             descripcion=data.descripcion,
             marca=data.marca,
             markup_porcentaje=data.markup_porcentaje,
+            markup_sugerido=data.markup_sugerido,
             activo=data.activo,
             notas=data.notas,
             created_by_id=current_user.id,
@@ -366,6 +380,7 @@ def crear_o_actualizar_markup_producto(
             descripcion=nuevo_markup.descripcion,
             marca=nuevo_markup.marca,
             markup_porcentaje=nuevo_markup.markup_porcentaje,
+            markup_sugerido=nuevo_markup.markup_sugerido,
             activo=nuevo_markup.activo,
             notas=nuevo_markup.notas,
             markup_id=nuevo_markup.id,

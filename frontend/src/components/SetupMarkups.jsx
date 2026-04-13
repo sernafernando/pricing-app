@@ -14,6 +14,10 @@ export default function SetupMarkups() {
   const [markupTempMarca, setMarkupTempMarca] = useState('');
   const [stats, setStats] = useState(null);
 
+  // Estados para markup sugerido de marcas
+  const [editandoSugeridoMarca, setEditandoSugeridoMarca] = useState(null);
+  const [sugeridoTempMarca, setSugeridoTempMarca] = useState('');
+
   // Estados para productos individuales
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [productosEncontrados, setProductosEncontrados] = useState([]);
@@ -22,6 +26,10 @@ export default function SetupMarkups() {
   const [loadingProductos, setLoadingProductos] = useState(false);
   const [editandoMarkupProducto, setEditandoMarkupProducto] = useState(null);
   const [markupTempProducto, setMarkupTempProducto] = useState('');
+
+  // Estados para markup sugerido de productos
+  const [editandoSugeridoProducto, setEditandoSugeridoProducto] = useState(null);
+  const [sugeridoTempProducto, setSugeridoTempProducto] = useState('');
 
   const { toast, showToast, hideToast } = useToast();
 
@@ -138,6 +146,76 @@ export default function SetupMarkups() {
   const cancelarEdicionMarca = () => {
     setEditandoMarkupMarca(null);
     setMarkupTempMarca('');
+  };
+
+  // ========== FUNCIONES MARKUP SUGERIDO MARCAS ==========
+  const guardarSugeridoMarca = async (brand) => {
+    const valor = sugeridoTempMarca.trim();
+    // Permitir vacío para limpiar el sugerido
+    const parsed = valor === '' ? null : parseFloat(valor);
+    if (valor !== '' && isNaN(parsed)) {
+      showToast('Ingresá un valor válido', 'error');
+      return;
+    }
+
+    try {
+      await api.post(
+        `/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`,
+        {
+          comp_id: brand.comp_id,
+          brand_id: brand.brand_id,
+          brand_desc: brand.brand_desc,
+          markup_porcentaje: brand.markup_porcentaje || 0,
+          markup_sugerido: parsed,
+          activo: true
+        }
+      );
+
+      showToast('Markup sugerido guardado', 'success');
+      setEditandoSugeridoMarca(null);
+      setSugeridoTempMarca('');
+      cargarBrands();
+    } catch {
+      showToast('Error al guardar markup sugerido', 'error');
+    }
+  };
+
+  const iniciarEdicionSugeridoMarca = (brand) => {
+    setEditandoSugeridoMarca({ comp_id: brand.comp_id, brand_id: brand.brand_id });
+    setSugeridoTempMarca(brand.markup_sugerido?.toString() || '');
+  };
+
+  const cancelarEdicionSugeridoMarca = () => {
+    setEditandoSugeridoMarca(null);
+    setSugeridoTempMarca('');
+  };
+
+  // ========== FUNCIONES MARKUP SUGERIDO PRODUCTOS ==========
+  const guardarSugeridoProducto = async (producto) => {
+    const valor = sugeridoTempProducto.trim();
+    const parsed = valor === '' ? null : parseFloat(valor);
+    if (valor !== '' && isNaN(parsed)) {
+      showToast('Ingresá un valor válido', 'error');
+      return;
+    }
+
+    try {
+      await api.post(`/markups-tienda/productos/${producto.item_id}/markup`, {
+        item_id: producto.item_id,
+        codigo: producto.codigo,
+        descripcion: producto.descripcion,
+        markup_porcentaje: producto.markup_porcentaje || 0,
+        markup_sugerido: parsed,
+        activo: true
+      });
+
+      showToast('Markup sugerido guardado', 'success');
+      setEditandoSugeridoProducto(null);
+      setSugeridoTempProducto('');
+      cargarProductosConMarkup();
+    } catch {
+      showToast('Error al guardar markup sugerido', 'error');
+    }
   };
 
   // ========== FUNCIONES PRODUCTOS ==========
@@ -367,7 +445,8 @@ export default function SetupMarkups() {
               <thead>
                 <tr>
                   <th>Marca</th>
-                  <th>Markup (%)</th>
+                  <th>Markup Gremio (%)</th>
+                  <th>Sugerido (%)</th>
                   <th>Estado</th>
                   <th>Acciones</th>
                 </tr>
@@ -375,7 +454,7 @@ export default function SetupMarkups() {
               <tbody>
                 {brands.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className={styles.emptyState}>
+                    <td colSpan="5" className={styles.emptyState}>
                       <div className={styles.emptyIcon}>📦</div>
                       <p>No se encontraron marcas</p>
                     </td>
@@ -416,6 +495,53 @@ export default function SetupMarkups() {
                               </>
                             ) : (
                               <span className={styles.addMarkup}>+ Agregar markup</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {editandoSugeridoMarca?.comp_id === brand.comp_id && editandoSugeridoMarca?.brand_id === brand.brand_id ? (
+                          <div className={styles.editInput}>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={sugeridoTempMarca}
+                              onChange={(e) => setSugeridoTempMarca(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') guardarSugeridoMarca(brand);
+                                if (e.key === 'Escape') cancelarEdicionSugeridoMarca();
+                              }}
+                              autoFocus
+                              placeholder="0.0"
+                            />
+                            <span className={styles.percentSign}>%</span>
+                            <button
+                              onClick={() => guardarSugeridoMarca(brand)}
+                              className={`${styles.btn} ${styles.btnSave}`}
+                              title="Guardar (Enter)"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              onClick={cancelarEdicionSugeridoMarca}
+                              className={`${styles.btn} ${styles.btnCancel}`}
+                              title="Cancelar (Esc)"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            className={`${styles.markupDisplay} ${brand.markup_sugerido != null ? styles.hasMarkup : styles.noMarkup}`}
+                            onClick={() => iniciarEdicionSugeridoMarca(brand)}
+                          >
+                            {brand.markup_sugerido != null ? (
+                              <>
+                                <span className={styles.markupValue}>{brand.markup_sugerido}</span>
+                                <span className={styles.percentSign}>%</span>
+                              </>
+                            ) : (
+                              <span className={styles.addMarkup}>+ Agregar</span>
                             )}
                           </div>
                         )}
@@ -573,7 +699,8 @@ export default function SetupMarkups() {
                   <th>Código</th>
                   <th>Descripción</th>
                   <th>Marca</th>
-                  <th>Markup</th>
+                  <th>Markup Gremio</th>
+                  <th>Sugerido</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -609,6 +736,50 @@ export default function SetupMarkups() {
                         >
                           <span className={styles.markupValue}>{producto.markup_porcentaje}</span>
                           <span className={styles.percentSign}>%</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {editandoSugeridoProducto === producto.item_id ? (
+                        <div className={styles.editInput}>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={sugeridoTempProducto}
+                            onChange={(e) => setSugeridoTempProducto(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') guardarSugeridoProducto(producto);
+                              if (e.key === 'Escape') setEditandoSugeridoProducto(null);
+                            }}
+                            autoFocus
+                            placeholder="0.0"
+                          />
+                          <span className={styles.percentSign}>%</span>
+                          <button
+                            onClick={() => guardarSugeridoProducto(producto)}
+                            className={`${styles.btn} ${styles.btnSave}`}
+                          >✓</button>
+                          <button
+                            onClick={() => setEditandoSugeridoProducto(null)}
+                            className={`${styles.btn} ${styles.btnCancel}`}
+                          >✕</button>
+                        </div>
+                      ) : (
+                        <div
+                          className={`${styles.markupDisplay} ${producto.markup_sugerido != null ? styles.hasMarkup : styles.noMarkup}`}
+                          onClick={() => {
+                            setEditandoSugeridoProducto(producto.item_id);
+                            setSugeridoTempProducto(producto.markup_sugerido?.toString() || '');
+                          }}
+                        >
+                          {producto.markup_sugerido != null ? (
+                            <>
+                              <span className={styles.markupValue}>{producto.markup_sugerido}</span>
+                              <span className={styles.percentSign}>%</span>
+                            </>
+                          ) : (
+                            <span className={styles.addMarkup}>+ Agregar</span>
+                          )}
                         </div>
                       )}
                     </td>

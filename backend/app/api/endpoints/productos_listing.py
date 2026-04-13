@@ -1708,6 +1708,7 @@ def listar_productos_tienda(
     # Precargar markups de tienda
     item_ids_results = [r[0].item_id for r in results]
     markups_producto_dict = {}
+    markups_sugerido_producto_dict = {}
     if item_ids_results:
         markups_producto = (
             db.query(MarkupTiendaProducto)
@@ -1715,9 +1716,13 @@ def listar_productos_tienda(
             .all()
         )
         markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
+        markups_sugerido_producto_dict = {
+            m.item_id: m.markup_sugerido for m in markups_producto if m.markup_sugerido is not None
+        }
 
     marcas_unicas = list(set([r[0].marca for r in results if r[0].marca]))
     markups_marca_dict = {}
+    markups_sugerido_marca_dict = {}
     if marcas_unicas:
         brand_query = db.execute(
             text("SELECT brand_desc, brand_id FROM tb_brand WHERE brand_desc = ANY(:marcas)"), {"marcas": marcas_unicas}
@@ -1731,9 +1736,14 @@ def listar_productos_tienda(
                 .all()
             )
             brand_id_to_markup = {m.brand_id: m.markup_porcentaje for m in markups_marca}
+            brand_id_to_sugerido = {
+                m.brand_id: m.markup_sugerido for m in markups_marca if m.markup_sugerido is not None
+            }
             for marca, brand_id in marca_to_brand_id.items():
                 if brand_id in brand_id_to_markup:
                     markups_marca_dict[marca] = brand_id_to_markup[brand_id]
+                if brand_id in brand_id_to_sugerido:
+                    markups_sugerido_marca_dict[marca] = brand_id_to_sugerido[brand_id]
 
     # Cargar overrides de precio gremio manual
     from app.models.precio_gremio_override import PrecioGremioOverride
@@ -1975,6 +1985,23 @@ def listar_productos_tienda(
                 iva_producto = producto_erp.iva if producto_erp.iva else 21.0
                 precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
 
+        # Precio Sugerido — markup_clasica + markup_sugerido aplicado sobre fórmula gremio
+        precio_sugerido_sin_iva, precio_sugerido_con_iva = None, None
+        markup_sugerido_valor, markup_sugerido_total = None, None
+
+        # Resolver markup_sugerido con prioridad producto > marca
+        if producto_erp.item_id in markups_sugerido_producto_dict:
+            markup_sugerido_valor = markups_sugerido_producto_dict[producto_erp.item_id]
+        elif producto_erp.marca and producto_erp.marca in markups_sugerido_marca_dict:
+            markup_sugerido_valor = markups_sugerido_marca_dict[producto_erp.marca]
+
+        markup_clasica = producto_pricing.markup_calculado if producto_pricing else None
+        if markup_sugerido_valor is not None and markup_clasica is not None and costo_ars and costo_ars > 0:
+            markup_sugerido_total = markup_clasica + markup_sugerido_valor
+            precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_sugerido_total / 100)
+            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+            precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva_producto / 100)
+
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
         if producto_pricing:
@@ -2043,6 +2070,10 @@ def listar_productos_tienda(
                 precio_gremio_con_iva=precio_gremio_con_iva,
                 markup_gremio=markup_gremio,
                 tiene_override_gremio=tiene_override_gremio,
+                precio_sugerido_sin_iva=precio_sugerido_sin_iva,
+                precio_sugerido_con_iva=precio_sugerido_con_iva,
+                markup_sugerido_valor=markup_sugerido_valor,
+                markup_sugerido_total=markup_sugerido_total,
                 participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
                 porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web)
                 if producto_pricing and producto_pricing.porcentaje_markup_web

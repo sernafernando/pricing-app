@@ -1489,6 +1489,9 @@ export default function Tienda() {
 
                   {!vistaModoCuotas ? (
                     <>
+                      <th onClick={(e) => handleOrdenar('precio_sugerido', e)}>
+                        Precio Sugerido {getIconoOrden('precio_sugerido')} {getNumeroOrden('precio_sugerido') && <span>{getNumeroOrden('precio_sugerido')}</span>}
+                      </th>
                       <th onClick={(e) => handleOrdenar('precio_gremio', e)}>
                         Precio Gremio {vistaModoPrecioGremioUSD ? 'USD' : 'ARS'} {getIconoOrden('precio_gremio')} {getNumeroOrden('precio_gremio') && <span>{getNumeroOrden('precio_gremio')}</span>}
                       </th>
@@ -1584,11 +1587,36 @@ export default function Tienda() {
                       </div>
                     </td>
 
-                    {/* Vista Normal: Gremio, Oferta, Web Transf */}
+                    {/* Vista Normal: Sugerido, Gremio, Web Transf, Web Tarjeta */}
                     {!vistaModoCuotas ? (
                       <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
-                      {editandoPrecioGremio === p.item_id && puedeEditarPrecioGremioManual ? (
+                      {p.precio_sugerido_sin_iva ? (
+                        <div className="gremio-info">
+                          <div className="gremio-price">
+                            $ {p.precio_sugerido_sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="gremio-price-iva">
+                            $ {p.precio_sugerido_con_iva?.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span className="iva-label"> c/IVA</span>
+                          </div>
+                          {p.markup_sugerido_total !== null && p.markup_sugerido_total !== undefined && (
+                            <div className="gremio-markup" style={{ color: getMarkupColor(p.markup_sugerido_total) }}>
+                              {p.markup_sugerido_total.toFixed(1)}%
+                              {p.markup_sugerido_valor !== null && (
+                                <span className="info-text-11"> (+{p.markup_sugerido_valor}%)</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-muted">
+                          Sin config
+                        </div>
+                      )}
+                    </td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
+                      {editandoPrecioGremio === p.item_id  && puedeEditarPrecioGremioManual ? (
                         <div className={`inline-edit ${modoEdicionGremio === 'precio' ? 'gremio-edit-precio' : 'gremio-edit-markup'}`}>
                           {/* Indicador de modo */}
                           <div className="info-text-sm font-semibold mb-6">
@@ -1782,7 +1810,7 @@ export default function Tienda() {
                         </div>
                       )}
                     </td>
-                    <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
+                    <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                       <div>
                         {/* Mostrar precios de Tienda Nube si existen */}
                         {(p.tn_price || p.tn_promotional_price) && (
@@ -1896,7 +1924,7 @@ export default function Tienda() {
                         )}
                       </div>
                     </td>
-                    <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
+                    <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
                       {p.precio_web_transferencia && markupWebTarjeta > 0 ? (
                         <div className="web-tarjeta-info">
                           <div className="web-tarjeta-precio">
