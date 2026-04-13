@@ -441,10 +441,6 @@ def exportar_rebate(
 
         precio_pricelist = float(precio_lista.precio) if precio_lista and precio_lista.precio else 0
 
-        # Fallback: si no hay registro en precios_ml para Clásica, usar precio_lista_ml de productos_pricing
-        if precio_pricelist == 0 and pricelist_id == 4 and producto_pricing.precio_lista_ml:
-            precio_pricelist = float(producto_pricing.precio_lista_ml)
-
         # También obtener precio de la pricelist PVP equivalente (para MLAs que vengan de PVP)
         precio_pricelist_pvp = 0
         if pricelist_pvp_equivalente:
@@ -455,24 +451,8 @@ def exportar_rebate(
             )
             precio_pricelist_pvp = float(precio_lista_pvp.precio) if precio_lista_pvp and precio_lista_pvp.precio else 0
 
-        # Fallback cuotas: si no hay precio PVP en precios_ml, usar el precio de cuotas de productos_pricing
-        if precio_pricelist_pvp == 0 and pricelist_pvp_equivalente:
-            pvp_campo_map = {
-                12: "precio_pvp",
-                18: "precio_pvp_3_cuotas",
-                19: "precio_pvp_6_cuotas",
-                20: "precio_pvp_9_cuotas",
-                21: "precio_pvp_12_cuotas",
-            }
-            pvp_campo = pvp_campo_map.get(pricelist_pvp_equivalente)
-            if pvp_campo:
-                pvp_val = getattr(producto_pricing, pvp_campo, None)
-                if pvp_val:
-                    precio_pricelist_pvp = float(pvp_val)
-
-        # Skip si no tiene precio en ninguna de las dos listas
-        if precio_pricelist == 0 and precio_pricelist_pvp == 0:
-            continue
+        # NO skipear acá: si precios_ml no tiene registro, el fallback por MLA
+        # (mlp_lastPriceInformedByML) más abajo resuelve el PVP LLENO real de ML
 
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
 
