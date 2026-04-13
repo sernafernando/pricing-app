@@ -555,6 +555,10 @@
   color: var(--text-secondary);
 }
 
+.btnExportar {
+  margin-left: var(--spacing-sm);
+}
+
 .tableOperaciones {
   width: 100%;
   table-layout: auto;
@@ -1105,6 +1109,10 @@
 }
 
 .offsetFlexValue {
+  color: #d97706;
+}
+
+.offsetFlexPercent {
   color: #d97706;
 }
 

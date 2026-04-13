@@ -9,7 +9,7 @@ import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
-import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star } from 'lucide-react';
+import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star, RefreshCw, Download } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -153,8 +153,6 @@ export default function DashboardMetricasML() {
       setCategoriasDisponibles([]);
     }
   }, [fechaDesde, fechaHasta, marcasSeleccionadas, categoriasSeleccionadas, tiendasOficialesSeleccionadas, pmsSeleccionados]);
-
-
 
 
   const cargarDashboard = useCallback(async () => {
@@ -440,12 +438,7 @@ export default function DashboardMetricasML() {
               className={`${styles.btnFiltroRapido} ${styles.btnCalendar}`}
               title="Seleccionar rango personalizado"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                <line x1="16" y1="2" x2="16" y2="6"/>
-                <line x1="8" y1="2" x2="8" y2="6"/>
-                <line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
+              <Calendar size={16} />
             </button>
             
             <button 
@@ -541,10 +534,7 @@ export default function DashboardMetricasML() {
               disabled={pagination.loading}
               title="Recargar"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="23 4 23 10 17 10"/>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-              </svg>
+              <RefreshCw size={16} />
             </button>
           )}
         </div>
@@ -787,10 +777,9 @@ export default function DashboardMetricasML() {
             </div>
             <button
               onClick={() => exportarOperaciones()}
-              className="btn-tesla outline-subtle-success sm"
-              style={{ marginLeft: '12px' }}
+              className={`btn-tesla outline-subtle-success sm ${styles.btnExportar}`}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/></svg>
+              <Download size={16} />
               Exportar
             </button>
           </div>
@@ -824,8 +813,8 @@ export default function DashboardMetricasML() {
                 </tr>
               </thead>
               <tbody>
-                {operacionesFiltradas.map((op, idx) => (
-                   <tr key={idx} className={op.pack_id ? styles.rowPack : ''}>
+                {operacionesFiltradas.map((op) => (
+                   <tr key={op.id_operacion} className={op.pack_id ? styles.rowPack : ''}>
                     <td>{formatearFecha(op.fecha_venta)}</td>
                     <td>{op.ml_id || '-'}</td>
                     <td>{op.codigo || '-'}</td>
@@ -988,7 +977,7 @@ export default function DashboardMetricasML() {
                   <span className={`${styles.metricMiniValue} ${styles.offsetFlexValue}`}>
                     {formatearMoneda(offsetFlex)}
                   </span>
-                  <span className={styles.metricMiniPercent} style={{ color: '#d97706' }}>
+                  <span className={`${styles.metricMiniPercent} ${styles.offsetFlexPercent}`}>
                     {formatearPorcentaje(markupConFlex)} mkp
                     <span className={styles.offsetFlexVarianza}> +{varianza.toFixed(2)}%</span>
                   </span>
