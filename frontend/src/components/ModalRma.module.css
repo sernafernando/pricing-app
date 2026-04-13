@@ -1027,3 +1027,24 @@
 .footerRow > :last-child {
   margin-left: auto;
 }
+
+/* ── Load error banner ── */
+.loadError {
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* ── Confirm dialog ── */
+.confirmMessage {
+  margin: 0 0 12px;
+  color: var(--cf-text-secondary);
+}
+
+.confirmField {
+  display: block;
+  margin-bottom: 12px;
+}
