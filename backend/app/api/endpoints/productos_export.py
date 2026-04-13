@@ -18,6 +18,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _cargar_precios_mlwebhook(mla_ids: list[str]) -> dict[str, float]:
+    """
+    Consulta ml_previews (DB webhook) para obtener el precio publicado en ML
+    de un lote de MLAs. Retorna {mla_id: precio}. Si la DB no está disponible,
+    retorna dict vacío sin romper el export.
+    """
+    from sqlalchemy import text
+    from app.core.database import get_mlwebhook_engine
+
+    result: dict[str, float] = {}
+    if not mla_ids:
+        return result
+    try:
+        engine = get_mlwebhook_engine()
+        resources = [f"/items/{mla}" for mla in mla_ids]
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT DISTINCT ON (resource) resource, price
+                    FROM ml_previews
+                    WHERE resource = ANY(:resources)
+                      AND price IS NOT NULL
+                    ORDER BY resource, last_updated DESC
+                """),
+                {"resources": resources},
+            ).fetchall()
+        for row in rows:
+            mla = row.resource.replace("/items/", "")
+            if row.price:
+                result[mla] = float(row.price)
+    except Exception as e:
+        logger.warning("No se pudo consultar ml_previews para precios: %s", e)
+    return result
+
+
 @router.post("/productos/exportar-rebate")
 def exportar_rebate(
     request: ExportRebateRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
@@ -394,6 +429,16 @@ def exportar_rebate(
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
 
+    # Precargar todos los MLA IDs de los productos del export para fallback batch a ml_previews
+    item_ids_export = [p[0].item_id for p in productos]
+    all_mla_ids = [
+        mla_id
+        for (mla_id,) in db.query(PublicacionML.mla)
+        .filter(PublicacionML.item_id.in_(item_ids_export), PublicacionML.activo == True)
+        .all()
+    ]
+    mlwebhook_prices: dict[str, float] | None = None  # lazy: se carga solo si se necesita
+
     # Datos
     row = 2
     for producto_erp, producto_pricing in productos:
@@ -501,8 +546,9 @@ def exportar_rebate(
             else:
                 precio_base_lleno = precio_pricelist if precio_pricelist > 0 else precio_pricelist_pvp
 
-            # Fallback: si no hay PrecioML para ninguna lista, usar el precio real del MLA en ML
+            # Fallback: si no hay PrecioML para ninguna lista, usar el precio real del MLA
             if precio_base_lleno == 0:
+                # 1) Intentar desde tb_mercadolibre_items_publicados
                 mla_publicado = (
                     db.query(MercadoLibreItemPublicado)
                     .filter(MercadoLibreItemPublicado.mlp_publicationID == mla.mla)
@@ -510,6 +556,14 @@ def exportar_rebate(
                 )
                 if mla_publicado and mla_publicado.mlp_lastPriceInformedByML:
                     precio_base_lleno = float(mla_publicado.mlp_lastPriceInformedByML)
+
+            if precio_base_lleno == 0:
+                # 2) Intentar desde ml_previews (DB webhook) — precio real publicado en ML
+                if mlwebhook_prices is None:
+                    mlwebhook_prices = _cargar_precios_mlwebhook(all_mla_ids)
+                precio_webhook = mlwebhook_prices.get(mla.mla, 0)
+                if precio_webhook > 0:
+                    precio_base_lleno = precio_webhook
 
             if pricelist_id == 4:
                 pvp_lleno = precio_base_lleno
