@@ -966,11 +966,13 @@ def get_top_productos_fuera_ml(
     limit: int = Query(20, le=100, description="Límite de resultados"),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
+    orden: str = Query("unidades", description="Ordenar por: 'unidades' o 'facturacion'"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene los productos más vendidos por fuera de ML.
+    Parámetro 'orden': 'unidades' ordena por cantidad vendida, 'facturacion' por monto total.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
     # Construir cláusula WHERE dinámica
@@ -994,6 +996,7 @@ def get_top_productos_fuera_ml(
                 params[f"vendedor_{i}"] = vend
 
     # Query rápida desde tabla de métricas pre-calculadas
+    order_column = "monto_total" if orden == "facturacion" else "unidades_vendidas"
     query = f"""
     SELECT
         item_id,
@@ -1006,7 +1009,7 @@ def get_top_productos_fuera_ml(
     FROM ventas_fuera_ml_metricas
     {where_clause}
     GROUP BY item_id, codigo, descripcion, marca
-    ORDER BY unidades_vendidas DESC
+    ORDER BY {order_column} DESC
     LIMIT :limit
     """
 

@@ -364,6 +364,36 @@
   border-bottom: 2px solid var(--border-primary);
 }
 
+.chartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--border-primary);
+}
+
+.chartHeader .chartTitle {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.topLimitSelect {
+  padding: 4px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.topLimitSelect:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
 .tableWrapper {
   overflow-x: auto;
   overflow-y: auto;
