@@ -16,10 +16,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Insertar permiso
+    # Insertar permiso — tabla permisos usa: codigo, nombre, descripcion, categoria, orden, es_critico
     op.execute(
         """
-        INSERT INTO permisos (codigo, nombre, descripcion, modulo, orden, es_base)
+        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES (
             'tienda.exportar_lista_sugerido',
             'Exportar lista sugerido',
@@ -32,14 +32,16 @@ def upgrade() -> None:
         """
     )
 
-    # Asignar a roles ADMIN y VENTAS (mismos que exportar_lista_gremio)
+    # Asignar a roles ADMIN, SUPERADMIN, VENTAS
+    # roles_permisos_base tiene rol_id (FK a roles.id) y permiso_id (FK a permisos.id)
     op.execute(
         """
-        INSERT INTO roles_permisos (rol, permiso_id)
-        SELECT r.rol, p.id
-        FROM (VALUES ('ADMIN'), ('SUPERADMIN'), ('VENTAS')) AS r(rol)
+        INSERT INTO roles_permisos_base (rol_id, permiso_id)
+        SELECT r.id, p.id
+        FROM roles r
         CROSS JOIN permisos p
-        WHERE p.codigo = 'tienda.exportar_lista_sugerido'
+        WHERE r.codigo IN ('SUPERADMIN', 'ADMIN', 'VENTAS')
+          AND p.codigo = 'tienda.exportar_lista_sugerido'
         ON CONFLICT DO NOTHING
         """
     )
@@ -48,7 +50,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         """
-        DELETE FROM roles_permisos
+        DELETE FROM roles_permisos_base
         WHERE permiso_id = (SELECT id FROM permisos WHERE codigo = 'tienda.exportar_lista_sugerido')
         """
     )
