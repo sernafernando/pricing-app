@@ -1989,15 +1989,17 @@ def listar_productos_tienda(
         precio_sugerido_sin_iva, precio_sugerido_con_iva = None, None
         markup_sugerido_valor, markup_sugerido_total = None, None
 
-        # Resolver markup_sugerido con prioridad producto > marca
+        # Resolver markup_sugerido con prioridad producto > marca (NULL = 0)
         if producto_erp.item_id in markups_sugerido_producto_dict:
             markup_sugerido_valor = markups_sugerido_producto_dict[producto_erp.item_id]
         elif producto_erp.marca and producto_erp.marca in markups_sugerido_marca_dict:
             markup_sugerido_valor = markups_sugerido_marca_dict[producto_erp.marca]
 
         markup_clasica = producto_pricing.markup_calculado if producto_pricing else None
-        if markup_sugerido_valor is not None and markup_clasica is not None and costo_ars and costo_ars > 0:
-            markup_sugerido_total = markup_clasica + markup_sugerido_valor
+        if markup_clasica is not None and costo_ars and costo_ars > 0:
+            # Si no hay markup_sugerido configurado, usar 0 (precio = solo markup_clasica)
+            effective_sugerido = markup_sugerido_valor if markup_sugerido_valor is not None else 0.0
+            markup_sugerido_total = markup_clasica + effective_sugerido
             precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_sugerido_total / 100)
             iva_producto = producto_erp.iva if producto_erp.iva else 21.0
             precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva_producto / 100)

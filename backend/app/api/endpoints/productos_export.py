@@ -2519,8 +2519,10 @@ def exportar_lista_sugerido(
             precio_sugerido_con_iva = None
             markup_total = None
 
-            if markup_sugerido_valor is not None and markup_clasica is not None and costo_ars and costo_ars > 0:
-                markup_total = markup_clasica + markup_sugerido_valor
+            if markup_clasica is not None and costo_ars and costo_ars > 0:
+                # Si no hay markup_sugerido configurado, usar 0 (precio = solo markup_clasica)
+                effective_sugerido = markup_sugerido_valor if markup_sugerido_valor is not None else 0.0
+                markup_total = markup_clasica + effective_sugerido
                 precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_total / 100)
                 iva_producto = producto_erp.iva if producto_erp.iva else 21.0
                 precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva_producto / 100)
