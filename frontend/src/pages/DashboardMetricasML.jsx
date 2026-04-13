@@ -9,6 +9,7 @@ import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
+import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -147,8 +148,7 @@ export default function DashboardMetricasML() {
 
       setMarcasDisponibles(marcasRes.data || []);
       setCategoriasDisponibles(categoriasRes.data || []);
-    } catch (error) {
-      console.error('Error cargando opciones disponibles:', error);
+    } catch {
       setMarcasDisponibles([]);
       setCategoriasDisponibles([]);
     }
@@ -194,7 +194,7 @@ export default function DashboardMetricasML() {
       setVentasPorDia(diasRes.data || []);
       setTopProductos(productosRes.data || []);
     } catch {
-      alert('Error al cargar el dashboard');
+      showToast('Error al cargar el dashboard', 'error');
     } finally {
       setLoading(false);
     }
@@ -213,8 +213,8 @@ export default function DashboardMetricasML() {
       try {
         const response = await api.get('/usuarios/pms', { params: { solo_con_marcas: true } });
         setPms(response.data);
-      } catch (error) {
-        console.error('Error al cargar PMs:', error);
+      } catch {
+        // Silently fail - PMs filter is non-critical
       }
     };
     cargarPMs();
@@ -244,12 +244,12 @@ export default function DashboardMetricasML() {
 
   const getTipoLogistica = (tipo) => {
     const tipos = {
-      'cross_docking': '📦 Colecta',
-      'self_service': '🛵 Flex',
-      'fulfillment': '📦 Full',
-      'default': '🏢 Retiro',
-      'drop_off': '📮 Drop Off',
-      'xd_drop_off': '📮 XD Drop Off'
+      'cross_docking': 'Colecta',
+      'self_service': 'Flex',
+      'fulfillment': 'Full',
+      'default': 'Retiro',
+      'drop_off': 'Drop Off',
+      'xd_drop_off': 'XD Drop Off'
     };
     return tipos[tipo] || tipo;
   };
@@ -382,10 +382,9 @@ export default function DashboardMetricasML() {
       link.remove();
       window.URL.revokeObjectURL(url);
       
-      showToast('✅ Archivo descargado correctamente', 'success');
-    } catch (error) {
-      console.error('Error exportando operaciones:', error);
-      showToast('❌ Error al exportar operaciones', 'error');
+      showToast('Archivo descargado correctamente', 'success');
+    } catch {
+      showToast('Error al exportar operaciones', 'error');
     }
   };
 
@@ -408,7 +407,7 @@ export default function DashboardMetricasML() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>📊 Dashboard Métricas ML</h1>
+        <h1 className={styles.title}><BarChart3 size={22} /> Dashboard Métricas ML</h1>
 
         {/* Tabs */}
         <div className={styles.tabs}>
@@ -416,19 +415,19 @@ export default function DashboardMetricasML() {
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'resumen' })}
           >
-            📊 Resumen
+            <BarChart3 size={14} /> Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'operaciones' })}
           >
-            📋 Detalle de Operaciones
+            <ClipboardList size={14} /> Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'rentabilidad' })}
           >
-            💰 Rentabilidad
+            <DollarSign size={14} /> Rentabilidad
           </button>
         </div>
 
@@ -572,7 +571,7 @@ export default function DashboardMetricasML() {
                           onClick={limpiarMarcas}
                           className={styles.btnMultiSelectAction}
                         >
-                          ✗ Limpiar selección
+                          <X size={12} /> Limpiar selección
                         </button>
                       </div>
                     )}
@@ -622,7 +621,7 @@ export default function DashboardMetricasML() {
                           onClick={limpiarCategorias}
                           className={styles.btnMultiSelectAction}
                         >
-                          ✗ Limpiar selección
+                          <X size={12} /> Limpiar selección
                         </button>
                       </div>
                     )}
@@ -674,7 +673,7 @@ export default function DashboardMetricasML() {
                       onClick={limpiarTiendasOficiales}
                       className={styles.btnMultiSelectAction}
                     >
-                      ✗ Limpiar selección
+                      <X size={12} /> Limpiar selección
                     </button>
                   </div>
                 )}
@@ -735,7 +734,7 @@ export default function DashboardMetricasML() {
                       onClick={limpiarPMs}
                       className={styles.btnMultiSelectAction}
                     >
-                      ✗ Limpiar selección
+                      <X size={12} /> Limpiar selección
                     </button>
                   </div>
                 )}
@@ -778,7 +777,7 @@ export default function DashboardMetricasML() {
           <div className={styles.buscadorContainer}>
             <input
               type="text"
-              placeholder="🔍 Buscar por ML ID, código, producto o marca..."
+              placeholder="Buscar por ML ID, código, producto o marca..."
               value={pagination.searchTerm}
               onChange={(e) => pagination.setSearchTerm(e.target.value)}
               className={styles.buscador}
@@ -826,7 +825,7 @@ export default function DashboardMetricasML() {
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op, idx) => (
-                  <tr key={idx}>
+                   <tr key={idx} className={op.pack_id ? styles.rowPack : ''}>
                     <td>{formatearFecha(op.fecha_venta)}</td>
                     <td>{op.ml_id || '-'}</td>
                     <td>{op.codigo || '-'}</td>
@@ -864,7 +863,7 @@ export default function DashboardMetricasML() {
             {/* Mensaje de fin de resultados */}
             {pagination.paginationMode === 'infinite' && !pagination.hasMore && pagination.data.length > 0 && (
               <div className={styles.endOfResults}>
-                ✓ Todos los resultados cargados
+                Todos los resultados cargados
               </div>
             )}
           </div>
@@ -886,7 +885,7 @@ export default function DashboardMetricasML() {
           {/* Banner informativo si hay tiendas oficiales seleccionadas */}
           {tiendasOficialesSeleccionadas.length > 0 && (
             <div className={styles.bannerTiendaOficial}>
-              🏪 Filtrando por: <strong>
+              <Store size={14} /> Filtrando por: <strong>
                 {tiendasOficialesSeleccionadas.map(id => {
                   if (id === '57997') return 'Gauss';
                   if (id === '2645') return 'TP-Link';
@@ -901,7 +900,7 @@ export default function DashboardMetricasML() {
           {/* KPIs Principales - 3 cards grandes */}
           <div className={styles.kpisContainer}>
             <div className={styles.kpiCard}>
-              <div className={styles.kpiIcon}>💰</div>
+              <div className={styles.kpiIcon}><DollarSign size={20} /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Total Facturado</div>
                 <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_ventas_ml)}</div>
@@ -914,7 +913,7 @@ export default function DashboardMetricasML() {
             </div>
 
             <div className={`${styles.kpiCard} ${styles.kpiGanancia}`}>
-              <div className={styles.kpiIcon}>📈</div>
+              <div className={styles.kpiIcon}><TrendingUp size={20} /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Ganancia Neta</div>
                 <div className={styles.kpiValue}>{puedeVerGanancia ? formatearMoneda(metricasGenerales.total_ganancia) : '***'}</div>
@@ -927,7 +926,7 @@ export default function DashboardMetricasML() {
             </div>
 
             <div className={`${styles.kpiCard} ${styles.kpiLimpio}`}>
-              <div className={styles.kpiIcon}>✨</div>
+              <div className={styles.kpiIcon}><Sparkles size={20} /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Neto después de ML</div>
                 <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_limpio)}</div>
@@ -1001,7 +1000,7 @@ export default function DashboardMetricasML() {
           {/* Gráfico de barras - Ventas por día */}
           {ventasPorDia.length > 0 && (
             <div className={styles.chartBarCard}>
-              <h3 className={styles.chartTitle}>📅 Ventas por Día</h3>
+              <h3 className={styles.chartTitle}><Calendar size={16} /> Ventas por Día</h3>
               <div className={styles.barChart}>
                 {(() => {
                   const datos = ventasPorDia.slice(-14);
@@ -1047,7 +1046,7 @@ export default function DashboardMetricasML() {
           <div className={styles.chartsGrid}>
             {/* Ventas por Marca */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🏷️ Top Marcas</h3>
+              <h3 className={styles.chartTitle}><Tag size={16} /> Top Marcas</h3>
               <div className={styles.rankingList}>
                 {(() => {
                   const maxVenta = ventasPorMarca[0]?.total_ventas || 1;
@@ -1081,7 +1080,7 @@ export default function DashboardMetricasML() {
 
             {/* Ventas por Categoría */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>📦 Top Categorías</h3>
+              <h3 className={styles.chartTitle}><Package size={16} /> Top Categorías</h3>
               <div className={styles.rankingList}>
                 {(() => {
                   const maxVenta = ventasPorCategoria[0]?.total_ventas || 1;
@@ -1117,13 +1116,13 @@ export default function DashboardMetricasML() {
           <div className={styles.chartsGridSmall}>
             {/* Ventas por Logística */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🚚 Por Tipo de Envío</h3>
+              <h3 className={styles.chartTitle}><Truck size={16} /> Por Tipo de Envío</h3>
               <div className={styles.logisticaGrid}>
                 {ventasPorLogistica.map((item, idx) => (
                   <div key={idx} className={styles.logisticaCard}>
-                    <div className={styles.logisticaIcon}>{getTipoLogistica(item.tipo_logistica).split(' ')[0]}</div>
+                    <div className={styles.logisticaIcon}><Truck size={18} /></div>
                     <div className={styles.logisticaInfo}>
-                      <div className={styles.logisticaNombre}>{getTipoLogistica(item.tipo_logistica).split(' ').slice(1).join(' ')}</div>
+                      <div className={styles.logisticaNombre}>{getTipoLogistica(item.tipo_logistica)}</div>
                       <div className={styles.logisticaVentas}>{formatearMoneda(item.total_ventas)}</div>
                       <div className={styles.logisticaMeta}>
                         <span>{item.cantidad_operaciones} ops</span>
@@ -1142,7 +1141,7 @@ export default function DashboardMetricasML() {
           {/* Top Productos (ancho completo) */}
           {topProductos.length > 0 && (
             <div className={styles.timelineCard}>
-              <h3 className={styles.chartTitle}>⭐ Top Productos</h3>
+              <h3 className={styles.chartTitle}><Star size={16} /> Top Productos</h3>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
                   <thead>

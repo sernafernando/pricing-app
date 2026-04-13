@@ -635,6 +635,24 @@
   display: inline-block;
 }
 
+/* Fila pack - para identificar operaciones que son parte de un pack ML */
+.rowPack {
+  background-color: rgba(139, 92, 246, 0.08);
+}
+
+.rowPack:hover {
+  background-color: rgba(139, 92, 246, 0.14) !important;
+}
+
+/* Dark mode - Fila pack */
+:global([data-theme="dark"]) .rowPack {
+  background-color: rgba(139, 92, 246, 0.15);
+}
+
+:global([data-theme="dark"]) .rowPack:hover {
+  background-color: rgba(139, 92, 246, 0.25) !important;
+}
+
 /* Fila sin costo - estilo sutil */
 .rowSinCosto {
   background-color: var(--error-light) !important;
