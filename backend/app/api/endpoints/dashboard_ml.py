@@ -488,12 +488,14 @@ def get_top_productos(
     categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
     tiendas_oficiales: Optional[str] = Query(None),
     pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
+    orden: str = Query("unidades", description="Ordenar por: 'unidades' o 'facturacion'"),
     limit: int = Query(10, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene los productos más vendidos.
+    Parámetro 'orden': 'unidades' ordena por cantidad vendida, 'facturacion' por monto total.
     Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
     """
     query = db.query(
@@ -513,9 +515,10 @@ def get_top_productos(
 
     query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, categorias, tiendas_oficiales, db)
 
+    order_column = "total_ventas" if orden == "facturacion" else "cantidad_unidades"
     resultados = (
         query.group_by(MLVentaMetrica.item_id, MLVentaMetrica.codigo, MLVentaMetrica.descripcion, MLVentaMetrica.marca)
-        .order_by(desc("cantidad_unidades"))
+        .order_by(desc(order_column))
         .limit(limit)
         .all()
     )
