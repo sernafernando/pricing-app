@@ -1,17 +1,3 @@
-/**
- * Modal de caso RMA - 7 tabs con todos los campos del ciclo de vida.
- *
- * Tabs: Info | Recepción | Revisión | Reclamo ML | Proveedor | Proceso | Historial
- *
- * - Caso nuevo: solo tab Info con 3 formas de agregar items:
- *   1. Búsqueda de traza (por serie o ML ID) → autocompleta datos de la venta
- *   2. Búsqueda de producto (por EAN/código/descripción) → busca en catálogo del ERP
- *   3. Item manual → carga libre sin datos previos
- * - Caso existente: todas las tabs, edición inline por item via PUT
- * - Campos caso-level se guardan con el botón Guardar
- * - Campos item-level se guardan inline (onChange → PUT)
- */
-
 import { useState, useEffect, useRef } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
@@ -19,19 +5,14 @@ import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
 import ClaimCards from './ClaimCards';
 import ProveedorAutocomplete from './ProveedorAutocomplete';
-import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Hash, Package } from 'lucide-react';
+import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, Hash } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
-
-/**
- * DeferredField — accumulates text locally and only fires onCommit on blur.
- * Prevents per-keystroke API calls / audit entries for text fields.
- */
+// Accumulates text locally, fires onCommit on blur to avoid per-keystroke API calls
 function DeferredField({ value, onCommit, tag = 'input', disabled = false, ...props }) {
   const [local, setLocal] = useState(value ?? '');
   const committedRef = useRef(value ?? '');
 
-  // Sync from parent when external data changes (e.g. after reload)
   useEffect(() => {
     setLocal(value ?? '');
     committedRef.current = value ?? '';
@@ -44,9 +25,9 @@ function DeferredField({ value, onCommit, tag = 'input', disabled = false, ...pr
     }
   };
 
-  const Tag = tag === 'textarea' ? 'textarea' : 'input';
+  const Element = tag === 'textarea' ? 'textarea' : 'input';
   return (
-    <Tag
+    <Element
       value={local}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={handleBlur}
@@ -65,6 +46,7 @@ export default function ModalRma({ caso, onClose }) {
 
   const [activeTab, setActiveTab] = useState('info');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [opciones, setOpciones] = useState({});
   const [casoData, setCasoData] = useState(caso || {});
@@ -124,27 +106,28 @@ export default function ModalRma({ caso, onClose }) {
     return () => { cancelled = true; };
   }, [casoData?.ml_id]);
 
-  // Búsqueda de productos con debounce
   useEffect(() => {
     if (!esNuevo) return;
     if (!debouncedSearchProducto || debouncedSearchProducto.length < 2) {
       setProductoResults([]);
       return;
     }
+    let cancelled = false;
     const buscarProductos = async () => {
       setBuscandoProducto(true);
       try {
         const { data } = await api.get('/productos', {
           params: { search: debouncedSearchProducto, page_size: 10, page: 1 },
         });
-        setProductoResults(data.productos || []);
+        if (!cancelled) setProductoResults(data.productos || []);
       } catch {
-        setProductoResults([]);
+        if (!cancelled) setProductoResults([]);
       } finally {
-        setBuscandoProducto(false);
+        if (!cancelled) setBuscandoProducto(false);
       }
     };
     buscarProductos();
+    return () => { cancelled = true; };
   }, [debouncedSearchProducto, esNuevo]);
 
   const cargarOpciones = async () => {
@@ -158,15 +141,13 @@ export default function ModalRma({ caso, onClose }) {
         if (!grouped[op.categoria]) grouped[op.categoria] = [];
         grouped[op.categoria].push(op);
       }
-      // Depósitos reales de tb_storage se usan para el dropdown deposito_destino
-      // Se guardan como opciones con id=stor_id y valor=stor_desc
       grouped.deposito_destino = depositosRes.data.map((d) => ({
         id: d.stor_id,
         valor: d.stor_desc,
       }));
       setOpciones(grouped);
     } catch {
-      // opciones vacías
+      setLoadError('No se pudieron cargar las opciones de dropdowns.');
     }
   };
 
@@ -176,7 +157,7 @@ export default function ModalRma({ caso, onClose }) {
       const { data } = await api.get(`/rma-seguimiento/${caso.id}`);
       setCasoData(data);
     } catch {
-      // mantener datos existentes
+      setLoadError('Error al cargar el caso completo.');
     } finally {
       setLoading(false);
     }
@@ -187,22 +168,18 @@ export default function ModalRma({ caso, onClose }) {
       const { data } = await api.get(`/rma-seguimiento/${caso.id}/historial`);
       setHistorial(data);
     } catch {
-      // historial vacío
+      setHistorial([]);
     }
   };
-
-
 
   const buscarTraza = async () => {
     if (!searchSerial.trim()) return;
     setBuscandoTraza(true);
     setTrazaResult(null);
     try {
-      // Siempre buscar primero como serial
       const res = await api.get(`/seriales/traza/${searchSerial}`);
       setTrazaResult(res.data);
     } catch {
-      // No es serial — intentar como ML (order_id, pack_id, shipping_id)
       try {
         const res = await api.get(`/seriales/traza/ml/${searchSerial}`);
         setTrazaResult(res.data);
@@ -291,13 +268,19 @@ export default function ModalRma({ caso, onClose }) {
   };
 
   const [guardarError, setGuardarError] = useState(null);
+  const guardandoRef = useRef(false);
 
   const handleGuardar = async () => {
+    // Guardia inmediata contra doble-click (ref es síncrono, no espera re-render)
+    if (guardandoRef.current) return;
+    guardandoRef.current = true;
+
     setGuardarError(null);
 
     // Validación: caso nuevo necesita al menos 1 item
     if (esNuevo && (!casoData.items || casoData.items.length === 0)) {
       setGuardarError('Agregá al menos un artículo antes de guardar el caso.');
+      guardandoRef.current = false;
       return;
     }
 
@@ -338,9 +321,10 @@ export default function ModalRma({ caso, onClose }) {
       }
       onClose(true);
     } catch {
-      // error feedback
+      setGuardarError('Error al guardar el caso. Intentá de nuevo.');
     } finally {
       setGuardando(false);
+      guardandoRef.current = false;
     }
   };
 
@@ -384,14 +368,17 @@ export default function ModalRma({ caso, onClose }) {
       });
       onClose(true);
     } catch {
-      // error feedback silenced — backend returns 403/404 with detail
+      setGuardarError('Error al eliminar el caso.');
     } finally {
       setEliminando(false);
     }
   };
 
+  const [itemError, setItemError] = useState(null);
+
   const handleItemUpdate = async (itemId, field, value) => {
     if (!caso?.id) return;
+    setItemError(null);
     try {
       const payload = typeof field === 'object' ? field : { [field]: value };
       const { data } = await api.put(`/rma-seguimiento/${caso.id}/items/${itemId}`, payload);
@@ -400,7 +387,7 @@ export default function ModalRma({ caso, onClose }) {
         items: prev.items.map((i) => (i.id === itemId ? data : i)),
       }));
     } catch {
-      // error
+      setItemError(`Error al actualizar item #${itemId}.`);
     }
   };
 
@@ -463,7 +450,7 @@ export default function ModalRma({ caso, onClose }) {
                 <Trash2 size={14} /> {eliminando ? 'Eliminando...' : 'Eliminar caso'}
               </button>
             )}
-            {guardarError && <span className={styles.footerError}>{guardarError}</span>}
+            {(guardarError || itemError) && <span className={styles.footerError}>{guardarError || itemError}</span>}
             <ModalFooterButtons
               onCancel={() => onClose(false)}
               onConfirm={handleGuardar}
@@ -474,6 +461,7 @@ export default function ModalRma({ caso, onClose }) {
         )
       }
     >
+      {loadError && <p className={styles.loadError}>{loadError}</p>}
       {loading ? <ModalLoading message="Cargando caso..." /> : (
         <>
           {/* ═══════════ TAB: Información ═══════════ */}
@@ -887,7 +875,7 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>Costo de envío</span>
-                      <input className={styles.input} type="number" step="0.01" value={item.costo_envio || ''} onChange={(e) => handleItemUpdate(item.id, 'costo_envio', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
+                      <DeferredField className={styles.input} type="number" step="0.01" value={item.costo_envio ?? ''} onCommit={(v) => handleItemUpdate(item.id, 'costo_envio', v ? Number(v) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Causa de devolución</span>
@@ -998,7 +986,7 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>Monto NC Proveedor</span>
-                      <input className={styles.input} type="number" step="0.01" value={item.monto_nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'monto_nc_proveedor', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
+                      <DeferredField className={styles.input} type="number" step="0.01" value={item.monto_nc_proveedor ?? ''} onCommit={(v) => handleItemUpdate(item.id, 'monto_nc_proveedor', v ? Number(v) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Fecha envío</span>
@@ -1130,11 +1118,11 @@ export default function ModalRma({ caso, onClose }) {
           />
         }
       >
-        <p style={{ margin: '0 0 12px', color: 'var(--cf-text-secondary)' }}>
+        <p className={styles.confirmMessage}>
           {confirmDialog.message}
         </p>
         {confirmDialog.challengeWord && (
-          <label style={{ display: 'block', marginBottom: 12 }}>
+          <label className={styles.confirmField}>
             <span className={styles.label}>
               Escribí <strong>{confirmDialog.challengeWord}</strong> para confirmar:
             </span>
@@ -1148,7 +1136,7 @@ export default function ModalRma({ caso, onClose }) {
           </label>
         )}
         {confirmDialog.showComment && (
-          <label style={{ display: 'block' }}>
+          <label className={styles.confirmField}>
             <span className={styles.label}>Motivo (opcional):</span>
             <textarea
               className={styles.textarea}

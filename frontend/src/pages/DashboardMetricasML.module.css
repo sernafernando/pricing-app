@@ -555,6 +555,10 @@
   color: var(--text-secondary);
 }
 
+.btnExportar {
+  margin-left: var(--spacing-sm);
+}
+
 .tableOperaciones {
   width: 100%;
   table-layout: auto;
@@ -633,6 +637,24 @@
   border-radius: 4px;
   border: 1px solid #badbcc;
   display: inline-block;
+}
+
+/* Fila pack - para identificar operaciones que son parte de un pack ML */
+.rowPack {
+  background-color: rgba(139, 92, 246, 0.08);
+}
+
+.rowPack:hover {
+  background-color: rgba(139, 92, 246, 0.14) !important;
+}
+
+/* Dark mode - Fila pack */
+:global([data-theme="dark"]) .rowPack {
+  background-color: rgba(139, 92, 246, 0.15);
+}
+
+:global([data-theme="dark"]) .rowPack:hover {
+  background-color: rgba(139, 92, 246, 0.25) !important;
 }
 
 /* Fila sin costo - estilo sutil */
@@ -1087,6 +1109,10 @@
 }
 
 .offsetFlexValue {
+  color: #d97706;
+}
+
+.offsetFlexPercent {
   color: #d97706;
 }
 
