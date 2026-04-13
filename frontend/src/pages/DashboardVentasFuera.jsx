@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
+import { Star, DollarSign } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -76,6 +77,8 @@ export default function DashboardVentasFuera() {
   const [stats, setStats] = useState(null);
   const [ventasPorMarca, setVentasPorMarca] = useState([]);
   const [topProductos, setTopProductos] = useState([]);
+  const [topProductosFacturacion, setTopProductosFacturacion] = useState([]);
+  const [topLimit, setTopLimit] = useState(10);
   const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
   const [vendedoresDisponibles, setVendedoresDisponibles] = useState([]);
 
@@ -146,15 +149,17 @@ export default function DashboardVentasFuera() {
       }
 
       // Cargar todos los datos en paralelo
-      const [statsRes, marcasRes, productosRes] = await Promise.all([
+      const [statsRes, marcasRes, productosRes, productosFacturacionRes] = await Promise.all([
         api.get('/ventas-fuera-ml/stats', { params }),
         api.get('/ventas-fuera-ml/por-marca', { params: { ...params, limit: 15 } }),
-        api.get('/ventas-fuera-ml/top-productos', { params: { ...params, limit: 20 } })
+        api.get('/ventas-fuera-ml/top-productos', { params: { ...params, limit: 50 } }),
+        api.get('/ventas-fuera-ml/top-productos', { params: { ...params, limit: 50, orden: 'facturacion' } })
       ]);
 
       setStats(statsRes.data);
       setVentasPorMarca(marcasRes.data || []);
       setTopProductos(productosRes.data || []);
+      setTopProductosFacturacion(productosFacturacionRes.data || []);
 
       // Usar las listas completas de sucursales y vendedores disponibles
       if (statsRes.data) {
@@ -1133,10 +1138,17 @@ export default function DashboardVentasFuera() {
             </div>
           </div>
 
-          {/* Top Productos (ancho completo) */}
+          {/* Top Productos por Unidades (ancho completo) */}
           {topProductos.length > 0 && (
             <div className={styles.timelineCard}>
-              <h3 className={styles.chartTitle}>⭐ Top Productos</h3>
+              <div className={styles.chartHeader}>
+                <h3 className={styles.chartTitle}><Star size={16} /> Top Productos por Unidades</h3>
+                <select className={styles.topLimitSelect} value={topLimit} onChange={(e) => setTopLimit(Number(e.target.value))}>
+                  <option value={10}>Top 10</option>
+                  <option value={25}>Top 25</option>
+                  <option value={50}>Top 50</option>
+                </select>
+              </div>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
                   <thead>
@@ -1150,7 +1162,47 @@ export default function DashboardVentasFuera() {
                     </tr>
                   </thead>
                   <tbody>
-                    {topProductos.map((item, idx) => (
+                    {topProductos.slice(0, topLimit).map((item, idx) => (
+                      <tr key={idx}>
+                        <td>{item.codigo}</td>
+                        <td className={styles.descripcion}>{item.descripcion}</td>
+                        <td>{item.marca}</td>
+                        <td className={styles.monto}>{formatearMoneda(item.monto_total)}</td>
+                        <td className={styles.centrado}>{Math.round(item.unidades_vendidas)}</td>
+                        <td className={styles.centrado}>{item.cantidad_operaciones}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Top Productos por Facturación (ancho completo) */}
+          {topProductosFacturacion.length > 0 && (
+            <div className={styles.timelineCard}>
+              <div className={styles.chartHeader}>
+                <h3 className={styles.chartTitle}><DollarSign size={16} /> Top Productos por Facturación</h3>
+                <select className={styles.topLimitSelect} value={topLimit} onChange={(e) => setTopLimit(Number(e.target.value))}>
+                  <option value={10}>Top 10</option>
+                  <option value={25}>Top 25</option>
+                  <option value={50}>Top 50</option>
+                </select>
+              </div>
+              <div className={styles.tableWrapper}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Descripción</th>
+                      <th>Marca</th>
+                      <th>Ventas ($)</th>
+                      <th>Unidades</th>
+                      <th>Operaciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topProductosFacturacion.slice(0, topLimit).map((item, idx) => (
                       <tr key={idx}>
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
