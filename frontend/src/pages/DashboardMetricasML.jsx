@@ -91,6 +91,7 @@ export default function DashboardMetricasML() {
   const [ventasPorLogistica, setVentasPorLogistica] = useState([]);
   const [ventasPorDia, setVentasPorDia] = useState([]);
   const [topProductos, setTopProductos] = useState([]);
+  const [topProductosFacturacion, setTopProductosFacturacion] = useState([]);
   const [pms, setPms] = useState([]);
 
   // Opciones disponibles para los filtros (independientes de los datos filtrados)
@@ -175,14 +176,16 @@ export default function DashboardMetricasML() {
         categoriasRes,
         logisticaRes,
         diasRes,
-        productosRes
+        productosRes,
+        productosFacturacionRes
       ] = await Promise.all([
         api.get('/dashboard-ml/metricas-generales', { params }),
         api.get('/dashboard-ml/por-marca', { params }),
         api.get('/dashboard-ml/por-categoria', { params }),
         api.get('/dashboard-ml/por-logistica', { params }),
         api.get('/dashboard-ml/por-dia', { params }),
-        api.get('/dashboard-ml/top-productos', { params })
+        api.get('/dashboard-ml/top-productos', { params }),
+        api.get('/dashboard-ml/top-productos', { params: { ...params, orden: 'facturacion' } })
       ]);
 
       setMetricasGenerales(metricasRes.data);
@@ -191,6 +194,7 @@ export default function DashboardMetricasML() {
       setVentasPorLogistica(logisticaRes.data || []);
       setVentasPorDia(diasRes.data || []);
       setTopProductos(productosRes.data || []);
+      setTopProductosFacturacion(productosFacturacionRes.data || []);
     } catch {
       showToast('Error al cargar el dashboard', 'error');
     } finally {
@@ -1127,10 +1131,10 @@ export default function DashboardMetricasML() {
             </div>
           </div>
 
-          {/* Top Productos (ancho completo) */}
+           {/* Top Productos por Unidades (ancho completo) */}
           {topProductos.length > 0 && (
             <div className={styles.timelineCard}>
-              <h3 className={styles.chartTitle}><Star size={16} /> Top Productos</h3>
+              <h3 className={styles.chartTitle}><Star size={16} /> Top Productos por Unidades</h3>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
                   <thead>
@@ -1146,6 +1150,41 @@ export default function DashboardMetricasML() {
                   </thead>
                   <tbody>
                     {topProductos.map((item, idx) => (
+                      <tr key={idx}>
+                        <td>{item.codigo}</td>
+                        <td className={styles.descripcion}>{item.descripcion}</td>
+                        <td>{item.marca}</td>
+                        <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
+                        <td className={styles.monto}>{puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</td>
+                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
+                        <td className={styles.centrado}>{item.cantidad_unidades}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Top Productos por Facturación (ancho completo) */}
+          {topProductosFacturacion.length > 0 && (
+            <div className={styles.timelineCard}>
+              <h3 className={styles.chartTitle}><DollarSign size={16} /> Top Productos por Facturación</h3>
+              <div className={styles.tableWrapper}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Descripción</th>
+                      <th>Marca</th>
+                      <th>Ventas</th>
+                      <th>Ganancia</th>
+                      <th>Markup</th>
+                      <th>Unids</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topProductosFacturacion.map((item, idx) => (
                       <tr key={idx}>
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
