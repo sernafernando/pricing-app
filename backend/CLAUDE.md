@@ -73,6 +73,11 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 - NEVER: Store plain text passwords
 - NEVER: Log sensitive data
 
+### Long-lived endpoints (SSE / WebSocket / streaming sync)
+- ALWAYS: Use `get_current_user_transient` (from `app.api.deps`) for any endpoint that returns a `StreamingResponse` doing background work, an SSE stream, or a WebSocket. It opens/closes the DB session immediately and returns a detached `Usuario`.
+- NEVER: Use `Depends(get_current_user)` (or anything that chains `Depends(get_db)`) on long-lived endpoints — the session stays pinned for the entire response lifetime and exhausts the pool (`QueuePool limit ... timeout` in production).
+- One-shot Excel/CSV exports that build a `BytesIO` in memory and return `StreamingResponse(buffer, ...)` are NOT long-lived and may use `get_current_user` normally.
+
 ---
 
 ## TECH STACK
