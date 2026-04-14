@@ -11,9 +11,12 @@ Cuando un item tiene `free_shipping: true` pero su precio de rebate (el precio r
 Ambos sistemas comparten la misma base de datos PostgreSQL.
 
 **Conexión:**
-```
-postgresql://mluser:GaussDB1214@localhost:5432/mlwebhook
-```
+
+Las credenciales NO están en este repo. Obtenerlas del `.env` del servicio:
+- ml-webhook: `/srv/apps/ml-webhook/.env`
+- pricing-app: `/var/www/html/pricing-app/backend/.env`
+
+Formato: `postgresql://<user>:<password>@localhost:5432/<database>`
 
 ### Tabla: `ml_previews`
 
