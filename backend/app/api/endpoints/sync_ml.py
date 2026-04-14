@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from app.core.database import get_background_db
 from app.services.sync_precios_ml import sincronizar_precios_ml, PRICELISTS
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_transient
 
 router = APIRouter()
 
@@ -62,7 +62,7 @@ def listar_listas(current_user=Depends(get_current_user)):
 
 @router.post("/sync-ml/publicaciones-full")
 async def sincronizar_publicaciones_full(
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_user_transient),
 ):
     """
     Ejecuta sync_ml_items_publicados_full (GBP) + sync_ml_publications_incremental (API ML).
