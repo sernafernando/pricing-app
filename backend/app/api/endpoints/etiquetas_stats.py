@@ -87,74 +87,57 @@ def estadisticas_etiquetas(
         fecha_filter = EtiquetaEnvio.fecha_envio == date.today()
         fecha_costo = date.today()
 
-    # ── Pre-filtrar shipping_ids por fecha ────────────────────────
-    # Obtener solo los IDs del rango de fechas ANTES de armar subqueries
-    # pesadas. Reduce scan de 88k+ filas a ~50-200 (performance).
+    # ── Construir filtro de IDs ligero ──────────────────────────
+    # En vez de armar 5 JOINs pesados (con ROW_NUMBER) para filtrar IDs,
+    # construimos el filtro con los JOINs mínimos necesarios según los
+    # filtros activos. El caso común (solo fecha) no necesita ningún JOIN.
+    colecta_ids_stats = db.query(EtiquetaColecta.shipping_id).subquery()
+
+    # Determinar si necesitamos subqueries pesadas para el filtrado
+    needs_shipping = bool(mlstatus or search)
+    needs_cordon = bool(cordon or sin_cordon)
+    needs_soh = ssos_id is not None
+
+    # Pre-filtrar shipping_ids por fecha (sin JOINs pesados)
     ids_fecha_stats = db.query(EtiquetaEnvio.shipping_id).filter(fecha_filter).scalar_subquery()
 
-    # ── Subquery de IDs filtrados ────────────────────────────────
-    # Construye la misma lógica de filtros del listado como subquery
-    # de shipping_ids. Todas las queries de stats la usan para limitar
-    # al mismo set que ve el usuario en la tabla.
+    # Solo crear subqueries pesadas si los filtros las necesitan o las stats las usan
     shipping_stats = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_stats)
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
     manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
     facturado_ml_stats = _facturado_ml_subquery(db, shipping_ids_sub=ids_fecha_stats)
     facturado_manual_stats = _facturado_manual_subquery(db, shipping_ids_sub=ids_fecha_stats)
 
-    stats_eff_zip = func.coalesce(
-        EtiquetaEnvio.manual_zip_code,
-        shipping_stats.c.mlzip_code,
-    )
-    stats_eff_status = func.coalesce(
-        EtiquetaEnvio.manual_status,
-        shipping_stats.c.mlstatus,
-    )
-    stats_eff_receiver = func.coalesce(
-        EtiquetaEnvio.manual_receiver_name,
-        shipping_stats.c.mlreceiver_name,
-    )
-    stats_eff_street = func.coalesce(
-        EtiquetaEnvio.manual_street_name,
-        shipping_stats.c.mlstreet_name,
-    )
-    stats_eff_city = func.coalesce(
-        EtiquetaEnvio.manual_city_name,
-        shipping_stats.c.mlcity_name,
-    )
+    # Construir filtered_ids_q con JOINs condicionales
+    filtered_ids_q = db.query(EtiquetaEnvio.shipping_id).filter(fecha_filter)
 
-    # CP efectivo para resolver cordón en stats: si hay transporte con CP,
-    # usar ese; sino, usar el CP del cliente.  Mismo patrón que listar_etiquetas.
-    stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
+    # JOINs solo si los filtros los necesitan
+    if needs_shipping or needs_cordon:
+        filtered_ids_q = filtered_ids_q.outerjoin(
+            shipping_stats, EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid
+        )
 
-    filtered_ids_q = (
-        db.query(EtiquetaEnvio.shipping_id)
-        .outerjoin(
-            shipping_stats,
-            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
+    if needs_cordon:
+        filtered_ids_q = filtered_ids_q.outerjoin(Transporte, EtiquetaEnvio.transporte_id == Transporte.id)
+        stats_eff_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, shipping_stats.c.mlzip_code)
+        stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
+        filtered_ids_q = filtered_ids_q.outerjoin(
+            CodigoPostalCordon, stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal
         )
-        .outerjoin(
-            Transporte,
-            EtiquetaEnvio.transporte_id == Transporte.id,
-        )
-        .outerjoin(
-            CodigoPostalCordon,
-            stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
-        )
-        .outerjoin(
-            soh_sub,
-            soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
-        )
-        .outerjoin(
-            manual_soh_sub,
-            manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
-        )
-        .filter(fecha_filter)
-    )
+        if cordon:
+            filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon == cordon)
+        if sin_cordon:
+            filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon.is_(None))
 
-    # Aplicar los mismos filtros que el listado
-    if cordon:
-        filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon == cordon)
+    if needs_soh:
+        filtered_ids_q = filtered_ids_q.outerjoin(
+            soh_sub, soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id
+        ).outerjoin(manual_soh_sub, manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+        filtered_ids_q = filtered_ids_q.filter(
+            or_(soh_sub.c.soh_ssos_id == ssos_id, manual_soh_sub.c.manual_ssos_id == ssos_id)
+        )
+
+    # Filtros directos sobre etiquetas_envio (no necesitan JOINs)
     if logistica_id:
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.logistica_id == logistica_id)
     if sin_logistica:
@@ -163,20 +146,20 @@ def estadisticas_etiquetas(
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.es_outlet.is_(True))
     if solo_turbo:
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.es_turbo.is_(True))
-    if mlstatus:
-        filtered_ids_q = filtered_ids_q.filter(stats_eff_status == mlstatus)
-    if ssos_id is not None:
-        filtered_ids_q = filtered_ids_q.filter(
-            or_(soh_sub.c.soh_ssos_id == ssos_id, manual_soh_sub.c.manual_ssos_id == ssos_id)
-        )
     if pistoleado == "si":
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
     elif pistoleado == "no":
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.pistoleado_at.is_(None))
-    if sin_cordon:
-        filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon.is_(None))
+
+    if mlstatus:
+        stats_eff_status_filter = func.coalesce(EtiquetaEnvio.manual_status, shipping_stats.c.mlstatus)
+        filtered_ids_q = filtered_ids_q.filter(stats_eff_status_filter == mlstatus)
+
     if search:
         search_term = f"%{search}%"
+        stats_eff_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_stats.c.mlreceiver_name)
+        stats_eff_street = func.coalesce(EtiquetaEnvio.manual_street_name, shipping_stats.c.mlstreet_name)
+        stats_eff_city = func.coalesce(EtiquetaEnvio.manual_city_name, shipping_stats.c.mlcity_name)
         filtered_ids_q = filtered_ids_q.filter(
             (EtiquetaEnvio.shipping_id.ilike(search_term))
             | (stats_eff_receiver.ilike(search_term))
@@ -184,14 +167,18 @@ def estadisticas_etiquetas(
             | (stats_eff_city.ilike(search_term))
         )
 
-    # Excluir etiquetas que existen en colecta (son de otro flujo)
-    colecta_ids_stats = db.query(EtiquetaColecta.shipping_id).subquery()
+    # Excluir colecta
     filtered_ids_q = filtered_ids_q.filter(~EtiquetaEnvio.shipping_id.in_(db.query(colecta_ids_stats.c.shipping_id)))
 
     filtered_ids_sub = filtered_ids_q.subquery()
 
     # Filtro reutilizable: restringe a los shipping_ids filtrados
     ids_filter = EtiquetaEnvio.shipping_id.in_(db.query(filtered_ids_sub.c.shipping_id))
+
+    # Expressions needed by downstream stats queries (re-join shipping for stats that need it)
+    stats_eff_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, shipping_stats.c.mlzip_code)
+    stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
+    stats_eff_status = func.coalesce(EtiquetaEnvio.manual_status, shipping_stats.c.mlstatus)
 
     # Base counts: total, flagged, retornados en UNA sola query con CASE/WHEN.
     # Antes eran 3 queries separadas escaneando la misma tabla con el mismo filtro.
