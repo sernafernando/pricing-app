@@ -56,15 +56,16 @@ else:
         pool_use_lifo=True,
     )
 
-    # Safety net: kill queries running longer than 60s.
-    # Can't use connect_args with PgBouncer (transaction mode rejects
-    # startup parameters), so we SET it after each connection checkout.
+    # Safety nets for connection health with PgBouncer (transaction mode).
+    # Can't use connect_args (PgBouncer rejects startup parameters).
+    # Use "checkout" event (fires every time a connection leaves the pool)
+    # instead of "connect" (only fires on new connections).
     from sqlalchemy import event
 
-    @event.listens_for(engine, "connect")
-    def _set_statement_timeout(dbapi_conn, connection_record):
+    @event.listens_for(engine, "checkout")
+    def _set_session_timeouts(dbapi_conn, connection_record, connection_proxy):
         cursor = dbapi_conn.cursor()
-        cursor.execute("SET statement_timeout = '60s'")
+        cursor.execute("SET statement_timeout = '60s';SET idle_in_transaction_session_timeout = '120s'")
         cursor.close()
 
 
