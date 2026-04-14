@@ -108,15 +108,17 @@ async def run_free_shipping_auto_fix() -> dict:
     logger.info("Free shipping auto-fix: found %d items with free_shipping_error", len(rows))
 
     # 2. Procesar cada item — sin cooldown, ML reactiva cada ~10-15 min
-    with get_background_db() as db:
-        for row in rows:
-            mla_id = row.mla_base
-            price_str = str(row.price) if row.price is not None else None
-            _tags, mandatory = _parse_shipping_tags(row.shipping_tags)
+    # Sesión corta por item: abrir → log → cerrar. No retener conexión
+    # del pool mientras esperamos respuesta de la API de MercadoLibre.
+    for row in rows:
+        mla_id = row.mla_base
+        price_str = str(row.price) if row.price is not None else None
+        _tags, mandatory = _parse_shipping_tags(row.shipping_tags)
 
-            # Skip: mandatory_free_shipping — ML no deja sacarlo
-            if mandatory:
-                stats["skipped_mandatory"] += 1
+        # Skip: mandatory_free_shipping — ML no deja sacarlo
+        if mandatory:
+            stats["skipped_mandatory"] += 1
+            with get_background_db() as db:
                 _log_attempt(
                     db,
                     mla_id=mla_id,
@@ -126,14 +128,15 @@ async def run_free_shipping_auto_fix() -> dict:
                     item_price=price_str,
                     mandatory=True,
                 )
-                continue
+            continue
 
-            # 3. Disparar PUT a MercadoLibre
-            try:
-                result_ml = await ml_client.update_item_shipping(mla_id, free_shipping=False)
+        # 3. Disparar PUT a MercadoLibre (sin DB abierta)
+        try:
+            result_ml = await ml_client.update_item_shipping(mla_id, free_shipping=False)
 
-                if result_ml is not None:
-                    stats["fixed"] += 1
+            if result_ml is not None:
+                stats["fixed"] += 1
+                with get_background_db() as db:
                     _log_attempt(
                         db,
                         mla_id=mla_id,
@@ -142,9 +145,10 @@ async def run_free_shipping_auto_fix() -> dict:
                         mandatory=False,
                         ml_status=200,
                     )
-                    logger.info("Auto-fix OK: %s free_shipping=false", mla_id)
-                else:
-                    stats["failed"] += 1
+                logger.info("Auto-fix OK: %s free_shipping=false", mla_id)
+            else:
+                stats["failed"] += 1
+                with get_background_db() as db:
                     _log_attempt(
                         db,
                         mla_id=mla_id,
@@ -153,10 +157,11 @@ async def run_free_shipping_auto_fix() -> dict:
                         mandatory=False,
                         skip_reason="ml_rejected",
                     )
-                    logger.warning("Auto-fix FAILED: %s — ML rejected", mla_id)
+                logger.warning("Auto-fix FAILED: %s — ML rejected", mla_id)
 
-            except Exception as e:
-                stats["failed"] += 1
+        except Exception as e:
+            stats["failed"] += 1
+            with get_background_db() as db:
                 _log_attempt(
                     db,
                     mla_id=mla_id,
@@ -165,7 +170,7 @@ async def run_free_shipping_auto_fix() -> dict:
                     mandatory=False,
                     skip_reason=f"exception: {str(e)[:80]}",
                 )
-                logger.error("Auto-fix ERROR for %s: %s", mla_id, e)
+            logger.error("Auto-fix ERROR for %s: %s", mla_id, e)
 
     logger.info(
         "Free shipping auto-fix complete: %s",

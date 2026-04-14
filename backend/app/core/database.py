@@ -36,21 +36,21 @@ if _is_script_context():
         poolclass=NullPool,
     )
 else:
-    # FastAPI/uvicorn: pool pequeño — PgBouncer hace el pooling pesado.
-    # pool_size=5        → 5 conexiones persistentes por worker a PgBouncer
-    # max_overflow=3     → hasta 8 total por worker en picos
+    # FastAPI/uvicorn: pool moderado — PgBouncer hace el pooling pesado.
+    # pool_size=8        → 8 conexiones persistentes por worker a PgBouncer
+    # max_overflow=4     → hasta 12 total por worker en picos
     # pool_recycle=600   → recicla cada 10 min (≤ PgBouncer server_idle_timeout)
     # pool_timeout=30    → espera 30s antes de fallar
     # pool_pre_ping=True → detecta conexiones que PgBouncer cerró por idle
     # pool_use_lifo=True → reutiliza la conexión más fresca (menos chance de stale)
     #
-    # Con 8 workers: 8 × 8 = 64 client-conns a PgBouncer (max_client_conn=500)
-    # PgBouncer → PostgreSQL: ~80-90 conexiones reales (max_connections=200)
+    # Con 4 workers: 4 × 12 = 48 client-conns a PgBouncer (max_client_conn=500)
+    # PgBouncer → PostgreSQL: ~60-70 conexiones reales (max_connections=200)
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=3,
+        pool_size=8,
+        max_overflow=4,
         pool_recycle=600,
         pool_timeout=30,
         pool_use_lifo=True,

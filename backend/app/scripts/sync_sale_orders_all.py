@@ -34,7 +34,7 @@ import httpx
 from datetime import datetime, timedelta, date
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_background_db
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.sale_order_header_history import SaleOrderHeaderHistory
@@ -583,39 +583,61 @@ async def main_async(days: int = 7):
     """
     Función principal async.
 
+    Cuando corre como background task dentro de uvicorn, usa get_background_db()
+    para abrir/cerrar una sesión por cada tabla — no retiene conexiones del pool
+    durante toda la sincronización.
+
+    Cuando corre como script standalone (python -m), usa SessionLocal() con
+    NullPool (detectado automáticamente por _is_script_context()).
+
     Args:
         days: Días hacia atrás para sincronizar (default: 7 para ejecuciones frecuentes)
     """
+    from app.core.database import _is_script_context
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("=" * 60)
     print(f"SYNC SALE ORDERS (últimos {days} días) - {timestamp}")
     print("=" * 60)
 
-    db = SessionLocal()
-    try:
-        # Sincronizar las 4 tablas
-        result_header = await sync_sale_order_header(db, days)
-        result_detail = await sync_sale_order_detail(db, days)
-        result_header_hist = await sync_sale_order_header_history(db, days)
-        result_detail_hist = await sync_sale_order_detail_history(db, days)
+    if _is_script_context():
+        # Script standalone: una sola sesión (NullPool, no compite con nadie)
+        db = SessionLocal()
+        try:
+            result_header = await sync_sale_order_header(db, days)
+            result_detail = await sync_sale_order_detail(db, days)
+            result_header_hist = await sync_sale_order_header_history(db, days)
+            result_detail_hist = await sync_sale_order_detail_history(db, days)
+        except Exception as e:
+            print(f"\n❌ Error durante la sincronización: {str(e)}")
+            import traceback
 
-        print("\n" + "=" * 60)
-        print("✅ SINCRONIZACIÓN COMPLETADA")
-        print("=" * 60)
-        print(f"Sale Order Header: {result_header[0]} nuevos, {result_header[1]} actualizados")
-        print(f"Sale Order Detail: {result_detail[0]} nuevos, {result_detail[1]} actualizados")
-        print(f"Header History: {result_header_hist[0]} nuevos, {result_header_hist[1]} actualizados")
-        print(f"Detail History: {result_detail_hist[0]} nuevos, {result_detail_hist[1]} actualizados")
+            traceback.print_exc()
+            db.rollback()
+            sys.exit(1)
+        finally:
+            db.close()
+    else:
+        # Background task en uvicorn: sesión corta por tabla para no drenar el pool
+        with get_background_db() as db:
+            result_header = await sync_sale_order_header(db, days)
 
-    except Exception as e:
-        print(f"\n❌ Error durante la sincronización: {str(e)}")
-        import traceback
+        with get_background_db() as db:
+            result_detail = await sync_sale_order_detail(db, days)
 
-        traceback.print_exc()
-        db.rollback()
-        sys.exit(1)
-    finally:
-        db.close()
+        with get_background_db() as db:
+            result_header_hist = await sync_sale_order_header_history(db, days)
+
+        with get_background_db() as db:
+            result_detail_hist = await sync_sale_order_detail_history(db, days)
+
+    print("\n" + "=" * 60)
+    print("✅ SINCRONIZACIÓN COMPLETADA")
+    print("=" * 60)
+    print(f"Sale Order Header: {result_header[0]} nuevos, {result_header[1]} actualizados")
+    print(f"Sale Order Detail: {result_detail[0]} nuevos, {result_detail[1]} actualizados")
+    print(f"Header History: {result_header_hist[0]} nuevos, {result_header_hist[1]} actualizados")
+    print(f"Detail History: {result_detail_hist[0]} nuevos, {result_detail_hist[1]} actualizados")
 
 
 def main():
