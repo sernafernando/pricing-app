@@ -172,7 +172,7 @@ def listar_productos(
     if search:
         # Parsear operadores de búsqueda
         search_filter = None
-        logger.info(f"🔍 Búsqueda recibida: '{search}'")
+        logger.debug(f"Búsqueda recibida: '{search}'")
 
         # Detectar búsquedas literales: campo:valor
         if ":" in search and not search.startswith("*") and not search.endswith("*"):
@@ -182,7 +182,7 @@ def listar_productos(
 
                 if field == "ean":
                     # EAN no está disponible en ProductoERP, buscar por código
-                    logger.info(f"✅ Buscando EAN '{value}' en campo código")
+                    logger.debug(f"Buscando EAN '{value}' en campo código")
                     search_filter = and_(
                         ProductoERP.codigo.isnot(None),
                         ProductoERP.codigo != "",
@@ -228,7 +228,7 @@ def listar_productos(
         elif search.startswith("*") and not search.endswith("*"):
             # Termina en
             value = search[1:].upper()
-            logger.info(f"✅ Filtrando por TERMINA EN: '{value}'")
+            logger.debug(f"Filtrando por TERMINA EN: '{value}'")
             search_filter = or_(
                 and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
                 and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
@@ -257,7 +257,7 @@ def listar_productos(
 
         # Aplicar filtro de búsqueda
         if search_filter is not None:
-            logger.info("✅ Aplicando filtro de búsqueda")
+            logger.debug("Aplicando filtro de búsqueda")
             query = query.filter(search_filter)
         else:
             logger.warning("⚠️ search_filter quedó en None! No se aplicó ningún filtro")
