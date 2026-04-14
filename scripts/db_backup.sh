@@ -19,23 +19,31 @@ RETENTION_DAYS=30
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILE="${BACKUP_DIR}/pricing_db_${TIMESTAMP}.dump.gz"
 
-# DB config (lee del .env del backend o usa defaults)
+# DB config (lee DATABASE_URL del .env del backend; falla si no existe)
 ENV_FILE="/var/www/html/pricing-app/backend/.env"
-if [ -f "$ENV_FILE" ]; then
-    # Extraer datos de DATABASE_URL
-    DB_URL=$(grep -E "^DATABASE_URL=" "$ENV_FILE" | cut -d'=' -f2-)
-    DB_USER=$(echo "$DB_URL" | sed -n 's|postgresql://\([^:]*\):.*|\1|p')
-    DB_PASS=$(echo "$DB_URL" | sed -n 's|postgresql://[^:]*:\([^@]*\)@.*|\1|p')
-    DB_HOST=$(echo "$DB_URL" | sed -n 's|.*@\([^:]*\):.*|\1|p')
-    DB_PORT=$(echo "$DB_URL" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
-    DB_NAME=$(echo "$DB_URL" | sed -n 's|.*/\([^?]*\).*|\1|p')
-else
-    DB_USER="pricing_user"
-    DB_PASS="GaussDB1214"
-    DB_HOST="localhost"
-    DB_PORT="5432"
-    DB_NAME="pricing_db"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: $ENV_FILE no existe. Abortando backup." >&2
+    exit 1
 fi
+
+DB_URL=$(grep -E "^DATABASE_URL=" "$ENV_FILE" | cut -d'=' -f2-)
+if [ -z "$DB_URL" ]; then
+    echo "ERROR: DATABASE_URL no definida en $ENV_FILE. Abortando." >&2
+    exit 1
+fi
+
+DB_USER=$(echo "$DB_URL" | sed -n 's|postgresql://\([^:]*\):.*|\1|p')
+DB_PASS=$(echo "$DB_URL" | sed -n 's|postgresql://[^:]*:\([^@]*\)@.*|\1|p')
+DB_HOST=$(echo "$DB_URL" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+DB_PORT=$(echo "$DB_URL" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+DB_NAME=$(echo "$DB_URL" | sed -n 's|.*/\([^?]*\).*|\1|p')
+
+for var in DB_USER DB_PASS DB_HOST DB_PORT DB_NAME; do
+    if [ -z "${!var}" ]; then
+        echo "ERROR: $var no pudo extraerse de DATABASE_URL. Abortando." >&2
+        exit 1
+    fi
+done
 
 # --- Setup ---
 echo "============================================"
