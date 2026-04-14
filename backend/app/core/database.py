@@ -54,6 +54,10 @@ else:
         pool_recycle=600,
         pool_timeout=30,
         pool_use_lifo=True,
+        # Safety net: kill queries running longer than 60s.
+        # No endpoint query should take that long — if it does,
+        # the connection must be freed to prevent pool starvation.
+        connect_args={"options": "-c statement_timeout=60000"},
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

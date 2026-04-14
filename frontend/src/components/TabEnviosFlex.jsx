@@ -125,6 +125,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
   // Smart polling ref (count + lastUpdated del último check)
   const pollingRef = useRef({ count: null, lastUpdated: null });
+  const abortRef = useRef(null);
 
   // Filtros
   const [fechaDesde, setFechaDesde] = useState(todayStr());
@@ -394,15 +395,21 @@ export default function TabEnviosFlex({ operador = null }) {
   }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, debouncedSearch]);
 
   const cargarDatos = useCallback(async () => {
+    // Cancelar request anterior si todavía está en vuelo
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
       const params = buildFilterParams();
+      const signal = controller.signal;
 
       // Cargar listado y estadísticas en paralelo, pero independientes:
       // si las estadísticas fallan (ej: timeout 524) el listado sigue funcionando.
-      const etiqPromise = api.get(`/etiquetas-envio?${params}`);
-      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`);
+      const etiqPromise = api.get(`/etiquetas-envio?${params}`, { signal });
+      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`, { signal });
 
       const etiqResponse = await etiqPromise;
       setEtiquetas(etiqResponse.data);
@@ -419,6 +426,8 @@ export default function TabEnviosFlex({ operador = null }) {
       // (se recalcula en el siguiente tick de polling)
       pollingRef.current = { count: null, lastUpdated: null };
     } catch (err) {
+      // Ignorar errores de cancelación — son intencionales
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       setError('Error cargando etiquetas');
       console.error(err);
     } finally {
