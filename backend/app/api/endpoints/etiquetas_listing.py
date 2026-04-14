@@ -399,9 +399,10 @@ def listar_etiquetas(
     # Si page NO se envía (None) → lista plana [] (comportamiento original)
     if page is not None:
         # Count total ANTES de aplicar LIMIT/OFFSET.
-        # Usamos una subquery con los shipping_ids filtrados para evitar
-        # re-ejecutar todos los JOINs en el COUNT — solo contamos IDs.
-        total_count = query.with_entities(EtiquetaEnvio.shipping_id).count()
+        # Extraer los IDs filtrados como subquery y contar sobre eso,
+        # evitando que SQLAlchemy wrappee los 14 JOINs en un SELECT count(*) FROM (...).
+        filtered_ids = query.with_entities(EtiquetaEnvio.shipping_id).subquery()
+        total_count = db.query(func.count()).select_from(filtered_ids).scalar() or 0
         offset = (page - 1) * page_size
         query = query.limit(page_size).offset(offset)
 

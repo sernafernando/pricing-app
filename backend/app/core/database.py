@@ -54,6 +54,10 @@ else:
         pool_recycle=600,
         pool_timeout=30,
         pool_use_lifo=True,
+        # Kill any query that runs longer than 30s.
+        # Prevents a single slow query from holding a connection forever
+        # and starving the pool (e.g. etiquetas_envio count with 14 JOINs).
+        connect_args={"options": "-c statement_timeout=30000"},
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
