@@ -727,7 +727,7 @@ async def crear_caso(
 
     db.commit()
 
-    return await obtener_caso(caso.id, db, current_user)
+    return obtener_caso(caso.id, db, current_user)
 
 
 @router.put("/{caso_id}", response_model=CasoResponse)
@@ -759,7 +759,7 @@ async def actualizar_caso(
         _registrar_cambio(db, caso_id, key, old_value, value, current_user.id)
 
     db.commit()
-    return await obtener_caso(caso_id, db, current_user)
+    return obtener_caso(caso_id, db, current_user)
 
 
 # ──────────────────────────────────────────────
