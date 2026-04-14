@@ -284,41 +284,47 @@ export default function ModalRma({ caso, onClose }) {
       return;
     }
 
+    if (esNuevo) {
+      // Background save: cerramos el modal inmediatamente y la request sigue en segundo plano.
+      // El padre recibe la promesa para actualizar el listado cuando termine.
+      const savePromise = api.post('/rma-seguimiento', {
+        cust_id: casoData.cust_id,
+        cliente_nombre: casoData.cliente_nombre,
+        cliente_dni: casoData.cliente_dni,
+        cliente_numero: casoData.cliente_numero,
+        ml_id: casoData.ml_id,
+        origen: casoData.origen,
+        items: (casoData.items || []).map((i) => ({
+          serial_number: i.serial_number,
+          item_id: i.item_id,
+          is_id: i.is_id,
+          it_transaction: i.it_transaction,
+          ean: i.ean,
+          producto_desc: i.producto_desc,
+          precio: i.precio,
+          estado_facturacion: i.estado_facturacion,
+          link_ml: i.link_ml,
+          supp_id: i.supp_id,
+          proveedor_nombre: i.proveedor_nombre,
+        })),
+      });
+      guardandoRef.current = false;
+      onClose({ backgroundSave: savePromise });
+      return;
+    }
+
+    // Caso existente: guardado síncrono (es rápido, solo actualiza campos a nivel caso)
     setGuardando(true);
     try {
-      if (esNuevo) {
-        await api.post('/rma-seguimiento', {
-          cust_id: casoData.cust_id,
-          cliente_nombre: casoData.cliente_nombre,
-          cliente_dni: casoData.cliente_dni,
-          cliente_numero: casoData.cliente_numero,
-          ml_id: casoData.ml_id,
-          origen: casoData.origen,
-          items: (casoData.items || []).map((i) => ({
-            serial_number: i.serial_number,
-            item_id: i.item_id,
-            is_id: i.is_id,
-            it_transaction: i.it_transaction,
-            ean: i.ean,
-            producto_desc: i.producto_desc,
-            precio: i.precio,
-            estado_facturacion: i.estado_facturacion,
-            link_ml: i.link_ml,
-            supp_id: i.supp_id,
-            proveedor_nombre: i.proveedor_nombre,
-          })),
-        });
-      } else {
-        await api.put(`/rma-seguimiento/${caso.id}`, {
-          estado_caso_id: casoData.estado_caso_id,
-          marcado_borrar_pedido: casoData.marcado_borrar_pedido,
-          estado_reclamo_ml_id: casoData.estado_reclamo_ml_id,
-          cobertura_ml_id: casoData.cobertura_ml_id,
-          monto_cubierto: casoData.monto_cubierto,
-          observaciones: casoData.observaciones,
-          corroborar_nc: casoData.corroborar_nc,
-        });
-      }
+      await api.put(`/rma-seguimiento/${caso.id}`, {
+        estado_caso_id: casoData.estado_caso_id,
+        marcado_borrar_pedido: casoData.marcado_borrar_pedido,
+        estado_reclamo_ml_id: casoData.estado_reclamo_ml_id,
+        cobertura_ml_id: casoData.cobertura_ml_id,
+        monto_cubierto: casoData.monto_cubierto,
+        observaciones: casoData.observaciones,
+        corroborar_nc: casoData.corroborar_nc,
+      });
       onClose(true);
     } catch {
       setGuardarError('Error al guardar el caso. Intentá de nuevo.');

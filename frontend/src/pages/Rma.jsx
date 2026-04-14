@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useToast } from '../hooks/useToast';
 import api from '../services/api';
 import ModalRma from '../components/ModalRma';
 import RmaAdminOpciones from '../components/RmaAdminOpciones';
 import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
 import RmaEnviosCliente from '../components/RmaEnviosCliente';
+import Toast from '../components/Toast';
 import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown } from 'lucide-react';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './Rma.module.css';
@@ -36,6 +38,9 @@ export default function Rma() {
   const page = getFilter('page');
   const estadoCasoId = getFilter('estado_caso_id');
   const debouncedSearch = useDebounce(search, 500);
+
+  const { toast, showToast, hideToast } = useToast();
+  const backgroundSaveRef = useRef(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null);
@@ -100,10 +105,39 @@ export default function Rma() {
     setModalOpen(true);
   };
 
-  const handleModalClose = (updated) => {
+  const handleModalClose = (result) => {
     setModalOpen(false);
     setCasoSeleccionado(null);
-    if (updated) {
+
+    // Background save: el modal se cerró inmediatamente y la request sigue en segundo plano
+    if (result && typeof result === 'object' && result.backgroundSave) {
+      showToast('Creando caso RMA...', 'info');
+      const savePromise = result.backgroundSave;
+      backgroundSaveRef.current = savePromise;
+
+      savePromise
+        .then(() => {
+          // Solo actualizamos si esta promesa sigue siendo la vigente
+          // (evita recargar si el usuario ya abrió otro modal y lanzó otro save)
+          if (backgroundSaveRef.current === savePromise) {
+            backgroundSaveRef.current = null;
+            showToast('Caso RMA creado correctamente', 'success');
+            // Recargar solo si el modal NO está abierto (no pisarle la página al usuario)
+            cargarCasos();
+            cargarStats();
+          }
+        })
+        .catch(() => {
+          if (backgroundSaveRef.current === savePromise) {
+            backgroundSaveRef.current = null;
+            showToast('Error al crear el caso RMA. Intentá de nuevo.', 'error');
+          }
+        });
+      return;
+    }
+
+    // Guardado síncrono (edición) o cierre con cambios
+    if (result === true) {
       cargarCasos();
       cargarStats();
     }
@@ -368,6 +402,9 @@ export default function Rma() {
         contexto="rma"
         entityData={docGenCaso}
       />
+
+      {/* Toast para notificaciones de background save */}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
