@@ -399,10 +399,85 @@ def listar_etiquetas(
     # Si page NO se envía (None) → lista plana [] (comportamiento original)
     if page is not None:
         # Count total ANTES de aplicar LIMIT/OFFSET.
-        # Extraer los IDs filtrados como subquery y contar sobre eso,
-        # evitando que SQLAlchemy wrappee los 14 JOINs en un SELECT count(*) FROM (...).
-        filtered_ids = query.with_entities(EtiquetaEnvio.shipping_id).subquery()
-        total_count = db.query(func.count()).select_from(filtered_ids).scalar() or 0
+        # Construimos un count query SEPARADO y ligero que solo incluye
+        # los JOINs estrictamente necesarios según los filtros activos.
+        # La query principal tiene 14 LEFT OUTER JOINs para traer datos de
+        # display — pero un LEFT JOIN nunca cambia la cantidad de filas,
+        # así que el count no los necesita excepto cuando se filtra por
+        # columnas de tablas joineadas (cordon, mlstatus, ssos_id, search).
+        count_q = db.query(func.count(EtiquetaEnvio.shipping_id)).select_from(EtiquetaEnvio)
+
+        # Fecha
+        if fecha_envio:
+            count_q = count_q.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+        else:
+            if fecha_desde:
+                count_q = count_q.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+            if fecha_hasta:
+                count_q = count_q.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+
+        # Filtros directos sobre etiquetas_envio (no necesitan JOIN)
+        if logistica_id is not None:
+            count_q = count_q.filter(EtiquetaEnvio.logistica_id == logistica_id)
+        if sin_logistica:
+            count_q = count_q.filter(EtiquetaEnvio.logistica_id.is_(None))
+        if solo_outlet:
+            count_q = count_q.filter(EtiquetaEnvio.es_outlet.is_(True))
+        if solo_turbo:
+            count_q = count_q.filter(EtiquetaEnvio.es_turbo.is_(True))
+        if pistoleado == "si":
+            count_q = count_q.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
+        elif pistoleado == "no":
+            count_q = count_q.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+
+        # Filtros que necesitan JOINs — solo agregarlos si están activos
+        if cordon or sin_cordon:
+            count_q = count_q.outerjoin(Transporte, EtiquetaEnvio.transporte_id == Transporte.id)
+            count_q = count_q.outerjoin(
+                CodigoPostalCordon,
+                func.coalesce(Transporte.cp, EtiquetaEnvio.manual_zip_code) == CodigoPostalCordon.codigo_postal,
+            )
+            if cordon:
+                count_q = count_q.filter(CodigoPostalCordon.cordon == cordon)
+            if sin_cordon:
+                count_q = count_q.filter(CodigoPostalCordon.cordon.is_(None))
+
+        if mlstatus:
+            count_q = count_q.outerjoin(shipping_sub, shipping_sub.c.mlshippingid == EtiquetaEnvio.shipping_id)
+            eff_status_count = func.coalesce(EtiquetaEnvio.manual_status, shipping_sub.c.mlstatus)
+            count_q = count_q.filter(eff_status_count == mlstatus)
+
+        if ssos_id is not None:
+            count_q = count_q.outerjoin(soh_sub, soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+            count_q = count_q.outerjoin(manual_soh_sub, manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+            count_q = count_q.filter(or_(soh_sub.c.soh_ssos_id == ssos_id, manual_soh_sub.c.manual_ssos_id == ssos_id))
+
+        if search:
+            # Search needs shipping + user data JOINs
+            search_term = f"%{search}%"
+            if not mlstatus:
+                count_q = count_q.outerjoin(shipping_sub, shipping_sub.c.mlshippingid == EtiquetaEnvio.shipping_id)
+            count_q = count_q.outerjoin(
+                MercadoLibreOrderHeader, shipping_sub.c.mlo_id == MercadoLibreOrderHeader.mlo_id
+            )
+            count_q = count_q.outerjoin(
+                MercadoLibreUserData, MercadoLibreOrderHeader.mlo_seller_id == MercadoLibreUserData.user_id
+            )
+            eff_receiver_count = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_sub.c.mlreceiver_name)
+            eff_street_count = func.coalesce(EtiquetaEnvio.manual_street_name, shipping_sub.c.mlstreet_name)
+            eff_city_count = func.coalesce(EtiquetaEnvio.manual_city_name, shipping_sub.c.mlcity_name)
+            count_q = count_q.filter(
+                (EtiquetaEnvio.shipping_id.ilike(search_term))
+                | (eff_receiver_count.ilike(search_term))
+                | (eff_street_count.ilike(search_term))
+                | (eff_city_count.ilike(search_term))
+                | (MercadoLibreUserData.nickname.ilike(search_term))
+            )
+
+        # Excluir colecta
+        count_q = count_q.filter(~EtiquetaEnvio.shipping_id.in_(db.query(colecta_ids.c.shipping_id)))
+
+        total_count = count_q.scalar() or 0
         offset = (page - 1) * page_size
         query = query.limit(page_size).offset(offset)
 
