@@ -1,62 +1,66 @@
 import httpx
 import os
+import time
 from typing import Dict, Optional, List
-from datetime import UTC, datetime
 import logging
+
+from sqlalchemy import text
+
+from app.core.database import get_mlwebhook_engine
 
 logger = logging.getLogger(__name__)
 
 
-class MercadoLibreAPIClient:
-    """Cliente para la API de MercadoLibre"""
+def _load_token_from_mlwebhook() -> Optional[Dict]:
+    """Lee access_token y expires_at de la tabla ml_tokens en la DB del ml-webhook."""
+    try:
+        engine = get_mlwebhook_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT access_token, EXTRACT(EPOCH FROM expires_at) AS expires_epoch FROM ml_tokens WHERE id = 1")
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "access_token": row[0],
+                "expires_epoch": float(row[1]) if row[1] is not None else 0.0,
+            }
+    except Exception as e:
+        logger.error("No se pudo leer token de mlwebhook DB: %s", e)
+        return None
 
-    def __init__(self):
+
+class MercadoLibreAPIClient:
+    """Cliente para la API de MercadoLibre.
+
+    Lee el access_token directamente de la DB del ml-webhook,
+    que se encarga del flujo OAuth (refresh, rotación, persistencia).
+    """
+
+    def __init__(self) -> None:
         self.base_url = "https://api.mercadolibre.com"
-        self.client_id = os.getenv("ML_CLIENT_ID")
-        self.client_secret = os.getenv("ML_CLIENT_SECRET")
         self.user_id = os.getenv("ML_USER_ID")
-        self.refresh_token = os.getenv("ML_REFRESH_TOKEN")
-        self.access_token = None
-        self.token_expires_at = None
+        self._cached_token: Optional[str] = None
+        self._cached_expires_epoch: float = 0.0
 
     async def get_access_token(self) -> str:
-        """Obtiene o renueva el access token"""
-        # Si tenemos un token válido, lo retornamos
-        if self.access_token and self.token_expires_at:
-            if datetime.now(UTC) < self.token_expires_at:
-                return self.access_token
+        """Obtiene el access token desde la DB del ml-webhook."""
+        # Si tenemos un token cacheado y no expiró (con 60s de margen), usarlo
+        if self._cached_token and time.time() < (self._cached_expires_epoch - 60):
+            return self._cached_token
 
-        # Renovar token usando refresh_token
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.base_url}/oauth/token",
-                    data={
-                        "grant_type": "refresh_token",
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
-                        "refresh_token": self.refresh_token,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
+        token_data = _load_token_from_mlwebhook()
+        if not token_data or not token_data.get("access_token"):
+            raise RuntimeError(
+                "No se pudo obtener access_token de mlwebhook DB. "
+                "Re-autenticar en https://ml-webhook.gaussonline.com.ar/auth"
+            )
 
-                self.access_token = data["access_token"]
-                # Guardar cuando expira (generalmente 6 horas)
-                expires_in = data.get("expires_in", 21600)
-                from datetime import timedelta
+        self._cached_token = token_data["access_token"]
+        self._cached_expires_epoch = token_data.get("expires_epoch", 0.0)
 
-                self.token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in - 300)  # 5 min de margen
-
-                # Actualizar refresh token si viene uno nuevo
-                if "refresh_token" in data:
-                    self.refresh_token = data["refresh_token"]
-
-                return self.access_token
-
-        except Exception as e:
-            logger.error(f"Error renovando token de ML: {e}")
-            raise
+        logger.debug("Access token leído de mlwebhook DB (expira epoch=%.0f)", self._cached_expires_epoch)
+        return self._cached_token
 
     async def get_item(self, item_id: str) -> Optional[Dict]:
         """Obtiene información de un item de ML
