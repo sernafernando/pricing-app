@@ -98,6 +98,7 @@ export default function EnviosVistaFlag() {
 
   // Smart polling ref
   const pollingRef = useRef({ count: null, lastUpdated: null });
+  const abortRef = useRef(null);
 
   // Filtro client-side por flag / retornado
   const etiquetasFiltradas = (() => {
@@ -166,13 +167,19 @@ export default function EnviosVistaFlag() {
   }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinCordon, filtroMlStatus, filtroSsosId, debouncedSearch]);
 
   const cargarDatos = useCallback(async () => {
+    // Cancelar request anterior si todavía está en vuelo
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
       const params = buildFilterParams();
+      const signal = controller.signal;
 
-      const etiqPromise = api.get(`/etiquetas-envio?${params}`);
-      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`);
+      const etiqPromise = api.get(`/etiquetas-envio?${params}`, { signal });
+      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`, { signal });
 
       const etiqResponse = await etiqPromise;
       setEtiquetas(etiqResponse.data);
@@ -184,7 +191,8 @@ export default function EnviosVistaFlag() {
         // Stats best-effort
       }
       pollingRef.current = { count: null, lastUpdated: null };
-    } catch {
+    } catch (err) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       setError('Error cargando etiquetas');
     } finally {
       setLoading(false);
