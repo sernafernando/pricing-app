@@ -11,11 +11,18 @@ const FONT_FILES = {
   'Arial Bold': { path: '/fonts/Arial-Bold.ttf' },
   Inter: { path: '/fonts/Inter-Regular.ttf' },
   'Inter Bold': { path: '/fonts/Inter-Bold.ttf' },
+  'Inter Italic': { path: '/fonts/Inter-Italic.ttf' },
+  'Inter Bold Italic': { path: '/fonts/Inter-BoldItalic.ttf' },
   'Open Sans': { path: '/fonts/OpenSans-Regular.ttf' },
   'Open Sans Bold': { path: '/fonts/OpenSans-Bold.ttf' },
+  'Open Sans Italic': { path: '/fonts/OpenSans-Italic.ttf' },
+  'Open Sans Bold Italic': { path: '/fonts/OpenSans-BoldItalic.ttf' },
   Roboto: { path: '/fonts/Roboto-Regular.ttf' },
   'Roboto Bold': { path: '/fonts/Roboto-Bold.ttf' },
+  'Roboto Italic': { path: '/fonts/Roboto-Italic.ttf' },
+  'Roboto Bold Italic': { path: '/fonts/Roboto-BoldItalic.ttf' },
   'Roboto Mono': { path: '/fonts/RobotoMono-Regular.ttf' },
+  'Roboto Mono Italic': { path: '/fonts/RobotoMono-Italic.ttf' },
 };
 
 let fontCache = null;
