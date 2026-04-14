@@ -54,11 +54,19 @@ else:
         pool_recycle=600,
         pool_timeout=30,
         pool_use_lifo=True,
-        # Safety net: kill queries running longer than 60s.
-        # No endpoint query should take that long — if it does,
-        # the connection must be freed to prevent pool starvation.
-        connect_args={"options": "-c statement_timeout=60000"},
     )
+
+    # Safety net: kill queries running longer than 60s.
+    # Can't use connect_args with PgBouncer (transaction mode rejects
+    # startup parameters), so we SET it after each connection checkout.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _set_statement_timeout(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("SET statement_timeout = '60s'")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
