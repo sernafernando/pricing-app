@@ -29,7 +29,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_background_db
 
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
@@ -95,6 +95,10 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
     Sincroniza pedidos en preparación desde la query 67 del ERP.
     Trunca la tabla y la recarga con los datos nuevos.
     Usa un lock para evitar ejecuciones simultáneas.
+
+    Cuando corre como background task en uvicorn y no recibe db,
+    usa get_background_db() para no retener conexiones del pool
+    durante el fetch HTTP al ERP.
     """
     # Intentar adquirir el lock - si otro proceso está sincronizando, retorna inmediatamente
     if _sync_lock.locked():
@@ -105,13 +109,8 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
         print("\n📦 Sincronizando pedidos en preparación...")
         print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        close_db = False
-        if db is None:
-            db = SessionLocal()
-            close_db = True
-
         try:
-            # 1. Obtener datos del ERP via gbp-parser
+            # 1. Obtener datos del ERP via gbp-parser (NO necesita DB)
             print("   Consultando query 67 via gbp-parser...")
             data = await fetch_query_67()
 
@@ -121,13 +120,16 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
 
             print(f"   Recibidos {len(data)} registros")
 
-            # 2. Truncar tabla
-            print("   Truncando tabla cache...")
-            truncate_cache(db)
-
-            # 3. Insertar nuevos datos
-            print("   Insertando datos...")
-            inserted = insert_cache(db, data)
+            # 2. Truncar + insertar con sesión corta
+            # Si nos pasaron db (llamada desde endpoint), usamos esa.
+            # Si no (background task), abrimos y cerramos con get_background_db().
+            if db is not None:
+                truncate_cache(db)
+                inserted = insert_cache(db, data)
+            else:
+                with get_background_db() as bg_db:
+                    truncate_cache(bg_db)
+                    inserted = insert_cache(bg_db, data)
 
             print(f"   ✅ Sincronización completada: {inserted} registros insertados")
 
@@ -138,11 +140,7 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
             return {"status": "error", "message": f"HTTP error: {e.response.status_code}"}
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
-            db.rollback()
             return {"status": "error", "message": str(e)}
-        finally:
-            if close_db:
-                db.close()
 
 
 async def main():
