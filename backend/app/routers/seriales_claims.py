@@ -710,12 +710,43 @@ def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict | list])
         logger.warning("Failed to save messages for claim %s", claim_id, exc_info=True)
 
 
-def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
+def _enrich_claim_via_http(claim_id: str, _max_retries: int = 2) -> Optional[ClaimML]:
     """
     Enrich a single claim by calling 7+ ML API endpoints via webhook proxy.
     Saves ALL data to rma_claims_ml cache after fetching.
     Returns ClaimML or None if the base API call fails.
+    Retries up to _max_retries times on timeout/connection errors.
     """
+    import time as _time
+
+    for attempt in range(_max_retries + 1):
+        try:
+            return _enrich_claim_via_http_attempt(claim_id)
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            if attempt < _max_retries:
+                wait = 2**attempt  # 1s, 2s
+                logger.info(
+                    "[claims] Retry %d/%d for claim %s after %s (wait %ds)",
+                    attempt + 1,
+                    _max_retries,
+                    claim_id,
+                    type(exc).__name__,
+                    wait,
+                )
+                _time.sleep(wait)
+            else:
+                logger.warning(
+                    "[claims] EXCEPTION enriching claim %s after %d retries", claim_id, _max_retries, exc_info=True
+                )
+                return None
+        except Exception:
+            logger.warning("[claims] EXCEPTION enriching claim %s", claim_id, exc_info=True)
+            return None
+    return None
+
+
+def _enrich_claim_via_http_attempt(claim_id: str) -> Optional[ClaimML]:
+    """Single attempt to enrich a claim. Raises on timeout/connection errors."""
     try:
         with httpx.Client(timeout=_HTTPX_TIMEOUT) as client:
             # 1. Claim base data (required — if this fails, abort)
@@ -778,6 +809,8 @@ def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
                     _save_messages_to_cache(claim_id, messages_data)
 
             return claim
+    except (httpx.TimeoutException, httpx.ConnectError):
+        raise  # Let the retry wrapper handle these
     except Exception:
         logger.warning("[claims] EXCEPTION enriching claim %s", claim_id, exc_info=True)
         return None
