@@ -408,9 +408,6 @@ export default function RRHHSanciones() {
         entityData={pdfTarget ? {
           ...pdfTarget,
           tipo_sancion_nombre: getTipoNombre(pdfTarget.tipo_sancion_id),
-          empleado_nombre: pdfTarget.empleado_nombre || '',
-          empleado_legajo: pdfTarget.empleado_legajo || '',
-          empleado_sector: pdfTarget.empleado_sector || '',
           dias_suspension: (() => {
             if (pdfTarget.fecha_desde && pdfTarget.fecha_hasta) {
               const desde = new Date(pdfTarget.fecha_desde + 'T12:00:00');

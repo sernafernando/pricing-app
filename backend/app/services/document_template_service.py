@@ -180,8 +180,8 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
         VariableInfo(
             nombre="empleado_nombre",
             tipo="text",
-            descripcion="Nombre completo del empleado (APELLIDO NOMBRE)",
-            ejemplo="GOMEZ GUSTAVO DANIEL",
+            descripcion="Nombre completo del empleado (APELLIDO, NOMBRE)",
+            ejemplo="GOMEZ, GUSTAVO DANIEL",
         ),
         VariableInfo(nombre="empleado_legajo", tipo="text", descripcion="Número de legajo", ejemplo="5543"),
         VariableInfo(
@@ -191,6 +191,28 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             ejemplo="Dist. Firma Naturgy Noroeste",
         ),
         VariableInfo(nombre="empleado_dni", tipo="text", descripcion="DNI del empleado", ejemplo="35.123.456"),
+        VariableInfo(nombre="empleado_cuil", tipo="text", descripcion="CUIL del empleado", ejemplo="20-35123456-7"),
+        VariableInfo(
+            nombre="empleado_puesto", tipo="text", descripcion="Puesto del empleado", ejemplo="Operario de depósito"
+        ),
+        VariableInfo(
+            nombre="empleado_fecha_ingreso",
+            tipo="date",
+            descripcion="Fecha de ingreso del empleado",
+            ejemplo="15/03/2020",
+        ),
+        VariableInfo(
+            nombre="empleado_domicilio",
+            tipo="text",
+            descripcion="Domicilio del empleado",
+            ejemplo="Av. Corrientes 1234, CABA, Buenos Aires",
+        ),
+        VariableInfo(
+            nombre="empleado_empresa",
+            tipo="text",
+            descripcion="Empresa del empleado",
+            ejemplo="Grupo Gauss",
+        ),
         VariableInfo(
             nombre="tipo_sancion", tipo="text", descripcion="Tipo de sanción aplicada", ejemplo="Apercibimiento"
         ),

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_sancion import (
     RRHHSancion,
@@ -158,6 +158,12 @@ class SancionResponse(BaseModel):
     empleado_nombre: Optional[str] = None
     empleado_legajo: Optional[str] = None
     empleado_sector: Optional[str] = None
+    empleado_dni: Optional[str] = None
+    empleado_cuil: Optional[str] = None
+    empleado_puesto: Optional[str] = None
+    empleado_fecha_ingreso: Optional[date] = None
+    empleado_domicilio: Optional[str] = None
+    empleado_empresa: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -182,9 +188,19 @@ def _sancion_to_response(s: RRHHSancion) -> SancionResponse:
     if s.texto_predefinido:
         data.texto_predefinido_nombre = s.texto_predefinido.nombre
     if s.empleado:
-        data.empleado_nombre = s.empleado.nombre_completo
-        data.empleado_legajo = s.empleado.legajo
-        data.empleado_sector = s.empleado.area
+        emp = s.empleado
+        data.empleado_nombre = emp.nombre_completo
+        data.empleado_legajo = emp.legajo
+        data.empleado_sector = emp.area
+        data.empleado_dni = emp.dni
+        data.empleado_cuil = emp.cuil
+        data.empleado_puesto = emp.puesto
+        data.empleado_fecha_ingreso = emp.fecha_ingreso
+        data.empleado_domicilio = (
+            emp.domicilio or ", ".join(filter(None, [emp.calle, emp.numero, emp.localidad, emp.provincia])) or None
+        )
+        if emp.empresa:
+            data.empleado_empresa = emp.empresa.nombre
     return data
 
 
@@ -442,7 +458,7 @@ def list_sanciones(
     query = db.query(RRHHSancion).options(
         joinedload(RRHHSancion.tipo_sancion),
         joinedload(RRHHSancion.texto_predefinido),
-        joinedload(RRHHSancion.empleado),
+        joinedload(RRHHSancion.empleado).joinedload(RRHHEmpleado.empresa),
     )
 
     if empleado_id:
@@ -531,7 +547,7 @@ def create_sancion(
         .options(
             joinedload(RRHHSancion.tipo_sancion),
             joinedload(RRHHSancion.texto_predefinido),
-            joinedload(RRHHSancion.empleado),
+            joinedload(RRHHSancion.empleado).joinedload(RRHHEmpleado.empresa),
         )
         .filter(RRHHSancion.id == sancion.id)
         .first()
@@ -555,7 +571,7 @@ def get_sancion(
         .options(
             joinedload(RRHHSancion.tipo_sancion),
             joinedload(RRHHSancion.texto_predefinido),
-            joinedload(RRHHSancion.empleado),
+            joinedload(RRHHSancion.empleado).joinedload(RRHHEmpleado.empresa),
         )
         .filter(RRHHSancion.id == sancion_id)
         .first()
