@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.caja import CajaDocumentoMovimiento
 from app.models.usuario import Usuario
 from app.services.caja_service import CajaService

@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.core.security import get_password_hash
 from app.models.rrhh_documento import RRHHDocumento
 from app.models.rol import Rol

@@ -18,7 +18,7 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_background_db, get_mlwebhook_engine
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.free_shipping_fix_log import FreeShippingFixLog

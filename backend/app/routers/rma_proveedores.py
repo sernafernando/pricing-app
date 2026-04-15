@@ -16,7 +16,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.rma_proveedor import RmaProveedor
 from app.models.tb_supplier import TBSupplier
 from app.models.usuario import Usuario
