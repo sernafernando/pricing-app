@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
+import { computeStats } from '../utils/envioStats';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -62,7 +63,7 @@ export default function EnviosVistaFlag() {
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
-  const [estadisticas, setEstadisticas] = useState(null);
+  const estadisticas = etiquetas.length > 0 ? computeStats(etiquetas) : null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -178,18 +179,9 @@ export default function EnviosVistaFlag() {
       const params = buildFilterParams();
       const signal = controller.signal;
 
-      const etiqPromise = api.get(`/etiquetas-envio?${params}`, { signal });
-      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`, { signal });
-
-      const etiqResponse = await etiqPromise;
+      const etiqResponse = await api.get(`/etiquetas-envio?${params}`, { signal });
       setEtiquetas(etiqResponse.data);
 
-      try {
-        const statsResponse = await statsPromise;
-        setEstadisticas(statsResponse.data);
-      } catch {
-        // Stats best-effort
-      }
       pollingRef.current = { count: null, lastUpdated: null };
     } catch (err) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -215,13 +207,6 @@ export default function EnviosVistaFlag() {
       const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
       setEtiquetas(etiqResponse.data);
       setError(null);
-
-      try {
-        const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
-        setEstadisticas(statsResponse.data);
-      } catch {
-        // Stats best-effort
-      }
     } catch {
       // Silencioso
     }
@@ -340,12 +325,7 @@ export default function EnviosVistaFlag() {
       setShowFlagModal(false);
       limpiarSeleccion();
 
-      try {
-        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-        setEstadisticas(statsData);
-      } catch {
-        // silencioso
-      }
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -373,12 +353,7 @@ export default function EnviosVistaFlag() {
 
       limpiarSeleccion();
 
-      try {
-        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-        setEstadisticas(statsData);
-      } catch {
-        // silencioso
-      }
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -407,12 +382,7 @@ export default function EnviosVistaFlag() {
 
       limpiarSeleccion();
 
-      try {
-        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-        setEstadisticas(statsData);
-      } catch {
-        // silencioso
-      }
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -439,12 +409,7 @@ export default function EnviosVistaFlag() {
 
       limpiarSeleccion();
 
-      try {
-        const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-        setEstadisticas(statsData);
-      } catch {
-        // silencioso
-      }
+
     } catch (err) {
       mostrarError(err);
     } finally {

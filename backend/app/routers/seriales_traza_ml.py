@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db, get_mlwebhook_engine
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.routers.seriales_claims import _fetch_claims_by_order_ids
 from app.routers.seriales_shared import (

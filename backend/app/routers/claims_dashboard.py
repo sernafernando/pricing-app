@@ -21,7 +21,7 @@ from sqlalchemy import func, case, exists, String
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.rma_caso import RmaCaso
 from app.models.usuario import Usuario

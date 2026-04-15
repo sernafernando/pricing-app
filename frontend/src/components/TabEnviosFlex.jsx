@@ -12,6 +12,7 @@ import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
+import { computeStats } from '../utils/envioStats';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
@@ -117,7 +118,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
-  const [estadisticas, setEstadisticas] = useState(null);
+  const estadisticas = etiquetas.length > 0 ? computeStats(etiquetas) : null;
   const [logisticas, setLogisticas] = useState([]);
   const [transportes, setTransportes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -409,21 +410,8 @@ export default function TabEnviosFlex({ operador = null }) {
       const params = buildFilterParams();
       const signal = controller.signal;
 
-      // Cargar listado y estadísticas en paralelo, pero independientes:
-      // si las estadísticas fallan (ej: timeout 524) el listado sigue funcionando.
-      const etiqPromise = api.get(`/etiquetas-envio?${params}`, { signal });
-      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`, { signal });
-
-      const etiqResponse = await etiqPromise;
+      const etiqResponse = await api.get(`/etiquetas-envio?${params}`, { signal });
       setEtiquetas(etiqResponse.data);
-
-      // Estadísticas best-effort: si fallan, mostramos la tabla igual
-      try {
-        const statsResponse = await statsPromise;
-        setEstadisticas(statsResponse.data);
-      } catch {
-        // Silencioso — las estadísticas se pueden recuperar con el polling
-      }
 
       // Resetear polling ref para que el próximo poll no triggerea reload
       // (se recalcula en el siguiente tick de polling)
@@ -472,14 +460,6 @@ export default function TabEnviosFlex({ operador = null }) {
       const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
       setEtiquetas(etiqResponse.data);
       setError(null);
-
-      // Estadísticas best-effort
-      try {
-        const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
-        setEstadisticas(statsResponse.data);
-      } catch {
-        // Silencioso
-      }
     } catch {
       // Silencioso — SSE-triggered reload shouldn't show errors
     }
@@ -799,9 +779,6 @@ export default function TabEnviosFlex({ operador = null }) {
         )
       );
 
-      // Refrescar estadísticas para que el total refleje el cambio
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1113,9 +1090,6 @@ export default function TabEnviosFlex({ operador = null }) {
       );
 
       limpiarSeleccion();
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1156,9 +1130,7 @@ export default function TabEnviosFlex({ operador = null }) {
       );
 
       limpiarSeleccion();
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1185,9 +1157,7 @@ export default function TabEnviosFlex({ operador = null }) {
       );
 
       limpiarSeleccion();
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1214,9 +1184,7 @@ export default function TabEnviosFlex({ operador = null }) {
       );
 
       limpiarSeleccion();
-      // Refresh stats (cost may change)
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1296,9 +1264,7 @@ export default function TabEnviosFlex({ operador = null }) {
       setShowFlagModal(false);
       limpiarSeleccion();
 
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1327,9 +1293,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
       limpiarSeleccion();
 
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     } finally {
@@ -1369,9 +1333,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
       setEtiquetas(prev => prev.filter(e => !selectedIds.has(e.shipping_id)));
       limpiarSeleccion();
-      // Refresh stats
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
-      setEstadisticas(statsData);
+
     } catch (err) {
       mostrarError(err);
     }

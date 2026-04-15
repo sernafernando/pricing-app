@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.impuesto_empresa import ImpuestoEmpresa
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService

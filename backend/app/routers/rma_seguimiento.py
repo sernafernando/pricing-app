@@ -19,7 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_historial import RmaCasoHistorial

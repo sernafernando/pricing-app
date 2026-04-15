@@ -9,7 +9,7 @@ Cualquier usuario autenticado puede consultar.
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.weather_service import get_current_weather
 

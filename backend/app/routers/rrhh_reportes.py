@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.rrhh_reportes_service import ReportesService

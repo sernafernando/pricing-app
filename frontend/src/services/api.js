@@ -53,6 +53,13 @@ const processQueue = (error, token = null) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Normalizar detail: si el backend envía {code, message}, extraer message
+    // para que los componentes siempre reciban un string en error.response.data.detail
+    const detail = error.response?.data?.detail;
+    if (detail && typeof detail === 'object' && detail.message) {
+      error.response.data.detail = detail.message;
+    }
+
     const originalRequest = error.config;
 
     // Si no es 401 o ya se reintentó, rechazar directamente

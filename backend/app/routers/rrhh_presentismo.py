@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.rrhh_art_caso import EstadoArt, RRHHArtCaso
 from app.models.rrhh_art_documento import RRHHArtDocumento
 from app.models.rrhh_empleado import RRHHEmpleado
