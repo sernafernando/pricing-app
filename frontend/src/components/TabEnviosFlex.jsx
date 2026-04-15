@@ -2305,6 +2305,7 @@ export default function TabEnviosFlex({ operador = null }) {
                   return (
                   <tr
                     key={e.shipping_id}
+                    ref={rowVirtualizer.measureElement}
                     data-index={virtualRow.index}
                     className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
                   >
