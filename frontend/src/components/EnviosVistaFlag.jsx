@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDebounce } from '../hooks/useDebounce';
 import {
   RefreshCw, MapPin, Calendar, Flag, Search, X, Building, RotateCcw,
@@ -100,6 +101,7 @@ export default function EnviosVistaFlag() {
   // Smart polling ref
   const pollingRef = useRef({ count: null, lastUpdated: null });
   const abortRef = useRef(null);
+  const tableContainerRef = useRef(null);
 
   // Filtro client-side por flag / retornado
   const etiquetasFiltradas = (() => {
@@ -108,6 +110,16 @@ export default function EnviosVistaFlag() {
     if (soloRetornado) result = result.filter(e => e.retornado);
     return result;
   })();
+
+  // ── Virtualización de tabla ─────────────────────────────────
+  const ROW_HEIGHT = 41;
+
+  const rowVirtualizer = useVirtualizer({
+    count: etiquetasFiltradas.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
 
   // ── Date quick filter logic ──────────────────────────────────
 
@@ -669,7 +681,7 @@ export default function EnviosVistaFlag() {
       {loading ? (
         <div className={styles.loading}>Cargando etiquetas...</div>
       ) : (
-        <div className={styles.tableContainer}>
+        <div ref={tableContainerRef} className={styles.tableContainer}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -705,9 +717,16 @@ export default function EnviosVistaFlag() {
                   </td>
                 </tr>
               ) : (
-                etiquetasFiltradas.map((e) => (
+                <>
+                {rowVirtualizer.getVirtualItems()[0]?.start > 0 && (
+                  <tr><td colSpan={14} style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0, border: 'none' }} /></tr>
+                )}
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const e = etiquetasFiltradas[virtualRow.index];
+                  return (
                   <tr
                     key={e.shipping_id}
+                    data-index={virtualRow.index}
                     className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
                   >
                     <td className={styles.tdCheckbox}>
@@ -930,7 +949,17 @@ export default function EnviosVistaFlag() {
                       {e.pistoleado_caja || '—'}
                     </td>
                   </tr>
-                ))
+                  );
+                })}
+                {(() => {
+                  const virtualItems = rowVirtualizer.getVirtualItems();
+                  const lastItem = virtualItems[virtualItems.length - 1];
+                  const paddingBottom = lastItem ? rowVirtualizer.getTotalSize() - lastItem.end : 0;
+                  return paddingBottom > 0 ? (
+                    <tr><td colSpan={14} style={{ height: paddingBottom, padding: 0, border: 'none' }} /></tr>
+                  ) : null;
+                })()}
+                </>
               )}
             </tbody>
           </table>

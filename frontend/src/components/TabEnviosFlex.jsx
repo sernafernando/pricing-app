@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
@@ -319,6 +320,16 @@ export default function TabEnviosFlex({ operador = null }) {
     if (soloFlag && !e.flag_envio) return false;
     if (soloDemora && e.mlsubstatus !== 'delivery_behind_schedule') return false;
     return true;
+  });
+
+  // ── Virtualización de tabla ─────────────────────────────────
+  const ROW_HEIGHT = 41; // 10px padding*2 + 13px font + ~7px line-height + 1px border
+
+  const rowVirtualizer = useVirtualizer({
+    count: etiquetasFiltradas.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
   });
 
   // Confirm modal (reemplaza confirm())
@@ -2285,9 +2296,16 @@ export default function TabEnviosFlex({ operador = null }) {
                   </td>
                 </tr>
               ) : (
-                etiquetasFiltradas.map((e) => (
+                <>
+                {rowVirtualizer.getVirtualItems()[0]?.start > 0 && (
+                  <tr><td colSpan={puedeVerCostos ? 15 : 14} style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0, border: 'none' }} /></tr>
+                )}
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const e = etiquetasFiltradas[virtualRow.index];
+                  return (
                   <tr
                     key={e.shipping_id}
+                    data-index={virtualRow.index}
                     className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
                   >
                     <td className={styles.tdCheckbox}>
@@ -2596,7 +2614,17 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })}
+                {(() => {
+                  const virtualItems = rowVirtualizer.getVirtualItems();
+                  const lastItem = virtualItems[virtualItems.length - 1];
+                  const paddingBottom = lastItem ? rowVirtualizer.getTotalSize() - lastItem.end : 0;
+                  return paddingBottom > 0 ? (
+                    <tr><td colSpan={puedeVerCostos ? 15 : 14} style={{ height: paddingBottom, padding: 0, border: 'none' }} /></tr>
+                  ) : null;
+                })()}
+                </>
               )}
             </tbody>
            </table>
