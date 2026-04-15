@@ -49,6 +49,7 @@ import AdministracionBancos from './pages/AdministracionBancos';
 import AdministracionImpuestos from './pages/AdministracionImpuestos';
 import AdministracionCaja from './pages/AdministracionCaja';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -310,9 +311,11 @@ function App() {
             } />
             <Route path="/document-designer" element={
               <ProtectedRoute permiso="documentos.disenar">
-                <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Designer...</div>}>
-                  <DocumentDesigner />
-                </Suspense>
+                <ErrorBoundary>
+                  <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Designer...</div>}>
+                    <DocumentDesigner />
+                  </Suspense>
+                </ErrorBoundary>
               </ProtectedRoute>
             } />
           </Route>

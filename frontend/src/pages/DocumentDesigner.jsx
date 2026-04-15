@@ -85,40 +85,65 @@ export default function DocumentDesigner() {
   const currentTemplateId = currentTemplate?.id ?? null;
   const currentTemplateJson = currentTemplate?.template_json ?? null;
 
+  // Designer initialization state
+  const [designerLoading, setDesignerLoading] = useState(false);
+
   // Initialize/update pdfme Designer
   useEffect(() => {
     if (!containerRef.current || !contexto) return;
 
+    let cancelled = false;
+
     const initDesigner = async () => {
-      const { Designer } = await import('@pdfme/ui');
-      const { plugins } = await import('../utils/pdfmePlugins');
-      const { getFont } = await import('../utils/pdfmeFonts');
+      setDesignerLoading(true);
+      setError(null);
 
-      const template = currentTemplateJson || {
-        basePdf: BLANK_PDF,
-        schemas: [[]],
-      };
+      try {
+        const [{ Designer }, { plugins }, { getFont }] = await Promise.all([
+          import('@pdfme/ui'),
+          import('../utils/pdfmePlugins'),
+          import('../utils/pdfmeFonts'),
+        ]);
 
-      // Destroy previous instance
-      if (designerRef.current) {
-        designerRef.current.destroy();
-        designerRef.current = null;
+        const font = await getFont();
+
+        // Bail out if effect was cleaned up during async work
+        if (cancelled || !containerRef.current) return;
+
+        const template = currentTemplateJson || {
+          basePdf: BLANK_PDF,
+          schemas: [[]],
+        };
+
+        // Destroy previous instance
+        if (designerRef.current) {
+          designerRef.current.destroy();
+          designerRef.current = null;
+        }
+
+        // Clear container
+        containerRef.current.innerHTML = '';
+
+        designerRef.current = new Designer({
+          domContainer: containerRef.current,
+          template,
+          plugins,
+          options: { font },
+        });
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[DocumentDesigner] init failed:', err);
+          setError(`Error al inicializar el Designer: ${err.message}`);
+        }
+      } finally {
+        if (!cancelled) setDesignerLoading(false);
       }
-
-      // Clear container
-      containerRef.current.innerHTML = '';
-
-      designerRef.current = new Designer({
-        domContainer: containerRef.current,
-        template,
-        plugins,
-        options: { font: await getFont() },
-      });
     };
 
     initDesigner();
 
     return () => {
+      cancelled = true;
       if (designerRef.current) {
         designerRef.current.destroy();
         designerRef.current = null;
@@ -383,7 +408,14 @@ export default function DocumentDesigner() {
         </div>
 
         {/* Designer canvas */}
-        <div className={styles.designerContainer} ref={containerRef} />
+        <div className={styles.designerContainer} ref={containerRef}>
+          {designerLoading && (
+            <div className={styles.designerLoader}>
+              <Loader2 size={24} className={styles.spin} />
+              <span>Cargando Designer...</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Delete confirmation modal */}
