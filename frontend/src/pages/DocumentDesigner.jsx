@@ -407,14 +407,15 @@ export default function DocumentDesigner() {
           </div>
         </div>
 
-        {/* Designer canvas */}
-        <div className={styles.designerContainer} ref={containerRef}>
+        {/* Designer canvas — containerRef is owned exclusively by pdfme */}
+        <div className={styles.designerWrapper}>
           {designerLoading && (
             <div className={styles.designerLoader}>
               <Loader2 size={24} className={styles.spin} />
               <span>Cargando Designer...</span>
             </div>
           )}
+          <div className={styles.designerContainer} ref={containerRef} />
         </div>
       </div>
 

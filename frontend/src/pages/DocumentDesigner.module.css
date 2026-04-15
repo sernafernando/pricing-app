@@ -284,12 +284,18 @@
   white-space: nowrap;
 }
 
-/* Designer container */
-.designerContainer {
+/* Designer wrapper — holds loader overlay + pdfme container */
+.designerWrapper {
   flex: 1;
   overflow: hidden;
-  background: var(--cf-bg-app);
   position: relative;
+}
+
+/* pdfme owns this div exclusively — React must NOT put children inside */
+.designerContainer {
+  width: 100%;
+  height: 100%;
+  background: var(--cf-bg-app);
 }
 
 .designerLoader {
@@ -303,6 +309,7 @@
   color: var(--cf-text-secondary);
   font-size: var(--font-sm);
   z-index: 1;
+  background: var(--cf-bg-app);
 }
 
 /* Delete modal */
