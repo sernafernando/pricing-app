@@ -4,7 +4,7 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain, Flag, FileDown,
+  Table, Map, CloudRain, Flag, FileDown, Clock,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
@@ -143,6 +143,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [soloOutlet, setSoloOutlet] = useState(false);
   const [soloTurbo, setSoloTurbo] = useState(false);
   const [soloFlag, setSoloFlag] = useState(false);
+  const [soloDemora, setSoloDemora] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
 
@@ -312,10 +313,12 @@ export default function TabEnviosFlex({ operador = null }) {
   const [flagMotivo, setFlagMotivo] = useState('');
   const [flagLoading, setFlagLoading] = useState(false);
 
-  // Filtrar flaggeadas client-side (los datos ya vienen con flag_envio)
-  const etiquetasFiltradas = soloFlag
-    ? etiquetas.filter(e => e.flag_envio)
-    : etiquetas;
+  // Filtrar client-side (los datos ya vienen con flag_envio y mlsubstatus)
+  const etiquetasFiltradas = etiquetas.filter(e => {
+    if (soloFlag && !e.flag_envio) return false;
+    if (soloDemora && e.mlsubstatus !== 'delivery_behind_schedule') return false;
+    return true;
+  });
 
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
@@ -1833,6 +1836,21 @@ export default function TabEnviosFlex({ operador = null }) {
               <div className={styles.statLabel}>Sin cordón</div>
             </button>
           )}
+          {(() => {
+            const demoraCount = etiquetas.filter(e => e.mlsubstatus === 'delivery_behind_schedule').length;
+            return (demoraCount > 0 || soloDemora) ? (
+              <button
+                type="button"
+                className={`${styles.statCard} ${styles.statCardClickable} ${styles.statCardDemora} ${soloDemora ? styles.statCardActive : ''}`}
+                onClick={() => { setSoloDemora(prev => !prev); }}
+              >
+                <div className={`${styles.statValue} ${styles.statValueDemora}`}>
+                  {demoraCount}
+                </div>
+                <div className={styles.statLabel}>Con demora</div>
+              </button>
+            ) : null;
+          })()}
           {(estadisticas.flagged > 0 || soloFlag) && (
             <button
               type="button"
@@ -2471,14 +2489,21 @@ export default function TabEnviosFlex({ operador = null }) {
                           <option value="delivered">Entregado</option>
                         </select>
                       ) : e.mlstatus ? (
-                        <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
-                          {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
-                          {e.mlsubstatus && ML_SUBSTATUS_LABELS[e.mlsubstatus] && (
-                            <span className={styles.substatus}>
-                              {' '}({ML_SUBSTATUS_LABELS[e.mlsubstatus]})
+                        <>
+                          <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
+                            {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
+                            {e.mlsubstatus && e.mlsubstatus !== 'delivery_behind_schedule' && ML_SUBSTATUS_LABELS[e.mlsubstatus] && (
+                              <span className={styles.substatus}>
+                                {' '}({ML_SUBSTATUS_LABELS[e.mlsubstatus]})
+                              </span>
+                            )}
+                          </span>
+                          {e.mlsubstatus === 'delivery_behind_schedule' && (
+                            <span className={`${styles.badge} ${styles.mlDemora}`}>
+                              <Clock size={11} /> Demora
                             </span>
                           )}
-                        </span>
+                        </>
                       ) : (
                         <span className={styles.cellMuted}>—</span>
                       )}

@@ -712,6 +712,15 @@
   color: var(--text-tertiary);
 }
 
+.mlDemora {
+  background: #f59e0b20;
+  color: #f59e0b;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+}
+
 .substatus {
   font-weight: 400;
   font-size: 10px;
@@ -1882,6 +1891,15 @@
 
 .statValueRetornado {
   color: #9333ea;
+}
+
+/* Stat card — demora variant */
+.statCardDemora {
+  border-color: transparent;
+}
+
+.statValueDemora {
+  color: #f59e0b;
 }
 
 /* Stat card — flag variant */
