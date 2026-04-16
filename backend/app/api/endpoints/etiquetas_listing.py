@@ -218,6 +218,8 @@ def listar_etiquetas(
             eff_city.label("mlcity_name"),
             eff_status.label("mlstatus"),
             func.coalesce(EtiquetaEnvio.manual_status, shipping_sub.c.mlsubstatus).label("mlsubstatus"),
+            EtiquetaEnvio.ml_date_delivered,
+            shipping_sub.c.ml_estimated_delivery_time_date,
             CodigoPostalCordon.cordon,
             func.coalesce(soh_sub.c.soh_ssos_id, manual_soh_sub.c.manual_ssos_id).label("ssos_id"),
             case(
@@ -521,6 +523,10 @@ def listar_etiquetas(
             manual_phone=row.manual_phone,
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
+            ml_date_delivered=str(row.ml_date_delivered) if row.ml_date_delivered else None,
+            ml_estimated_delivery_time_date=str(row.ml_estimated_delivery_time_date)
+            if row.ml_estimated_delivery_time_date
+            else None,
             es_lluvia=row.es_lluvia,
             flag_envio=row.flag_envio,
             flag_envio_motivo=row.flag_envio_motivo,
