@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from pydantic import BaseModel, ConfigDict
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.commercial_transaction import CommercialTransaction
 from app.api.deps import get_current_user
 
@@ -44,7 +44,7 @@ class SyncCommercialTransactionsRequest(BaseModel):
 @router.post("/commercial-transactions/sync")
 async def sync_commercial_transactions(
     request: SyncCommercialTransactionsRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: dict = Depends(get_current_user),
 ):
     """

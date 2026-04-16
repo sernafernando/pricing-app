@@ -23,7 +23,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.core.security import get_password_hash
 from app.models.rrhh_documento import RRHHDocumento
@@ -1160,7 +1160,7 @@ async def subir_documento(
     numero_documento: Optional[str] = Query(default=None, max_length=100),
     file: UploadFile = File(...),
     current_user: Usuario = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ) -> DocumentoResponse:
     """
     Sube un documento al legajo de un empleado.
@@ -1686,7 +1686,7 @@ def actualizar_motivo_baja(
 async def geocodificar_empleado(
     empleado_id: int,
     current_user: Usuario = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ) -> dict:
     """
     Geocodifica la dirección del empleado usando Mapbox (con cache).

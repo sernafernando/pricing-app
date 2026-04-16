@@ -11,7 +11,7 @@ from datetime import date, datetime
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import get_db
+from app.core.database import get_async_db
 from app.api.deps import get_current_admin
 from app.services.erp_worker_client import erp_worker_client
 from app.models.tb_brand import TBBrand
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"], dependencies=[Depends(
 @router.post("/brands")
 async def sync_brands(
     brand_id: Optional[int] = Query(None, description="ID de marca específica a sincronizar"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza marcas desde el ERP a PostgreSQL
@@ -91,7 +91,7 @@ async def sync_brands(
 @router.post("/categories")
 async def sync_categories(
     cat_id: Optional[int] = Query(None, description="ID de categoría específica a sincronizar"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza categorías desde el ERP a PostgreSQL
@@ -142,7 +142,7 @@ async def sync_categories(
 async def sync_subcategories(
     cat_id: Optional[int] = Query(None, description="ID de categoría"),
     subcat_id: Optional[int] = Query(None, description="ID de subcategoría específica"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza subcategorías desde el ERP a PostgreSQL
@@ -206,7 +206,7 @@ async def sync_items(
     item_id: Optional[int] = Query(None, description="ID de item específico"),
     item_code: Optional[str] = Query(None, description="Código de item"),
     last_update: Optional[date] = Query(None, description="Solo items actualizados después de esta fecha"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza items desde el ERP a PostgreSQL
@@ -290,7 +290,7 @@ async def sync_items(
 
 @router.post("/tax-names")
 async def sync_tax_names(
-    tax_id: Optional[int] = Query(None, description="ID de impuesto específico"), db: Session = Depends(get_db)
+    tax_id: Optional[int] = Query(None, description="ID de impuesto específico"), db: Session = Depends(get_async_db)
 ):
     """
     Sincroniza nombres de impuestos desde el ERP a PostgreSQL
@@ -345,7 +345,7 @@ async def sync_tax_names(
 async def sync_item_taxes(
     tax_id: Optional[int] = Query(None, description="ID de impuesto"),
     item_id: Optional[int] = Query(None, description="ID de item"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza impuestos por item desde el ERP a PostgreSQL
@@ -406,7 +406,7 @@ async def sync_item_taxes(
 @router.post("/suppliers")
 async def sync_suppliers(
     supp_id: Optional[int] = Query(None, description="ID de proveedor específico a sincronizar"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza proveedores desde el ERP a PostgreSQL
@@ -498,7 +498,7 @@ async def sync_customers(
     cust_id: Optional[int] = Query(None, description="ID de cliente específico"),
     from_cust_id: Optional[int] = Query(None, description="ID de cliente desde (para paginación)"),
     to_cust_id: Optional[int] = Query(None, description="ID de cliente hasta (para paginación)"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza clientes desde el ERP a PostgreSQL
@@ -623,7 +623,7 @@ async def sync_customers(
 
 @router.post("/branches")
 async def sync_branches(
-    bra_id: Optional[int] = Query(None, description="ID de sucursal específica"), db: Session = Depends(get_db)
+    bra_id: Optional[int] = Query(None, description="ID de sucursal específica"), db: Session = Depends(get_async_db)
 ):
     """
     Sincroniza sucursales desde el ERP a PostgreSQL
@@ -699,7 +699,7 @@ async def sync_salesmen(
     sm_id: Optional[int] = Query(None, description="ID de vendedor específico"),
     from_sm_id: Optional[int] = Query(None, description="ID de vendedor desde (para paginación)"),
     to_sm_id: Optional[int] = Query(None, description="ID de vendedor hasta (para paginación)"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza vendedores desde el ERP a PostgreSQL
@@ -777,7 +777,7 @@ async def sync_salesmen(
 async def sync_document_files(
     df_id: Optional[int] = Query(None, description="ID de documento específico"),
     bra_id: Optional[int] = Query(None, description="ID de sucursal"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza tipos de documento desde el ERP a PostgreSQL
@@ -860,7 +860,7 @@ async def sync_document_files(
 
 @router.post("/fiscal-classes")
 async def sync_fiscal_classes(
-    fc_id: Optional[int] = Query(None, description="ID de clase fiscal específica"), db: Session = Depends(get_db)
+    fc_id: Optional[int] = Query(None, description="ID de clase fiscal específica"), db: Session = Depends(get_async_db)
 ):
     """
     Sincroniza clases fiscales desde el ERP a PostgreSQL
@@ -917,7 +917,7 @@ async def sync_fiscal_classes(
 
 @router.post("/tax-number-types")
 async def sync_tax_number_types(
-    tnt_id: Optional[int] = Query(None, description="ID de tipo específico"), db: Session = Depends(get_db)
+    tnt_id: Optional[int] = Query(None, description="ID de tipo específico"), db: Session = Depends(get_async_db)
 ):
     """
     Sincroniza tipos de número de impuesto desde el ERP a PostgreSQL
@@ -974,7 +974,7 @@ async def sync_tax_number_types(
 async def sync_states(
     country_id: Optional[int] = Query(54, description="ID de país (default 54 = Argentina)"),
     state_id: Optional[int] = Query(None, description="ID de estado específico"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ):
     """
     Sincroniza estados/provincias desde el ERP a PostgreSQL
@@ -1038,7 +1038,7 @@ async def sync_states(
 
 
 @router.post("/all")
-async def sync_all(db: Session = Depends(get_db)):
+async def sync_all(db: Session = Depends(get_async_db)):
     """
     Sincroniza todas las tablas maestras del ERP en orden
 

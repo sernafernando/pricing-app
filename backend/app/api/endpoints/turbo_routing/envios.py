@@ -10,7 +10,7 @@ import pytz
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
@@ -340,7 +340,7 @@ def obtener_todos_los_envios_turbo(
 
 @router.get("/turbo/envios/{shipping_id}/detalle")
 async def obtener_detalle_envio_actualizado(
-    shipping_id: str, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+    shipping_id: str, db: Session = Depends(get_async_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Obtiene detalle de un envío específico y ACTUALIZA su estado desde ML Webhook.

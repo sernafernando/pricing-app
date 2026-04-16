@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.motoquero import Motoquero
 from app.models.zona_reparto import ZonaReparto
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/turbo/estadisticas", response_model=EstadisticasResponse)
 async def obtener_estadisticas(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: dict = Depends(get_current_user),
     dias_atras: int = Query(7, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios"),
 ):

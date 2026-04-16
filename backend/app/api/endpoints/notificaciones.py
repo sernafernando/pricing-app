@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
@@ -250,7 +250,7 @@ def obtener_estadisticas_notificaciones(
 
 @router.patch("/notificaciones/{notificacion_id}/marcar-leida")
 async def marcar_notificacion_leida(
-    notificacion_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    notificacion_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Marca una notificación como leída (solo la del usuario actual)
@@ -275,7 +275,7 @@ async def marcar_notificacion_leida(
 
 @router.patch("/notificaciones/{notificacion_id}/marcar-no-leida")
 async def marcar_notificacion_no_leida(
-    notificacion_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    notificacion_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Marca una notificación como no leída
@@ -300,7 +300,7 @@ async def marcar_notificacion_no_leida(
 
 @router.post("/notificaciones/marcar-todas-leidas")
 async def marcar_todas_leidas(
-    tipo: Optional[str] = None, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    tipo: Optional[str] = None, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Marca todas las notificaciones del usuario actual como leídas (opcionalmente filtradas por tipo)
@@ -320,7 +320,7 @@ async def marcar_todas_leidas(
 
 @router.post("/notificaciones/marcar-todas-no-leidas")
 async def marcar_todas_no_leidas(
-    tipo: Optional[str] = None, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    tipo: Optional[str] = None, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Marca todas las notificaciones del usuario actual como no leídas
@@ -340,7 +340,7 @@ async def marcar_todas_no_leidas(
 
 @router.delete("/notificaciones/limpiar")
 async def limpiar_notificaciones_leidas(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina todas las notificaciones leídas del usuario actual.
@@ -356,7 +356,7 @@ async def limpiar_notificaciones_leidas(
 
 @router.delete("/notificaciones/{notificacion_id}")
 async def eliminar_notificacion(
-    notificacion_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    notificacion_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina una notificación del usuario actual
@@ -389,7 +389,7 @@ class CambiarEstadoRequest(BaseModel):
 async def cambiar_estado_notificacion(
     notificacion_id: int,
     request: CambiarEstadoRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
@@ -430,7 +430,7 @@ async def cambiar_estado_notificacion(
 async def revisar_notificacion(
     notificacion_id: int,
     notas: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
@@ -445,7 +445,7 @@ async def descartar_notificacion(
     notificacion_id: int,
     notas: Optional[str] = None,
     crear_regla_ignorar: bool = True,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
@@ -489,7 +489,7 @@ async def descartar_notificacion(
 async def resolver_notificacion(
     notificacion_id: int,
     notas: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
@@ -504,7 +504,7 @@ async def descartar_notificaciones_bulk(
     notificaciones_ids: List[int],
     notas: Optional[str] = None,
     crear_reglas_ignorar: bool = True,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
@@ -663,7 +663,7 @@ def listar_reglas_ignoradas(
 
 @router.delete("/notificaciones/ignoradas/{regla_id}")
 async def eliminar_regla_ignorada(
-    regla_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    regla_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina una regla de ignorar (re-habilita notificaciones para ese producto/tipo/markup).
@@ -694,7 +694,7 @@ async def eliminar_regla_ignorada(
 
 @router.delete("/notificaciones/ignoradas/bulk")
 async def eliminar_reglas_ignoradas_bulk(
-    reglas_ids: List[int], db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    reglas_ids: List[int], db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina múltiples reglas de ignorar a la vez.

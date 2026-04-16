@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_background_db
+from app.core.database import get_background_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 @router.post("/turbo/geocoding/envio/{shipment_id}", response_model=dict)
 async def geocodificar_envio(
-    shipment_id: str, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+    shipment_id: str, db: Session = Depends(get_async_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Geocodifica un envío específico usando su dirección.
@@ -84,7 +84,7 @@ async def geocodificar_envio(
 
 @router.post("/turbo/geocoding/batch", response_model=dict)
 async def geocodificar_batch(
-    shipment_ids: list[str], db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+    shipment_ids: list[str], db: Session = Depends(get_async_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Geocodifica múltiples envíos en batch.
@@ -172,7 +172,9 @@ async def geocodificar_batch(
 
 
 @router.post("/turbo/geocoding/batch-ml", response_model=dict)
-async def geocodificar_batch_ml_webhook(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+async def geocodificar_batch_ml_webhook(
+    db: Session = Depends(get_async_db), current_user: dict = Depends(get_current_user)
+):
     """
     Geocodifica TODOS los envíos Turbo sin asignar usando ML Webhook API.
 

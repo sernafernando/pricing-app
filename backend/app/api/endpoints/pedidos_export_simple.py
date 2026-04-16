@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from fastapi.responses import Response
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.sale_order_header import SaleOrderHeader
@@ -567,7 +567,7 @@ def eliminar_override_direccion(
 
 
 @router.post("/pedidos-simple/sincronizar")
-async def sincronizar_pedidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def sincronizar_pedidos(db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)):
     """
     Sincroniza pedidos desde el Export 87 del ERP.
     Llama al endpoint existente que ya tiene toda la lógica.

@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.core.sse import sse_publish_bg
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
@@ -60,7 +60,7 @@ router = APIRouter()
 )
 async def re_enriquecer_etiquetas(
     body: ReEnriquecerRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """
@@ -150,7 +150,7 @@ _ML_LABEL_ERRORS: dict = {
 async def obtener_etiqueta_zpl(
     shipping_id: str,
     current_user: Usuario = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ) -> dict:
     """
     Obtiene la etiqueta ZPL de un envío desde MercadoLibre vía ml-webhook proxy.
@@ -411,7 +411,7 @@ def generar_etiqueta_manual_zpl(
 )
 async def geocodificar_etiquetas(
     body: GeocodificarRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> GeocodificarResponse:
     """
@@ -543,7 +543,7 @@ async def geocodificar_etiquetas(
 )
 async def geocodificar_individual(
     shipping_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> GeocodificarIndividualResponse:
     """

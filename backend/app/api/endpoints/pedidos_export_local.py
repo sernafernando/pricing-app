@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 from datetime import UTC, datetime, timedelta
 import json
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.sale_order_header import SaleOrderHeader
@@ -40,7 +40,7 @@ EXCLUDED_ITEM_IDS = [2953, 2954]  # Items internos excluidos de conteo
 
 @router.get("/pedidos-local", response_model=List[PedidoDetallado])
 async def obtener_pedidos_local(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
     ssos_id: Optional[int] = Query(
         None, description="Filtrar por estado ERP (20=Pendiente, 30=En Proceso, 40=Completado, etc)"
@@ -696,7 +696,9 @@ def obtener_estadisticas_local(
 
 
 @router.post("/pedidos-local/sincronizar")
-async def sincronizar_pedidos_local(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def sincronizar_pedidos_local(
+    db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
+):
     """
     Sincroniza las tablas de pedidos desde el ERP (últimos 7 días).
 

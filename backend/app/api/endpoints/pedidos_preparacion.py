@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 import pytz
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.tb_item_association import TbItemAssociation
 from app.models.producto import ProductoERP
@@ -214,7 +214,9 @@ def obtener_tipos_envio(db: Session = Depends(get_db), current_user: dict = Depe
 
 @router.post("/pedidos-preparacion/sync", response_model=SyncResponse)
 async def sincronizar_pedidos(
-    background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_async_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Fuerza una sincronización manual de pedidos en preparación.

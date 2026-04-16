@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, cast, Date
 from datetime import UTC, datetime, date, timedelta
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
@@ -151,7 +151,7 @@ def obtener_detalle_producto(
 
 @router.get("/productos/{item_id}/mercadolibre")
 async def obtener_datos_ml_producto(
-    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    item_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)"""
     from app.models.publicacion_ml import PublicacionML

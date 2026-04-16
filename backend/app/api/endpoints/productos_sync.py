@@ -6,7 +6,7 @@ Handles forced product synchronization from gbp-parser.
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_async_db
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.post("/productos/{item_id}/force-sync")
 async def force_sync_producto(
-    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    item_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Endpoint temporal para forzar la sincronización de un producto específico desde gbp-parser.

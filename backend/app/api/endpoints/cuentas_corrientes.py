@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 import httpx
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.logging import get_logger
 from app.api.deps import get_current_user
@@ -184,7 +184,7 @@ def listar_sucursales_cc(
 @router.post("/cuentas-corrientes/sync")
 async def sincronizar_cuentas_corrientes(
     tipo: str = Query(..., description="'proveedores' o 'clientes'"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     _user: Usuario = Depends(get_current_user),
 ) -> dict:
     """

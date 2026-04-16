@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
-from app.core.database import get_background_db, get_db
+from app.core.database import get_async_db, get_background_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario
@@ -15,7 +15,7 @@ LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost"}
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_async_db)
 ) -> Usuario:
     """Obtiene el usuario actual desde el token JWT"""
     token = credentials.credentials
@@ -118,7 +118,7 @@ async def get_current_pricing_manager(current_user: Usuario = Depends(get_curren
 async def get_user_or_localhost(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ) -> Optional[Usuario]:
     """
     Permite acceso sin auth desde localhost (scripts internos/crons).
@@ -168,7 +168,7 @@ async def get_user_or_localhost(
 async def get_admin_or_localhost(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
 ) -> Optional[Usuario]:
     """
     Permite acceso sin auth desde localhost (scripts internos/crons).
