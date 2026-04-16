@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
-from app.core.database import get_async_db, get_background_db, get_db
+from app.core.database import get_async_db, get_background_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario

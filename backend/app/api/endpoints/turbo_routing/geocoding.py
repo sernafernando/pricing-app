@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_background_db, get_async_db
+from app.core.database import get_background_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache

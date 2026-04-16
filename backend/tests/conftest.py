@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
-from app.core.database import Base, get_db
+from app.core.database import Base, get_async_db, get_db
 from app.core.security import get_password_hash, create_access_token, create_refresh_token
 from app.main import app
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
@@ -56,6 +56,7 @@ def engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     # Enable FK support for SQLite
     @event.listens_for(eng, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):
@@ -91,7 +92,11 @@ def client(db):
     def _override_get_db():
         yield db
 
+    async def _override_get_async_db():
+        yield db
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_async_db] = _override_get_async_db
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
     app.dependency_overrides.clear()

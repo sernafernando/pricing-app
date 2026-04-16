@@ -11,7 +11,7 @@ from datetime import date, datetime
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import get_db, get_async_db
+from app.core.database import get_async_db
 from app.api.deps import get_current_admin
 from app.services.erp_worker_client import erp_worker_client
 from app.models.tb_brand import TBBrand
