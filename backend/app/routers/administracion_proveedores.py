@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -443,7 +443,7 @@ def sync_proveedores_erp(
 @router.post("/{proveedor_id}/consultar-afip")
 async def consultar_afip(
     proveedor_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """

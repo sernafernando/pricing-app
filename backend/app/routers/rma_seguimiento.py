@@ -663,7 +663,7 @@ def obtener_caso(
 
 
 @router.post("", response_model=CasoResponse, status_code=status.HTTP_201_CREATED)
-async def crear_caso(
+def crear_caso(
     data: CasoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -731,7 +731,7 @@ async def crear_caso(
 
 
 @router.put("/{caso_id}", response_model=CasoResponse)
-async def actualizar_caso(
+def actualizar_caso(
     caso_id: int,
     data: CasoUpdate,
     db: Session = Depends(get_db),

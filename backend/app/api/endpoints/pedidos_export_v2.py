@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.pedido_export import PedidoExport
 from app.api.deps import get_current_user
 
@@ -213,7 +213,7 @@ def obtener_estadisticas(
 
 @router.post("/pedidos-export-v2/sincronizar")
 async def sincronizar_pedidos(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     # current_user: dict = Depends(get_current_user)  # Sin auth
 ):
     """

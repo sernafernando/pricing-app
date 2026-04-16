@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user, get_admin_or_localhost
 from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.post("/sync")
-async def sync_erp(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
+async def sync_erp(db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_admin_or_localhost)):
     """Sincroniza productos desde el ERP y precios de ML"""
     try:
         # Sincronizar ERP
@@ -35,7 +35,7 @@ async def sync_erp(db: Session = Depends(get_db), current_user: Usuario = Depend
 
 
 @router.post("/sync-ml")
-async def sincronizar_ml(db: Session = Depends(get_db), current_user: Usuario = Depends(get_admin_or_localhost)):
+async def sincronizar_ml(db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_admin_or_localhost)):
     """Sincroniza publicaciones de Mercado Libre"""
     try:
         resultado = await sincronizar_publicaciones_ml(db)

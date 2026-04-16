@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import httpx
 import logging
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
@@ -32,7 +32,9 @@ class SyncTiendaNubeResponse(BaseModel):
 
 
 @router.post("/sync", response_model=SyncTiendaNubeResponse)
-async def sincronizar_tienda_nube(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def sincronizar_tienda_nube(
+    db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
+):
     """
     Sincroniza productos y variantes desde Tienda Nube
     Equivalente al script de Google Sheets pero guardando en BD

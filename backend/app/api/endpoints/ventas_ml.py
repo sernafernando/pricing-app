@@ -10,7 +10,7 @@ import httpx
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.venta_ml import VentaML
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
@@ -86,7 +86,7 @@ class SyncVentasRequest(BaseModel):
 
 @router.post("/ventas-ml/sync")
 async def sync_ventas_ml(
-    request: SyncVentasRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+    request: SyncVentasRequest, db: Session = Depends(get_async_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Sincroniza ventas desde el endpoint externo e inserta en la base de datos

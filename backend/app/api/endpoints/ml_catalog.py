@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.models.ml_catalog_status import MLCatalogStatus
 from app.models.publicacion_ml import PublicacionML
 from app.services.ml_webhook_client import ml_webhook_client
@@ -16,7 +16,7 @@ router = APIRouter()
 @router.post("/sync-catalog-status")
 async def sync_catalog_status(
     mla_id: str = Query(None, description="Sincronizar solo este MLA"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """

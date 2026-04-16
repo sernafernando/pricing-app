@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import date
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user, get_current_admin
 from app.models.usuario import Usuario
 from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo, GrupoComision
@@ -366,7 +366,7 @@ from app.services.bna_scraper import actualizar_tipo_cambio
 
 
 @router.post("/admin/actualizar-tipo-cambio")
-async def actualizar_tc_manual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
+async def actualizar_tc_manual(db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_admin)):
     """Actualiza el tipo de cambio scrapeando el BNA"""
     resultado = await actualizar_tipo_cambio(db)
     return resultado

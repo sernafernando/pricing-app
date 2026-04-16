@@ -27,7 +27,7 @@ from sqlalchemy import func, desc
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.etiqueta_colecta import EtiquetaColecta
@@ -342,7 +342,7 @@ def _procesar_archivo_zpl(
 )
 async def upload_etiquetas_colecta(
     files: List[UploadFile] = File(..., description="Archivos .zip o .txt con etiquetas ZPL de colecta"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> UploadResultResponse:
     """

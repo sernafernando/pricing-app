@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
 
-from app.core.database import get_db
+from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
@@ -352,7 +352,7 @@ def obtener_todos_pedidos_export(
 
 @router.post("/pedidos-export/sincronizar-export-80")
 async def sincronizar_export_80(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)"),
     current_user=Depends(get_current_user),
 ):

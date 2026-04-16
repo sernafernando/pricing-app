@@ -83,6 +83,18 @@ def get_db():
         db.close()
 
 
+# Async dependency para endpoints `async def`.
+# Garantiza que el finally se ejecute en el contexto async
+# (a diferencia de get_db que es sync y se corre en threadpool,
+# donde el finally puede no ejecutarse si la coroutine se cancela).
+async def get_async_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 @contextmanager
 def get_background_db() -> Generator[Session, None, None]:
     """
