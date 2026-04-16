@@ -25,11 +25,14 @@ if __name__ == "__main__":
 
 import asyncio
 import httpx
+import logging
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.core.database import SessionLocal, get_background_db
+
+logger = logging.getLogger(__name__)
 
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
@@ -61,7 +64,7 @@ def truncate_cache(db: Session):
     # Reiniciar la secuencia del autoincrement
     db.execute(text("ALTER SEQUENCE pedido_preparacion_cache_id_seq RESTART WITH 1"))
     db.commit()
-    print("   Tabla truncada correctamente")
+    logger.debug("Tabla truncada correctamente")
 
 
 def insert_cache(db: Session, data: list) -> int:
@@ -83,7 +86,7 @@ def insert_cache(db: Session, data: list) -> int:
             db.add(cache_item)
             inserted += 1
         except Exception as e:
-            print(f"   ⚠️ Error insertando fila: {row} - {e}")
+            logger.warning("Error insertando fila: %s - %s", row, e)
             continue
 
     db.commit()
@@ -102,23 +105,22 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
     """
     # Intentar adquirir el lock - si otro proceso está sincronizando, retorna inmediatamente
     if _sync_lock.locked():
-        print("\n⚠️ Ya hay una sincronización en progreso, saltando...")
+        logger.debug("Ya hay una sincronización en progreso, saltando...")
         return {"status": "skipped", "message": "Sincronización ya en progreso", "count": 0}
 
     async with _sync_lock:
-        print("\n📦 Sincronizando pedidos en preparación...")
-        print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.debug("Sincronizando pedidos en preparación...")
 
         try:
             # 1. Obtener datos del ERP via gbp-parser (NO necesita DB)
-            print("   Consultando query 67 via gbp-parser...")
+            logger.debug("Consultando query 67 via gbp-parser...")
             data = await fetch_query_67()
 
             if not data:
-                print("   ⚠️ No se obtuvieron datos de la query 67")
+                logger.warning("No se obtuvieron datos de la query 67")
                 return {"status": "warning", "message": "No data returned", "count": 0}
 
-            print(f"   Recibidos {len(data)} registros")
+            logger.debug("Recibidos %d registros", len(data))
 
             # 2. Truncar + insertar con sesión corta
             # Si nos pasaron db (llamada desde endpoint), usamos esa.
@@ -131,22 +133,22 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
                     truncate_cache(bg_db)
                     inserted = insert_cache(bg_db, data)
 
-            print(f"   ✅ Sincronización completada: {inserted} registros insertados")
+            logger.debug("Sincronización completada: %d registros insertados", inserted)
 
             return {"status": "success", "count": inserted, "timestamp": datetime.now().isoformat()}
 
         except httpx.HTTPStatusError as e:
-            print(f"   ❌ Error HTTP: {e.response.status_code} - {e.response.text}")
+            logger.error("Error HTTP: %s - %s", e.response.status_code, e.response.text)
             return {"status": "error", "message": f"HTTP error: {e.response.status_code}"}
         except Exception as e:
-            print(f"   ❌ Error: {str(e)}")
+            logger.error("Error en sincronización: %s", e)
             return {"status": "error", "message": str(e)}
 
 
 async def main():
     """Punto de entrada para ejecución manual"""
     result = await sync_pedidos_preparacion()
-    print(f"\nResultado: {result}")
+    logger.info("Resultado: %s", result)
 
 
 if __name__ == "__main__":

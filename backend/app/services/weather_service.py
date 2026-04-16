@@ -163,7 +163,7 @@ async def get_current_weather() -> Optional[dict]:
         weather_dt_unix = raw.get("dt", 0)
         _persist_weather(data, weather_dt_unix)
 
-        logger.info(
+        logger.debug(
             "Weather updated: %s — %.1f°C, %s",
             data["city"],
             data["temp"],

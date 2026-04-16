@@ -69,7 +69,7 @@ class TiendaNubeOrderClient:
             return None
 
         url = f"{self.base_url}/orders/{order_id}"
-        logger.info(f"Consultando TiendaNube API: {url}")
+        logger.debug(f"Consultando TiendaNube API: {url}")
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -77,7 +77,7 @@ class TiendaNubeOrderClient:
                 response.raise_for_status()
 
                 order_data = response.json()
-                logger.info(f"✅ Datos de TN orden {order_id} obtenidos: number={order_data.get('number')}")
+                logger.debug(f"Datos de TN orden {order_id} obtenidos: number={order_data.get('number')}")
                 return order_data
 
         except httpx.HTTPStatusError as e:
