@@ -421,6 +421,7 @@ def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
         MercadoLibreOrderShipping.mlcity_name,
         MercadoLibreOrderShipping.mlstatus,
         MercadoLibreOrderShipping.mlsubstatus,
+        MercadoLibreOrderShipping.ml_estimated_delivery_time_date,
         func.row_number()
         .over(
             partition_by=MercadoLibreOrderShipping.mlshippingid,
@@ -445,6 +446,7 @@ def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
             ranked.c.mlcity_name,
             ranked.c.mlstatus,
             ranked.c.mlsubstatus,
+            ranked.c.ml_estimated_delivery_time_date,
         )
         .filter(ranked.c.rn == 1)
         .subquery()
@@ -569,6 +571,10 @@ class EtiquetaEnvioResponse(BaseModel):
 
     # Turbo (mlshipping_method_id == "515282")
     es_turbo: bool = False
+
+    # Fechas de entrega turbo (para detección de demora)
+    ml_date_delivered: Optional[str] = None
+    ml_estimated_delivery_time_date: Optional[str] = None
 
     # Lluvia — recargo extra sobre turbo
     es_lluvia: bool = False

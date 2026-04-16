@@ -148,6 +148,16 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                         if es_turbo:
                             etiqueta.es_turbo = True
 
+                        # Fecha real de entrega (para demora turbo)
+                        date_delivered_raw = data.get("status_history", {}).get("date_delivered")
+                        if date_delivered_raw and not etiqueta.ml_date_delivered:
+                            try:
+                                from dateutil.parser import parse as parse_dt
+
+                                etiqueta.ml_date_delivered = parse_dt(date_delivered_raw)
+                            except (ValueError, TypeError):
+                                pass
+
                         enriquecidas += 1
 
                 # Persistir substatus en la tabla de ML shipping
@@ -408,6 +418,17 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
             if es_turbo:
                 etiqueta.es_turbo = True
                 cambio = True
+
+            # Fecha real de entrega (para detección de demora turbo)
+            date_delivered_raw = extra.get("date_delivered")
+            if date_delivered_raw and not etiqueta.ml_date_delivered:
+                try:
+                    from dateutil.parser import parse as parse_dt
+
+                    etiqueta.ml_date_delivered = parse_dt(date_delivered_raw)
+                    cambio = True
+                except (ValueError, TypeError):
+                    pass
 
             # Persistir substatus del preview en la tabla de ML shipping
             preview_substatus = extra.get("substatus")

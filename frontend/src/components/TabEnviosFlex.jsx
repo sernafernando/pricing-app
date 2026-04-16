@@ -316,9 +316,18 @@ export default function TabEnviosFlex({ operador = null }) {
   const [flagLoading, setFlagLoading] = useState(false);
 
   // Filtrar client-side (los datos ya vienen con flag_envio y mlsubstatus)
+  // Helper: detectar si una etiqueta tiene demora (ML normal o turbo)
+  const tieneDemora = (e) => {
+    if (e.mlsubstatus === 'delivery_behind_schedule') return true;
+    if (e.es_turbo && e.ml_date_delivered && e.ml_estimated_delivery_time_date) {
+      return new Date(e.ml_date_delivered) > new Date(e.ml_estimated_delivery_time_date);
+    }
+    return false;
+  };
+
   const etiquetasFiltradas = etiquetas.filter(e => {
     if (soloFlag && !e.flag_envio) return false;
-    if (soloDemora && e.mlsubstatus !== 'delivery_behind_schedule') return false;
+    if (soloDemora && !tieneDemora(e)) return false;
     return true;
   });
 
@@ -1810,7 +1819,7 @@ export default function TabEnviosFlex({ operador = null }) {
             </button>
           )}
           {(() => {
-            const demoraCount = etiquetas.filter(e => e.mlsubstatus === 'delivery_behind_schedule').length;
+            const demoraCount = etiquetas.filter(tieneDemora).length;
             return (demoraCount > 0 || soloDemora) ? (
               <button
                 type="button"
@@ -2479,7 +2488,7 @@ export default function TabEnviosFlex({ operador = null }) {
                               </span>
                             )}
                           </span>
-                          {e.mlsubstatus === 'delivery_behind_schedule' && (
+                          {tieneDemora(e) && (
                             <span className={`${styles.badge} ${styles.mlDemora}`}>
                               <Clock size={11} /> Demora
                             </span>

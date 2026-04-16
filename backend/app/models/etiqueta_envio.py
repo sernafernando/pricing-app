@@ -82,6 +82,9 @@ class EtiquetaEnvio(Base):
     es_outlet = Column(Boolean, server_default="false", nullable=False)  # Título de item contiene "outlet"
     es_turbo = Column(Boolean, server_default="false", nullable=False)  # mlshipping_method_id == "515282"
     es_lluvia = Column(Boolean, server_default="false", nullable=False)  # Lluvia offset — aplica recargo sobre turbo
+    ml_date_delivered = Column(
+        DateTime(timezone=True), nullable=True
+    )  # Fecha real de entrega (de ml_previews.extra_data)
 
     # Creado por usuario del sistema (cuando se crea desde Pedidos Pendientes)
     creado_por_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
