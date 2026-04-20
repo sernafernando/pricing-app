@@ -25,7 +25,14 @@ const formatDate = (isoStr) => {
 };
 
 export default function TabCCProveedores() {
-  const ccApi = useCCProveedor();
+  // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
+  // El objeto `ccApi` se recrea en cada render; las funciones internas son estables.
+  const {
+    obtenerDetalle,
+    obtenerPorPedido,
+    loading: ccLoading,
+    error: ccError,
+  } = useCCProveedor();
 
   const [proveedorIdInput, setProveedorIdInput] = useState('');
   const [proveedorIdActivo, setProveedorIdActivo] = useState(null);
@@ -73,22 +80,22 @@ export default function TabCCProveedores() {
     if (filtroEmpresa) params.empresa_id = filtroEmpresa;
     if (filtroHasta) params.hasta_fecha = filtroHasta;
     try {
-      const data = await ccApi.obtenerDetalle(proveedorIdActivo, params);
+      const data = await obtenerDetalle(proveedorIdActivo, params);
       setDetalle(data);
     } catch {
       setDetalle(null);
     }
-  }, [ccApi, proveedorIdActivo, filtroEmpresa, filtroHasta]);
+  }, [obtenerDetalle, proveedorIdActivo, filtroEmpresa, filtroHasta]);
 
   const fetchPorPedido = useCallback(async () => {
     if (!proveedorIdActivo) return;
     try {
-      const data = await ccApi.obtenerPorPedido(proveedorIdActivo);
+      const data = await obtenerPorPedido(proveedorIdActivo);
       setPorPedido(data || []);
     } catch {
       setPorPedido([]);
     }
-  }, [ccApi, proveedorIdActivo]);
+  }, [obtenerPorPedido, proveedorIdActivo]);
 
   useEffect(() => {
     if (proveedorIdActivo) {
@@ -155,13 +162,13 @@ export default function TabCCProveedores() {
         </button>
       </form>
 
-      {ccApi.error && <div className={styles.errorBanner}>{ccApi.error}</div>}
+      {ccError && <div className={styles.errorBanner}>{ccError}</div>}
 
       {!proveedorIdActivo ? (
         <div className={styles.emptyState}>
           Ingresá el ID del proveedor para ver su cuenta corriente.
         </div>
-      ) : ccApi.loading && !detalle ? (
+      ) : ccLoading && !detalle ? (
         <div className={styles.centered}>
           <Loader2 size={20} className={styles.spin} /> Cargando CC...
         </div>

@@ -53,7 +53,8 @@ const fmtMoney = (value, moneda) => {
 };
 
 export default function PanelImputaciones() {
-  const cc = useCCProveedor();
+  // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
+  const { listarImputaciones, loading: ccLoading } = useCCProveedor();
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
 
@@ -74,13 +75,13 @@ export default function PanelImputaciones() {
         if (filters.destino_tipo) params.destino_tipo = filters.destino_tipo;
         if (filters.desde) params.desde = filters.desde;
         if (filters.hasta) params.hasta = filters.hasta;
-        const result = await cc.listarImputaciones(params);
+        const result = await listarImputaciones(params);
         setData(result);
       } catch (err) {
         setLocalError(err.response?.data?.detail || 'Error al listar imputaciones.');
       }
     },
-    [filters, cc],
+    [filters, listarImputaciones],
   );
 
   useEffect(() => {
@@ -124,7 +125,7 @@ export default function PanelImputaciones() {
           className={styles.refreshBtn}
           onClick={() => fetchData(data.page)}
           aria-label="Refrescar"
-          disabled={cc.loading}
+          disabled={ccLoading}
         >
           <RefreshCw size={14} /> Refrescar
         </button>
@@ -189,10 +190,10 @@ export default function PanelImputaciones() {
         </div>
 
         <div className={styles.filterActions}>
-          <button type="button" className={styles.btnPrimary} onClick={aplicarFiltros} disabled={cc.loading}>
+          <button type="button" className={styles.btnPrimary} onClick={aplicarFiltros} disabled={ccLoading}>
             Aplicar
           </button>
-          <button type="button" className={styles.btnGhost} onClick={limpiarFiltros} disabled={cc.loading}>
+          <button type="button" className={styles.btnGhost} onClick={limpiarFiltros} disabled={ccLoading}>
             Limpiar
           </button>
         </div>
@@ -219,7 +220,7 @@ export default function PanelImputaciones() {
             {data.items.length === 0 && (
               <tr>
                 <td colSpan={8} className={styles.emptyRow}>
-                  {cc.loading ? 'Cargando...' : 'Sin imputaciones para los filtros aplicados.'}
+                  {ccLoading ? 'Cargando...' : 'Sin imputaciones para los filtros aplicados.'}
                 </td>
               </tr>
             )}
@@ -269,7 +270,7 @@ export default function PanelImputaciones() {
               type="button"
               className={styles.btnGhost}
               onClick={() => fetchData(Math.max(1, data.page - 1))}
-              disabled={data.page === 1 || cc.loading}
+              disabled={data.page === 1 || ccLoading}
             >
               Anterior
             </button>
@@ -277,7 +278,7 @@ export default function PanelImputaciones() {
               type="button"
               className={styles.btnGhost}
               onClick={() => fetchData(data.page + 1)}
-              disabled={data.page * data.page_size >= data.total || cc.loading}
+              disabled={data.page * data.page_size >= data.total || ccLoading}
             >
               Siguiente
             </button>
