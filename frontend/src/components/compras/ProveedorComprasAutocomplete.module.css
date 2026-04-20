@@ -1,0 +1,117 @@
+/* ProveedorComprasAutocomplete — compras module flavor (CF tokens). */
+
+.wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  padding-left: 30px;
+  padding-right: 30px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.clearBtn {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cf-text-tertiary);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+}
+
+.clearBtn:hover {
+  color: var(--cf-accent-red);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 6px rgba(0, 0, 0, 0.1));
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 4px;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.option:hover {
+  background: var(--cf-bg-hover);
+}
+
+.optName {
+  font-weight: 500;
+}
+
+.optDetail {
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+}
+
+.loadingMsg,
+.emptyMsg {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}

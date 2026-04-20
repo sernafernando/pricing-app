@@ -20,6 +20,7 @@ unhandled errors and FastAPI validation errors.
 """
 
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -112,20 +113,43 @@ def http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
     """
     Normalize all HTTPException responses to the standard error shape.
 
-    If detail is already a dict with 'code', pass through.
-    If detail is a plain string (legacy), wrap it with a generic code.
+    Policy (revisado en COMPRAS-7.2):
+      1. Si `detail` es un dict con `code` (convención inglés del envelope
+         estándar) → lo envolvemos en `{"error": detail}` manteniendo
+         backward-compat con el resto de la API.
+      2. Si `detail` es un dict con `codigo` (convención castellano usada por
+         el módulo de compras para payloads estructurados — 409
+         POSIBLE_DUPLICADO_OP_ERP, 422 OP_CAJA_MONEDA_MISMATCH, etc.) o
+         cualquier otro dict → se preserva el dict tal cual COMO RAÍZ del
+         body (no lo envolvemos en `error` para no romper el contrato del
+         frontend que lee `response.data.codigo` / `response.data.duplicados_detectados`).
+      3. Si `detail` es un string (legacy) → lo envolvemos en el envelope
+         con un código derivado del status.
+
+    Esto garantiza que los payloads estructurados (cualquier clave del dict
+    original) lleguen intactos al cliente.
     """
     detail = exc.detail
 
-    if isinstance(detail, dict) and "code" in detail:
-        body = {"error": detail}
+    if isinstance(detail, dict):
+        if "code" in detail:
+            # Envelope estándar inglés — comportamiento previo preservado.
+            body: dict = {"error": detail}
+        else:
+            # Dict con estructura propia (p. ej. `codigo`/`mensaje`/`duplicados_detectados`
+            # del módulo compras). Se retorna tal cual para preservar el contrato.
+            body = detail
     else:
-        # Legacy: plain string detail — wrap with status-based code
+        # Legacy: plain string detail — wrap with status-based code.
         code = _status_to_code(exc.status_code)
         message = detail if isinstance(detail, str) else str(detail)
         body = {"error": {"code": code, "message": message}}
 
-    return JSONResponse(status_code=exc.status_code, content=body)
+    # `jsonable_encoder` serializa datetime/Decimal/Enum/UUID correctamente
+    # cuando el dict lleva tipos no-JSON nativos (ej: duplicados del ERP con
+    # ct_date: datetime y ct_total: Decimal). Antes el fallback `str(detail)`
+    # tapaba el problema — ahora que preservamos el dict, hay que codificarlo.
+    return JSONResponse(status_code=exc.status_code, content=jsonable_encoder(body))
 
 
 def _status_to_code(status_code: int) -> str:

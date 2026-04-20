@@ -592,6 +592,19 @@
   opacity: 0.8;
 }
 
+.retiroProveedorBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--cf-accent-blue);
+  border-radius: var(--radius-full);
+  margin-bottom: 2px;
+}
+
 .manualComment {
   font-size: 11px;
   color: var(--warning-text, var(--text-tertiary));

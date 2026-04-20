@@ -720,6 +720,42 @@ class CajaService:
         )
         return {row.movimiento_id: row.cnt for row in rows}
 
+    def entidad_por_movimiento(self, movimiento_ids: list[int]) -> dict[int, tuple[str, int]]:
+        """
+        COMPRAS-7.6 — batch lookup de (entidad_tipo, entidad_id) por movimiento.
+
+        Se usa para el drill-down "Ver OP" desde el listado de movimientos
+        de caja. Devuelve un dict solo para los movimientos que tienen:
+          - exactamente 1 CajaDocumento asociado, y
+          - ese doc tiene `entidad_tipo` y `entidad_id` no-nulos.
+
+        Si un movimiento tiene 0 docs o >1 docs, se omite del resultado.
+        En esos casos el UI simplemente no renderiza el link.
+        """
+        if not movimiento_ids:
+            return {}
+
+        rows = (
+            self.db.query(
+                CajaDocumentoMovimiento.movimiento_id,
+                CajaDocumento.entidad_tipo,
+                CajaDocumento.entidad_id,
+            )
+            .join(CajaDocumento, CajaDocumento.id == CajaDocumentoMovimiento.documento_id)
+            .filter(CajaDocumentoMovimiento.movimiento_id.in_(movimiento_ids))
+            .filter(CajaDocumento.entidad_tipo.isnot(None))
+            .filter(CajaDocumento.entidad_id.isnot(None))
+            .all()
+        )
+
+        # Agrupamos por movimiento_id. Si hay >1 entry (varios docs con
+        # entidad), se descarta — el UI no sabe cuál "es la buena".
+        grouped: dict[int, list[tuple[str, int]]] = {}
+        for row in rows:
+            grouped.setdefault(row.movimiento_id, []).append((row.entidad_tipo, row.entidad_id))
+
+        return {mov_id: pairs[0] for mov_id, pairs in grouped.items() if len(pairs) == 1}
+
     # ──────────────────────────────────────────────
     # Tags — CRUD
     # ──────────────────────────────────────────────

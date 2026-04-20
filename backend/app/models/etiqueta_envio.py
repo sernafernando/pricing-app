@@ -1,16 +1,17 @@
 from sqlalchemy import (
-    Boolean,
-    Column,
-    Integer,
     BigInteger,
-    String,
+    Boolean,
+    CheckConstraint,
+    Column,
     Date,
     DateTime,
     Float,
     ForeignKey,
-    Numeric,
-    Text,
     Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -119,12 +120,38 @@ class EtiquetaEnvio(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Módulo compras v1 - retiro proveedor
+    tipo_envio = Column(
+        String(24),
+        nullable=False,
+        default="cliente",
+        server_default="cliente",
+    )
+    proveedor_id = Column(
+        Integer,
+        ForeignKey("proveedores.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    proveedor_direccion_id = Column(
+        Integer,
+        ForeignKey("proveedor_direcciones.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    pedido_compra_id = Column(
+        BigInteger,
+        ForeignKey("pedidos_compra.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
     # Relationships
     logistica = relationship("Logistica", lazy="joined")
     transporte = relationship("Transporte", lazy="joined")
     pistoleado_operador = relationship("Operador", lazy="joined")
     creado_por_usuario = relationship("Usuario", foreign_keys=[creado_por_usuario_id], lazy="joined")
     flag_envio_usuario = relationship("Usuario", foreign_keys=[flag_envio_usuario_id], lazy="joined")
+    proveedor = relationship("Proveedor", foreign_keys=[proveedor_id])
+    proveedor_direccion = relationship("ProveedorDireccion", foreign_keys=[proveedor_direccion_id])
+    pedido_compra = relationship("PedidoCompra", foreign_keys=[pedido_compra_id])
 
     __table_args__ = (
         Index("idx_etiquetas_envio_fecha", "fecha_envio"),
@@ -133,6 +160,25 @@ class EtiquetaEnvio(Base):
         Index("idx_etiquetas_pistoleado_operador", "pistoleado_operador_id"),
         Index("idx_etiquetas_envio_es_manual", "es_manual"),
         Index("idx_etiquetas_envio_flag", "flag_envio"),
+        Index(
+            "ix_etiquetas_envio_pedido",
+            "pedido_compra_id",
+            postgresql_where="pedido_compra_id IS NOT NULL",
+        ),
+        CheckConstraint(
+            "tipo_envio IN ('cliente','retiro_proveedor')",
+            name="ck_etiqueta_envio_tipo_envio",
+        ),
+        CheckConstraint(
+            "(tipo_envio = 'cliente' "
+            "AND proveedor_id IS NULL "
+            "AND proveedor_direccion_id IS NULL "
+            "AND pedido_compra_id IS NULL) "
+            "OR (tipo_envio = 'retiro_proveedor' "
+            "AND proveedor_id IS NOT NULL "
+            "AND pedido_compra_id IS NOT NULL)",
+            name="chk_etiqueta_envio_tipo_coherencia",
+        ),
     )
 
     def __repr__(self) -> str:

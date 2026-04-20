@@ -1,0 +1,214 @@
+/* Tab Catálogo Sale Document — read-only + faltantes */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* ── Alerta faltantes ────────────────────────────────────────── */
+.alertaFaltantes {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-left: 3px solid var(--cf-accent-red);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+}
+
+.alertaFaltantes svg {
+  color: var(--cf-accent-red);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.faltantesList {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-xs);
+}
+
+.faltanteChip {
+  display: inline-flex;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+}
+
+.faltantesHint {
+  margin: var(--spacing-xs) 0 0 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-style: italic;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+.topBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.countBadge {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  padding: 2px 8px;
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-full);
+}
+
+/* ── Form controls ───────────────────────────────────────────── */
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+  min-width: 200px;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+.tableWrapper {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: auto;
+  max-height: 640px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+  color: var(--cf-text-secondary);
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+.tdCenter {
+  text-align: center;
+}
+
+.thCenter {
+  text-align: center;
+}
+
+.iconCheck {
+  color: var(--cf-accent-green);
+}
+
+.iconX {
+  color: var(--cf-text-tertiary);
+  opacity: 0.35;
+}
+
+.clasifBadge {
+  display: inline-flex;
+  padding: 2px 8px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--cf-accent-blue);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+/* ── States ──────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  color: var(--cf-text-secondary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.emptyState {
+  text-align: center;
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}

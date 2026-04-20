@@ -1,0 +1,114 @@
+/* ══════════════════════════════════════════════════════════════════
+   Administración — Compras (página raíz con tabs)
+   Tesla Design System + CF tokens + Dark mode
+   ══════════════════════════════════════════════════════════════════ */
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+  min-height: 100vh;
+  background: var(--cf-bg-app);
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.title {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.breadcrumbSep {
+  opacity: 0.6;
+}
+
+.breadcrumbActive {
+  color: var(--cf-text-secondary);
+  font-weight: 500;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────── */
+.tabsNav {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--cf-border-default);
+  margin-bottom: var(--spacing-lg);
+  overflow-x: auto;
+}
+
+.tabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-200) var(--ease-out);
+  white-space: nowrap;
+}
+
+.tabBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.tabBtnActive {
+  composes: tabBtn;
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+.tabContent {
+  min-height: 400px;
+}
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.emptyState {
+  text-align: center;
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .tabsNav {
+    flex-wrap: nowrap;
+  }
+}

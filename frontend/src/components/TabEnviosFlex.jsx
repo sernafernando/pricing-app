@@ -2370,7 +2370,16 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                     <td className={styles.destinatario}>
-                      <div>{e.mlreceiver_name || '—'}</div>
+                      {e.tipo_envio === 'retiro_proveedor' ? (
+                        <>
+                          <div className={styles.retiroProveedorBadge}>
+                            <Truck size={10} /> Retiro proveedor
+                          </div>
+                          <div>{e.mlreceiver_name || e.manual_receiver_name || '—'}</div>
+                        </>
+                      ) : (
+                        <div>{e.mlreceiver_name || '—'}</div>
+                      )}
                       {e.mluser_nickname && (
                         <div className={styles.buyerNickname} title={`Usuario ML: ${e.mluser_nickname}`}>
                           @{e.mluser_nickname}

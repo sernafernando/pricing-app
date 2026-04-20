@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
@@ -28,6 +29,7 @@ import {
   Eye,
   Pencil,
   Tag,
+  ExternalLink,
 } from 'lucide-react';
 
 registrarPagina({
@@ -56,6 +58,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 
 export default function AdministracionCaja() {
   const { tienePermiso } = usePermisos();
+  const navigate = useNavigate();
   const canManage = tienePermiso('administracion.gestionar_caja');
   const canSync = tienePermiso('administracion.sincronizar_caja');
 
@@ -811,6 +814,19 @@ export default function AdministracionCaja() {
                       <span className={styles.docIndicator} title={`${mov.documentos_count} documento(s)`}>
                         <Paperclip size={12} /> {mov.documentos_count}
                       </span>
+                    )}
+                    {/* COMPRAS-7.6: drill-down a OP cuando el mov está asociado a orden_pago */}
+                    {mov.entidad_tipo === 'orden_pago' && mov.entidad_id && (
+                      <button
+                        type="button"
+                        className={styles.verOpBtn}
+                        onClick={() =>
+                          navigate(`/administracion/compras?tab=ordenes-pago&op_id=${mov.entidad_id}`)
+                        }
+                        title={`Ver OP #${mov.entidad_id}`}
+                      >
+                        <ExternalLink size={12} /> Ver OP
+                      </button>
                     )}
                   </td>
                   {canManage && (
