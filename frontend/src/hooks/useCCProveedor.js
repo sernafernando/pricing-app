@@ -86,6 +86,10 @@ export default function useCCProveedor() {
     [wrap]
   );
 
+  // NO memoizar con useMemo([loading, error, ...]) porque loading/error
+  // cambian durante un fetch — eso crearía el mismo loop.
+  // Las funciones individuales YA son estables via useCallback; los consumers
+  // deben desestructurarlas en vez de depender del objeto completo.
   return {
     loading,
     error,

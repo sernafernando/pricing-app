@@ -57,7 +57,8 @@ const formatCurrency = (value, moneda = 'ARS') => {
 };
 
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
-  const pedidosApi = useComprasPedidos();
+  // Desestructurar función memoizada para evitar loop en useEffect.
+  const { obtener: obtenerPedido } = useComprasPedidos();
 
   const [pedido, setPedido] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -67,14 +68,14 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     setLoading(true);
     setError(null);
     try {
-      const data = await pedidosApi.obtener(pedidoId);
+      const data = await obtenerPedido(pedidoId);
       setPedido(data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cargar el pedido.');
     } finally {
       setLoading(false);
     }
-  }, [pedidosApi, pedidoId]);
+  }, [obtenerPedido, pedidoId]);
 
   useEffect(() => {
     fetchDetalle();

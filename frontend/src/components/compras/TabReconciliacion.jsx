@@ -28,7 +28,16 @@ export default function TabReconciliacion() {
   const { tienePermiso } = usePermisos();
   const canForzar = tienePermiso('administracion.gestionar_cuentas_corrientes');
 
-  const ccApi = useCCProveedor();
+  // IMPORTANTE: desestructuramos las funciones del hook (están memoizadas con
+  // useCallback y tienen referencia estable). Si dependiéramos del objeto `ccApi`
+  // completo, cada render crearía un objeto nuevo → useEffect en loop infinito.
+  const {
+    listarReconciliaciones,
+    obtenerMetricas,
+    forzarReconciliacion,
+    loading: ccLoading,
+    error: ccError,
+  } = useCCProveedor();
 
   const [logs, setLogs] = useState([]);
   const [metricas, setMetricas] = useState(null);
@@ -48,21 +57,21 @@ export default function TabReconciliacion() {
     if (filtroHasta) params.fecha_hasta = filtroHasta;
     if (soloDivergencias) params.estado = 'divergencia';
     try {
-      const data = await ccApi.listarReconciliaciones(params);
+      const data = await listarReconciliaciones(params);
       setLogs(data || []);
     } catch {
       setLogs([]);
     }
-  }, [ccApi, filtroDesde, filtroHasta, soloDivergencias]);
+  }, [listarReconciliaciones, filtroDesde, filtroHasta, soloDivergencias]);
 
   const fetchMetricas = useCallback(async () => {
     try {
-      const data = await ccApi.obtenerMetricas();
+      const data = await obtenerMetricas();
       setMetricas(data);
     } catch {
       setMetricas(null);
     }
-  }, [ccApi]);
+  }, [obtenerMetricas]);
 
   useEffect(() => {
     fetchMetricas();
@@ -77,7 +86,7 @@ export default function TabReconciliacion() {
     setForzarError(null);
     setForzarResult(null);
     try {
-      const resultado = await ccApi.forzarReconciliacion();
+      const resultado = await forzarReconciliacion();
       setForzarResult(resultado);
       setConfirmForzar(false);
       fetchLogs();
@@ -206,10 +215,10 @@ export default function TabReconciliacion() {
         </div>
       )}
 
-      {ccApi.error && <div className={styles.errorBanner}>{ccApi.error}</div>}
+      {ccError && <div className={styles.errorBanner}>{ccError}</div>}
 
       {/* Tabla logs */}
-      {ccApi.loading && logs.length === 0 ? (
+      {ccLoading && logs.length === 0 ? (
         <div className={styles.centered}>
           <Loader2 size={20} className={styles.spin} /> Cargando reconciliaciones...
         </div>

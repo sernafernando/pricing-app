@@ -46,7 +46,15 @@ export default function TabOrdenesPago() {
   const canManage = tienePermiso('administracion.gestionar_ordenes_compra');
   const canPay = tienePermiso('administracion.ejecutar_pagos');
 
-  const opApi = useComprasOP();
+  // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
+  const {
+    listar: listarOPs,
+    obtener: obtenerOP,
+    distribuirAutomatico,
+    anular: anularOP,
+    loading: opLoading,
+    error: opError,
+  } = useComprasOP();
 
   // Sub-tab: OPs (default) | Imputaciones (COMPRAS-7.5)
   const [subTab, setSubTab] = useState('ops');
@@ -79,14 +87,14 @@ export default function TabOrdenesPago() {
     if (filtroHasta) params.hasta = filtroHasta;
 
     try {
-      const data = await opApi.listar(params);
+      const data = await listarOPs(params);
       setItems(data.items || []);
       setTotal(data.total || 0);
     } catch {
       setItems([]);
       setTotal(0);
     }
-  }, [opApi, page, filtroEstado, filtroEmpresa, filtroProveedorId, filtroDesde, filtroHasta]);
+  }, [listarOPs, page, filtroEstado, filtroEmpresa, filtroProveedorId, filtroDesde, filtroHasta]);
 
   const fetchEmpresas = useCallback(async () => {
     try {
@@ -112,7 +120,7 @@ export default function TabOrdenesPago() {
   // Actions
   const handleDistribuir = async (op) => {
     try {
-      await opApi.distribuirAutomatico(op.id);
+      await distribuirAutomatico(op.id);
       fetchOPs();
     } catch {
       /* noop */
@@ -129,7 +137,7 @@ export default function TabOrdenesPago() {
     setAnularLoading(true);
     setAnularError(null);
     try {
-      await opApi.anular(anularModal.id, motivo);
+      await anularOP(anularModal.id, motivo);
       setAnularModal(null);
       setAnularMotivo('');
       fetchOPs();
@@ -152,7 +160,7 @@ export default function TabOrdenesPago() {
       <div className={styles.rowActions}>
         <button
           className={styles.iconBtn}
-          onClick={() => opApi.obtener(op.id).catch(() => {})}
+          onClick={() => obtenerOP(op.id).catch(() => {})}
           aria-label="Ver"
           title="Ver detalle"
         >
@@ -197,7 +205,7 @@ export default function TabOrdenesPago() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const loading = opApi.loading;
+  const loading = opLoading;
 
   return (
     <div className={styles.container}>
@@ -279,7 +287,7 @@ export default function TabOrdenesPago() {
         )}
       </div>
 
-      {opApi.error && <div className={styles.errorBanner}>{opApi.error}</div>}
+      {opError && <div className={styles.errorBanner}>{opError}</div>}
 
       {/* Table */}
       {loading && items.length === 0 ? (

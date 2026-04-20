@@ -65,7 +65,17 @@ export default function TabPedidosCompra() {
   const canManage = tienePermiso('administracion.gestionar_ordenes_compra');
   const canApprove = tienePermiso('administracion.aprobar_ordenes_compra');
 
-  const pedidosApi = useComprasPedidos();
+  // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
+  const {
+    listar: listarPedidos,
+    enviarAprobacion,
+    aprobar: aprobarPedido,
+    rechazar: rechazarPedido,
+    cancelar: cancelarPedido,
+    generarEtiqueta,
+    loading: pedidosLoading,
+    error: pedidosError,
+  } = useComprasPedidos();
 
   // ── Data ──
   const [items, setItems] = useState([]);
@@ -106,7 +116,7 @@ export default function TabPedidosCompra() {
     if (filtroHasta) params.hasta = filtroHasta;
 
     try {
-      const data = await pedidosApi.listar(params);
+      const data = await listarPedidos(params);
       let list = data.items || [];
       // Búsqueda por número en cliente (el backend todavía no la soporta).
       if (debouncedBusqueda.trim()) {
@@ -120,7 +130,7 @@ export default function TabPedidosCompra() {
       setTotal(0);
     }
   }, [
-    pedidosApi,
+    listarPedidos,
     page,
     filtroEstado,
     filtroEmpresa,
@@ -182,7 +192,7 @@ export default function TabPedidosCompra() {
 
   const handleEnviarAprobacion = async (pedido) => {
     try {
-      await pedidosApi.enviarAprobacion(pedido.id);
+      await enviarAprobacion(pedido.id);
       fetchPedidos();
     } catch {
       /* error ya queda en pedidosApi.error */
@@ -191,7 +201,7 @@ export default function TabPedidosCompra() {
 
   const handleAprobar = async (pedido) => {
     try {
-      await pedidosApi.aprobar(pedido.id, null);
+      await aprobarPedido(pedido.id, null);
       fetchPedidos();
     } catch {
       /* noop */
@@ -216,9 +226,9 @@ export default function TabPedidosCompra() {
     setMotivoError(null);
     try {
       if (motivoModal.accion === 'rechazar') {
-        await pedidosApi.rechazar(motivoModal.pedidoId, motivoAccionRechazo, motivo);
+        await rechazarPedido(motivoModal.pedidoId, motivoAccionRechazo, motivo);
       } else if (motivoModal.accion === 'cancelar') {
-        await pedidosApi.cancelar(motivoModal.pedidoId, motivo);
+        await cancelarPedido(motivoModal.pedidoId, motivo);
       }
       setMotivoModal(null);
       fetchPedidos();
@@ -236,7 +246,7 @@ export default function TabPedidosCompra() {
 
   const handleGenerarEtiqueta = async (pedido) => {
     try {
-      await pedidosApi.generarEtiqueta(pedido.id);
+      await generarEtiqueta(pedido.id);
       fetchPedidos();
     } catch {
       /* noop */
@@ -340,7 +350,7 @@ export default function TabPedidosCompra() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const loading = pedidosApi.loading;
+  const loading = pedidosLoading;
 
   return (
     <div className={styles.container}>
@@ -409,8 +419,8 @@ export default function TabPedidosCompra() {
         )}
       </div>
 
-      {pedidosApi.error && (
-        <div className={styles.errorBanner}>{pedidosApi.error}</div>
+      {pedidosError && (
+        <div className={styles.errorBanner}>{pedidosError}</div>
       )}
 
       {/* Table */}
