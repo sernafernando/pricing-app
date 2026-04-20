@@ -1,6 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { ShoppingCart } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
 import styles from './Navbar.module.css';
@@ -37,9 +36,6 @@ export default function Navbar() {
   const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
   const puedeVerClientes = tienePermiso('clientes.ver');
   const puedeVerRma = tienePermiso('rma.ver');
-  const puedeVerCompras = tienePermiso('administracion.ver_ordenes_compra');
-  const puedeVerCaja = tienePermiso('administracion.ver_caja');
-  const puedeVerProveedores = tienePermiso('administracion.ver_proveedores');
 
   // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
@@ -280,75 +276,6 @@ export default function Navbar() {
             </div>
           )}
 
-          {/* Dropdown Administración (sector empresa) */}
-          {(puedeVerCompras || puedeVerCaja || puedeVerProveedores) && (
-            <div
-              className={styles.dropdown}
-              onMouseEnter={() => setDropdownOpen('administracion')}
-              onMouseLeave={() => setDropdownOpen(null)}
-            >
-              <div
-                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/administracion/compras', '/administracion/caja', '/administracion/proveedores', '/administracion/bancos', '/administracion/impuestos']) ? styles.active : ''}`}
-                onClick={() => setDropdownOpen(dropdownOpen === 'administracion' ? null : 'administracion')}
-              >
-                Administración ▾
-              </div>
-              {dropdownOpen === 'administracion' && (
-                <div
-                  className={styles.dropdownMenu}
-                  onMouseEnter={() => setDropdownOpen('administracion')}
-                >
-                  {puedeVerCompras && (
-                    <Link
-                      to="/administracion/compras"
-                      className={`${styles.dropdownItem} ${isActive('/administracion/compras') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      <ShoppingCart size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                      Compras
-                    </Link>
-                  )}
-                  {puedeVerCaja && (
-                    <Link
-                      to="/administracion/caja"
-                      className={`${styles.dropdownItem} ${isActive('/administracion/caja') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      Caja
-                    </Link>
-                  )}
-                  {puedeVerProveedores && (
-                    <Link
-                      to="/administracion/proveedores"
-                      className={`${styles.dropdownItem} ${isActive('/administracion/proveedores') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      Proveedores
-                    </Link>
-                  )}
-                  {puedeVerProveedores && (
-                    <Link
-                      to="/administracion/bancos"
-                      className={`${styles.dropdownItem} ${isActive('/administracion/bancos') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      Bancos
-                    </Link>
-                  )}
-                  {puedeVerProveedores && (
-                    <Link
-                      to="/administracion/impuestos"
-                      className={`${styles.dropdownItem} ${isActive('/administracion/impuestos') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      Impuestos
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Dropdown Gestión (solo si tiene permisos de gestión) */}
           {(puedeVerGestionPMs || puedeVerAdmin) && (
             <div
@@ -558,16 +485,6 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               Reclamos ML
-            </Link>
-          )}
-
-          {puedeVerCompras && (
-            <Link
-              to="/administracion/compras"
-              className={`${styles.mobileLink} ${isActive('/administracion/compras') ? styles.active : ''}`}
-              onClick={handleLinkClick}
-            >
-              Compras
             </Link>
           )}
 
