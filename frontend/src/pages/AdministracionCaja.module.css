@@ -272,6 +272,27 @@
   font-size: var(--font-xs);
 }
 
+/* COMPRAS-7.6: link drill-down a OP desde movimiento */
+.verOpBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-accent-blue);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.verOpBtn:hover {
+  background: color-mix(in srgb, var(--cf-accent-blue) 10%, transparent);
+  border-color: var(--cf-accent-blue);
+}
+
 /* ── Pagination ──────────────────────────────────────────────── */
 .pagination {
   display: flex;

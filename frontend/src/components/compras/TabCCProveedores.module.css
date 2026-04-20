@@ -1,0 +1,347 @@
+/* Tab CC Proveedores — saldos por moneda + drill-down */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* ── Search bar ──────────────────────────────────────────────── */
+.searchBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.searchWrapper {
+  position: relative;
+  min-width: 240px;
+  flex: 1;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) 30px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Form controls ───────────────────────────────────────────── */
+.input,
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btnPrimary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+}
+
+/* ── Proveedor header ────────────────────────────────────────── */
+.proveedorHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.proveedorNombre {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.proveedorId {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-hover);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* ── Saldos grid ─────────────────────────────────────────────── */
+.saldosGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.saldoCard {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+}
+
+.saldoCardSecondary {
+  composes: saldoCard;
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.saldoLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+
+.saldoValue {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.saldoValueSecondary {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.saldoMeta {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin-top: 4px;
+}
+
+.saldoMetaWarning {
+  font-size: var(--font-xs);
+  color: var(--cf-accent-orange);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* ── View switcher ───────────────────────────────────────────── */
+.viewSwitcher {
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  width: fit-content;
+}
+
+.viewBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: none;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.viewBtn:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.viewBtnActive {
+  composes: viewBtn;
+  background: var(--cf-accent-blue);
+  color: white;
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+.tableWrapper {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.tdRight {
+  text-align: right;
+  font-weight: 500;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+/* ── Badges tipo ─────────────────────────────────────────────── */
+.badgeDebe,
+.badgeHaber,
+.badgeAjuste {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.badgeDebe {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+}
+
+.badgeHaber {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+}
+
+.badgeAjuste {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+}
+
+/* ── Grupo por pedido ────────────────────────────────────────── */
+.grupoList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.grupoCard {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+}
+
+.grupoHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.grupoEstado {
+  margin-left: var(--spacing-sm);
+  padding: 2px 8px;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+}
+
+.grupoMonto {
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.grupoMovs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grupoMovRow {
+  display: grid;
+  grid-template-columns: 120px 100px 1fr;
+  gap: var(--spacing-sm);
+  font-size: var(--font-sm);
+  padding: 4px 0;
+  border-top: 1px dashed var(--cf-border-default);
+}
+
+/* ── States ──────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-secondary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.emptyState {
+  text-align: center;
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}

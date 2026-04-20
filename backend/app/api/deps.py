@@ -102,6 +102,53 @@ def require_role(allowed_roles: list[RolUsuario]):
     return role_checker
 
 
+def require_permiso(codigo: str):
+    """FastAPI dependency que exige el permiso `codigo` sobre el usuario actual.
+
+    Unifica el patrón `require_permission(...)` que está duplicado inline
+    en varios routers (alertas.py, document_templates.py, rrhh_horarios.py).
+    Reusa `PermisosService.tiene_permiso` — la misma función usada por
+    `verificar_permiso(db, user, codigo)` en los endpoints legacy.
+
+    Levanta HTTP 403 con el error-code estándar `INSUFFICIENT_PERMISSIONS`
+    (contrato `app.core.exceptions`). El detail incluye el `codigo` del
+    permiso para facilitar debugging en frontend.
+
+    Uso::
+
+        @router.post(
+            "/pedidos",
+            dependencies=[Depends(require_permiso("administracion.gestionar_ordenes_compra"))],
+        )
+
+    Args:
+        codigo: Código del permiso en la tabla `permisos` (ej.
+            "administracion.gestionar_ordenes_compra").
+
+    Returns:
+        Callable async que FastAPI inyectará como dependency.
+    """
+    from sqlalchemy.orm import Session
+
+    from app.core.database import get_async_db
+    from app.services.permisos_service import PermisosService
+
+    async def _check(
+        current_user: Usuario = Depends(get_current_user),
+        db: Session = Depends(get_async_db),
+    ) -> Usuario:
+        svc = PermisosService(db)
+        if not svc.tiene_permiso(current_user, codigo):
+            raise api_error(
+                403,
+                ErrorCode.INSUFFICIENT_PERMISSIONS,
+                f"Permiso requerido: {codigo}",
+            )
+        return current_user
+
+    return _check
+
+
 # Dependencias específicas por rol
 async def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:

@@ -92,6 +92,47 @@ def parse_uuid(value: Any) -> UUID | None:
         return None
 
 
+def _notificar_admin_catalogo_vacio(db: Session, *, mensaje: str) -> None:
+    """Crea 1 Notificacion para cada admin activo cuando el catálogo
+    `tb_sale_document` está vacío y abortamos el hook de matching.
+
+    Defensivo: cualquier fallo acá se loggea y se traga. NO debe tumbar
+    el sync aunque falle el sistema de notificaciones.
+
+    Commitea su propia transacción.
+    """
+    from app.models.notificacion import (  # noqa: PLC0415
+        EstadoNotificacion,
+        Notificacion,
+        SeveridadNotificacion,
+    )
+    from app.models.usuario import RolUsuario, Usuario  # noqa: PLC0415
+
+    admins = (
+        db.query(Usuario.id)
+        .filter(
+            Usuario.activo == True,  # noqa: E712
+            Usuario.rol.in_([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]),
+        )
+        .all()
+    )
+    for (admin_id,) in admins:
+        db.add(
+            Notificacion(
+                user_id=admin_id,
+                tipo="compras_catalogo_vacio",
+                mensaje=mensaje,
+                severidad=SeveridadNotificacion.CRITICAL,
+                estado=EstadoNotificacion.PENDIENTE,
+            )
+        )
+    db.commit()
+    logger.warning(
+        "[compras.matching] Notificación enviada a %d admin(s): catálogo vacío",
+        len(admins),
+    )
+
+
 async def sync_commercial_transactions_guid(
     db: Session, days: int = 30, fecha_desde: datetime = None, fecha_hasta: datetime = None
 ) -> dict[str, int | str]:
@@ -166,6 +207,7 @@ async def sync_commercial_transactions_guid(
         nuevos = 0
         actualizados = 0
         errores = 0
+        cts_synced: list[int] = []  # IDs procesados para el hook de matching (F3)
 
         # 5. Procesar transacciones
         for record in data:
@@ -261,6 +303,9 @@ async def sync_commercial_transactions_guid(
                     db.add(nuevo)
                     nuevos += 1
 
+                # Track para el hook de matching (F3 modulo-compras)
+                cts_synced.append(ct_transaction)
+
                 # 9. Commit cada 500 registros
                 if (nuevos + actualizados) % 500 == 0:
                     db.commit()
@@ -276,6 +321,68 @@ async def sync_commercial_transactions_guid(
         # 10. Commit final
         db.commit()
         logger.info(f"✓ ({nuevos} nuevos, {actualizados} actualizados, {errores} errores)")
+
+        # ──────────────────────────────────────────────────────────────
+        # Hook módulo Compras (F3): matching pedido ↔ factura ERP.
+        # Design §5 / tasks COMPRAS-3.5.
+        #
+        # REGLAS DE SEGURIDAD (críticas — este cron es la fuente única
+        # de verdad de tb_commercial_transactions):
+        #   1. TODO wrapped en try/except. Cualquier bug en el matching
+        #      NO puede tumbar el sync de cts.
+        #   2. Corre DESPUÉS del commit final del sync, así si falla el
+        #      matching los cts ya están persistidos en DB.
+        #   3. El matching usa su propio scope transaccional: si algo
+        #      va mal hace rollback solo del matching, no de los cts.
+        #   4. Pre-check defensivo: si tb_sale_document está vacío,
+        #      abortamos ruidoso (RuntimeError) y notificamos admin.
+        # ──────────────────────────────────────────────────────────────
+        try:
+            # Import local para evitar acoplar el sync a modulo-compras
+            # (si modulo-compras no está instalado, el sync sigue andando).
+            from app.services.erp_matching_service import (  # noqa: PLC0415
+                match_backward,
+                validar_catalogo_populado,
+            )
+
+            validar_catalogo_populado(db)
+
+            if cts_synced:
+                resumen_match = match_backward(db, cts_synced=cts_synced)
+                db.commit()
+                logger.info(
+                    "[compras.matching] backward: pedidos_asociados=%s cts_procesadas=%s errores=%s",
+                    resumen_match["pedidos_asociados"],
+                    resumen_match["cts_procesadas"],
+                    resumen_match["errores"],
+                )
+        except RuntimeError as mismatch_exc:
+            # Catálogo vacío — aborta ruidoso pero NO tumba el sync.
+            # Creamos una notificación de admin para que alguien lo vea.
+            db.rollback()
+            logger.error(
+                "[compras.matching] Hook abortado: %s",
+                mismatch_exc,
+                exc_info=True,
+            )
+            try:
+                _notificar_admin_catalogo_vacio(db, mensaje=str(mismatch_exc))
+            except Exception as notif_exc:  # noqa: BLE001
+                logger.exception(
+                    "[compras.matching] No se pudo notificar al admin: %s",
+                    notif_exc,
+                )
+        except Exception as exc:  # noqa: BLE001 — nunca tumbar el sync
+            logger.error(
+                "[compras.matching] Hook de matching falló — el sync sigue OK: %s",
+                exc,
+                exc_info=True,
+            )
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+
         return {"nuevos": nuevos, "actualizados": actualizados, "errores": errores}
 
     except httpx.HTTPError as e:

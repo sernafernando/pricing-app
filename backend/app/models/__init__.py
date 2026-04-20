@@ -129,6 +129,16 @@ from app.models.caja import (
     CajaMovimientoTag,
 )
 
+# Compras — Módulo Administración (v1)
+from app.models.numeracion_contador import NumeracionContador
+from app.models.tb_sale_document import SaleDocument
+from app.models.pedido_compra import PedidoCompra
+from app.models.compra_evento import CompraEvento
+from app.models.orden_pago import OrdenPago
+from app.models.imputacion import Imputacion
+from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
+from app.models.cc_reconciliacion_log import CCReconciliacionLog
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -273,4 +283,13 @@ __all__ = [
     "CajaArchivo",
     "CajaTag",
     "CajaMovimientoTag",
+    # Compras — Módulo Administración (v1)
+    "NumeracionContador",
+    "SaleDocument",
+    "PedidoCompra",
+    "CompraEvento",
+    "OrdenPago",
+    "Imputacion",
+    "CCProveedorMovimiento",
+    "CCReconciliacionLog",
 ]

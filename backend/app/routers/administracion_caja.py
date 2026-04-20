@@ -109,6 +109,11 @@ class MovimientoResponse(BaseModel):
     registrado_por_nombre: Optional[str] = None
     observaciones: Optional[str] = None
     documentos_count: int = 0
+    # Enriquecimiento para drill-down (COMPRAS-7.6). Se populan cuando el
+    # movimiento tiene un único CajaDocumento con entidad_tipo/entidad_id
+    # seteados (caso normal de OPs ejecutadas). None si hay 0 ó >1 docs.
+    entidad_tipo: Optional[str] = None
+    entidad_id: Optional[int] = None
     tags: list[TagResponse] = []
     created_at: Optional[datetime] = None
 
@@ -269,8 +274,19 @@ def _build_caja_response(caja) -> CajaResponse:
     )
 
 
-def _build_movimiento_response(mov, doc_count: int = 0, tags: Optional[list[dict]] = None) -> MovimientoResponse:
-    """Builds MovimientoResponse from ORM object."""
+def _build_movimiento_response(
+    mov,
+    doc_count: int = 0,
+    tags: Optional[list[dict]] = None,
+    entidad_tipo: Optional[str] = None,
+    entidad_id: Optional[int] = None,
+) -> MovimientoResponse:
+    """Builds MovimientoResponse from ORM object.
+
+    `entidad_tipo` / `entidad_id` son hints para drill-down desde el UI (ver
+    OP desde Caja, ver pedido, etc.). Se setean cuando el caller detecta un
+    documento único asociado con esos campos. None cuando no aplica.
+    """
     tag_responses = [TagResponse(**t) for t in (tags or [])]
     return MovimientoResponse(
         id=mov.id,
@@ -286,6 +302,8 @@ def _build_movimiento_response(mov, doc_count: int = 0, tags: Optional[list[dict
         registrado_por_nombre=mov.registrado_por.nombre if mov.registrado_por else None,
         observaciones=mov.observaciones,
         documentos_count=doc_count,
+        entidad_tipo=entidad_tipo,
+        entidad_id=entidad_id,
         tags=tag_responses,
         created_at=mov.created_at,
     )
@@ -456,13 +474,25 @@ def listar_movimientos(
         busqueda=busqueda,
     )
 
-    # Batch-load document counts and tags for this page of movements
+    # Batch-load document counts, tags y entidad (drill-down COMPRAS-7.6)
     mov_ids = [m.id for m in items]
     doc_counts = svc.documentos_count_por_movimiento(mov_ids)
     tags_map = svc.tags_por_movimientos_batch(mov_ids)
+    entidad_map = svc.entidad_por_movimiento(mov_ids)
+
+    def _build(m):
+        ent = entidad_map.get(m.id)
+        ent_tipo, ent_id = ent if ent else (None, None)
+        return _build_movimiento_response(
+            m,
+            doc_counts.get(m.id, 0),
+            tags_map.get(m.id, []),
+            entidad_tipo=ent_tipo,
+            entidad_id=ent_id,
+        )
 
     return MovimientosListResponse(
-        items=[_build_movimiento_response(m, doc_counts.get(m.id, 0), tags_map.get(m.id, [])) for m in items],
+        items=[_build(m) for m in items],
         total=total,
         page=page,
         page_size=page_size,

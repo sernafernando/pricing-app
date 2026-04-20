@@ -14,7 +14,7 @@ Usage:
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, JSON, String
+from sqlalchemy import create_engine, event, BigInteger, Integer, JSON, String
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
@@ -39,13 +39,23 @@ _PG_TYPE_MAP = {
 
 
 def _patch_pg_types_for_sqlite() -> None:
-    """Replace PostgreSQL-only column types with SQLite equivalents in metadata."""
+    """Replace PostgreSQL-only column types with SQLite equivalents in metadata.
+
+    Also downgrades `BigInteger` PK columns to `Integer` so that SQLite's
+    AUTOINCREMENT behaviour kicks in — SQLite only autoincrements INTEGER PKs,
+    so tables whose IDs are declared as BigInteger (e.g. imputaciones,
+    cc_proveedor_movimientos) fail with `NOT NULL constraint failed: <tbl>.id`
+    at INSERT time. This mirrors the existing JSONB/UUID remapping pattern.
+    """
     for table in Base.metadata.tables.values():
         for column in table.columns:
             for pg_type, factory in _PG_TYPE_MAP.items():
                 if isinstance(column.type, pg_type):
                     column.type = factory()
                     break
+            # BigInteger PKs → Integer under SQLite so autoincrement works.
+            if column.primary_key and isinstance(column.type, BigInteger):
+                column.type = Integer()
 
 
 @pytest.fixture(scope="session")
