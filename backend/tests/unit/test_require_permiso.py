@@ -7,10 +7,14 @@ simulan la inyección de dependencias de FastAPI llamando directo al
   - Usuario con permiso → retorna el usuario intacto.
   - Usuario sin permiso → HTTPException 403 con code INSUFFICIENT_PERMISSIONS.
   - El mensaje incluye el código del permiso (debug friendly).
+
+Nota: no usamos `pytest-asyncio` (no está en requirements del proyecto, rompe CI).
+Corremos las corrutinas con `asyncio.run()` directo — más simple y sin deps extra.
 """
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,21 +40,19 @@ class TestRequirePermiso:
         dep = require_permiso("compras.leer")
         assert callable(dep)
 
-    @pytest.mark.asyncio
-    async def test_usuario_con_permiso_retorna_usuario(self) -> None:
+    def test_usuario_con_permiso_retorna_usuario(self) -> None:
         user = _fake_user()
         db_mock = MagicMock()
 
         with patch("app.services.permisos_service.PermisosService") as svc_cls:
             svc_cls.return_value.tiene_permiso.return_value = True
             dep = require_permiso("administracion.gestionar_ordenes_compra")
-            result = await dep(current_user=user, db=db_mock)
+            result = asyncio.run(dep(current_user=user, db=db_mock))
 
         assert result is user
         svc_cls.return_value.tiene_permiso.assert_called_once_with(user, "administracion.gestionar_ordenes_compra")
 
-    @pytest.mark.asyncio
-    async def test_usuario_sin_permiso_raises_http_403(self) -> None:
+    def test_usuario_sin_permiso_raises_http_403(self) -> None:
         user = _fake_user()
         db_mock = MagicMock()
 
@@ -59,7 +61,7 @@ class TestRequirePermiso:
             dep = require_permiso("administracion.aprobar_ordenes_compra")
 
             with pytest.raises(HTTPException) as exc_info:
-                await dep(current_user=user, db=db_mock)
+                asyncio.run(dep(current_user=user, db=db_mock))
 
         assert exc_info.value.status_code == 403
         detail = exc_info.value.detail
@@ -69,8 +71,7 @@ class TestRequirePermiso:
         assert detail["code"] == ErrorCode.INSUFFICIENT_PERMISSIONS
         assert "administracion.aprobar_ordenes_compra" in detail["message"]
 
-    @pytest.mark.asyncio
-    async def test_codigos_distintos_llaman_con_codigo_correspondiente(self) -> None:
+    def test_codigos_distintos_llaman_con_codigo_correspondiente(self) -> None:
         """Dos dependencies con códigos distintos no comparten estado."""
         user = _fake_user()
         db_mock = MagicMock()
@@ -81,8 +82,8 @@ class TestRequirePermiso:
             dep_a = require_permiso("compras.leer")
             dep_b = require_permiso("compras.escribir")
 
-            await dep_a(current_user=user, db=db_mock)
-            await dep_b(current_user=user, db=db_mock)
+            asyncio.run(dep_a(current_user=user, db=db_mock))
+            asyncio.run(dep_b(current_user=user, db=db_mock))
 
         llamadas = svc_cls.return_value.tiene_permiso.call_args_list
         codigos = [c.args[1] for c in llamadas]
