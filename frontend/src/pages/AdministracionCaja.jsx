@@ -176,7 +176,7 @@ export default function AdministracionCaja() {
 
   const fetchEmpresas = useCallback(async () => {
     try {
-      const { data } = await api.get('/empresas');
+      const { data } = await api.get('/admin/empresas');
       setEmpresas(data);
     } catch {
       setEmpresas([]);
