@@ -50,7 +50,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
   };
 
   // Determina si el sidebar está efectivamente expandido
-  const isExpanded = isPinned || isHovering;
+  // En mobile, siempre expandido cuando está abierto (no hay hover)
+  const isExpanded = isPinned || isHovering || mobileOpen;
 
   // Menú de navegación estructurado
   const menuSections = [
