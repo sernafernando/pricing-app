@@ -1,0 +1,278 @@
+/* TabPapelera — listado append-only de hard-deletes. CF tokens. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-text-secondary);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.banner strong {
+  color: var(--cf-text-primary);
+}
+
+.bannerIcon {
+  color: var(--cf-accent-orange);
+  flex-shrink: 0;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.iconBtn {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
+}
+
+.pageBtn {
+  composes: btn-tesla outline-subtle-primary icon-only xs from '../../styles/buttons-tesla.css';
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+.tableWrapper {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+.tdMotivo {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+}
+
+.tipoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+/* ── Pagination ─────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.paginationBtns {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+/* ── States ────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-secondary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.emptyState {
+  text-align: center;
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Modal detalle ─────────────────────────────────────────── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+}
+
+.modalTitle {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.modalCloseBtn {
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.modalCloseBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.detalleGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.metaGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.metaLabel {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+
+.motivoBlock {
+  background: var(--cf-bg-hover);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.snapshotPre {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  overflow: auto;
+  max-height: 400px;
+  border: 1px solid var(--cf-border-default);
+  line-height: 1.4;
+}

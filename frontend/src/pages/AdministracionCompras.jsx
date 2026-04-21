@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShoppingCart, FileText, Wallet, Users, RefreshCw, BookOpen } from 'lucide-react';
+import { ShoppingCart, FileText, Wallet, Users, RefreshCw, BookOpen, Trash2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import TabPedidosCompra from '../components/compras/TabPedidosCompra';
 import TabOrdenesPago from '../components/compras/TabOrdenesPago';
 import TabCCProveedores from '../components/compras/TabCCProveedores';
 import TabReconciliacion from '../components/compras/TabReconciliacion';
 import TabSaleDocumentCatalog from '../components/compras/TabSaleDocumentCatalog';
+import TabPapelera from '../components/compras/TabPapelera';
 import styles from './AdministracionCompras.module.css';
 
 // ── Tabs metadata ───────────────────────────────────────────────
@@ -45,6 +46,13 @@ const TABS = [
     icon: BookOpen,
     permiso: 'administracion.ver_ordenes_compra',
     Component: TabSaleDocumentCatalog,
+  },
+  {
+    id: 'papelera',
+    label: 'Papelera',
+    icon: Trash2,
+    permiso: 'administracion.eliminar_compras_basura',
+    Component: TabPapelera,
   },
 ];
 

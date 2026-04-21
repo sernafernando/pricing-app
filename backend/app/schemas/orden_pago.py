@@ -87,6 +87,11 @@ class OrdenPagoResponse(OrdenPagoBase):
     empresa_nombre: str | None = None
     proveedor_nombre: str | None = None
 
+    # Flag de hard-delete calculado en batch por el router (opción C).
+    # True si la OP está en estado 'anulado' (nunca pendiente/pagado), sin
+    # imputaciones activas y el updated_at superó la ventana de retención.
+    puede_eliminar: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
 

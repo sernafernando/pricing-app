@@ -55,6 +55,12 @@ from app.schemas.cc_proveedor import (
     SaldoPorMoneda,
 )
 from app.schemas.compra_evento import CompraEventoResponse
+from app.schemas.compras_papelera import (
+    PapeleraHardDeleteRequest,
+    PapeleraItemDetalle,
+    PapeleraItemResponse,
+    PapeleraPaginated,
+)
 from app.schemas.imputacion import (
     ImputacionDesimputar,
     ImputacionPaginated,
@@ -79,6 +85,7 @@ from app.schemas.pedido_compra import (
 from app.schemas.sale_document import SaleDocumentResponse, SaleDocumentsFaltantes
 from app.services import (
     cc_proveedor_service,
+    compras_papelera_service,
     etiqueta_retiro_service,
     imputaciones_service,
     ordenes_pago_service,
@@ -175,7 +182,7 @@ def _obtener_proveedor_o_404(db: Session, proveedor_id: int) -> Proveedor:
     return prov
 
 
-def _pedido_response(p: PedidoCompra) -> PedidoCompraResponse:
+def _pedido_response(p: PedidoCompra, *, puede_eliminar: bool = False) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
     `model_validate` en Pydantic v2 no soporta `update=`; usamos
@@ -183,6 +190,10 @@ def _pedido_response(p: PedidoCompra) -> PedidoCompraResponse:
     Si la relación no está cargada (endpoint sin joinedload), `getattr`
     puede disparar lazy-load si la sesión sigue activa; si falla, cae en
     `None` y el frontend muestra fallback "#N".
+
+    `puede_eliminar` lo calcula el caller vía
+    `compras_papelera_service._calcular_puede_eliminar_pedidos_batch`
+    (opción C — 3 queries fijas sin importar N).
     """
     emp = getattr(p, "empresa", None)
     prov = getattr(p, "proveedor", None)
@@ -191,11 +202,12 @@ def _pedido_response(p: PedidoCompra) -> PedidoCompraResponse:
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
+            "puede_eliminar": puede_eliminar,
         }
     )
 
 
-def _op_response(op: OrdenPago) -> OrdenPagoResponse:
+def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoResponse:
     """Serializa OrdenPago incluyendo empresa_nombre / proveedor_nombre."""
     emp = getattr(op, "empresa", None)
     prov = getattr(op, "proveedor", None)
@@ -204,6 +216,7 @@ def _op_response(op: OrdenPago) -> OrdenPagoResponse:
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
+            "puede_eliminar": puede_eliminar,
         }
     )
 
@@ -251,8 +264,9 @@ def listar_pedidos(
     stmt = stmt.order_by(PedidoCompra.created_at.desc(), PedidoCompra.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
+    puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items)
     return PedidoCompraPaginated(
-        items=[_pedido_response(p) for p in items],
+        items=[_pedido_response(p, puede_eliminar=puede_map.get(p.id, False)) for p in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -778,8 +792,9 @@ def listar_ordenes_pago(
     stmt = stmt.order_by(OrdenPago.created_at.desc(), OrdenPago.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
+    puede_map = compras_papelera_service._calcular_puede_eliminar_ops_batch(db, items)
     return OrdenPagoPaginated(
-        items=[_op_response(op) for op in items],
+        items=[_op_response(op, puede_eliminar=puede_map.get(op.id, False)) for op in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -1039,6 +1054,163 @@ def distribuir_automatico(
     for imp in imputaciones_creadas:
         db.refresh(imp)
     return [ImputacionResponse.model_validate(i) for i in imputaciones_creadas]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Hard-delete (papelera auditable) — DELETE /pedidos/{id} y /ordenes-pago/{id}
+# + GET /papelera
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.delete(
+    "/pedidos/{pedido_id}",
+    response_model=PapeleraItemResponse,
+    summary="Hard-delete de pedido basura (borrador/cancelado sin movimiento)",
+)
+def hard_delete_pedido(
+    pedido_id: int,
+    data: PapeleraHardDeleteRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.eliminar_compras_basura")),
+) -> PapeleraItemResponse:
+    """Elimina físicamente un pedido y deja snapshot auditable en papelera.
+
+    Reglas (validadas por `compras_papelera_service.eliminar_pedido`):
+      - Estado ∈ {borrador, cancelado}.
+      - NUNCA fue aprobado (no existe evento tipo='aprobado').
+      - NO tiene imputaciones asociadas.
+      - Si cancelado: updated_at <= cutoff (retención 30 días por default).
+
+    Los eventos de `compras_eventos` de la entidad se copian al snapshot
+    JSON antes de borrarse (opción B — historia preservada). La fila de
+    papelera es inmutable (append-only, NO se expone restore).
+    """
+    try:
+        papelera_row = compras_papelera_service.eliminar_pedido(
+            db,
+            pedido_id=pedido_id,
+            user_id=user.id,
+            motivo=data.motivo,
+            challenge_palabra_usada=data.challenge_palabra_usada,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("hard_delete_pedido falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al eliminar el pedido.") from exc
+
+    _commit_or_rollback(db, operacion="hard_delete_pedido")
+    db.refresh(papelera_row)
+    nombres = compras_papelera_service.enriquecer_nombres_papelera(db, [papelera_row])
+    extras = nombres.get(papelera_row.id, {})
+    base = PapeleraItemResponse.model_validate(papelera_row)
+    return base.model_copy(update=extras)
+
+
+@router.delete(
+    "/ordenes-pago/{op_id}",
+    response_model=PapeleraItemResponse,
+    summary="Hard-delete de OP anulada sin imputaciones vivas",
+)
+def hard_delete_op(
+    op_id: int,
+    data: PapeleraHardDeleteRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.eliminar_compras_basura")),
+) -> PapeleraItemResponse:
+    """Elimina físicamente una OP y deja snapshot auditable en papelera.
+
+    Reglas (validadas por `compras_papelera_service.eliminar_op`):
+      - Estado == 'anulado'.
+      - Sin imputaciones netas vivas (no-reversal <= reversal).
+      - caja_movimiento_id IS NULL (el anulado revirtió la caja).
+      - updated_at <= cutoff (retención 30 días por default).
+    """
+    try:
+        papelera_row = compras_papelera_service.eliminar_op(
+            db,
+            op_id=op_id,
+            user_id=user.id,
+            motivo=data.motivo,
+            challenge_palabra_usada=data.challenge_palabra_usada,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("hard_delete_op falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al eliminar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="hard_delete_op")
+    db.refresh(papelera_row)
+    nombres = compras_papelera_service.enriquecer_nombres_papelera(db, [papelera_row])
+    extras = nombres.get(papelera_row.id, {})
+    base = PapeleraItemResponse.model_validate(papelera_row)
+    return base.model_copy(update=extras)
+
+
+@router.get(
+    "/papelera",
+    response_model=PapeleraPaginated,
+    summary="Listar papelera auditable (snapshots de entidades hard-deleted)",
+)
+def listar_papelera(
+    entidad_tipo: Optional[str] = Query(None, description="'pedido_compra' | 'orden_pago'"),
+    proveedor_id: Optional[int] = Query(None, ge=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.eliminar_compras_basura")),
+) -> PapeleraPaginated:
+    """Listado paginado de la papelera con nombres derivados (empresa/proveedor/usuario)."""
+    if entidad_tipo is not None and entidad_tipo not in ("pedido_compra", "orden_pago"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="entidad_tipo debe ser 'pedido_compra' o 'orden_pago'.",
+        )
+
+    items, total = compras_papelera_service.listar_papelera(
+        db,
+        entidad_tipo=entidad_tipo,
+        proveedor_id=proveedor_id,
+        page=page,
+        page_size=page_size,
+    )
+    nombres = compras_papelera_service.enriquecer_nombres_papelera(db, items)
+
+    responses: list[PapeleraItemResponse] = []
+    for it in items:
+        base = PapeleraItemResponse.model_validate(it)
+        extras = nombres.get(it.id, {})
+        responses.append(base.model_copy(update=extras))
+
+    return PapeleraPaginated(
+        items=responses,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/papelera/{papelera_id}",
+    response_model=PapeleraItemDetalle,
+    summary="Detalle de item de papelera con snapshot JSON completo",
+)
+def obtener_papelera_item(
+    papelera_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.eliminar_compras_basura")),
+) -> PapeleraItemDetalle:
+    """Retorna el snapshot JSONB completo + eventos copiados."""
+    item = compras_papelera_service.obtener_papelera_item(db, papelera_id)
+    nombres = compras_papelera_service.enriquecer_nombres_papelera(db, [item])
+    extras = nombres.get(item.id, {})
+    base = PapeleraItemDetalle.model_validate(item)
+    return base.model_copy(update=extras)
 
 
 # ==========================================================================

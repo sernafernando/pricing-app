@@ -90,6 +90,12 @@ class PedidoCompraResponse(PedidoCompraBase):
     # en los listados genéricos queda None para evitar N+1.
     saldo_pendiente: Decimal | None = None
 
+    # Flag de hard-delete calculado en batch por el router (opción C).
+    # True si el pedido está en borrador/cancelado, NO fue aprobado nunca,
+    # NO tiene imputaciones y — si está cancelado — el updated_at superó
+    # la ventana de retención (configuracion `compras.dias_retencion_cancelados`).
+    puede_eliminar: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
 

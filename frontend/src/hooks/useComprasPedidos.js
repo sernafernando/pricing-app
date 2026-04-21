@@ -135,6 +135,24 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  /**
+   * Hard-delete auditable. El backend valida reglas (estado, imputaciones,
+   * retención). Si falla devuelve 409 con detail explicativo.
+   */
+  const eliminar = useCallback(
+    (id, motivo, challengePalabraUsada = null) =>
+      wrap(async () => {
+        const { data } = await api.delete(`/administracion/compras/pedidos/${id}`, {
+          data: {
+            motivo,
+            challenge_palabra_usada: challengePalabraUsada,
+          },
+        });
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -149,5 +167,6 @@ export default function useComprasPedidos() {
     cancelar,
     generarEtiqueta,
     listarEventos,
+    eliminar,
   };
 }
