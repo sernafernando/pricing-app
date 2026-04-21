@@ -83,6 +83,10 @@ class OrdenPagoResponse(OrdenPagoBase):
     updated_at: datetime
     paid_at: datetime | None = None
 
+    # Nombres derivados (populados por el router vía joinedload + update).
+    empresa_nombre: str | None = None
+    proveedor_nombre: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

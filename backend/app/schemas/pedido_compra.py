@@ -34,6 +34,11 @@ class PedidoCompraBase(BaseModel):
     proveedor_id: int
     moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
     monto: Decimal = Field(..., gt=0)
+    # Cotización ARS por 1 USD al momento del pedido. Solo aplica a moneda='USD'.
+    # Si moneda='USD' y viene None, el servicio intenta autollenar con el TC del día
+    # (deja None si no hay TC cargado, logueando WARNING). Si moneda='ARS' y viene
+    # un valor, el servicio lo rechaza con HTTP 400.
+    tipo_cambio: Decimal | None = Field(None, gt=0)
     fecha_pago_texto: str | None = Field(None, max_length=200)
     fecha_pago_estimada: date | None = None
     requiere_envio: bool = False
@@ -53,6 +58,7 @@ class PedidoCompraUpdate(BaseModel):
     proveedor_id: int | None = None
     moneda: str | None = Field(None, pattern="^(ARS|USD)$", max_length=3)
     monto: Decimal | None = Field(None, gt=0)
+    tipo_cambio: Decimal | None = Field(None, gt=0)
     fecha_pago_texto: str | None = Field(None, max_length=200)
     fecha_pago_estimada: date | None = None
     requiere_envio: bool | None = None
@@ -71,6 +77,18 @@ class PedidoCompraResponse(PedidoCompraBase):
     aprobado_por_id: int | None = None
     created_at: datetime
     updated_at: datetime
+
+    # Nombres derivados de las relaciones `empresa` / `proveedor`. Los populan
+    # los routers vía `model_validate(p, update={...})` usando los datos de
+    # `joinedload`. Si la relación no se cargó, quedan `None` y el frontend
+    # muestra fallback "Proveedor #N".
+    empresa_nombre: str | None = None
+    proveedor_nombre: str | None = None
+
+    # Saldo pendiente = monto - imputaciones efectivas (no-reversal - reversal).
+    # Solo lo completa el endpoint `/pedidos/pendientes-pago` (design Batch C);
+    # en los listados genéricos queda None para evitar N+1.
+    saldo_pendiente: Decimal | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

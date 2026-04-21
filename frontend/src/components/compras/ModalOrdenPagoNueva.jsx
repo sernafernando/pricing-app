@@ -50,7 +50,12 @@ const TIPOS_ITEM = [
   { value: 'factura_erp', label: 'Factura ERP' },
 ];
 
-export default function ModalOrdenPagoNueva({ empresas, onClose }) {
+export default function ModalOrdenPagoNueva({
+  empresas,
+  onClose,
+  pedidoInicial = null,
+  pendientesDelProveedor = [],
+}) {
   const user = useAuthStore((s) => s.user);
   const userId = user?.id || 'anon';
   const opApi = useComprasOP();
@@ -67,16 +72,36 @@ export default function ModalOrdenPagoNueva({ empresas, onClose }) {
   };
 
   // ── Form state ──
+  // Si vino pedidoInicial: pre-cargamos empresa/proveedor/moneda y un item
+  // imputado por el saldo_pendiente (o monto) del pedido. El usuario puede
+  // agregar más pedidos/facturas del mismo proveedor desde dentro.
+  const saldoInicial = pedidoInicial
+    ? Number(pedidoInicial.saldo_pendiente ?? pedidoInicial.monto) || 0
+    : 0;
+
   const [form, setForm] = useState({
-    empresa_id: '',
-    proveedor_id: '',
-    moneda: 'ARS',
-    monto_total: '',
-    modo_imputacion: 'a_cuenta',
-    observaciones: '',
+    empresa_id: pedidoInicial ? String(pedidoInicial.empresa_id) : '',
+    proveedor_id: pedidoInicial ? String(pedidoInicial.proveedor_id) : '',
+    moneda: pedidoInicial?.moneda || 'ARS',
+    monto_total: pedidoInicial ? String(saldoInicial) : '',
+    modo_imputacion: pedidoInicial ? 'especifica' : 'a_cuenta',
+    observaciones: pedidoInicial
+      ? `Pago imputado a pedido ${pedidoInicial.numero}`
+      : '',
   });
 
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState(
+    pedidoInicial
+      ? [
+          {
+            tipo: 'pedido_compra',
+            id: String(pedidoInicial.id),
+            monto: String(saldoInicial),
+            numero_factura: pedidoInicial.numero_factura || '',
+          },
+        ]
+      : []
+  );
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -87,6 +112,23 @@ export default function ModalOrdenPagoNueva({ empresas, onClose }) {
 
   const requiereItems =
     form.modo_imputacion === 'especifica' || form.modo_imputacion === 'mixta';
+
+  // Pedidos pendientes del proveedor actualmente seleccionado,
+  // filtrados por moneda del form (no mezclar ARS/USD en una OP).
+  const pedidosDisponibles = pendientesDelProveedor.filter((p) => {
+    if (form.proveedor_id && String(p.proveedor_id) !== String(form.proveedor_id)) {
+      return false;
+    }
+    if (form.moneda && p.moneda !== form.moneda) return false;
+    return true;
+  });
+
+  // IDs de pedidos ya agregados como items (para evitar duplicar al elegir del dropdown).
+  const idsPedidosYaAgregados = new Set(
+    items
+      .filter((it) => it.tipo === 'pedido_compra' && it.id)
+      .map((it) => String(it.id))
+  );
 
   const handleChange = (campo, valor) => {
     setForm((f) => {
@@ -349,8 +391,12 @@ export default function ModalOrdenPagoNueva({ empresas, onClose }) {
               <div className={styles.itemsHeader}>
                 <h4 className={styles.itemsTitle}>Items imputados</h4>
                 <div className={styles.itemsSummary}>
-                  Suma: {formatCurrency(sumaItems, form.moneda)} / Total:{' '}
-                  {formatCurrency(montoTotalNum, form.moneda)}
+                  <span>Imputado: {formatCurrency(sumaItems, form.moneda)}</span>
+                  <span> / Total: {formatCurrency(montoTotalNum, form.moneda)}</span>
+                  <span className={styles.itemsRemanente}>
+                    Remanente:{' '}
+                    {formatCurrency(Math.max(0, montoTotalNum - sumaItems), form.moneda)}
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -377,63 +423,116 @@ export default function ModalOrdenPagoNueva({ empresas, onClose }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((it, idx) => (
-                        <tr key={idx}>
-                          <td>
-                            <select
-                              className={styles.selectSmall}
-                              value={it.tipo}
-                              onChange={(e) => updateItem(idx, 'tipo', e.target.value)}
-                            >
-                              {TIPOS_ITEM.map((t) => (
-                                <option key={t.value} value={t.value}>
-                                  {t.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              className={styles.inputSmall}
-                              value={it.id}
-                              onChange={(e) => updateItem(idx, 'id', e.target.value)}
-                              placeholder="id"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              className={styles.inputSmallRight}
-                              value={it.monto}
-                              onChange={(e) => updateItem(idx, 'monto', e.target.value)}
-                              placeholder="0.00"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="text"
-                              className={styles.inputSmall}
-                              value={it.numero_factura}
-                              onChange={(e) => updateItem(idx, 'numero_factura', e.target.value)}
-                              placeholder="FA-..."
-                              maxLength={50}
-                            />
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              className={styles.iconBtnDanger}
-                              onClick={() => removeItem(idx)}
-                              aria-label="Quitar item"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {items.map((it, idx) => {
+                        // Auto-sugerir monto al elegir pedido del dropdown.
+                        const handleSelectPedido = (valorId) => {
+                          if (!valorId) {
+                            updateItem(idx, 'id', '');
+                            return;
+                          }
+                          const pedido = pendientesDelProveedor.find(
+                            (p) => String(p.id) === String(valorId)
+                          );
+                          setItems((prev) =>
+                            prev.map((row, i) =>
+                              i === idx
+                                ? {
+                                    ...row,
+                                    id: valorId,
+                                    monto: pedido
+                                      ? String(pedido.saldo_pendiente ?? pedido.monto)
+                                      : row.monto,
+                                    numero_factura:
+                                      pedido?.numero_factura || row.numero_factura,
+                                  }
+                                : row
+                            )
+                          );
+                        };
+                        return (
+                          <tr key={idx}>
+                            <td>
+                              <select
+                                className={styles.selectSmall}
+                                value={it.tipo}
+                                onChange={(e) => updateItem(idx, 'tipo', e.target.value)}
+                              >
+                                {TIPOS_ITEM.map((t) => (
+                                  <option key={t.value} value={t.value}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              {it.tipo === 'pedido_compra' ? (
+                                <select
+                                  className={styles.selectSmall}
+                                  value={it.id}
+                                  onChange={(e) => handleSelectPedido(e.target.value)}
+                                >
+                                  <option value="">Seleccionar pedido...</option>
+                                  {pedidosDisponibles
+                                    .filter(
+                                      (p) =>
+                                        String(p.id) === String(it.id) ||
+                                        !idsPedidosYaAgregados.has(String(p.id))
+                                    )
+                                    .map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.numero} — {formatCurrency(
+                                          p.saldo_pendiente ?? p.monto,
+                                          p.moneda
+                                        )}
+                                      </option>
+                                    ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="number"
+                                  className={styles.inputSmall}
+                                  value={it.id}
+                                  onChange={(e) => updateItem(idx, 'id', e.target.value)}
+                                  placeholder="ct_transaction_id"
+                                />
+                              )}
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                className={styles.inputSmallRight}
+                                value={it.monto}
+                                onChange={(e) => updateItem(idx, 'monto', e.target.value)}
+                                placeholder="0.00"
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className={styles.inputSmall}
+                                value={it.numero_factura}
+                                onChange={(e) =>
+                                  updateItem(idx, 'numero_factura', e.target.value)
+                                }
+                                placeholder="FA-..."
+                                maxLength={50}
+                              />
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className={styles.iconBtnDanger}
+                                onClick={() => removeItem(idx)}
+                                aria-label="Quitar item"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

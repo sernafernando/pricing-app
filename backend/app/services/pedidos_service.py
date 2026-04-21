@@ -68,6 +68,7 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
     {
         "moneda",
         "monto",
+        "tipo_cambio",
         "fecha_pago_texto",
         "fecha_pago_estimada",
         "requiere_envio",
@@ -143,6 +144,69 @@ def _obtener_pedido_o_404(session: Session, pedido_id: int) -> PedidoCompra:
     return pedido
 
 
+def _resolver_tipo_cambio_para_pedido(
+    session: Session,
+    *,
+    moneda: str,
+    tipo_cambio: Optional[Decimal],
+) -> Optional[Decimal]:
+    """
+    Valida coherencia `moneda` ↔ `tipo_cambio` y autollena el TC del día
+    cuando corresponde (Batch B del plan UX compras).
+
+    Reglas:
+      - moneda='ARS' + tipo_cambio!=None  → HTTP 400 (no aplica).
+      - moneda='ARS' + tipo_cambio=None   → return None.
+      - moneda='USD' + tipo_cambio>0      → return tipo_cambio.
+      - moneda='USD' + tipo_cambio<=0     → HTTP 400.
+      - moneda='USD' + tipo_cambio=None   → intenta leer el TC del día
+        desde `tipo_cambio` (moneda='USD', fecha=hoy). Usa `venta` (es el
+        que el usuario paga). Si no existe, devuelve None con log WARNING
+        (el frontend puede ofrecer editarlo luego).
+    """
+    if moneda == "ARS":
+        if tipo_cambio is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="tipo_cambio solo aplica a moneda='USD'.",
+            )
+        return None
+
+    if moneda == "USD":
+        if tipo_cambio is not None:
+            if tipo_cambio <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"tipo_cambio debe ser > 0 (recibido: {tipo_cambio}).",
+                )
+            return Decimal(str(tipo_cambio))
+
+        # Autollenar desde `tipo_cambio` (tabla del sync BNA). Best-effort.
+        from app.models.tipo_cambio import TipoCambio  # noqa: PLC0415
+
+        hoy = date.today()
+        tc_row = (
+            session.query(TipoCambio)
+            .filter(TipoCambio.moneda == "USD", TipoCambio.fecha == hoy)
+            .order_by(TipoCambio.id.desc())
+            .first()
+        )
+        if tc_row is None or tc_row.venta in (None, 0):
+            logger.warning(
+                "pedidos_service: TC del día no disponible para USD (fecha=%s). "
+                "Pedido se creará con tipo_cambio=NULL — el usuario deberá editarlo.",
+                hoy,
+            )
+            return None
+        return Decimal(str(tc_row.venta))
+
+    # Defensivo: moneda con patrón validado en Pydantic, no debería llegar otra.
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"moneda inválida: '{moneda}' (esperado ARS|USD).",
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Alta (creación)
 # ──────────────────────────────────────────────────────────────────────────
@@ -156,6 +220,7 @@ def crear_pedido(
     moneda: Literal["ARS", "USD"],
     monto: Decimal,
     creado_por_id: int,
+    tipo_cambio: Optional[Decimal] = None,
     fecha_pago_texto: Optional[str] = None,
     fecha_pago_estimada: Optional[date] = None,
     requiere_envio: bool = False,
@@ -167,6 +232,8 @@ def crear_pedido(
     - Genera número via `numeracion_service.generar_siguiente_numero`
       (tipo='pedido', empresa_id=empresa_id).
     - Inserta evento `creado` en `compras_eventos`.
+    - Resuelve `tipo_cambio` vía `_resolver_tipo_cambio_para_pedido`
+      (autollena con TC del día cuando corresponde).
 
     Args:
         session: tx activa.
@@ -175,6 +242,9 @@ def crear_pedido(
         moneda: 'ARS' o 'USD'.
         monto: monto > 0.
         creado_por_id: FK a usuarios.
+        tipo_cambio: cotización ARS/USD. Solo aplica a moneda='USD'.
+            Si es None y moneda='USD', el servicio intenta leer el TC del
+            día desde la tabla `tipo_cambio`.
         fecha_pago_texto, fecha_pago_estimada, requiere_envio, numero_factura:
             campos opcionales del pedido.
 
@@ -183,12 +253,19 @@ def crear_pedido(
 
     Raises:
         HTTPException 400 si `monto <= 0`.
+        HTTPException 400 si `tipo_cambio` es incoherente con `moneda`.
     """
     if monto <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"monto debe ser > 0 (recibido: {monto}).",
         )
+
+    tipo_cambio_resuelto = _resolver_tipo_cambio_para_pedido(
+        session,
+        moneda=moneda,
+        tipo_cambio=tipo_cambio,
+    )
 
     numero, _ = numeracion_service.generar_siguiente_numero(
         session,
@@ -202,6 +279,7 @@ def crear_pedido(
         proveedor_id=proveedor_id,
         moneda=moneda,
         monto=monto,
+        tipo_cambio=tipo_cambio_resuelto,
         fecha_pago_texto=fecha_pago_texto,
         fecha_pago_estimada=fecha_pago_estimada,
         requiere_envio=requiere_envio,
@@ -223,6 +301,7 @@ def crear_pedido(
             "empresa_id": empresa_id,
             "moneda": moneda,
             "monto": str(monto),
+            "tipo_cambio": str(tipo_cambio_resuelto) if tipo_cambio_resuelto is not None else None,
         },
     )
 
@@ -320,6 +399,29 @@ def editar_pedido(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"moneda inválida: '{campos_aplicables['moneda']}'.",
+            )
+
+    # tipo_cambio: validar coherencia con moneda FINAL (la que queda tras
+    # aplicar los cambios). Si el usuario no tocó `moneda` se usa la actual.
+    if "tipo_cambio" in campos_aplicables or "moneda" in campos_aplicables:
+        moneda_final = campos_aplicables.get("moneda", pedido.moneda)
+        tc_final = campos_aplicables.get(
+            "tipo_cambio",
+            pedido.tipo_cambio if "tipo_cambio" not in campos_aplicables else None,
+        )
+        # Solo re-resolvemos si el usuario mandó tipo_cambio explícito o cambió moneda.
+        # Cuando solo cambia moneda ARS→USD y no mandó TC, intentamos autollenar.
+        if "tipo_cambio" in campos_aplicables:
+            campos_aplicables["tipo_cambio"] = _resolver_tipo_cambio_para_pedido(
+                session, moneda=moneda_final, tipo_cambio=tc_final
+            )
+        elif "moneda" in campos_aplicables and moneda_final == "ARS" and pedido.tipo_cambio is not None:
+            # Si pasa de USD→ARS, el TC previo queda inválido → forzar a None.
+            campos_aplicables["tipo_cambio"] = None
+        elif "moneda" in campos_aplicables and moneda_final == "USD" and pedido.tipo_cambio is None:
+            # ARS→USD sin TC explícito → autollenar best-effort.
+            campos_aplicables["tipo_cambio"] = _resolver_tipo_cambio_para_pedido(
+                session, moneda="USD", tipo_cambio=None
             )
 
     diff: dict[str, dict[str, Any]] = {}

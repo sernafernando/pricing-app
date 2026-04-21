@@ -14,6 +14,12 @@
   flex-wrap: wrap;
 }
 
+/* Wrapper del autocomplete de proveedor — ocupa el lugar que antes tenía el input numérico. */
+.searchProveedor {
+  min-width: 280px;
+  flex: 1 1 320px;
+}
+
 .searchWrapper {
   position: relative;
   min-width: 240px;
@@ -63,11 +69,6 @@
   border-color: var(--cf-accent-blue);
   background: var(--cf-bg-hover);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-/* ── Buttons ─────────────────────────────────────────────────── */
-.btnPrimary {
-  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 /* ── Proveedor header ────────────────────────────────────────── */

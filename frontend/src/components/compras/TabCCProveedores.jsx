@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Search, Loader2, Layers, List, DollarSign } from 'lucide-react';
+import { Loader2, Layers, List, DollarSign } from 'lucide-react';
 import api from '../../services/api';
 import useCCProveedor from '../../hooks/useCCProveedor';
+import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabCCProveedores.module.css';
 
 const formatMoneda = (value, moneda = 'ARS') => {
@@ -34,7 +35,8 @@ export default function TabCCProveedores() {
     error: ccError,
   } = useCCProveedor();
 
-  const [proveedorIdInput, setProveedorIdInput] = useState('');
+  // A.6: un solo estado — el autocomplete setea el id activo directamente y
+  // dispara fetch inmediato. Ya no hace falta un input "staging" + botón Buscar.
   const [proveedorIdActivo, setProveedorIdActivo] = useState(null);
 
   const [filtroEmpresa, setFiltroEmpresa] = useState('');
@@ -108,14 +110,6 @@ export default function TabCCProveedores() {
     if (proveedorIdActivo) fetchDetalle();
   }, [filtroEmpresa, filtroHasta, fetchDetalle, proveedorIdActivo]);
 
-  const handleBuscar = (e) => {
-    e.preventDefault();
-    const id = Number(proveedorIdInput);
-    if (Number.isFinite(id) && id > 0) {
-      setProveedorIdActivo(id);
-    }
-  };
-
   const saldos = detalle?.saldos || [];
   const saldoUsd = saldos.find((s) => s.moneda === 'USD')?.saldo || 0;
   const saldoArs = saldos.find((s) => s.moneda === 'ARS')?.saldo || 0;
@@ -126,16 +120,13 @@ export default function TabCCProveedores() {
 
   return (
     <div className={styles.container}>
-      {/* Buscador */}
-      <form className={styles.searchBar} onSubmit={handleBuscar}>
-        <div className={styles.searchWrapper}>
-          <Search size={14} className={styles.searchIcon} />
-          <input
-            type="number"
-            className={styles.searchInput}
-            placeholder="ID de proveedor..."
-            value={proveedorIdInput}
-            onChange={(e) => setProveedorIdInput(e.target.value)}
+      {/* Buscador — autocomplete dispara fetch al seleccionar (sin botón Buscar) */}
+      <div className={styles.searchBar}>
+        <div className={styles.searchProveedor}>
+          <ProveedorComprasAutocomplete
+            value={proveedorIdActivo}
+            onChange={(id) => setProveedorIdActivo(id || null)}
+            placeholder="Buscar proveedor (nombre, CUIT)..."
           />
         </div>
         <select
@@ -157,10 +148,7 @@ export default function TabCCProveedores() {
           onChange={(e) => setFiltroHasta(e.target.value)}
           title="Hasta fecha"
         />
-        <button type="submit" className={styles.btnPrimary}>
-          Buscar
-        </button>
-      </form>
+      </div>
 
       {ccError && <div className={styles.errorBanner}>{ccError}</div>}
 

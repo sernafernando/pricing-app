@@ -23,6 +23,7 @@ export default function ModalPedidoCompra({ pedido, empresas, onClose }) {
     proveedor_id: pedido?.proveedor_id ? String(pedido.proveedor_id) : '',
     moneda: pedido?.moneda || 'ARS',
     monto: pedido?.monto ? String(pedido.monto) : '',
+    tipo_cambio: pedido?.tipo_cambio ? String(pedido.tipo_cambio) : '',
     fecha_pago_texto: pedido?.fecha_pago_texto || '',
     fecha_pago_estimada: pedido?.fecha_pago_estimada || '',
     requiere_envio: pedido?.requiere_envio || false,
@@ -42,6 +43,11 @@ export default function ModalPedidoCompra({ pedido, empresas, onClose }) {
     const monto = parseFloat(form.monto);
     if (!Number.isFinite(monto) || monto <= 0) return 'El monto debe ser mayor a 0.';
     if (!['ARS', 'USD'].includes(form.moneda)) return 'Moneda inválida (ARS o USD).';
+    // tipo_cambio: solo aplica a USD. Si el usuario cargó algo, debe ser > 0.
+    if (form.moneda === 'USD' && form.tipo_cambio !== '' && form.tipo_cambio !== null) {
+      const tc = parseFloat(form.tipo_cambio);
+      if (!Number.isFinite(tc) || tc <= 0) return 'El tipo de cambio debe ser mayor a 0.';
+    }
     return null;
   };
 
@@ -56,11 +62,18 @@ export default function ModalPedidoCompra({ pedido, empresas, onClose }) {
     setSaving(true);
     setError(null);
     try {
+      // tipo_cambio: mandar null si vacío o si moneda=ARS (el backend lo valida).
+      const tcNum =
+        form.moneda === 'USD' && form.tipo_cambio !== '' && form.tipo_cambio !== null
+          ? parseFloat(form.tipo_cambio)
+          : null;
+
       const payload = {
         empresa_id: Number(form.empresa_id),
         proveedor_id: Number(form.proveedor_id),
         moneda: form.moneda,
         monto: parseFloat(form.monto),
+        tipo_cambio: tcNum,
         fecha_pago_texto: form.fecha_pago_texto || null,
         fecha_pago_estimada: form.fecha_pago_estimada || null,
         requiere_envio: form.requiere_envio,
@@ -153,6 +166,26 @@ export default function ModalPedidoCompra({ pedido, empresas, onClose }) {
               />
             </div>
           </div>
+
+          {form.moneda === 'USD' && (
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Tipo de cambio <span className={styles.labelHint}>(ARS por 1 USD)</span>
+              </label>
+              <input
+                type="number"
+                step="0.0001"
+                min="0"
+                className={styles.input}
+                value={form.tipo_cambio}
+                onChange={(e) => handleChange('tipo_cambio', e.target.value)}
+                placeholder="Ej: 1150.50 — dejar vacío para usar TC del día"
+              />
+              <div className={styles.labelHint}>
+                Si se deja vacío, al guardar se toma el TC del día (venta BNA).
+              </div>
+            </div>
+          )}
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Fecha pago (texto libre)</label>

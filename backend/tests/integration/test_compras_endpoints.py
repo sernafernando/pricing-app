@@ -271,7 +271,11 @@ class TestPedidosCRUD:
         assert r.status_code == 200, r.text
         data = r.json()
         assert data["total"] >= 1
-        assert any(p["id"] == pedido_borrador.id for p in data["items"])
+        encontrado = next((p for p in data["items"] if p["id"] == pedido_borrador.id), None)
+        assert encontrado is not None
+        # Batch A.1: el listado incluye nombres derivados vía joinedload.
+        assert encontrado["empresa_nombre"] == "TestEmpresa"
+        assert encontrado["proveedor_nombre"] == "TestProveedor"
 
     def test_obtener_pedido_detalle(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         r = client.get(f"{BASE}/pedidos/{pedido_borrador.id}", headers=auth_headers)
@@ -280,6 +284,9 @@ class TestPedidosCRUD:
         assert data["id"] == pedido_borrador.id
         assert "eventos" in data
         assert "imputaciones" in data
+        # Batch A.1: detalle también incluye nombres derivados.
+        assert data["empresa_nombre"] == "TestEmpresa"
+        assert data["proveedor_nombre"] == "TestProveedor"
         # El evento 'creado' debe aparecer
         tipos_ev = {e["tipo"] for e in data["eventos"]}
         assert "creado" in tipos_ev
@@ -611,7 +618,11 @@ class TestOrdenesPagoCRUD:
         assert r.status_code == 200
         data = r.json()
         assert data["total"] >= 1
-        assert any(o["id"] == op.id for o in data["items"])
+        encontrado = next((o for o in data["items"] if o["id"] == op.id), None)
+        assert encontrado is not None
+        # Batch A.1: el listado de OPs incluye nombres derivados.
+        assert encontrado["empresa_nombre"] == "TestEmpresa"
+        assert encontrado["proveedor_nombre"] == "TestProveedor"
 
     def test_obtener_op_detalle(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
@@ -633,6 +644,9 @@ class TestOrdenesPagoCRUD:
         assert data["id"] == op.id
         assert "imputaciones" in data
         assert "eventos" in data
+        # Batch A.1: detalle de OP también incluye nombres derivados.
+        assert data["empresa_nombre"] == "TestEmpresa"
+        assert data["proveedor_nombre"] == "TestProveedor"
 
 
 # ==========================================================================
@@ -926,3 +940,107 @@ class TestSaleDocumentsYHealth:
         assert data["module"] == "compras"
         assert data["catalogos"]["tb_sale_document"] >= 3
         assert data["status"] == "ok"
+
+
+# ==========================================================================
+# Batch A.3 — N+1 guard sobre listados
+# ==========================================================================
+
+
+class TestListadosNoN1:
+    """Valida que los listados de pedidos/OPs usan joinedload y NO disparan
+    un SELECT adicional por fila para resolver empresa_nombre/proveedor_nombre.
+
+    Contamos las queries con `sqlalchemy.event.listens_for("before_cursor_execute")`.
+    En SQLite la métrica es menos precisa que en Postgres (y tests aislados),
+    pero suficiente para detectar regresión: si alguien borra el joinedload,
+    veremos ~2*N selects extra (uno por empresa + uno por proveedor).
+    """
+
+    def test_listar_pedidos_sin_n1(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        """Crear 10 pedidos y listar — el nro de SELECT no debe escalar con N."""
+        from sqlalchemy import event
+
+        # Crear 10 pedidos
+        for i in range(10):
+            pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("100") * (i + 1),
+                creado_por_id=active_user.id,
+            )
+        db.commit()
+
+        contador: list[int] = [0]
+        engine = db.get_bind()
+
+        def _on_execute(conn, cursor, statement, parameters, context, executemany):
+            # Solo contamos SELECTs a las tablas de interés; ignoramos BEGIN/COMMIT
+            # y queries del framework (ej. session info).
+            s = statement.lstrip().upper()
+            if s.startswith("SELECT") and (
+                "PEDIDOS_COMPRA" in statement.upper()
+                or "EMPRESAS" in statement.upper()
+                or "PROVEEDORES" in statement.upper()
+            ):
+                contador[0] += 1
+
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            r = client.get(f"{BASE}/pedidos?page=1&page_size=50", headers=auth_headers)
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] >= 10
+        # Con joinedload esperamos: 1 COUNT + 1 SELECT con LEFT JOIN empresas + proveedores.
+        # Sin joinedload serían ~1 + 1 + 10 (empresa) + 10 (proveedor) ≈ 22.
+        # Cota conservadora: <= 5 cubre margen para N+1 de CT o eventos colaterales.
+        assert contador[0] <= 5, f"posible N+1: {contador[0]} selects disparados (esperado <= 5)"
+
+    def test_listar_ops_sin_n1(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        """Idem para OPs: 10 OPs y contar queries."""
+        from sqlalchemy import event
+
+        for i in range(10):
+            ordenes_pago_service.crear(
+                db,
+                proveedor_id=proveedor.id,
+                empresa_id=empresa.id,
+                moneda="ARS",
+                monto_total=Decimal("100") * (i + 1),
+                modo_imputacion="a_cuenta",
+                items=[],
+                creado_por_id=active_user.id,
+            )
+        db.commit()
+
+        contador: list[int] = [0]
+        engine = db.get_bind()
+
+        def _on_execute(conn, cursor, statement, parameters, context, executemany):
+            s = statement.lstrip().upper()
+            if s.startswith("SELECT") and (
+                "ORDENES_PAGO" in statement.upper()
+                or "EMPRESAS" in statement.upper()
+                or "PROVEEDORES" in statement.upper()
+            ):
+                contador[0] += 1
+
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            r = client.get(f"{BASE}/ordenes-pago?page=1&page_size=50", headers=auth_headers)
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] >= 10
+        assert contador[0] <= 5, f"posible N+1 en OPs: {contador[0]} selects (esperado <= 5)"
