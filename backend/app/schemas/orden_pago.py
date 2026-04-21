@@ -90,11 +90,30 @@ class OrdenPagoResponse(OrdenPagoBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CajaMovimientoResumen(BaseModel):
+    """Resumen del movimiento de caja vinculado a una OP pagada.
+
+    Se expone solo cuando la OP está en estado `pagado` y tiene un
+    `caja_movimiento_id` asociado. Le da a tesorería un vistazo rápido
+    sin hacer un segundo request a `/administracion-caja/`.
+    """
+
+    id: int
+    caja_id: int
+    caja_nombre: str | None = None
+    fecha: date
+    monto: Decimal
+    tipo: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class OrdenPagoDetalle(OrdenPagoResponse):
-    """OP con imputaciones y eventos relacionados (GET /ordenes-pago/{id})."""
+    """OP con imputaciones, eventos y resumen de pago (GET /ordenes-pago/{id})."""
 
     imputaciones: list["ImputacionResponse"] = Field(default_factory=list)
     eventos: list["CompraEventoResponse"] = Field(default_factory=list)
+    caja_movimiento_resumen: CajaMovimientoResumen | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

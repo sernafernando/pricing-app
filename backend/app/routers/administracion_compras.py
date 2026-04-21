@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.caja import CajaMovimiento
 from app.models.compra_evento import CompraEvento
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.imputacion import Imputacion
@@ -61,6 +62,7 @@ from app.schemas.imputacion import (
     ImputacionResponse,
 )
 from app.schemas.orden_pago import (
+    CajaMovimientoResumen,
     OrdenPagoCreate,
     OrdenPagoDetalle,
     OrdenPagoEjecutarPago,
@@ -794,13 +796,21 @@ def obtener_orden_pago(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> OrdenPagoDetalle:
-    """Detalle completo de una OP."""
-    # joinedload para poblar empresa_nombre/proveedor_nombre sin N+1.
+    """Detalle completo de una OP.
+
+    Incluye: datos base + nombres derivados + imputaciones + eventos y,
+    si la OP está pagada, un `caja_movimiento_resumen` con caja+monto+fecha
+    para que tesorería vea el pago sin otro round-trip.
+    """
+    # joinedload para poblar empresa_nombre/proveedor_nombre + caja_movimiento.caja
+    # sin N+1. `caja_movimiento` y su `caja` solo son relevantes si la OP ya fue
+    # pagada, pero el joinedload es no-op cuando la FK es NULL.
     op = db.execute(
         select(OrdenPago)
         .options(
             joinedload(OrdenPago.empresa),
             joinedload(OrdenPago.proveedor),
+            joinedload(OrdenPago.caja_movimiento).joinedload(CajaMovimiento.caja),
         )
         .where(OrdenPago.id == op_id)
     ).scalar_one_or_none()
@@ -846,6 +856,20 @@ def obtener_orden_pago(
     )
     detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
+
+    # Resumen del movimiento de caja (solo si está pagada).
+    mov = getattr(op, "caja_movimiento", None)
+    if mov is not None:
+        caja = getattr(mov, "caja", None)
+        detalle.caja_movimiento_resumen = CajaMovimientoResumen(
+            id=mov.id,
+            caja_id=mov.caja_id,
+            caja_nombre=caja.nombre if caja is not None else None,
+            fecha=mov.fecha,
+            monto=mov.monto,
+            tipo=mov.tipo,
+        )
+
     return detalle
 
 

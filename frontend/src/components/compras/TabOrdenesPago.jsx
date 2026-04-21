@@ -20,6 +20,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasOP from '../../hooks/useComprasOP';
 import ModalOrdenPagoNueva from './ModalOrdenPagoNueva';
 import ModalEjecutarPago from './ModalEjecutarPago';
+import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabOrdenesPago.module.css';
@@ -67,7 +68,6 @@ export default function TabOrdenesPago() {
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   const {
     listar: listarOPs,
-    obtener: obtenerOP,
     distribuirAutomatico,
     anular: anularOP,
     loading: opLoading,
@@ -91,6 +91,7 @@ export default function TabOrdenesPago() {
 
   const [showModalNueva, setShowModalNueva] = useState(false);
   const [opPagar, setOpPagar] = useState(null);
+  const [opDetalle, setOpDetalle] = useState(null);
   const [anularModal, setAnularModal] = useState(null); // op obj
   const [anularMotivo, setAnularMotivo] = useState('');
   const [anularLoading, setAnularLoading] = useState(false);
@@ -244,7 +245,7 @@ export default function TabOrdenesPago() {
       <div className={styles.rowActions}>
         <button
           className={styles.iconBtn}
-          onClick={() => obtenerOP(op.id).catch(() => {})}
+          onClick={() => setOpDetalle(op)}
           aria-label="Ver"
           title="Ver detalle"
         >
@@ -544,6 +545,22 @@ export default function TabOrdenesPago() {
           onClose={(reload) => {
             setOpPagar(null);
             if (reload) fetchOPs();
+          }}
+        />
+      )}
+
+      {opDetalle && (
+        <ModalOrdenPagoDetalle
+          op={opDetalle}
+          onClose={(reload) => {
+            setOpDetalle(null);
+            if (reload) fetchOPs();
+          }}
+          onEjecutarPago={(op) => setOpPagar(op)}
+          onAnular={(op) => {
+            setAnularModal(op);
+            setAnularMotivo('');
+            setAnularError(null);
           }}
         />
       )}

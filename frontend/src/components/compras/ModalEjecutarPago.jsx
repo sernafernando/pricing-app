@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, Wallet, AlertTriangle } from 'lucide-react';
+import { X, Wallet, AlertTriangle, Landmark, Copy, Check } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import useComprasOP from '../../hooks/useComprasOP';
 import styles from './ModalEjecutarPago.module.css';
@@ -23,6 +24,11 @@ export default function ModalEjecutarPago({ op, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
+  // Datos bancarios del proveedor (Batch G — tesorería los copia al homebanking).
+  const [bancos, setBancos] = useState([]);
+  const [loadingBancos, setLoadingBancos] = useState(false);
+  const [copiado, setCopiado] = useState(null); // { id, campo } del último copiado
+
   const fetchCajas = useCallback(async () => {
     setLoadingCajas(true);
     try {
@@ -35,9 +41,41 @@ export default function ModalEjecutarPago({ op, onClose }) {
     }
   }, []);
 
+  const fetchBancosProveedor = useCallback(async () => {
+    if (!op?.proveedor_id) return;
+    setLoadingBancos(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/proveedores/${op.proveedor_id}/bancos`
+      );
+      setBancos(Array.isArray(data) ? data : []);
+    } catch {
+      setBancos([]);
+    } finally {
+      setLoadingBancos(false);
+    }
+  }, [op?.proveedor_id]);
+
   useEffect(() => {
     fetchCajas();
   }, [fetchCajas]);
+
+  useEffect(() => {
+    fetchBancosProveedor();
+  }, [fetchBancosProveedor]);
+
+  const copyToClipboard = async (text, bancoId, campo) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiado({ id: bancoId, campo });
+      setTimeout(() => {
+        setCopiado((c) => (c && c.id === bancoId && c.campo === campo ? null : c));
+      }, 1500);
+    } catch {
+      // Fallback silencioso: clipboard bloqueado o permiso denegado.
+    }
+  };
 
   // Filtrar cajas por moneda de la OP y, si tenemos empresa_id, por empresa.
   const cajasFiltradas = cajas.filter((c) => {
@@ -112,6 +150,90 @@ export default function ModalEjecutarPago({ op, onClose }) {
               maximumFractionDigits: 2,
             })}
           </div>
+        </div>
+
+        {/* ── Panel de datos bancarios del proveedor (Batch G) ── */}
+        <div className={styles.bancosPanel}>
+          <div className={styles.bancosHeader}>
+            <Landmark size={14} />
+            <span>Datos bancarios del proveedor</span>
+          </div>
+          {loadingBancos ? (
+            <div className={styles.bancosLoading}>Cargando...</div>
+          ) : bancos.length === 0 ? (
+            <div className={styles.bancosEmpty}>
+              El proveedor no tiene bancos cargados.{' '}
+              <Link
+                to={`/administracion/proveedores?proveedor_id=${op.proveedor_id}`}
+                className={styles.bancosLink}
+              >
+                Agregar desde ficha del proveedor →
+              </Link>
+            </div>
+          ) : (
+            <div className={styles.bancosList}>
+              {bancos.map((b) => (
+                <div key={b.id} className={styles.bancoCard}>
+                  <div className={styles.bancoNombre}>
+                    {b.banco}
+                    {b.tipo_cuenta && (
+                      <span className={styles.bancoTipo}> · {b.tipo_cuenta}</span>
+                    )}
+                  </div>
+                  {b.alias && (
+                    <div className={styles.bancoRow}>
+                      <span className={styles.bancoLabel}>Alias:</span>
+                      <code className={styles.bancoValor}>{b.alias}</code>
+                      <button
+                        type="button"
+                        className={styles.btnCopiar}
+                        onClick={() => copyToClipboard(b.alias, b.id, 'alias')}
+                        aria-label="Copiar alias"
+                        title="Copiar alias"
+                      >
+                        {copiado?.id === b.id && copiado?.campo === 'alias' ? (
+                          <Check size={12} />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {b.cbu && (
+                    <div className={styles.bancoRow}>
+                      <span className={styles.bancoLabel}>CBU:</span>
+                      <code className={styles.bancoValor}>{b.cbu}</code>
+                      <button
+                        type="button"
+                        className={styles.btnCopiar}
+                        onClick={() => copyToClipboard(b.cbu, b.id, 'cbu')}
+                        aria-label="Copiar CBU"
+                        title="Copiar CBU"
+                      >
+                        {copiado?.id === b.id && copiado?.campo === 'cbu' ? (
+                          <Check size={12} />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {b.numero_cuenta && (
+                    <div className={styles.bancoRow}>
+                      <span className={styles.bancoLabel}>Cuenta:</span>
+                      <code className={styles.bancoValor}>{b.numero_cuenta}</code>
+                    </div>
+                  )}
+                  {b.sucursal && (
+                    <div className={styles.bancoRow}>
+                      <span className={styles.bancoLabel}>Sucursal:</span>
+                      <span className={styles.bancoValorText}>{b.sucursal}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {error && <div className={styles.errorBanner}>{error}</div>}
