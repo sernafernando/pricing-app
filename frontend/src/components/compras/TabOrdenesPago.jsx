@@ -14,12 +14,15 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Trash2,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasOP from '../../hooks/useComprasOP';
 import ModalOrdenPagoNueva from './ModalOrdenPagoNueva';
 import ModalEjecutarPago from './ModalEjecutarPago';
+import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
+import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
 import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabOrdenesPago.module.css';
@@ -63,16 +66,22 @@ export default function TabOrdenesPago() {
   const { tienePermiso } = usePermisos();
   const canManage = tienePermiso('administracion.gestionar_ordenes_compra');
   const canPay = tienePermiso('administracion.ejecutar_pagos');
+  const canDeleteBasura = tienePermiso('administracion.eliminar_compras_basura');
 
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   const {
     listar: listarOPs,
-    obtener: obtenerOP,
     distribuirAutomatico,
     anular: anularOP,
+    eliminar: eliminarOP,
     loading: opLoading,
     error: opError,
   } = useComprasOP();
+
+  // ── Hard-delete papelera state ──
+  const [eliminarModal, setEliminarModal] = useState(null); // op | null
+  const [eliminarLoading, setEliminarLoading] = useState(false);
+  const [eliminarError, setEliminarError] = useState(null);
 
   // Sub-tab: OPs (default) | Imputaciones (COMPRAS-7.5)
   const [subTab, setSubTab] = useState('ops');
@@ -91,6 +100,7 @@ export default function TabOrdenesPago() {
 
   const [showModalNueva, setShowModalNueva] = useState(false);
   const [opPagar, setOpPagar] = useState(null);
+  const [opDetalle, setOpDetalle] = useState(null);
   const [anularModal, setAnularModal] = useState(null); // op obj
   const [anularMotivo, setAnularMotivo] = useState('');
   const [anularLoading, setAnularLoading] = useState(false);
@@ -239,12 +249,13 @@ export default function TabOrdenesPago() {
       canManage &&
       op.estado === 'pendiente' &&
       (op.modo_imputacion === 'a_cuenta' || op.modo_imputacion === 'mixta');
+    const puedeEliminarBasura = canDeleteBasura && op.puede_eliminar === true;
 
     return (
       <div className={styles.rowActions}>
         <button
           className={styles.iconBtn}
-          onClick={() => obtenerOP(op.id).catch(() => {})}
+          onClick={() => setOpDetalle(op)}
           aria-label="Ver"
           title="Ver detalle"
         >
@@ -284,8 +295,36 @@ export default function TabOrdenesPago() {
             <Ban size={14} />
           </button>
         )}
+        {puedeEliminarBasura && (
+          <button
+            className={styles.iconBtnDanger}
+            onClick={() => {
+              setEliminarModal(op);
+              setEliminarError(null);
+            }}
+            aria-label="Eliminar definitivamente"
+            title="Eliminar definitivamente (papelera)"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
     );
+  };
+
+  const handleConfirmEliminar = async ({ motivo, challenge_palabra_usada }) => {
+    if (!eliminarModal) return;
+    setEliminarLoading(true);
+    setEliminarError(null);
+    try {
+      await eliminarOP(eliminarModal.id, motivo, challenge_palabra_usada);
+      setEliminarModal(null);
+      fetchOPs();
+    } catch (err) {
+      setEliminarError(err.response?.data?.detail || 'Error al eliminar la OP.');
+    } finally {
+      setEliminarLoading(false);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -548,6 +587,22 @@ export default function TabOrdenesPago() {
         />
       )}
 
+      {opDetalle && (
+        <ModalOrdenPagoDetalle
+          op={opDetalle}
+          onClose={(reload) => {
+            setOpDetalle(null);
+            if (reload) fetchOPs();
+          }}
+          onEjecutarPago={(op) => setOpPagar(op)}
+          onAnular={(op) => {
+            setAnularModal(op);
+            setAnularMotivo('');
+            setAnularError(null);
+          }}
+        />
+      )}
+
       {/* Modal anular (inline — es chico) */}
       {anularModal && (
         <div className={styles.modalOverlay}>
@@ -602,6 +657,26 @@ export default function TabOrdenesPago() {
           </div>
         </div>
       )}
+
+      {/* Hard-delete (papelera) modal */}
+      <ModalConfirmarEliminacion
+        open={!!eliminarModal}
+        onClose={() => {
+          setEliminarModal(null);
+          setEliminarError(null);
+        }}
+        onConfirm={handleConfirmEliminar}
+        titulo="Eliminar OP definitivamente"
+        entidadTipo="orden de pago"
+        entidadNumero={eliminarModal?.numero || ''}
+        sourceText={
+          eliminarModal
+            ? [eliminarModal.numero, eliminarModal.proveedor_nombre, eliminarModal.empresa_nombre]
+            : ''
+        }
+        loading={eliminarLoading}
+        error={eliminarError}
+      />
         </>
       )}
     </div>

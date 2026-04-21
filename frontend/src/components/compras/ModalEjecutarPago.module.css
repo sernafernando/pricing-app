@@ -143,3 +143,107 @@
   margin-bottom: var(--spacing-md);
   border: 1px solid rgba(239, 68, 68, 0.2);
 }
+
+/* ── Panel de datos bancarios (Batch G) ─────────────────────── */
+.bancosPanel {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+}
+
+.bancosHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cf-text-tertiary);
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+}
+
+.bancosLoading,
+.bancosEmpty {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  padding: var(--spacing-xs) 0;
+}
+
+.bancosLink {
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.bancosLink:hover {
+  text-decoration: underline;
+}
+
+.bancosList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.bancoCard {
+  padding: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.bancoCard:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.bancoNombre {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin-bottom: 4px;
+}
+
+.bancoTipo {
+  font-weight: 400;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.bancoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  padding: 2px 0;
+}
+
+.bancoLabel {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  min-width: 60px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bancoValor {
+  font-family: var(--font-mono, monospace);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  flex: 1;
+  word-break: break-all;
+}
+
+.bancoValorText {
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.btnCopiar {
+  composes: btn-tesla outline-subtle-primary xs from '../../styles/buttons-tesla.css';
+  padding: 4px 6px;
+}

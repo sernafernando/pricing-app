@@ -15,6 +15,7 @@ import {
   ChevronRight,
   DollarSign,
   Clock,
+  Trash2,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -22,6 +23,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import ModalPedidoCompra from './ModalPedidoCompra';
 import ModalPedidoDetalle from './ModalPedidoDetalle';
+import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabPedidosCompra.module.css';
 
@@ -82,6 +84,7 @@ export default function TabPedidosCompra() {
   const canManage = tienePermiso('administracion.gestionar_ordenes_compra');
   const canApprove = tienePermiso('administracion.aprobar_ordenes_compra');
   const canPay = tienePermiso('administracion.ejecutar_pagos');
+  const canDeleteBasura = tienePermiso('administracion.eliminar_compras_basura');
 
   // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado).
   const [, setSearchParams] = useSearchParams();
@@ -109,9 +112,15 @@ export default function TabPedidosCompra() {
     rechazar: rechazarPedido,
     cancelar: cancelarPedido,
     generarEtiqueta,
+    eliminar: eliminarPedido,
     loading: pedidosLoading,
     error: pedidosError,
   } = useComprasPedidos();
+
+  // ── Hard-delete papelera state ──
+  const [eliminarModal, setEliminarModal] = useState(null); // pedido | null
+  const [eliminarLoading, setEliminarLoading] = useState(false);
+  const [eliminarError, setEliminarError] = useState(null);
 
   // ── Data ──
   const [items, setItems] = useState([]);
@@ -301,6 +310,26 @@ export default function TabPedidosCompra() {
     );
   };
 
+  const handleOpenEliminar = (pedido) => {
+    setEliminarModal(pedido);
+    setEliminarError(null);
+  };
+
+  const handleConfirmEliminar = async ({ motivo, challenge_palabra_usada }) => {
+    if (!eliminarModal) return;
+    setEliminarLoading(true);
+    setEliminarError(null);
+    try {
+      await eliminarPedido(eliminarModal.id, motivo, challenge_palabra_usada);
+      setEliminarModal(null);
+      fetchPedidos();
+    } catch (err) {
+      setEliminarError(err.response?.data?.detail || 'Error al eliminar el pedido.');
+    } finally {
+      setEliminarLoading(false);
+    }
+  };
+
   // ── Render helpers ──
   const renderAcciones = (p) => {
     const estado = p.estado;
@@ -313,6 +342,7 @@ export default function TabPedidosCompra() {
     const puedeCancelarAprobado = canManage && estado === 'aprobado';
     const puedeEtiqueta = canManage && estado === 'aprobado' && p.requiere_envio;
     const puedePagar = canPay && (estado === 'aprobado' || estado === 'pagado_parcial');
+    const puedeEliminarBasura = canDeleteBasura && p.puede_eliminar === true;
 
     return (
       <div className={styles.rowActions}>
@@ -402,6 +432,16 @@ export default function TabPedidosCompra() {
             title="Crear OP imputada a este pedido"
           >
             <DollarSign size={14} />
+          </button>
+        )}
+        {puedeEliminarBasura && (
+          <button
+            className={styles.iconBtnDanger}
+            onClick={() => handleOpenEliminar(p)}
+            aria-label="Eliminar definitivamente"
+            title="Eliminar definitivamente (papelera)"
+          >
+            <Trash2 size={14} />
           </button>
         )}
       </div>
@@ -654,6 +694,26 @@ export default function TabPedidosCompra() {
           </div>
         </div>
       )}
+
+      {/* Hard-delete (papelera) modal */}
+      <ModalConfirmarEliminacion
+        open={!!eliminarModal}
+        onClose={() => {
+          setEliminarModal(null);
+          setEliminarError(null);
+        }}
+        onConfirm={handleConfirmEliminar}
+        titulo="Eliminar pedido definitivamente"
+        entidadTipo="pedido"
+        entidadNumero={eliminarModal?.numero || ''}
+        sourceText={
+          eliminarModal
+            ? [eliminarModal.numero, eliminarModal.proveedor_nombre, eliminarModal.empresa_nombre]
+            : ''
+        }
+        loading={eliminarLoading}
+        error={eliminarError}
+      />
     </div>
   );
 }

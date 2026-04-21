@@ -92,6 +92,23 @@ export default function useComprasOP() {
     [wrap]
   );
 
+  /**
+   * Hard-delete auditable de OP anulada sin movimiento.
+   */
+  const eliminar = useCallback(
+    (id, motivo, challengePalabraUsada = null) =>
+      wrap(async () => {
+        const { data } = await api.delete(`/administracion/compras/ordenes-pago/${id}`, {
+          data: {
+            motivo,
+            challenge_palabra_usada: challengePalabraUsada,
+          },
+        });
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -101,5 +118,6 @@ export default function useComprasOP() {
     pagar,
     anular,
     distribuirAutomatico,
+    eliminar,
   };
 }

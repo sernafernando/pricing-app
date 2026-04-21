@@ -138,6 +138,7 @@ from app.models.orden_pago import OrdenPago
 from app.models.imputacion import Imputacion
 from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
+from app.models.compras_papelera import ComprasPapelera
 
 __all__ = [
     "ProductoERP",
@@ -292,4 +293,5 @@ __all__ = [
     "Imputacion",
     "CCProveedorMovimiento",
     "CCReconciliacionLog",
+    "ComprasPapelera",
 ]

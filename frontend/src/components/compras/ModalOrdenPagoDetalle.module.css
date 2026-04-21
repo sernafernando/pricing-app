@@ -1,0 +1,391 @@
+/* ModalOrdenPagoDetalle — vista completa de OP. CF tokens. */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  width: 100%;
+  max-width: 720px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+}
+
+.modalTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.modalTitle {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.modalCloseBtn {
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.modalCloseBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+/* ── Badge estado ───────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.badgePendiente {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+}
+
+.badgePagado {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--cf-accent-green);
+}
+
+.badgeAnulado {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--cf-accent-red);
+}
+
+.badgeNeutral {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.badgeReversal {
+  display: inline-flex;
+  padding: 2px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+/* ── Info grid ───────────────────────────────────────────────── */
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.infoLabel {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.infoValue {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  font-weight: 600;
+}
+
+/* ── Monto destacado ─────────────────────────────────────────── */
+.montoCard {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.montoLabel {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.montoValor {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+/* ── Modo de imputación ─────────────────────────────────────── */
+.modoSection {
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.modoHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: 4px;
+}
+
+.modoLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.modoDescripcion {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+/* ── Section title ───────────────────────────────────────────── */
+.sectionTitle {
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+}
+
+.emptySection {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+.tableWrapper {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.tdRight {
+  text-align: right;
+  font-weight: 500;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+/* ── Pago card ───────────────────────────────────────────────── */
+.pagoCard {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.pagoRow {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Historial collapsible ──────────────────────────────────── */
+.historialToggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.historialToggle:hover {
+  background: var(--cf-border-default);
+}
+
+.historialArrow {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Timeline ────────────────────────────────────────────────── */
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+  border-left: 2px solid var(--cf-border-default);
+  margin-left: var(--spacing-md);
+}
+
+.timelineItem {
+  position: relative;
+  padding: var(--spacing-sm) 0 var(--spacing-md) var(--spacing-lg);
+}
+
+.timelineIcon {
+  position: absolute;
+  left: calc(-1 * var(--spacing-md) - 12px);
+  top: var(--spacing-sm);
+  width: 24px;
+  height: 24px;
+  background: var(--cf-bg-card);
+  border: 2px solid var(--cf-accent-blue);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cf-accent-blue);
+}
+
+.timelineBody {
+  background: var(--cf-bg-hover);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+}
+
+.timelineHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.timelineType {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.timelineDate {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.timelineMeta {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin-top: 2px;
+}
+
+/* ── Misc ────────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  color: var(--cf-text-secondary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-bottom: var(--spacing-md);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btnSecondary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+}
+
+.btnSuccess {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+}
+
+.btnDanger {
+  composes: btn-tesla outline-subtle-danger sm from '../../styles/buttons-tesla.css';
+}

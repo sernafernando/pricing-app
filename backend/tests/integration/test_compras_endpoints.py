@@ -648,6 +648,78 @@ class TestOrdenesPagoCRUD:
         assert data["empresa_nombre"] == "TestEmpresa"
         assert data["proveedor_nombre"] == "TestProveedor"
 
+    def test_obtener_op_detalle_pendiente_sin_caja_movimiento_resumen(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        """Batch F.1: OP pendiente → `caja_movimiento_resumen` debe ser None."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/ordenes-pago/{op.id}", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["estado"] == "pendiente"
+        assert "caja_movimiento_resumen" in data
+        assert data["caja_movimiento_resumen"] is None
+
+    def test_obtener_op_detalle_pagada_incluye_caja_movimiento_resumen(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        active_user,
+        pedido_aprobado,
+        con_todos_los_permisos,
+    ):
+        """Batch F.1: OP pagada → `caja_movimiento_resumen` con caja+monto+fecha.
+
+        Garantiza que tesorería ve quién pagó/cuánto/cuándo/en qué caja sin
+        hacer un segundo request al módulo de caja.
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("1000")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/ordenes-pago/{op.id}", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["estado"] == "pagado"
+        resumen = data["caja_movimiento_resumen"]
+        assert resumen is not None
+        assert resumen["caja_id"] == caja_ars.id
+        assert resumen["caja_nombre"] == "Caja ARS Test"
+        assert resumen["tipo"] == "egreso"
+        assert Decimal(resumen["monto"]) == Decimal("1000")
+        assert resumen["fecha"] == date.today().isoformat()
+
 
 # ==========================================================================
 # Órdenes de Pago — pagar + anular + distribuir
@@ -1003,9 +1075,7 @@ class TestListadosNoN1:
         # Cota conservadora: <= 5 cubre margen para N+1 de CT o eventos colaterales.
         assert contador[0] <= 5, f"posible N+1: {contador[0]} selects disparados (esperado <= 5)"
 
-    def test_listar_ops_sin_n1(
-        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
-    ):
+    def test_listar_ops_sin_n1(self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos):
         """Idem para OPs: 10 OPs y contar queries."""
         from sqlalchemy import event
 
