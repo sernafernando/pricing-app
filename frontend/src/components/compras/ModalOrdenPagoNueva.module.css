@@ -81,8 +81,9 @@
   line-height: var(--leading-normal);
 }
 
+/* "Entendido" del banner anti-doble-contabilización — secundario, no protagonista (D.2) */
 .bannerDismiss {
-  composes: btn-tesla outline-subtle-warning sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -165,7 +166,7 @@
 }
 
 .btnSecondary {
-  composes: btn-tesla secondary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 .btnSuccess {
@@ -208,6 +209,18 @@
 .itemsSummary {
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
+  display: inline-flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.itemsRemanente {
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+  font-weight: 600;
 }
 
 .emptyItems {

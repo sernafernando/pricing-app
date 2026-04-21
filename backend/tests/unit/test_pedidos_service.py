@@ -100,6 +100,143 @@ class TestCrearPedido:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# tipo_cambio (Batch B del plan UX de compras)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestTipoCambioEnPedido:
+    """Validaciones de `tipo_cambio` al crear/editar pedidos."""
+
+    def test_crear_pedido_ars_sin_tc_ok(self, db, empresa, proveedor, active_user) -> None:
+        """ARS + tipo_cambio=None → se crea con tipo_cambio=None."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("10000"),
+            creado_por_id=active_user.id,
+        )
+        assert p.tipo_cambio is None
+
+    def test_crear_pedido_usd_con_tc_explicito_ok(self, db, empresa, proveedor, active_user) -> None:
+        """USD + tipo_cambio=1150.50 → se guarda tal cual."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+            tipo_cambio=Decimal("1150.50"),
+        )
+        assert p.tipo_cambio == Decimal("1150.50")
+
+    def test_crear_pedido_ars_con_tc_raises_400(self, db, empresa, proveedor, active_user) -> None:
+        """ARS + tipo_cambio!=None → HTTP 400."""
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("100"),
+                creado_por_id=active_user.id,
+                tipo_cambio=Decimal("1000"),
+            )
+        assert exc.value.status_code == 400
+        assert "tipo_cambio" in exc.value.detail.lower()
+
+    def test_crear_pedido_usd_tc_invalido_raises_400(self, db, empresa, proveedor, active_user) -> None:
+        """USD + tipo_cambio<=0 → HTTP 400."""
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="USD",
+                monto=Decimal("100"),
+                creado_por_id=active_user.id,
+                tipo_cambio=Decimal("0"),
+            )
+        assert exc.value.status_code == 400
+
+    def test_crear_pedido_usd_sin_tc_intenta_leer_del_dia(self, db, empresa, proveedor, active_user) -> None:
+        """USD + tipo_cambio=None → el servicio intenta leer el TC del día.
+
+        Sin fila en `tipo_cambio` para hoy → queda None con log WARNING.
+        Con fila presente → el valor se auto-llena.
+        """
+        from datetime import date as date_cls
+
+        from app.models.tipo_cambio import TipoCambio
+
+        # Sin TC en DB → tipo_cambio del pedido queda None.
+        p1 = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("50"),
+            creado_por_id=active_user.id,
+        )
+        assert p1.tipo_cambio is None
+
+        # Insertamos TC del día.
+        tc = TipoCambio(
+            fecha=date_cls.today(),
+            moneda="USD",
+            compra=1100.0,
+            venta=1150.0,
+        )
+        db.add(tc)
+        db.flush()
+
+        p2 = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("75"),
+            creado_por_id=active_user.id,
+        )
+        # Se usa el `venta` (lo que paga el usuario).
+        assert p2.tipo_cambio == Decimal("1150.0") or p2.tipo_cambio == Decimal("1150")
+
+    def test_editar_pedido_cambia_moneda_ars_a_usd_intenta_autocompletar_tc(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        """Al pasar un pedido borrador de ARS→USD sin TC explícito, intenta autocompletar."""
+        from datetime import date as date_cls
+
+        from app.models.tipo_cambio import TipoCambio
+
+        db.add(TipoCambio(fecha=date_cls.today(), moneda="USD", compra=1200.0, venta=1250.0))
+        db.flush()
+
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        assert p.tipo_cambio is None
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            moneda="USD",
+        )
+        db.refresh(p)
+        assert p.moneda == "USD"
+        # Autollenó con venta del día.
+        assert p.tipo_cambio in (Decimal("1250.0"), Decimal("1250"))
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # editar_pedido
 # ──────────────────────────────────────────────────────────────────────────
 

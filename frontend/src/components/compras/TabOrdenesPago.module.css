@@ -50,6 +50,12 @@
   flex: 1;
 }
 
+/* Wrapper para que el autocomplete de proveedor no quede apretado junto a los otros filtros */
+.filterProveedor {
+  min-width: 220px;
+  flex: 0 1 240px;
+}
+
 /* ── Form controls ───────────────────────────────────────────── */
 .input,
 .select,
@@ -85,7 +91,7 @@
 }
 
 .btnSecondary {
-  composes: btn-tesla secondary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 .btnDanger {
@@ -93,7 +99,7 @@
 }
 
 .iconBtn {
-  composes: btn-tesla secondary icon-only sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
 }
 
 .iconBtnPrimary {
@@ -223,7 +229,7 @@
 }
 
 .pageBtn {
-  composes: btn-tesla secondary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary icon-only xs from '../../styles/buttons-tesla.css';
 }
 
 /* ── States / banners ────────────────────────────────────────── */
@@ -341,4 +347,137 @@
   justify-content: flex-end;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-lg);
+}
+
+/* ── Pedidos pendientes de pago (Batch C) ───────────────────── */
+.pendientesSection {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  overflow: hidden;
+}
+
+.pendientesHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-hover);
+  border: none;
+  border-bottom: 1px solid var(--cf-border-default);
+  cursor: pointer;
+  color: var(--cf-text-primary);
+  font-family: inherit;
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.pendientesHeader:hover {
+  background: var(--cf-bg-app);
+}
+
+.pendientesTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.pendientesCount {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  min-width: 22px;
+  text-align: center;
+}
+
+.pendientesBody {
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.pendientesEmpty {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.pendientesList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.pendienteCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}
+
+.pendienteInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.pendienteNumero {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.pendienteProveedor {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.pendienteMonto {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.pendienteFecha,
+.pendienteFechaUrgente,
+.pendienteFechaVencida {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.pendienteFecha {
+  color: var(--cf-text-tertiary);
+  background: transparent;
+}
+
+.pendienteFechaUrgente {
+  color: var(--cf-accent-orange);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.pendienteFechaVencida {
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.1);
+  font-weight: 600;
+}
+
+.btnPrimarySm {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }

@@ -23,26 +23,7 @@
 }
 
 .refreshBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  color: var(--cf-text-secondary);
-  font-size: var(--font-sm);
-  cursor: pointer;
-}
-
-.refreshBtn:hover:not(:disabled) {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
-}
-
-.refreshBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 /* Filtros grid */
@@ -101,69 +82,22 @@
   min-height: 80px;
 }
 
-/* Botones */
-.btnPrimary,
-.btnGhost,
-.btnDanger,
-.btnAction {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-md);
-  font-size: var(--font-sm);
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all var(--duration-200) var(--ease-out);
-}
-
+/* Botones — migrados a Tesla subtle (Batch D) */
 .btnPrimary {
-  background: var(--cf-accent-blue);
-  color: white;
-}
-
-.btnPrimary:hover:not(:disabled) {
-  filter: brightness(1.1);
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 .btnGhost {
-  background: transparent;
-  color: var(--cf-text-secondary);
-  border-color: var(--cf-border-default);
-}
-
-.btnGhost:hover:not(:disabled) {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
 }
 
 .btnDanger {
-  background: var(--cf-accent-red);
-  color: white;
+  composes: btn-tesla outline-subtle-danger sm from '../../styles/buttons-tesla.css';
 }
 
-.btnDanger:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
+/* .btnAction: "Desimputar" en fila de tabla — acción sensible (inserta reversal) → warning */
 .btnAction {
-  background: transparent;
-  color: var(--cf-accent-orange);
-  border-color: transparent;
-  padding: 2px 8px;
-  font-size: var(--font-xs);
-}
-
-.btnAction:hover {
-  background: color-mix(in srgb, var(--cf-accent-orange) 10%, transparent);
-}
-
-.btnPrimary:disabled,
-.btnGhost:disabled,
-.btnDanger:disabled,
-.btnAction:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla outline-subtle-warning xs from '../../styles/buttons-tesla.css';
 }
 
 /* Error banner */

@@ -121,12 +121,13 @@
 }
 
 /* ── Buttons ─────────────────────────────────────────────────── */
+/* .btnPrimary: "Forzar reconciliación" y "Sí, forzar ahora" — acción admin sensible (D.2) */
 .btnPrimary {
-  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-warning sm from '../../styles/buttons-tesla.css';
 }
 
 .btnSecondary {
-  composes: btn-tesla secondary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
 
 /* ── Table ───────────────────────────────────────────────────── */

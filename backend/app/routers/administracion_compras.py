@@ -33,7 +33,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
@@ -173,6 +173,39 @@ def _obtener_proveedor_o_404(db: Session, proveedor_id: int) -> Proveedor:
     return prov
 
 
+def _pedido_response(p: PedidoCompra) -> PedidoCompraResponse:
+    """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
+
+    `model_validate` en Pydantic v2 no soporta `update=`; usamos
+    `model_copy(update=...)` post-validación, que es la API equivalente.
+    Si la relación no está cargada (endpoint sin joinedload), `getattr`
+    puede disparar lazy-load si la sesión sigue activa; si falla, cae en
+    `None` y el frontend muestra fallback "#N".
+    """
+    emp = getattr(p, "empresa", None)
+    prov = getattr(p, "proveedor", None)
+    base = PedidoCompraResponse.model_validate(p)
+    return base.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+        }
+    )
+
+
+def _op_response(op: OrdenPago) -> OrdenPagoResponse:
+    """Serializa OrdenPago incluyendo empresa_nombre / proveedor_nombre."""
+    emp = getattr(op, "empresa", None)
+    prov = getattr(op, "proveedor", None)
+    base = OrdenPagoResponse.model_validate(op)
+    return base.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+        }
+    )
+
+
 # ==========================================================================
 # §9.1 — PEDIDOS
 # ==========================================================================
@@ -207,18 +240,88 @@ def listar_pedidos(
     if hasta is not None:
         condiciones.append(PedidoCompra.created_at <= datetime.combine(hasta, datetime.max.time()))
 
-    stmt = select(PedidoCompra)
+    stmt = select(PedidoCompra).options(
+        joinedload(PedidoCompra.empresa),
+        joinedload(PedidoCompra.proveedor),
+    )
     if condiciones:
         stmt = stmt.where(*condiciones)
     stmt = stmt.order_by(PedidoCompra.created_at.desc(), PedidoCompra.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     return PedidoCompraPaginated(
-        items=[PedidoCompraResponse.model_validate(p) for p in items],
+        items=[_pedido_response(p) for p in items],
         total=total,
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/pedidos/pendientes-pago",
+    response_model=list[PedidoCompraResponse],
+    summary="Pedidos aprobados o con pago parcial esperando imputación",
+)
+def listar_pedidos_pendientes_pago(
+    proveedor_id: Optional[int] = Query(None, ge=1),
+    empresa_id: Optional[int] = Query(None, ge=1),
+    moneda: Optional[str] = Query(None, pattern="^(ARS|USD)$"),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[PedidoCompraResponse]:
+    """
+    Lista pedidos en estado 'aprobado' o 'pagado_parcial' con saldo pendiente.
+
+    Usado por:
+      - Sección "Pedidos aprobados esperando pago" en TabOrdenesPago.
+      - Pre-carga desde ModalOrdenPagoNueva (flujo Batch C).
+
+    Cada pedido incluye `saldo_pendiente` = monto - imputaciones efectivas
+    (calculado vía `pedidos_service.calcular_saldo_pendiente_pedido`, que
+    considera reversals — append-only compliant, design D3).
+
+    Orden: fecha_pago_estimada ASC (NULL al final, urgentes primero),
+    luego created_at ASC como desempate estable.
+
+    Filtros:
+      - proveedor_id: único proveedor.
+      - empresa_id: única empresa.
+      - moneda: ARS o USD.
+
+    NOTA: No paginado — se asume N pequeño (pedidos pendientes reales de
+    una PyME típicamente < 50). Si crece, agregar paginación.
+    """
+    stmt = (
+        select(PedidoCompra)
+        .options(
+            joinedload(PedidoCompra.empresa),
+            joinedload(PedidoCompra.proveedor),
+        )
+        .where(PedidoCompra.estado.in_(["aprobado", "pagado_parcial"]))
+    )
+    if proveedor_id is not None:
+        stmt = stmt.where(PedidoCompra.proveedor_id == proveedor_id)
+    if empresa_id is not None:
+        stmt = stmt.where(PedidoCompra.empresa_id == empresa_id)
+    if moneda is not None:
+        stmt = stmt.where(PedidoCompra.moneda == moneda)
+    stmt = stmt.order_by(
+        PedidoCompra.fecha_pago_estimada.asc().nulls_last(),
+        PedidoCompra.created_at.asc(),
+    )
+
+    pedidos = list(db.execute(stmt).scalars().all())
+
+    # Enriquecer con saldo_pendiente. calcular_saldo_pendiente_pedido hace
+    # dos SUM queries por pedido (no-reversal + reversal); no hay N+1 de
+    # relaciones porque ya las traímos con joinedload, pero sí N queries
+    # de agregación. Aceptable para el N pequeño descrito arriba.
+    respuestas: list[PedidoCompraResponse] = []
+    for p in pedidos:
+        saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, p.id)
+        resp = _pedido_response(p)
+        respuestas.append(resp.model_copy(update={"saldo_pendiente": saldo}))
+    return respuestas
 
 
 @router.get(
@@ -232,7 +335,20 @@ def obtener_pedido(
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> PedidoCompraDetalle:
     """Detalle completo del pedido. REQ-PED-001, design §9.1."""
-    pedido = _obtener_pedido_o_404(db, pedido_id)
+    # joinedload para poblar empresa_nombre/proveedor_nombre sin N+1.
+    pedido = db.execute(
+        select(PedidoCompra)
+        .options(
+            joinedload(PedidoCompra.empresa),
+            joinedload(PedidoCompra.proveedor),
+        )
+        .where(PedidoCompra.id == pedido_id)
+    ).scalar_one_or_none()
+    if pedido is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pedido id={pedido_id} no encontrado.",
+        )
 
     eventos = list(
         db.execute(
@@ -260,7 +376,15 @@ def obtener_pedido(
         .all()
     )
 
+    emp = getattr(pedido, "empresa", None)
+    prov = getattr(pedido, "proveedor", None)
     detalle = PedidoCompraDetalle.model_validate(pedido)
+    detalle = detalle.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+        }
+    )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
     detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
     return detalle
@@ -286,6 +410,7 @@ def crear_pedido(
             moneda=data.moneda,  # type: ignore[arg-type]
             monto=data.monto,
             creado_por_id=user.id,
+            tipo_cambio=data.tipo_cambio,
             fecha_pago_texto=data.fecha_pago_texto,
             fecha_pago_estimada=data.fecha_pago_estimada,
             requiere_envio=data.requiere_envio,
@@ -301,7 +426,7 @@ def crear_pedido(
 
     _commit_or_rollback(db, operacion="crear_pedido")
     db.refresh(pedido)
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 @router.put(
@@ -334,7 +459,7 @@ def editar_pedido(
 
     _commit_or_rollback(db, operacion="editar_pedido")
     db.refresh(pedido)
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -393,7 +518,7 @@ def enviar_pedido_a_aprobacion(
         user_id=user.id,
         operacion="enviar_aprobacion",
     )
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 @router.post(
@@ -419,7 +544,7 @@ def aprobar_pedido(
         operacion="aprobar_pedido",
         fecha_pago_estimada=fecha_pago_estimada,
     )
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 @router.post(
@@ -462,7 +587,7 @@ def rechazar_pedido(
         operacion="rechazar_pedido",
         motivo=str(motivo),
     )
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 @router.post(
@@ -483,7 +608,7 @@ def reabrir_pedido(
         user_id=user.id,
         operacion="reabrir_pedido",
     )
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 @router.post(
@@ -519,7 +644,7 @@ def cancelar_pedido(
         operacion="cancelar_pedido",
         motivo=str(motivo) if motivo else None,
     )
-    return PedidoCompraResponse.model_validate(pedido)
+    return _pedido_response(pedido)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -642,14 +767,17 @@ def listar_ordenes_pago(
     if hasta is not None:
         condiciones.append(OrdenPago.created_at <= datetime.combine(hasta, datetime.max.time()))
 
-    stmt = select(OrdenPago)
+    stmt = select(OrdenPago).options(
+        joinedload(OrdenPago.empresa),
+        joinedload(OrdenPago.proveedor),
+    )
     if condiciones:
         stmt = stmt.where(*condiciones)
     stmt = stmt.order_by(OrdenPago.created_at.desc(), OrdenPago.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     return OrdenPagoPaginated(
-        items=[OrdenPagoResponse.model_validate(op) for op in items],
+        items=[_op_response(op) for op in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -667,7 +795,20 @@ def obtener_orden_pago(
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> OrdenPagoDetalle:
     """Detalle completo de una OP."""
-    op = _obtener_op_o_404(db, op_id)
+    # joinedload para poblar empresa_nombre/proveedor_nombre sin N+1.
+    op = db.execute(
+        select(OrdenPago)
+        .options(
+            joinedload(OrdenPago.empresa),
+            joinedload(OrdenPago.proveedor),
+        )
+        .where(OrdenPago.id == op_id)
+    ).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OrdenPago id={op_id} no encontrada.",
+        )
 
     imputaciones = list(
         db.execute(
@@ -694,7 +835,15 @@ def obtener_orden_pago(
         .all()
     )
 
+    emp = getattr(op, "empresa", None)
+    prov = getattr(op, "proveedor", None)
     detalle = OrdenPagoDetalle.model_validate(op)
+    detalle = detalle.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+        }
+    )
     detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
     return detalle
@@ -749,7 +898,7 @@ def crear_orden_pago(
 
     _commit_or_rollback(db, operacion="crear_orden_pago")
     db.refresh(op)
-    return OrdenPagoResponse.model_validate(op)
+    return _op_response(op)
 
 
 @router.post(
@@ -790,7 +939,7 @@ def pagar_orden_pago(
 
     _commit_or_rollback(db, operacion="pagar_orden_pago")
     db.refresh(op)
-    return OrdenPagoResponse.model_validate(op)
+    return _op_response(op)
 
 
 @router.post(
@@ -829,7 +978,7 @@ def anular_orden_pago(
 
     _commit_or_rollback(db, operacion="anular_orden_pago")
     db.refresh(op)
-    return OrdenPagoResponse.model_validate(op)
+    return _op_response(op)
 
 
 @router.post(

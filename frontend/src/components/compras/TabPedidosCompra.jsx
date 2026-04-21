@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -12,6 +13,8 @@ import {
   Truck,
   ChevronLeft,
   ChevronRight,
+  DollarSign,
+  Clock,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -19,6 +22,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import ModalPedidoCompra from './ModalPedidoCompra';
 import ModalPedidoDetalle from './ModalPedidoDetalle';
+import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabPedidosCompra.module.css';
 
 const PAGE_SIZE = 50;
@@ -60,10 +64,42 @@ const formatCurrency = (value, moneda = 'ARS') => {
   return `${prefix}${num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+// Formateo consistente de fechas DATE (YYYY-MM-DD) al locale es-AR (dd/mm/yyyy).
+const formatDate = (isoDate) => {
+  if (!isoDate) return '—';
+  try {
+    // Tratamos la fecha como local para evitar el bug de off-by-one UTC.
+    const [year, month, day] = String(isoDate).split('T')[0].split('-');
+    if (!year || !month || !day) return isoDate;
+    return `${day}/${month}/${year}`;
+  } catch {
+    return isoDate;
+  }
+};
+
 export default function TabPedidosCompra() {
   const { tienePermiso } = usePermisos();
   const canManage = tienePermiso('administracion.gestionar_ordenes_compra');
   const canApprove = tienePermiso('administracion.aprobar_ordenes_compra');
+  const canPay = tienePermiso('administracion.ejecutar_pagos');
+
+  // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado).
+  const [, setSearchParams] = useSearchParams();
+
+  // Días hasta fecha para badges "vence en N días".
+  const diasHasta = (isoDate) => {
+    if (!isoDate) return null;
+    try {
+      const [y, m, d] = String(isoDate).split('T')[0].split('-');
+      if (!y || !m || !d) return null;
+      const target = new Date(Number(y), Number(m) - 1, Number(d));
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      return Math.round((target - hoy) / (1000 * 60 * 60 * 24));
+    } catch {
+      return null;
+    }
+  };
 
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   const {
@@ -253,6 +289,18 @@ export default function TabPedidosCompra() {
     }
   };
 
+  const handlePagarAhora = (pedido) => {
+    // Deep-link al tab OPs con pedido pre-cargado (TabOrdenesPago lo lee).
+    setSearchParams(
+      {
+        tab: 'ordenes-pago',
+        accion: 'nueva-op',
+        pedido_id: String(pedido.id),
+      },
+      { replace: false }
+    );
+  };
+
   // ── Render helpers ──
   const renderAcciones = (p) => {
     const estado = p.estado;
@@ -264,6 +312,7 @@ export default function TabPedidosCompra() {
       canManage && (estado === 'borrador' || estado === 'pendiente_aprobacion');
     const puedeCancelarAprobado = canManage && estado === 'aprobado';
     const puedeEtiqueta = canManage && estado === 'aprobado' && p.requiere_envio;
+    const puedePagar = canPay && (estado === 'aprobado' || estado === 'pagado_parcial');
 
     return (
       <div className={styles.rowActions}>
@@ -345,6 +394,16 @@ export default function TabPedidosCompra() {
             <Truck size={14} />
           </button>
         )}
+        {puedePagar && (
+          <button
+            className={styles.iconBtnSuccess}
+            onClick={() => handlePagarAhora(p)}
+            aria-label="Pagar"
+            title="Crear OP imputada a este pedido"
+          >
+            <DollarSign size={14} />
+          </button>
+        )}
       </div>
     );
   };
@@ -381,13 +440,13 @@ export default function TabPedidosCompra() {
               </option>
             ))}
           </select>
-          <input
-            type="number"
-            className={styles.input}
-            placeholder="Proveedor ID"
-            value={filtroProveedorId}
-            onChange={(e) => setFiltroProveedorId(e.target.value)}
-          />
+          <div className={styles.filterProveedor}>
+            <ProveedorComprasAutocomplete
+              value={filtroProveedorId ? Number(filtroProveedorId) : null}
+              onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
+              placeholder="Proveedor..."
+            />
+          </div>
           <input
             type="date"
             className={styles.input}
@@ -436,32 +495,55 @@ export default function TabPedidosCompra() {
             <thead>
               <tr>
                 <th>Número</th>
-                <th>Proveedor</th>
                 <th>Empresa</th>
+                <th>Proveedor</th>
                 <th>Moneda</th>
                 <th className={styles.thRight}>Monto</th>
-                <th>Fecha pago</th>
+                <th>Plazo (PM)</th>
+                <th>Fecha pago estimada</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((p) => (
-                <tr key={p.id}>
-                  <td className={styles.tdMono}>{p.numero}</td>
-                  <td>#{p.proveedor_id}</td>
-                  <td>#{p.empresa_id}</td>
-                  <td>{p.moneda}</td>
-                  <td className={styles.tdRight}>{formatCurrency(p.monto, p.moneda)}</td>
-                  <td className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</td>
-                  <td>
-                    <span className={`${styles.badge} ${estadoBadgeClass(p.estado)}`}>
-                      {p.estado}
-                    </span>
-                  </td>
-                  <td>{renderAcciones(p)}</td>
-                </tr>
-              ))}
+              {items.map((p) => {
+                const dias = diasHasta(p.fecha_pago_estimada);
+                const mostrarBadgeVence =
+                  p.estado === 'aprobado' && dias !== null && dias <= 7;
+                return (
+                  <tr key={p.id}>
+                    <td className={styles.tdMono}>{p.numero}</td>
+                    <td>{p.empresa_nombre || `#${p.empresa_id}`}</td>
+                    <td>{p.proveedor_nombre || `#${p.proveedor_id}`}</td>
+                    <td>{p.moneda}</td>
+                    <td className={styles.tdRight}>{formatCurrency(p.monto, p.moneda)}</td>
+                    <td className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</td>
+                    <td className={styles.tdSecondary}>
+                      {formatDate(p.fecha_pago_estimada)}
+                      {mostrarBadgeVence && (
+                        <span
+                          className={
+                            dias < 0 ? styles.badgeVencido : styles.badgeVenceUrgente
+                          }
+                        >
+                          <Clock size={11} />
+                          {dias < 0
+                            ? `Vencido ${Math.abs(dias)}d`
+                            : dias === 0
+                            ? 'Hoy'
+                            : `${dias}d`}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`${styles.badge} ${estadoBadgeClass(p.estado)}`}>
+                        {p.estado}
+                      </span>
+                    </td>
+                    <td>{renderAcciones(p)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 

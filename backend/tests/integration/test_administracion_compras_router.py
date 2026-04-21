@@ -179,3 +179,189 @@ class TestSaleDocumentsFaltantes:
         assert r0.status_code == 422
         r_big = client.get(ENDPOINT + "?dias=9999", headers=auth_headers)
         assert r_big.status_code == 422
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# /pedidos/pendientes-pago (Batch C del plan UX de compras)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+ENDPOINT_PENDIENTES = "/api/administracion/compras/pedidos/pendientes-pago"
+
+
+@pytest.fixture
+def empresa_pendientes(db):
+    from app.models.empresa import Empresa
+
+    emp = Empresa(id=7, nombre="Empresa Pendientes", activo=True, orden=0)
+    db.add(emp)
+    db.flush()
+    return emp
+
+
+@pytest.fixture
+def proveedor_pendientes(db):
+    from app.models.proveedor import OrigenProveedor, Proveedor
+
+    prov = Proveedor(
+        id=77,
+        nombre="Proveedor Pendientes",
+        activo=True,
+        origen=OrigenProveedor.ERP.value,
+        supp_id=777,
+    )
+    db.add(prov)
+    db.flush()
+    return prov
+
+
+def _crear_pedido_aprobado(db, empresa, proveedor, active_user, **kwargs):
+    """Crea y aprueba un pedido para los tests de pendientes-pago."""
+    from app.services import pedidos_service
+
+    p = pedidos_service.crear_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda=kwargs.pop("moneda", "ARS"),
+        monto=kwargs.pop("monto"),
+        creado_por_id=active_user.id,
+        **kwargs,
+    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+    return p
+
+
+class TestListarPedidosPendientesPago:
+    """GET /pedidos/pendientes-pago — listado de pedidos esperando imputación."""
+
+    def test_sin_token_no_autorizado(self, client):
+        r = client.get(ENDPOINT_PENDIENTES)
+        assert r.status_code in (401, 403)
+
+    def test_con_permiso_sin_pedidos_lista_vacia(self, client, auth_headers, con_permiso_ordenes_compra):
+        r = client.get(ENDPOINT_PENDIENTES, headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_filtra_por_estado_solo_aprobado_y_parcial(
+        self,
+        db,
+        client,
+        auth_headers,
+        con_permiso_ordenes_compra,
+        empresa_pendientes,
+        proveedor_pendientes,
+        active_user,
+    ):
+        """Solo `aprobado` y `pagado_parcial` deben aparecer. borrador/cancelado/pagado NO."""
+        from app.services import pedidos_service
+
+        # Borrador → NO aparece.
+        p_borr = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa_pendientes.id,
+            proveedor_id=proveedor_pendientes.id,
+            moneda="ARS",
+            monto=Decimal_fast("100"),
+            creado_por_id=active_user.id,
+        )
+        # Aprobado → aparece.
+        p_apro = _crear_pedido_aprobado(
+            db,
+            empresa_pendientes,
+            proveedor_pendientes,
+            active_user,
+            monto=Decimal_fast("500"),
+        )
+        # Cancelado (desde borrador) → NO aparece.
+        p_canc = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa_pendientes.id,
+            proveedor_id=proveedor_pendientes.id,
+            moneda="ARS",
+            monto=Decimal_fast("200"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.transicionar(
+            db,
+            pedido_id=p_canc.id,
+            accion="cancelar",
+            user_id=active_user.id,
+            motivo="test",
+        )
+        db.commit()
+
+        r = client.get(ENDPOINT_PENDIENTES, headers=auth_headers)
+        assert r.status_code == 200
+        ids = {row["id"] for row in r.json()}
+        assert p_apro.id in ids
+        assert p_borr.id not in ids
+        assert p_canc.id not in ids
+
+    def test_incluye_saldo_pendiente_igual_al_monto_sin_imputaciones(
+        self,
+        db,
+        client,
+        auth_headers,
+        con_permiso_ordenes_compra,
+        empresa_pendientes,
+        proveedor_pendientes,
+        active_user,
+    ):
+        p = _crear_pedido_aprobado(
+            db, empresa_pendientes, proveedor_pendientes, active_user, monto=Decimal_fast("1000")
+        )
+        db.commit()
+
+        r = client.get(ENDPOINT_PENDIENTES, headers=auth_headers)
+        assert r.status_code == 200
+        rows = [row for row in r.json() if row["id"] == p.id]
+        assert len(rows) == 1
+        assert Decimal_fast(rows[0]["saldo_pendiente"]) == Decimal_fast("1000")
+        assert Decimal_fast(rows[0]["monto"]) == Decimal_fast("1000")
+
+    def test_filtro_por_proveedor(
+        self,
+        db,
+        client,
+        auth_headers,
+        con_permiso_ordenes_compra,
+        empresa_pendientes,
+        proveedor_pendientes,
+        active_user,
+    ):
+        from app.models.proveedor import OrigenProveedor, Proveedor
+
+        prov2 = Proveedor(
+            id=78,
+            nombre="Otro",
+            activo=True,
+            origen=OrigenProveedor.ERP.value,
+            supp_id=778,
+        )
+        db.add(prov2)
+        db.flush()
+
+        p1 = _crear_pedido_aprobado(
+            db, empresa_pendientes, proveedor_pendientes, active_user, monto=Decimal_fast("111")
+        )
+        p2 = _crear_pedido_aprobado(db, empresa_pendientes, prov2, active_user, monto=Decimal_fast("222"))
+        db.commit()
+
+        r = client.get(
+            f"{ENDPOINT_PENDIENTES}?proveedor_id={proveedor_pendientes.id}",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        ids = {row["id"] for row in r.json()}
+        assert p1.id in ids
+        assert p2.id not in ids
+
+
+def Decimal_fast(v):
+    """Helper local — evita repetir import de Decimal en cada test."""
+    from decimal import Decimal
+
+    return Decimal(str(v))

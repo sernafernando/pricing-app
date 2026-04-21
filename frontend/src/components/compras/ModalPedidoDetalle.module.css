@@ -263,5 +263,5 @@
 }
 
 .btnSecondary {
-  composes: btn-tesla secondary sm from '../../styles/buttons-tesla.css';
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }

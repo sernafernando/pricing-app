@@ -50,6 +50,9 @@ class PedidoCompra(Base):
     )
     moneda = Column(String(3), nullable=False)
     monto = Column(Numeric(18, 2), nullable=False)
+    # Cotización ARS/USD al momento del pedido. Solo aplica cuando moneda='USD'.
+    # NULL + USD → el servicio intenta leer el TC del día al consultar.
+    tipo_cambio = Column(Numeric(18, 6), nullable=True)
     fecha_pago_texto = Column(String(200), nullable=True)
     fecha_pago_estimada = Column(Date, nullable=True)
     requiere_envio = Column(Boolean, nullable=False, default=False, server_default="false")

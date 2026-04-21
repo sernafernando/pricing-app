@@ -115,11 +115,15 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
               <div>
                 <span className={styles.infoLabel}>Empresa</span>
-                <strong className={styles.infoValue}>#{pedido.empresa_id}</strong>
+                <strong className={styles.infoValue}>
+                  {pedido.empresa_nombre || `#${pedido.empresa_id}`}
+                </strong>
               </div>
               <div>
                 <span className={styles.infoLabel}>Proveedor</span>
-                <strong className={styles.infoValue}>#{pedido.proveedor_id}</strong>
+                <strong className={styles.infoValue}>
+                  {pedido.proveedor_nombre || `#${pedido.proveedor_id}`}
+                </strong>
               </div>
               <div>
                 <span className={styles.infoLabel}>Moneda</span>
@@ -131,9 +135,35 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                   {formatCurrency(pedido.monto, pedido.moneda)}
                 </strong>
               </div>
+              {pedido.moneda === 'USD' && (
+                <div>
+                  <span className={styles.infoLabel}>Tipo de cambio</span>
+                  <strong className={styles.infoValue}>
+                    {pedido.tipo_cambio
+                      ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 4,
+                        })} / USD`
+                      : '—'}
+                  </strong>
+                </div>
+              )}
               <div>
-                <span className={styles.infoLabel}>Fecha pago</span>
+                <span className={styles.infoLabel}>Plazo (PM)</span>
                 <strong className={styles.infoValue}>{pedido.fecha_pago_texto || '—'}</strong>
+              </div>
+              <div>
+                <span className={styles.infoLabel}>Fecha pago estimada</span>
+                <strong className={styles.infoValue}>
+                  {pedido.fecha_pago_estimada
+                    ? (() => {
+                        const [y, m, d] = String(pedido.fecha_pago_estimada)
+                          .split('T')[0]
+                          .split('-');
+                        return y && m && d ? `${d}/${m}/${y}` : pedido.fecha_pago_estimada;
+                      })()
+                    : '—'}
+                </strong>
               </div>
               <div>
                 <span className={styles.infoLabel}>Requiere envío</span>
