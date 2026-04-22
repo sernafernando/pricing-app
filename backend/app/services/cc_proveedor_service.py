@@ -367,9 +367,14 @@ def _resolver_empresa_id_para_imputacion(session: Session, imp: Imputacion) -> i
       3. Si origen es `nota_credito_local` → leer `empresa_id` de la NC local
          (compras v2).
       4. Si destino es `factura_erp` → resolver vía `(comp_id, bra_id)` del
-         ct_transaction (no trivial v1 → fallback).
-      5. Fallback: empresa_id=1 con log WARNING.
+         `ct_transaction` usando `COMP_BRA_A_EMPRESA`
+         (`app.core.compras_empresa_erp_map`). Empresa 1 ← (1,1),
+         Empresa 2 ← (1,45).
+      5. Fallback: empresa_id=1 con log WARNING (p. ej. `(comp_id, bra_id)`
+         sin mapear — sucursales internas 35-42 no son empresas comerciales).
     """
+    from app.core.compras_empresa_erp_map import bra_a_empresa_o_ignorar  # noqa: PLC0415
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
     from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
     from app.models.orden_pago import OrdenPago  # noqa: PLC0415
     from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
@@ -388,6 +393,34 @@ def _resolver_empresa_id_para_imputacion(session: Session, imp: Imputacion) -> i
         nc = session.get(NotaCreditoLocal, imp.origen_id)
         if nc is not None:
             return int(nc.empresa_id)
+
+    # Prioridad 4: destino factura_erp via (comp_id, bra_id).
+    # Cuando `destino_tipo='factura_erp'`, `destino_id` es el `ct_transaction`
+    # de `tb_commercial_transactions` (convención del módulo compras).
+    # Resolvemos la empresa local con `bra_a_empresa_o_ignorar`:
+    #   - (comp_id=1, bra_id=1)  → empresa_id=1 (sucursal principal)
+    #   - (comp_id=1, bra_id=45) → empresa_id=2 (Grupo Gauss)
+    #   - otros (incl. sucursales internas 35-42) → None → fallback a 1.
+    if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+        ct = session.get(CommercialTransaction, int(imp.destino_id))
+        if ct is None:
+            logger.warning(
+                "aplicar_imputacion: imp_id=%s destino factura_erp ct_transaction=%s no existe en tb_commercial_transactions. Fallback a 1.",
+                imp.id,
+                imp.destino_id,
+            )
+        elif ct.comp_id is None or ct.bra_id is None:
+            logger.warning(
+                "aplicar_imputacion: imp_id=%s ct_transaction=%s tiene comp_id/bra_id nulos. Fallback a 1.",
+                imp.id,
+                imp.destino_id,
+            )
+        else:
+            empresa_id = bra_a_empresa_o_ignorar(int(ct.comp_id), int(ct.bra_id))
+            if empresa_id is not None:
+                return empresa_id
+            # `bra_a_empresa_o_ignorar` ya loggea WARNING con (comp_id, bra_id)
+            # si no está en el mapeo (ej: sucursales internas 35-42).
 
     logger.warning(
         "aplicar_imputacion: no pude resolver empresa_id para imp_id=%s (origen=%s:%s destino=%s:%s). Fallback a 1.",

@@ -602,3 +602,163 @@ class TestDistribuirFifo:
         assert imps[0].monto_imputado == Decimal("800")
         assert imps[1].destino_tipo == "saldo"
         assert imps[1].monto_imputado == Decimal("700")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fix: `desimputar` debe recalcular el estado del pedido destino cuando
+# la imputación revertida apuntaba a un `pedido_compra`. Antes del fix,
+# desimputar aisladamente una NC/OP aplicada dejaba el pedido en
+# `pagado_parcial` o `pagado` inconsistente con su saldo real.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestDesimputarRecalculaEstadoPedido:
+    """
+    Covers la orquestación agregada en `desimputar`:
+    `pedidos_service.recalcular_estado_por_imputaciones` se invoca
+    cuando el destino de la imputación revertida es `pedido_compra`.
+    """
+
+    def test_desimputar_nc_a_pedido_recalcula_estado_pedido(
+        self, db, proveedor, user_id, empresa_fifo
+    ) -> None:
+        """
+        Escenario:
+          1. NC aprobada de $1000 + pedido aprobado de $1500.
+          2. Aplicar NC al pedido → pedido pasa a `pagado_parcial` (saldo $500).
+          3. Desimputar aisladamente → pedido vuelve a `aprobado` y NC a `aprobado`.
+        """
+        from datetime import date  # noqa: PLC0415
+
+        from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+        from app.services import cc_proveedor_service  # noqa: PLC0415
+        from app.services.imputaciones_service import desimputar  # noqa: PLC0415
+
+        pedido = PedidoCompra(
+            numero="P-FX3-00001",
+            empresa_id=empresa_fifo.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1500"),
+            estado="aprobado",
+            creado_por_id=user_id,
+        )
+        db.add(pedido)
+        db.flush()
+
+        nc = NotaCreditoLocal(
+            numero="NCL-FX3-0001",
+            proveedor_id=proveedor.id,
+            empresa_id=empresa_fifo.id,
+            moneda="ARS",
+            monto=Decimal("1000"),
+            motivo="test",
+            fecha_emision=date.today(),
+            estado="aprobado",
+            aprobado_por_id=user_id,
+            creado_por_id=user_id,
+        )
+        db.add(nc)
+        db.flush()
+
+        imp = crear_imputacion(
+            db,
+            origen_tipo="nota_credito_local",
+            origen_id=nc.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("1000"),
+            moneda_imputada="ARS",
+            proveedor_id=proveedor.id,
+            creado_por_id=user_id,
+        )
+        cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
+
+        # Disparar transición pedido por la imputación creada
+        from app.services import pedidos_service  # noqa: PLC0415
+
+        pedidos_service.aplicar_imputacion_a_pedido(
+            db, pedido_id=pedido.id, monto_imputado=Decimal("1000")
+        )
+        db.refresh(pedido)
+        db.refresh(nc)
+        assert pedido.estado == "pagado_parcial"
+        assert nc.estado == "aplicada"
+
+        # --- Acto bajo test: desimputar aisladamente ---
+        desimputar(db, imputacion_id=imp.id, user_id=user_id, motivo="ajuste manual")
+
+        db.refresh(pedido)
+        db.refresh(nc)
+        assert pedido.estado == "aprobado", (
+            f"desimputar NC sobre pedido debería devolver el pedido a 'aprobado' "
+            f"pero quedó en '{pedido.estado}'"
+        )
+        assert nc.estado == "aprobado"
+
+    def test_desimputar_op_a_pedido_recalcula_estado_pedido(
+        self, db, proveedor, user_id, empresa_fifo
+    ) -> None:
+        """
+        Escenario simétrico al anterior pero con OP como origen:
+          1. Pedido aprobado de $1500 + OP pagada de $1500 imputada al pedido.
+          2. Pedido queda en `pagado`.
+          3. Desimputar aisladamente (no anular OP) → pedido vuelve a `aprobado`.
+        """
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+        from app.services import cc_proveedor_service, pedidos_service  # noqa: PLC0415
+        from app.services.imputaciones_service import desimputar  # noqa: PLC0415
+
+        pedido = PedidoCompra(
+            numero="P-FX3-00002",
+            empresa_id=empresa_fifo.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1500"),
+            estado="aprobado",
+            creado_por_id=user_id,
+        )
+        db.add(pedido)
+        db.flush()
+
+        op = OrdenPago(
+            numero="OP-FX3-00001",
+            empresa_id=empresa_fifo.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("1500"),
+            modo_imputacion="especifica",
+            estado="pagado",
+            creado_por_id=user_id,
+        )
+        db.add(op)
+        db.flush()
+
+        imp = crear_imputacion(
+            db,
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("1500"),
+            moneda_imputada="ARS",
+            proveedor_id=proveedor.id,
+            creado_por_id=user_id,
+        )
+        cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
+        pedidos_service.aplicar_imputacion_a_pedido(
+            db, pedido_id=pedido.id, monto_imputado=Decimal("1500")
+        )
+        db.refresh(pedido)
+        assert pedido.estado == "pagado"
+
+        # --- Acto bajo test: desimputar aisladamente ---
+        desimputar(db, imputacion_id=imp.id, user_id=user_id, motivo="ajuste manual")
+
+        db.refresh(pedido)
+        assert pedido.estado == "aprobado", (
+            f"desimputar OP sobre pedido (sin anular la OP) debería devolver el "
+            f"pedido a 'aprobado' pero quedó en '{pedido.estado}'"
+        )

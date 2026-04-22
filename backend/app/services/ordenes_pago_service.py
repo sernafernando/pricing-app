@@ -817,35 +817,38 @@ def anular(
         entidad_id=op.id,
     )
 
-    # Paso 4: desimputar cada imputación viva de la OP
+    # Paso 4: desimputar todas las imputaciones vivas de la OP.
+    # Capturamos `pedidos_afectados` ANTES del reversal para luego recalcular
+    # su estado (mismo patrón que `ncs_locales_service.transicionar(cancelar_aprobado)`).
+    # La lógica de loop + filtro `ya_desimputada` + desimputar está centralizada
+    # en `imputaciones_service.revertir_imputaciones_de_origen` (DRY con NCs locales).
     stmt_imps = select(Imputacion).where(
         Imputacion.origen_tipo == "orden_pago",
         Imputacion.origen_id == op.id,
         Imputacion.es_reversal.is_(False),
     )
     imputaciones_vivas = list(session.execute(stmt_imps).scalars().all())
-    pedidos_afectados: set[int] = set()
-    for imp in imputaciones_vivas:
-        # Evitar desimputar si ya fue desimputada previamente
-        ya_desimputada = session.execute(
-            select(Imputacion.id)
-            .where(
-                Imputacion.reimputada_desde_id == imp.id,
-            )
-            .limit(1)
-        ).first()
-        if ya_desimputada:
-            continue
-        imputaciones_service.desimputar(
-            session,
-            imputacion_id=imp.id,
-            user_id=user_id,
-            motivo=f"anulacion_op: {motivo}",
-        )
-        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
-            pedidos_afectados.add(int(imp.destino_id))
+    pedidos_afectados: set[int] = {
+        int(imp.destino_id)
+        for imp in imputaciones_vivas
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None
+    }
 
-    # Paso 5: recalcular estado de pedidos afectados
+    imputaciones_service.revertir_imputaciones_de_origen(
+        session,
+        origen_tipo="orden_pago",
+        origen_id=op.id,
+        user_id=user_id,
+        motivo=f"anulacion_op: {motivo}",
+    )
+
+    # Paso 5: recalcular estado de pedidos afectados.
+    # Nota: `desimputar` ya dispara `pedidos_service.recalcular_estado_por_imputaciones`
+    # por cada imputación revertida con destino pedido_compra (transición
+    # idempotente: saldo actual → estado). Este segundo paso registra el
+    # evento explícito `reverso_cancelacion` con motivo `anulacion_op` para
+    # auditoría. Si el estado ya fue ajustado por `desimputar`, la función
+    # es no-op (`nuevo_estado == estado_previo → return pedido`).
     for pedido_id in pedidos_afectados:
         pedidos_service.revertir_transicion_por_anulacion_op(
             session,

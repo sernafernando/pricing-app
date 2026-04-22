@@ -420,14 +420,66 @@ class TestAjustarMontoConFactura:
 
 class TestMatchBackwardMismatchMonto:
     def test_genera_evento_y_notificacion_sin_tocar_monto(self, db, empresa, proveedor, sd_factura, active_user):
+        """
+        Fix 4 (batch "4 riesgos compras"): el hook de matching ya NO crea
+        `Notificacion(user_id=None)` (invisible por el filtro estricto del
+        endpoint `GET /notificaciones`). Ahora hace fan-out a usuarios con
+        permisos `administracion.gestionar_ordenes_compra` o
+        `administracion.ver_cuentas_corrientes`.
+
+        Este test siembra un usuario admin con ambos permisos base y valida
+        que RECIBE la notificación.
+        """
         from app.core.compras_empresa_erp_map import (  # noqa: PLC0415
             EMPRESA_A_COMP_BRA_MAP,
         )
+        from app.core.security import get_password_hash  # noqa: PLC0415
         from app.models.notificacion import Notificacion  # noqa: PLC0415
+        from app.models.permiso import Permiso, RolPermisoBase  # noqa: PLC0415
+        from app.models.rol import Rol  # noqa: PLC0415
+        from app.models.usuario import AuthProvider, RolUsuario, Usuario  # noqa: PLC0415
         from app.services.erp_matching_service import match_backward  # noqa: PLC0415
 
         # Asegurar mapeo empresa.id=1 → (comp_id=1, bra_id=1) en el test
         EMPRESA_A_COMP_BRA_MAP[empresa.id] = (1, 1)
+
+        # Sembrar permisos + rol + usuario admin que recibirá la notificación.
+        p_ops = Permiso(
+            codigo="administracion.gestionar_ordenes_compra",
+            nombre="Gestionar órdenes de compra",
+            categoria="administracion",
+        )
+        p_cc = Permiso(
+            codigo="administracion.ver_cuentas_corrientes",
+            nombre="Ver CC",
+            categoria="administracion",
+        )
+        db.add_all([p_ops, p_cc])
+        db.flush()
+
+        rol_admin_c = Rol(codigo="ADMIN_COMPRAS_T", nombre="Admin Compras Test", activo=True, orden=5)
+        db.add(rol_admin_c)
+        db.flush()
+        db.add_all(
+            [
+                RolPermisoBase(rol_id=rol_admin_c.id, permiso_id=p_ops.id),
+                RolPermisoBase(rol_id=rol_admin_c.id, permiso_id=p_cc.id),
+            ]
+        )
+        db.flush()
+
+        admin_dest = Usuario(
+            username="admin_destinatario",
+            email="admin_dest@example.com",
+            nombre="Admin Destinatario",
+            password_hash=get_password_hash("TestPass123!"),
+            rol=RolUsuario.ADMIN,
+            rol_id=rol_admin_c.id,
+            auth_provider=AuthProvider.LOCAL,
+            activo=True,
+        )
+        db.add(admin_dest)
+        db.flush()
 
         # Pedido con numero_factura (que matchea ct_docnumber)
         pedido = PedidoCompra(
@@ -467,7 +519,18 @@ class TestMatchBackwardMismatchMonto:
         assert ev.payload["monto_pedido"] == "1000"
         assert Decimal(ev.payload["diferencia"]) == Decimal("234.56")
 
-        # Notificación WARNING
-        notif = db.query(Notificacion).filter_by(tipo="compras.pedido_monto_difiere_factura").first()
-        assert notif is not None
+        # Notificación WARNING dirigida AL ADMIN con permiso (Fix 4):
+        # antes era `user_id=None` y no la veía nadie.
+        notif = (
+            db.query(Notificacion)
+            .filter_by(tipo="compras.pedido_monto_difiere_factura", user_id=admin_dest.id)
+            .first()
+        )
+        assert notif is not None, (
+            "Fix 4: la notificación debe dirigirse al usuario con permisos "
+            "(`administracion.gestionar_ordenes_compra` o `ver_cuentas_corrientes`). "
+            "Antes se creaba con `user_id=None` y el endpoint `GET /notificaciones` "
+            "la filtraba → nadie la veía."
+        )
         assert notif.severidad.value == "WARNING"
+        assert notif.item_id == pedido.id

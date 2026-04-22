@@ -28,6 +28,9 @@ from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.models.rma_caso_item import RmaCasoItem
+from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
+from app.models.rma_caso_historial import RmaCasoHistorial
 from app.services.permisos_service import verificar_permiso
 
 from app.api.endpoints.etiquetas_shared import (
@@ -590,6 +593,88 @@ def editar_envio_manual(
     }
 
 
+# ── RMA estado_proveedor sync ──────────────────────────────────
+
+# Maps manual_status values to estado_proveedor option names.
+# Universal shipment status pattern: loaded → in-transit → delivered.
+_ML_STATUS_TO_ESTADO_PROVEEDOR: dict[str, str] = {
+    "ready_to_ship": "Envío cargado",
+    "shipped": "Enviado a proveedor",
+    "delivered": "Entregado a proveedor",
+}
+
+
+def _sync_rma_estado_proveedor(
+    db: Session,
+    shipping_id: str,
+    new_ml_status: str,
+    usuario_id: int,
+) -> int:
+    """Propagate manual_status change to estado_proveedor of linked RMA items.
+
+    When depósito changes the shipment status in TabEnviosFlex, this function
+    maps the new ML status to the corresponding estado_proveedor option and
+    updates all RMA items linked to the shipping_id.
+
+    Returns the number of items updated.
+    """
+    target_valor = _ML_STATUS_TO_ESTADO_PROVEEDOR.get(new_ml_status)
+    if not target_valor:
+        return 0
+
+    opcion = (
+        db.query(RmaSeguimientoOpcion)
+        .filter(
+            RmaSeguimientoOpcion.categoria == "estado_proveedor",
+            RmaSeguimientoOpcion.valor == target_valor,
+            RmaSeguimientoOpcion.activo == True,  # noqa: E712
+        )
+        .first()
+    )
+    if not opcion:
+        logger.warning("RMA estado_proveedor option '%s' not found", target_valor)
+        return 0
+
+    # Find linked RMA items (proveedor shipments use shipping_id,
+    # cliente shipments use shipping_cliente_id)
+    if shipping_id.startswith("RMA_"):
+        rma_items = db.query(RmaCasoItem).filter(RmaCasoItem.shipping_id == shipping_id).all()
+    else:
+        # RMACLI_ shipments don't affect estado_proveedor
+        return 0
+
+    updated = 0
+    for item in rma_items:
+        if item.estado_proveedor_id == opcion.id:
+            continue  # already at target state
+
+        old_estado = item.estado_proveedor_id
+        item.estado_proveedor_id = opcion.id
+        updated += 1
+
+        # Audit trail
+        db.add(
+            RmaCasoHistorial(
+                caso_id=item.caso_id,
+                caso_item_id=item.id,
+                campo="estado_proveedor_id",
+                valor_anterior=str(old_estado) if old_estado else None,
+                valor_nuevo=str(opcion.id),
+                usuario_id=usuario_id,
+            )
+        )
+
+    if updated:
+        logger.info(
+            "RMA sync: %d items updated to '%s' for shipping %s",
+            updated,
+            target_valor,
+            shipping_id,
+        )
+
+    return updated
+
+
 @router.put(
     "/etiquetas-envio/{shipping_id}/estado-ml",
     response_model=dict,
@@ -647,6 +732,11 @@ def cambiar_estado_ml(
     )
     db.add(actividad)
 
+    # ── Propagate to RMA items if this is an RMA shipment ──
+    rma_items_updated = 0
+    if shipping_id.startswith("RMA_") or shipping_id.startswith("RMACLI_"):
+        rma_items_updated = _sync_rma_estado_proveedor(db, shipping_id, status, current_user.id)
+
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
@@ -655,4 +745,5 @@ def cambiar_estado_ml(
         "shipping_id": shipping_id,
         "estado_anterior": estado_anterior,
         "estado_nuevo": status,
+        "rma_items_updated": rma_items_updated,
     }

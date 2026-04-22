@@ -44,13 +44,29 @@ from app.core.logging import get_logger
 from app.models.compra_evento import CompraEvento
 from app.models.notificacion import (
     EstadoNotificacion,
-    Notificacion,
     SeveridadNotificacion,
 )
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
+from app.services.notificacion_service import crear_notificaciones_para_permisos
 
 logger = get_logger("services.erp_matching_service")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Permisos de destinatarios de alertas del matching
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Las alertas `compras.pedido_monto_difiere_factura` y
+# `compras.nc_monto_difiere_factura` requieren acción correctiva
+# (ajuste de monto o vinculación manual). Los usuarios que pueden
+# actuar son los que tienen permisos de gestión de OPs o de
+# cuentas corrientes. Reemplaza el antipatrón previo
+# `Notificacion(user_id=None)` que no era visible para nadie.
+PERMISOS_NOTIF_MATCHING: list[str] = [
+    "administracion.gestionar_ordenes_compra",
+    "administracion.ver_cuentas_corrientes",
+]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -193,9 +209,13 @@ def _alertar_si_monto_difiere(
     )
     session.add(evento_mismatch)
 
-    # Notificación WARNING para admin.
-    notif = Notificacion(
-        user_id=None,  # dirigida al admin — el filtro de UI decide cómo mostrarla
+    # Notificación WARNING fan-out a admins con permisos de gestión de OPs
+    # o CC (una fila por destinatario, para que el filtro del endpoint
+    # `GET /notificaciones` -filtro estricto `user_id=current_user.id`- la
+    # muestre). Si no hay destinatarios, el helper loggea WARNING.
+    crear_notificaciones_para_permisos(
+        session,
+        permisos_requeridos=PERMISOS_NOTIF_MATCHING,
         tipo="compras.pedido_monto_difiere_factura",
         mensaje=(
             f"El pedido {pedido.numero} fue vinculado automáticamente a la factura "
@@ -205,9 +225,8 @@ def _alertar_si_monto_difiere(
         ),
         severidad=SeveridadNotificacion.WARNING,
         estado=EstadoNotificacion.PENDIENTE,
-        leida=False,
+        item_id=pedido.id,
     )
-    session.add(notif)
 
     logger.warning(
         "match_backward MISMATCH monto pedido_id=%s ct=%s pedido=%s vs erp=%s (dif=%s)",
@@ -624,8 +643,11 @@ def match_ncs_backward(
                         },
                     )
                 )
-                notif = Notificacion(
-                    user_id=None,
+                # Fan-out a admins con permiso de gestión de OPs o CC
+                # (misma política que `_alertar_si_monto_difiere`).
+                crear_notificaciones_para_permisos(
+                    session,
+                    permisos_requeridos=PERMISOS_NOTIF_MATCHING,
                     tipo="compras.nc_monto_difiere_factura",
                     mensaje=(
                         f"NC local {nc_local.numero} fue vinculada automáticamente a la "
@@ -635,9 +657,8 @@ def match_ncs_backward(
                     ),
                     severidad=SeveridadNotificacion.WARNING,
                     estado=EstadoNotificacion.PENDIENTE,
-                    leida=False,
+                    item_id=nc_local.id,
                 )
-                session.add(notif)
                 logger.warning(
                     "match_ncs_backward MISMATCH monto nc_local_id=%s ct=%s nc=%s vs erp=%s",
                     nc_local.id,
