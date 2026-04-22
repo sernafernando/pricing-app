@@ -14,8 +14,127 @@ from decimal import Decimal
 
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
 from app.models.notificacion_ignorada import NotificacionIgnorada
+from app.models.usuario import Usuario
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Notificaciones dirigidas a admins — resueltas por permiso
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def resolver_usuarios_con_algun_permiso(
+    session: Session,
+    *,
+    permisos_requeridos: list[str],
+) -> list[Usuario]:
+    """
+    Retorna la lista de usuarios activos que tienen AL MENOS UNO de los
+    permisos indicados (OR lógico).
+
+    Consulta el sistema híbrido de permisos (`PermisosService`): combina
+    permisos base del rol + overrides del usuario. SUPERADMINs siempre
+    matchean (tienen todos los permisos).
+
+    Uso: dirigir notificaciones "globales" (p. ej. alertas de matching
+    contable del módulo compras) a los usuarios efectivamente autorizados
+    a actuar sobre ellas. Reemplaza el antipatrón `Notificacion(user_id=None)`
+    que el endpoint `GET /notificaciones` no muestra a nadie
+    (filtra estricto `user_id == current_user.id`).
+
+    Args:
+        session: sesión activa.
+        permisos_requeridos: códigos de permiso en formato
+            `'modulo.accion'` (ej: 'administracion.gestionar_ordenes_compra').
+
+    Returns:
+        Lista de `Usuario` activos con al menos uno de los permisos.
+        Lista vacía si nadie matchea.
+    """
+    from app.services.permisos_service import PermisosService  # noqa: PLC0415
+
+    svc = PermisosService(session)
+    activos = session.query(Usuario).filter(Usuario.activo.is_(True)).all()
+
+    resultado: list[Usuario] = []
+    for u in activos:
+        if svc.tiene_algun_permiso(u, permisos_requeridos):
+            resultado.append(u)
+    return resultado
+
+
+def crear_notificaciones_para_permisos(
+    session: Session,
+    *,
+    permisos_requeridos: list[str],
+    tipo: str,
+    mensaje: str,
+    severidad: SeveridadNotificacion = SeveridadNotificacion.WARNING,
+    estado: EstadoNotificacion = EstadoNotificacion.PENDIENTE,
+    item_id: Optional[int] = None,
+) -> list[Notificacion]:
+    """
+    Crea una notificación por cada usuario activo que tenga al menos uno
+    de los permisos indicados.
+
+    Reemplaza el patrón `Notificacion(user_id=None, ...)` que no era visible
+    para ningún usuario (el listado de notificaciones filtra estrictamente
+    `user_id == current_user.id`). Con este helper cada admin ve su propia
+    fila y puede marcarla como leída/revisada/descartada en forma individual.
+
+    NO commitea — las notificaciones se agregan a la sesión; el caller
+    (dentro de una transacción mayor) decide el commit.
+
+    Si no hay usuarios con los permisos → loggea WARNING y retorna `[]`
+    sin crear notificaciones.
+
+    Args:
+        session: tx activa.
+        permisos_requeridos: códigos de permiso (OR lógico).
+        tipo: categoría de la notificación (ej: 'compras.pedido_monto_difiere_factura').
+        mensaje: texto humano de la notificación.
+        severidad: enum `SeveridadNotificacion` (default WARNING).
+        estado: enum `EstadoNotificacion` (default PENDIENTE).
+        item_id: id de referencia opcional (pedido, NC, etc.) para agrupación.
+
+    Returns:
+        Lista de `Notificacion` agregadas a la sesión (aún sin flush/commit).
+    """
+    destinatarios = resolver_usuarios_con_algun_permiso(
+        session,
+        permisos_requeridos=permisos_requeridos,
+    )
+    if not destinatarios:
+        logger.warning(
+            "crear_notificaciones_para_permisos: ningún usuario activo con permisos %s — "
+            "notificación tipo='%s' no será visible para nadie.",
+            permisos_requeridos,
+            tipo,
+        )
+        return []
+
+    creadas: list[Notificacion] = []
+    for user in destinatarios:
+        notif = Notificacion(
+            user_id=user.id,
+            tipo=tipo,
+            item_id=item_id,
+            mensaje=mensaje,
+            severidad=severidad,
+            estado=estado,
+            leida=False,
+        )
+        session.add(notif)
+        creadas.append(notif)
+
+    logger.info(
+        "crear_notificaciones_para_permisos: tipo='%s' creadas=%d destinatarios_ids=%s",
+        tipo,
+        len(creadas),
+        [u.id for u in destinatarios],
+    )
+    return creadas
 
 
 class NotificacionService:
