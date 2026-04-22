@@ -106,6 +106,11 @@ class TiposEvento:
     PAGO_COMPLETADO: Final[str] = "pago_completado"
     REVERSO_CANCELACION: Final[str] = "reverso_cancelacion"
     MATCHEADO_CON_ERP: Final[str] = "matcheado_con_erp"
+    # Batch I — vinculación manual factura ERP + ajuste de monto controlado
+    FACTURA_VINCULADA: Final[str] = "factura_vinculada"
+    FACTURA_DESVINCULADA: Final[str] = "factura_desvinculada"
+    MONTO_AJUSTADO_POR_FACTURA: Final[str] = "monto_ajustado_por_factura"
+    MONTO_DIFIERE_AL_MATCHEAR: Final[str] = "monto_difiere_al_matchear"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -810,6 +815,329 @@ def revertir_transicion_por_anulacion_op(
     return pedido
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Batch I — vinculación manual factura ERP + ajuste controlado
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _buscar_ct_vigente_para_proveedor(
+    session: Session,
+    *,
+    ct_transaction: int,
+    supp_id: int,
+) -> Optional[tuple[str, Decimal, int]]:
+    """
+    Busca en `v_facturas_compra_vigentes` la ct cuya llave sea la dada Y
+    que pertenezca al `supp_id` recibido.
+
+    Returns:
+        tupla `(ct_docnumber, ct_total, curr_id_transaction)` si existe;
+        None si no hay match en la vista.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    stmt = text(
+        """
+        SELECT ct_docnumber, ct_total, curr_id_transaction
+        FROM v_facturas_compra_vigentes
+        WHERE ct_transaction = :ct
+          AND supp_id = :supp_id
+        LIMIT 1
+        """
+    )
+    fila = session.execute(
+        stmt,
+        {"ct": ct_transaction, "supp_id": supp_id},
+    ).first()
+    if fila is None:
+        return None
+    ct_docnumber, ct_total, curr_id = fila
+    return str(ct_docnumber or ""), Decimal(str(ct_total or 0)), int(curr_id or 0)
+
+
+def vincular_factura(
+    session: Session,
+    *,
+    pedido_id: int,
+    ct_transaction: int,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Vincula manualmente una factura del ERP al pedido (sin ajustar monto).
+
+    Precondiciones:
+      - El pedido existe.
+      - `pedido.ct_transaction_id IS NULL` (si ya está vinculado → 409).
+      - El proveedor del pedido tiene `supp_id` ERP.
+      - La ct aparece en `v_facturas_compra_vigentes` para ese `supp_id`.
+
+    NO ajusta `pedido.monto`. Si el monto de la factura difiere, el caller
+    debe invocar `ajustar_monto_con_factura` (requiere permiso específico
+    + motivo obligatorio).
+
+    Registra evento `factura_vinculada`. NO commit.
+
+    Raises:
+        HTTPException 404 — pedido inexistente.
+        HTTPException 409 — pedido ya tiene `ct_transaction_id`.
+        HTTPException 400 — proveedor sin supp_id o ct no vigente para ese proveedor.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    if pedido.ct_transaction_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Pedido id={pedido.id} ya está vinculado a "
+                f"ct_transaction={pedido.ct_transaction_id}. "
+                f"Desvinculalo antes de vincular otra factura."
+            ),
+        )
+
+    supp_id = session.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": pedido.proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Proveedor id={pedido.proveedor_id} no tiene supp_id ERP — no se puede vincular factura."),
+        )
+
+    match = _buscar_ct_vigente_para_proveedor(session, ct_transaction=ct_transaction, supp_id=int(supp_id))
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"ct_transaction={ct_transaction} no existe en la vista de facturas vigentes "
+                f"para el proveedor id={pedido.proveedor_id} (supp_id={supp_id})."
+            ),
+        )
+    ct_docnumber, ct_total, _curr_id = match
+
+    pedido.ct_transaction_id = int(ct_transaction)
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.FACTURA_VINCULADA,
+        usuario_id=user_id,
+        payload={
+            "ct_transaction": int(ct_transaction),
+            "ct_docnumber": ct_docnumber,
+            "ct_total": str(ct_total),
+            "monto_pedido": str(pedido.monto),
+            "modo": "manual",
+        },
+    )
+    logger.info(
+        "pedido_vincular_factura id=%s ct=%s docnumber=%s (manual)",
+        pedido.id,
+        ct_transaction,
+        ct_docnumber,
+    )
+    return pedido
+
+
+def desvincular_factura(
+    session: Session,
+    *,
+    pedido_id: int,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Desvincula la factura del ERP del pedido.
+
+    Si hubo un ajuste de monto asociado, NO se revierte — el ajuste quedó
+    registrado como movimiento separado en `cc_proveedor_movimientos` y
+    seguir el hilo es responsabilidad del operador (admin puede hacer un
+    ajuste inverso manual si corresponde).
+
+    Raises:
+        HTTPException 404 — pedido inexistente.
+        HTTPException 400 — pedido no tiene ct_transaction_id seteado.
+    """
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    if pedido.ct_transaction_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Pedido id={pedido.id} no tiene factura vinculada.",
+        )
+
+    ct_anterior = int(pedido.ct_transaction_id)
+    pedido.ct_transaction_id = None
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.FACTURA_DESVINCULADA,
+        usuario_id=user_id,
+        payload={"ct_transaction_anterior": ct_anterior},
+    )
+    logger.info(
+        "pedido_desvincular_factura id=%s ct_anterior=%s",
+        pedido.id,
+        ct_anterior,
+    )
+    return pedido
+
+
+def ajustar_monto_con_factura(
+    session: Session,
+    *,
+    pedido_id: int,
+    ct_transaction: int,
+    nuevo_monto: Decimal,
+    motivo: str,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Ajusta `pedido.monto` al valor de la factura Y lo vincula en una sola
+    operación atómica.
+
+    Genera:
+      1) Movimiento en `cc_proveedor_movimientos` por la diferencia
+         (`tipo='ajuste'`, `signo_ajuste=+1` si nuevo>actual, `-1` si es
+         menor; `origen_tipo='ajuste_pedido'`, `origen_id=pedido.id`).
+         Si la diferencia es 0 → NO se emite movimiento CC, pero SÍ se
+         vincula y se registra el evento.
+      2) Update `pedido.monto`, `pedido.ct_transaction_id`.
+      3) Evento `monto_ajustado_por_factura` con `{monto_anterior,
+         monto_nuevo, diferencia, ct_transaction, motivo}`.
+
+    IMPORTANTE — append-only: las imputaciones y movimientos CC previos NO
+    se tocan. El ajuste es un movimiento NUEVO en CC. Si el pedido ya
+    estaba pagado por un monto viejo distinto, el ajuste refleja el delta
+    contra el proveedor pero NO cambia las imputaciones existentes.
+
+    Precondiciones:
+      - Pedido existe.
+      - Pedido NO está vinculado a OTRA factura distinta (si ya tiene
+        `ct_transaction_id` != `ct_transaction` → 409; si está vinculado a
+        la MISMA `ct_transaction` sigue, porque puede ser un reajuste).
+      - `nuevo_monto > 0`.
+      - `motivo` no vacío.
+      - La ct existe en `v_facturas_compra_vigentes` para el proveedor del pedido.
+
+    Permiso: el caller (router) debe chequear `administracion.ajustar_monto_pedido`.
+
+    NO commit.
+
+    Raises:
+        HTTPException 404/409/400 según corresponda.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    if nuevo_monto is None or nuevo_monto <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"nuevo_monto debe ser > 0 (recibido: {nuevo_monto}).",
+        )
+    motivo_normalizado = (motivo or "").strip()
+    if not motivo_normalizado:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="motivo es obligatorio para ajustar el monto de un pedido.",
+        )
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+
+    if pedido.ct_transaction_id is not None and int(pedido.ct_transaction_id) != int(ct_transaction):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Pedido id={pedido.id} ya está vinculado a "
+                f"ct_transaction={pedido.ct_transaction_id} (distinta a la solicitada "
+                f"{ct_transaction}). Desvinculá primero."
+            ),
+        )
+
+    supp_id = session.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": pedido.proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Proveedor id={pedido.proveedor_id} no tiene supp_id ERP — no se puede ajustar contra la factura."
+            ),
+        )
+
+    match = _buscar_ct_vigente_para_proveedor(session, ct_transaction=ct_transaction, supp_id=int(supp_id))
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"ct_transaction={ct_transaction} no existe en la vista de facturas vigentes "
+                f"para el proveedor id={pedido.proveedor_id}."
+            ),
+        )
+    ct_docnumber, _ct_total, _curr_id = match
+
+    monto_anterior = Decimal(pedido.monto)
+    nuevo_monto_dec = Decimal(str(nuevo_monto))
+    diferencia = nuevo_monto_dec - monto_anterior
+
+    if diferencia != Decimal("0"):
+        signo = 1 if diferencia > 0 else -1
+        cc_proveedor_service.insertar_mov(
+            session,
+            proveedor_id=pedido.proveedor_id,
+            empresa_id=pedido.empresa_id,
+            fecha_movimiento=date.today(),
+            tipo="ajuste",
+            signo_ajuste=signo,
+            monto=abs(diferencia),
+            moneda=pedido.moneda,  # type: ignore[arg-type]
+            origen_tipo="ajuste_pedido",
+            origen_id=pedido.id,
+            descripcion=(
+                f"Ajuste monto pedido {pedido.numero} por factura ct={ct_transaction} "
+                f"({ct_docnumber}): {monto_normalizar(monto_anterior)} → "
+                f"{monto_normalizar(nuevo_monto_dec)}. Motivo: {motivo_normalizado[:200]}"
+            ),
+            creado_por_id=user_id,
+        )
+
+    pedido.monto = nuevo_monto_dec  # type: ignore[assignment]
+    pedido.ct_transaction_id = int(ct_transaction)
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.MONTO_AJUSTADO_POR_FACTURA,
+        usuario_id=user_id,
+        payload={
+            "monto_anterior": str(monto_anterior),
+            "monto_nuevo": str(nuevo_monto_dec),
+            "diferencia": str(diferencia),
+            "ct_transaction": int(ct_transaction),
+            "ct_docnumber": ct_docnumber,
+            "motivo": motivo_normalizado,
+        },
+    )
+    logger.info(
+        "pedido_ajustar_monto id=%s %s → %s (dif=%s) ct=%s user=%s",
+        pedido.id,
+        monto_anterior,
+        nuevo_monto_dec,
+        diferencia,
+        ct_transaction,
+        user_id,
+    )
+    return pedido
+
+
+def monto_normalizar(valor: Decimal) -> str:
+    """Representa un Decimal con 2 decimales para descripciones legibles."""
+    return f"{Decimal(valor):.2f}"
+
+
 __all__ = [
     "CAMPOS_EDITABLES_APROBADO",
     "CAMPOS_EDITABLES_BORRADOR",
@@ -817,10 +1145,13 @@ __all__ = [
     "EstadoPedido",
     "TRANSICIONES_VALIDAS",
     "TiposEvento",
+    "ajustar_monto_con_factura",
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",
     "crear_pedido",
+    "desvincular_factura",
     "editar_pedido",
     "revertir_transicion_por_anulacion_op",
     "transicionar",
+    "vincular_factura",
 ]

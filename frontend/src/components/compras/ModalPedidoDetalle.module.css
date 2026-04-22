@@ -81,6 +81,9 @@
   font-weight: 600;
   color: var(--cf-text-primary);
   margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
 .emptySection {
@@ -88,6 +91,87 @@
   text-align: center;
   color: var(--cf-text-tertiary);
   font-size: var(--font-sm);
+}
+
+/* ── Factura ERP block ───────────────────────────────────────── */
+.facturaBlock {
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.facturaVinculada,
+.facturaNoVinculada {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.facturaInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.facturaMain {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.facturaSub {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.emptyHint {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--spacing-sm);
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+}
+
+.btnGhost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimaryInline {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Table ───────────────────────────────────────────────────── */
