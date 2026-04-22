@@ -72,6 +72,7 @@ from app.schemas.imputacion import (
     ImputacionResponse,
 )
 from app.schemas.nota_credito_local import (
+    AplicarNCRequest,
     NCErpCandidataResponse,
     NotaCreditoLocalCreate,
     NotaCreditoLocalDetalle,
@@ -2185,6 +2186,7 @@ def desvincular_factura_pedido(
 #   GET    /ncs-locales/{id}/candidatas-erp             → NCs ERP del proveedor
 #   POST   /ncs-locales/{id}/vincular-factura           → vincular ± ajuste
 #   POST   /ncs-locales/{id}/desvincular-factura        → limpiar ct_transaction_id
+#   POST   /ncs-locales/{id}/aplicar                    → imputar a pedido/factura/saldo
 #   POST   /ncs-locales/{id}/adjuntos                   → upload (gestionar)
 #   GET    /ncs-locales/{id}/adjuntos                   → listar
 
@@ -2760,6 +2762,141 @@ def desvincular_nc_factura(
     _commit_or_rollback(db, operacion="desvincular_nc_factura")
     db.refresh(nc)
     return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/aplicar",
+    response_model=NotaCreditoLocalResponse,
+    summary="Imputar NC local a pedido/factura/saldo (crea imputación + dispara CC)",
+)
+def aplicar_nc_local(
+    nc_id: int,
+    body: AplicarNCRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """
+    Imputa (total o parcial) el crédito de una NC local aprobada contra:
+      - `pedido_compra`: reduce saldo pendiente del pedido (auto-transición
+        aprobado → pagado_parcial → pagado).
+      - `factura_erp`: aplica a una factura vigente del ERP (origen NC local,
+        destino factura ERP por ct_transaction).
+      - `saldo`: crédito a favor del proveedor (cuenta corriente).
+
+    Orquestación (análogo al step 6-7 de `ejecutar_pago`):
+      1) Validaciones (estado NC, existencia/moneda/proveedor destino, saldo).
+      2) `imputaciones_service.crear_imputacion` — valida whitelist, inserta
+         imputación, dispara auto-transición de la NC (aplicada_parcial/aplicada).
+      3) `cc_proveedor_service.aplicar_imputacion` — inserta movimiento HABER
+         en CC proveedor.
+      4) Si destino es pedido: `pedidos_service.aplicar_imputacion_a_pedido`
+         recalcula estado (pagado_parcial / pagado).
+
+    Errores:
+      - 404: NC inexistente, pedido destino inexistente.
+      - 409: NC en estado no aplicable (delegado al service).
+      - 400: monto > saldo pendiente, moneda inconsistente, proveedor distinto,
+        combinación destino/id inválida.
+    """
+    nc = _obtener_nc_o_404(db, nc_id)
+
+    # Estado aplicable (defensivo — el service también lo valida).
+    if nc.estado not in {"aprobado", "aplicada_parcial"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"NC local id={nc_id} en estado '{nc.estado}' no puede aplicarse. "
+                f"Estados válidos: 'aprobado', 'aplicada_parcial'."
+            ),
+        )
+
+    # Validar coherencia destino_tipo / destino_id.
+    if body.destino_tipo == "saldo":
+        if body.destino_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Con destino_tipo='saldo', destino_id debe ser NULL.",
+            )
+    else:
+        if body.destino_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Con destino_tipo='{body.destino_tipo}', destino_id es requerido.",
+            )
+
+    # Validaciones específicas por tipo de destino (pre-chequeos de integridad
+    # de negocio que el service de imputaciones no hace por ser polimórfico).
+    if body.destino_tipo == "pedido_compra":
+        pedido = db.get(PedidoCompra, body.destino_id)
+        if pedido is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Pedido destino id={body.destino_id} no encontrado.",
+            )
+        if pedido.proveedor_id != nc.proveedor_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Proveedor del pedido destino ({pedido.proveedor_id}) no coincide "
+                    f"con el de la NC ({nc.proveedor_id})."
+                ),
+            )
+        if pedido.moneda != nc.moneda:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Cross-moneda no soportado en v1. NC: {nc.moneda}, pedido: {pedido.moneda}."),
+            )
+        if pedido.estado not in {"aprobado", "pagado_parcial"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Pedido id={pedido.id} en estado '{pedido.estado}' no admite "
+                    f"imputación. Estados válidos: 'aprobado', 'pagado_parcial'."
+                ),
+            )
+
+    # factura_erp: validación liviana — el service valida que el monto no exceda
+    # el saldo de la NC. Chequear que ct_transaction exista y pertenezca al
+    # proveedor queda para un refinamiento futuro (el sync ERP es del sistema,
+    # el frontend solo ofrece candidatas ya filtradas del mismo proveedor).
+
+    try:
+        imp = imputaciones_service.crear_imputacion(
+            db,
+            origen_tipo="nota_credito_local",
+            origen_id=nc.id,
+            destino_tipo=body.destino_tipo,
+            destino_id=body.destino_id,
+            monto_imputado=body.monto_imputado,
+            moneda_imputada=nc.moneda,  # type: ignore[arg-type]
+            proveedor_id=nc.proveedor_id,
+            creado_por_id=user.id,
+        )
+        # HABER en CC proveedor (requerido — el service base no lo dispara).
+        cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
+
+        # Recalcular estado del pedido destino (si corresponde).
+        if body.destino_tipo == "pedido_compra" and body.destino_id is not None:
+            pedidos_service.aplicar_imputacion_a_pedido(
+                db,
+                pedido_id=body.destino_id,
+                monto_imputado=body.monto_imputado,
+            )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("aplicar_nc_local falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al aplicar la NC local.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="aplicar_nc_local")
+    db.refresh(nc)
+    saldo = ncs_locales_service.calcular_saldo_pendiente(db, nc.id)
+    return _nc_local_response(nc, saldo_pendiente=saldo)
 
 
 @router.post(

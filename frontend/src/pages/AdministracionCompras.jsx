@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShoppingCart, FileText, Wallet, Users, RefreshCw, BookOpen, Trash2 } from 'lucide-react';
+import {
+  ShoppingCart,
+  FileText,
+  Wallet,
+  Users,
+  RefreshCw,
+  BookOpen,
+  Trash2,
+  MinusCircle,
+} from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import TabPedidosCompra from '../components/compras/TabPedidosCompra';
 import TabOrdenesPago from '../components/compras/TabOrdenesPago';
+import TabNCsLocales from '../components/compras/TabNCsLocales';
 import TabCCProveedores from '../components/compras/TabCCProveedores';
 import TabReconciliacion from '../components/compras/TabReconciliacion';
 import TabSaleDocumentCatalog from '../components/compras/TabSaleDocumentCatalog';
@@ -25,6 +35,13 @@ const TABS = [
     icon: Wallet,
     permiso: 'administracion.ver_ordenes_compra',
     Component: TabOrdenesPago,
+  },
+  {
+    id: 'ncs-locales',
+    label: 'Notas de Crédito',
+    icon: MinusCircle,
+    permiso: 'administracion.ver_ordenes_compra',
+    Component: TabNCsLocales,
   },
   {
     id: 'cc-proveedores',

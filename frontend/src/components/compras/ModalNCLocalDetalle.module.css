@@ -1,0 +1,474 @@
+/* ModalNCLocalDetalle — vista + timeline + acciones NC local. CF tokens. */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  width: 100%;
+  max-width: 760px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+}
+
+.modalTitle {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.modalCloseBtn {
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.modalCloseBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+/* ── Info grid ───────────────────────────────────────────────── */
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.infoLabel {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.infoValue {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  font-weight: 600;
+}
+
+/* ── Montos card ─────────────────────────────────────────────── */
+.montosCard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.montoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.montoValor {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.montoSaldo {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--cf-accent-blue);
+}
+
+.montoAplicada {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Section title ───────────────────────────────────────────── */
+.sectionTitle {
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.motivoBox {
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.emptySection {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+}
+
+/* ── NC ERP block ────────────────────────────────────────────── */
+.facturaBlock {
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.facturaVinculada,
+.facturaNoVinculada {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.facturaInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.facturaMain {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.emptyHint {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--spacing-sm);
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+}
+
+.btnGhost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimaryInline {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Tabla de imputaciones ───────────────────────────────────── */
+.tableWrapper {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.tdRight {
+  text-align: right;
+  font-weight: 500;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+.badgeReversal {
+  display: inline-flex;
+  padding: 2px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--cf-accent-orange);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+/* ── Timeline ────────────────────────────────────────────────── */
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+  border-left: 2px solid var(--cf-border-default);
+  margin-left: var(--spacing-md);
+}
+
+.timelineItem {
+  position: relative;
+  padding: var(--spacing-sm) 0 var(--spacing-md) var(--spacing-lg);
+}
+
+.timelineIcon {
+  position: absolute;
+  left: calc(-1 * var(--spacing-md) - 12px);
+  top: var(--spacing-sm);
+  width: 24px;
+  height: 24px;
+  background: var(--cf-bg-card);
+  border: 2px solid var(--cf-accent-blue);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cf-accent-blue);
+}
+
+.timelineBody {
+  background: var(--cf-bg-hover);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+}
+
+.timelineHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.timelineType {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.timelineDate {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.timelineMeta {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin-top: 2px;
+}
+
+.timelinePayload {
+  margin: var(--spacing-xs) 0 0 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  max-height: 120px;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ── Misc ────────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  color: var(--cf-text-secondary);
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-bottom: var(--spacing-md);
+}
+
+/* ── Footer actions ──────────────────────────────────────────── */
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.btnSecondary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btnPrimary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btnSuccess {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btnDanger {
+  composes: btn-tesla outline-subtle-danger sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Motivo sub-modal ────────────────────────────────────────── */
+.motivoOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  backdrop-filter: blur(4px);
+}
+
+.motivoContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.formGroup {
+  margin-bottom: var(--spacing-md);
+}
+
+.formLabel {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-bottom: 4px;
+}
+
+.select,
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}

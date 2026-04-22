@@ -137,6 +137,26 @@ class TransicionNCRequest(BaseModel):
     motivo: str | None = None
 
 
+class AplicarNCRequest(BaseModel):
+    """Body de POST /ncs-locales/{id}/aplicar.
+
+    Imputa (total o parcialmente) el crédito de una NC local aprobada a:
+      - un pedido de compra (destino_tipo='pedido_compra')
+      - una factura del ERP (destino_tipo='factura_erp')
+      - saldo general del proveedor (destino_tipo='saldo')
+
+    Reglas:
+      - `destino_id` requerido si `destino_tipo != 'saldo'`.
+      - `destino_tipo='saldo'` => `destino_id` debe ser NULL.
+      - La moneda del destino debe coincidir con la de la NC (D3: cross-moneda
+        prohibido en v1).
+    """
+
+    destino_tipo: str = Field(..., pattern="^(pedido_compra|factura_erp|saldo)$")
+    destino_id: int | None = Field(None, ge=1)
+    monto_imputado: Decimal = Field(..., gt=0)
+
+
 # Forward refs — importar al final para evitar ciclos
 from app.schemas.compra_evento import CompraEventoResponse  # noqa: E402
 from app.schemas.imputacion import ImputacionResponse  # noqa: E402
