@@ -181,6 +181,9 @@
   font-weight: 600;
   color: var(--cf-text-primary);
   margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
 .emptySection {

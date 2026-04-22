@@ -33,6 +33,7 @@ Referencias:
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -41,6 +42,11 @@ from sqlalchemy.orm import Session
 from app.core.compras_empresa_erp_map import resolver_comp_bra
 from app.core.logging import get_logger
 from app.models.compra_evento import CompraEvento
+from app.models.notificacion import (
+    EstadoNotificacion,
+    Notificacion,
+    SeveridadNotificacion,
+)
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 
@@ -135,6 +141,82 @@ def _buscar_ct_vigente(
     if len(filas) != 1:
         return None
     return int(filas[0][0])
+
+
+def _alertar_si_monto_difiere(
+    session: Session,
+    *,
+    pedido: PedidoCompra,
+    ct_transaction: int,
+    ct_docnumber: str,
+    ct_total: Decimal,
+) -> None:
+    """
+    Batch I — Q3: al matchear pedido ↔ factura ERP, si los montos difieren,
+    NO ajusta silenciosamente. Registra:
+
+      1) Evento `monto_difiere_al_matchear` en `compras_eventos` con payload
+         `{ct_transaction, ct_total_erp, monto_pedido, diferencia}`.
+      2) Notificación con severidad WARNING para que el admin revise.
+      3) Log WARNING.
+
+    El admin puede aplicar el ajuste manualmente vía `ajustar_monto_con_factura`
+    (endpoint dedicado con permiso `administracion.ajustar_monto_pedido`).
+
+    Razón: la diferencia puede deberse a múltiples causas (variación de TC al
+    pagar, ajuste de cantidades, descuento tardío del proveedor, diferencia
+    impositiva) y cada una requiere distinto tratamiento contable. Ajustar
+    automáticamente ocultaría el problema.
+    """
+    if ct_total is None:
+        return
+    monto_pedido = Decimal(str(pedido.monto))
+    diferencia = ct_total - monto_pedido
+    # Tolerancia: si la diferencia es de menos de 1 centavo, no alertamos.
+    if abs(diferencia) < Decimal("0.01"):
+        return
+
+    # Evento (apuntado a quien creó el pedido, porque el match viene del sync).
+    evento_mismatch = CompraEvento(
+        entidad_tipo=CompraEvento.ENTIDAD_TIPO_PEDIDO,
+        entidad_id=pedido.id,
+        tipo="monto_difiere_al_matchear",
+        usuario_id=pedido.creado_por_id,
+        payload={
+            "ct_transaction": int(ct_transaction),
+            "ct_docnumber": ct_docnumber,
+            "ct_total_erp": str(ct_total),
+            "monto_pedido": str(monto_pedido),
+            "diferencia": str(diferencia),
+            "origen": "match_backward",
+        },
+    )
+    session.add(evento_mismatch)
+
+    # Notificación WARNING para admin.
+    notif = Notificacion(
+        user_id=None,  # dirigida al admin — el filtro de UI decide cómo mostrarla
+        tipo="compras.pedido_monto_difiere_factura",
+        mensaje=(
+            f"El pedido {pedido.numero} fue vinculado automáticamente a la factura "
+            f"{ct_docnumber} (ct={ct_transaction}) pero el monto difiere: "
+            f"pedido={monto_pedido} vs factura={ct_total} "
+            f"(diferencia={diferencia}). Revisá y ajustá si corresponde."
+        ),
+        severidad=SeveridadNotificacion.WARNING,
+        estado=EstadoNotificacion.PENDIENTE,
+        leida=False,
+    )
+    session.add(notif)
+
+    logger.warning(
+        "match_backward MISMATCH monto pedido_id=%s ct=%s pedido=%s vs erp=%s (dif=%s)",
+        pedido.id,
+        ct_transaction,
+        monto_pedido,
+        ct_total,
+        diferencia,
+    )
 
 
 def _registrar_evento_match(
@@ -330,9 +412,12 @@ def match_backward(
     # Query SQL que junta la vista con datos de la ct y busca el pedido
     # candidato. Hacemos 1 round-trip por ct (simple y auditable); si el
     # volumen crece, se puede batchear con `WHERE ct_transaction IN (...)`.
+    # `ct_total` lo necesitamos para comparar contra `pedido.monto` y
+    # alertar mismatch silencioso (Batch I — decisión Q3).
     stmt_vista = text(
         """
-        SELECT v.ct_transaction, v.comp_id, v.bra_id, v.supp_id, v.ct_docnumber
+        SELECT v.ct_transaction, v.comp_id, v.bra_id, v.supp_id,
+               v.ct_docnumber, v.ct_total
         FROM v_facturas_compra_vigentes v
         WHERE v.ct_transaction = :ct
         """
@@ -346,7 +431,7 @@ def match_backward(
                 # etc. NO hay pedido que matchear. Es normal, no es error.
                 continue
 
-            ct_transaction, comp_id, bra_id, supp_id, ct_docnumber = fila
+            ct_transaction, comp_id, bra_id, supp_id, ct_docnumber, ct_total = fila
 
             # Buscar pedido candidato
             pedido: Optional[PedidoCompra] = (
@@ -393,6 +478,16 @@ def match_backward(
                 origen="backward",
             )
             resumen["pedidos_asociados"] += 1
+
+            # Batch I — Q3: detectar mismatch de monto y alertar (NO ajustar).
+            # Comparación con tolerancia de centavo (Decimal strict).
+            _alertar_si_monto_difiere(
+                session,
+                pedido=pedido,
+                ct_transaction=int(ct_transaction),
+                ct_docnumber=str(ct_docnumber or ""),
+                ct_total=Decimal(str(ct_total or 0)),
+            )
             logger.info(
                 "match_backward: pedido_id=%s ↔ ct_transaction=%s (modo=backward)",
                 pedido.id,

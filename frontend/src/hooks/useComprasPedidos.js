@@ -153,6 +153,41 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  // ── Batch I — vincular / desvincular factura ERP ───────────────────
+  const listarFacturasCandidatas = useCallback(
+    (id) =>
+      wrap(async () => {
+        const { data } = await api.get(
+          `/administracion/compras/pedidos/${id}/facturas-candidatas`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  const vincularFactura = useCallback(
+    (id, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/vincular-factura`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  const desvincularFactura = useCallback(
+    (id) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/desvincular-factura`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -168,5 +203,9 @@ export default function useComprasPedidos() {
     generarEtiqueta,
     listarEventos,
     eliminar,
+    // Batch I — vinculación factura ERP
+    listarFacturasCandidatas,
+    vincularFactura,
+    desvincularFactura,
   };
 }

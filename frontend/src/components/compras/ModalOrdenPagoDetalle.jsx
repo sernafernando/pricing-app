@@ -13,9 +13,11 @@ import {
   AlertCircle,
   Pencil,
   Link2,
+  Paperclip,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasOP from '../../hooks/useComprasOP';
+import AdjuntosPanel from './AdjuntosPanel';
 import styles from './ModalOrdenPagoDetalle.module.css';
 
 const eventoIcon = (tipo) => {
@@ -116,6 +118,7 @@ const nombreDestino = (imp) => {
 export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onAnular }) {
   const { tienePermiso } = usePermisos();
   const canPay = tienePermiso('administracion.ejecutar_pagos');
+  const canGestionarAdj = tienePermiso('administracion.gestionar_ordenes_compra');
 
   const { obtener: obtenerOP } = useComprasOP();
 
@@ -291,6 +294,16 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
                 </table>
               </div>
             )}
+
+            {/* ── Adjuntos ── */}
+            <h3 className={styles.sectionTitle}>
+              <Paperclip size={14} /> Adjuntos
+            </h3>
+            <AdjuntosPanel
+              entidadTipo="orden_pago"
+              entidadId={detalle.id}
+              canManage={canGestionarAdj}
+            />
 
             {/* ── Pago ejecutado ── */}
             {estadoActual === 'pagado' && detalle.caja_movimiento_resumen && (

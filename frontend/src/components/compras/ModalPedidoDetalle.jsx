@@ -14,8 +14,13 @@ import {
   Pencil,
   Truck,
   Link2,
+  Link2Off,
+  Paperclip,
 } from 'lucide-react';
+import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
+import AdjuntosPanel from './AdjuntosPanel';
+import ModalVincularFactura from './ModalVincularFactura';
 import styles from './ModalPedidoDetalle.module.css';
 
 const eventoIcon = (tipo) => {
@@ -58,11 +63,16 @@ const formatCurrency = (value, moneda = 'ARS') => {
 
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
-  const { obtener: obtenerPedido } = useComprasPedidos();
+  const { obtener: obtenerPedido, desvincularFactura } = useComprasPedidos();
+  const { tienePermiso } = usePermisos();
+
+  const canGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
 
   const [pedido, setPedido] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showVincularModal, setShowVincularModal] = useState(false);
+  const [desvinculando, setDesvinculando] = useState(false);
 
   const fetchDetalle = useCallback(async () => {
     setLoading(true);
@@ -80,6 +90,28 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   useEffect(() => {
     fetchDetalle();
   }, [fetchDetalle]);
+
+  const handleDesvincular = useCallback(async () => {
+    if (!pedido?.id) return;
+    try {
+      setDesvinculando(true);
+      setError(null);
+      await desvincularFactura(pedido.id);
+      await fetchDetalle();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al desvincular la factura.');
+    } finally {
+      setDesvinculando(false);
+    }
+  }, [desvincularFactura, pedido?.id, fetchDetalle]);
+
+  const handleVincularClose = useCallback(
+    (reload) => {
+      setShowVincularModal(false);
+      if (reload) fetchDetalle();
+    },
+    [fetchDetalle]
+  );
 
   return (
     <div className={styles.modalOverlay}>
@@ -183,6 +215,68 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               )}
             </div>
 
+            {/* ── Factura del ERP ── */}
+            <h3 className={styles.sectionTitle}>
+              <Link2 size={14} /> Factura del ERP
+            </h3>
+            <div className={styles.facturaBlock}>
+              {pedido.ct_transaction_id ? (
+                <div className={styles.facturaVinculada}>
+                  <div className={styles.facturaInfo}>
+                    <span className={styles.facturaMain}>
+                      Vinculada a ct_transaction <strong>#{pedido.ct_transaction_id}</strong>
+                    </span>
+                    {pedido.numero_factura && (
+                      <span className={styles.facturaSub}>
+                        Nº factura: {pedido.numero_factura}
+                      </span>
+                    )}
+                  </div>
+                  {canGestionar && (
+                    <button
+                      type="button"
+                      className={styles.btnGhost}
+                      onClick={handleDesvincular}
+                      disabled={desvinculando}
+                      title="Desvincular factura (no revierte ajustes previos)"
+                    >
+                      {desvinculando ? (
+                        <Loader2 size={14} className={styles.spin} />
+                      ) : (
+                        <Link2Off size={14} />
+                      )}
+                      Desvincular
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.facturaNoVinculada}>
+                  <span className={styles.emptyHint}>
+                    Sin factura ERP vinculada.
+                  </span>
+                  {canGestionar && (
+                    <button
+                      type="button"
+                      className={styles.btnPrimaryInline}
+                      onClick={() => setShowVincularModal(true)}
+                    >
+                      <Link2 size={14} /> Vincular factura
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Adjuntos ── */}
+            <h3 className={styles.sectionTitle}>
+              <Paperclip size={14} /> Adjuntos
+            </h3>
+            <AdjuntosPanel
+              entidadTipo="pedido_compra"
+              entidadId={pedido.id}
+              canManage={canGestionar}
+            />
+
             {/* ── Imputaciones ── */}
             <h3 className={styles.sectionTitle}>
               Imputaciones ({pedido.imputaciones?.length || 0})
@@ -275,6 +369,10 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
           </button>
         </div>
       </div>
+
+      {showVincularModal && pedido && (
+        <ModalVincularFactura pedido={pedido} onClose={handleVincularClose} />
+      )}
     </div>
   );
 }

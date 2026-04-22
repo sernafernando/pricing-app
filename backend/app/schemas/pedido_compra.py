@@ -13,7 +13,7 @@ para montos; `date` para fechas de negocio; `datetime` para auditoría.
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 ESTADOS_PEDIDO: tuple[str, ...] = (
@@ -115,6 +115,45 @@ class PedidoCompraPaginated(BaseModel):
     total: int = Field(..., ge=0)
     page: int = Field(..., ge=1)
     page_size: int = Field(..., ge=1, le=200)
+
+
+# ==========================================================================
+# Batch I — Vinculación manual + ajuste controlado factura ERP
+# ==========================================================================
+
+
+class FacturaCandidataResponse(BaseModel):
+    """Factura del ERP candidata a ser vinculada a un pedido (derivada de v_facturas_compra_vigentes)."""
+
+    ct_transaction: int
+    ct_docnumber: str
+    ct_date: datetime | None = None
+    ct_total: Decimal
+    curr_id_transaction: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VincularFacturaRequest(BaseModel):
+    """Body de POST /pedidos/{id}/vincular-factura.
+
+    Si `ajustar_monto=False`, el pedido queda vinculado pero `monto` NO cambia.
+    Si `ajustar_monto=True`, se ajusta el monto a `nuevo_monto` y se registra un
+    movimiento de ajuste en CC. Requiere permiso `administracion.ajustar_monto_pedido`
+    y `motivo_ajuste` no vacío. Esta validación cruzada la fuerza el router/service.
+    """
+
+    ct_transaction: int = Field(..., gt=0)
+    ajustar_monto: bool = False
+    nuevo_monto: Decimal | None = Field(None, gt=0)
+    motivo_ajuste: str | None = Field(None, max_length=500)
+
+    @field_validator("motivo_ajuste")
+    @classmethod
+    def _limpiar_motivo(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return v.strip() or None
 
 
 # Forward refs — importar acá al final para evitar ciclos

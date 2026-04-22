@@ -1,0 +1,197 @@
+/* AdjuntosPanel — drop zone + lista de adjuntos. CF tokens. */
+
+.adjuntosPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* ── Drop zone ─────────────────────────────────────────────────── */
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-lg);
+  border: 1.5px dashed var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+  outline: none;
+}
+
+.dropZone:hover,
+.dropZone:focus-visible {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+}
+
+.dropZoneActive {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.dropIcon {
+  color: var(--cf-accent-blue);
+}
+
+.dropPrimary {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.dropHint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Status + error ────────────────────────────────────────────── */
+.statusUploading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 4px var(--spacing-sm);
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── Empty state ───────────────────────────────────────────────── */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Lista ─────────────────────────────────────────────────────── */
+.lista {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.adjuntoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-200) var(--ease-out);
+}
+
+.adjuntoRow:hover {
+  background: var(--cf-bg-hover);
+}
+
+.fileIcon {
+  color: var(--cf-text-secondary);
+  flex-shrink: 0;
+}
+
+.adjuntoInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adjuntoNombre {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adjuntoNombre:hover {
+  color: var(--cf-accent-blue);
+  text-decoration: underline;
+}
+
+.adjuntoMeta {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adjuntoActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+  text-decoration: none;
+}
+
+.btnIcon:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+  border-color: var(--cf-border-default);
+}
+
+.btnDanger:hover {
+  color: var(--cf-accent-red);
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

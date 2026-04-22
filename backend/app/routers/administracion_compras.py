@@ -30,15 +30,18 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, require_permiso
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.caja import CajaMovimiento
+from app.models.compra_adjunto import CompraAdjunto
 from app.models.compra_evento import CompraEvento
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.imputacion import Imputacion
@@ -54,6 +57,7 @@ from app.schemas.cc_proveedor import (
     CCReconciliacionLogResponse,
     SaldoPorMoneda,
 )
+from app.schemas.compra_adjunto import CompraAdjuntoResponse
 from app.schemas.compra_evento import CompraEventoResponse
 from app.schemas.compras_papelera import (
     PapeleraHardDeleteRequest,
@@ -76,15 +80,18 @@ from app.schemas.orden_pago import (
     OrdenPagoResponse,
 )
 from app.schemas.pedido_compra import (
+    FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
+    VincularFacturaRequest,
 )
 from app.schemas.sale_document import SaleDocumentResponse, SaleDocumentsFaltantes
 from app.services import (
     cc_proveedor_service,
+    compras_adjuntos_service,
     compras_papelera_service,
     etiqueta_retiro_service,
     imputaciones_service,
@@ -1761,6 +1768,392 @@ def listar_sd_ids_faltantes(
         )
         for row in filas
     ]
+
+
+# ==========================================================================
+# Batch H — Adjuntos polimórficos (pedidos + OPs)
+# ==========================================================================
+#
+# Layout de endpoints:
+#   POST   /pedidos/{id}/adjuntos          ← multipart upload
+#   GET    /pedidos/{id}/adjuntos          ← listar
+#   POST   /ordenes-pago/{id}/adjuntos     ← multipart upload (OP)
+#   GET    /ordenes-pago/{id}/adjuntos     ← listar (OP)
+#   GET    /adjuntos/{id}/descargar        ← stream archivo
+#   DELETE /adjuntos/{id}                  ← hard-delete
+#
+# Validaciones: magic bytes (whitelist PDF/JPG/PNG/WebP/DOC(X)/XLS(X)),
+# tamaño máx 20 MB (settings.COMPRAS_MAX_FILE_SIZE_MB).
+# Permisos: ver=ver_ordenes_compra; subir/borrar=gestionar_ordenes_compra.
+
+
+def _adjunto_response(adj: CompraAdjunto) -> CompraAdjuntoResponse:
+    """Serializa un CompraAdjunto incluyendo `subido_por_nombre` sin N+1."""
+    subio = getattr(adj, "subido_por", None)
+    base = CompraAdjuntoResponse.model_validate(adj)
+    return base.model_copy(update={"subido_por_nombre": subio.nombre if subio is not None else None})
+
+
+@router.post(
+    "/pedidos/{pedido_id}/adjuntos",
+    response_model=CompraAdjuntoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir adjunto a un pedido (factura/presupuesto/comprobante)",
+)
+async def subir_adjunto_pedido(
+    pedido_id: int,
+    file: UploadFile = File(...),
+    tipo: Optional[str] = Form(
+        default=None,
+        pattern="^(factura|presupuesto|comprobante|otro)$",
+    ),
+    descripcion: Optional[str] = Form(default=None, max_length=500),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> CompraAdjuntoResponse:
+    """Adjunta un archivo al pedido. Batch H."""
+    _obtener_pedido_o_404(db, pedido_id)
+    try:
+        adj = await compras_adjuntos_service.subir_adjunto(
+            db,
+            entidad_tipo="pedido_compra",
+            entidad_id=pedido_id,
+            file=file,
+            tipo=tipo,  # type: ignore[arg-type]
+            descripcion=descripcion,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001 — log + 500 limpio
+        db.rollback()
+        logger.exception("subir_adjunto_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al subir el adjunto.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="subir_adjunto_pedido")
+    db.refresh(adj)
+    return _adjunto_response(adj)
+
+
+@router.get(
+    "/pedidos/{pedido_id}/adjuntos",
+    response_model=list[CompraAdjuntoResponse],
+    summary="Listar adjuntos de un pedido",
+)
+def listar_adjuntos_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[CompraAdjuntoResponse]:
+    """Lista de adjuntos ordenada por `created_at DESC`. Batch H."""
+    _obtener_pedido_o_404(db, pedido_id)
+    items = compras_adjuntos_service.listar_adjuntos(db, entidad_tipo="pedido_compra", entidad_id=pedido_id)
+    return [_adjunto_response(a) for a in items]
+
+
+@router.post(
+    "/ordenes-pago/{op_id}/adjuntos",
+    response_model=CompraAdjuntoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir adjunto a una orden de pago",
+)
+async def subir_adjunto_op(
+    op_id: int,
+    file: UploadFile = File(...),
+    tipo: Optional[str] = Form(
+        default=None,
+        pattern="^(factura|presupuesto|comprobante|otro)$",
+    ),
+    descripcion: Optional[str] = Form(default=None, max_length=500),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> CompraAdjuntoResponse:
+    """Adjunta un archivo a la OP. Batch H."""
+    _obtener_op_o_404(db, op_id)
+    try:
+        adj = await compras_adjuntos_service.subir_adjunto(
+            db,
+            entidad_tipo="orden_pago",
+            entidad_id=op_id,
+            file=file,
+            tipo=tipo,  # type: ignore[arg-type]
+            descripcion=descripcion,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("subir_adjunto_op falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al subir el adjunto.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="subir_adjunto_op")
+    db.refresh(adj)
+    return _adjunto_response(adj)
+
+
+@router.get(
+    "/ordenes-pago/{op_id}/adjuntos",
+    response_model=list[CompraAdjuntoResponse],
+    summary="Listar adjuntos de una OP",
+)
+def listar_adjuntos_op(
+    op_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[CompraAdjuntoResponse]:
+    """Lista de adjuntos ordenada por `created_at DESC`. Batch H."""
+    _obtener_op_o_404(db, op_id)
+    items = compras_adjuntos_service.listar_adjuntos(db, entidad_tipo="orden_pago", entidad_id=op_id)
+    return [_adjunto_response(a) for a in items]
+
+
+@router.get(
+    "/adjuntos/{adjunto_id}/descargar",
+    summary="Descargar un archivo adjunto (auth-gated, no StaticFiles)",
+)
+def descargar_adjunto(
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> FileResponse:
+    """Devuelve el archivo físico via FileResponse. Batch H."""
+    adj = compras_adjuntos_service.obtener_adjunto(db, adjunto_id)
+    import os as _os  # noqa: PLC0415
+
+    full_path = _os.path.join(settings.COMPRAS_UPLOADS_DIR, adj.path_archivo)
+    if not _os.path.exists(full_path):
+        logger.warning(
+            "descargar_adjunto: archivo físico ausente id=%s path=%s",
+            adj.id,
+            full_path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo no encontrado en disco.",
+        )
+    return FileResponse(
+        path=full_path,
+        filename=adj.nombre_archivo,
+        media_type=adj.mime_type or "application/octet-stream",
+    )
+
+
+@router.delete(
+    "/adjuntos/{adjunto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Eliminar un adjunto (hard-delete, borra archivo físico)",
+)
+def eliminar_adjunto(
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> Response:
+    """Hard-delete del adjunto (archivo + registro). Batch H."""
+    try:
+        compras_adjuntos_service.eliminar_adjunto(db, adjunto_id=adjunto_id)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("eliminar_adjunto falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al eliminar el adjunto.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="eliminar_adjunto")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ==========================================================================
+# Batch I — Vincular factura del ERP al pedido (manual) + ajuste monto
+# ==========================================================================
+#
+# Flujo:
+#   GET  /pedidos/{id}/facturas-candidatas  → lista facturas vigentes del proveedor
+#                                             sin vincular a otros pedidos.
+#   POST /pedidos/{id}/vincular-factura     → vincula (opcionalmente ajusta monto).
+#   POST /pedidos/{id}/desvincular-factura  → limpia ct_transaction_id.
+
+
+@router.get(
+    "/pedidos/{pedido_id}/facturas-candidatas",
+    response_model=list[FacturaCandidataResponse],
+    summary="Listar facturas del ERP candidatas a vincular al pedido",
+)
+def listar_facturas_candidatas(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> list[FacturaCandidataResponse]:
+    """
+    Devuelve facturas vigentes del ERP (v_facturas_compra_vigentes) para el
+    `supp_id` del proveedor del pedido, excluyendo las que ya están vinculadas
+    a OTRO pedido.
+
+    Si el proveedor no tiene `supp_id` ERP → lista vacía (y log WARNING).
+
+    Batch I.2.
+    """
+    pedido = _obtener_pedido_o_404(db, pedido_id)
+    supp_id = db.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": pedido.proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        logger.warning(
+            "facturas-candidatas: proveedor_id=%s sin supp_id ERP → lista vacía",
+            pedido.proveedor_id,
+        )
+        return []
+
+    stmt = text(
+        """
+        SELECT v.ct_transaction,
+               v.ct_docnumber,
+               v.ct_date,
+               v.ct_total,
+               v.curr_id_transaction
+        FROM v_facturas_compra_vigentes v
+        WHERE v.supp_id = :supp_id
+          AND v.ct_transaction NOT IN (
+              SELECT ct_transaction_id
+              FROM pedidos_compra
+              WHERE ct_transaction_id IS NOT NULL
+                AND id <> :pedido_id
+          )
+        ORDER BY v.ct_date DESC NULLS LAST, v.ct_transaction DESC
+        LIMIT 100
+        """
+    )
+    filas = db.execute(stmt, {"supp_id": int(supp_id), "pedido_id": pedido.id}).all()
+    return [
+        FacturaCandidataResponse(
+            ct_transaction=int(row[0]),
+            ct_docnumber=str(row[1] or ""),
+            ct_date=row[2],
+            ct_total=Decimal(str(row[3] or 0)),
+            curr_id_transaction=int(row[4]) if row[4] is not None else None,
+        )
+        for row in filas
+    ]
+
+
+@router.post(
+    "/pedidos/{pedido_id}/vincular-factura",
+    response_model=PedidoCompraResponse,
+    summary="Vincular factura ERP al pedido (opcional: ajustar monto)",
+)
+def vincular_factura_pedido(
+    pedido_id: int,
+    body: VincularFacturaRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """
+    Vincula manualmente un pedido a una ct del ERP.
+
+    Si `body.ajustar_monto=True`:
+      - Requiere permiso adicional `administracion.ajustar_monto_pedido`.
+      - Requiere `body.nuevo_monto` y `body.motivo_ajuste`.
+      - Crea un movimiento `ajuste` en CC por la diferencia.
+
+    Si `body.ajustar_monto=False`: solo setea `ct_transaction_id`.
+
+    Batch I.3.
+    """
+    try:
+        if body.ajustar_monto:
+            # Permiso adicional — import inline para evitar duplicar import arriba.
+            from app.services.permisos_service import PermisosService  # noqa: PLC0415
+
+            if not PermisosService(db).tiene_permiso(user, "administracion.ajustar_monto_pedido"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Sin permiso: administracion.ajustar_monto_pedido "
+                        "(requerido para ajustar el monto del pedido al vincular factura)."
+                    ),
+                )
+            if body.nuevo_monto is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ajustar_monto=true requiere 'nuevo_monto'.",
+                )
+            if not body.motivo_ajuste:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ajustar_monto=true requiere 'motivo_ajuste' no vacío.",
+                )
+            pedido = pedidos_service.ajustar_monto_con_factura(
+                db,
+                pedido_id=pedido_id,
+                ct_transaction=body.ct_transaction,
+                nuevo_monto=body.nuevo_monto,
+                motivo=body.motivo_ajuste,
+                user_id=user.id,
+            )
+        else:
+            pedido = pedidos_service.vincular_factura(
+                db,
+                pedido_id=pedido_id,
+                ct_transaction=body.ct_transaction,
+                user_id=user.id,
+            )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("vincular_factura_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al vincular la factura.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="vincular_factura_pedido")
+    db.refresh(pedido)
+    return _pedido_response(pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/desvincular-factura",
+    response_model=PedidoCompraResponse,
+    summary="Desvincular factura ERP del pedido (no revierte ajustes previos)",
+)
+def desvincular_factura_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """Limpia `ct_transaction_id`. Los ajustes de CC NO se revierten. Batch I.4."""
+    try:
+        pedido = pedidos_service.desvincular_factura(db, pedido_id=pedido_id, user_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("desvincular_factura_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al desvincular la factura.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="desvincular_factura_pedido")
+    db.refresh(pedido)
+    return _pedido_response(pedido)
 
 
 __all__ = ["router"]

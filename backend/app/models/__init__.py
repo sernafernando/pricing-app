@@ -139,6 +139,7 @@ from app.models.imputacion import Imputacion
 from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.compras_papelera import ComprasPapelera
+from app.models.compra_adjunto import CompraAdjunto
 
 __all__ = [
     "ProductoERP",
@@ -294,4 +295,5 @@ __all__ = [
     "CCProveedorMovimiento",
     "CCReconciliacionLog",
     "ComprasPapelera",
+    "CompraAdjunto",
 ]

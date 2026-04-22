@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     TICKETS_UPLOADS_DIR: str = "uploads/tickets"
     TICKETS_MAX_FILE_SIZE_MB: int = 5
 
+    # Compras — Adjuntos (pedidos de compra + órdenes de pago)
+    # Los archivos se guardan como:
+    #   {COMPRAS_UPLOADS_DIR}/{entidad_tipo}/{entidad_id}/{uuid}_{filename}
+    # entidad_tipo ∈ {pedido_compra, orden_pago}.
+    COMPRAS_UPLOADS_DIR: str = "uploads/compras"
+    COMPRAS_MAX_FILE_SIZE_MB: int = 20
+
     # Hikvision DS-K1T804 (access control terminal — ISAPI over HTTP + Digest Auth)
     HIKVISION_HOST: Optional[str] = None
     HIKVISION_PORT: int = 80
