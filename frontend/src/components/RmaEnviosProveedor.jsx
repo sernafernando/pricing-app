@@ -127,6 +127,7 @@ export default function RmaEnviosProveedor() {
   };
 
   const totalItems = grupos.reduce((sum, g) => sum + g.cantidad_items, 0);
+  const totalEnviados = grupos.reduce((sum, g) => sum + (g.cantidad_enviados || 0), 0);
 
   if (loading) {
     return <div className={styles.statusMsg}>Cargando items pendientes de envio...</div>;
@@ -150,7 +151,7 @@ export default function RmaEnviosProveedor() {
     <div className={styles.container}>
       <div className={styles.summaryBar}>
         <span className={styles.summaryText}>
-          {totalItems} items pendientes en {grupos.length} proveedores
+          {totalItems} pendientes{totalEnviados > 0 ? `, ${totalEnviados} en proceso` : ''} en {grupos.length} proveedores
         </span>
         <button className="btn-tesla ghost sm" onClick={cargar} aria-label="Recargar">
           <RefreshCcw size={14} />
@@ -165,6 +166,7 @@ export default function RmaEnviosProveedor() {
         const tieneDireccion = prov.direccion || prov.ciudad;
         const selected = getSelected(grupo.supp_id);
         const listosCount = grupo.items.filter((i) => i.listo_envio_proveedor).length;
+        const enviadosCount = grupo.items_enviados?.length || 0;
         const state = envioState[grupo.supp_id] || {};
 
         return (
@@ -185,6 +187,12 @@ export default function RmaEnviosProveedor() {
                   <span className={styles.listoBadge}>
                     <CheckSquare size={12} />
                     {listosCount} listos
+                  </span>
+                )}
+                {enviadosCount > 0 && (
+                  <span className={styles.enviadosBadge}>
+                    <Truck size={12} />
+                    {enviadosCount} en proceso
                   </span>
                 )}
                 {minAlcanzado && (
@@ -338,6 +346,49 @@ export default function RmaEnviosProveedor() {
                     </button>
                   </div>
                 </div>
+
+                {/* Shipped items (informational, not selectable) */}
+                {enviadosCount > 0 && (
+                  <div className={styles.shippedSection}>
+                    <div className={styles.shippedHeader}>
+                      <Truck size={14} />
+                      <span>Items en proceso ({enviadosCount})</span>
+                    </div>
+                    <div className="table-container-tesla">
+                      <table className="table-tesla striped">
+                        <thead className="table-tesla-head">
+                          <tr>
+                            <th>Caso</th>
+                            <th>Serie</th>
+                            <th>Producto</th>
+                            <th>Envio</th>
+                            <th>Estado Prov.</th>
+                          </tr>
+                        </thead>
+                        <tbody className="table-tesla-body">
+                          {grupo.items_enviados.map((item) => (
+                            <tr key={item.id} className={styles.shippedRow}>
+                              <td className={styles.cellCaso}>{item.numero_caso}</td>
+                              <td className={styles.cellMono}>{item.serial_number || '\u2014'}</td>
+                              <td>{item.producto_desc || '\u2014'}</td>
+                              <td className={styles.cellMono}>{item.shipping_id || '\u2014'}</td>
+                              <td>
+                                {item.estado_proveedor_valor ? (
+                                  <span
+                                    className={styles.badgeOpcion}
+                                    style={{ '--badge-color': `var(--color-${item.estado_proveedor_color || 'gray'})` }}
+                                  >
+                                    {item.estado_proveedor_valor}
+                                  </span>
+                                ) : '\u2014'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

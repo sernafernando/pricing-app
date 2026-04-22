@@ -286,3 +286,35 @@
   background: color-mix(in srgb, var(--badge-color, gray) 15%, transparent);
   color: var(--badge-color, var(--cf-text-secondary));
 }
+
+/* "En proceso" badge in header */
+.enviadosBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Shipped items section (bottom of group) */
+.shippedSection {
+  border-top: 1px dashed var(--cf-border-default);
+}
+
+.shippedHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs, 4px);
+  padding: var(--spacing-xs, 4px) var(--spacing-md);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+}
+
+.shippedRow {
+  opacity: 0.55;
+}
