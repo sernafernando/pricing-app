@@ -39,6 +39,7 @@ class CompraAdjunto(Base):
 
     ENTIDAD_TIPO_PEDIDO: str = "pedido_compra"
     ENTIDAD_TIPO_ORDEN_PAGO: str = "orden_pago"
+    ENTIDAD_TIPO_NC_LOCAL: str = "nota_credito_local"
 
     id = Column(BigInteger, primary_key=True, index=True)
     entidad_tipo = Column(String(32), nullable=False)
@@ -62,7 +63,7 @@ class CompraAdjunto(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "entidad_tipo IN ('pedido_compra','orden_pago')",
+            "entidad_tipo IN ('pedido_compra','orden_pago','nota_credito_local')",
             name="ck_compras_adjuntos_entidad_tipo",
         ),
         CheckConstraint(

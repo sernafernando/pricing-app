@@ -49,7 +49,7 @@ from app.models.numeracion_contador import NumeracionContador
 logger = get_logger("services.numeracion_service")
 
 
-TipoDocumento = Literal["pedido", "orden_pago"]
+TipoDocumento = Literal["pedido", "orden_pago", "nota_credito"]
 
 
 TZ_ARGENTINA: Final[ZoneInfo] = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -57,6 +57,9 @@ TZ_ARGENTINA: Final[ZoneInfo] = ZoneInfo("America/Argentina/Buenos_Aires")
 PREFIX: Final[dict[str, str]] = {
     "pedido": "P",
     "orden_pago": "OP",
+    # Compras v2 — NCs locales (`NotaCreditoLocal`).
+    # Los contadores se autocrean si no existen (sin migración de seed).
+    "nota_credito": "NC",
 }
 
 # Alias por compatibilidad con el prompt (`PREFIJOS`) y el design (`PREFIX`).

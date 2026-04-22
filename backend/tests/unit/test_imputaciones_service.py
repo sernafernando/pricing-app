@@ -59,10 +59,12 @@ def user_id(active_user) -> int:
 
 
 class TestWhitelist:
-    def test_whitelist_tiene_exactamente_6_combos(self) -> None:
-        assert len(COMBOS_VALIDOS_V1) == 6
+    def test_whitelist_tiene_exactamente_9_combos(self) -> None:
+        # Compras v1: 6 combos (orden_pago × 3 + nota_credito_erp × 3).
+        # Compras v2: +3 combos para nota_credito_local × 3.
+        assert len(COMBOS_VALIDOS_V1) == 9
 
-    def test_whitelist_contiene_los_6_combos_esperados(self) -> None:
+    def test_whitelist_contiene_los_combos_esperados(self) -> None:
         esperados = {
             ("orden_pago", "pedido_compra"),
             ("orden_pago", "factura_erp"),
@@ -70,6 +72,10 @@ class TestWhitelist:
             ("nota_credito_erp", "pedido_compra"),
             ("nota_credito_erp", "factura_erp"),
             ("nota_credito_erp", "saldo"),
+            # Compras v2 — NCs locales como origen
+            ("nota_credito_local", "pedido_compra"),
+            ("nota_credito_local", "factura_erp"),
+            ("nota_credito_local", "saldo"),
         }
         assert COMBOS_VALIDOS_V1 == frozenset(esperados)
 

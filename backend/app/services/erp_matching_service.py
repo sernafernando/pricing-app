@@ -507,8 +507,167 @@ def match_backward(
     return resumen
 
 
+def match_ncs_backward(
+    session: Session,
+    *,
+    cts_synced: list[int],
+) -> dict[str, int]:
+    """
+    Compras v2 — Matching de NCs locales contra NCs sincronizadas del ERP.
+
+    Para cada `ct_transaction` recién ingestado:
+      1. Verifica que sea NC de compra (sd_iscreditnote=true AND sd_ispurchase=true)
+         vía join con `tb_sale_document`.
+      2. Busca una NC local tal que:
+         - `nc.numero_nc_proveedor = ct.ct_docnumber`
+         - `nc.proveedor_id → supp_id = ct.supp_id`
+         - `nc.ct_transaction_id IS NULL` (no pisa matchings previos).
+      3. Si hay match único → setea `nc.ct_transaction_id` + evento.
+      4. Si el monto difiere: NO ajusta silenciosamente. Crea evento
+         `nc_monto_difiere_al_matchear_erp` + notificación admin (mismo
+         patrón que pedidos — Batch I previo).
+
+    Invocada desde el hook inline del cron `sync_commercial_transactions_guid.py`
+    en paralelo a `match_backward` (pedidos).
+
+    NO commitea. NO levanta excepciones por ct individual (las cuenta en
+    `errores`).
+
+    Args:
+        session: tx activa.
+        cts_synced: lista de `ct_transaction` recién sincronizados.
+
+    Returns:
+        dict con `cts_procesadas`, `ncs_asociadas`, `errores`.
+    """
+    resumen = {
+        "cts_procesadas": len(cts_synced),
+        "ncs_asociadas": 0,
+        "errores": 0,
+    }
+    if not cts_synced:
+        return resumen
+
+    # Import local — modelo NCs solo existe en compras v2.
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    stmt_nc_erp = text(
+        """
+        SELECT ct.ct_transaction, ct.supp_id, ct.ct_docnumber, ct.ct_total
+        FROM tb_commercial_transactions ct
+        JOIN tb_sale_document sd ON sd.sd_id = ct.sd_id
+        WHERE ct.ct_transaction = :ct
+          AND sd.sd_iscreditnote = TRUE
+          AND sd.sd_ispurchase = TRUE
+          AND COALESCE(ct.ct_iscancelled, FALSE) = FALSE
+        """
+    )
+
+    for ct_id in cts_synced:
+        try:
+            fila = session.execute(stmt_nc_erp, {"ct": ct_id}).first()
+            if fila is None:
+                # No es una NC de compra → no aplica.
+                continue
+
+            ct_transaction, supp_id, ct_docnumber, ct_total = fila
+            if not ct_docnumber or supp_id is None:
+                continue
+
+            nc_local: Optional[NotaCreditoLocal] = (
+                session.query(NotaCreditoLocal)
+                .join(Proveedor, Proveedor.id == NotaCreditoLocal.proveedor_id)
+                .filter(
+                    NotaCreditoLocal.numero_nc_proveedor == ct_docnumber,
+                    NotaCreditoLocal.ct_transaction_id.is_(None),
+                    Proveedor.supp_id == int(supp_id),
+                )
+                .first()
+            )
+            if nc_local is None:
+                continue
+
+            nc_local.ct_transaction_id = int(ct_transaction)
+            session.add(
+                CompraEvento(
+                    entidad_tipo=CompraEvento.ENTIDAD_TIPO_NC_LOCAL,
+                    entidad_id=nc_local.id,
+                    tipo="nc_factura_erp_vinculada",
+                    usuario_id=nc_local.creado_por_id,
+                    payload={
+                        "ct_transaction": int(ct_transaction),
+                        "ct_docnumber": str(ct_docnumber),
+                        "modo": "backward",
+                    },
+                )
+            )
+            resumen["ncs_asociadas"] += 1
+
+            # Detectar mismatch de monto (NO ajustar — solo alertar).
+            ct_total_dec = Decimal(str(ct_total or 0))
+            monto_nc = Decimal(str(nc_local.monto))
+            diferencia = ct_total_dec - monto_nc
+            if abs(diferencia) >= Decimal("0.01") and ct_total_dec > 0:
+                session.add(
+                    CompraEvento(
+                        entidad_tipo=CompraEvento.ENTIDAD_TIPO_NC_LOCAL,
+                        entidad_id=nc_local.id,
+                        tipo="nc_monto_difiere_al_matchear_erp",
+                        usuario_id=nc_local.creado_por_id,
+                        payload={
+                            "ct_transaction": int(ct_transaction),
+                            "ct_docnumber": str(ct_docnumber),
+                            "ct_total_erp": str(ct_total_dec),
+                            "monto_nc": str(monto_nc),
+                            "diferencia": str(diferencia),
+                            "origen": "match_ncs_backward",
+                        },
+                    )
+                )
+                notif = Notificacion(
+                    user_id=None,
+                    tipo="compras.nc_monto_difiere_factura",
+                    mensaje=(
+                        f"NC local {nc_local.numero} fue vinculada automáticamente a la "
+                        f"NC del ERP {ct_docnumber} (ct={ct_transaction}) pero el monto "
+                        f"difiere: nc_local={monto_nc} vs erp={ct_total_dec} "
+                        f"(diferencia={diferencia}). Revisá y ajustá si corresponde."
+                    ),
+                    severidad=SeveridadNotificacion.WARNING,
+                    estado=EstadoNotificacion.PENDIENTE,
+                    leida=False,
+                )
+                session.add(notif)
+                logger.warning(
+                    "match_ncs_backward MISMATCH monto nc_local_id=%s ct=%s nc=%s vs erp=%s",
+                    nc_local.id,
+                    ct_transaction,
+                    monto_nc,
+                    ct_total_dec,
+                )
+
+            logger.info(
+                "match_ncs_backward: nc_local_id=%s ↔ ct_transaction=%s",
+                nc_local.id,
+                ct_transaction,
+            )
+
+        except Exception as exc:  # noqa: BLE001 — capturar TODO por ct
+            resumen["errores"] += 1
+            logger.exception(
+                "match_ncs_backward: error procesando ct_transaction=%s: %s",
+                ct_id,
+                exc,
+            )
+            continue
+
+    session.flush()
+    return resumen
+
+
 __all__ = [
     "match_backward",
     "match_forward",
+    "match_ncs_backward",
     "validar_catalogo_populado",
 ]

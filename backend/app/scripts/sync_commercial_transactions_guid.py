@@ -342,6 +342,7 @@ async def sync_commercial_transactions_guid(
             # (si modulo-compras no está instalado, el sync sigue andando).
             from app.services.erp_matching_service import (  # noqa: PLC0415
                 match_backward,
+                match_ncs_backward,
                 validar_catalogo_populado,
             )
 
@@ -349,12 +350,19 @@ async def sync_commercial_transactions_guid(
 
             if cts_synced:
                 resumen_match = match_backward(db, cts_synced=cts_synced)
+                # Compras v2: matching paralelo de NCs locales contra
+                # NCs sincronizadas del ERP. Independiente de pedidos —
+                # pueden matchear ambos, ninguno o solo uno por ct.
+                resumen_ncs = match_ncs_backward(db, cts_synced=cts_synced)
                 db.commit()
                 logger.info(
-                    "[compras.matching] backward: pedidos_asociados=%s cts_procesadas=%s errores=%s",
+                    "[compras.matching] backward: pedidos_asociados=%s ncs_asociadas=%s "
+                    "cts_procesadas=%s errores_pedidos=%s errores_ncs=%s",
                     resumen_match["pedidos_asociados"],
+                    resumen_ncs["ncs_asociadas"],
                     resumen_match["cts_procesadas"],
                     resumen_match["errores"],
+                    resumen_ncs["errores"],
                 )
         except RuntimeError as mismatch_exc:
             # Catálogo vacío — aborta ruidoso pero NO tumba el sync.

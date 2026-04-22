@@ -68,8 +68,10 @@ class TestConstantes:
         """El alias PREFIJOS y PREFIX apuntan al mismo dict."""
         assert PREFIJOS is PREFIX
 
-    def test_prefijos_contiene_los_2_tipos_v1(self) -> None:
-        assert PREFIX == {"pedido": "P", "orden_pago": "OP"}
+    def test_prefijos_contiene_los_tipos_soportados(self) -> None:
+        # Compras v1: pedido + orden_pago.
+        # Compras v2: + nota_credito (NCs locales).
+        assert PREFIX == {"pedido": "P", "orden_pago": "OP", "nota_credito": "NC"}
 
     def test_tz_argentina_es_utc_minus_3(self) -> None:
         assert TZ_ARGENTINA == ZoneInfo("America/Argentina/Buenos_Aires")

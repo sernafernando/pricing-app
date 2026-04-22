@@ -302,9 +302,13 @@ def aplicar_imputacion(
         origen_cc = "reimputacion"
         descripcion = f"Reversal imputación id={imp.id} ({imp.destino_tipo}:{imp.destino_id})"
     else:
-        # Imputación normal — origen (orden_pago o nota_credito_erp)
-        # siempre produce un haber en CC (pagamos/descontamos deuda).
-        if imp.origen_tipo not in {"orden_pago", "nota_credito_erp"}:
+        # Imputación normal — origen produce un haber en CC (pagamos o
+        # descontamos deuda al proveedor).
+        # Compras v2: agregamos `nota_credito_local` a la whitelist con
+        # idéntica semántica que `nota_credito_erp`. La NC local NO impactó
+        # CC al aprobarse (decisión de diseño T.6 — análogo a OPs); el HABER
+        # se materializa acá, al imputarse a un destino concreto.
+        if imp.origen_tipo not in {"orden_pago", "nota_credito_erp", "nota_credito_local"}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -358,12 +362,15 @@ def _resolver_empresa_id_para_imputacion(session: Session, imp: Imputacion) -> i
     """
     Resuelve el `empresa_id` a usar al proyectar una imputación al libro
     mayor. Prioridad:
-      1. Si destino es `pedido_compra` o `orden_pago` → leer `empresa_id`
-         de la entidad destino/origen.
-      2. Si destino es `factura_erp` → resolver vía `(comp_id, bra_id)` del
+      1. Si destino es `pedido_compra` → leer `empresa_id` del pedido.
+      2. Si origen es `orden_pago` → leer `empresa_id` de la OP.
+      3. Si origen es `nota_credito_local` → leer `empresa_id` de la NC local
+         (compras v2).
+      4. Si destino es `factura_erp` → resolver vía `(comp_id, bra_id)` del
          ct_transaction (no trivial v1 → fallback).
-      3. Fallback: empresa_id=1 con log WARNING.
+      5. Fallback: empresa_id=1 con log WARNING.
     """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
     from app.models.orden_pago import OrdenPago  # noqa: PLC0415
     from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
 
@@ -376,6 +383,11 @@ def _resolver_empresa_id_para_imputacion(session: Session, imp: Imputacion) -> i
         op = session.get(OrdenPago, imp.origen_id)
         if op is not None:
             return int(op.empresa_id)
+
+    if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+        nc = session.get(NotaCreditoLocal, imp.origen_id)
+        if nc is not None:
+            return int(nc.empresa_id)
 
     logger.warning(
         "aplicar_imputacion: no pude resolver empresa_id para imp_id=%s (origen=%s:%s destino=%s:%s). Fallback a 1.",

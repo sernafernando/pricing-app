@@ -53,6 +53,12 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
         ("nota_credito_erp", "pedido_compra"),
         ("nota_credito_erp", "factura_erp"),
         ("nota_credito_erp", "saldo"),
+        # Compras v2 — NCs locales como origen.
+        # Semántica idéntica a NCs ERP: el HABER se proyecta a CC al imputar
+        # (no al aprobar la NC) — análogo a OPs (no tocan caja al crearse).
+        ("nota_credito_local", "pedido_compra"),
+        ("nota_credito_local", "factura_erp"),
+        ("nota_credito_local", "saldo"),
     }
 )
 
@@ -194,6 +200,19 @@ def crear_imputacion(
     # — mantenemos `_validar_moneda_consistente` exportado abajo por si se
     # necesita.
 
+    # Validación específica para origen NCs locales (v2):
+    #   - La NC origen debe existir y estar en estado 'aprobado' o 'aplicada_parcial'.
+    #   - El monto imputado no puede superar el saldo pendiente de la NC.
+    # No aplicamos esta validación a reversals (los reversals nunca crean
+    # imputaciones nuevas más allá del saldo previo — el saldo lo administra
+    # el caller del reversal).
+    if origen_tipo == "nota_credito_local" and not es_reversal:
+        _validar_origen_nc_local_disponible(
+            session,
+            nc_id=origen_id,
+            monto_imputado=monto_imputado,
+        )
+
     imp = Imputacion(
         origen_tipo=origen_tipo,
         origen_id=origen_id,
@@ -210,6 +229,18 @@ def crear_imputacion(
     session.add(imp)
     session.flush()
 
+    # Side effect post-creación para origen NCs locales (no-reversal):
+    # actualizar el estado de la NC vía `ncs_locales_service.aplicar_imputacion_a_nc`
+    # (aprobado → aplicada_parcial → aplicada según el saldo restante).
+    if origen_tipo == "nota_credito_local" and not es_reversal:
+        from app.services import ncs_locales_service  # noqa: PLC0415
+
+        ncs_locales_service.aplicar_imputacion_a_nc(
+            session,
+            nc_id=origen_id,
+            monto_imputado=monto_imputado,
+        )
+
     logger.info(
         "imputacion_creada id=%s origen=%s:%s destino=%s:%s monto=%s %s reversal=%s proveedor_id=%s",
         imp.id,
@@ -223,6 +254,149 @@ def crear_imputacion(
         proveedor_id,
     )
     return imp
+
+
+def _validar_origen_nc_local_disponible(
+    session: Session,
+    *,
+    nc_id: int,
+    monto_imputado: Decimal,
+) -> None:
+    """
+    Valida que la NC local esté en un estado que permita ser origen de una
+    imputación y que el monto no exceda el saldo pendiente.
+
+    Estados válidos: 'aprobado', 'aplicada_parcial'.
+
+    Raises:
+        HTTPException 404: NC inexistente.
+        HTTPException 409: NC en estado no aplicable (borrador, pendiente,
+            rechazado, cancelado, aplicada).
+        HTTPException 400: monto_imputado supera el saldo pendiente.
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    nc = session.get(NotaCreditoLocal, nc_id)
+    if nc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"NotaCreditoLocal id={nc_id} no encontrada (origen de imputación).",
+        )
+    if nc.estado not in {"aprobado", "aplicada_parcial"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"NC local id={nc_id} en estado '{nc.estado}' no puede ser origen de "
+                f"imputación. Estados válidos: 'aprobado', 'aplicada_parcial'."
+            ),
+        )
+
+    # Calcular saldo pendiente: monto - SUM(imputaciones no-reversal de esta NC)
+    # + SUM(imputaciones reversal). Reusamos la query inline para evitar import
+    # circular con ncs_locales_service.
+    imputado_no_reversal = session.execute(
+        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.origen_id == nc_id,
+            Imputacion.es_reversal.is_(False),
+        )
+    ).scalar_one()
+    imputado_reversal = session.execute(
+        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.origen_id == nc_id,
+            Imputacion.es_reversal.is_(True),
+        )
+    ).scalar_one()
+    imputado_efectivo = Decimal(imputado_no_reversal) - Decimal(imputado_reversal)
+    saldo_pendiente = Decimal(nc.monto) - imputado_efectivo
+
+    if monto_imputado > saldo_pendiente:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"monto_imputado={monto_imputado} excede el saldo pendiente "
+                f"({saldo_pendiente}) de la NC local id={nc_id} "
+                f"(monto={nc.monto}, ya imputado={imputado_efectivo})."
+            ),
+        )
+
+
+def revertir_imputaciones_de_origen(
+    session: Session,
+    *,
+    origen_tipo: str,
+    origen_id: int,
+    user_id: int,
+    motivo: str,
+) -> list[Imputacion]:
+    """
+    Genera reversals (`es_reversal=True`) para todas las imputaciones activas
+    no-reversal de un origen específico.
+
+    Casos de uso:
+      - Cancelar una NC local aprobada que ya tiene imputaciones aplicadas.
+      - (Futuro) Anular una OP — hoy `ordenes_pago_service.anular` duplica
+        este patrón inline; refactor diferido para no expandir el scope de
+        este batch.
+
+    Append-only: los reversals son INSERTs nuevos con `es_reversal=True` y
+    `reimputada_desde_id = imp_original.id`. NUNCA se hace UPDATE de las
+    imputaciones existentes.
+
+    Para cada reversal:
+      - Se invoca `cc_proveedor_service.aplicar_imputacion` que crea el
+        movimiento `debe` compensatorio en CC.
+      - Si la imputación original tenía destino `pedido_compra`, el caller
+        debería luego invocar `pedidos_service.aplicar_imputacion_a_pedido`
+        sobre cada pedido afectado para recalcular su estado (al estilo del
+        flujo de `ordenes_pago_service.anular`).
+
+    NO commitea — responsabilidad del caller.
+
+    Args:
+        session: tx activa.
+        origen_tipo: 'nota_credito_local' | 'orden_pago' | 'nota_credito_erp'.
+        origen_id: PK del documento origen.
+        user_id: usuario que ejecuta la cancelación/anulación (auditoría).
+        motivo: texto libre, se loggea (no se persiste en `imputaciones`).
+
+    Returns:
+        Lista de imputaciones-reversal creadas. Vacía si no había imputaciones
+        activas.
+    """
+    stmt = select(Imputacion).where(
+        Imputacion.origen_tipo == origen_tipo,
+        Imputacion.origen_id == origen_id,
+        Imputacion.es_reversal.is_(False),
+    )
+    activas = list(session.execute(stmt).scalars().all())
+
+    reversals: list[Imputacion] = []
+    for imp in activas:
+        # Saltear si esta imputación ya fue desimputada/reimputada previamente
+        # (ya hay otra fila con reimputada_desde_id=imp.id).
+        ya_desimputada = session.execute(
+            select(Imputacion.id).where(Imputacion.reimputada_desde_id == imp.id).limit(1)
+        ).first()
+        if ya_desimputada:
+            continue
+        reversal = desimputar(
+            session,
+            imputacion_id=imp.id,
+            user_id=user_id,
+            motivo=motivo,
+        )
+        reversals.append(reversal)
+
+    logger.info(
+        "revertir_imputaciones_de_origen origen=%s:%s reversals_creados=%d motivo=%s",
+        origen_tipo,
+        origen_id,
+        len(reversals),
+        motivo,
+    )
+    return reversals
 
 
 def distribuir_fifo(
@@ -410,6 +584,17 @@ def desimputar(
         reimputada_desde_id=original.id,
     )
     cc_proveedor_service.aplicar_imputacion(session, imputacion_id=reversal.id)
+
+    # Si la imputación original era de origen NC local, recalcular el estado
+    # de la NC: al revertir, el saldo pendiente sube → la NC puede pasar
+    # de 'aplicada' a 'aplicada_parcial', o de 'aplicada_parcial' a 'aprobado'.
+    if original.origen_tipo == "nota_credito_local":
+        from app.services import ncs_locales_service  # noqa: PLC0415
+
+        ncs_locales_service.recalcular_estado_por_imputaciones(
+            session,
+            nc_id=int(original.origen_id),
+        )
 
     logger.info(
         "desimputar: imputacion_original_id=%s → reversal_id=%s (motivo=%s)",
@@ -632,4 +817,5 @@ __all__ = [
     "listar_por_origen",
     "monto_imputado_total_al_destino",
     "reimputar",
+    "revertir_imputaciones_de_origen",
 ]

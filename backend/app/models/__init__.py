@@ -141,6 +141,9 @@ from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.compras_papelera import ComprasPapelera
 from app.models.compra_adjunto import CompraAdjunto
 
+# Compras v2 — NCs locales
+from app.models.nota_credito_local import NotaCreditoLocal
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -296,4 +299,5 @@ __all__ = [
     "CCReconciliacionLog",
     "ComprasPapelera",
     "CompraAdjunto",
+    "NotaCreditoLocal",
 ]
