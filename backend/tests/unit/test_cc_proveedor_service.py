@@ -587,3 +587,151 @@ class TestAplicarImputacion:
         # Saldo final: 1000 - 400 + 400 = 1000
         saldos = calcular_saldo_por_moneda(db, proveedor_id=proveedor.id, empresa_id=empresa.id)
         assert saldos["ARS"] == Decimal("1000")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# _resolver_empresa_id_para_imputacion — Prioridad 4 (factura_erp → bra_id)
+# Fix: antes caía al fallback=1 para cualquier factura_erp → bug financiero
+#      real cuando la ct pertenecía a Grupo Gauss (empresa_id=2, bra_id=45).
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestResolverEmpresaFacturaErp:
+    """
+    Valida la prioridad 4 de `_resolver_empresa_id_para_imputacion`:
+    resolver `empresa_id` para imputaciones `destino=factura_erp` usando
+    `(comp_id, bra_id)` del `ct_transaction` vía `bra_a_empresa_o_ignorar`.
+    """
+
+    def _crear_imp_a_factura(
+        self,
+        db,
+        *,
+        proveedor_id: int,
+        ct_transaction_id: int,
+        monto: Decimal = Decimal("1000"),
+        user_id: int,
+    ):
+        from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=777,
+            destino_tipo="factura_erp",
+            destino_id=ct_transaction_id,
+            monto_imputado=monto,
+            moneda_imputada="ARS",
+            proveedor_id=proveedor_id,
+            es_reversal=False,
+            creado_por_id=user_id,
+        )
+        db.add(imp)
+        db.flush()
+        return imp
+
+    def _crear_ct(self, db, *, ct_transaction: int, comp_id: int, bra_id: int) -> None:
+        from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+
+        ct = CommercialTransaction(
+            ct_transaction=ct_transaction,
+            comp_id=comp_id,
+            bra_id=bra_id,
+            ct_total=Decimal("1000"),
+        )
+        db.add(ct)
+        db.flush()
+
+    def test_resolver_empresa_factura_erp_bra_1_devuelve_empresa_1(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        """`ct_transaction` con (comp_id=1, bra_id=1) → empresa_id=1."""
+        from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
+
+        self._crear_ct(db, ct_transaction=12001, comp_id=1, bra_id=1)
+        imp = self._crear_imp_a_factura(
+            db, proveedor_id=proveedor.id, ct_transaction_id=12001, user_id=active_user.id
+        )
+
+        empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
+        assert empresa_id == 1
+
+    def test_resolver_empresa_factura_erp_bra_45_devuelve_empresa_2(
+        self, db, empresa, empresa2, proveedor, active_user
+    ) -> None:
+        """`ct_transaction` con (comp_id=1, bra_id=45) → empresa_id=2 (Grupo Gauss).
+
+        Este es el caso que ANTES del fix caía a fallback=1 → bug: movimiento
+        CC asociado a empresa incorrecta.
+        """
+        from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
+
+        self._crear_ct(db, ct_transaction=12045, comp_id=1, bra_id=45)
+        imp = self._crear_imp_a_factura(
+            db, proveedor_id=proveedor.id, ct_transaction_id=12045, user_id=active_user.id
+        )
+
+        empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
+        assert empresa_id == 2
+
+    def test_resolver_empresa_factura_erp_bra_no_mapeado_devuelve_1_con_warning(
+        self, db, empresa, proveedor, active_user, caplog
+    ) -> None:
+        """
+        `(comp_id=1, bra_id=37)` (sucursal interna de transferencia) no está
+        en `COMP_BRA_A_EMPRESA` → `bra_a_empresa_o_ignorar` retorna None →
+        fallback a 1 con log WARNING.
+        """
+        import logging  # noqa: PLC0415
+
+        from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
+
+        self._crear_ct(db, ct_transaction=13037, comp_id=1, bra_id=37)
+        imp = self._crear_imp_a_factura(
+            db, proveedor_id=proveedor.id, ct_transaction_id=13037, user_id=active_user.id
+        )
+
+        # `app.core.logging.setup_logging` pone `propagate=False` en el logger
+        # root `app`, por lo que los warnings no llegan al root global donde
+        # caplog se engancha. Adjuntamos el handler de caplog directamente al
+        # logger `app` para esta prueba (limpieza automática al salir del with).
+        app_logger = logging.getLogger("app")
+        app_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.WARNING, logger="app"):
+                empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
+        finally:
+            app_logger.removeHandler(caplog.handler)
+
+        assert empresa_id == 1
+        # Alguno de los dos warnings debe aparecer: el de bra_a_empresa_o_ignorar
+        # (del core map) o el del fallback final (del service).
+        mensajes = " ".join(r.getMessage() for r in caplog.records)
+        assert "bra_id=37" in mensajes or "13037" in mensajes
+
+    def test_resolver_empresa_factura_erp_ct_no_existe_devuelve_1_con_warning(
+        self, db, empresa, proveedor, active_user, caplog
+    ) -> None:
+        """
+        Imputación `destino=factura_erp` con `destino_id` que no matchea ninguna
+        fila en `tb_commercial_transactions` → fallback a 1 con WARNING
+        específico (no crashea).
+        """
+        import logging  # noqa: PLC0415
+
+        from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
+
+        imp = self._crear_imp_a_factura(
+            db, proveedor_id=proveedor.id, ct_transaction_id=99_999_999, user_id=active_user.id
+        )
+
+        app_logger = logging.getLogger("app")
+        app_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.WARNING, logger="app"):
+                empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
+        finally:
+            app_logger.removeHandler(caplog.handler)
+
+        assert empresa_id == 1
+        mensajes = " ".join(r.getMessage() for r in caplog.records)
+        assert "99999999" in mensajes and "no existe en tb_commercial_transactions" in mensajes
