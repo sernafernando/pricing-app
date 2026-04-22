@@ -52,16 +52,131 @@
   color: var(--cf-text-tertiary);
 }
 
-/* ── Status + error ────────────────────────────────────────────── */
-.statusUploading {
+/* ── Uploads in progress list (batch multi-archivo) ────────────── */
+.uploadsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}
+
+.uploadsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  font-weight: 500;
+}
+
+.uploadsItems {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uploadRow {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding: 6px var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-sm);
   font-size: var(--font-xs);
-  color: var(--cf-text-secondary);
-  padding: 4px var(--spacing-sm);
 }
 
+.uploadStatus {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+}
+
+.uploadInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.uploadName {
+  color: var(--cf-text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uploadMeta {
+  color: var(--cf-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iconOk {
+  color: var(--cf-accent-green);
+}
+
+.iconError {
+  color: var(--cf-accent-red);
+}
+
+.spinMuted {
+  animation: spin 1s linear infinite;
+  color: var(--cf-text-tertiary);
+  opacity: 0.6;
+}
+
+.btnIconSmall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnIconSmall:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnIconSmall:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnLink {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--cf-accent-blue);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btnLink:hover {
+  color: var(--cf-text-primary);
+}
+
+/* ── Error banner ──────────────────────────────────────────────── */
 .errorBanner {
   display: flex;
   align-items: center;
