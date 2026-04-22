@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { X, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { X, AlertTriangle, Plus, Trash2, MinusCircle } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
@@ -537,6 +538,20 @@ export default function ModalOrdenPagoNueva({
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {form.proveedor_id && (
+            <div className={styles.ncsHint}>
+              <MinusCircle size={14} />
+              <span>
+                ¿Tenés una NC del proveedor para aplicar?{' '}
+                <Link
+                  to={`/administracion/compras?tab=ncs-locales&proveedor_id=${form.proveedor_id}`}
+                >
+                  Gestionar NCs de este proveedor →
+                </Link>
+              </span>
             </div>
           )}
 
