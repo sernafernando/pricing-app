@@ -6,12 +6,15 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  Check,
+  X,
 } from 'lucide-react';
 import api from '../../services/api';
 import styles from './AdjuntosPanel.module.css';
 
 const MAX_SIZE_MB = 20;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+const MAX_FILES_PER_BATCH = 10;
 
 const ACCEPT_MIME = [
   'application/pdf',
@@ -23,6 +26,10 @@ const ACCEPT_MIME = [
   'application/msword',
   'application/vnd.ms-excel',
 ].join(',');
+
+const ACCEPTED_EXT = new Set([
+  'pdf', 'jpg', 'jpeg', 'png', 'webp', 'docx', 'xlsx', 'doc', 'xls',
+]);
 
 const formatBytes = (bytes) => {
   if (bytes === null || bytes === undefined) return '—';
@@ -49,19 +56,49 @@ const formatDate = (isoStr) => {
   }
 };
 
+const getExtension = (filename) => {
+  if (!filename) return '';
+  const idx = filename.lastIndexOf('.');
+  if (idx < 0) return '';
+  return filename.slice(idx + 1).toLowerCase();
+};
+
 /**
- * AdjuntosPanel — panel reusable de adjuntos con drag & drop para
- * pedidos de compra y OPs.
+ * Pre-valida en el cliente (tamaño + extensión). El backend revalida con
+ * magic bytes — este chequeo es solo para dar feedback rápido al usuario.
+ * Retorna null si es válido, string con razón si no.
+ */
+const preValidarArchivo = (file) => {
+  if (file.size > MAX_SIZE_BYTES) {
+    return `Supera el máximo de ${MAX_SIZE_MB} MB`;
+  }
+  const ext = getExtension(file.name);
+  if (ext && !ACCEPTED_EXT.has(ext)) {
+    return `Formato .${ext} no permitido`;
+  }
+  return null;
+};
+
+/**
+ * AdjuntosPanel — panel reusable de adjuntos con drag & drop multi-archivo
+ * para pedidos de compra y OPs.
  *
  * Props:
  *   - entidadTipo: 'pedido_compra' | 'orden_pago'
  *   - entidadId: number
  *   - canManage: boolean — si true, permite subir y eliminar
+ *
+ * Upload behavior:
+ *   - Hasta 10 archivos por batch (MAX_FILES_PER_BATCH).
+ *   - Se suben uno por uno para tener feedback granular (pending → uploading → ok/error).
+ *   - Si UN archivo falla, los otros siguen subiendo. El usuario ve el estado
+ *     individual de cada uno en una lista inline.
  */
 export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = false }) {
   const [adjuntos, setAdjuntos] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // uploads: array de { id, name, size, status: 'pending'|'uploading'|'ok'|'error', error?: string }
+  const [uploads, setUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
@@ -74,7 +111,7 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     setError(null);
     try {
       const { data } = await api.get(
-        `/administracion/compras/${basePath}/${entidadId}/adjuntos`
+        `/administracion/compras/${basePath}/${entidadId}/adjuntos`,
       );
       setAdjuntos(data || []);
     } catch (err) {
@@ -88,33 +125,80 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     fetchAdjuntos();
   }, [fetchAdjuntos]);
 
-  const handleFiles = useCallback(
-    async (files) => {
-      const file = files?.[0];
-      if (!file) return;
-      if (file.size > MAX_SIZE_BYTES) {
-        setError(`Archivo demasiado grande. Máximo ${MAX_SIZE_MB} MB.`);
-        return;
-      }
+  const subirUno = useCallback(
+    async (uploadId, file) => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        setUploading(true);
-        setError(null);
+        setUploads((prev) =>
+          prev.map((u) => (u.id === uploadId ? { ...u, status: 'uploading' } : u)),
+        );
         await api.post(
           `/administracion/compras/${basePath}/${entidadId}/adjuntos`,
           formData,
-          { headers: { 'Content-Type': 'multipart/form-data' } }
+          { headers: { 'Content-Type': 'multipart/form-data' } },
         );
-        await fetchAdjuntos();
+        setUploads((prev) =>
+          prev.map((u) => (u.id === uploadId ? { ...u, status: 'ok' } : u)),
+        );
+        return { ok: true };
       } catch (err) {
-        setError(err.response?.data?.detail || 'Error al subir archivo.');
-      } finally {
-        setUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        const msg = err.response?.data?.detail || 'Error al subir archivo.';
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === uploadId ? { ...u, status: 'error', error: msg } : u,
+          ),
+        );
+        return { ok: false };
       }
     },
-    [basePath, entidadId, fetchAdjuntos]
+    [basePath, entidadId],
+  );
+
+  const handleFiles = useCallback(
+    async (files) => {
+      if (!files || files.length === 0) return;
+      setError(null);
+
+      // Límite de batch
+      let batch = Array.from(files);
+      if (batch.length > MAX_FILES_PER_BATCH) {
+        setError(
+          `Máximo ${MAX_FILES_PER_BATCH} archivos por vez. Se procesarán los primeros ${MAX_FILES_PER_BATCH}.`,
+        );
+        batch = batch.slice(0, MAX_FILES_PER_BATCH);
+      }
+
+      // Pre-validar y crear entradas de uploads
+      const nuevos = batch.map((file, idx) => {
+        const razon = preValidarArchivo(file);
+        return {
+          id: `${Date.now()}-${idx}-${file.name}`,
+          name: file.name,
+          size: file.size,
+          file,
+          status: razon ? 'error' : 'pending',
+          error: razon,
+        };
+      });
+
+      setUploads((prev) => [...prev, ...nuevos]);
+
+      // Subir secuencialmente los válidos (secuencial = feedback claro,
+      // menos presión al server que paralelo masivo)
+      const validos = nuevos.filter((u) => u.status === 'pending');
+      let subidosOk = 0;
+      for (const u of validos) {
+        const res = await subirUno(u.id, u.file);
+        if (res.ok) subidosOk += 1;
+      }
+
+      // Refetch solo una vez al final si hubo éxitos
+      if (subidosOk > 0) {
+        await fetchAdjuntos();
+      }
+    },
+    [fetchAdjuntos, subirUno],
   );
 
   const handleDrop = (e) => {
@@ -122,6 +206,12 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     setDragOver(false);
     if (!canManage) return;
     handleFiles(Array.from(e.dataTransfer.files));
+  };
+
+  const handleSelectFiles = (e) => {
+    handleFiles(Array.from(e.target.files || []));
+    // Reset para poder seleccionar el mismo archivo dos veces si se quiere
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleEliminar = async (adjuntoId) => {
@@ -134,8 +224,19 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     }
   };
 
+  const removerDeLista = (uploadId) => {
+    setUploads((prev) => prev.filter((u) => u.id !== uploadId));
+  };
+
+  const limpiarCompletos = () => {
+    setUploads((prev) => prev.filter((u) => u.status !== 'ok'));
+  };
+
   const downloadUrl = (adjuntoId) =>
     `${import.meta.env.VITE_API_URL}/administracion/compras/adjuntos/${adjuntoId}/descargar`;
+
+  const uploadsEnProgreso = uploads.some((u) => u.status === 'uploading' || u.status === 'pending');
+  const hayCompletos = uploads.some((u) => u.status === 'ok');
 
   return (
     <div className={styles.adjuntosPanel}>
@@ -155,26 +256,79 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
             }}
-            aria-label="Subir adjunto"
+            aria-label="Subir adjuntos"
           >
             <Upload size={22} className={styles.dropIcon} />
             <span className={styles.dropPrimary}>
-              Arrastrá un archivo acá o hacé click para seleccionar
+              Arrastrá archivos acá o hacé click para seleccionar
             </span>
             <span className={styles.dropHint}>
-              PDF, JPG, PNG, WebP, DOCX, XLSX · máx {MAX_SIZE_MB} MB
+              PDF, JPG, PNG, WebP, DOCX, XLSX · máx {MAX_SIZE_MB} MB · hasta {MAX_FILES_PER_BATCH} por vez
             </span>
             <input
               ref={fileInputRef}
               type="file"
               hidden
+              multiple
               accept={ACCEPT_MIME}
-              onChange={(e) => handleFiles(Array.from(e.target.files))}
+              onChange={handleSelectFiles}
             />
           </div>
-          {uploading && (
-            <div className={styles.statusUploading}>
-              <Loader2 size={14} className={styles.spin} /> Subiendo…
+
+          {uploads.length > 0 && (
+            <div className={styles.uploadsList}>
+              <div className={styles.uploadsHeader}>
+                <span>
+                  {uploads.filter((u) => u.status === 'ok').length} de {uploads.length} subidos
+                </span>
+                {hayCompletos && !uploadsEnProgreso && (
+                  <button
+                    type="button"
+                    className={styles.btnLink}
+                    onClick={limpiarCompletos}
+                    aria-label="Limpiar subidos"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              <ul className={styles.uploadsItems}>
+                {uploads.map((u) => (
+                  <li key={u.id} className={styles.uploadRow}>
+                    <div className={styles.uploadStatus}>
+                      {u.status === 'pending' && (
+                        <Loader2 size={14} className={styles.spinMuted} />
+                      )}
+                      {u.status === 'uploading' && (
+                        <Loader2 size={14} className={styles.spin} />
+                      )}
+                      {u.status === 'ok' && (
+                        <Check size={14} className={styles.iconOk} />
+                      )}
+                      {u.status === 'error' && (
+                        <AlertCircle size={14} className={styles.iconError} />
+                      )}
+                    </div>
+                    <div className={styles.uploadInfo}>
+                      <span className={styles.uploadName}>{u.name}</span>
+                      <span className={styles.uploadMeta}>
+                        {formatBytes(u.size)}
+                        {u.error ? ` · ${u.error}` : ''}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.btnIconSmall}
+                      onClick={() => removerDeLista(u.id)}
+                      disabled={u.status === 'uploading'}
+                      aria-label="Quitar de la lista"
+                      title={u.status === 'uploading' ? 'Subiendo…' : 'Quitar'}
+                    >
+                      <X size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </>
