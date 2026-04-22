@@ -71,6 +71,15 @@ from app.schemas.imputacion import (
     ImputacionReimputar,
     ImputacionResponse,
 )
+from app.schemas.nota_credito_local import (
+    NCErpCandidataResponse,
+    NotaCreditoLocalCreate,
+    NotaCreditoLocalDetalle,
+    NotaCreditoLocalPaginated,
+    NotaCreditoLocalResponse,
+    NotaCreditoLocalUpdate,
+    VincularFacturaNCRequest,
+)
 from app.schemas.orden_pago import (
     CajaMovimientoResumen,
     OrdenPagoCreate,
@@ -95,9 +104,11 @@ from app.services import (
     compras_papelera_service,
     etiqueta_retiro_service,
     imputaciones_service,
+    ncs_locales_service,
     ordenes_pago_service,
     pedidos_service,
 )
+from app.models.nota_credito_local import NotaCreditoLocal
 from app.services.sale_document_classifier import clasificar_documento_compra
 
 logger = get_logger("routers.administracion_compras")
@@ -2154,6 +2165,662 @@ def desvincular_factura_pedido(
     _commit_or_rollback(db, operacion="desvincular_factura_pedido")
     db.refresh(pedido)
     return _pedido_response(pedido)
+
+
+# ==========================================================================
+# Compras v2 — NCs locales
+# ==========================================================================
+#
+# Layout:
+#   GET    /ncs-locales                                 → paginado + filtros
+#   GET    /ncs-locales/{id}                            → detalle (eventos + imps)
+#   POST   /ncs-locales                                 → crear (gestionar)
+#   PUT    /ncs-locales/{id}                            → editar (solo borrador)
+#   POST   /ncs-locales/{id}/enviar-aprobacion          → transición
+#   POST   /ncs-locales/{id}/aprobar                    → permiso aprobar_ncs_locales
+#   POST   /ncs-locales/{id}/rechazar                   → body {accion, motivo}
+#   POST   /ncs-locales/{id}/reabrir                    → desde rechazado
+#   POST   /ncs-locales/{id}/cancelar                   → con motivo si aprobado
+#   GET    /ncs-locales/{id}/eventos                    → log de auditoría
+#   GET    /ncs-locales/{id}/candidatas-erp             → NCs ERP del proveedor
+#   POST   /ncs-locales/{id}/vincular-factura           → vincular ± ajuste
+#   POST   /ncs-locales/{id}/desvincular-factura        → limpiar ct_transaction_id
+#   POST   /ncs-locales/{id}/adjuntos                   → upload (gestionar)
+#   GET    /ncs-locales/{id}/adjuntos                   → listar
+
+
+def _obtener_nc_o_404(db: Session, nc_id: int) -> NotaCreditoLocal:
+    nc = db.get(NotaCreditoLocal, nc_id)
+    if nc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"NC local id={nc_id} no encontrada.",
+        )
+    return nc
+
+
+def _nc_local_response(
+    nc: NotaCreditoLocal,
+    *,
+    saldo_pendiente: Optional[Decimal] = None,
+) -> NotaCreditoLocalResponse:
+    """Serializa NC local con nombres derivados + saldo opcional."""
+    emp = getattr(nc, "empresa", None)
+    prov = getattr(nc, "proveedor", None)
+    base = NotaCreditoLocalResponse.model_validate(nc)
+    return base.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+            "saldo_pendiente": saldo_pendiente,
+        }
+    )
+
+
+@router.get(
+    "/ncs-locales",
+    response_model=NotaCreditoLocalPaginated,
+    summary="Listar NCs locales con filtros y paginación",
+)
+def listar_ncs_locales(
+    estado: Optional[str] = Query(None),
+    proveedor_id: Optional[int] = Query(None, ge=1),
+    empresa_id: Optional[int] = Query(None, ge=1),
+    desde: Optional[date] = Query(None),
+    hasta: Optional[date] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> NotaCreditoLocalPaginated:
+    """Lista paginada de NCs locales (compras v2)."""
+    condiciones = []
+    if estado is not None:
+        condiciones.append(NotaCreditoLocal.estado == estado)
+    if proveedor_id is not None:
+        condiciones.append(NotaCreditoLocal.proveedor_id == proveedor_id)
+    if empresa_id is not None:
+        condiciones.append(NotaCreditoLocal.empresa_id == empresa_id)
+    if desde is not None:
+        condiciones.append(NotaCreditoLocal.created_at >= datetime.combine(desde, datetime.min.time()))
+    if hasta is not None:
+        condiciones.append(NotaCreditoLocal.created_at <= datetime.combine(hasta, datetime.max.time()))
+
+    stmt = select(NotaCreditoLocal).options(
+        joinedload(NotaCreditoLocal.empresa),
+        joinedload(NotaCreditoLocal.proveedor),
+    )
+    if condiciones:
+        stmt = stmt.where(*condiciones)
+    stmt = stmt.order_by(NotaCreditoLocal.created_at.desc(), NotaCreditoLocal.id.desc())
+
+    items, total = _paginate(db, stmt, page=page, page_size=page_size)
+
+    # Calcular saldo pendiente solo para NCs en estados aplicables
+    # (aprobado / aplicada_parcial). Para listados rápidos: 1 query agregada
+    # por NC en esos estados (típicamente N pequeño en una página).
+    responses: list[NotaCreditoLocalResponse] = []
+    for nc in items:
+        saldo: Optional[Decimal] = None
+        if nc.estado in {"aprobado", "aplicada_parcial", "aplicada"}:
+            saldo = ncs_locales_service.calcular_saldo_pendiente(db, nc.id)
+        responses.append(_nc_local_response(nc, saldo_pendiente=saldo))
+
+    return NotaCreditoLocalPaginated(
+        items=responses,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/ncs-locales/{nc_id}",
+    response_model=NotaCreditoLocalDetalle,
+    summary="Detalle de NC local con eventos + imputaciones + saldo",
+)
+def obtener_nc_local(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> NotaCreditoLocalDetalle:
+    """Detalle completo de una NC local."""
+    nc = db.execute(
+        select(NotaCreditoLocal)
+        .options(
+            joinedload(NotaCreditoLocal.empresa),
+            joinedload(NotaCreditoLocal.proveedor),
+        )
+        .where(NotaCreditoLocal.id == nc_id)
+    ).scalar_one_or_none()
+    if nc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"NC local id={nc_id} no encontrada.",
+        )
+
+    eventos = list(
+        db.execute(
+            select(CompraEvento)
+            .where(
+                CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_NC_LOCAL,
+                CompraEvento.entidad_id == nc.id,
+            )
+            .order_by(CompraEvento.created_at.desc(), CompraEvento.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    imputaciones = list(
+        db.execute(
+            select(Imputacion)
+            .where(
+                Imputacion.origen_tipo == "nota_credito_local",
+                Imputacion.origen_id == nc.id,
+            )
+            .order_by(Imputacion.created_at.asc(), Imputacion.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    saldo = ncs_locales_service.calcular_saldo_pendiente(db, nc.id)
+
+    emp = getattr(nc, "empresa", None)
+    prov = getattr(nc, "proveedor", None)
+    detalle = NotaCreditoLocalDetalle.model_validate(nc)
+    detalle = detalle.model_copy(
+        update={
+            "empresa_nombre": emp.nombre if emp is not None else None,
+            "proveedor_nombre": prov.nombre if prov is not None else None,
+            "saldo_pendiente": saldo,
+        }
+    )
+    detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
+    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    return detalle
+
+
+@router.post(
+    "/ncs-locales",
+    response_model=NotaCreditoLocalResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear NC local en estado borrador",
+)
+def crear_nc_local(
+    data: NotaCreditoLocalCreate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Crea NC local en `borrador`."""
+    try:
+        nc = ncs_locales_service.crear(
+            db,
+            empresa_id=data.empresa_id,
+            proveedor_id=data.proveedor_id,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            monto=data.monto,
+            tipo_cambio=data.tipo_cambio,
+            fecha_emision=data.fecha_emision,
+            numero_nc_proveedor=data.numero_nc_proveedor,
+            motivo=data.motivo,
+            observaciones=data.observaciones,
+            creado_por_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("crear_nc_local falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al crear la NC local.") from exc
+
+    _commit_or_rollback(db, operacion="crear_nc_local")
+    db.refresh(nc)
+    return _nc_local_response(nc)
+
+
+@router.put(
+    "/ncs-locales/{nc_id}",
+    response_model=NotaCreditoLocalResponse,
+    summary="Editar NC local (solo en estado borrador)",
+)
+def editar_nc_local(
+    nc_id: int,
+    data: NotaCreditoLocalUpdate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Edita NC local. Solo borrador admite cambios."""
+    campos = data.model_dump(exclude_unset=True, exclude_none=True)
+    try:
+        nc = ncs_locales_service.editar(db, nc_id=nc_id, user_id=user.id, **campos)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("editar_nc_local falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al editar la NC local.") from exc
+
+    _commit_or_rollback(db, operacion="editar_nc_local")
+    db.refresh(nc)
+    return _nc_local_response(nc)
+
+
+def _transicionar_nc_y_commit(
+    db: Session,
+    *,
+    nc_id: int,
+    accion: str,
+    user_id: int,
+    operacion: str,
+    motivo: Optional[str] = None,
+) -> NotaCreditoLocal:
+    """Wrapper común para transiciones de NC: delega + commit/rollback."""
+    try:
+        nc = ncs_locales_service.transicionar(
+            db,
+            nc_id=nc_id,
+            accion=accion,
+            user_id=user_id,
+            motivo=motivo,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("%s falló: %s", operacion, exc)
+        raise HTTPException(status_code=500, detail=f"Error en transición {accion}.") from exc
+
+    _commit_or_rollback(db, operacion=operacion)
+    db.refresh(nc)
+    return nc
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/enviar-aprobacion",
+    response_model=NotaCreditoLocalResponse,
+    summary="Enviar NC a aprobación (borrador → pendiente_aprobacion)",
+)
+def enviar_nc_a_aprobacion(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Transición borrador → pendiente_aprobacion."""
+    nc = _transicionar_nc_y_commit(
+        db,
+        nc_id=nc_id,
+        accion="enviar_aprobacion",
+        user_id=user.id,
+        operacion="enviar_nc_aprobacion",
+    )
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/aprobar",
+    response_model=NotaCreditoLocalResponse,
+    summary="Aprobar NC local — permiso crítico aprobar_ncs_locales",
+)
+def aprobar_nc_local(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.aprobar_ncs_locales")),
+) -> NotaCreditoLocalResponse:
+    """Aprobación — permiso separado de pedidos (separación de funciones).
+
+    NO impacta CC al aprobar (decisión T.6 — la NC es crédito disponible).
+    """
+    nc = _transicionar_nc_y_commit(
+        db,
+        nc_id=nc_id,
+        accion="aprobar",
+        user_id=user.id,
+        operacion="aprobar_nc_local",
+    )
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/rechazar",
+    response_model=NotaCreditoLocalResponse,
+    summary="Rechazar NC local (accion: devolver_a_borrador | cancelar_definitivo)",
+)
+def rechazar_nc_local(
+    nc_id: int,
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.aprobar_ncs_locales")),
+) -> NotaCreditoLocalResponse:
+    """Rechazo desde pendiente_aprobacion. Body: {accion, motivo}."""
+    accion_raw = (payload or {}).get("accion")
+    motivo = (payload or {}).get("motivo")
+
+    if accion_raw not in {"devolver_a_borrador", "cancelar_definitivo"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Campo 'accion' requerido. Valores: 'devolver_a_borrador' | 'cancelar_definitivo'.",
+        )
+    if not motivo or not str(motivo).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Campo 'motivo' requerido.",
+        )
+
+    accion_interna = "rechazar_devolver" if accion_raw == "devolver_a_borrador" else "rechazar_cancelar"
+    nc = _transicionar_nc_y_commit(
+        db,
+        nc_id=nc_id,
+        accion=accion_interna,
+        user_id=user.id,
+        operacion="rechazar_nc_local",
+        motivo=str(motivo),
+    )
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/reabrir",
+    response_model=NotaCreditoLocalResponse,
+    summary="Reabrir NC rechazada (rechazado → borrador)",
+)
+def reabrir_nc_local(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Transición rechazado → borrador."""
+    nc = _transicionar_nc_y_commit(
+        db,
+        nc_id=nc_id,
+        accion="reabrir",
+        user_id=user.id,
+        operacion="reabrir_nc_local",
+    )
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/cancelar",
+    response_model=NotaCreditoLocalResponse,
+    summary="Cancelar NC local (con motivo si aprobada — revierte imputaciones)",
+)
+def cancelar_nc_local(
+    nc_id: int,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Cancelación — la acción concreta depende del estado actual."""
+    motivo = (payload or {}).get("motivo")
+    nc = _obtener_nc_o_404(db, nc_id)
+
+    if nc.estado in {"aprobado", "aplicada_parcial"}:
+        accion = "cancelar_aprobado"
+        if not motivo or not str(motivo).strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Campo 'motivo' requerido al cancelar una NC aprobada o aplicada parcialmente.",
+            )
+    else:
+        accion = "cancelar"
+
+    nc = _transicionar_nc_y_commit(
+        db,
+        nc_id=nc_id,
+        accion=accion,
+        user_id=user.id,
+        operacion="cancelar_nc_local",
+        motivo=str(motivo) if motivo else None,
+    )
+    return _nc_local_response(nc)
+
+
+@router.get(
+    "/ncs-locales/{nc_id}/eventos",
+    response_model=list[CompraEventoResponse],
+    summary="Listar eventos de auditoría de la NC local",
+)
+def listar_eventos_nc_local(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[CompraEventoResponse]:
+    """Eventos append-only de la NC local."""
+    _obtener_nc_o_404(db, nc_id)
+    eventos = list(
+        db.execute(
+            select(CompraEvento)
+            .where(
+                CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_NC_LOCAL,
+                CompraEvento.entidad_id == nc_id,
+            )
+            .order_by(CompraEvento.created_at.desc(), CompraEvento.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [CompraEventoResponse.model_validate(e) for e in eventos]
+
+
+@router.get(
+    "/ncs-locales/{nc_id}/candidatas-erp",
+    response_model=list[NCErpCandidataResponse],
+    summary="Listar NCs del ERP candidatas a vincular a la NC local",
+)
+def listar_ncs_erp_candidatas(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> list[NCErpCandidataResponse]:
+    """
+    Devuelve NCs vigentes del ERP (sd_iscreditnote=true AND sd_ispurchase=true)
+    para el `supp_id` del proveedor de la NC local, excluyendo las que ya
+    están vinculadas a OTRA NC local.
+
+    Si el proveedor no tiene `supp_id` ERP → lista vacía.
+    """
+    nc = _obtener_nc_o_404(db, nc_id)
+    supp_id = db.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": nc.proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        logger.warning(
+            "ncs-locales/candidatas-erp: proveedor_id=%s sin supp_id ERP → lista vacía",
+            nc.proveedor_id,
+        )
+        return []
+
+    stmt = text(
+        """
+        SELECT ct.ct_transaction,
+               ct.ct_docnumber,
+               ct.ct_date,
+               ct.ct_total,
+               ct.curr_id_transaction
+        FROM tb_commercial_transactions ct
+        JOIN tb_sale_document sd ON sd.sd_id = ct.sd_id
+        WHERE ct.supp_id = :supp_id
+          AND sd.sd_iscreditnote = TRUE
+          AND sd.sd_ispurchase = TRUE
+          AND COALESCE(ct.ct_iscancelled, FALSE) = FALSE
+          AND ct.ct_transaction NOT IN (
+              SELECT ct_transaction_id
+              FROM notas_credito_local
+              WHERE ct_transaction_id IS NOT NULL
+                AND id <> :nc_id
+          )
+        ORDER BY ct.ct_date DESC NULLS LAST, ct.ct_transaction DESC
+        LIMIT 100
+        """
+    )
+    try:
+        filas = db.execute(stmt, {"supp_id": int(supp_id), "nc_id": nc.id}).all()
+    except Exception as exc:  # noqa: BLE001 — fallback en tests sin tabla ERP
+        logger.debug("ncs-locales/candidatas-erp query falló: %s", exc)
+        return []
+
+    return [
+        NCErpCandidataResponse(
+            ct_transaction=int(row[0]),
+            ct_docnumber=str(row[1] or ""),
+            ct_date=row[2],
+            ct_total=Decimal(str(row[3] or 0)),
+            curr_id_transaction=int(row[4]) if row[4] is not None else None,
+        )
+        for row in filas
+    ]
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/vincular-factura",
+    response_model=NotaCreditoLocalResponse,
+    summary="Vincular NC local con NC del ERP (opcional: ajustar monto)",
+)
+def vincular_nc_factura(
+    nc_id: int,
+    body: VincularFacturaNCRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """
+    Vincula la NC local con una NC del ERP. Si `ajustar_monto=True`, requiere
+    permiso adicional `administracion.ajustar_monto_pedido` (reusamos el mismo
+    permiso para NCs por política de seguridad).
+    """
+    try:
+        if body.ajustar_monto:
+            from app.services.permisos_service import PermisosService  # noqa: PLC0415
+
+            if not PermisosService(db).tiene_permiso(user, "administracion.ajustar_monto_pedido"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Sin permiso: administracion.ajustar_monto_pedido "
+                        "(requerido para ajustar monto de NC al vincular ERP)."
+                    ),
+                )
+        nc = ncs_locales_service.vincular_factura_erp(
+            db,
+            nc_local_id=nc_id,
+            ct_transaction=body.ct_transaction,
+            user_id=user.id,
+            ajustar_monto=body.ajustar_monto,
+            nuevo_monto=body.nuevo_monto,
+            motivo_ajuste=body.motivo_ajuste,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("vincular_nc_factura falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al vincular la NC con el ERP.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="vincular_nc_factura")
+    db.refresh(nc)
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/desvincular-factura",
+    response_model=NotaCreditoLocalResponse,
+    summary="Desvincular NC del ERP (no revierte ajustes previos)",
+)
+def desvincular_nc_factura(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Limpia `ct_transaction_id`. Los ajustes de monto NO se revierten."""
+    try:
+        nc = ncs_locales_service.desvincular_factura_erp(
+            db,
+            nc_local_id=nc_id,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("desvincular_nc_factura falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al desvincular la factura ERP.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="desvincular_nc_factura")
+    db.refresh(nc)
+    return _nc_local_response(nc)
+
+
+@router.post(
+    "/ncs-locales/{nc_id}/adjuntos",
+    response_model=CompraAdjuntoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir adjunto a una NC local",
+)
+async def subir_adjunto_nc_local(
+    nc_id: int,
+    file: UploadFile = File(...),
+    tipo: Optional[str] = Form(
+        default=None,
+        pattern="^(factura|presupuesto|comprobante|otro)$",
+    ),
+    descripcion: Optional[str] = Form(default=None, max_length=500),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> CompraAdjuntoResponse:
+    """Adjunta un archivo (PDF de la NC del proveedor, etc.)."""
+    _obtener_nc_o_404(db, nc_id)
+    try:
+        adj = await compras_adjuntos_service.subir_adjunto(
+            db,
+            entidad_tipo="nota_credito_local",
+            entidad_id=nc_id,
+            file=file,
+            tipo=tipo,  # type: ignore[arg-type]
+            descripcion=descripcion,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("subir_adjunto_nc_local falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al subir el adjunto.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="subir_adjunto_nc_local")
+    db.refresh(adj)
+    return _adjunto_response(adj)
+
+
+@router.get(
+    "/ncs-locales/{nc_id}/adjuntos",
+    response_model=list[CompraAdjuntoResponse],
+    summary="Listar adjuntos de una NC local",
+)
+def listar_adjuntos_nc_local(
+    nc_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[CompraAdjuntoResponse]:
+    """Lista de adjuntos ordenada por created_at DESC."""
+    _obtener_nc_o_404(db, nc_id)
+    items = compras_adjuntos_service.listar_adjuntos(db, entidad_tipo="nota_credito_local", entidad_id=nc_id)
+    return [_adjunto_response(a) for a in items]
 
 
 __all__ = ["router"]

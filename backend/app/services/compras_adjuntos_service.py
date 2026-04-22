@@ -42,10 +42,10 @@ from app.models.compra_adjunto import CompraAdjunto
 logger = get_logger("services.compras_adjuntos_service")
 
 
-EntidadAdjuntable = Literal["pedido_compra", "orden_pago"]
+EntidadAdjuntable = Literal["pedido_compra", "orden_pago", "nota_credito_local"]
 TipoAdjunto = Literal["factura", "presupuesto", "comprobante", "otro"]
 
-_ENTIDADES_VALIDAS: frozenset[str] = frozenset({"pedido_compra", "orden_pago"})
+_ENTIDADES_VALIDAS: frozenset[str] = frozenset({"pedido_compra", "orden_pago", "nota_credito_local"})
 _TIPOS_VALIDOS: frozenset[str] = frozenset({"factura", "presupuesto", "comprobante", "otro"})
 
 

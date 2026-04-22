@@ -13,14 +13,14 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-ENTIDADES_VALIDAS: tuple[str, ...] = ("pedido_compra", "orden_pago")
+ENTIDADES_VALIDAS: tuple[str, ...] = ("pedido_compra", "orden_pago", "nota_credito_local")
 
 
 class CompraEventoResponse(BaseModel):
     """Evento de auditoría serializado (solo lectura, append-only)."""
 
     id: int
-    entidad_tipo: str = Field(..., pattern="^(pedido_compra|orden_pago)$")
+    entidad_tipo: str = Field(..., pattern="^(pedido_compra|orden_pago|nota_credito_local)$")
     entidad_id: int
     tipo: str
     usuario_id: int
