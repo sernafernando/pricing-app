@@ -1065,18 +1065,20 @@ def listar_items_envio_proveedor(
 ) -> list:
     """Items pendientes de envío a proveedor, agrupados por supp_id.
 
-    Incluye items que tienen supp_id seteado y enviado_proveedor != true,
-    de casos activos. Cada grupo trae datos del proveedor desde rma_proveedores.
+    Incluye items que tienen supp_id seteado, listo_envio_proveedor=True
+    y enviado_proveedor != true, de casos activos.
+    Cada grupo trae datos del proveedor desde rma_proveedores.
     """
     _check_permiso(db, current_user, "rma.ver")
 
-    # Items with supp_id set, not yet sent, from active cases
+    # Items with supp_id set, marked as ready, not yet sent, from active cases
     items = (
         _build_item_query(db)
         .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
         .filter(
             RmaCaso.activo == True,  # noqa: E712
             RmaCasoItem.supp_id.isnot(None),
+            RmaCasoItem.listo_envio_proveedor == True,  # noqa: E712
             (RmaCasoItem.enviado_proveedor.is_(None)) | (RmaCasoItem.enviado_proveedor == False),  # noqa: E712
         )
         .order_by(RmaCasoItem.supp_id, RmaCasoItem.id)
@@ -1189,18 +1191,34 @@ def crear_envio_proveedor(
         missing = [iid for iid in data.item_ids if iid not in found_ids]
         raise HTTPException(status_code=404, detail=f"Items no encontrados o de casos inactivos: {missing}")
 
-    # Validate all belong to the same supplier and not yet shipped
+    # Validate all belong to the same supplier, are marked ready, and not yet shipped
     for item in items:
         if item.supp_id != data.supp_id:
             raise HTTPException(
                 status_code=400,
                 detail=f"Item {item.id} pertenece a proveedor {item.supp_id}, no a {data.supp_id}",
             )
+        if not item.listo_envio_proveedor:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item {item.id} no está marcado como 'Listo para envío'",
+            )
         if item.enviado_proveedor and item.shipping_id:
             raise HTTPException(
                 status_code=400,
                 detail=f"Item {item.id} ya fue enviado (shipping_id={item.shipping_id})",
             )
+
+    # 1b. Lookup 'Envío cargado' option for auto-setting estado_proveedor
+    opcion_envio_cargado = (
+        db.query(RmaSeguimientoOpcion)
+        .filter(
+            RmaSeguimientoOpcion.categoria == "estado_proveedor",
+            RmaSeguimientoOpcion.valor == "Envío cargado",
+            RmaSeguimientoOpcion.activo == True,  # noqa: E712
+        )
+        .first()
+    )
 
     # 2. Get supplier extended data for address
     prov = (
@@ -1237,15 +1255,20 @@ def crear_envio_proveedor(
     db.add(envio)
     db.flush()  # Ensure shipping_id is persisted before linking items
 
-    # 4. Link items and mark as shipped
+    # 4. Link items, mark as shipped, and set estado_proveedor to 'Envío cargado'
     for item in items:
         old_enviado = item.enviado_proveedor
         old_shipping = item.shipping_id
         old_fecha = item.fecha_envio_proveedor
+        old_estado_prov = item.estado_proveedor_id
 
         item.shipping_id = shipping_id
         item.enviado_proveedor = True
         item.fecha_envio_proveedor = now
+
+        # Auto-set estado_proveedor to 'Envío cargado'
+        if opcion_envio_cargado:
+            item.estado_proveedor_id = opcion_envio_cargado.id
 
         _registrar_cambio(
             db, item.caso_id, "shipping_id", old_shipping, shipping_id, current_user.id, caso_item_id=item.id
@@ -1262,6 +1285,16 @@ def crear_envio_proveedor(
             current_user.id,
             caso_item_id=item.id,
         )
+        if opcion_envio_cargado and old_estado_prov != opcion_envio_cargado.id:
+            _registrar_cambio(
+                db,
+                item.caso_id,
+                "estado_proveedor_id",
+                old_estado_prov,
+                opcion_envio_cargado.id,
+                current_user.id,
+                caso_item_id=item.id,
+            )
 
     db.commit()
 
