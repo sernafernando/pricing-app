@@ -1063,16 +1063,18 @@ def listar_items_envio_proveedor(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list:
-    """Items pendientes de envío a proveedor, agrupados por supp_id.
+    """Items de envío a proveedor, agrupados por supp_id.
 
-    Incluye items que tienen supp_id seteado, listo_envio_proveedor=True
-    y enviado_proveedor != true, de casos activos.
-    Cada grupo trae datos del proveedor desde rma_proveedores.
+    Cada grupo tiene:
+    - items: pendientes de envío (listo_envio_proveedor=True, no enviados) — seleccionables
+    - items_enviados: ya enviados — informativos, al fondo, con estado
+
+    Solo se incluyen proveedores que tienen al menos un item pendiente O enviado.
     """
     _check_permiso(db, current_user, "rma.ver")
 
-    # Items with supp_id set, marked as ready, not yet sent, from active cases
-    items = (
+    # 1. Pending items: marked as ready, not yet sent
+    pending_items = (
         _build_item_query(db)
         .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
         .filter(
@@ -1085,55 +1087,86 @@ def listar_items_envio_proveedor(
         .all()
     )
 
+    # 2. Shipped items: already sent (enviado_proveedor=True)
+    shipped_items = (
+        _build_item_query(db)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(
+            RmaCaso.activo == True,  # noqa: E712
+            RmaCasoItem.supp_id.isnot(None),
+            RmaCasoItem.enviado_proveedor == True,  # noqa: E712
+        )
+        .order_by(RmaCasoItem.supp_id, RmaCasoItem.id)
+        .all()
+    )
+
     # Group by supp_id
     from collections import defaultdict
 
-    groups: dict = defaultdict(list)
+    pending_groups: dict = defaultdict(list)
+    shipped_groups: dict = defaultdict(list)
     caso_cache: dict = {}
-    for item in items:
-        groups[item.supp_id].append(item)
+
+    for item in pending_items:
+        pending_groups[item.supp_id].append(item)
         if item.caso_id not in caso_cache:
             caso_cache[item.caso_id] = item.caso
 
+    for item in shipped_items:
+        shipped_groups[item.supp_id].append(item)
+        if item.caso_id not in caso_cache:
+            caso_cache[item.caso_id] = item.caso
+
+    # All supplier IDs that have any items
+    all_supp_ids = set(pending_groups.keys()) | set(shipped_groups.keys())
+
     # Fetch supplier extended data
-    supp_ids = list(groups.keys())
     proveedores = {
         p.supp_id: p
         for p in db.query(RmaProveedor)
-        .filter(RmaProveedor.supp_id.in_(supp_ids), RmaProveedor.activo == True)  # noqa: E712
+        .filter(RmaProveedor.supp_id.in_(list(all_supp_ids)), RmaProveedor.activo == True)  # noqa: E712
         .all()
     }
 
+    def _serialize_item(i: RmaCasoItem) -> dict:
+        return {
+            "id": i.id,
+            "caso_id": i.caso_id,
+            "numero_caso": caso_cache.get(i.caso_id).numero_caso if caso_cache.get(i.caso_id) else None,
+            "serial_number": i.serial_number,
+            "producto_desc": i.producto_desc,
+            "ean": i.ean,
+            "precio": float(i.precio) if i.precio else None,
+            "descripcion_falla": i.descripcion_falla,
+            "listo_envio_proveedor": i.listo_envio_proveedor or False,
+            "enviado_proveedor": i.enviado_proveedor or False,
+            "shipping_id": i.shipping_id,
+            "fecha_envio_proveedor": i.fecha_envio_proveedor.isoformat() if i.fecha_envio_proveedor else None,
+            "estado_proveedor_valor": i.estado_proveedor.valor if i.estado_proveedor else None,
+            "estado_proveedor_color": i.estado_proveedor.color if i.estado_proveedor else None,
+        }
+
     result = []
-    for supp_id, supp_items in groups.items():
+    for supp_id in all_supp_ids:
+        pending = pending_groups.get(supp_id, [])
+        shipped = shipped_groups.get(supp_id, [])
         prov = proveedores.get(supp_id)
+        sample = (pending or shipped)[0]
+
         result.append(
             {
                 "supp_id": supp_id,
-                "proveedor_nombre": supp_items[0].proveedor_nombre,
-                "proveedor": _serialize_proveedor(prov, supp_items[0].proveedor_nombre),
-                "cantidad_items": len(supp_items),
-                "items": [
-                    {
-                        "id": i.id,
-                        "caso_id": i.caso_id,
-                        "numero_caso": caso_cache.get(i.caso_id).numero_caso if caso_cache.get(i.caso_id) else None,
-                        "serial_number": i.serial_number,
-                        "producto_desc": i.producto_desc,
-                        "ean": i.ean,
-                        "precio": float(i.precio) if i.precio else None,
-                        "descripcion_falla": i.descripcion_falla,
-                        "listo_envio_proveedor": i.listo_envio_proveedor or False,
-                        "estado_proveedor_valor": i.estado_proveedor.valor if i.estado_proveedor else None,
-                        "estado_proveedor_color": i.estado_proveedor.color if i.estado_proveedor else None,
-                    }
-                    for i in supp_items
-                ],
+                "proveedor_nombre": sample.proveedor_nombre,
+                "proveedor": _serialize_proveedor(prov, sample.proveedor_nombre),
+                "cantidad_items": len(pending),
+                "cantidad_enviados": len(shipped),
+                "items": [_serialize_item(i) for i in pending],
+                "items_enviados": [_serialize_item(i) for i in shipped],
             }
         )
 
-    # Sort by quantity desc (biggest groups first)
-    result.sort(key=lambda g: g["cantidad_items"], reverse=True)
+    # Sort: suppliers with pending items first (by qty desc), then shipped-only
+    result.sort(key=lambda g: (g["cantidad_items"] == 0, -g["cantidad_items"], -g["cantidad_enviados"]))
 
     return result
 
@@ -1220,6 +1253,17 @@ def crear_envio_proveedor(
         .first()
     )
 
+    # 1c. Lookup 'Enviado a proveedor' estado_caso for auto-updating the case
+    opcion_estado_caso_enviado = (
+        db.query(RmaSeguimientoOpcion)
+        .filter(
+            RmaSeguimientoOpcion.categoria == "estado_caso",
+            RmaSeguimientoOpcion.valor == "Enviado a proveedor",
+            RmaSeguimientoOpcion.activo == True,  # noqa: E712
+        )
+        .first()
+    )
+
     # 2. Get supplier extended data for address
     prov = (
         db.query(RmaProveedor)
@@ -1295,6 +1339,23 @@ def crear_envio_proveedor(
                 current_user.id,
                 caso_item_id=item.id,
             )
+
+    # 5. Auto-update estado_caso to 'Enviado a proveedor' for affected cases
+    if opcion_estado_caso_enviado:
+        caso_ids_affected = {item.caso_id for item in items}
+        for caso_id in caso_ids_affected:
+            caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+            if caso and caso.estado_caso_id != opcion_estado_caso_enviado.id:
+                old_estado_caso = caso.estado_caso_id
+                caso.estado_caso_id = opcion_estado_caso_enviado.id
+                _registrar_cambio(
+                    db,
+                    caso_id,
+                    "estado_caso_id",
+                    old_estado_caso,
+                    opcion_estado_caso_enviado.id,
+                    current_user.id,
+                )
 
     db.commit()
 

@@ -828,19 +828,6 @@ export default function ModalRma({ caso, onClose }) {
               {/* Campos caso-level (solo edición) */}
               {!esNuevo && (
                 <>
-                  <ModalSection title="Estado del caso">
-                    <div className={styles.grid2}>
-                      <label>
-                        <span className={styles.label}>Estado del caso</span>
-                        {renderDropdown('estado_caso', casoData.estado_caso_id, (v) => setCasoData({ ...casoData, estado_caso_id: v }), !puedeGestionar)}
-                      </label>
-                      <label className={styles.checkLabel}>
-                        <input type="checkbox" checked={casoData.marcado_borrar_pedido || false} onChange={(e) => setCasoData({ ...casoData, marcado_borrar_pedido: e.target.checked })} disabled={!puedeGestionar} />
-                        Marcado para borrar pedido
-                      </label>
-                    </div>
-                  </ModalSection>
-
                   <ModalSection title="Observaciones">
                     <textarea
                       className={styles.textarea}
@@ -1011,6 +998,20 @@ export default function ModalRma({ caso, onClose }) {
           {/* ═══════════ TAB: Proceso ═══════════ */}
           {activeTab === 'proceso' && (
             <div>
+              {!esNuevo && (
+                <ModalSection title="Estado del caso">
+                  <div className={styles.grid2}>
+                    <label>
+                      <span className={styles.label}>Estado del caso</span>
+                      {renderDropdown('estado_caso', casoData.estado_caso_id, (v) => setCasoData({ ...casoData, estado_caso_id: v }), !puedeGestionar)}
+                    </label>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={casoData.marcado_borrar_pedido || false} onChange={(e) => setCasoData({ ...casoData, marcado_borrar_pedido: e.target.checked })} disabled={!puedeGestionar} />
+                      Marcado para borrar pedido
+                    </label>
+                  </div>
+                </ModalSection>
+              )}
               {(casoData.items || []).map((item) => (
                 <ModalSection key={item.id} title={item.producto_desc || `Item #${item.id}`}>
                   <div className={styles.grid3}>
