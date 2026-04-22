@@ -762,6 +762,106 @@ def aplicar_imputacion_a_pedido(
     return pedido
 
 
+def recalcular_estado_por_imputaciones(
+    session: Session,
+    *,
+    pedido_id: int,
+) -> Optional[PedidoCompra]:
+    """
+    Recalcula el estado del pedido según el saldo pendiente tras las
+    imputaciones actuales (excluyendo reversals). Transiciones:
+      - Si saldo_pendiente == monto → pedido vuelve a `aprobado`
+        (no queda ninguna imputación viva — ej. tras desimputar la única).
+      - Si 0 < saldo_pendiente < monto → `pagado_parcial`.
+      - Si saldo_pendiente == 0 → `pagado`.
+
+    Matriz simétrica a `aplicar_imputacion_a_pedido` / `ncs_locales_service.
+    recalcular_estado_por_imputaciones`. Solo aplica si el pedido está en
+    `{aprobado, pagado_parcial, pagado}`; otros estados son no-op.
+
+    Invocado por `imputaciones_service.desimputar` cuando la imputación
+    revertida tenía destino `pedido_compra`. Garantiza consistencia entre
+    el saldo contable y el estado del pedido en flujos de desimputación
+    aislada (fuera del flujo `anular OP` o `cancelar NC aprobada`).
+
+    Tolerante a imputaciones huérfanas: `destino_id` no tiene FK a
+    `pedidos_compra` (la polimorfía lo impide). Si el pedido no existe
+    (p. ej. purgado de la DB, o en tests aislados que usan IDs sintéticos),
+    se loggea WARNING y la función retorna `None` sin propagar 404 —
+    evitar que una imputación huérfana bloquee el flujo de desimputación.
+
+    NO registra evento `reverso_cancelacion`: la desimputación aislada no
+    implica anulación. Si cambia de estado, registra un evento neutro
+    (`pago_parcial_aplicado` o `pago_completado` vía el branch "reverso
+    reabre deuda" de `aplicar_imputacion_a_pedido` si corresponde).
+
+    Args:
+        session: tx activa.
+        pedido_id: PK.
+
+    Returns:
+        El pedido con el estado potencialmente actualizado. No-op si el
+        estado actual coincide con el estado recalculado. `None` si el
+        pedido no existe.
+    """
+    pedido = session.get(PedidoCompra, pedido_id)
+    if pedido is None:
+        logger.warning(
+            "recalcular_estado_por_imputaciones: pedido_id=%s no encontrado; "
+            "imputación destino pedido_compra huérfana — skip.",
+            pedido_id,
+        )
+        return None
+    if pedido.estado not in {"aprobado", "pagado_parcial", "pagado"}:
+        return pedido
+
+    saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+    estado_previo = pedido.estado
+
+    if saldo <= Decimal("0"):
+        nuevo_estado = "pagado"
+        tipo_evento = TiposEvento.PAGO_COMPLETADO
+    elif saldo >= Decimal(pedido.monto):
+        # Saldo pendiente == monto → no hay imputaciones vivas → vuelve a aprobado.
+        nuevo_estado = "aprobado"
+        tipo_evento = TiposEvento.REVERSO_CANCELACION
+    else:
+        # 0 < saldo < monto → pagado_parcial.
+        nuevo_estado = "pagado_parcial"
+        # Si veníamos de 'pagado' (reversal que reabrió deuda) → REVERSO_CANCELACION.
+        # Si veníamos de 'aprobado' → PAGO_PARCIAL_APLICADO.
+        tipo_evento = (
+            TiposEvento.REVERSO_CANCELACION if estado_previo == "pagado" else TiposEvento.PAGO_PARCIAL_APLICADO
+        )
+
+    if nuevo_estado == estado_previo:
+        return pedido
+
+    pedido.estado = nuevo_estado  # type: ignore[assignment]
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=tipo_evento,
+        usuario_id=pedido.creado_por_id,  # auto-transición sin user explícito
+        payload={
+            "estado_previo": estado_previo,
+            "estado_nuevo": nuevo_estado,
+            "saldo_pendiente": str(saldo),
+            "motivo": "desimputacion",
+        },
+    )
+    logger.info(
+        "pedido_recalculo_por_imputaciones id=%s %s -> %s (saldo=%s)",
+        pedido.id,
+        estado_previo,
+        nuevo_estado,
+        saldo,
+    )
+    return pedido
+
+
 def revertir_transicion_por_anulacion_op(
     session: Session,
     *,
@@ -1151,6 +1251,7 @@ __all__ = [
     "crear_pedido",
     "desvincular_factura",
     "editar_pedido",
+    "recalcular_estado_por_imputaciones",
     "revertir_transicion_por_anulacion_op",
     "transicionar",
     "vincular_factura",

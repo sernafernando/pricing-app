@@ -596,6 +596,19 @@ def desimputar(
             nc_id=int(original.origen_id),
         )
 
+    # Si la imputación original tenía destino `pedido_compra`, recalcular el
+    # estado del pedido. Al revertir, el saldo pendiente sube → el pedido
+    # puede pasar de 'pagado' a 'pagado_parcial' o 'aprobado', o de
+    # 'pagado_parcial' a 'aprobado'. Sin este recálculo, desimputar aislado
+    # dejaba el pedido en un estado inconsistente con su saldo contable.
+    if original.destino_tipo == "pedido_compra" and original.destino_id is not None:
+        from app.services import pedidos_service  # noqa: PLC0415
+
+        pedidos_service.recalcular_estado_por_imputaciones(
+            session,
+            pedido_id=int(original.destino_id),
+        )
+
     logger.info(
         "desimputar: imputacion_original_id=%s → reversal_id=%s (motivo=%s)",
         original.id,
