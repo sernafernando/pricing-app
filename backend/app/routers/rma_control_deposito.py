@@ -49,6 +49,7 @@ class NoBajaRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────
 
 
+@router.get("", include_in_schema=False)
 @router.get("/")
 def listar_control_deposito(
     fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),

@@ -153,7 +153,7 @@ function ControlDepositoInner() {
     setError(null);
     try {
       const params = buildParams();
-      const { data } = await api.get(`/rma-control-deposito?${params}`);
+      const { data } = await api.get(`/rma-control-deposito/?${params}`);
       setItems(data.items || []);
       setTotalPages(data.total_pages || 1);
       setTotalItems(data.total || 0);
