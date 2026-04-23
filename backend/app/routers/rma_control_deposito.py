@@ -30,7 +30,7 @@ router = APIRouter(prefix="/rma-control-deposito", tags=["rma-control-deposito"]
 def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
     """Check permission or raise 403."""
     svc = PermisosService(db)
-    if not svc.tiene_permiso(user.id, codigo):
+    if not svc.tiene_permiso(user, codigo):
         raise HTTPException(403, f"Sin permiso: {codigo}")
 
 
