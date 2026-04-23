@@ -28,6 +28,7 @@ import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
 import ConfigOperaciones from './pages/ConfigOperaciones';
 import Rma from './pages/Rma';
+import ControlDeposito from './pages/ControlDeposito';
 import ClaimsDashboard from './pages/ClaimsDashboard';
 import Traza from './pages/Traza';
 import FreeShippingAlerts from './pages/FreeShippingAlerts';
@@ -216,6 +217,11 @@ function App() {
             <Route path="/rma" element={
               <ProtectedRoute permiso="rma.ver">
                 <Rma />
+              </ProtectedRoute>
+            } />
+            <Route path="/control-deposito" element={
+              <ProtectedRoute permiso="rma.control_deposito">
+                <ControlDeposito />
               </ProtectedRoute>
             } />
             <Route path="/claims" element={

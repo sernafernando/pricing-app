@@ -851,6 +851,15 @@ def actualizar_item(
         item.revision_usuario_id = current_user.id
         item.revision_fecha = now
 
+    # Auto-create control depósito entry when marked as sent physically
+    if update_data.get("enviado_fisicamente_deposito") is True:
+        from app.services.control_deposito_service import ControlDepositoService
+
+        caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+        if caso:
+            svc = ControlDepositoService(db)
+            svc.crear_entrada(item, caso)
+
     db.commit()
 
     item = _build_item_query(db).filter(RmaCasoItem.id == item_id).first()
