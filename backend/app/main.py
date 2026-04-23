@@ -80,6 +80,7 @@ from app.routers import (
     seriales,
     sse,
     rma_seguimiento,
+    rma_control_deposito,
     rma_proveedores,
     weather,
 )
@@ -265,6 +266,7 @@ app.include_router(sounds.router, prefix="/api", tags=["sounds"])
 app.include_router(transportes.router, prefix="/api", tags=["transportes"])
 app.include_router(seriales.router, prefix="/api", tags=["seriales"])
 app.include_router(rma_seguimiento.router, prefix="/api", tags=["rma-seguimiento"])
+app.include_router(rma_control_deposito.router, prefix="/api", tags=["rma-control-deposito"])
 app.include_router(rma_proveedores.router, prefix="/api", tags=["RMA Proveedores"])
 app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboard"])
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])

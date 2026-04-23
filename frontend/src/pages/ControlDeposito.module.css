@@ -1,0 +1,814 @@
+/* ── Control de Bajada a Deposito ─────────────────────────── */
+
+/* ── Stat color aliases (map semantic → CF accent tokens) ──── */
+
+.container {
+  --cf-stat-gray: var(--cf-text-tertiary, #6b7280);
+  --cf-stat-blue: var(--cf-accent-blue, #3b82f6);
+  --cf-stat-green: var(--cf-accent-green, #22c55e);
+  --cf-stat-orange: var(--cf-accent-orange, #f59e0b);
+  --cf-badge-gray: var(--cf-text-tertiary, #6b7280);
+  --cf-badge-blue: var(--cf-accent-blue, #3b82f6);
+  --cf-badge-green: var(--cf-accent-green, #22c55e);
+  --cf-badge-orange: var(--cf-accent-orange, #f59e0b);
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── No permission ─────────────────────────────────────────── */
+
+.noPermiso {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 80px 24px;
+  color: var(--cf-text-tertiary);
+  text-align: center;
+}
+
+.noPermiso p {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* ── Scanner Section ───────────────────────────────────────── */
+
+.scannerSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--cf-bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--cf-border-default);
+}
+
+.scannerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scanIcon {
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
+
+.scanInput {
+  flex: 1;
+  min-width: 280px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--cf-border-default);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 15px;
+  font-family: monospace;
+  transition: border-color 0.2s;
+}
+
+.scanInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.scanInput::placeholder {
+  color: var(--cf-text-tertiary);
+  font-family: inherit;
+}
+
+/* ── Scan Feedback ─────────────────────────────────────────── */
+
+.feedbackSuccess,
+.feedbackError {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  animation: feedbackFadeIn 0.2s ease;
+}
+
+@keyframes feedbackFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.feedbackSuccess {
+  background: color-mix(in srgb, var(--cf-accent-green) 12%, transparent);
+  color: var(--cf-accent-green);
+  border: 1px solid var(--cf-accent-green);
+}
+
+.feedbackError {
+  background: color-mix(in srgb, var(--cf-accent-red, #ef4444) 12%, transparent);
+  color: var(--cf-accent-red, #ef4444);
+  border: 1px solid var(--cf-accent-red, #ef4444);
+}
+
+/* ── Stats Bar ─────────────────────────────────────────────── */
+
+.statsBar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.statCard {
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 16px 12px;
+  background: var(--cf-bg-card);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.statCard:hover {
+  border-color: var(--stat-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.statCardActive {
+  border-color: var(--stat-color);
+  box-shadow: 0 0 0 1px var(--stat-color);
+}
+
+.statAccent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--stat-color);
+  border-radius: 4px 0 0 4px;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--stat-color);
+}
+
+.statLabel {
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+  margin-top: 2px;
+}
+
+/* ── Filters Bar ───────────────────────────────────────────── */
+
+.filtersBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--cf-bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--cf-border-default);
+}
+
+.filtersLeft {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filtersRight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ── Date quick filters ────────────────────────────────────── */
+
+.dateQuickFilters {
+  display: flex;
+  gap: 0;
+  background: var(--cf-bg-hover);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--cf-border-default);
+}
+
+.filterBtn {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--cf-text-tertiary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.filterBtn:hover {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+}
+
+.filterBtnActive {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.filterBtnActive:hover {
+  background: color-mix(in srgb, var(--cf-accent-blue) 20%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+/* ── Date inputs ───────────────────────────────────────────── */
+
+.dateInput {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Search input ──────────────────────────────────────────── */
+
+.searchWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.searchInput {
+  padding: 8px 12px 8px 32px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+  min-width: 220px;
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.searchInput::placeholder {
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Refresh button ────────────────────────────────────────── */
+
+.btnRefresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btnRefresh:hover {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Status Tabs ───────────────────────────────────────────── */
+
+.statusTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--cf-border-default);
+}
+
+.statusTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  color: var(--cf-text-tertiary);
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.statusTab:hover {
+  color: var(--cf-text-primary);
+}
+
+.statusTabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+  font-weight: 600;
+}
+
+.tabCount {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+.statusTabActive .tabCount {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+
+.tableContainer {
+  background: var(--cf-bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--cf-border-default);
+  overflow-x: auto;
+}
+
+.cellMono {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cf-accent-blue);
+  white-space: nowrap;
+}
+
+.cellProducto {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellDate {
+  white-space: nowrap;
+}
+
+.dateScanned {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.cellMuted {
+  color: var(--cf-text-tertiary);
+  font-size: 12px;
+}
+
+/* ── Badge ─────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--badge-color, gray) 15%, transparent);
+  color: var(--badge-color, gray);
+}
+
+/* ── Action Button ─────────────────────────────────────────── */
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--cf-accent-orange) 40%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-orange) 10%, transparent);
+  color: var(--cf-accent-orange);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.actionBtn:hover {
+  background: color-mix(in srgb, var(--cf-accent-orange) 20%, transparent);
+  border-color: var(--cf-accent-orange);
+}
+
+/* ── Pagination ────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.paginationInfo {
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.paginationControls {
+  display: flex;
+  gap: 8px;
+}
+
+.paginationBtn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.paginationBtn:hover:not(:disabled) {
+  border-color: var(--cf-accent-blue);
+  color: var(--cf-accent-blue);
+}
+
+.paginationBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Loading / Error / Empty ───────────────────────────────── */
+
+.loading {
+  text-align: center;
+  padding: 48px;
+  color: var(--cf-text-secondary);
+  font-size: 16px;
+}
+
+.error {
+  text-align: center;
+  padding: 48px;
+  color: var(--cf-accent-red, #ef4444);
+  font-size: 16px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 48px;
+  color: var(--cf-text-secondary);
+  font-size: 14px;
+}
+
+.empty p {
+  margin: 0;
+}
+
+/* ── Modal Shared ──────────────────────────────────────────── */
+
+.sheetOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.pinModal,
+.challengeModal {
+  background: var(--cf-bg-card);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--cf-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  padding: 4px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.modalClose:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.modalBody {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modalFooter {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+/* ── Modal Buttons ─────────────────────────────────────────── */
+
+.btnCancelar {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-border-default);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btnCancelar:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnConfirm {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-accent-blue);
+  background: var(--cf-accent-blue);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btnConfirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btnConfirm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnConfirmDanger {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-accent-red, #ef4444);
+  background: var(--cf-accent-red, #ef4444);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btnConfirmDanger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btnConfirmDanger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── PIN Modal specifics ───────────────────────────────────── */
+
+.pinInstructions {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--cf-text-secondary);
+  line-height: 1.5;
+}
+
+.pinInput {
+  width: 100%;
+  padding: 14px 16px;
+  border: 2px solid var(--cf-border-default);
+  border-radius: 10px;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 24px;
+  font-family: monospace;
+  text-align: center;
+  letter-spacing: 12px;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.pinInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.pinError {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--cf-accent-red, #ef4444);
+}
+
+/* ── Challenge Modal specifics ─────────────────────────────── */
+
+.challengeItemInfo {
+  background: var(--cf-bg-hover);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.challengeItemInfo p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.challengeItemInfo p:last-child {
+  margin-bottom: 0;
+}
+
+.challengeItemInfo strong {
+  color: var(--cf-text-primary);
+}
+
+.challengeSection {
+  margin-bottom: 16px;
+}
+
+.challengeLabel {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.challengeLabel strong {
+  color: var(--cf-accent-red, #ef4444);
+  font-family: monospace;
+  font-size: 14px;
+  user-select: none;
+}
+
+.required {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  font-weight: 400;
+}
+
+.challengeInput {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: monospace;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.challengeInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-red, #ef4444);
+}
+
+.challengeTextarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.15s;
+}
+
+.challengeTextarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .filtersBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filtersLeft,
+  .filtersRight {
+    flex-wrap: wrap;
+  }
+
+  .searchInput {
+    min-width: unset;
+    flex: 1;
+  }
+
+  .scanInput {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .statsBar {
+    flex-wrap: wrap;
+  }
+
+  .statCard {
+    min-width: calc(50% - 8px);
+  }
+
+  .statusTabs {
+    overflow-x: auto;
+  }
+
+  .pagination {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .paginationControls {
+    justify-content: center;
+  }
+}
