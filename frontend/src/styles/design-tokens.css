@@ -196,6 +196,18 @@
   --cf-accent-orange: #f59e0b;
   --cf-accent-yellow: #eab308;
   --cf-accent-gray: #64748b;
+  --cf-accent-purple: #a855f7;
+  --cf-accent-teal: #14b8a6;
+
+  /* Badge color palette — used by RMA/dynamic badges via var(--color-{name}) */
+  --color-blue: #3b82f6;
+  --color-green: #22c55e;
+  --color-red: #ef4444;
+  --color-orange: #f59e0b;
+  --color-yellow: #eab308;
+  --color-gray: #64748b;
+  --color-purple: #a855f7;
+  --color-teal: #14b8a6;
   
   /* Role badge gradients */
   --cf-role-superadmin-from: #ef4444;
