@@ -203,11 +203,6 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-.searchInput {
-  composes: input;
-  min-width: 200px;
-}
-
 .dateInput {
   composes: input;
   width: 150px;
@@ -538,24 +533,10 @@
   font-size: var(--font-sm);
 }
 
-/* ── Search with Icon ────────────────────────────────────────── */
+/* ── Search ──────────────────────────────────────────────────── */
 .searchWrapper {
-  position: relative;
   flex: 1;
-}
-
-.searchIcon {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--cf-text-tertiary);
-}
-
-.searchInputWithIcon {
-  composes: searchInput;
-  padding-left: 30px;
-  width: 100%;
+  min-width: 200px;
 }
 
 /* ── Table Cells ─────────────────────────────────────────────── */
@@ -726,7 +707,7 @@
 @media (max-width: 768px) {
   .statsBar { grid-template-columns: 1fr; }
   .filters { flex-direction: column; align-items: stretch; }
-  .searchInput { min-width: unset; width: 100%; }
+  .searchWrapper { min-width: unset; width: 100%; }
   .dateInput { width: 100%; }
   .cardsGrid { grid-template-columns: 1fr; }
   .header { flex-direction: column; align-items: flex-start; }

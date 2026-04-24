@@ -249,19 +249,9 @@
   border-color: var(--brand-primary);
 }
 
-.searchInput {
+.searchFilter {
   flex: 1;
   min-width: 200px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.searchInput::placeholder {
-  color: var(--text-tertiary);
 }
 
 .select {

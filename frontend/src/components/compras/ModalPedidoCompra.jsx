@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Info } from 'lucide-react';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './ModalPedidoCompra.module.css';
+
+// Estados donde el pedido solo permite editar campos metadata (feature B):
+// numero_factura, tipo_cambio (si USD), observaciones. El resto queda readonly.
+const ESTADOS_METADATA_ONLY = new Set(['aprobado', 'pagado_parcial', 'pagado']);
 
 /**
  * ModalPedidoCompra — form de alta/edición de pedidos de compra.
@@ -22,6 +26,7 @@ export default function ModalPedidoCompra({
 }) {
   const pedidosApi = useComprasPedidos();
   const esEdicion = !!pedido;
+  const esMetadataOnly = esEdicion && ESTADOS_METADATA_ONLY.has(pedido.estado);
 
   // Sub-batch 5.F: si viene proveedorInicial (desde tab CC), pre-cargamos
   // el proveedor. Ignorado si ya hay `pedido` (modo edición).
@@ -39,6 +44,7 @@ export default function ModalPedidoCompra({
     fecha_pago_estimada: pedido?.fecha_pago_estimada || '',
     requiere_envio: pedido?.requiere_envio || false,
     numero_factura: pedido?.numero_factura || '',
+    observaciones: pedido?.observaciones || '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -49,6 +55,14 @@ export default function ModalPedidoCompra({
   };
 
   const validar = () => {
+    if (esMetadataOnly) {
+      // En estado aprobado/pagado_parcial/pagado solo validamos TC (si USD y viene algo)
+      if (form.moneda === 'USD' && form.tipo_cambio !== '' && form.tipo_cambio !== null) {
+        const tc = parseFloat(form.tipo_cambio);
+        if (!Number.isFinite(tc) || tc <= 0) return 'El tipo de cambio debe ser mayor a 0.';
+      }
+      return null;
+    }
     if (!form.empresa_id) return 'Empresa requerida.';
     if (!form.proveedor_id) return 'Proveedor requerido.';
     const monto = parseFloat(form.monto);
@@ -79,17 +93,31 @@ export default function ModalPedidoCompra({
           ? parseFloat(form.tipo_cambio)
           : null;
 
-      const payload = {
-        empresa_id: Number(form.empresa_id),
-        proveedor_id: Number(form.proveedor_id),
-        moneda: form.moneda,
-        monto: parseFloat(form.monto),
-        tipo_cambio: tcNum,
-        fecha_pago_texto: form.fecha_pago_texto || null,
-        fecha_pago_estimada: form.fecha_pago_estimada || null,
-        requiere_envio: form.requiere_envio,
-        numero_factura: form.numero_factura || null,
-      };
+      let payload;
+      if (esMetadataOnly) {
+        // Solo los 3 campos editables post-aprobación. El resto no se envía
+        // para no disparar validaciones innecesarias en el backend.
+        payload = {
+          numero_factura: form.numero_factura || null,
+          observaciones: form.observaciones || null,
+        };
+        if (form.moneda === 'USD') {
+          payload.tipo_cambio = tcNum;
+        }
+      } else {
+        payload = {
+          empresa_id: Number(form.empresa_id),
+          proveedor_id: Number(form.proveedor_id),
+          moneda: form.moneda,
+          monto: parseFloat(form.monto),
+          tipo_cambio: tcNum,
+          fecha_pago_texto: form.fecha_pago_texto || null,
+          fecha_pago_estimada: form.fecha_pago_estimada || null,
+          requiere_envio: form.requiere_envio,
+          numero_factura: form.numero_factura || null,
+          observaciones: form.observaciones || null,
+        };
+      }
 
       if (esEdicion) {
         await pedidosApi.editar(pedido.id, payload);
@@ -123,6 +151,17 @@ export default function ModalPedidoCompra({
 
         {error && <div className={styles.errorBanner}>{error}</div>}
 
+        {esMetadataOnly && (
+          <div className={styles.infoBanner}>
+            <Info size={14} />
+            <span>
+              Pedido {pedido.estado} — solo se pueden editar factura, TC
+              {form.moneda === 'USD' ? ' ' : ' (si USD) '}y observaciones. Para
+              otros cambios, usá “Corregir pedido”.
+            </span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Empresa *</label>
@@ -131,6 +170,7 @@ export default function ModalPedidoCompra({
               value={form.empresa_id}
               onChange={(e) => handleChange('empresa_id', e.target.value)}
               required
+              disabled={esMetadataOnly}
             >
               <option value="">Seleccionar...</option>
               {empresas.map((emp) => (
@@ -146,7 +186,7 @@ export default function ModalPedidoCompra({
             <ProveedorComprasAutocomplete
               value={form.proveedor_id ? Number(form.proveedor_id) : null}
               onChange={(id) => handleChange('proveedor_id', id ? String(id) : '')}
-              disabled={saving}
+              disabled={saving || esMetadataOnly}
             />
           </div>
 
@@ -157,6 +197,7 @@ export default function ModalPedidoCompra({
                 className={styles.select}
                 value={form.moneda}
                 onChange={(e) => handleChange('moneda', e.target.value)}
+                disabled={esMetadataOnly}
               >
                 <option value="ARS">ARS</option>
                 <option value="USD">USD</option>
@@ -174,6 +215,7 @@ export default function ModalPedidoCompra({
                 onChange={(e) => handleChange('monto', e.target.value)}
                 placeholder="0.00"
                 required
+                disabled={esMetadataOnly}
               />
             </div>
           </div>
@@ -207,6 +249,7 @@ export default function ModalPedidoCompra({
               onChange={(e) => handleChange('fecha_pago_texto', e.target.value)}
               placeholder="Ej: 30 días fecha factura"
               maxLength={200}
+              disabled={esMetadataOnly}
             />
           </div>
 
@@ -217,6 +260,7 @@ export default function ModalPedidoCompra({
               className={styles.input}
               value={form.fecha_pago_estimada}
               onChange={(e) => handleChange('fecha_pago_estimada', e.target.value)}
+              disabled={esMetadataOnly}
             />
           </div>
 
@@ -226,6 +270,7 @@ export default function ModalPedidoCompra({
                 type="checkbox"
                 checked={form.requiere_envio}
                 onChange={(e) => handleChange('requiere_envio', e.target.checked)}
+                disabled={esMetadataOnly}
               />
               <span>Requiere envío (retiro proveedor)</span>
             </label>
@@ -240,6 +285,17 @@ export default function ModalPedidoCompra({
               onChange={(e) => handleChange('numero_factura', e.target.value)}
               placeholder="FA-00012345"
               maxLength={50}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Observaciones</label>
+            <textarea
+              className={styles.textarea}
+              value={form.observaciones}
+              onChange={(e) => handleChange('observaciones', e.target.value)}
+              placeholder="Notas internas, aclaraciones, referencias..."
+              rows={3}
             />
           </div>
 

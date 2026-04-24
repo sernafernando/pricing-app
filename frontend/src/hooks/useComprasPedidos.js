@@ -188,6 +188,19 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  // ── Feature D — corregir pedido (clonación append-only) ────────────
+  const corregir = useCallback(
+    (id, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/corregir`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -207,5 +220,7 @@ export default function useComprasPedidos() {
     listarFacturasCandidatas,
     vincularFactura,
     desvincularFactura,
+    // Feature D — corregir pedido
+    corregir,
   };
 }

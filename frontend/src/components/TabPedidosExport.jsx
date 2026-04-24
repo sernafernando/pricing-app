@@ -6,6 +6,7 @@ import { useToast } from '../hooks/useToast';
 import { usePermisos } from '../contexts/PermisosContext';
 import Toast from './Toast';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
+import SearchInput from './SearchInput';
 import styles from './TabPedidosExport.module.css';
 
 // Constantes de user_id del ERP
@@ -756,12 +757,11 @@ export default function TabPedidosExport() {
 
       {/* Barra de búsqueda full-width */}
       <div className={styles.searchBar}>
-        <input
-          type="text"
-          placeholder="Buscar en todo (cliente, dirección, orden TN, ID pedido, provincia, ciudad...)"
+        <SearchInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className={styles.searchInput}
+          onChange={setSearch}
+          placeholder="Buscar en todo (cliente, dirección, orden TN, ID pedido, provincia, ciudad...)"
+          size="lg"
         />
       </div>
 

@@ -749,14 +749,13 @@ export default function AdministracionCaja() {
           <option value="">Todos los tags</option>
           {tags.filter(t => t.activo).map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
         </select>
-        <div className={styles.searchWrapper}>
-          <SearchInput
-            value={filtroBusqueda}
-            onChange={setFiltroBusqueda}
-            placeholder="Buscar en detalle..."
-            size="sm"
-          />
-        </div>
+        <SearchInput
+          value={filtroBusqueda}
+          onChange={setFiltroBusqueda}
+          placeholder="Buscar en detalle..."
+          size="sm"
+          className={styles.searchWrapper}
+        />
       </div>
 
       {/* Movements Table */}

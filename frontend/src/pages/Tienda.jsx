@@ -21,6 +21,7 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
+import SearchInput from '../components/SearchInput';
 import { DollarSign, BarChart3, Check, X, RotateCcw } from 'lucide-react';
 
 export default function Tienda() {
@@ -372,11 +373,6 @@ export default function Tienda() {
     }
   };
 
-  const handleSearchChange = (e) => {
-    setSearchInput(e.target.value);
-    setPage(1);
-  };
-
   // Modal de configuración individual
   const abrirModalConfig = (producto) => {
     setProductoConfig(producto);
@@ -607,13 +603,10 @@ export default function Tienda() {
       </div>
 
       <div className="search-bar">
-        <input
-          type="text"
-          placeholder="Buscar productos..."
+        <SearchInput
           value={searchInput}
-          onChange={handleSearchChange}
-          onFocus={(e) => e.target.select()}
-          className="search-input"
+          onChange={(val) => { setSearchInput(val); setPage(1); }}
+          placeholder="Buscar productos..."
         />
       </div>
 

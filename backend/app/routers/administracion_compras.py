@@ -94,6 +94,7 @@ from app.schemas.orden_pago import (
     OrdenPagoResponse,
 )
 from app.schemas.pedido_compra import (
+    CorreccionPedidoRequest,
     DocumentoERPImputado,
     FacturaCandidataResponse,
     PedidoCompraCreate,
@@ -685,6 +686,54 @@ def cancelar_pedido(
         motivo=str(motivo) if motivo else None,
     )
     return _pedido_response(pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/corregir",
+    response_model=PedidoCompraResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Corregir pedido aprobado/pagado creando un clon (feature D)",
+)
+def corregir_pedido_endpoint(
+    pedido_id: int,
+    body: CorreccionPedidoRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """Crea un clon del pedido aplicando los `cambios` del body y cancela el
+    original. Clonación append-only bidireccional (feature D).
+
+    El clon nace en:
+      - `aprobado` si los cambios son cosméticos (factura, fechas, envío,
+        observaciones) → transferencia inmediata de imputaciones.
+      - `pendiente_aprobacion` si cambia `monto` o `tipo_cambio` →
+        imputaciones quedan congeladas en el original hasta que se apruebe
+        el clon (opción Z).
+
+    La moneda es inmutable al corregir. Para cambiarla hay que cancelar y
+    crear un pedido nuevo.
+
+    Permisos: `administracion.gestionar_ordenes_compra` (quien puede
+    gestionar pedidos puede corregirlos).
+    """
+    cambios = body.model_dump(
+        exclude_unset=True,
+        exclude={"motivo_correccion"},
+    )
+    try:
+        clon = pedidos_service.corregir_pedido(
+            db,
+            pedido_original_id=pedido_id,
+            cambios=cambios,
+            motivo_correccion=body.motivo_correccion,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    db.commit()
+    db.refresh(clon)
+    return _pedido_response(clon)
 
 
 # ──────────────────────────────────────────────────────────────────────────

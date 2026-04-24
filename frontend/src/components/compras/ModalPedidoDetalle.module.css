@@ -349,3 +349,39 @@
 .btnSecondary {
   composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
 }
+
+.btnCorregir {
+  composes: btn-tesla outline-subtle-warning sm from '../../styles/buttons-tesla.css';
+}
+
+/* ── Feature D — chips de navegación bidireccional original↔clon ── */
+.correctionChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.chipCorrection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs, 6px);
+  padding: 6px 10px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.chipCorrection:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--cf-accent-blue);
+}
+
+.chipCorrection svg {
+  color: var(--cf-accent-blue);
+}

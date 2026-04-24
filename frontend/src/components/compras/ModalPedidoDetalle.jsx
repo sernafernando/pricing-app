@@ -16,13 +16,19 @@ import {
   Link2,
   Link2Off,
   Paperclip,
+  Edit3,
+  History,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import api from '../../services/api';
 import AdjuntosPanel from './AdjuntosPanel';
 import ModalVincularFactura from './ModalVincularFactura';
+import ModalCorregirPedido from './ModalCorregirPedido';
 import styles from './ModalPedidoDetalle.module.css';
+
+// Estados desde los que se puede corregir un pedido (feature D).
+const ESTADOS_CORREGIBLES = new Set(['aprobado', 'pagado_parcial', 'pagado']);
 
 const eventoIcon = (tipo) => {
   const t = (tipo || '').toLowerCase();
@@ -74,6 +80,10 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [error, setError] = useState(null);
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
+  const [showCorregirModal, setShowCorregirModal] = useState(false);
+
+  const puedeCorregir =
+    canGestionar && pedido && ESTADOS_CORREGIBLES.has(pedido.estado);
 
   // Documentos ERP imputados (sub-batch 3.1).
   const [documentos, setDocumentos] = useState([]);
@@ -132,6 +142,30 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       if (reload) fetchDetalle();
     },
     [fetchDetalle]
+  );
+
+  // Feature D — al corregir se crea un clon. Cierra este modal y propaga el
+  // ID del clon al padre para que abra el modal del clon (flujo fluido).
+  const handleCorregirClose = useCallback(
+    (clon) => {
+      setShowCorregirModal(false);
+      if (clon) {
+        // `onClose(clon)` le dice al padre que recargue Y navegue al clon.
+        // Firma backward-compatible: el padre venía usando `bool reload`.
+        // Nuevos callers pueden leer el objeto clon para navegar.
+        onClose({ reload: true, clonId: clon.id });
+      }
+    },
+    [onClose]
+  );
+
+  const handleNavegarAPedidoRelacionado = useCallback(
+    (relacionadoId) => {
+      if (!relacionadoId) return;
+      // Cerrar este modal señalando al padre que abra el del relacionado.
+      onClose({ reload: false, pedidoId: relacionadoId });
+    },
+    [onClose]
   );
 
   return (
@@ -248,6 +282,38 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 </div>
               )}
             </div>
+
+            {/* ── Chips de correcciones (feature D, bidireccional) ── */}
+            {(pedido.corregido_desde_id || pedido.corregido_a_id) && (
+              <div className={styles.correctionChips}>
+                {pedido.corregido_desde_id && (
+                  <button
+                    type="button"
+                    className={styles.chipCorrection}
+                    onClick={() =>
+                      handleNavegarAPedidoRelacionado(pedido.corregido_desde_id)
+                    }
+                    title="Ver el pedido original desde el que se corrigió este"
+                  >
+                    <History size={14} />
+                    Corregido desde pedido #{pedido.corregido_desde_id} (ver original)
+                  </button>
+                )}
+                {pedido.corregido_a_id && (
+                  <button
+                    type="button"
+                    className={styles.chipCorrection}
+                    onClick={() =>
+                      handleNavegarAPedidoRelacionado(pedido.corregido_a_id)
+                    }
+                    title="Ver la versión corregida de este pedido"
+                  >
+                    <History size={14} />
+                    Corregido en pedido #{pedido.corregido_a_id} (ver versión corregida)
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* ── Factura del ERP ── */}
             <h3 className={styles.sectionTitle}>
@@ -438,6 +504,17 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
         )}
 
         <div className={styles.formActions}>
+          {puedeCorregir && (
+            <button
+              type="button"
+              className={styles.btnCorregir}
+              onClick={() => setShowCorregirModal(true)}
+              title="Crear una versión corregida del pedido (cancela el actual)"
+            >
+              <Edit3 size={14} />
+              Corregir
+            </button>
+          )}
           <button
             type="button"
             className={styles.btnSecondary}
@@ -450,6 +527,9 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
 
       {showVincularModal && pedido && (
         <ModalVincularFactura pedido={pedido} onClose={handleVincularClose} />
+      )}
+      {showCorregirModal && pedido && (
+        <ModalCorregirPedido pedido={pedido} onClose={handleCorregirClose} />
       )}
     </div>
   );

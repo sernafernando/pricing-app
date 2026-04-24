@@ -573,7 +573,7 @@ export default function EnviosVistaFlag() {
             value={search}
             onChange={setSearch}
             placeholder="Buscar (shipping ID, destinatario)..."
-            className={styles.searchInput}
+            className={styles.searchFilter}
             size="sm"
           />
 

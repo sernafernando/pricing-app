@@ -75,7 +75,15 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
         "numero_factura",
     }
 )
-CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset({"numero_factura"})
+CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
+    {
+        "numero_factura",
+        # TC puede variar entre aprobación y pago (solo aplica a USD, validado aparte)
+        "tipo_cambio",
+        # Comentarios editables post-aprobación sin afectar CC/imputaciones
+        "observaciones",
+    }
+)
 
 
 # Matriz de transiciones manuales (design §6):
@@ -114,6 +122,15 @@ class TiposEvento:
     # Sub-batch 4 — UPDATE directo del monto sin generar ajuste en CC
     # cuando el pedido no tiene imputaciones vigentes.
     MONTO_ACTUALIZADO_SIN_IMPUTACIONES: Final[str] = "monto_actualizado_sin_imputaciones"
+    # Feature D — corrección de pedido (clon append-only bidireccional).
+    # `creado_por_correccion_de`: evento en el clon, apunta al original.
+    # `cancelado_por_correccion`: evento en el original, apunta al clon.
+    # `imputaciones_reaplicadas_por_correccion`: evento post-aprobación del
+    #   clon cuando se re-aplican las imputaciones del original (reversals +
+    #   nuevas).
+    CREADO_POR_CORRECCION_DE: Final[str] = "creado_por_correccion_de"
+    CANCELADO_POR_CORRECCION: Final[str] = "cancelado_por_correccion"
+    IMPUTACIONES_REAPLICADAS_POR_CORRECCION: Final[str] = "imputaciones_reaplicadas_por_correccion"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -342,7 +359,9 @@ def editar_pedido(
 
     Estados y campos editables:
       - `borrador`: todos los campos de `CAMPOS_EDITABLES_BORRADOR`.
-      - `aprobado` / `pagado_parcial`: solo `numero_factura`.
+      - `aprobado` / `pagado_parcial` / `pagado`: solo campos de
+        `CAMPOS_EDITABLES_APROBADO` (numero_factura, tipo_cambio, observaciones).
+        Estos campos son metadata y no disparan recalculos en CC/imputaciones.
       - Cualquier otro estado → HTTP 409.
 
     Side effects:
@@ -370,14 +389,14 @@ def editar_pedido(
 
     if pedido.estado == "borrador":
         editables = CAMPOS_EDITABLES_BORRADOR
-    elif pedido.estado in {"aprobado", "pagado_parcial"}:
+    elif pedido.estado in {"aprobado", "pagado_parcial", "pagado"}:
         editables = CAMPOS_EDITABLES_APROBADO
     else:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"No se puede editar un pedido en estado '{pedido.estado}'. "
-                f"Estados editables: borrador, aprobado, pagado_parcial."
+                f"Estados editables: borrador, aprobado, pagado_parcial, pagado."
             ),
         )
 
@@ -610,6 +629,14 @@ def transicionar(
         nuevo_estado,
         user_id,
     )
+
+    # Feature D — al aprobar un clon que nació `pendiente_aprobacion` por
+    # cambios financieros, disparar la transferencia de imputaciones
+    # congeladas en el original (opción Z). Si la aprobación viene sobre un
+    # pedido NO-clon, es no-op.
+    if accion == "aprobar" and pedido.corregido_desde_id is not None:
+        _aplicar_transferencia_correccion_al_aprobar(session, clon=pedido, user_id=user_id)
+
     return pedido
 
 
@@ -1278,9 +1305,578 @@ def monto_normalizar(valor: Decimal) -> str:
     return f"{Decimal(valor):.2f}"
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Feature D — Corregir pedido (clonación append-only bidireccional)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+# Estados desde los que se permite corregir un pedido (design feature D.3).
+# NO se permite desde borrador/pendiente_aprobacion/rechazado/cancelado:
+#   - borrador/pendiente: editar directo o usar flujo normal.
+#   - rechazado/cancelado: flujo terminal, no hay qué corregir (o se reabre).
+ESTADOS_CORREGIBLES: Final[frozenset[str]] = frozenset({"aprobado", "pagado_parcial", "pagado"})
+
+
+# Campos que, si cambian respecto al original, fuerzan al clon a nacer en
+# `pendiente_aprobacion` (requieren re-aprobación). Cualquier otro cambio
+# es cosmético y el clon hereda `aprobado`.
+CAMPOS_FINANCIEROS_CORRECCION: Final[frozenset[str]] = frozenset({"monto", "tipo_cambio"})
+
+
+def _imputaciones_vigentes_sobre_pedido(session: Session, pedido_id: int) -> list[Any]:
+    """Devuelve imputaciones activas (no-reversal sin reversal posterior) con
+    destino_tipo='pedido_compra' y destino_id=pedido_id."""
+    from sqlalchemy import select
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+    # Trae todas las no-reversal; filtra en Python las que ya tienen reversal
+    # emitido (otra fila con reimputada_desde_id = esta.id).
+    no_reversal = (
+        session.execute(
+            select(Imputacion).where(
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.destino_id == pedido_id,
+                Imputacion.es_reversal.is_(False),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not no_reversal:
+        return []
+
+    ids = [imp.id for imp in no_reversal]
+    ids_con_reversal = set(
+        session.execute(
+            select(Imputacion.reimputada_desde_id).where(
+                Imputacion.es_reversal.is_(True),
+                Imputacion.reimputada_desde_id.in_(ids),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [imp for imp in no_reversal if imp.id not in ids_con_reversal]
+
+
+def _clonar_adjuntos_de_pedido(
+    session: Session,
+    *,
+    pedido_original_id: int,
+    pedido_clon_id: int,
+    user_id: int,
+) -> int:
+    """Clona las filas de `compras_adjuntos` apuntando al clon.
+
+    Los archivos físicos NO se duplican: `path_archivo` se reusa (el
+    almacenamiento es inmutable — el mismo archivo puede ser referenciado
+    por ambos pedidos). El `subido_por_id` se atribuye al usuario que
+    corrige (auditoría del clon).
+
+    Returns el número de adjuntos clonados.
+    """
+    from sqlalchemy import select
+
+    from app.models.compra_adjunto import CompraAdjunto  # noqa: PLC0415
+
+    adjuntos_orig = (
+        session.execute(
+            select(CompraAdjunto).where(
+                CompraAdjunto.entidad_tipo == CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+                CompraAdjunto.entidad_id == pedido_original_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for adj in adjuntos_orig:
+        clon_adj = CompraAdjunto(
+            entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+            entidad_id=pedido_clon_id,
+            nombre_archivo=adj.nombre_archivo,
+            path_archivo=adj.path_archivo,  # MISMO archivo físico
+            mime_type=adj.mime_type,
+            tamano_bytes=adj.tamano_bytes,
+            tipo=adj.tipo,
+            descripcion=adj.descripcion,
+            subido_por_id=user_id,
+        )
+        session.add(clon_adj)
+    return len(adjuntos_orig)
+
+
+def _construir_diff_correccion(original: PedidoCompra, cambios: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Serializa los cambios aplicados al clon en formato {campo: {de, a}}."""
+    diff: dict[str, dict[str, str]] = {}
+    for campo, nuevo in cambios.items():
+        previo = getattr(original, campo, None)
+        if previo != nuevo:
+            diff[campo] = {
+                "de": _serializar_valor(previo),
+                "a": _serializar_valor(nuevo),
+            }
+    return diff
+
+
+def corregir_pedido(
+    session: Session,
+    *,
+    pedido_original_id: int,
+    cambios: dict[str, Any],
+    motivo_correccion: str,
+    user_id: int,
+) -> PedidoCompra:
+    """Clona un pedido aprobado/pagado_parcial/pagado aplicando cambios,
+    cancelando el original (Feature D — corrección append-only).
+
+    Reglas:
+      - Original debe estar en `ESTADOS_CORREGIBLES`.
+      - No se puede cambiar `moneda` (si aparece en cambios con valor
+        distinto al original → HTTP 400).
+      - Si cambia `monto` o `tipo_cambio` respecto al original → clon nace
+        en `pendiente_aprobacion`. Las imputaciones quedan "congeladas" en
+        el original; se re-aplican cuando el clon se apruebe (opción Z).
+      - Solo cambios cosméticos → clon nace en `aprobado`. Las imputaciones
+        se transfieren inmediatamente (reversals en original + nuevas en
+        clon) dentro de la misma transacción.
+
+    Side effects:
+      - Inserta clon en `pedidos_compra` con `corregido_desde_id=original.id`.
+      - Setea `original.estado = 'cancelado'` y `original.corregido_a_id = clon.id`.
+      - Transfiere `ct_transaction_id` del original al clon (el original
+        queda con NULL para no violar unicidad lógica de factura ERP↔pedido).
+      - Clona filas de `compras_adjuntos` (archivos físicos NO se duplican).
+      - Inserta eventos `creado_por_correccion_de` (clon) y
+        `cancelado_por_correccion` (original) en `compras_eventos`.
+      - Si clon nace `aprobado`: inserta DEBE en CC del clon + HABER de
+        cancelación en CC del original + reversals de imputaciones + nuevas
+        imputaciones al clon. Todo append-only.
+      - Si clon nace `pendiente_aprobacion`: NO toca CC ni imputaciones.
+        El DEBE original queda vivo; la transferencia se dispara cuando se
+        aprueba el clon (ver `_aplicar_transferencia_correccion_al_aprobar`).
+
+    NO commitea — responsabilidad del caller.
+
+    Args:
+        session: tx activa.
+        pedido_original_id: PK del pedido a corregir.
+        cambios: dict `{campo: valor_nuevo}`. Solo se consideran claves que
+            aparecen en `CAMPOS_EDITABLES_BORRADOR` + `observaciones`. El
+            resto se ignora silenciosamente.
+        motivo_correccion: texto libre ≥5 chars. Persistido en los payloads
+            de ambos eventos (clon y original).
+        user_id: quien ejecuta la corrección (auditoría del clon).
+
+    Returns:
+        El pedido clon recién creado (puede estar en `aprobado` o
+        `pendiente_aprobacion` según los cambios).
+
+    Raises:
+        HTTPException 404: si el original no existe.
+        HTTPException 409: si el estado del original no es corregible.
+        HTTPException 400: si se intenta cambiar `moneda`.
+    """
+    # Import diferido para evitar ciclos (imputaciones_service importa
+    # helpers de CC, que a su vez pueden importar utilidades genéricas).
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.services import imputaciones_service  # noqa: PLC0415
+
+    # 1. Validar original existe y está en estado corregible
+    original = _obtener_pedido_o_404(session, pedido_original_id)
+    if original.estado not in ESTADOS_CORREGIBLES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No se puede corregir un pedido en estado '{original.estado}'. "
+                f"Solo se permite desde: {sorted(ESTADOS_CORREGIBLES)}."
+            ),
+        )
+
+    # 2. Validar que no se intenta cambiar moneda
+    moneda_propuesta = cambios.get("moneda")
+    if moneda_propuesta is not None and moneda_propuesta != original.moneda:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("No se puede cambiar la moneda al corregir un pedido. Cancelá el pedido y creá uno nuevo."),
+        )
+
+    # 3. Normalizar `tipo_cambio` si vino (para la comparación Decimal con el
+    # original, que está en Numeric). Garantiza que `==` funcione como
+    # esperamos.
+    if "monto" in cambios and cambios["monto"] is not None:
+        cambios["monto"] = Decimal(str(cambios["monto"]))
+    if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None:
+        cambios["tipo_cambio"] = Decimal(str(cambios["tipo_cambio"]))
+
+    # 4. Determinar estado del clon según cambios financieros reales
+    cambios_financieros_reales = any(
+        campo in cambios and cambios[campo] is not None and cambios[campo] != getattr(original, campo)
+        for campo in CAMPOS_FINANCIEROS_CORRECCION
+    )
+    estado_clon = "pendiente_aprobacion" if cambios_financieros_reales else "aprobado"
+
+    # 5. Snapshot de imputaciones vigentes del original (antes de mutar nada)
+    imputaciones_vigentes = _imputaciones_vigentes_sobre_pedido(session, pedido_id=original.id)
+    ids_imputaciones_vigentes = [int(imp.id) for imp in imputaciones_vigentes]
+
+    # 6. Construir clon heredando lo del original + cambios aplicados
+    nuevo_numero, _ = numeracion_service.generar_siguiente_numero(
+        session,
+        tipo="pedido",
+        empresa_id=original.empresa_id,
+    )
+    ct_transaction_heredado = original.ct_transaction_id
+    clon = PedidoCompra(
+        numero=nuevo_numero,
+        empresa_id=original.empresa_id,
+        proveedor_id=original.proveedor_id,
+        moneda=original.moneda,  # inmutable por diseño
+        monto=cambios.get("monto") if cambios.get("monto") is not None else original.monto,
+        tipo_cambio=(
+            cambios.get("tipo_cambio")
+            if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None
+            else original.tipo_cambio
+        ),
+        fecha_pago_texto=cambios.get("fecha_pago_texto", original.fecha_pago_texto),
+        fecha_pago_estimada=cambios.get("fecha_pago_estimada", original.fecha_pago_estimada),
+        requiere_envio=cambios.get("requiere_envio")
+        if cambios.get("requiere_envio") is not None
+        else original.requiere_envio,
+        numero_factura=cambios.get("numero_factura", original.numero_factura),
+        observaciones=cambios.get("observaciones", original.observaciones),
+        ct_transaction_id=ct_transaction_heredado,
+        corregido_desde_id=original.id,
+        estado=estado_clon,
+        creado_por_id=user_id,
+        aprobado_por_id=(original.aprobado_por_id if estado_clon == "aprobado" else None),
+    )
+    session.add(clon)
+    session.flush()  # → obtenemos clon.id
+
+    # 7. Transferir ct_transaction y marcar original cancelado + ref cruzada
+    original_estado_anterior = original.estado
+    original.ct_transaction_id = None
+    original.estado = "cancelado"
+    original.corregido_a_id = clon.id
+    session.flush()
+
+    # 8. Clonar adjuntos (archivos físicos reutilizados)
+    n_adjuntos = _clonar_adjuntos_de_pedido(
+        session,
+        pedido_original_id=original.id,
+        pedido_clon_id=clon.id,
+        user_id=user_id,
+    )
+
+    # 9. Construir diff para el evento del clon
+    cambios_persistidos = {
+        k: v
+        for k, v in cambios.items()
+        if k
+        in {
+            "monto",
+            "tipo_cambio",
+            "fecha_pago_texto",
+            "fecha_pago_estimada",
+            "requiere_envio",
+            "numero_factura",
+            "observaciones",
+        }
+        and v is not None
+    }
+    diff = _construir_diff_correccion(original, cambios_persistidos)
+
+    # 10. Evento en el original (cancelado_por_correccion)
+    _registrar_evento(
+        session,
+        pedido=original,
+        tipo=TiposEvento.CANCELADO_POR_CORRECCION,
+        usuario_id=user_id,
+        payload={
+            "clon_id": clon.id,
+            "clon_numero": clon.numero,
+            "motivo": motivo_correccion,
+            "estado_anterior": original_estado_anterior,
+            "ct_transaction_transferida": ct_transaction_heredado,
+            "imputaciones_pendientes_reaplicar": (ids_imputaciones_vigentes if cambios_financieros_reales else []),
+            "adjuntos_clonados": n_adjuntos,
+        },
+    )
+
+    # 11. Evento en el clon (creado_por_correccion_de)
+    _registrar_evento(
+        session,
+        pedido=clon,
+        tipo=TiposEvento.CREADO_POR_CORRECCION_DE,
+        usuario_id=user_id,
+        payload={
+            "original_id": original.id,
+            "original_numero": original.numero,
+            "cambios": diff,
+            "motivo": motivo_correccion,
+            "estado_clon": estado_clon,
+            "imputaciones_pendientes_reaplicar": (ids_imputaciones_vigentes if cambios_financieros_reales else []),
+        },
+    )
+
+    # 12. Side effects CC según estado del clon
+    if estado_clon == "aprobado":
+        # Cosméticos: transferencia inmediata.
+        # (a) HABER de cancelación en CC del original (compensa DEBE original).
+        cc_proveedor_service.insertar_mov(
+            session,
+            proveedor_id=original.proveedor_id,
+            empresa_id=original.empresa_id,
+            fecha_movimiento=date.today(),
+            tipo="ajuste",
+            monto=Decimal(original.monto),
+            moneda=original.moneda,  # type: ignore[arg-type]
+            origen_tipo="cancelacion_pedido_por_correccion",
+            origen_id=original.id,
+            descripcion=f"Cancelación por corrección {original.numero} → {clon.numero}",
+            creado_por_id=user_id,
+            signo_ajuste=-1,
+        )
+        # (b) DEBE del clon (igual que flujo normal de aprobación).
+        cc_proveedor_service.insertar_mov(
+            session,
+            proveedor_id=clon.proveedor_id,
+            empresa_id=clon.empresa_id,
+            fecha_movimiento=date.today(),
+            tipo="debe",
+            monto=Decimal(clon.monto),
+            moneda=clon.moneda,  # type: ignore[arg-type]
+            origen_tipo="pedido_compra",
+            origen_id=clon.id,
+            descripcion=f"Aprobación por corrección pedido {clon.numero}",
+            creado_por_id=user_id,
+        )
+        # (c) Reversals de imputaciones vigentes del original (append-only).
+        # (d) Re-crear las imputaciones apuntando al clon.
+        for imp in imputaciones_vigentes:
+            imputaciones_service.desimputar(
+                session,
+                imputacion_id=int(imp.id),
+                user_id=user_id,
+                motivo=f"Transferencia por corrección a {clon.numero}",
+            )
+            imputaciones_service.crear_imputacion(
+                session,
+                origen_tipo=imp.origen_tipo,
+                origen_id=int(imp.origen_id),
+                destino_tipo="pedido_compra",
+                destino_id=clon.id,
+                monto_imputado=imp.monto_imputado,
+                moneda_imputada=imp.moneda_imputada,
+                proveedor_id=int(imp.proveedor_id),
+                creado_por_id=user_id,
+                tipo_cambio=imp.tipo_cambio,
+            )
+            # Aplicar la nueva imputación en CC del clon (haber compensando
+            # el DEBE recién creado).
+            from app.services import cc_proveedor_service as _cc  # noqa: PLC0415
+
+            # La imputación más reciente del proveedor con destino clon es la
+            # que acabamos de crear — la aplicamos.
+            nueva = session.execute(
+                select(Imputacion)
+                .where(
+                    Imputacion.destino_tipo == "pedido_compra",
+                    Imputacion.destino_id == clon.id,
+                    Imputacion.es_reversal.is_(False),
+                )
+                .order_by(Imputacion.id.desc())
+                .limit(1)
+            ).scalar_one()
+            _cc.aplicar_imputacion(session, imputacion_id=nueva.id)
+
+        # (e) Recalcular estado del clon por las imputaciones transferidas
+        if imputaciones_vigentes:
+            recalcular_estado_por_imputaciones(session, pedido_id=clon.id)
+
+    logger.info(
+        "pedido_corregido original_id=%s(%s) clon_id=%s(%s) estado_clon=%s "
+        "financiero=%s imputaciones=%d adjuntos=%d user_id=%s",
+        original.id,
+        original.numero,
+        clon.id,
+        clon.numero,
+        estado_clon,
+        cambios_financieros_reales,
+        len(imputaciones_vigentes),
+        n_adjuntos,
+        user_id,
+    )
+    return clon
+
+
+def _aplicar_transferencia_correccion_al_aprobar(
+    session: Session,
+    *,
+    clon: PedidoCompra,
+    user_id: int,
+) -> None:
+    """Completa la transferencia de imputaciones cuando un clon con
+    `corregido_desde_id` se aprueba desde `pendiente_aprobacion`.
+
+    Flujo (disparado post-aprobación normal, en la misma transacción):
+      1. Recupera las imputaciones "pendientes_reaplicar" del evento
+         `creado_por_correccion_de` del clon.
+      2. Para cada una: desimputa (reversal en original) + re-crea en clon
+         + aplica la nueva imputación en CC.
+      3. Inserta HABER de cancelación en CC del original (compensa el DEBE
+         original que hasta ahora seguía "vivo").
+      4. Recalcula el estado del clon por imputaciones (puede quedar
+         `pagado_parcial`/`pagado`).
+      5. Inserta evento `imputaciones_reaplicadas_por_correccion` en el
+         clon con snapshot de IDs transferidos.
+
+    NO se dispara si el clon no tiene `corregido_desde_id` (no es un clon)
+    o si no hay imputaciones pendientes de transferir.
+
+    Args:
+        session: tx activa (misma que llamó a `transicionar(..., 'aprobar')`).
+        clon: pedido clon recién aprobado.
+        user_id: quien aprobó.
+    """
+    if clon.corregido_desde_id is None:
+        return
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.services import imputaciones_service  # noqa: PLC0415
+
+    original = session.get(PedidoCompra, clon.corregido_desde_id)
+    if original is None:
+        logger.warning(
+            "aplicar_transferencia_correccion: clon id=%s sin original válido",
+            clon.id,
+        )
+        return
+
+    # Leer el evento de creación del clon para recuperar los IDs de
+    # imputaciones que quedaron congeladas en el original.
+    evento = session.execute(
+        select(CompraEvento)
+        .where(
+            CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_PEDIDO,
+            CompraEvento.entidad_id == clon.id,
+            CompraEvento.tipo == TiposEvento.CREADO_POR_CORRECCION_DE,
+        )
+        .order_by(CompraEvento.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    payload = (evento.payload or {}) if evento else {}
+    ids_pendientes = list(payload.get("imputaciones_pendientes_reaplicar", []) or [])
+    if not ids_pendientes:
+        return  # no había nada que transferir
+
+    # Filtrar: solo las que siguen vigentes (podría haber cambiado el estado
+    # entre corregir y aprobar — ej. se desimputaron manualmente). Además,
+    # excluir las ya transferidas por una aprobación previa (idempotencia).
+    imputaciones_a_transferir = (
+        session.execute(
+            select(Imputacion).where(
+                Imputacion.id.in_(ids_pendientes),
+                Imputacion.es_reversal.is_(False),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ids_ya_revertidas = set(
+        session.execute(
+            select(Imputacion.reimputada_desde_id).where(
+                Imputacion.es_reversal.is_(True),
+                Imputacion.reimputada_desde_id.in_([imp.id for imp in imputaciones_a_transferir]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    imputaciones_a_transferir = [imp for imp in imputaciones_a_transferir if imp.id not in ids_ya_revertidas]
+
+    # HABER de cancelación en CC del original (diferido desde el corregir).
+    cc_proveedor_service.insertar_mov(
+        session,
+        proveedor_id=original.proveedor_id,
+        empresa_id=original.empresa_id,
+        fecha_movimiento=date.today(),
+        tipo="ajuste",
+        monto=Decimal(original.monto),
+        moneda=original.moneda,  # type: ignore[arg-type]
+        origen_tipo="cancelacion_pedido_por_correccion",
+        origen_id=original.id,
+        descripcion=f"Cancelación por corrección {original.numero} → {clon.numero}",
+        creado_por_id=user_id,
+        signo_ajuste=-1,
+    )
+
+    # Transferencia imputación por imputación (append-only).
+    transferidas_ids: list[int] = []
+    for imp in imputaciones_a_transferir:
+        imputaciones_service.desimputar(
+            session,
+            imputacion_id=int(imp.id),
+            user_id=user_id,
+            motivo=f"Transferencia por corrección a {clon.numero}",
+        )
+        imputaciones_service.crear_imputacion(
+            session,
+            origen_tipo=imp.origen_tipo,
+            origen_id=int(imp.origen_id),
+            destino_tipo="pedido_compra",
+            destino_id=clon.id,
+            monto_imputado=imp.monto_imputado,
+            moneda_imputada=imp.moneda_imputada,
+            proveedor_id=int(imp.proveedor_id),
+            creado_por_id=user_id,
+            tipo_cambio=imp.tipo_cambio,
+        )
+        nueva = session.execute(
+            select(Imputacion)
+            .where(
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.destino_id == clon.id,
+                Imputacion.es_reversal.is_(False),
+            )
+            .order_by(Imputacion.id.desc())
+            .limit(1)
+        ).scalar_one()
+        cc_proveedor_service.aplicar_imputacion(session, imputacion_id=nueva.id)
+        transferidas_ids.append(int(imp.id))
+
+    if imputaciones_a_transferir:
+        recalcular_estado_por_imputaciones(session, pedido_id=clon.id)
+
+    _registrar_evento(
+        session,
+        pedido=clon,
+        tipo=TiposEvento.IMPUTACIONES_REAPLICADAS_POR_CORRECCION,
+        usuario_id=user_id,
+        payload={
+            "original_id": original.id,
+            "imputaciones_origen_transferidas": transferidas_ids,
+            "cantidad": len(transferidas_ids),
+        },
+    )
+    logger.info(
+        "transferencia_correccion_aplicada clon_id=%s original_id=%s transferidas=%d",
+        clon.id,
+        original.id,
+        len(transferidas_ids),
+    )
+
+
 __all__ = [
     "CAMPOS_EDITABLES_APROBADO",
     "CAMPOS_EDITABLES_BORRADOR",
+    "CAMPOS_FINANCIEROS_CORRECCION",
+    "ESTADOS_CORREGIBLES",
     "ESTADOS_TERMINALES",
     "EstadoPedido",
     "TRANSICIONES_VALIDAS",
@@ -1288,6 +1884,7 @@ __all__ = [
     "ajustar_monto_con_factura",
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",
+    "corregir_pedido",
     "crear_pedido",
     "desvincular_factura",
     "editar_pedido",

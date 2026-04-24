@@ -32,22 +32,6 @@
   max-width: 400px;
 }
 
-.searchInput {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-sm);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-}
-
-.searchInput:focus {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);
-}
-
 .legend {
   display: flex;
   gap: var(--spacing-md);

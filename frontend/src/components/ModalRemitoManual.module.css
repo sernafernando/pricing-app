@@ -108,7 +108,7 @@
   min-height: 40px;
 }
 
-/* Search box */
+/* Search box (cliente: input + botón Buscar) */
 .searchBox {
   display: flex;
   align-items: center;
@@ -132,6 +132,11 @@
   color: var(--cf-text-primary);
   font-size: var(--font-sm);
   outline: none;
+}
+
+/* Búsqueda de productos (usa SearchInput global) */
+.productSearch {
+  margin-bottom: var(--spacing-sm);
 }
 
 .spin {
