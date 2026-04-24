@@ -111,6 +111,9 @@ class TiposEvento:
     FACTURA_DESVINCULADA: Final[str] = "factura_desvinculada"
     MONTO_AJUSTADO_POR_FACTURA: Final[str] = "monto_ajustado_por_factura"
     MONTO_DIFIERE_AL_MATCHEAR: Final[str] = "monto_difiere_al_matchear"
+    # Sub-batch 4 — UPDATE directo del monto sin generar ajuste en CC
+    # cuando el pedido no tiene imputaciones vigentes.
+    MONTO_ACTUALIZADO_SIN_IMPUTACIONES: Final[str] = "monto_actualizado_sin_imputaciones"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1098,20 +1101,30 @@ def ajustar_monto_con_factura(
     Ajusta `pedido.monto` al valor de la factura Y lo vincula en una sola
     operación atómica.
 
+    Estrategia (sub-batch 4):
+      - Si el pedido NO tiene imputaciones vigentes (es_reversal=False):
+        UPDATE directo del monto SIN generar movimiento de ajuste en CC.
+        El pedido recién va a impactar en CC cuando se ejecute una OP.
+        Se registra evento `monto_actualizado_sin_imputaciones` en lugar
+        del ajuste compensatorio.
+      - Si SÍ tiene imputaciones vigentes: comportamiento previo —
+        movimiento de ajuste append-only en CC por la diferencia, porque
+        la CC ya tiene movimientos asociados al monto viejo y no podemos
+        cambiar silenciosamente (decisión del usuario: "los pedidos
+        cuando le cargás una factura no tiene que generar un ajuste sino
+        modificar el monto precisamente", pero ese UPDATE directo SOLO
+        es válido sin imputaciones vigentes).
+
     Genera:
-      1) Movimiento en `cc_proveedor_movimientos` por la diferencia
-         (`tipo='ajuste'`, `signo_ajuste=+1` si nuevo>actual, `-1` si es
-         menor; `origen_tipo='ajuste_pedido'`, `origen_id=pedido.id`).
-         Si la diferencia es 0 → NO se emite movimiento CC, pero SÍ se
-         vincula y se registra el evento.
-      2) Update `pedido.monto`, `pedido.ct_transaction_id`.
-      3) Evento `monto_ajustado_por_factura` con `{monto_anterior,
-         monto_nuevo, diferencia, ct_transaction, motivo}`.
+      1) Si hay imputaciones vigentes y `diferencia != 0`: movimiento en
+         `cc_proveedor_movimientos` por la diferencia (`tipo='ajuste'`,
+         `signo_ajuste=+1/-1`, `origen_tipo='ajuste_pedido'`).
+      2) UPDATE `pedido.monto`, `pedido.ct_transaction_id`.
+      3) Evento `monto_ajustado_por_factura` (con imputaciones) o
+         `monto_actualizado_sin_imputaciones` (sin imputaciones).
 
     IMPORTANTE — append-only: las imputaciones y movimientos CC previos NO
-    se tocan. El ajuste es un movimiento NUEVO en CC. Si el pedido ya
-    estaba pagado por un monto viejo distinto, el ajuste refleja el delta
-    contra el proveedor pero NO cambia las imputaciones existentes.
+    se tocan en NINGÚN caso. El ajuste en CC es un movimiento NUEVO.
 
     Precondiciones:
       - Pedido existe.
@@ -1182,7 +1195,27 @@ def ajustar_monto_con_factura(
     nuevo_monto_dec = Decimal(str(nuevo_monto))
     diferencia = nuevo_monto_dec - monto_anterior
 
-    if diferencia != Decimal("0"):
+    # Sub-batch 4: si no hay imputaciones vigentes al pedido → UPDATE directo
+    # sin mover CC. Solo genera evento auditado.
+    from sqlalchemy import func, select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+    tiene_imputaciones_vivas = (
+        session.execute(
+            select(func.count())
+            .select_from(Imputacion)
+            .where(
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.destino_id == pedido.id,
+                Imputacion.es_reversal.is_(False),
+            )
+        ).scalar_one()
+        or 0
+    ) > 0
+
+    if tiene_imputaciones_vivas and diferencia != Decimal("0"):
+        # Comportamiento previo: ajuste compensatorio append-only.
         signo = 1 if diferencia > 0 else -1
         cc_proveedor_service.insertar_mov(
             session,
@@ -1207,10 +1240,15 @@ def ajustar_monto_con_factura(
     pedido.ct_transaction_id = int(ct_transaction)
     session.flush()
 
+    evento_tipo = (
+        TiposEvento.MONTO_AJUSTADO_POR_FACTURA
+        if tiene_imputaciones_vivas
+        else TiposEvento.MONTO_ACTUALIZADO_SIN_IMPUTACIONES
+    )
     _registrar_evento(
         session,
         pedido=pedido,
-        tipo=TiposEvento.MONTO_AJUSTADO_POR_FACTURA,
+        tipo=evento_tipo,
         usuario_id=user_id,
         payload={
             "monto_anterior": str(monto_anterior),
@@ -1219,16 +1257,18 @@ def ajustar_monto_con_factura(
             "ct_transaction": int(ct_transaction),
             "ct_docnumber": ct_docnumber,
             "motivo": motivo_normalizado,
+            "tenia_imputaciones_vivas": tiene_imputaciones_vivas,
         },
     )
     logger.info(
-        "pedido_ajustar_monto id=%s %s → %s (dif=%s) ct=%s user=%s",
+        "pedido_ajustar_monto id=%s %s → %s (dif=%s) ct=%s user=%s imp_vivas=%s",
         pedido.id,
         monto_anterior,
         nuevo_monto_dec,
         diferencia,
         ct_transaction,
         user_id,
+        tiene_imputaciones_vivas,
     )
     return pedido
 
