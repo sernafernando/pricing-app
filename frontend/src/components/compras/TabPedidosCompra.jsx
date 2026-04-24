@@ -501,14 +501,13 @@ export default function TabPedidosCompra() {
             onChange={(e) => setFiltroHasta(e.target.value)}
             title="Hasta"
           />
-          <div className={styles.searchWrapper}>
-            <SearchInput
-              value={busqueda}
-              onChange={setBusqueda}
-              placeholder="Buscar por número..."
-              size="sm"
-            />
-          </div>
+          <SearchInput
+            value={busqueda}
+            onChange={setBusqueda}
+            placeholder="Buscar por número..."
+            size="sm"
+            className={styles.searchWrapper}
+          />
         </div>
         {canManage && (
           <button className={styles.btnSuccess} onClick={handleOpenCrear}>
