@@ -3,10 +3,11 @@ import { useDebounce } from '../hooks/useDebounce';
 import { toLocalDateString } from '../utils/dateUtils';
 import { usePermisos } from '../contexts/PermisosContext';
 import {
-  ScanBarcode, Search, X, ShieldAlert, Ban, Lock,
+  ScanBarcode, X, ShieldAlert, Ban, Lock,
   Clock, CheckCircle, AlertCircle, Package, RefreshCw,
 } from 'lucide-react';
 import api from '../services/api';
+import SearchInput from '../components/SearchInput';
 import styles from './ControlDeposito.module.css';
 
 const ESTADO_CONFIG = {
@@ -502,16 +503,12 @@ function ControlDepositoInner() {
         </div>
 
         <div className={styles.filtersRight}>
-          <div className={styles.searchWrapper}>
-            <Search size={16} className={styles.searchIcon} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className={styles.searchInput}
-              placeholder="Buscar serie, EAN, producto..."
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Buscar serie, EAN, producto..."
+            size="sm"
+          />
 
           <button
             type="button"

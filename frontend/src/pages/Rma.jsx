@@ -10,7 +10,8 @@ import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
 import RmaEnviosCliente from '../components/RmaEnviosCliente';
 import Toast from '../components/Toast';
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown } from 'lucide-react';
+import { Plus, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './Rma.module.css';
 
@@ -250,15 +251,12 @@ export default function Rma() {
         <>
           {/* Filtros */}
           <div className={styles.filtros}>
-            <div className={styles.searchBox}>
-              <Search size={16} />
-              <input
-                type="text"
-                placeholder="Buscar por caso, cliente, ML ID, serie..."
-                value={search}
-                onChange={(e) => updateFilters({ search: e.target.value, page: 1 })}
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={(val) => updateFilters({ search: val, page: 1 })}
+              placeholder="Buscar por caso, cliente, ML ID, serie..."
+              className={styles.searchBox}
+            />
             <select
               value={estadoCasoId}
               onChange={(e) => updateFilters({ estado_caso_id: e.target.value, page: 1 })}
