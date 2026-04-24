@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Layers, List, DollarSign, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Loader2,
+  Layers,
+  List,
+  DollarSign,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Zap,
+  Sliders,
+  Eye,
+  FileText,
+  Receipt,
+  X,
+} from 'lucide-react';
 import api from '../../services/api';
+import { usePermisos } from '../../contexts/PermisosContext';
 import useCCProveedor from '../../hooks/useCCProveedor';
+import ModalOrdenPagoNueva from './ModalOrdenPagoNueva';
+import ModalPedidoCompra from './ModalPedidoCompra';
+import ModalPedidoDetalle from './ModalPedidoDetalle';
+import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
+import ModalNCLocal from './ModalNCLocal';
+import ModalNCLocalDetalle from './ModalNCLocalDetalle';
 import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabCCProveedores.module.css';
@@ -36,6 +57,11 @@ export default function TabCCProveedores() {
     error: ccError,
   } = useCCProveedor();
 
+  const { tienePermiso } = usePermisos();
+  const canGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
+  const canEjecutarPagos = tienePermiso('administracion.ejecutar_pagos');
+  const canAjustarCcManual = tienePermiso('administracion.ajustar_cc_proveedor_manual');
+
   // A.6: un solo estado — el autocomplete setea el id activo directamente y
   // dispara fetch inmediato. Ya no hace falta un input "staging" + botón Buscar.
   const [proveedorIdActivo, setProveedorIdActivo] = useState(null);
@@ -52,6 +78,25 @@ export default function TabCCProveedores() {
   const [detalle, setDetalle] = useState(null);
   const [porPedido, setPorPedido] = useState([]);
   const [tcEstimado, setTcEstimado] = useState(null);
+
+  // ── Sub-batch 5 — acciones desde el header del proveedor ──
+  // proveedorCtx: contexto pre-cargado para los modales que crean entidades.
+  const proveedorCtx = detalle
+    ? {
+        id: detalle.proveedor_id,
+        nombre: detalle.nombre_proveedor,
+        empresa_id: filtroEmpresa ? Number(filtroEmpresa) : null,
+      }
+    : null;
+
+  const [showNuevaOP, setShowNuevaOP] = useState(false);
+  const [showNuevoPedido, setShowNuevoPedido] = useState(false);
+  const [showNuevaNC, setShowNuevaNC] = useState(false);
+  const [showPagoRapido, setShowPagoRapido] = useState(false);
+  const [showAjusteManual, setShowAjusteManual] = useState(false);
+
+  // Sub-batch 5.D: detalle de movimiento clickeado.
+  const [detalleMov, setDetalleMov] = useState(null); // { tipo, id }
 
   const fetchEmpresas = useCallback(async () => {
     try {
@@ -176,6 +221,60 @@ export default function TabCCProveedores() {
             <span className={styles.proveedorId}>#{detalle.proveedor_id}</span>
           </div>
 
+          {/* Sub-batch 5: acciones rápidas desde CC */}
+          <div className={styles.accionesBar}>
+            {canGestionar && (
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => setShowNuevoPedido(true)}
+                title="Crear pedido pre-cargado con este proveedor"
+              >
+                <Plus size={14} /> Nuevo pedido
+              </button>
+            )}
+            {canGestionar && (
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => setShowNuevaOP(true)}
+                title="Crear OP pre-cargada con este proveedor"
+              >
+                <Plus size={14} /> Nueva OP
+              </button>
+            )}
+            {canGestionar && (
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => setShowNuevaNC(true)}
+                title="Crear NC local pre-cargada con este proveedor"
+              >
+                <Plus size={14} /> Nueva NC
+              </button>
+            )}
+            {canEjecutarPagos && (
+              <button
+                type="button"
+                className={styles.btnSuccess}
+                onClick={() => setShowPagoRapido(true)}
+                title="Crear OP a_cuenta + ejecutar pago en un solo paso"
+              >
+                <Zap size={14} /> Pago rápido
+              </button>
+            )}
+            {canAjustarCcManual && (
+              <button
+                type="button"
+                className={styles.btnDanger}
+                onClick={() => setShowAjusteManual(true)}
+                title="Ajuste manual append-only (permiso crítico)"
+              >
+                <Sliders size={14} /> Ajuste manual
+              </button>
+            )}
+          </div>
+
           {/* Cards saldos por moneda (FUENTE DE VERDAD) */}
           <div className={styles.saldosGrid}>
             <div className={styles.saldoCard}>
@@ -237,41 +336,68 @@ export default function TabCCProveedores() {
                     <th>Descripción</th>
                     <th className={styles.thRight}>Monto</th>
                     <th>Moneda</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
                   {(detalle.movimientos || []).length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={styles.emptyState}>
+                      <td colSpan={7} className={styles.emptyState}>
                         Sin movimientos en este periodo.
                       </td>
                     </tr>
                   ) : (
-                    detalle.movimientos.map((m) => (
-                      <tr key={m.id}>
-                        <td className={styles.tdSecondary}>{formatDate(m.fecha_movimiento)}</td>
-                        <td>
-                          <span
-                            className={
-                              m.tipo === 'debe'
-                                ? styles.badgeDebe
-                                : m.tipo === 'haber'
-                                ? styles.badgeHaber
-                                : styles.badgeAjuste
-                            }
-                          >
-                            {m.tipo}
-                          </span>
-                        </td>
-                        <td className={styles.tdSecondary}>
-                          {m.origen_tipo}
-                          {m.origen_id ? ` #${m.origen_id}` : ''}
-                        </td>
-                        <td>{m.descripcion || '—'}</td>
-                        <td className={styles.tdRight}>{formatMoneda(m.monto, m.moneda)}</td>
-                        <td>{m.moneda}</td>
-                      </tr>
-                    ))
+                    detalle.movimientos.map((m) => {
+                      const navegable =
+                        m.origen_id &&
+                        ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
+                          m.origen_tipo
+                        );
+                      return (
+                        <tr key={m.id} className={navegable ? styles.rowClickable : undefined}>
+                          <td className={styles.tdSecondary}>
+                            {formatDate(m.fecha_movimiento)}
+                          </td>
+                          <td>
+                            <span
+                              className={
+                                m.tipo === 'debe'
+                                  ? styles.badgeDebe
+                                  : m.tipo === 'haber'
+                                    ? styles.badgeHaber
+                                    : styles.badgeAjuste
+                              }
+                            >
+                              {m.tipo}
+                            </span>
+                          </td>
+                          <td className={styles.tdSecondary}>
+                            {m.origen_tipo}
+                            {m.origen_id ? ` #${m.origen_id}` : ''}
+                          </td>
+                          <td>{m.descripcion || '—'}</td>
+                          <td className={styles.tdRight}>
+                            {formatMoneda(m.monto, m.moneda)}
+                          </td>
+                          <td>{m.moneda}</td>
+                          <td>
+                            {navegable && (
+                              <button
+                                type="button"
+                                className={styles.iconBtn}
+                                onClick={() =>
+                                  setDetalleMov({ tipo: m.origen_tipo, id: m.origen_id })
+                                }
+                                aria-label="Ver detalle"
+                                title="Ver detalle del documento origen"
+                              >
+                                <Eye size={14} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -328,6 +454,452 @@ export default function TabCCProveedores() {
           </div>
         </>
       )}
+
+      {/* ── Sub-batch 5.B — Nueva OP pre-cargada ── */}
+      {showNuevaOP && proveedorCtx && (
+        <ModalOrdenPagoNueva
+          empresas={empresas}
+          proveedorInicial={proveedorCtx}
+          pendientesDelProveedor={[]}
+          onClose={(reload) => {
+            setShowNuevaOP(false);
+            if (reload) fetchDetalle();
+          }}
+        />
+      )}
+
+      {/* ── Sub-batch 5.F — Nuevo pedido pre-cargado ── */}
+      {showNuevoPedido && proveedorCtx && (
+        <ModalPedidoCompra
+          pedido={null}
+          empresas={empresas}
+          proveedorInicial={proveedorCtx}
+          onClose={(reload) => {
+            setShowNuevoPedido(false);
+            if (reload) fetchDetalle();
+          }}
+        />
+      )}
+
+      {/* ── Sub-batch 5.E — Nueva NC local pre-cargada ── */}
+      {showNuevaNC && proveedorCtx && (
+        <ModalNCLocal
+          nc={null}
+          empresas={empresas}
+          proveedorInicial={proveedorCtx}
+          onClose={(reload) => {
+            setShowNuevaNC(false);
+            if (reload) fetchDetalle();
+          }}
+        />
+      )}
+
+      {/* ── Sub-batch 5.D — Detalle del movimiento clickeado ── */}
+      {detalleMov?.tipo === 'pedido_compra' && (
+        <ModalPedidoDetalle
+          pedidoId={detalleMov.id}
+          onClose={() => setDetalleMov(null)}
+        />
+      )}
+      {detalleMov?.tipo === 'orden_pago' && (
+        <ModalOrdenPagoDetalle
+          op={{ id: detalleMov.id }}
+          onClose={() => setDetalleMov(null)}
+        />
+      )}
+      {detalleMov?.tipo === 'nota_credito_local' && (
+        <ModalNCLocalDetalle
+          ncId={detalleMov.id}
+          onClose={() => setDetalleMov(null)}
+        />
+      )}
+
+      {/* ── Sub-batch 5.G — Pago rápido ── */}
+      {showPagoRapido && proveedorCtx && (
+        <ModalPagoRapido
+          proveedor={proveedorCtx}
+          empresas={empresas}
+          onClose={(reload) => {
+            setShowPagoRapido(false);
+            if (reload) fetchDetalle();
+          }}
+        />
+      )}
+
+      {/* ── Sub-batch 5.H — Ajuste manual CC ── */}
+      {showAjusteManual && proveedorCtx && (
+        <ModalAjusteCCManual
+          proveedor={proveedorCtx}
+          empresas={empresas}
+          onClose={(reload) => {
+            setShowAjusteManual(false);
+            if (reload) fetchDetalle();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Modales inline del tab CC (sub-batch 5.G + 5.H).
+// Se mantienen en este archivo porque son específicos de la UX del tab CC
+// (no se reusan desde otros lugares).
+// ══════════════════════════════════════════════════════════════════════════
+
+function ModalPagoRapido({ proveedor, empresas, onClose }) {
+  const todayIso = () => new Date().toISOString().split('T')[0];
+  const [form, setForm] = useState({
+    empresa_id: proveedor.empresa_id ? String(proveedor.empresa_id) : '',
+    caja_id: '',
+    moneda: 'ARS',
+    monto: '',
+    fecha_pago_real: todayIso(),
+    tipo_cambio: '',
+    observaciones: '',
+  });
+  const [cajas, setCajas] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/administracion-caja/cajas');
+        setCajas(data || []);
+      } catch {
+        setCajas([]);
+      }
+    })();
+  }, []);
+
+  const cajasFiltradas = cajas.filter((c) => {
+    if (form.empresa_id && c.empresa_id && String(c.empresa_id) !== form.empresa_id) {
+      return false;
+    }
+    return true;
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.empresa_id) return setError('Empresa requerida.');
+    if (!form.caja_id) return setError('Caja requerida.');
+    const monto = parseFloat(form.monto);
+    if (!Number.isFinite(monto) || monto <= 0) return setError('Monto > 0 requerido.');
+
+    setLoading(true);
+    setError(null);
+    try {
+      const body = {
+        empresa_id: Number(form.empresa_id),
+        caja_id: Number(form.caja_id),
+        moneda: form.moneda,
+        monto,
+        fecha_pago_real: form.fecha_pago_real,
+        observaciones: form.observaciones || null,
+      };
+      if (form.tipo_cambio) {
+        body.tipo_cambio = parseFloat(form.tipo_cambio);
+      }
+      await api.post(`/administracion/compras/cc-proveedor/${proveedor.id}/pago-rapido`, body);
+      onClose(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al ejecutar el pago rápido.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalContent}>
+        <div className={styles.modalHeader}>
+          <span className={styles.modalTitle}>
+            <Zap size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            Pago rápido — {proveedor.nombre}
+          </span>
+          <button
+            className={styles.modalCloseBtn}
+            onClick={() => onClose(false)}
+            aria-label="Cerrar"
+            type="button"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {error && <div className={styles.errorBanner}>{error}</div>}
+        <p className={styles.modalHelp}>
+          <Receipt size={12} /> Crea una OP modo <code>a_cuenta</code> + ejecuta el pago
+          en un solo paso. Deja trazabilidad completa (número OP, evento,
+          caja_movimiento).
+        </p>
+        <form onSubmit={handleSubmit}>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Empresa *</label>
+            <select
+              className={styles.select}
+              value={form.empresa_id}
+              onChange={(e) => setForm({ ...form, empresa_id: e.target.value })}
+              required
+            >
+              <option value="">Seleccionar...</option>
+              {empresas.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Caja *</label>
+            <select
+              className={styles.select}
+              value={form.caja_id}
+              onChange={(e) => setForm({ ...form, caja_id: e.target.value })}
+              required
+            >
+              <option value="">Seleccionar caja...</option>
+              {cajasFiltradas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre} — {c.moneda}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Moneda *</label>
+              <select
+                className={styles.select}
+                value={form.moneda}
+                onChange={(e) => setForm({ ...form, moneda: e.target.value })}
+              >
+                <option value="ARS">ARS</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Monto *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className={styles.input}
+                value={form.monto}
+                onChange={(e) => setForm({ ...form, monto: e.target.value })}
+                placeholder="0.00"
+                required
+              />
+            </div>
+          </div>
+          {form.moneda === 'USD' && (
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Tipo de cambio</label>
+              <input
+                type="number"
+                step="0.0001"
+                min="0"
+                className={styles.input}
+                value={form.tipo_cambio}
+                onChange={(e) => setForm({ ...form, tipo_cambio: e.target.value })}
+                placeholder="TC al momento del pago"
+              />
+            </div>
+          )}
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Fecha pago real *</label>
+            <input
+              type="date"
+              className={styles.input}
+              value={form.fecha_pago_real}
+              onChange={(e) => setForm({ ...form, fecha_pago_real: e.target.value })}
+              required
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Observaciones</label>
+            <textarea
+              className={styles.textarea}
+              value={form.observaciones}
+              onChange={(e) => setForm({ ...form, observaciones: e.target.value })}
+              rows={2}
+            />
+          </div>
+          <div className={styles.formActions}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => onClose(false)}
+              disabled={loading}
+            >
+              Cancelar
+            </button>
+            <button type="submit" className={styles.btnSuccess} disabled={loading}>
+              {loading ? 'Procesando...' : 'Pagar ahora'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ModalAjusteCCManual({ proveedor, empresas, onClose }) {
+  const todayIso = () => new Date().toISOString().split('T')[0];
+  const [form, setForm] = useState({
+    empresa_id: proveedor.empresa_id ? String(proveedor.empresa_id) : '',
+    fecha_movimiento: todayIso(),
+    signo_ajuste: '1',
+    monto: '',
+    moneda: 'ARS',
+    motivo: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.empresa_id) return setError('Empresa requerida.');
+    const monto = parseFloat(form.monto);
+    if (!Number.isFinite(monto) || monto <= 0) return setError('Monto > 0 requerido.');
+    if (form.motivo.trim().length < 3) return setError('Motivo de al menos 3 caracteres.');
+
+    setLoading(true);
+    setError(null);
+    try {
+      await api.post(
+        `/administracion/compras/cc-proveedor/${proveedor.id}/ajuste-manual`,
+        {
+          empresa_id: Number(form.empresa_id),
+          fecha_movimiento: form.fecha_movimiento,
+          signo_ajuste: Number(form.signo_ajuste),
+          monto,
+          moneda: form.moneda,
+          motivo: form.motivo.trim(),
+        }
+      );
+      onClose(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al crear el ajuste manual.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalContent}>
+        <div className={styles.modalHeader}>
+          <span className={styles.modalTitle}>
+            <Sliders size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            Ajuste manual CC — {proveedor.nombre}
+          </span>
+          <button
+            className={styles.modalCloseBtn}
+            onClick={() => onClose(false)}
+            aria-label="Cerrar"
+            type="button"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {error && <div className={styles.errorBanner}>{error}</div>}
+        <p className={styles.modalHelp}>
+          <FileText size={12} /> Append-only: agrega un movimiento de ajuste sin modificar
+          los existentes. Uso crítico (compensaciones externas, correcciones
+          históricas).
+        </p>
+        <form onSubmit={handleSubmit}>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Empresa *</label>
+            <select
+              className={styles.select}
+              value={form.empresa_id}
+              onChange={(e) => setForm({ ...form, empresa_id: e.target.value })}
+              required
+            >
+              <option value="">Seleccionar...</option>
+              {empresas.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Tipo *</label>
+              <select
+                className={styles.select}
+                value={form.signo_ajuste}
+                onChange={(e) => setForm({ ...form, signo_ajuste: e.target.value })}
+              >
+                <option value="1">Debe (+) aumenta deuda</option>
+                <option value="-1">Haber (-) reduce deuda</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Fecha *</label>
+              <input
+                type="date"
+                className={styles.input}
+                value={form.fecha_movimiento}
+                onChange={(e) => setForm({ ...form, fecha_movimiento: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Moneda *</label>
+              <select
+                className={styles.select}
+                value={form.moneda}
+                onChange={(e) => setForm({ ...form, moneda: e.target.value })}
+              >
+                <option value="ARS">ARS</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Monto *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className={styles.input}
+                value={form.monto}
+                onChange={(e) => setForm({ ...form, monto: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Motivo *</label>
+            <textarea
+              className={styles.textarea}
+              value={form.motivo}
+              onChange={(e) => setForm({ ...form, motivo: e.target.value })}
+              rows={3}
+              placeholder="Describí el motivo con contexto suficiente para auditoría..."
+              required
+            />
+          </div>
+          <div className={styles.formActions}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => onClose(false)}
+              disabled={loading}
+            >
+              Cancelar
+            </button>
+            <button type="submit" className={styles.btnDanger} disabled={loading}>
+              {loading ? 'Guardando...' : 'Registrar ajuste'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
