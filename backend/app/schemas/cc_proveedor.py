@@ -84,4 +84,8 @@ class CCReconciliacionLogResponse(BaseModel):
     notificacion_id: int | None = None
     created_at: datetime
 
+    # Nombre derivado (batch-enriquecido por el router) para que la UI no
+    # tenga que adivinar el proveedor a partir del ID.
+    proveedor_nombre: str | None = None
+
     model_config = ConfigDict(from_attributes=True)

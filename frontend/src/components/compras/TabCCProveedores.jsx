@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Layers, List, DollarSign } from 'lucide-react';
+import { Loader2, Layers, List, DollarSign, ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../../services/api';
 import useCCProveedor from '../../hooks/useCCProveedor';
+import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabCCProveedores.module.css';
 
@@ -42,6 +43,9 @@ export default function TabCCProveedores() {
   const [filtroEmpresa, setFiltroEmpresa] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [view, setView] = useState('cronologico'); // 'cronologico' | 'por-pedido'
+  // Sección colapsable de imputaciones (COMPRAS-7.5 refactor UX: se integró
+  // acá en vez de vivir como sub-tab de OPs).
+  const [mostrarImputaciones, setMostrarImputaciones] = useState(false);
 
   const [empresas, setEmpresas] = useState([]);
 
@@ -164,10 +168,12 @@ export default function TabCCProveedores() {
         <div className={styles.emptyState}>Sin datos para este proveedor.</div>
       ) : (
         <>
-          {/* Header con nombre */}
+          {/* Header con nombre — el ID queda secundario como pill pequeño. */}
           <div className={styles.proveedorHeader}>
-            <h2 className={styles.proveedorNombre}>{detalle.nombre_proveedor}</h2>
-            <span className={styles.proveedorId}>ID #{detalle.proveedor_id}</span>
+            <h2 className={styles.proveedorNombre}>
+              {detalle.nombre_proveedor || `Proveedor #${detalle.proveedor_id}`}
+            </h2>
+            <span className={styles.proveedorId}>#{detalle.proveedor_id}</span>
           </div>
 
           {/* Cards saldos por moneda (FUENTE DE VERDAD) */}
@@ -300,6 +306,26 @@ export default function TabCCProveedores() {
               )}
             </div>
           )}
+
+          {/* Imputaciones del proveedor — colapsable para no saturar. */}
+          <div className={styles.imputacionesSection}>
+            <button
+              type="button"
+              className={styles.imputacionesToggle}
+              onClick={() => setMostrarImputaciones((v) => !v)}
+              aria-expanded={mostrarImputaciones}
+            >
+              {mostrarImputaciones ? (
+                <ChevronDown size={16} />
+              ) : (
+                <ChevronRight size={16} />
+              )}
+              <span>Imputaciones</span>
+            </button>
+            {mostrarImputaciones && (
+              <PanelImputaciones proveedorIdFijo={proveedorIdActivo} />
+            )}
+          </div>
         </>
       )}
     </div>

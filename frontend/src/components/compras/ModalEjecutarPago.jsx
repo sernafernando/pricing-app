@@ -138,7 +138,8 @@ export default function ModalEjecutarPago({ op, onClose }) {
 
         <div className={styles.infoBox}>
           <div>
-            <span className={styles.infoLabel}>Empresa:</span> #{op.empresa_id}
+            <span className={styles.infoLabel}>Empresa:</span>{' '}
+            {op.empresa_nombre || `#${op.empresa_id}`}
           </div>
           <div>
             <span className={styles.infoLabel}>Moneda:</span> {op.moneda}
@@ -245,8 +246,9 @@ export default function ModalEjecutarPago({ op, onClose }) {
               <div className={styles.loading}>Cargando cajas...</div>
             ) : cajasFiltradas.length === 0 ? (
               <div className={styles.warning}>
-                <AlertTriangle size={14} /> No hay cajas en {op.moneda} para la empresa #
-                {op.empresa_id}. Creá una caja compatible antes de pagar.
+                <AlertTriangle size={14} /> No hay cajas en {op.moneda} para la empresa{' '}
+                {op.empresa_nombre || `#${op.empresa_id}`} (id #{op.empresa_id}). Creá una
+                caja compatible antes de pagar.
               </div>
             ) : (
               <select

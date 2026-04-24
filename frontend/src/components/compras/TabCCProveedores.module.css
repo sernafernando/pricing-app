@@ -72,9 +72,10 @@
 }
 
 /* ── Proveedor header ────────────────────────────────────────── */
+/* Nombre protagonista + ID pequeño como pill secundario (T3.4). */
 .proveedorHeader {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
@@ -92,6 +93,7 @@
   background: var(--cf-bg-hover);
   padding: 2px 8px;
   border-radius: var(--radius-full);
+  font-family: var(--font-mono, monospace);
 }
 
 /* ── Saldos grid ─────────────────────────────────────────────── */
@@ -345,4 +347,32 @@
   border-radius: var(--radius-md);
   font-size: var(--font-sm);
   border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Sección colapsable de imputaciones (COMPRAS-7.5 refactor UX) ── */
+.imputacionesSection {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.imputacionesToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+  margin-bottom: var(--spacing-md);
+}
+
+.imputacionesToggle:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
 }

@@ -1237,6 +1237,196 @@ def obtener_papelera_item(
 # ==========================================================================
 
 
+def _enriquecer_imputaciones(db: Session, imps: list[Imputacion]) -> list[ImputacionResponse]:
+    """Enriquece imputaciones con nombres + descripciones legibles (batch, NO N+1).
+
+    Carga en 4-6 queries agrupadas todos los proveedores, empresas, pedidos,
+    OPs y NCs locales referenciados por el conjunto de imputaciones. Si una
+    referencia es huérfana (origen/destino apuntando a un recurso
+    inexistente), se cae al ID crudo como fallback.
+
+    Para empresas, la imputación NO tiene FK directa — resolvemos via:
+      - destino pedido_compra → pedido.empresa_id
+      - origen orden_pago → op.empresa_id
+      - origen nota_credito_local → nc.empresa_id
+      - destino factura_erp → (comp_id, bra_id) del ct_transaction mapeado
+        vía `compras_empresa_erp_map.bra_a_empresa_o_ignorar`.
+    """
+    if not imps:
+        return []
+
+    from app.core.compras_empresa_erp_map import bra_a_empresa_o_ignorar  # noqa: PLC0415
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+    from app.models.empresa import Empresa  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    # ── 1. Proveedores ──────────────────────────────────────────────────
+    proveedor_ids = {imp.proveedor_id for imp in imps if imp.proveedor_id is not None}
+    proveedores: dict[int, str] = {}
+    if proveedor_ids:
+        rows = db.execute(select(Proveedor.id, Proveedor.nombre).where(Proveedor.id.in_(proveedor_ids))).all()
+        proveedores = {int(r[0]): str(r[1]) for r in rows}
+
+    # ── 2. Pedidos (para destino=pedido_compra y resolver empresa) ──────
+    pedido_ids = {
+        int(imp.destino_id) for imp in imps if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None
+    }
+    pedidos: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if pedido_ids:
+        rows = db.execute(
+            select(PedidoCompra.id, PedidoCompra.numero, PedidoCompra.empresa_id).where(PedidoCompra.id.in_(pedido_ids))
+        ).all()
+        pedidos = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 3. OPs (para origen=orden_pago y resolver empresa) ──────────────
+    op_ids = {int(imp.origen_id) for imp in imps if imp.origen_tipo == "orden_pago" and imp.origen_id is not None}
+    ops: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if op_ids:
+        rows = db.execute(
+            select(OrdenPago.id, OrdenPago.numero, OrdenPago.empresa_id).where(OrdenPago.id.in_(op_ids))
+        ).all()
+        ops = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 4. NCs locales (para origen=nota_credito_local y resolver empresa)
+    nc_local_ids = {
+        int(imp.origen_id) for imp in imps if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None
+    }
+    ncs_locales: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if nc_local_ids:
+        rows = db.execute(
+            select(NotaCreditoLocal.id, NotaCreditoLocal.numero, NotaCreditoLocal.empresa_id).where(
+                NotaCreditoLocal.id.in_(nc_local_ids)
+            )
+        ).all()
+        ncs_locales = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 5. CommercialTransaction (factura_erp como destino, nota_credito_erp
+    #      como origen) — para numero y empresa_id via (comp_id, bra_id).
+    ct_ids: set[int] = set()
+    for imp in imps:
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_ids.add(int(imp.destino_id))
+        if imp.origen_tipo == "nota_credito_erp" and imp.origen_id is not None:
+            ct_ids.add(int(imp.origen_id))
+    cts: dict[int, tuple[str | None, int | None, int | None]] = {}  # {ct: (doc, comp, bra)}
+    if ct_ids:
+        try:
+            rows = db.execute(
+                select(
+                    CommercialTransaction.ct_transaction,
+                    CommercialTransaction.ct_docNumber,
+                    CommercialTransaction.comp_id,
+                    CommercialTransaction.bra_id,
+                ).where(CommercialTransaction.ct_transaction.in_(ct_ids))
+            ).all()
+            cts = {
+                int(r[0]): (
+                    str(r[1]) if r[1] is not None else None,
+                    int(r[2]) if r[2] is not None else None,
+                    int(r[3]) if r[3] is not None else None,
+                )
+                for r in rows
+            }
+        except Exception:  # noqa: BLE001 — ERP no disponible (SQLite tests / tabla faltante)
+            # Fallback silencioso: sin metadata ERP. Se caerá al ID crudo.
+            cts = {}
+
+    # ── 6. Empresas (nombres, resolvemos IDs abajo vía los dicts de arriba)
+    empresa_ids_a_cargar: set[int] = set()
+    for imp in imps:
+        # Prioridad idéntica a `_resolver_empresa_id_para_imputacion`:
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            ped = pedidos.get(int(imp.destino_id))
+            if ped is not None:
+                empresa_ids_a_cargar.add(ped[1])
+                continue
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            op_tuple = ops.get(int(imp.origen_id))
+            if op_tuple is not None:
+                empresa_ids_a_cargar.add(op_tuple[1])
+                continue
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            nc_tuple = ncs_locales.get(int(imp.origen_id))
+            if nc_tuple is not None:
+                empresa_ids_a_cargar.add(nc_tuple[1])
+                continue
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[1] is not None and ct_tuple[2] is not None:
+                emp = bra_a_empresa_o_ignorar(ct_tuple[1], ct_tuple[2])
+                if emp is not None:
+                    empresa_ids_a_cargar.add(emp)
+
+    empresas_nombres: dict[int, str] = {}
+    if empresa_ids_a_cargar:
+        rows = db.execute(select(Empresa.id, Empresa.nombre).where(Empresa.id.in_(empresa_ids_a_cargar))).all()
+        empresas_nombres = {int(r[0]): str(r[1]) for r in rows}
+
+    # ── 7. Construcción de respuestas enriquecidas ──────────────────────
+    def _resolver_empresa_id(imp: Imputacion) -> int | None:
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            ped = pedidos.get(int(imp.destino_id))
+            if ped is not None:
+                return ped[1]
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            op_tuple = ops.get(int(imp.origen_id))
+            if op_tuple is not None:
+                return op_tuple[1]
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            nc_tuple = ncs_locales.get(int(imp.origen_id))
+            if nc_tuple is not None:
+                return nc_tuple[1]
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[1] is not None and ct_tuple[2] is not None:
+                return bra_a_empresa_o_ignorar(ct_tuple[1], ct_tuple[2])
+        return None
+
+    def _descripcion_origen(imp: Imputacion) -> str:
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            tup = ops.get(int(imp.origen_id))
+            if tup is not None:
+                return f"OP {tup[0]}"
+            return f"OP #{imp.origen_id}"
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            tup = ncs_locales.get(int(imp.origen_id))
+            if tup is not None:
+                return f"NC {tup[0]}"
+            return f"NC #{imp.origen_id}"
+        if imp.origen_tipo == "nota_credito_erp" and imp.origen_id is not None:
+            ct_tuple = cts.get(int(imp.origen_id))
+            if ct_tuple is not None and ct_tuple[0]:
+                return f"NC ERP {ct_tuple[0]}"
+            return f"NC ERP {imp.origen_id}"
+        return f"{imp.origen_tipo} #{imp.origen_id}"
+
+    def _descripcion_destino(imp: Imputacion) -> str:
+        if imp.destino_tipo == "saldo":
+            return "Saldo a cuenta"
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            tup = pedidos.get(int(imp.destino_id))
+            if tup is not None:
+                return f"Pedido {tup[0]}"
+            return f"Pedido #{imp.destino_id}"
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[0]:
+                return f"Factura {ct_tuple[0]}"
+            return f"Factura {imp.destino_id}"
+        return f"{imp.destino_tipo} #{imp.destino_id}"
+
+    resultado: list[ImputacionResponse] = []
+    for imp in imps:
+        emp_id = _resolver_empresa_id(imp)
+        resp = ImputacionResponse.model_validate(imp)
+        resp.proveedor_nombre = proveedores.get(int(imp.proveedor_id)) if imp.proveedor_id else None
+        resp.empresa_nombre = empresas_nombres.get(emp_id) if emp_id is not None else None
+        resp.origen_descripcion = _descripcion_origen(imp)
+        resp.destino_descripcion = _descripcion_destino(imp)
+        resultado.append(resp)
+    return resultado
+
+
 @router.get(
     "/imputaciones",
     response_model=ImputacionPaginated,
@@ -1253,7 +1443,7 @@ def listar_imputaciones(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> ImputacionPaginated:
-    """Imputaciones paginadas."""
+    """Imputaciones paginadas, con nombres derivados + descripciones legibles."""
     condiciones = []
     if proveedor_id is not None:
         condiciones.append(Imputacion.proveedor_id == proveedor_id)
@@ -1272,8 +1462,9 @@ def listar_imputaciones(
     stmt = stmt.order_by(Imputacion.created_at.desc(), Imputacion.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
+    enriquecidos = _enriquecer_imputaciones(db, list(items))
     return ImputacionPaginated(
-        items=[ImputacionResponse.model_validate(i) for i in items],
+        items=enriquecidos,
         total=total,
         page=page,
         page_size=page_size,
@@ -1516,7 +1707,20 @@ def listar_reconciliaciones(
     ).limit(limit)
 
     logs = list(db.execute(stmt).scalars().all())
-    return [CCReconciliacionLogResponse.model_validate(log) for log in logs]
+
+    # Batch-enriquecer con proveedor_nombre (1 query WHERE IN).
+    proveedor_ids = {int(log.proveedor_id) for log in logs if log.proveedor_id is not None}
+    nombres: dict[int, str] = {}
+    if proveedor_ids:
+        rows = db.execute(select(Proveedor.id, Proveedor.nombre).where(Proveedor.id.in_(proveedor_ids))).all()
+        nombres = {int(r[0]): str(r[1]) for r in rows}
+
+    resultado: list[CCReconciliacionLogResponse] = []
+    for log in logs:
+        resp = CCReconciliacionLogResponse.model_validate(log)
+        resp.proveedor_nombre = nombres.get(int(log.proveedor_id)) if log.proveedor_id else None
+        resultado.append(resp)
+    return resultado
 
 
 @router.post(

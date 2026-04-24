@@ -23,7 +23,6 @@ import ModalOrdenPagoNueva from './ModalOrdenPagoNueva';
 import ModalEjecutarPago from './ModalEjecutarPago';
 import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
-import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabOrdenesPago.module.css';
 
@@ -82,9 +81,6 @@ export default function TabOrdenesPago() {
   const [eliminarModal, setEliminarModal] = useState(null); // op | null
   const [eliminarLoading, setEliminarLoading] = useState(false);
   const [eliminarError, setEliminarError] = useState(null);
-
-  // Sub-tab: OPs (default) | Imputaciones (COMPRAS-7.5)
-  const [subTab, setSubTab] = useState('ops');
 
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -332,28 +328,6 @@ export default function TabOrdenesPago() {
 
   return (
     <div className={styles.container}>
-      {/* Sub-tab switcher: OPs / Imputaciones (COMPRAS-7.5) */}
-      <div className={styles.subTabBar}>
-        <button
-          type="button"
-          className={`${styles.subTabBtn} ${subTab === 'ops' ? styles.subTabActive : ''}`}
-          onClick={() => setSubTab('ops')}
-        >
-          Órdenes de Pago
-        </button>
-        <button
-          type="button"
-          className={`${styles.subTabBtn} ${subTab === 'imputaciones' ? styles.subTabActive : ''}`}
-          onClick={() => setSubTab('imputaciones')}
-        >
-          Imputaciones
-        </button>
-      </div>
-
-      {subTab === 'imputaciones' && <PanelImputaciones />}
-
-      {subTab === 'ops' && (
-        <>
       {/* Sección: pedidos aprobados esperando pago */}
       <div className={styles.pendientesSection}>
         <button
@@ -677,8 +651,6 @@ export default function TabOrdenesPago() {
         loading={eliminarLoading}
         error={eliminarError}
       />
-        </>
-      )}
     </div>
   );
 }

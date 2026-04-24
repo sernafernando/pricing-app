@@ -21,13 +21,13 @@ import styles from './PanelImputaciones.module.css';
 
 const TIPOS = ['orden_pago', 'pedido_compra', 'cc_saldo_a_favor'];
 
-const INITIAL_FILTERS = {
-  proveedor_id: null,
+const buildInitialFilters = (proveedorIdFijo = null) => ({
+  proveedor_id: proveedorIdFijo,
   origen_tipo: '',
   destino_tipo: '',
   desde: '',
   hasta: '',
-};
+});
 
 const fmtDateTime = (iso) => {
   if (!iso) return '—';
@@ -52,18 +52,30 @@ const fmtMoney = (value, moneda) => {
   return `${prefix}${num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-export default function PanelImputaciones() {
+export default function PanelImputaciones({ proveedorIdFijo = null }) {
+  // Si `proveedorIdFijo` viene, el panel se monta dentro de TabCCProveedores
+  // (ya hay un selector de proveedor arriba) — ocultamos el dropdown de
+  // proveedor interno y forzamos el filtro al ID del contexto.
+  const mostrarFiltroProveedor = proveedorIdFijo === null;
+
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   const { listarImputaciones, loading: ccLoading } = useCCProveedor();
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
 
-  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [filters, setFilters] = useState(() => buildInitialFilters(proveedorIdFijo));
   const [data, setData] = useState({ items: [], total: 0, page: 1, page_size: 50 });
   const [localError, setLocalError] = useState(null);
   const [confirmarDesimp, setConfirmarDesimp] = useState(null); // imputacion row o null
   const [motivoDesimp, setMotivoDesimp] = useState('');
   const [enviando, setEnviando] = useState(false);
+
+  // Si el padre cambia el proveedor activo (CC Proveedores), sincronizamos.
+  useEffect(() => {
+    if (proveedorIdFijo !== null) {
+      setFilters((f) => ({ ...f, proveedor_id: proveedorIdFijo }));
+    }
+  }, [proveedorIdFijo]);
 
   const fetchData = useCallback(
     async (page = 1) => {
@@ -94,7 +106,7 @@ export default function PanelImputaciones() {
   };
 
   const limpiarFiltros = () => {
-    setFilters(INITIAL_FILTERS);
+    setFilters(buildInitialFilters(proveedorIdFijo));
     // esperamos al próximo tick usando un setTimeout (fetchData usa el closure del state actual)
     setTimeout(() => fetchData(1), 0);
   };
@@ -133,13 +145,15 @@ export default function PanelImputaciones() {
 
       {/* ── Filtros ─────────────────────────────────────────────── */}
       <div className={styles.filtersGrid}>
-        <div className={styles.filterGroup}>
-          <label className={styles.filterLabel}>Proveedor</label>
-          <ProveedorComprasAutocomplete
-            value={filters.proveedor_id}
-            onChange={(id) => setFilters((f) => ({ ...f, proveedor_id: id }))}
-          />
-        </div>
+        {mostrarFiltroProveedor && (
+          <div className={styles.filterGroup}>
+            <label className={styles.filterLabel}>Proveedor</label>
+            <ProveedorComprasAutocomplete
+              value={filters.proveedor_id}
+              onChange={(id) => setFilters((f) => ({ ...f, proveedor_id: id }))}
+            />
+          </div>
+        )}
 
         <div className={styles.filterGroup}>
           <label className={styles.filterLabel}>Origen</label>
@@ -208,7 +222,8 @@ export default function PanelImputaciones() {
             <tr>
               <th>ID</th>
               <th>Fecha</th>
-              <th>Proveedor</th>
+              {mostrarFiltroProveedor && <th>Proveedor</th>}
+              <th>Empresa</th>
               <th>Origen</th>
               <th>Destino</th>
               <th>Monto</th>
@@ -219,7 +234,7 @@ export default function PanelImputaciones() {
           <tbody>
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={8} className={styles.emptyRow}>
+                <td colSpan={mostrarFiltroProveedor ? 9 : 8} className={styles.emptyRow}>
                   {ccLoading ? 'Cargando...' : 'Sin imputaciones para los filtros aplicados.'}
                 </td>
               </tr>
@@ -228,19 +243,25 @@ export default function PanelImputaciones() {
               <tr key={imp.id}>
                 <td>{imp.id}</td>
                 <td>{fmtDateTime(imp.created_at)}</td>
-                <td>{imp.proveedor_id}</td>
-                <td>
-                  <span className={styles.pill}>{imp.origen_tipo}</span>
-                  <span className={styles.pillId}>#{imp.origen_id}</span>
+                {mostrarFiltroProveedor && (
+                  <td>{imp.proveedor_nombre || `#${imp.proveedor_id}`}</td>
+                )}
+                <td className={styles.tdSecondary}>
+                  {imp.empresa_nombre || '—'}
                 </td>
                 <td>
-                  <span className={styles.pill}>{imp.destino_tipo}</span>
-                  <span className={styles.pillId}>#{imp.destino_id}</span>
+                  {imp.origen_descripcion || `${imp.origen_tipo} #${imp.origen_id}`}
                 </td>
-                <td>{fmtMoney(imp.monto, imp.moneda)}</td>
-                <td>{imp.reversal_de_id ? `#${imp.reversal_de_id}` : '—'}</td>
                 <td>
-                  {puedeGestionar && !imp.reversal_de_id && (
+                  {imp.destino_descripcion ||
+                    (imp.destino_tipo === 'saldo'
+                      ? 'Saldo a cuenta'
+                      : `${imp.destino_tipo} #${imp.destino_id}`)}
+                </td>
+                <td>{fmtMoney(imp.monto_imputado ?? imp.monto, imp.moneda_imputada ?? imp.moneda)}</td>
+                <td>{imp.reimputada_desde_id ? `#${imp.reimputada_desde_id}` : '—'}</td>
+                <td>
+                  {puedeGestionar && !imp.es_reversal && (
                     <button
                       type="button"
                       className={styles.btnAction}

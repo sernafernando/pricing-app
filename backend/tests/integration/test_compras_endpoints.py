@@ -901,6 +901,60 @@ class TestImputaciones:
         assert r.status_code == 200
         assert r.json()["total"] >= 1
 
+    def test_listar_imputaciones_incluye_nombres_derivados(
+        self, client, auth_headers, op_con_imputacion, con_todos_los_permisos
+    ):
+        """REQ-UX: listado devuelve proveedor_nombre + empresa_nombre no nulos."""
+        op, _imp = op_con_imputacion
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": op.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) >= 1
+        primero = items[0]
+        assert primero["proveedor_nombre"] == "TestProveedor"
+        assert primero["empresa_nombre"] == "TestEmpresa"
+
+    def test_listar_imputaciones_descripcion_origen_op_destino_pedido(
+        self, client, auth_headers, op_con_imputacion, pedido_aprobado, con_todos_los_permisos
+    ):
+        """REQ-UX: origen_descripcion='OP {numero}', destino_descripcion='Pedido {numero}'."""
+        op, _imp = op_con_imputacion
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": op.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        imp_pedido = next(
+            (i for i in items if i["destino_tipo"] == "pedido_compra" and not i["es_reversal"]),
+            None,
+        )
+        assert imp_pedido is not None
+        assert imp_pedido["origen_descripcion"] == f"OP {op.numero}"
+        assert imp_pedido["destino_descripcion"] == f"Pedido {pedido_aprobado.numero}"
+
+    def test_listar_imputaciones_descripcion_destino_saldo(
+        self, client, auth_headers, db, op_con_imputacion, active_user, con_todos_los_permisos
+    ):
+        """REQ-UX: destino_tipo=saldo → destino_descripcion='Saldo a cuenta'."""
+        from app.services import imputaciones_service
+
+        _op, imp = op_con_imputacion
+        # Reimputar al saldo a cuenta (destino_tipo='saldo', destino_id=None)
+        _reversal, nueva = imputaciones_service.reimputar(
+            db,
+            imputacion_id=imp.id,
+            nuevo_destino_tipo="saldo",
+            nuevo_destino_id=None,
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": imp.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        imp_saldo = next((i for i in items if i["id"] == nueva.id), None)
+        assert imp_saldo is not None
+        assert imp_saldo["destino_tipo"] == "saldo"
+        assert imp_saldo["destino_descripcion"] == "Saldo a cuenta"
+
     def test_desimputar_happy(self, client, auth_headers, op_con_imputacion, con_todos_los_permisos):
         _op, imp = op_con_imputacion
         r = client.post(
@@ -967,6 +1021,33 @@ class TestReconciliacion:
         r = client.get(f"{BASE}/reconciliacion", headers=auth_headers)
         assert r.status_code == 200
         assert isinstance(r.json(), list)
+
+    def test_listar_reconciliaciones_incluye_proveedor_nombre(
+        self, client, auth_headers, db, proveedor, con_todos_los_permisos
+    ):
+        """REQ-UX: los logs devuelven proveedor_nombre no nulo (batch enrichment)."""
+        from app.models.cc_reconciliacion_log import CCReconciliacionLog
+
+        log = CCReconciliacionLog(
+            fecha_corrida=date.today(),
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            saldo_libro_mayor=Decimal("1000.00"),
+            saldo_snapshot=Decimal("1000.00"),
+            diferencia=Decimal("0.00"),
+            tolerancia_aplicada=Decimal("100.00"),
+            estado="ok",
+        )
+        db.add(log)
+        db.commit()
+
+        r = client.get(f"{BASE}/reconciliacion", headers=auth_headers)
+        assert r.status_code == 200
+        items = r.json()
+        assert len(items) >= 1
+        encontrado = next((i for i in items if i["id"] == log.id), None)
+        assert encontrado is not None
+        assert encontrado["proveedor_nombre"] == "TestProveedor"
 
     def test_forzar_reconciliacion_happy(self, client, auth_headers, con_todos_los_permisos):
         r = client.post(

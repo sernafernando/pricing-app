@@ -170,6 +170,11 @@
   font-family: var(--font-mono, monospace);
 }
 
+.tdSecondary {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+}
+
 /* Paginador */
 .paginator {
   display: flex;
