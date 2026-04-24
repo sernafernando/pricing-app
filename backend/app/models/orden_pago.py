@@ -111,7 +111,7 @@ class OrdenPago(Base):
             name="ck_ordenes_pago_modo_imputacion",
         ),
         CheckConstraint(
-            "estado IN ('pendiente','pagado','anulado')",
+            "estado IN ('pendiente','pagado','anulado','cancelado')",
             name="ck_ordenes_pago_estado",
         ),
         Index("ix_ordenes_pago_proveedor_estado", "proveedor_id", "estado"),

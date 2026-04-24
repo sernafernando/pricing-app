@@ -14,13 +14,24 @@ import styles from './ModalPedidoCompra.module.css';
  *
  * IMPORTANTE: NO cierra con click en overlay. Solo X button o Cancelar.
  */
-export default function ModalPedidoCompra({ pedido, empresas, onClose }) {
+export default function ModalPedidoCompra({
+  pedido,
+  empresas,
+  onClose,
+  proveedorInicial = null,
+}) {
   const pedidosApi = useComprasPedidos();
   const esEdicion = !!pedido;
 
+  // Sub-batch 5.F: si viene proveedorInicial (desde tab CC), pre-cargamos
+  // el proveedor. Ignorado si ya hay `pedido` (modo edición).
   const [form, setForm] = useState({
     empresa_id: pedido?.empresa_id ? String(pedido.empresa_id) : '',
-    proveedor_id: pedido?.proveedor_id ? String(pedido.proveedor_id) : '',
+    proveedor_id: pedido?.proveedor_id
+      ? String(pedido.proveedor_id)
+      : proveedorInicial?.id
+        ? String(proveedorInicial.id)
+        : '',
     moneda: pedido?.moneda || 'ARS',
     monto: pedido?.monto ? String(pedido.monto) : '',
     tipo_cambio: pedido?.tipo_cambio ? String(pedido.tipo_cambio) : '',

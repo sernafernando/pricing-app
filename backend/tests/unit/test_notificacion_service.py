@@ -123,9 +123,7 @@ class TestResolverUsuariosConAlgunPermiso:
         assert _activo.id in ids
         assert inactivo.id not in ids
 
-    def test_override_agregado_incluye_usuario(
-        self, db, rol_ventas, permisos_admin_compras
-    ) -> None:
+    def test_override_agregado_incluye_usuario(self, db, rol_ventas, permisos_admin_compras) -> None:
         """
         Usuario con rol VENTAS (sin permisos base de admin) pero con override
         CONCEDIDO de `administracion.gestionar_ordenes_compra` → se incluye.
@@ -190,9 +188,7 @@ class TestCrearNotificacionesParaPermisos:
         # El usuario de ventas NO ve nada.
         assert db.query(Notificacion).filter(Notificacion.user_id == _ventas.id).count() == 0
 
-    def test_sin_destinatarios_retorna_lista_vacia_y_no_crea_nada(
-        self, db, rol_ventas, caplog
-    ) -> None:
+    def test_sin_destinatarios_retorna_lista_vacia_y_no_crea_nada(self, db, rol_ventas, caplog) -> None:
         """
         Si no hay usuarios activos con permisos, el helper NO crea filas
         huérfanas (las fantasmas `user_id=None` son justo lo que estamos
@@ -223,3 +219,97 @@ class TestCrearNotificacionesParaPermisos:
         # Logueó WARNING para telemetría.
         mensajes = " ".join(r.getMessage() for r in caplog.records)
         assert "ningún usuario activo con permisos" in mensajes
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sub-batch 2 — Migraciones a crear_notificaciones_para_permisos
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestSubBatch2Migraciones:
+    """Verifica que los callers migrados hacen fan-out real a TODOS los
+    usuarios con permisos (no solo al primer admin, como hacía la versión
+    previa) y que NO se crean notificaciones huérfanas.
+    """
+
+    def test_notificar_admin_catalogo_vacio_usa_helper_y_fanout(
+        self, db, rol_admin_compras_con_permisos, rol_ventas
+    ) -> None:
+        """`sync_commercial_transactions_guid._notificar_admin_catalogo_vacio`
+        debe fan-out a todos los usuarios con `administracion.gestionar_ordenes_compra`.
+        """
+        from app.scripts.sync_commercial_transactions_guid import (  # noqa: PLC0415
+            _notificar_admin_catalogo_vacio,
+        )
+
+        admin1 = _crear_usuario(db, username="sub2_adm1", rol_id=rol_admin_compras_con_permisos.id)
+        admin2 = _crear_usuario(db, username="sub2_adm2", rol_id=rol_admin_compras_con_permisos.id)
+        ventas = _crear_usuario(db, username="sub2_ventas", rol_id=rol_ventas.id)
+        db.commit()
+
+        _notificar_admin_catalogo_vacio(db, mensaje="catalogo vacio test")
+
+        # Fan-out real: una notif por admin, cero para ventas.
+        notifs = db.query(Notificacion).filter(Notificacion.tipo == "compras_catalogo_vacio").all()
+        user_ids = {n.user_id for n in notifs}
+        assert admin1.id in user_ids
+        assert admin2.id in user_ids
+        assert ventas.id not in user_ids
+        # Sin huérfanas user_id=None — el bug original que estamos matando.
+        assert all(n.user_id is not None for n in notifs)
+        # Severidad CRITICAL (catálogo vacío es bloqueante).
+        assert all(n.severidad == SeveridadNotificacion.CRITICAL for n in notifs)
+
+    def test_reconciliacion_cc_usa_helper_y_fanout(self, db, rol_admin_compras_con_permisos) -> None:
+        """`cc_proveedor_service._crear_alerta_y_notificaciones_divergencia`
+        debe fan-out a TODOS los usuarios con permiso de compras/CC (antes
+        solo notificaba al primer admin — el resto no se enteraba).
+        """
+        from datetime import date  # noqa: PLC0415
+        from decimal import Decimal  # noqa: PLC0415
+
+        from app.models.cc_reconciliacion_log import CCReconciliacionLog  # noqa: PLC0415
+        from app.models.proveedor import OrigenProveedor, Proveedor  # noqa: PLC0415
+        from app.services.cc_proveedor_service import (  # noqa: PLC0415
+            _crear_alerta_y_notificaciones_divergencia,
+        )
+
+        admin1 = _crear_usuario(db, username="sub2_cc_adm1", rol_id=rol_admin_compras_con_permisos.id)
+        admin2 = _crear_usuario(db, username="sub2_cc_adm2", rol_id=rol_admin_compras_con_permisos.id)
+        # Proveedor real — el log tiene FK.
+        prov = Proveedor(nombre="Prov Sub2 CC", activo=True, origen=OrigenProveedor.MANUAL.value)
+        db.add(prov)
+        db.flush()
+        db.commit()
+
+        # Seed: un log divergente mínimo (sin alerta_id todavía — se setea
+        # al recibir `alerta_id` del helper si realmente lo persistiera; pero
+        # el helper espera el log ya persistido con PK). Aquí el log se
+        # inserta pre-alerta y se usa solo como input al helper.
+        log = CCReconciliacionLog(
+            fecha_corrida=date.today(),
+            proveedor_id=prov.id,
+            moneda="ARS",
+            saldo_libro_mayor=Decimal("1000"),
+            saldo_snapshot=Decimal("500"),
+            diferencia=Decimal("500"),
+            tolerancia_aplicada=Decimal("0.01"),
+            estado="divergencia",
+        )
+        db.add(log)
+        db.flush()
+
+        alerta_id, notif_ids = _crear_alerta_y_notificaciones_divergencia(
+            db, fecha_corrida=date.today(), divergencias=[log]
+        )
+
+        assert alerta_id is not None
+        assert len(notif_ids) == 1  # una entrada por divergencia
+        # Fan-out: al menos 2 notifs creadas (una por admin). El listado
+        # retornado solo apunta a la primera (para audit trail del log).
+        notifs = db.query(Notificacion).filter(Notificacion.tipo == "cc_reconciliacion_divergencia").all()
+        user_ids = {n.user_id for n in notifs}
+        assert admin1.id in user_ids
+        assert admin2.id in user_ids
+        # Sin huérfanas.
+        assert all(n.user_id is not None for n in notifs)

@@ -421,6 +421,283 @@ un INSERT compensatorio.
 
 ---
 
+## 8.5 Post-PR #606 — CC funcional + cambios quirúrgicos
+
+Estado del módulo después del PR #606 + batch de limpieza. Leer esta
+sección si el doc base (secciones 1-8) quedó corto o si hay ambigüedad
+con commits viejos.
+
+### 8.5.1 CC funcional (cockpit del proveedor)
+
+`TabCCProveedores` dejó de ser solo consulta: es el **punto único de
+entrada** para operar sobre un proveedor. Acciones A-H:
+
+| Acción | Entrypoint UI                       | Endpoint/Modal                  |
+| ------ | ----------------------------------- | ------------------------------- |
+| A      | Botón "Aplicar NC" en imputaciones  | `ModalAplicarNC`                |
+| B      | Botón "+ Nueva OP"                  | `ModalOrdenPagoNueva`           |
+| C      | Desimputar/reimputar (panel integr.)| `PanelImputaciones`             |
+| D      | Click en fila de movimiento         | Detalle del doc origen          |
+| E      | Botón "+ Nueva NC"                  | `ModalNCLocal`                  |
+| F      | Botón "+ Nuevo pedido"              | `ModalPedidoCompra`             |
+| G      | Botón "Pago rápido"                 | `POST /cc-proveedor/:id/pago-rapido` |
+| H      | Botón "Ajuste manual"               | `POST /cc-proveedor/:id/ajuste-manual` |
+
+El **panel de imputaciones** se integró como sección colapsable adentro
+del tab CC — antes era un sub-tab aparte. Backend mantuvo el endpoint
+`/imputaciones` (listado global, paginado), el front ahora pasa
+`proveedorIdFijo` al panel cuando vive dentro de CC.
+
+### 8.5.2 OP editable/cancelable en estado `pendiente`
+
+OPs recién creadas (aún NO pagadas) ahora son editables y cancelables:
+
+- `PUT /ordenes-pago/{id}` — edita `monto_total`, `moneda`,
+  `modo_imputacion`, `items`, `observaciones`, `tipo_cambio`.
+- `POST /ordenes-pago/{id}/cancelar-pendiente` — transición
+  `pendiente → cancelado` (estado nuevo en CHECK constraint de
+  `compras_024_op_estado_cancelado`).
+
+**Append-only preservado**: editar items inserta un NUEVO evento
+`items_editados` en `compras_eventos`. El original `items_registrados`
+NO se borra. `ejecutar_pago` lee el más reciente entre ambos. Así
+nunca se pierde la auditoría de cómo se creó la OP.
+
+Cancelar en estado `pagado` → 409. Anular (estado `pagado → anulado`)
+sigue teniendo su endpoint separado con reverso contable; NO se unifica
+con cancelar.
+
+### 8.5.3 TC override al ejecutar pago (USD)
+
+Si el TC del pedido difiere del TC del día del pago, `ejecutar_pago`
+acepta `tipo_cambio_override`. Además se permite cross-moneda (OP en
+USD pagada desde caja ARS) **solo si se provee TC**. Sin TC → 422
+`OP_CAJA_MONEDA_MISMATCH`.
+
+- Frontend (`ModalEjecutarPago`): campo "Tipo de cambio al pagar"
+  visible solo si `op.moneda==='USD'`, default = `op.tipo_cambio` o TC
+  del día.
+- `ModalPedidoDetalle`: muestra equivalente ARS `(monto * tipo_cambio)`
+  como info readonly si USD.
+
+Evento `op_pagada` incluye `tc_aplicado` para auditoría.
+
+### 8.5.4 Multi-documentos ERP por pedido
+
+Las imputaciones siempre fueron polimórficas (un pedido puede recibir N
+imputaciones de N documentos). Lo que faltaba era un **listado** que
+exponga todos los documentos ERP asociados:
+
+`GET /pedidos/{id}/documentos-erp-imputados` → factura(s) + NCs + NDs +
+NCs locales, ordenado por fecha desc. Schema `DocumentoERPImputado`.
+
+`numero_factura` / `ct_transaction_id` en el pedido siguen existiendo
+como "principal/hint" pero NO son la fuente de verdad — la verdad está
+en las imputaciones.
+
+### 8.5.5 Vincular factura con UPDATE directo si no hay imputaciones
+
+`POST /pedidos/{id}/vincular-factura` con `ajustar_monto=True`:
+
+- Si el pedido NO tiene imputaciones vigentes → UPDATE directo del
+  monto. Evento `monto_actualizado_sin_imputaciones`. **No se genera
+  ajuste en CC** (no hay contrapartes al monto viejo).
+- Si SÍ tiene imputaciones → ajuste compensatorio append-only (comportamiento
+  existente, preserva integridad contable).
+
+Esto evita contaminar la CC con "ajustes cosméticos" cuando el pedido
+aún no tuvo vida contable real.
+
+### 8.5.6 Facturas ERP vigentes por proveedor (sub-batch 3)
+
+`GET /cc-proveedor/{proveedor_id}/facturas-erp-vigentes?moneda=ARS|USD`
+lista facturas del ERP del proveedor (vía `v_facturas_compra_vigentes`)
+sin filtrar por pedido. Usado por `ModalAplicarNC` cuando el usuario
+elige destino `factura_erp`.
+
+Si el proveedor no tiene `supp_id` ERP → lista vacía + log WARNING.
+En SQLite tests → lista vacía silenciosa (vista no existe).
+
+### 8.5.7 Ajuste manual de CC proveedor (permiso crítico)
+
+`POST /cc-proveedor/{proveedor_id}/ajuste-manual` — inserta un movimiento
+`tipo='ajuste'`, `origen_tipo='ajuste_manual'`, `origen_id=NULL`. Append-only.
+
+Migración `compras_025_ajuste_cc_manual` seedéa el permiso
+`administracion.ajustar_cc_proveedor_manual` con `es_critico=true` y
+**SIN asignación default** — el admin debe asignarlo a tesorería senior
+manualmente. Sin esto, el botón "Ajuste manual" no aparece en la UI.
+
+### 8.5.8 Notificaciones: fan-out por permisos
+
+Antes: varias partes del módulo creaban `Notificacion(user_id=None)` o
+hacían fan-out manual por `RolUsuario.ADMIN`. Eso era un bug silencioso
+(el listado `/notificaciones` filtra estricto por `user_id`).
+
+Ahora: usar SIEMPRE
+`app.services.notificacion_service.crear_notificaciones_para_permisos`:
+
+```python
+from app.services.notificacion_service import crear_notificaciones_para_permisos
+
+crear_notificaciones_para_permisos(
+    session,
+    permisos_requeridos=["administracion.gestionar_ordenes_compra"],
+    tipo="compras.pedido_monto_difiere_factura",
+    mensaje="...",
+    severidad=SeveridadNotificacion.WARNING,
+    item_id=pedido.id,
+)
+```
+
+El helper:
+
+1. Resuelve destinatarios vía `PermisosService.tiene_algun_permiso`
+   (rol base + overrides). SUPERADMIN siempre matchea.
+2. Crea 1 notificación por destinatario activo.
+3. Si nadie matchea → log WARNING + retorna `[]`. **NO** crea filas
+   con `user_id=None`.
+
+Callers migrados en el batch de limpieza:
+
+- `cc_proveedor_service._crear_alerta_y_notificaciones_divergencia`
+- `sync_commercial_transactions_guid._notificar_admin_catalogo_vacio`
+- `erp_matching_service.*` (ya en PR #599)
+
+NO migrar: scripts que notifican a un usuario específico (ej:
+`agregar_metricas_ml_*` → `user_id=usuario.id` del dueño del markup).
+
+### 8.5.9 IDs crudos → nombres legibles en UI
+
+Todas las tablas del módulo que muestran FKs deben usar nombres humanos.
+Pattern backend: **enriquecimiento batch** (sin N+1) que devuelve
+`{empresa,proveedor}_nombre` + `{origen,destino}_descripcion`.
+
+- `_enriquecer_imputaciones(db, imps)` — 6 batch lookups (proveedores,
+  empresas, pedidos, OPs, NCs locales, CTs ERP). Usado en:
+  - `GET /imputaciones` (listado)
+  - `GET /pedidos/{id}` (detalle → `detalle.imputaciones`)
+  - `GET /ordenes-pago/{id}` (detalle → `detalle.imputaciones`)
+  - `GET /ncs-locales/{id}` (detalle → `detalle.imputaciones`)
+- `_enriquecer_movimientos_cc(db, movs)` — 4-5 batch lookups + hop
+  `imputacion → origen real (OP/NC local/NC ERP)`. Usado en:
+  - `GET /cc-proveedor/{id}` (cronológico)
+  - `GET /cc-proveedor/{id}/por-pedido` (agrupado)
+  - `POST /cc-proveedor/{id}/ajuste-manual` (respuesta)
+
+Mapping: OP → `"OP {numero}"`, NC → `"NC {numero}"`, ajuste manual →
+`"Ajuste manual"`, factura ERP → `"Factura {ct_docnumber}"`, saldo →
+`"Saldo a cuenta"`.
+
+Frontend: si el backend no pudo resolver (FK huérfana o vista ERP
+ausente en SQLite), fallback al ID crudo `${tipo} #${id}`.
+
+---
+
+## 8.6 Permisos del módulo (cheatsheet)
+
+Todos con prefijo `administracion.*`:
+
+| Código                                         | Qué hace                                                           | Crítico | Asignación default |
+| ---------------------------------------------- | ------------------------------------------------------------------ | ------- | ------------------ |
+| `administracion.ver_ordenes_compra`            | Ver listados/detalle de pedidos, OPs, NCs                          | No      | Amplia             |
+| `administracion.gestionar_ordenes_compra`      | Crear/editar/eliminar pedidos, OPs, NCs (pre-aprobación)           | No      | Compras            |
+| `administracion.aprobar_ordenes_compra`        | Aprobar/rechazar pedidos                                           | Sí      | Jefe compras       |
+| `administracion.aprobar_ncs_locales`           | Aprobar/rechazar NCs locales                                       | Sí      | Jefe compras       |
+| `administracion.ejecutar_pagos`                | Ejecutar pago de OP / pago rápido                                  | Sí      | Tesorería          |
+| `administracion.ajustar_monto_pedido`          | Ajustar monto post-aprobación (vincular factura con ajuste)        | Sí      | Jefe compras       |
+| `administracion.ver_cuentas_corrientes`        | Ver CC de proveedores                                              | No      | Amplia             |
+| `administracion.gestionar_cuentas_corrientes`  | Forzar reconciliación CC manualmente                               | Sí      | Admin              |
+| `administracion.ajustar_cc_proveedor_manual`   | Ajuste manual de CC (append-only, permiso crítico)                 | Sí      | **Sin default**    |
+| `administracion.eliminar_compras_basura`       | Hard-delete de papelera (cancelados >30d sin imputaciones)         | Sí      | Admin              |
+
+Permisos críticos (`es_critico=true`) NO se pueden quitar del SUPERADMIN
+— ver `PermisosService.USER_PROTEGIDO_SUPERADMIN`.
+
+---
+
+## 8.7 Endpoints REST — referencia rápida
+
+Prefijo común: `/api/administracion/compras`.
+
+### Pedidos (§9.1)
+
+- `GET    /pedidos` — listado paginado con joinedload (sin N+1).
+- `POST   /pedidos` — crear.
+- `GET    /pedidos/{id}` — detalle (con imputaciones enriquecidas + eventos).
+- `PUT    /pedidos/{id}` — editar (depende del estado).
+- `DELETE /pedidos/{id}` — soft-delete → papelera.
+- `POST   /pedidos/{id}/enviar-aprobacion`
+- `POST   /pedidos/{id}/aprobar`
+- `POST   /pedidos/{id}/rechazar`
+- `POST   /pedidos/{id}/reabrir` (estado pagado → pagado_parcial)
+- `GET    /pedidos/{id}/etiqueta-envio`
+- `PUT    /pedidos/{id}/etiqueta-envio`
+- `POST   /pedidos/{id}/vincular-factura` (UPDATE directo o ajuste según
+  imputaciones vigentes)
+- `POST   /pedidos/{id}/desvincular-factura`
+- `GET    /pedidos/{id}/facturas-candidatas` (ERP vigentes sin vincular a
+  otros pedidos)
+- `GET    /pedidos/{id}/documentos-erp-imputados` (multi-docs)
+- `GET    /pedidos/pendientes-pago?proveedor_id=&moneda=`
+
+### Órdenes de pago (§9.2)
+
+- `GET    /ordenes-pago` — paginado, joinedload.
+- `POST   /ordenes-pago` — crear en `pendiente`.
+- `GET    /ordenes-pago/{id}` — detalle con caja_movimiento_resumen si pagada.
+- `PUT    /ordenes-pago/{id}` — editar (solo estado pendiente).
+- `POST   /ordenes-pago/{id}/cancelar-pendiente` — cancelar pendiente.
+- `POST   /ordenes-pago/{id}/pagar` — ejecutar pago (acepta `tipo_cambio_override`).
+- `POST   /ordenes-pago/{id}/anular` — anular pagada (reverso contable).
+- `POST   /ordenes-pago/{id}/distribuir` — re-distribuir items (helper).
+- `GET    /ordenes-pago/pendientes?proveedor_id=`
+
+### NCs locales (§9.*)
+
+- `GET    /ncs-locales`
+- `POST   /ncs-locales`
+- `GET    /ncs-locales/{id}`
+- `PUT    /ncs-locales/{id}`
+- `DELETE /ncs-locales/{id}` → papelera
+- `POST   /ncs-locales/{id}/aprobar`
+- `POST   /ncs-locales/{id}/rechazar`
+- `POST   /ncs-locales/{id}/aplicar` (crea imputación; destino pedido/factura/saldo)
+
+### Imputaciones (§9.3)
+
+- `GET    /imputaciones` — paginado, enriquecidas.
+- `POST   /imputaciones/{id}/desimputar` — inserta reversal append-only.
+- `POST   /imputaciones/{id}/reimputar` — reversal + nueva en atómico.
+
+### CC proveedor + reconciliación (§9.4)
+
+- `GET    /cc-proveedor/{id}` — saldos por moneda + movimientos enriquecidos.
+- `GET    /cc-proveedor/{id}/por-pedido` — drill-down.
+- `GET    /cc-proveedor/{id}/facturas-erp-vigentes?moneda=` (sub-batch 3).
+- `POST   /cc-proveedor/{id}/pago-rapido` (crea OP a_cuenta + ejecuta en atómico).
+- `POST   /cc-proveedor/{id}/ajuste-manual` (permiso crítico).
+- `GET    /reconciliacion`
+- `POST   /reconciliacion/forzar`
+- `GET    /reconciliacion/metricas`
+
+### Adjuntos + papelera + eventos
+
+- `GET    /pedidos/{id}/adjuntos`, `POST`, `DELETE`
+- `GET    /ordenes-pago/{id}/adjuntos`, `POST`, `DELETE`
+- `GET    /ncs-locales/{id}/adjuntos`, `POST`, `DELETE`
+- `GET    /papelera` — listado con filtros por tipo.
+- `GET    /papelera/{id}` — snapshot JSONB.
+- `POST   /papelera/{id}/restaurar`
+- `DELETE /papelera/{id}` — hard-delete (cancelados >30d).
+
+### Catálogo
+
+- `GET    /sale-documents` — catálogo con `clasificacion` derivada.
+- `GET    /health` — smoke (no auth).
+
+---
+
 ## 9. Extensión futura (v2)
 
 Ver `openspec/changes/modulo-compras/proposal.md` §Out of Scope para la
@@ -472,9 +749,9 @@ v1 tiene un único paso de aprobación. v2 podría tener:
 | Config ERP  | `backend/app/core/compras_empresa_erp_map.py`                  |
 | Models      | `backend/app/models/pedido_compra.py`, `orden_pago.py`, `imputacion.py`, `cc_proveedor_movimiento.py`, `numeracion_contador.py`, `tb_sale_document.py`, `cc_reconciliacion_log.py`, `compras_evento.py` |
 | Services    | `backend/app/services/pedidos_compra_service.py`, `ordenes_pago_service.py`, `imputaciones_service.py`, `cc_proveedor_service.py`, `numeracion_service.py`, `sale_document_classifier.py`, `erp_matching_service.py` |
-| Router      | `backend/app/routers/administracion_compras.py` (28 endpoints) |
+| Router      | `backend/app/routers/administracion_compras.py` (~45 endpoints — ver §8.7) |
 | Scripts     | `backend/app/scripts/reconciliar_cc_proveedor.py`, `verify_compras_pre_deploy.py`, `verificar_permisos_compras.py` |
-| Migrations  | `backend/alembic/versions/compras_001...014_*.py`              |
+| Migrations  | `backend/alembic/versions/compras_001...025_*.py` (25 total — ver §8.6/§8.7 para lo agregado post-v1) |
 | Tests unit  | `backend/tests/unit/test_sale_document_classifier.py`, `test_numeracion_service.py`, `test_state_machine_pedidos.py`, ... |
 | Tests integ | `backend/tests/integration/test_compras_endpoints.py` (42+ tests), `test_jukebox_fixture.py`, `test_numeracion_concurrencia.py` |
 

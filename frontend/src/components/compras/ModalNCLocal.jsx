@@ -15,7 +15,7 @@ import styles from './ModalNCLocal.module.css';
  *
  * IMPORTANTE: NO cierra con click en overlay. Solo X o Cancelar.
  */
-export default function ModalNCLocal({ nc, empresas, onClose }) {
+export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial = null }) {
   const { crear, editar } = useNCsLocales();
   const esEdicion = !!nc;
   const puedeEditar = !esEdicion || nc?.estado === 'borrador';
@@ -28,9 +28,15 @@ export default function ModalNCLocal({ nc, empresas, onClose }) {
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  // Sub-batch 5.E: si viene proveedorInicial (desde tab CC), pre-cargamos
+  // el proveedor. Ignorado si ya hay `nc` (modo edición).
   const [form, setForm] = useState({
     empresa_id: nc?.empresa_id ? String(nc.empresa_id) : '',
-    proveedor_id: nc?.proveedor_id ? String(nc.proveedor_id) : '',
+    proveedor_id: nc?.proveedor_id
+      ? String(nc.proveedor_id)
+      : proveedorInicial?.id
+        ? String(proveedorInicial.id)
+        : '',
     moneda: nc?.moneda || 'ARS',
     monto: nc?.monto ? String(nc.monto) : '',
     tipo_cambio: nc?.tipo_cambio ? String(nc.tipo_cambio) : '',

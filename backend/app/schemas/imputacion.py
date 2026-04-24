@@ -30,13 +30,26 @@ class ImputacionBase(BaseModel):
 
 
 class ImputacionResponse(ImputacionBase):
-    """Imputación serializada (incluye metadata de reversal)."""
+    """Imputación serializada (incluye metadata de reversal y nombres derivados)."""
 
     id: int
     es_reversal: bool
     reimputada_desde_id: int | None = None
     creado_por_id: int
     created_at: datetime
+
+    # Nombres derivados (enriquecidos por el router vía batch queries) — el
+    # frontend los consume directamente sin hacer fetches adicionales.
+    empresa_nombre: str | None = None
+    proveedor_nombre: str | None = None
+
+    # Descripciones legibles del origen y destino para el listado:
+    #   origen_descripcion: "OP P-01-2026-00042" / "NC NC-01-2026-00007" /
+    #                        "NC ERP 768710"
+    #   destino_descripcion: "Pedido P-01-2026-00001" / "Factura 00390198" /
+    #                         "Saldo a cuenta"
+    origen_descripcion: str | None = None
+    destino_descripcion: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

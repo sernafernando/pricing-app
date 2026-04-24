@@ -166,6 +166,24 @@ class TestReconciliarSinDivergencias:
 
 class TestReconciliarConDivergencias:
     def test_una_divergencia_ars_crea_alerta_y_notif(self, db, empresa, proveedor, admin_user, tolerancias_default):
+        # Sub-batch 2: el fan-out de notificaciones ahora se hace vía
+        # `crear_notificaciones_para_permisos` (permiso efectivo) en vez del
+        # hardcode por `RolUsuario.ADMIN`. Para que el admin_user del conftest
+        # (rol=ADMIN sin overrides) matchee, seedeamos el permiso
+        # correspondiente a su rol.
+        from app.models.permiso import Permiso, RolPermisoBase  # noqa: PLC0415
+
+        p = Permiso(
+            codigo="administracion.gestionar_ordenes_compra",
+            nombre="Gestionar órdenes de compra",
+            categoria="administracion",
+            orden=1,
+        )
+        db.add(p)
+        db.flush()
+        db.add(RolPermisoBase(rol_id=admin_user.rol_id, permiso_id=p.id))
+        db.flush()
+
         # Mayor=2000 ARS, snapshot=1000 ARS, diferencia=1000 > 100 → divergencia
         insertar_mov(
             db,

@@ -72,9 +72,10 @@
 }
 
 /* ── Proveedor header ────────────────────────────────────────── */
+/* Nombre protagonista + ID pequeño como pill secundario (T3.4). */
 .proveedorHeader {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
@@ -92,6 +93,7 @@
   background: var(--cf-bg-hover);
   padding: 2px 8px;
   border-radius: var(--radius-full);
+  font-family: var(--font-mono, monospace);
 }
 
 /* ── Saldos grid ─────────────────────────────────────────────── */
@@ -345,4 +347,241 @@
   border-radius: var(--radius-md);
   font-size: var(--font-sm);
   border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Sección colapsable de imputaciones (COMPRAS-7.5 refactor UX) ── */
+.imputacionesSection {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.imputacionesToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+  margin-bottom: var(--spacing-md);
+}
+
+.imputacionesToggle:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Sub-batch 5: acciones rápidas del proveedor activo ── */
+.accionesBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.btnPrimary,
+.btnSuccess,
+.btnDanger,
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.btnPrimary {
+  background: var(--cf-accent-blue);
+  color: white;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btnSuccess {
+  background: var(--cf-accent-green);
+  color: white;
+}
+
+.btnSuccess:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btnDanger {
+  background: var(--cf-accent-red);
+  color: white;
+}
+
+.btnDanger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btnSecondary {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  border: 1px solid var(--cf-border-default);
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.btnPrimary:disabled,
+.btnSuccess:disabled,
+.btnDanger:disabled,
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Fila clickeable para drill-down de movimiento CC (sub-batch 5.D). */
+.rowClickable {
+  cursor: pointer;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.iconBtn:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+  border-color: var(--cf-accent-blue);
+}
+
+/* Modales inline del tab CC (sub-batch 5.G + 5.H). */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  max-width: 560px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.modalTitle {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.modalCloseBtn {
+  background: transparent;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.modalCloseBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.modalHelp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.formGroup {
+  margin-bottom: var(--spacing-md);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.formLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-weight: 500;
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
 }

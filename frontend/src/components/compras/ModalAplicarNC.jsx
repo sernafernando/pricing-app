@@ -13,13 +13,25 @@ const formatCurrency = (value, moneda = 'ARS') => {
   })}`;
 };
 
+const formatDate = (isoStr) => {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  } catch {
+    return isoStr;
+  }
+};
+
 /**
  * ModalAplicarNC — imputa (total o parcial) una NC local aprobada contra:
  *   - un pedido de compra del mismo proveedor (estado aprobado / pagado_parcial);
+ *   - una factura del ERP vigente del mismo proveedor;
  *   - saldo general del proveedor (crédito a cuenta).
- *
- * factura_erp NO está incluido en la UI v1 — es menos común en el flujo operativo
- * y se puede agregar con un selector específico cuando haya demanda real.
  *
  * Props:
  *   nc       — NC local aprobada o aplicada_parcial (debe tener `saldo_pendiente`).
@@ -34,15 +46,24 @@ export default function ModalAplicarNC({ nc, onClose }) {
 
   const [destinoTipo, setDestinoTipo] = useState('pedido_compra');
   const [pedidoId, setPedidoId] = useState('');
+  const [facturaId, setFacturaId] = useState('');
   const [monto, setMonto] = useState(String(saldoNC));
   const [pedidos, setPedidos] = useState([]);
+  const [facturas, setFacturas] = useState([]);
   const [loadingPedidos, setLoadingPedidos] = useState(false);
+  const [loadingFacturas, setLoadingFacturas] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const pedidoSeleccionado = useMemo(
     () => pedidos.find((p) => String(p.id) === String(pedidoId)) || null,
     [pedidos, pedidoId]
+  );
+
+  const facturaSeleccionada = useMemo(
+    () =>
+      facturas.find((f) => String(f.ct_transaction) === String(facturaId)) || null,
+    [facturas, facturaId]
   );
 
   const fetchPedidos = useCallback(async () => {
@@ -66,11 +87,35 @@ export default function ModalAplicarNC({ nc, onClose }) {
     }
   }, [nc?.proveedor_id, nc?.moneda]);
 
+  const fetchFacturasERP = useCallback(async () => {
+    if (!nc?.proveedor_id) return;
+    setLoadingFacturas(true);
+    setError(null);
+    try {
+      const { data } = await api.get(
+        `/administracion/compras/cc-proveedor/${nc.proveedor_id}/facturas-erp-vigentes`,
+        { params: { moneda: nc.moneda } }
+      );
+      setFacturas(data || []);
+    } catch (err) {
+      const msg =
+        err.response?.data?.error?.message ||
+        err.response?.data?.detail ||
+        'Error al cargar facturas ERP del proveedor.';
+      setError(msg);
+      setFacturas([]);
+    } finally {
+      setLoadingFacturas(false);
+    }
+  }, [nc?.proveedor_id, nc?.moneda]);
+
   useEffect(() => {
     if (destinoTipo === 'pedido_compra') {
       fetchPedidos();
+    } else if (destinoTipo === 'factura_erp') {
+      fetchFacturasERP();
     }
-  }, [destinoTipo, fetchPedidos]);
+  }, [destinoTipo, fetchPedidos, fetchFacturasERP]);
 
   // Al elegir pedido, sugerir el mínimo entre el saldo de la NC y el saldo del pedido.
   useEffect(() => {
@@ -83,6 +128,20 @@ export default function ModalAplicarNC({ nc, onClose }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoId]);
+
+  // Al elegir factura ERP, sugerir el mínimo entre el saldo NC y el total de
+  // factura (ct_total). El backend no expone "saldo pendiente de factura ERP"
+  // v1 — usamos ct_total como cota. La validación final corre server-side.
+  useEffect(() => {
+    if (facturaSeleccionada) {
+      const totalFactura = Number(facturaSeleccionada.ct_total) || 0;
+      const sugerido = Math.min(saldoNC, totalFactura);
+      if (sugerido > 0) {
+        setMonto(sugerido.toFixed(2));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facturaId]);
 
   const validar = () => {
     const m = parseFloat(monto);
@@ -105,7 +164,16 @@ export default function ModalAplicarNC({ nc, onClose }) {
         }
       }
     }
+    if (destinoTipo === 'factura_erp' && !facturaId) {
+      return 'Seleccioná una factura ERP destino.';
+    }
     return null;
+  };
+
+  const destinoIdPayload = () => {
+    if (destinoTipo === 'saldo') return null;
+    if (destinoTipo === 'factura_erp') return Number(facturaId);
+    return Number(pedidoId);
   };
 
   const handleSubmit = async () => {
@@ -119,7 +187,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
     try {
       const body = {
         destino_tipo: destinoTipo,
-        destino_id: destinoTipo === 'saldo' ? null : Number(pedidoId),
+        destino_id: destinoIdPayload(),
         monto_imputado: parseFloat(monto),
       };
       await aplicar(nc.id, body);
@@ -174,9 +242,25 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 name="destino_tipo"
                 value="pedido_compra"
                 checked={destinoTipo === 'pedido_compra'}
-                onChange={(e) => setDestinoTipo(e.target.value)}
+                onChange={(e) => {
+                  setDestinoTipo(e.target.value);
+                  setFacturaId('');
+                }}
               />
               <span>Pedido de compra del proveedor</span>
+            </label>
+            <label className={styles.radioRow}>
+              <input
+                type="radio"
+                name="destino_tipo"
+                value="factura_erp"
+                checked={destinoTipo === 'factura_erp'}
+                onChange={(e) => {
+                  setDestinoTipo(e.target.value);
+                  setPedidoId('');
+                }}
+              />
+              <span>Factura del ERP del proveedor</span>
             </label>
             <label className={styles.radioRow}>
               <input
@@ -187,6 +271,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 onChange={(e) => {
                   setDestinoTipo(e.target.value);
                   setPedidoId('');
+                  setFacturaId('');
                 }}
               />
               <span>Saldo general del proveedor (a cuenta)</span>
@@ -223,6 +308,38 @@ export default function ModalAplicarNC({ nc, onClose }) {
           </div>
         )}
 
+        {destinoTipo === 'factura_erp' && (
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Factura ERP destino *</label>
+            {loadingFacturas ? (
+              <div className={styles.centered}>
+                <Loader2 size={14} className={styles.spin} /> Cargando facturas ERP...
+              </div>
+            ) : facturas.length === 0 ? (
+              <div className={styles.empty}>
+                No hay facturas del ERP vigentes para este proveedor
+                {nc?.moneda ? ` en moneda ${nc.moneda}` : ''}. Si el
+                proveedor no tiene supp_id mapeado, este listado queda
+                vacío.
+              </div>
+            ) : (
+              <select
+                className={styles.select}
+                value={facturaId}
+                onChange={(e) => setFacturaId(e.target.value)}
+              >
+                <option value="">Seleccionar...</option>
+                {facturas.map((f) => (
+                  <option key={f.ct_transaction} value={f.ct_transaction}>
+                    {f.ct_docnumber} — {formatDate(f.ct_date)} —{' '}
+                    {formatCurrency(f.ct_total, nc?.moneda)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
         <div className={styles.formGroup}>
           <label className={styles.formLabel}>
             Monto a imputar * <span className={styles.labelHint}>({nc?.moneda})</span>
@@ -244,6 +361,11 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 pedidoSeleccionado.saldo_pendiente,
                 pedidoSeleccionado.moneda
               )} (saldo del pedido).`}
+            {facturaSeleccionada &&
+              ` Total factura: ${formatCurrency(
+                facturaSeleccionada.ct_total,
+                nc?.moneda
+              )}. La validación de saldo contable corre server-side.`}
           </div>
         </div>
 

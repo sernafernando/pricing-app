@@ -15,7 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CCMovimientoResponse(BaseModel):
-    """Movimiento individual del libro mayor de CC proveedor."""
+    """Movimiento individual del libro mayor de CC proveedor.
+
+    `origen_descripcion` es un nombre legible derivado (batch-enriquecido por
+    el router) para que la UI cronológica no muestre `origen_tipo #id` crudo.
+    Mapping:
+      - orden_pago          → "OP {numero}"
+      - nota_credito_local  → "NC {numero}"
+      - ajuste_pedido       → "Ajuste pedido {numero}"
+      - ajuste_manual       → "Ajuste manual"
+      - nota_credito_erp    → "NC ERP {ct_docnumber}"
+      - pedido_compra       → "Pedido {numero}"
+    Fallback (origen huérfano o tipo desconocido): `"{origen_tipo} #{id}"`.
+    """
 
     id: int
     proveedor_id: int
@@ -31,6 +43,9 @@ class CCMovimientoResponse(BaseModel):
     descripcion: str | None = None
     creado_por_id: int | None = None
     created_at: datetime
+
+    # Nombre derivado (batch-enriquecido por el router) — ver docstring.
+    origen_descripcion: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,6 +82,44 @@ class CCAgrupadoPorPedido(BaseModel):
     movimientos: list[CCMovimientoResponse]
 
 
+class AjusteCCManualRequest(BaseModel):
+    """Body del POST /cc-proveedor/{id}/ajuste-manual (sub-batch 5.H).
+
+    Requiere permiso crítico `administracion.ajustar_cc_proveedor_manual`.
+    Genera un movimiento append-only `tipo='ajuste'` con
+    `origen_tipo='ajuste_manual'`. NO modifica movimientos previos.
+
+    `signo_ajuste=+1` (debe) suma deuda; `-1` (haber) resta deuda.
+    """
+
+    empresa_id: int = Field(..., gt=0)
+    fecha_movimiento: date
+    signo_ajuste: int = Field(..., description="+1 = debe (aumenta deuda), -1 = haber")
+    monto: Decimal = Field(..., gt=0)
+    moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    motivo: str = Field(..., min_length=3, max_length=500)
+
+
+class PagoRapidoRequest(BaseModel):
+    """Body del POST /cc-proveedor/{proveedor_id}/pago-rapido (sub-batch 5.G).
+
+    Crea una OP modo `a_cuenta` + ejecuta el pago en un solo request.
+    Deja trazabilidad completa: número OP, evento, caja_movimiento,
+    caja_documento, imputación a saldo del proveedor.
+
+    El resultado es equivalente a hacer crear+ejecutar_pago por separado
+    pero con un solo click desde el tab CC Proveedores.
+    """
+
+    empresa_id: int = Field(..., gt=0)
+    caja_id: int = Field(..., gt=0)
+    moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    monto: Decimal = Field(..., gt=0)
+    fecha_pago_real: date
+    tipo_cambio: Decimal | None = Field(None, gt=0)
+    observaciones: str | None = Field(None, max_length=500)
+
+
 class CCReconciliacionLogResponse(BaseModel):
     """Fila del log diario de reconciliación CC."""
 
@@ -83,5 +136,9 @@ class CCReconciliacionLogResponse(BaseModel):
     alerta_id: int | None = None
     notificacion_id: int | None = None
     created_at: datetime
+
+    # Nombre derivado (batch-enriquecido por el router) para que la UI no
+    # tenga que adivinar el proveedor a partir del ID.
+    proveedor_nombre: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

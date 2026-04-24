@@ -456,6 +456,59 @@ class TestPedidosEtiquetaYEventos:
         eventos = r.json()
         assert any(e["tipo"] == "creado" for e in eventos)
 
+    def test_documentos_erp_imputados_vacio(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
+        """Pedido sin imputaciones vivas → lista vacía."""
+        r = client.get(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/documentos-erp-imputados",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == []
+
+    def test_documentos_erp_imputados_muestra_op(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        active_user,
+        pedido_aprobado,
+        con_todos_los_permisos,
+    ):
+        """Tras pagar una OP imputada al pedido, el endpoint lista la OP como doc imputado."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/documentos-erp-imputados",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        docs = r.json()
+        assert len(docs) == 1
+        assert docs[0]["origen_tipo"] == "orden_pago"
+        assert docs[0]["origen_id"] == op.id
+        assert Decimal(docs[0]["monto_imputado"]) == Decimal("5000.00")
+
 
 # ==========================================================================
 # Órdenes de Pago — CRUD + create con 409 duplicado
@@ -901,6 +954,60 @@ class TestImputaciones:
         assert r.status_code == 200
         assert r.json()["total"] >= 1
 
+    def test_listar_imputaciones_incluye_nombres_derivados(
+        self, client, auth_headers, op_con_imputacion, con_todos_los_permisos
+    ):
+        """REQ-UX: listado devuelve proveedor_nombre + empresa_nombre no nulos."""
+        op, _imp = op_con_imputacion
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": op.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) >= 1
+        primero = items[0]
+        assert primero["proveedor_nombre"] == "TestProveedor"
+        assert primero["empresa_nombre"] == "TestEmpresa"
+
+    def test_listar_imputaciones_descripcion_origen_op_destino_pedido(
+        self, client, auth_headers, op_con_imputacion, pedido_aprobado, con_todos_los_permisos
+    ):
+        """REQ-UX: origen_descripcion='OP {numero}', destino_descripcion='Pedido {numero}'."""
+        op, _imp = op_con_imputacion
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": op.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        imp_pedido = next(
+            (i for i in items if i["destino_tipo"] == "pedido_compra" and not i["es_reversal"]),
+            None,
+        )
+        assert imp_pedido is not None
+        assert imp_pedido["origen_descripcion"] == f"OP {op.numero}"
+        assert imp_pedido["destino_descripcion"] == f"Pedido {pedido_aprobado.numero}"
+
+    def test_listar_imputaciones_descripcion_destino_saldo(
+        self, client, auth_headers, db, op_con_imputacion, active_user, con_todos_los_permisos
+    ):
+        """REQ-UX: destino_tipo=saldo → destino_descripcion='Saldo a cuenta'."""
+        from app.services import imputaciones_service
+
+        _op, imp = op_con_imputacion
+        # Reimputar al saldo a cuenta (destino_tipo='saldo', destino_id=None)
+        _reversal, nueva = imputaciones_service.reimputar(
+            db,
+            imputacion_id=imp.id,
+            nuevo_destino_tipo="saldo",
+            nuevo_destino_id=None,
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/imputaciones", headers=auth_headers, params={"proveedor_id": imp.proveedor_id})
+        assert r.status_code == 200
+        items = r.json()["items"]
+        imp_saldo = next((i for i in items if i["id"] == nueva.id), None)
+        assert imp_saldo is not None
+        assert imp_saldo["destino_tipo"] == "saldo"
+        assert imp_saldo["destino_descripcion"] == "Saldo a cuenta"
+
     def test_desimputar_happy(self, client, auth_headers, op_con_imputacion, con_todos_los_permisos):
         _op, imp = op_con_imputacion
         r = client.post(
@@ -956,6 +1063,218 @@ class TestCCProveedor:
         # Debería haber al menos el grupo del pedido_aprobado
         assert any(g["pedido_compra_id"] == pedido_aprobado.id for g in grupos)
 
+    # ──────────────────────────────────────────────────────────────────
+    # Sub-batch 1 — origen_descripcion enriquecido en movimientos CC
+    # ──────────────────────────────────────────────────────────────────
+
+    def test_cc_movimientos_incluyen_origen_descripcion_ajuste_pedido(
+        self, client, auth_headers, proveedor, pedido_aprobado, con_todos_los_permisos
+    ):
+        """REQ-UX: movimientos 'ajuste_pedido' → descripcion 'Ajuste pedido {numero}'.
+
+        `pedido_aprobado` inserta un movimiento DEBE con origen_tipo='ajuste_pedido'
+        (o similar según el flujo). Verificamos que TODOS los movimientos tengan
+        `origen_descripcion` no nulo (el backend siempre debe enriquecer).
+        """
+        r = client.get(f"{BASE}/cc-proveedor/{proveedor.id}", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["movimientos"]) >= 1
+        for m in data["movimientos"]:
+            # Todos los movimientos deben venir enriquecidos (no crudo "tipo #id")
+            assert m["origen_descripcion"] is not None, (
+                f"mov id={m['id']} origen_tipo={m['origen_tipo']} sin origen_descripcion"
+            )
+            # Nunca debe quedar el formato crudo default "{tipo} #{id}" cuando la
+            # FK es resoluble — verificamos que contenga el número del pedido.
+            if m["origen_tipo"] in ("ajuste_pedido", "pedido_compra") and m["origen_id"] == pedido_aprobado.id:
+                assert pedido_aprobado.numero in m["origen_descripcion"]
+
+    def test_cc_movimientos_ajuste_manual_descripcion(
+        self, client, auth_headers, db, empresa, proveedor, con_todos_los_permisos
+    ):
+        """REQ-UX: ajuste_manual → descripcion literal 'Ajuste manual'."""
+        r_aj = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/ajuste-manual",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "fecha_movimiento": date.today().isoformat(),
+                "signo_ajuste": -1,
+                "monto": "50.00",
+                "moneda": "ARS",
+                "motivo": "test ajuste",
+            },
+        )
+        assert r_aj.status_code == 201, r_aj.text
+        aj_body = r_aj.json()
+        # El endpoint de creación también devuelve origen_descripcion enriquecido
+        assert aj_body["origen_descripcion"] == "Ajuste manual"
+
+        # Y el listado cronológico debería contenerlo igual
+        r = client.get(f"{BASE}/cc-proveedor/{proveedor.id}", headers=auth_headers)
+        assert r.status_code == 200
+        movs = r.json()["movimientos"]
+        aj = next((m for m in movs if m["origen_tipo"] == "ajuste_manual"), None)
+        assert aj is not None
+        assert aj["origen_descripcion"] == "Ajuste manual"
+
+    def test_facturas_erp_vigentes_sin_supp_id_lista_vacia(
+        self, client, auth_headers, proveedor, con_todos_los_permisos
+    ):
+        """Sub-batch 3: proveedor sin supp_id → lista vacía (log WARNING)."""
+        # El fixture `proveedor` no setea supp_id, así que el endpoint debe
+        # responder 200 con [].
+        r = client.get(
+            f"{BASE}/cc-proveedor/{proveedor.id}/facturas-erp-vigentes",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == []
+
+    def test_facturas_erp_vigentes_vista_faltante_lista_vacia(
+        self, client, auth_headers, db, proveedor, con_todos_los_permisos
+    ):
+        """Sub-batch 3: sin vista v_facturas_compra_vigentes (SQLite) → [] silent."""
+        # Forzamos supp_id para llegar al query — en SQLite la vista no existe.
+        from sqlalchemy import text as _text
+
+        db.execute(_text("UPDATE proveedores SET supp_id = 42 WHERE id = :pid"), {"pid": proveedor.id})
+        db.commit()
+        r = client.get(
+            f"{BASE}/cc-proveedor/{proveedor.id}/facturas-erp-vigentes",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == []
+
+    def test_cc_movimientos_op_descripcion_contiene_numero(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        pedido_aprobado,
+        caja_ars,
+        seed_caja_tipos,
+        active_user,
+        con_todos_los_permisos,
+    ):
+        """REQ-UX: haber con origen_tipo='orden_pago' → 'OP {numero}'."""
+        # Crear OP + pagar → genera mov haber con origen_tipo='orden_pago'
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("500"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("500")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/cc-proveedor/{proveedor.id}", headers=auth_headers)
+        assert r.status_code == 200
+        movs = r.json()["movimientos"]
+        # El mov haber al pagar OP llega con origen_tipo='imputacion' (el CC
+        # service crea el mov asociado a la Imputacion, no directamente a la
+        # OP). El enriquecedor hace el hop imputacion→orden_pago para resolver
+        # el nombre humano. Buscamos un mov haber del importe correcto cuyo
+        # origen_descripcion sea "OP {numero}".
+        mov_op = next(
+            (m for m in movs if m["tipo"] == "haber" and m["origen_descripcion"] == f"OP {op.numero}"),
+            None,
+        )
+        assert mov_op is not None, (
+            f"No se encontró mov haber con descripcion 'OP {op.numero}'. "
+            f"Movs: {[(m['tipo'], m['origen_tipo'], m.get('origen_descripcion')) for m in movs]}"
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Sub-batch 5.H — Ajuste manual CC
+    # ──────────────────────────────────────────────────────────────────
+
+    def test_ajuste_manual_cc_happy(self, client, auth_headers, empresa, proveedor, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/ajuste-manual",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "fecha_movimiento": date.today().isoformat(),
+                "signo_ajuste": 1,
+                "monto": "100.50",
+                "moneda": "ARS",
+                "motivo": "Compensación con proveedor fuera del sistema",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["tipo"] == "ajuste"
+        assert body["signo_ajuste"] == 1
+        assert Decimal(body["monto"]) == Decimal("100.50")
+        assert body["origen_tipo"] == "ajuste_manual"
+        assert body["origen_id"] is None
+        assert "AJUSTE MANUAL" in body["descripcion"]
+
+    def test_ajuste_manual_cc_signo_invalido_400(
+        self, client, auth_headers, empresa, proveedor, con_todos_los_permisos
+    ):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/ajuste-manual",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "fecha_movimiento": date.today().isoformat(),
+                "signo_ajuste": 5,  # inválido
+                "monto": "100",
+                "moneda": "ARS",
+                "motivo": "test",
+            },
+        )
+        assert r.status_code == 400
+
+    # ──────────────────────────────────────────────────────────────────
+    # Sub-batch 5.G — Pago rápido (crea OP a_cuenta + ejecuta)
+    # ──────────────────────────────────────────────────────────────────
+
+    def test_pago_rapido_happy(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        con_todos_los_permisos,
+    ):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/pago-rapido",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "caja_id": caja_ars.id,
+                "moneda": "ARS",
+                "monto": "2500",
+                "fecha_pago_real": date.today().isoformat(),
+                "observaciones": "pago adelanto pedido especial",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["estado"] == "pagado"
+        assert body["modo_imputacion"] == "a_cuenta"
+        assert Decimal(body["monto_total"]) == Decimal("2500")
+
 
 # ==========================================================================
 # Reconciliación
@@ -967,6 +1286,33 @@ class TestReconciliacion:
         r = client.get(f"{BASE}/reconciliacion", headers=auth_headers)
         assert r.status_code == 200
         assert isinstance(r.json(), list)
+
+    def test_listar_reconciliaciones_incluye_proveedor_nombre(
+        self, client, auth_headers, db, proveedor, con_todos_los_permisos
+    ):
+        """REQ-UX: los logs devuelven proveedor_nombre no nulo (batch enrichment)."""
+        from app.models.cc_reconciliacion_log import CCReconciliacionLog
+
+        log = CCReconciliacionLog(
+            fecha_corrida=date.today(),
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            saldo_libro_mayor=Decimal("1000.00"),
+            saldo_snapshot=Decimal("1000.00"),
+            diferencia=Decimal("0.00"),
+            tolerancia_aplicada=Decimal("100.00"),
+            estado="ok",
+        )
+        db.add(log)
+        db.commit()
+
+        r = client.get(f"{BASE}/reconciliacion", headers=auth_headers)
+        assert r.status_code == 200
+        items = r.json()
+        assert len(items) >= 1
+        encontrado = next((i for i in items if i["id"] == log.id), None)
+        assert encontrado is not None
+        assert encontrado["proveedor_nombre"] == "TestProveedor"
 
     def test_forzar_reconciliacion_happy(self, client, auth_headers, con_todos_los_permisos):
         r = client.post(

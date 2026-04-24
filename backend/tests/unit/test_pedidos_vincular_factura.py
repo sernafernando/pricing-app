@@ -22,9 +22,35 @@ from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.compra_evento import CompraEvento
 from app.models.empresa import Empresa
+from app.models.imputacion import Imputacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.tb_sale_document import SaleDocument
+
+
+def _seed_imputacion_viva(db, *, pedido_id: int, proveedor_id: int, user_id: int, monto: Decimal = Decimal("1")):
+    """Seedea una imputación viva al pedido para forzar el comportamiento
+    de ajuste compensatorio append-only (sub-batch 4).
+
+    Sin esta imputación, `ajustar_monto_con_factura` hace UPDATE directo
+    SIN generar movimiento en CC.
+    """
+    imp = Imputacion(
+        origen_tipo="orden_pago",
+        origen_id=1,
+        destino_tipo="pedido_compra",
+        destino_id=pedido_id,
+        monto_imputado=monto,
+        moneda_imputada="ARS",
+        proveedor_id=proveedor_id,
+        es_reversal=False,
+        creado_por_id=user_id,
+    )
+    db.add(imp)
+    db.flush()
+    return imp
+
+
 from app.services import pedidos_service
 
 
@@ -268,6 +294,7 @@ class TestDesvincularFactura:
 
 class TestAjustarMontoConFactura:
     def test_aumento_crea_ajuste_positivo_en_cc(self, db, empresa, proveedor, sd_factura, active_user):
+        """Sub-batch 4: solo genera ajuste CC si hay imputaciones vigentes."""
         pedido = _crear_pedido(db, empresa, proveedor, active_user, monto=Decimal("1000"))
         _crear_ct(
             db,
@@ -275,6 +302,7 @@ class TestAjustarMontoConFactura:
             supp_id=proveedor.supp_id,
             ct_total=Decimal("1150"),
         )
+        _seed_imputacion_viva(db, pedido_id=pedido.id, proveedor_id=proveedor.id, user_id=active_user.id)
 
         pedidos_service.ajustar_monto_con_factura(
             db,
@@ -289,7 +317,7 @@ class TestAjustarMontoConFactura:
         assert pedido.monto == Decimal("1150")
         assert pedido.ct_transaction_id == 800001
 
-        # Movimiento CC con signo +1
+        # Movimiento CC con signo +1 (porque hay imputación viva).
         movs = db.query(CCProveedorMovimiento).filter_by(origen_tipo="ajuste_pedido", origen_id=pedido.id).all()
         assert len(movs) == 1
         assert movs[0].tipo == "ajuste"
@@ -302,8 +330,10 @@ class TestAjustarMontoConFactura:
         assert ev.payload["monto_nuevo"] == "1150"
         assert ev.payload["diferencia"] == "150"
         assert ev.payload["motivo"] == "TC al pagar fue mayor que al pedido"
+        assert ev.payload["tenia_imputaciones_vivas"] is True
 
     def test_reduccion_crea_ajuste_negativo_en_cc(self, db, empresa, proveedor, sd_factura, active_user):
+        """Sub-batch 4: con imputaciones vivas, reducción genera ajuste -1."""
         pedido = _crear_pedido(db, empresa, proveedor, active_user, monto=Decimal("1000"))
         _crear_ct(
             db,
@@ -311,6 +341,7 @@ class TestAjustarMontoConFactura:
             supp_id=proveedor.supp_id,
             ct_total=Decimal("900"),
         )
+        _seed_imputacion_viva(db, pedido_id=pedido.id, proveedor_id=proveedor.id, user_id=active_user.id)
 
         pedidos_service.ajustar_monto_con_factura(
             db,
@@ -327,6 +358,36 @@ class TestAjustarMontoConFactura:
         mov = db.query(CCProveedorMovimiento).filter_by(origen_tipo="ajuste_pedido", origen_id=pedido.id).one()
         assert mov.signo_ajuste == -1
         assert mov.monto == Decimal("100")
+
+    def test_sin_imputaciones_update_directo_sin_mov_cc(self, db, empresa, proveedor, sd_factura, active_user):
+        """Sub-batch 4 nuevo: pedido sin imputaciones → solo UPDATE, evento diferente."""
+        pedido = _crear_pedido(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        _crear_ct(
+            db,
+            ct_transaction=800007,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("1300"),
+        )
+
+        pedidos_service.ajustar_monto_con_factura(
+            db,
+            pedido_id=pedido.id,
+            ct_transaction=800007,
+            nuevo_monto=Decimal("1300"),
+            motivo="monto real de factura",
+            user_id=active_user.id,
+        )
+
+        db.refresh(pedido)
+        assert pedido.monto == Decimal("1300")
+
+        # NINGÚN movimiento CC creado
+        count = db.query(CCProveedorMovimiento).filter_by(origen_tipo="ajuste_pedido", origen_id=pedido.id).count()
+        assert count == 0
+
+        # Evento distinto
+        ev = db.query(CompraEvento).filter_by(entidad_id=pedido.id, tipo="monto_actualizado_sin_imputaciones").one()
+        assert ev.payload["tenia_imputaciones_vivas"] is False
 
     def test_diferencia_cero_no_emite_cc(self, db, empresa, proveedor, sd_factura, active_user):
         pedido = _crear_pedido(db, empresa, proveedor, active_user, monto=Decimal("1000"))
@@ -522,9 +583,7 @@ class TestMatchBackwardMismatchMonto:
         # Notificación WARNING dirigida AL ADMIN con permiso (Fix 4):
         # antes era `user_id=None` y no la veía nadie.
         notif = (
-            db.query(Notificacion)
-            .filter_by(tipo="compras.pedido_monto_difiere_factura", user_id=admin_dest.id)
-            .first()
+            db.query(Notificacion).filter_by(tipo="compras.pedido_monto_difiere_factura", user_id=admin_dest.id).first()
         )
         assert notif is not None, (
             "Fix 4: la notificación debe dirigirse al usuario con permisos "

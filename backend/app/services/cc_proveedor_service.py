@@ -730,12 +730,15 @@ def _crear_alerta_y_notificaciones_divergencia(
     *,
     fecha_corrida: date,
     divergencias: list[CCReconciliacionLog],
-) -> tuple[Optional[int], list[int]]:
+) -> tuple[Optional[int], list[Optional[int]]]:
     """Crea 1 alerta banner + N notificaciones (una por log divergente)
     siguiendo design §8.3 (reuso de tablas `alertas` y `notificaciones`).
 
     Returns:
-        (alerta_id, [notificacion_ids en mismo orden que divergencias])
+        (alerta_id, [notificacion_ids en mismo orden que divergencias]).
+        Cada elemento de la lista puede ser None si no hubo admins con
+        permisos (el log queda sin notificacion_id vinculada, pero se
+        persiste igualmente para trazabilidad).
 
     Si falla la creación de alerta/notif, NO rompe — retorna (None, []).
     La reconciliación puede persistir logs aunque el sistema de alertas
@@ -744,12 +747,9 @@ def _crear_alerta_y_notificaciones_divergencia(
     # Imports locales — evitamos tocar a nivel módulo para no cargar
     # modelos ajenos al CC cuando solo se usa insertar_mov.
     from app.models.alerta import Alerta  # noqa: PLC0415
-    from app.models.notificacion import (  # noqa: PLC0415
-        EstadoNotificacion,
-        Notificacion,
-        SeveridadNotificacion,
+    from app.services.notificacion_service import (  # noqa: PLC0415
+        crear_notificaciones_para_permisos,
     )
-    from app.models.usuario import RolUsuario, Usuario  # noqa: PLC0415
 
     try:
         # 1 Alerta banner agregada
@@ -772,39 +772,34 @@ def _crear_alerta_y_notificaciones_divergencia(
         session.flush()
         alerta_id = int(alerta.id)
 
-        # N notificaciones: una por divergencia, repartidas a cada admin
-        admin_ids = [
-            r[0]
-            for r in session.execute(
-                select(Usuario.id).where(
-                    Usuario.activo == True,  # noqa: E712
-                    Usuario.rol.in_([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]),
-                )
-            ).all()
-        ]
-        notif_ids: list[int] = []
+        # N notificaciones: una por divergencia, fan-out a TODOS los usuarios
+        # con permiso de gestionar la reconciliación (no solo al primer admin,
+        # como hacía la versión anterior). Usamos el helper centralizado que
+        # reemplaza el antipatrón `Notificacion(user_id=None)` y además evita
+        # que la notif se pierda si no hay admins (cae a log WARNING).
+        notif_ids: list[int | None] = []  # type: ignore[assignment]
         for log in divergencias:
-            # Una notificación por divergencia — la asociamos al primer
-            # admin activo (trazabilidad por log). Si hay más admins,
-            # pueden consultar el listado admin/reconciliacion que ya
-            # muestra todas las filas.
-            user_target = admin_ids[0] if admin_ids else None
-            notif = Notificacion(
-                user_id=user_target,
+            notifs = crear_notificaciones_para_permisos(
+                session,
+                permisos_requeridos=[
+                    "administracion.gestionar_ordenes_compra",
+                    "administracion.ver_cuentas_corrientes",
+                ],
                 tipo="cc_reconciliacion_divergencia",
                 mensaje=(
                     f"Divergencia CC proveedor_id={log.proveedor_id} "
                     f"moneda={log.moneda}: mayor={log.saldo_libro_mayor} "
                     f"snap={log.saldo_snapshot} dif={log.diferencia}"
                 ),
-                severidad=SeveridadNotificacion.WARNING,
-                estado=EstadoNotificacion.PENDIENTE,
             )
-            session.add(notif)
             session.flush()
-            notif_ids.append(int(notif.id))
+            # El log apunta al ID de la PRIMERA notificación creada (una de
+            # las N por divergencia) — suficiente para audit trail, el resto
+            # son copias idénticas en la UI de cada admin. Si nadie tenía
+            # permisos → None (el helper ya loggeó WARNING).
+            notif_ids.append(int(notifs[0].id) if notifs else None)  # type: ignore[arg-type]
 
-        return alerta_id, notif_ids
+        return alerta_id, notif_ids  # type: ignore[return-value]
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "Falló la creación de alerta/notif de reconciliación (pero los logs se mantienen): %s",

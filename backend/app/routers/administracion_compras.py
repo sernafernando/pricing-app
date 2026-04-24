@@ -50,7 +50,9 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.models.tb_sale_document import SaleDocument
 from app.models.usuario import Usuario
-from app.schemas.cc_proveedor import (
+from app.schemas.cc_proveedor import (  # noqa: I001
+    AjusteCCManualRequest,
+    PagoRapidoRequest,
     CCAgrupadoPorPedido,
     CCMovimientoResponse,
     CCProveedorDetalle,
@@ -83,13 +85,16 @@ from app.schemas.nota_credito_local import (
 )
 from app.schemas.orden_pago import (
     CajaMovimientoResumen,
+    OrdenPagoCancelarPendiente,
     OrdenPagoCreate,
     OrdenPagoDetalle,
+    OrdenPagoEditar,
     OrdenPagoEjecutarPago,
     OrdenPagoPaginated,
     OrdenPagoResponse,
 )
 from app.schemas.pedido_compra import (
+    DocumentoERPImputado,
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
@@ -421,7 +426,7 @@ def obtener_pedido(
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     return detalle
 
 
@@ -768,6 +773,131 @@ def listar_eventos_pedido(
     return [CompraEventoResponse.model_validate(e) for e in eventos]
 
 
+@router.get(
+    "/pedidos/{pedido_id}/documentos-erp-imputados",
+    response_model=list[DocumentoERPImputado],
+    summary="Lista de documentos (facturas ERP, NCs) imputados al pedido",
+)
+def listar_documentos_erp_imputados(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[DocumentoERPImputado]:
+    """Lista los documentos ERP/locales imputados al pedido (sub-batch 3.1).
+
+    Fuente de verdad: tabla `imputaciones`. Filtra por
+    `destino_tipo='pedido_compra' AND destino_id=pedido_id AND es_reversal=False`.
+
+    Enriquece con datos del documento origen:
+      - `origen_tipo='orden_pago'` → numero de OP + fecha pago + estado.
+      - `origen_tipo='nota_credito_local'` → numero NC + fecha emisión + estado.
+      - `origen_tipo='factura_erp'` o si hay ct_transaction en el origen
+        → ct_docnumber + ct_date + ct_total.
+    """
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+
+    _obtener_pedido_o_404(db, pedido_id)
+
+    # Imputaciones vivas al pedido.
+    imps = list(
+        db.execute(
+            select(Imputacion)
+            .where(
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.destino_id == pedido_id,
+                Imputacion.es_reversal.is_(False),
+            )
+            .order_by(Imputacion.created_at.asc(), Imputacion.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    # Resolver en batch por tipo de origen para evitar N+1.
+    op_ids = {int(i.origen_id) for i in imps if i.origen_tipo == "orden_pago"}
+    nc_ids = {int(i.origen_id) for i in imps if i.origen_tipo == "nota_credito_local"}
+    ct_ids: set[int] = set()
+    for imp in imps:
+        if imp.origen_tipo in ("factura_erp", "nota_credito_erp") and imp.origen_id is not None:
+            ct_ids.add(int(imp.origen_id))
+
+    ops_map: dict[int, OrdenPago] = {}
+    if op_ids:
+        for row in db.execute(select(OrdenPago).where(OrdenPago.id.in_(op_ids))).scalars().all():
+            ops_map[int(row.id)] = row
+
+    ncs_map: dict[int, NotaCreditoLocal] = {}
+    if nc_ids:
+        for row in db.execute(select(NotaCreditoLocal).where(NotaCreditoLocal.id.in_(nc_ids))).scalars().all():
+            ncs_map[int(row.id)] = row
+
+    cts_map: dict[int, CommercialTransaction] = {}
+    if ct_ids:
+        try:
+            for row in (
+                db.execute(select(CommercialTransaction).where(CommercialTransaction.ct_transaction.in_(ct_ids)))
+                .scalars()
+                .all()
+            ):
+                cts_map[int(row.ct_transaction)] = row
+        except Exception as exc:  # noqa: BLE001
+            # Tabla ERP puede no existir en tests: degradamos gracefully.
+            logger.debug("listar_documentos_erp_imputados: query ERP falló: %s", exc)
+
+    resultado: list[DocumentoERPImputado] = []
+    for imp in imps:
+        numero: Optional[str] = None
+        fecha: Optional[datetime] = None
+        estado: Optional[str] = None
+        descripcion: Optional[str] = None
+        origen_id_int = int(imp.origen_id) if imp.origen_id is not None else 0
+
+        if imp.origen_tipo == "orden_pago":
+            op = ops_map.get(origen_id_int)
+            if op is not None:
+                numero = op.numero
+                if op.fecha_pago_real:
+                    fecha = datetime.combine(op.fecha_pago_real, datetime.min.time())
+                estado = op.estado
+                descripcion = f"OP {op.numero}"
+        elif imp.origen_tipo == "nota_credito_local":
+            nc = ncs_map.get(origen_id_int)
+            if nc is not None:
+                numero = nc.numero
+                if nc.fecha_emision:
+                    fecha = datetime.combine(nc.fecha_emision, datetime.min.time())
+                estado = nc.estado
+                descripcion = f"NC local {nc.numero}"
+        elif imp.origen_tipo in ("factura_erp", "nota_credito_erp"):
+            ct = cts_map.get(origen_id_int)
+            if ct is not None:
+                numero = ct.ct_docNumber
+                fecha = ct.ct_date
+                descripcion = (
+                    f"Factura ERP {ct.ct_docNumber}"
+                    if imp.origen_tipo == "factura_erp"
+                    else f"NC ERP {ct.ct_docNumber}"
+                )
+            else:
+                numero = f"#{origen_id_int}"
+                descripcion = f"{imp.origen_tipo} id={origen_id_int}"
+
+        resultado.append(
+            DocumentoERPImputado(
+                origen_tipo=imp.origen_tipo,
+                origen_id=origen_id_int,
+                numero=numero,
+                fecha=fecha,
+                monto_imputado=Decimal(imp.monto_imputado),
+                moneda_imputada=str(imp.moneda_imputada),
+                estado=estado,
+                descripcion=descripcion,
+            )
+        )
+
+    return resultado
+
+
 # ==========================================================================
 # §9.2 — ÓRDENES DE PAGO
 # ==========================================================================
@@ -888,7 +1018,7 @@ def obtener_orden_pago(
             "proveedor_nombre": prov.nombre if prov is not None else None,
         }
     )
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
 
     # Resumen del movimiento de caja (solo si está pagada).
@@ -959,6 +1089,107 @@ def crear_orden_pago(
     return _op_response(op)
 
 
+@router.put(
+    "/ordenes-pago/{op_id}",
+    response_model=OrdenPagoResponse,
+    summary="Editar OP en estado 'pendiente' (409 si ya fue pagada/anulada/cancelada)",
+)
+def editar_orden_pago(
+    op_id: int,
+    data: OrdenPagoEditar,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OrdenPagoResponse:
+    """Editar OP pendiente — sub-batch 1.1.
+
+    Reglas:
+      - 409 si OP no está en estado 'pendiente'.
+      - Body idéntico a create pero todo opcional.
+      - Items se revalidan contra whitelist + modo + suma.
+      - Registra evento 'op_editada' con diff y, si cambian items,
+        evento 'items_editados' (append-only).
+    """
+    items_norm: Optional[list[dict]]
+    if data.items is None:
+        items_norm = None
+    else:
+        items_norm = [
+            {
+                "tipo": it.tipo,
+                "id": it.id,
+                "monto": it.monto,
+                "numero_factura": it.numero_factura,
+            }
+            for it in data.items
+        ]
+
+    try:
+        op = ordenes_pago_service.editar(
+            db,
+            op_id=op_id,
+            monto_total=data.monto_total,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            modo_imputacion=data.modo_imputacion,  # type: ignore[arg-type]
+            items=items_norm,
+            observaciones=data.observaciones,
+            tipo_cambio=data.tipo_cambio,
+            fecha_pago_estimada=data.fecha_pago_estimada,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("editar_orden_pago falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al editar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="editar_orden_pago")
+    db.refresh(op)
+    return _op_response(op)
+
+
+@router.post(
+    "/ordenes-pago/{op_id}/cancelar-pendiente",
+    response_model=OrdenPagoResponse,
+    summary="Cancelar OP pendiente (estado terminal, sin efectos colaterales)",
+)
+def cancelar_orden_pago_pendiente(
+    op_id: int,
+    data: OrdenPagoCancelarPendiente,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OrdenPagoResponse:
+    """Cancelar OP pendiente — sub-batch 1.2.
+
+    Transición segura `pendiente → cancelado` porque no hay imputaciones
+    físicas, caja ni CC. Solo UPDATE + evento auditado.
+
+    Raises:
+        409 si OP no está en estado 'pendiente'.
+        404 si OP inexistente.
+        400 si motivo vacío.
+    """
+    try:
+        op = ordenes_pago_service.cancelar_pendiente(
+            db,
+            op_id=op_id,
+            motivo=data.motivo,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("cancelar_orden_pago_pendiente falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al cancelar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="cancelar_orden_pago_pendiente")
+    db.refresh(op)
+    return _op_response(op)
+
+
 @router.post(
     "/ordenes-pago/{op_id}/pagar",
     response_model=OrdenPagoResponse,
@@ -986,6 +1217,7 @@ def pagar_orden_pago(
             caja_id=data.caja_id,
             fecha_pago_real=data.fecha_pago_real,
             user_id=user.id,
+            tipo_cambio_override=data.tipo_cambio_override,
         )
     except HTTPException:
         db.rollback()
@@ -1237,6 +1469,196 @@ def obtener_papelera_item(
 # ==========================================================================
 
 
+def _enriquecer_imputaciones(db: Session, imps: list[Imputacion]) -> list[ImputacionResponse]:
+    """Enriquece imputaciones con nombres + descripciones legibles (batch, NO N+1).
+
+    Carga en 4-6 queries agrupadas todos los proveedores, empresas, pedidos,
+    OPs y NCs locales referenciados por el conjunto de imputaciones. Si una
+    referencia es huérfana (origen/destino apuntando a un recurso
+    inexistente), se cae al ID crudo como fallback.
+
+    Para empresas, la imputación NO tiene FK directa — resolvemos via:
+      - destino pedido_compra → pedido.empresa_id
+      - origen orden_pago → op.empresa_id
+      - origen nota_credito_local → nc.empresa_id
+      - destino factura_erp → (comp_id, bra_id) del ct_transaction mapeado
+        vía `compras_empresa_erp_map.bra_a_empresa_o_ignorar`.
+    """
+    if not imps:
+        return []
+
+    from app.core.compras_empresa_erp_map import bra_a_empresa_o_ignorar  # noqa: PLC0415
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+    from app.models.empresa import Empresa  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    # ── 1. Proveedores ──────────────────────────────────────────────────
+    proveedor_ids = {imp.proveedor_id for imp in imps if imp.proveedor_id is not None}
+    proveedores: dict[int, str] = {}
+    if proveedor_ids:
+        rows = db.execute(select(Proveedor.id, Proveedor.nombre).where(Proveedor.id.in_(proveedor_ids))).all()
+        proveedores = {int(r[0]): str(r[1]) for r in rows}
+
+    # ── 2. Pedidos (para destino=pedido_compra y resolver empresa) ──────
+    pedido_ids = {
+        int(imp.destino_id) for imp in imps if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None
+    }
+    pedidos: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if pedido_ids:
+        rows = db.execute(
+            select(PedidoCompra.id, PedidoCompra.numero, PedidoCompra.empresa_id).where(PedidoCompra.id.in_(pedido_ids))
+        ).all()
+        pedidos = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 3. OPs (para origen=orden_pago y resolver empresa) ──────────────
+    op_ids = {int(imp.origen_id) for imp in imps if imp.origen_tipo == "orden_pago" and imp.origen_id is not None}
+    ops: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if op_ids:
+        rows = db.execute(
+            select(OrdenPago.id, OrdenPago.numero, OrdenPago.empresa_id).where(OrdenPago.id.in_(op_ids))
+        ).all()
+        ops = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 4. NCs locales (para origen=nota_credito_local y resolver empresa)
+    nc_local_ids = {
+        int(imp.origen_id) for imp in imps if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None
+    }
+    ncs_locales: dict[int, tuple[str, int]] = {}  # {id: (numero, empresa_id)}
+    if nc_local_ids:
+        rows = db.execute(
+            select(NotaCreditoLocal.id, NotaCreditoLocal.numero, NotaCreditoLocal.empresa_id).where(
+                NotaCreditoLocal.id.in_(nc_local_ids)
+            )
+        ).all()
+        ncs_locales = {int(r[0]): (str(r[1]), int(r[2])) for r in rows}
+
+    # ── 5. CommercialTransaction (factura_erp como destino, nota_credito_erp
+    #      como origen) — para numero y empresa_id via (comp_id, bra_id).
+    ct_ids: set[int] = set()
+    for imp in imps:
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_ids.add(int(imp.destino_id))
+        if imp.origen_tipo == "nota_credito_erp" and imp.origen_id is not None:
+            ct_ids.add(int(imp.origen_id))
+    cts: dict[int, tuple[str | None, int | None, int | None]] = {}  # {ct: (doc, comp, bra)}
+    if ct_ids:
+        try:
+            rows = db.execute(
+                select(
+                    CommercialTransaction.ct_transaction,
+                    CommercialTransaction.ct_docNumber,
+                    CommercialTransaction.comp_id,
+                    CommercialTransaction.bra_id,
+                ).where(CommercialTransaction.ct_transaction.in_(ct_ids))
+            ).all()
+            cts = {
+                int(r[0]): (
+                    str(r[1]) if r[1] is not None else None,
+                    int(r[2]) if r[2] is not None else None,
+                    int(r[3]) if r[3] is not None else None,
+                )
+                for r in rows
+            }
+        except Exception:  # noqa: BLE001 — ERP no disponible (SQLite tests / tabla faltante)
+            # Fallback silencioso: sin metadata ERP. Se caerá al ID crudo.
+            cts = {}
+
+    # ── 6. Empresas (nombres, resolvemos IDs abajo vía los dicts de arriba)
+    empresa_ids_a_cargar: set[int] = set()
+    for imp in imps:
+        # Prioridad idéntica a `_resolver_empresa_id_para_imputacion`:
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            ped = pedidos.get(int(imp.destino_id))
+            if ped is not None:
+                empresa_ids_a_cargar.add(ped[1])
+                continue
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            op_tuple = ops.get(int(imp.origen_id))
+            if op_tuple is not None:
+                empresa_ids_a_cargar.add(op_tuple[1])
+                continue
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            nc_tuple = ncs_locales.get(int(imp.origen_id))
+            if nc_tuple is not None:
+                empresa_ids_a_cargar.add(nc_tuple[1])
+                continue
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[1] is not None and ct_tuple[2] is not None:
+                emp = bra_a_empresa_o_ignorar(ct_tuple[1], ct_tuple[2])
+                if emp is not None:
+                    empresa_ids_a_cargar.add(emp)
+
+    empresas_nombres: dict[int, str] = {}
+    if empresa_ids_a_cargar:
+        rows = db.execute(select(Empresa.id, Empresa.nombre).where(Empresa.id.in_(empresa_ids_a_cargar))).all()
+        empresas_nombres = {int(r[0]): str(r[1]) for r in rows}
+
+    # ── 7. Construcción de respuestas enriquecidas ──────────────────────
+    def _resolver_empresa_id(imp: Imputacion) -> int | None:
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            ped = pedidos.get(int(imp.destino_id))
+            if ped is not None:
+                return ped[1]
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            op_tuple = ops.get(int(imp.origen_id))
+            if op_tuple is not None:
+                return op_tuple[1]
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            nc_tuple = ncs_locales.get(int(imp.origen_id))
+            if nc_tuple is not None:
+                return nc_tuple[1]
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[1] is not None and ct_tuple[2] is not None:
+                return bra_a_empresa_o_ignorar(ct_tuple[1], ct_tuple[2])
+        return None
+
+    def _descripcion_origen(imp: Imputacion) -> str:
+        if imp.origen_tipo == "orden_pago" and imp.origen_id is not None:
+            tup = ops.get(int(imp.origen_id))
+            if tup is not None:
+                return f"OP {tup[0]}"
+            return f"OP #{imp.origen_id}"
+        if imp.origen_tipo == "nota_credito_local" and imp.origen_id is not None:
+            tup = ncs_locales.get(int(imp.origen_id))
+            if tup is not None:
+                return f"NC {tup[0]}"
+            return f"NC #{imp.origen_id}"
+        if imp.origen_tipo == "nota_credito_erp" and imp.origen_id is not None:
+            ct_tuple = cts.get(int(imp.origen_id))
+            if ct_tuple is not None and ct_tuple[0]:
+                return f"NC ERP {ct_tuple[0]}"
+            return f"NC ERP {imp.origen_id}"
+        return f"{imp.origen_tipo} #{imp.origen_id}"
+
+    def _descripcion_destino(imp: Imputacion) -> str:
+        if imp.destino_tipo == "saldo":
+            return "Saldo a cuenta"
+        if imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+            tup = pedidos.get(int(imp.destino_id))
+            if tup is not None:
+                return f"Pedido {tup[0]}"
+            return f"Pedido #{imp.destino_id}"
+        if imp.destino_tipo == "factura_erp" and imp.destino_id is not None:
+            ct_tuple = cts.get(int(imp.destino_id))
+            if ct_tuple is not None and ct_tuple[0]:
+                return f"Factura {ct_tuple[0]}"
+            return f"Factura {imp.destino_id}"
+        return f"{imp.destino_tipo} #{imp.destino_id}"
+
+    resultado: list[ImputacionResponse] = []
+    for imp in imps:
+        emp_id = _resolver_empresa_id(imp)
+        resp = ImputacionResponse.model_validate(imp)
+        resp.proveedor_nombre = proveedores.get(int(imp.proveedor_id)) if imp.proveedor_id else None
+        resp.empresa_nombre = empresas_nombres.get(emp_id) if emp_id is not None else None
+        resp.origen_descripcion = _descripcion_origen(imp)
+        resp.destino_descripcion = _descripcion_destino(imp)
+        resultado.append(resp)
+    return resultado
+
+
 @router.get(
     "/imputaciones",
     response_model=ImputacionPaginated,
@@ -1253,7 +1675,7 @@ def listar_imputaciones(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> ImputacionPaginated:
-    """Imputaciones paginadas."""
+    """Imputaciones paginadas, con nombres derivados + descripciones legibles."""
     condiciones = []
     if proveedor_id is not None:
         condiciones.append(Imputacion.proveedor_id == proveedor_id)
@@ -1272,8 +1694,9 @@ def listar_imputaciones(
     stmt = stmt.order_by(Imputacion.created_at.desc(), Imputacion.id.desc())
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
+    enriquecidos = _enriquecer_imputaciones(db, list(items))
     return ImputacionPaginated(
-        items=[ImputacionResponse.model_validate(i) for i in items],
+        items=enriquecidos,
         total=total,
         page=page,
         page_size=page_size,
@@ -1360,6 +1783,153 @@ def reimputar_imputacion(
 # ==========================================================================
 
 
+def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimientoResponse]:
+    """Enriquece movimientos de CC proveedor con `origen_descripcion` legible.
+
+    Batch (0 N+1): hace 4-5 queries agrupadas por origen_tipo y resuelve los
+    nombres/numeros de documento en memoria. Mapping:
+
+      - orden_pago          → "OP {numero}"
+      - nota_credito_local  → "NC {numero}"
+      - ajuste_pedido       → "Ajuste pedido {numero}"    (origen_id = pedido)
+      - ajuste_manual       → "Ajuste manual"
+      - nota_credito_erp    → "NC ERP {ct_docnumber}"
+      - pedido_compra       → "Pedido {numero}"           (legacy, si aplica)
+
+    Fallback: `"{origen_tipo} #{id}"` si la FK está huérfana o el tipo es
+    desconocido (p.ej. tipos nuevos todavía no mapeados acá).
+    """
+    if not movs:
+        return []
+
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    # ── Recolectar IDs por origen_tipo ───────────────────────────────────
+    # IMPORTANTE: los movimientos "haber" generados por `aplicar_imputacion`
+    # llegan con `origen_tipo='imputacion'` y `origen_id=imputacion.id`. Para
+    # resolver a "OP {numero}" / "NC {numero}" hay que hacer un hop: buscar
+    # la imputacion y usar su `origen_tipo`/`origen_id` como referencia
+    # real. Los reversales (tipo='debe', origen_tipo='reimputacion') siguen
+    # el mismo patrón.
+    op_ids: set[int] = set()
+    nc_local_ids: set[int] = set()
+    pedido_ids: set[int] = set()  # ajuste_pedido + pedido_compra (legacy)
+    ct_ids: set[int] = set()  # nota_credito_erp + facturas
+    imp_ids: set[int] = set()  # imputacion / reimputacion — hop al origen real
+
+    for m in movs:
+        oid = getattr(m, "origen_id", None)
+        if oid is None:
+            continue
+        otipo = getattr(m, "origen_tipo", None)
+        if otipo == "orden_pago":
+            op_ids.add(int(oid))
+        elif otipo == "nota_credito_local":
+            nc_local_ids.add(int(oid))
+        elif otipo in ("ajuste_pedido", "pedido_compra"):
+            pedido_ids.add(int(oid))
+        elif otipo == "nota_credito_erp":
+            ct_ids.add(int(oid))
+        elif otipo in ("imputacion", "reimputacion"):
+            imp_ids.add(int(oid))
+
+    # ── Hop: cargar imputaciones referenciadas y propagar sus origenes ───
+    # Una imputacion puede tener origen orden_pago, nota_credito_local o
+    # nota_credito_erp. Recolectamos esos IDs secundarios para batch fetch.
+    imps_resueltos: dict[int, tuple[str, int]] = {}  # imp_id → (origen_tipo, origen_id)
+    if imp_ids:
+        rows = db.execute(
+            select(Imputacion.id, Imputacion.origen_tipo, Imputacion.origen_id).where(Imputacion.id.in_(imp_ids))
+        ).all()
+        for r in rows:
+            imps_resueltos[int(r[0])] = (str(r[1]), int(r[2]))
+            otipo2, oid2 = str(r[1]), int(r[2])
+            if otipo2 == "orden_pago":
+                op_ids.add(oid2)
+            elif otipo2 == "nota_credito_local":
+                nc_local_ids.add(oid2)
+            elif otipo2 == "nota_credito_erp":
+                ct_ids.add(oid2)
+
+    # ── Batch fetch: numeros por ID ──────────────────────────────────────
+    ops_numeros: dict[int, str] = {}
+    if op_ids:
+        rows = db.execute(select(OrdenPago.id, OrdenPago.numero).where(OrdenPago.id.in_(op_ids))).all()
+        ops_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    ncs_numeros: dict[int, str] = {}
+    if nc_local_ids:
+        rows = db.execute(
+            select(NotaCreditoLocal.id, NotaCreditoLocal.numero).where(NotaCreditoLocal.id.in_(nc_local_ids))
+        ).all()
+        ncs_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    pedidos_numeros: dict[int, str] = {}
+    if pedido_ids:
+        rows = db.execute(select(PedidoCompra.id, PedidoCompra.numero).where(PedidoCompra.id.in_(pedido_ids))).all()
+        pedidos_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    ct_docnumbers: dict[int, str | None] = {}
+    if ct_ids:
+        try:
+            rows = db.execute(
+                select(CommercialTransaction.ct_transaction, CommercialTransaction.ct_docNumber).where(
+                    CommercialTransaction.ct_transaction.in_(ct_ids)
+                )
+            ).all()
+            ct_docnumbers = {int(r[0]): (str(r[1]) if r[1] is not None else None) for r in rows}
+        except Exception:  # noqa: BLE001 — ERP no disponible (SQLite tests)
+            ct_docnumbers = {}
+
+    # ── Resolver descripción por movimiento ─────────────────────────────
+    def _describir_ref(otipo: str, oid: int) -> str:
+        """Resuelve un par (tipo, id) a texto humano — sin hop de imputacion."""
+        if otipo == "orden_pago":
+            num = ops_numeros.get(oid)
+            return f"OP {num}" if num else f"OP #{oid}"
+        if otipo == "nota_credito_local":
+            num = ncs_numeros.get(oid)
+            return f"NC {num}" if num else f"NC #{oid}"
+        if otipo == "ajuste_pedido":
+            num = pedidos_numeros.get(oid)
+            return f"Ajuste pedido {num}" if num else f"Ajuste pedido #{oid}"
+        if otipo == "pedido_compra":
+            num = pedidos_numeros.get(oid)
+            return f"Pedido {num}" if num else f"Pedido #{oid}"
+        if otipo == "nota_credito_erp":
+            doc = ct_docnumbers.get(oid)
+            return f"NC ERP {doc}" if doc else f"NC ERP #{oid}"
+        if otipo == "factura_erp":
+            doc = ct_docnumbers.get(oid)
+            return f"Factura {doc}" if doc else f"Factura #{oid}"
+        return f"{otipo} #{oid}"
+
+    def _descripcion(m: Any) -> str:
+        otipo = getattr(m, "origen_tipo", None)
+        oid = getattr(m, "origen_id", None)
+        if otipo == "ajuste_manual":
+            return "Ajuste manual"
+        # Hop: imputacion/reimputacion → usar origen real de la imputacion.
+        if otipo in ("imputacion", "reimputacion") and oid is not None:
+            ref = imps_resueltos.get(int(oid))
+            if ref is not None:
+                prefijo = "Reversal " if otipo == "reimputacion" else ""
+                return prefijo + _describir_ref(ref[0], ref[1])
+            return f"{otipo} #{oid}"
+        if oid is not None and otipo:
+            return _describir_ref(otipo, int(oid))
+        # Fallback: tipo desconocido o sin origen_id
+        return f"{otipo} #{oid}" if oid is not None else (otipo or "—")
+
+    resultado: list[CCMovimientoResponse] = []
+    for m in movs:
+        resp = CCMovimientoResponse.model_validate(m)
+        resp.origen_descripcion = _descripcion(m)
+        resultado.append(resp)
+    return resultado
+
+
 @router.get(
     "/cc-proveedor/{proveedor_id}",
     response_model=CCProveedorDetalle,
@@ -1410,7 +1980,7 @@ def obtener_cc_proveedor(
         proveedor_id=proveedor_id,
         nombre_proveedor=str(nombre_prov),
         saldos=saldos_list,
-        movimientos=[CCMovimientoResponse.model_validate(m) for m in movimientos],
+        movimientos=_enriquecer_movimientos_cc(db, list(movimientos)),
     )
 
 
@@ -1462,7 +2032,7 @@ def obtener_cc_por_pedido(
                 pedido_estado=pedido.estado,
                 pedido_monto=Decimal(pedido.monto),
                 pedido_moneda=pedido.moneda,
-                movimientos=[CCMovimientoResponse.model_validate(m) for m in movs],
+                movimientos=_enriquecer_movimientos_cc(db, list(movs)),
             )
         )
     # Orden: por fecha desc del primer movimiento de cada grupo
@@ -1471,6 +2041,213 @@ def obtener_cc_por_pedido(
         reverse=True,
     )
     return resultado
+
+
+@router.get(
+    "/cc-proveedor/{proveedor_id}/facturas-erp-vigentes",
+    response_model=list[FacturaCandidataResponse],
+    summary="Facturas ERP vigentes del proveedor (para aplicar NC local a factura_erp)",
+)
+def listar_facturas_erp_vigentes_proveedor(
+    proveedor_id: int,
+    moneda: Optional[str] = Query(None, pattern="^(ARS|USD)$"),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> list[FacturaCandidataResponse]:
+    """Lista facturas del ERP vigentes del proveedor (v_facturas_compra_vigentes),
+    sin filtrar por pedido.
+
+    Uso: el modal `ModalAplicarNC` necesita mostrar facturas ERP del proveedor
+    cuando el usuario elige destino `factura_erp` (sub-batch 3). La vista ya
+    excluye contrapartes/anuladas. Filtra por `supp_id` del proveedor y,
+    opcionalmente, por moneda (vía `curr_id_transaction`: 1=ARS, 2=USD por
+    convención ERP).
+
+    Si el proveedor no tiene `supp_id` ERP → lista vacía + log WARNING.
+    En SQLite (tests sin vista ERP) → lista vacía silenciosa.
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+    supp_id = db.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        logger.warning(
+            "facturas-erp-vigentes: proveedor_id=%s sin supp_id ERP → lista vacía",
+            proveedor_id,
+        )
+        return []
+
+    params: dict[str, Any] = {"supp_id": int(supp_id)}
+    # Filtro opcional por moneda — convención: curr_id=1 ARS, curr_id=2 USD
+    # (es el mapping de tb_currency en el ERP). Si no matchea, simplemente no
+    # aplica el where y la UI muestra todas.
+    moneda_where = ""
+    if moneda == "ARS":
+        moneda_where = "AND v.curr_id_transaction = 1"
+    elif moneda == "USD":
+        moneda_where = "AND v.curr_id_transaction = 2"
+
+    stmt = text(
+        f"""
+        SELECT v.ct_transaction,
+               v.ct_docnumber,
+               v.ct_date,
+               v.ct_total,
+               v.curr_id_transaction
+        FROM v_facturas_compra_vigentes v
+        WHERE v.supp_id = :supp_id
+          {moneda_where}
+        ORDER BY v.ct_date DESC NULLS LAST, v.ct_transaction DESC
+        LIMIT 200
+        """
+    )
+    try:
+        filas = db.execute(stmt, params).all()
+    except Exception as exc:  # noqa: BLE001 — vista ERP ausente (SQLite tests)
+        logger.warning(
+            "facturas-erp-vigentes: vista ERP no disponible (probablemente tests): %s",
+            exc,
+        )
+        return []
+
+    return [
+        FacturaCandidataResponse(
+            ct_transaction=int(row[0]),
+            ct_docnumber=str(row[1] or ""),
+            ct_date=row[2],
+            ct_total=Decimal(str(row[3] or 0)),
+            curr_id_transaction=int(row[4]) if row[4] is not None else None,
+        )
+        for row in filas
+    ]
+
+
+@router.post(
+    "/cc-proveedor/{proveedor_id}/ajuste-manual",
+    response_model=CCMovimientoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajuste manual de CC del proveedor (sub-batch 5.H — permiso crítico)",
+)
+def crear_ajuste_cc_manual(
+    proveedor_id: int,
+    data: AjusteCCManualRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ajustar_cc_proveedor_manual")),
+) -> CCMovimientoResponse:
+    """Inserta un movimiento de ajuste manual en la CC del proveedor.
+
+    Append-only: NO modifica movimientos existentes. Genera un movimiento
+    `tipo='ajuste'` con `origen_tipo='ajuste_manual'`, `origen_id=None` y
+    `descripcion` con el motivo + metadata de usuario para auditoría.
+
+    Valida signo_ajuste ∈ {+1, -1}.
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+    if data.signo_ajuste not in (1, -1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="signo_ajuste debe ser +1 (debe) o -1 (haber).",
+        )
+    try:
+        mov = cc_proveedor_service.insertar_mov(
+            db,
+            proveedor_id=proveedor_id,
+            empresa_id=data.empresa_id,
+            fecha_movimiento=data.fecha_movimiento,
+            tipo="ajuste",
+            signo_ajuste=data.signo_ajuste,
+            monto=data.monto,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            origen_tipo="ajuste_manual",
+            origen_id=None,
+            descripcion=f"[AJUSTE MANUAL user_id={user.id}] {data.motivo.strip()}",
+            creado_por_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("crear_ajuste_cc_manual falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al crear el ajuste manual.") from exc
+
+    _commit_or_rollback(db, operacion="crear_ajuste_cc_manual")
+    db.refresh(mov)
+    # Enriquecer con origen_descripcion (batch de 1) para consistencia con el
+    # listado cronológico — la UI puede renderizar sin re-fetchear.
+    enriquecidos = _enriquecer_movimientos_cc(db, [mov])
+    return enriquecidos[0]
+
+
+@router.post(
+    "/cc-proveedor/{proveedor_id}/pago-rapido",
+    response_model=OrdenPagoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Pago rápido: crea OP a_cuenta + ejecuta pago en un solo request (sub-batch 5.G)",
+)
+def pago_rapido_cc_proveedor(
+    proveedor_id: int,
+    data: PagoRapidoRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ejecutar_pagos")),
+) -> OrdenPagoResponse:
+    """Pago rápido desde el tab CC Proveedores.
+
+    Atomic: crea OP modo `a_cuenta` + ejecuta pago en la misma transacción.
+    Si cualquier paso falla, rollbackea todo. Deja trazabilidad completa
+    (número OP, evento, caja_movimiento, imputación a saldo).
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+
+    try:
+        # Step 1: crear OP a_cuenta
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor_id,
+            empresa_id=data.empresa_id,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            monto_total=data.monto,
+            modo_imputacion="a_cuenta",
+            items=[],
+            observaciones=(f"[PAGO RÁPIDO user_id={user.id}] {data.observaciones or ''}".strip()),
+            creado_por_id=user.id,
+            confirmar_duplicado=True,  # flow rápido, no bloqueamos por ERP duplicate check
+        )
+        # Setear TC si vino (se persiste por ejecutar_pago como tipo_cambio_override)
+        # Step 2: ejecutar pago
+        op = ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=data.caja_id,
+            fecha_pago_real=data.fecha_pago_real,
+            user_id=user.id,
+            tipo_cambio_override=data.tipo_cambio,
+        )
+
+        # Evento extra para distinguir este flow en auditoría
+        ordenes_pago_service.registrar_evento_auditoria(
+            db,
+            op_id=op.id,
+            tipo="op_creada_y_pagada_rapido",
+            usuario_id=user.id,
+            payload={
+                "motivo": "Pago rápido sin pedido específico desde tab CC Proveedores.",
+                "monto": str(data.monto),
+                "moneda": data.moneda,
+            },
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("pago_rapido_cc_proveedor falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al ejecutar el pago rápido.") from exc
+
+    _commit_or_rollback(db, operacion="pago_rapido_cc_proveedor")
+    db.refresh(op)
+    return _op_response(op)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1516,7 +2293,20 @@ def listar_reconciliaciones(
     ).limit(limit)
 
     logs = list(db.execute(stmt).scalars().all())
-    return [CCReconciliacionLogResponse.model_validate(log) for log in logs]
+
+    # Batch-enriquecer con proveedor_nombre (1 query WHERE IN).
+    proveedor_ids = {int(log.proveedor_id) for log in logs if log.proveedor_id is not None}
+    nombres: dict[int, str] = {}
+    if proveedor_ids:
+        rows = db.execute(select(Proveedor.id, Proveedor.nombre).where(Proveedor.id.in_(proveedor_ids))).all()
+        nombres = {int(r[0]): str(r[1]) for r in rows}
+
+    resultado: list[CCReconciliacionLogResponse] = []
+    for log in logs:
+        resp = CCReconciliacionLogResponse.model_validate(log)
+        resp.proveedor_nombre = nombres.get(int(log.proveedor_id)) if log.proveedor_id else None
+        resultado.append(resp)
+    return resultado
 
 
 @router.post(
@@ -2339,7 +3129,7 @@ def obtener_nc_local(
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     return detalle
 
 

@@ -245,7 +245,7 @@ export default function TabReconciliacion() {
               {logs.map((log) => (
                 <tr key={log.id}>
                   <td className={styles.tdSecondary}>{formatDate(log.fecha_corrida)}</td>
-                  <td>#{log.proveedor_id}</td>
+                  <td>{log.proveedor_nombre || `#${log.proveedor_id}`}</td>
                   <td>{log.moneda}</td>
                   <td className={styles.tdRight}>
                     {formatMoneda(log.saldo_libro_mayor, log.moneda)}

@@ -18,8 +18,11 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import text
 
+from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.commercial_transaction import CommercialTransaction
+from app.models.compra_evento import CompraEvento
 from app.models.empresa import Empresa
+from app.models.imputacion import Imputacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.tb_sale_document import SaleDocument
@@ -330,6 +333,103 @@ class TestVincularFacturaEndpoint:
             },
         )
         assert r.status_code == 400, r.text
+
+    def test_ajuste_sin_imputaciones_update_directo_sin_mov_cc(
+        self, client, auth_headers, db, pedido, proveedor, sd_factura, con_todos_los_permisos
+    ):
+        """Sub-batch 4: pedido sin imputaciones → UPDATE directo SIN mov CC."""
+        _mk_ct(db, ct_transaction=305, supp_id=proveedor.supp_id, ct_total=Decimal("1500"))
+        count_movs_antes = db.query(CCProveedorMovimiento).count()
+
+        r = client.post(
+            f"{BASE}/pedidos/{pedido.id}/vincular-factura",
+            headers=auth_headers,
+            json={
+                "ct_transaction": 305,
+                "ajustar_monto": True,
+                "nuevo_monto": "1500",
+                "motivo_ajuste": "monto real factura",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert Decimal(r.json()["monto"]) == Decimal("1500")
+
+        # El movimiento CC NO debe haberse creado (UPDATE directo).
+        count_movs_despues = db.query(CCProveedorMovimiento).count()
+        assert count_movs_despues == count_movs_antes
+
+        # El evento registrado debe ser `monto_actualizado_sin_imputaciones`.
+        eventos = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_PEDIDO,
+                CompraEvento.entidad_id == pedido.id,
+                CompraEvento.tipo == "monto_actualizado_sin_imputaciones",
+            )
+            .all()
+        )
+        assert len(eventos) == 1
+        assert eventos[0].payload["tenia_imputaciones_vivas"] is False
+
+    def test_ajuste_con_imputaciones_genera_mov_cc(
+        self,
+        client,
+        auth_headers,
+        db,
+        pedido,
+        proveedor,
+        sd_factura,
+        active_user,
+        con_todos_los_permisos,
+    ):
+        """Sub-batch 4: pedido CON imputaciones vigentes → ajuste compensatorio CC."""
+        _mk_ct(db, ct_transaction=306, supp_id=proveedor.supp_id, ct_total=Decimal("1800"))
+
+        # Seedeo imputación viva al pedido (simulando una OP ya aplicada).
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=1,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("500"),
+            moneda_imputada="ARS",
+            proveedor_id=proveedor.id,
+            es_reversal=False,
+            creado_por_id=active_user.id,
+        )
+        db.add(imp)
+        db.flush()
+
+        count_movs_antes = db.query(CCProveedorMovimiento).count()
+
+        r = client.post(
+            f"{BASE}/pedidos/{pedido.id}/vincular-factura",
+            headers=auth_headers,
+            json={
+                "ct_transaction": 306,
+                "ajustar_monto": True,
+                "nuevo_monto": "1800",  # antes 1000, diferencia 800
+                "motivo_ajuste": "factura llegó mayor al pedido",
+            },
+        )
+        assert r.status_code == 200, r.text
+
+        # Movimiento CC SÍ se creó (ajuste compensatorio append-only).
+        count_movs_despues = db.query(CCProveedorMovimiento).count()
+        assert count_movs_despues == count_movs_antes + 1
+
+        # El evento registrado debe ser el clásico.
+        eventos = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_PEDIDO,
+                CompraEvento.entidad_id == pedido.id,
+                CompraEvento.tipo == "monto_ajustado_por_factura",
+            )
+            .all()
+        )
+        assert len(eventos) == 1
+        assert eventos[0].payload["tenia_imputaciones_vivas"] is True
 
 
 # ══════════════════════════════════════════════════════════════════════════

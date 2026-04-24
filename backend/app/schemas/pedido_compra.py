@@ -134,6 +134,24 @@ class FacturaCandidataResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DocumentoERPImputado(BaseModel):
+    """Documento ERP imputado a un pedido (sub-batch 3.1).
+
+    Representa una fila en la tabla "Documentos imputados" del detalle
+    del pedido. La fuente es la tabla de imputaciones, enriquecida con
+    datos del documento origen (factura ERP, NC local, etc.).
+    """
+
+    origen_tipo: str
+    origen_id: int
+    numero: str | None = None
+    fecha: datetime | None = None
+    monto_imputado: Decimal
+    moneda_imputada: str
+    estado: str | None = None
+    descripcion: str | None = None
+
+
 class VincularFacturaRequest(BaseModel):
     """Body de POST /pedidos/{id}/vincular-factura.
 
