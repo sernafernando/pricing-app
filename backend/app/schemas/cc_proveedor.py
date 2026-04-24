@@ -15,7 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CCMovimientoResponse(BaseModel):
-    """Movimiento individual del libro mayor de CC proveedor."""
+    """Movimiento individual del libro mayor de CC proveedor.
+
+    `origen_descripcion` es un nombre legible derivado (batch-enriquecido por
+    el router) para que la UI cronológica no muestre `origen_tipo #id` crudo.
+    Mapping:
+      - orden_pago          → "OP {numero}"
+      - nota_credito_local  → "NC {numero}"
+      - ajuste_pedido       → "Ajuste pedido {numero}"
+      - ajuste_manual       → "Ajuste manual"
+      - nota_credito_erp    → "NC ERP {ct_docnumber}"
+      - pedido_compra       → "Pedido {numero}"
+    Fallback (origen huérfano o tipo desconocido): `"{origen_tipo} #{id}"`.
+    """
 
     id: int
     proveedor_id: int
@@ -31,6 +43,9 @@ class CCMovimientoResponse(BaseModel):
     descripcion: str | None = None
     creado_por_id: int | None = None
     created_at: datetime
+
+    # Nombre derivado (batch-enriquecido por el router) — ver docstring.
+    origen_descripcion: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

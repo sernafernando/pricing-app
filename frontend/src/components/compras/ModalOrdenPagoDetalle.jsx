@@ -99,6 +99,10 @@ const descripcionModo = (modo) => {
 };
 
 const nombreDestino = (imp) => {
+  // El backend enriquece con `destino_descripcion` (batch): "Pedido P-…",
+  // "Factura 00390198", "Saldo a cuenta". Fallback al id crudo si por algún
+  // motivo la descripción no vino.
+  if (imp.destino_descripcion) return imp.destino_descripcion;
   if (imp.destino_tipo === 'saldo') return 'Saldo general';
   return `${imp.destino_tipo} #${imp.destino_id ?? '—'}`;
 };

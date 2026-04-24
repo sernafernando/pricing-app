@@ -475,8 +475,8 @@ export default function ModalNCLocalDetalle({ ncId, onClose }) {
                       <tr key={i.id}>
                         <td className={styles.tdMono}>#{i.id}</td>
                         <td>
-                          {i.destino_tipo}
-                          {i.destino_id ? ` #${i.destino_id}` : ''}
+                          {i.destino_descripcion ||
+                            `${i.destino_tipo}${i.destino_id ? ` #${i.destino_id}` : ''}`}
                         </td>
                         <td className={styles.tdRight}>
                           {formatCurrency(i.monto_imputado, i.moneda_imputada)}

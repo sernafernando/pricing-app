@@ -379,7 +379,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                       <tr key={i.id}>
                         <td className={styles.tdMono}>#{i.id}</td>
                         <td>
-                          {i.origen_tipo} #{i.origen_id}
+                          {i.origen_descripcion || `${i.origen_tipo} #${i.origen_id}`}
                         </td>
                         <td className={styles.tdRight}>
                           {formatCurrency(i.monto_imputado, i.moneda_imputada)}

@@ -372,8 +372,8 @@ export default function TabCCProveedores() {
                             </span>
                           </td>
                           <td className={styles.tdSecondary}>
-                            {m.origen_tipo}
-                            {m.origen_id ? ` #${m.origen_id}` : ''}
+                            {m.origen_descripcion ||
+                              `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`}
                           </td>
                           <td>{m.descripcion || '—'}</td>
                           <td className={styles.tdRight}>
