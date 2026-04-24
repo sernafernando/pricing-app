@@ -59,12 +59,51 @@ export default function useComprasOP() {
   }, []);
 
   const pagar = useCallback(
-    (id, cajaId, fechaPagoReal) =>
+    (id, cajaId, fechaPagoReal, tipoCambioOverride = null) =>
       wrap(async () => {
-        const { data } = await api.post(`/administracion/compras/ordenes-pago/${id}/pagar`, {
+        const body = {
           caja_id: cajaId,
           fecha_pago_real: fechaPagoReal,
-        });
+        };
+        if (tipoCambioOverride !== null && tipoCambioOverride !== undefined && tipoCambioOverride !== '') {
+          body.tipo_cambio_override = tipoCambioOverride;
+        }
+        const { data } = await api.post(
+          `/administracion/compras/ordenes-pago/${id}/pagar`,
+          body
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
+   * Editar OP en estado 'pendiente' (sub-batch 1.1).
+   * 409 si la OP ya fue pagada/anulada/cancelada.
+   */
+  const editar = useCallback(
+    (id, payload) =>
+      wrap(async () => {
+        const { data } = await api.put(
+          `/administracion/compras/ordenes-pago/${id}`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
+   * Cancelar OP pendiente (sub-batch 1.2). Transición terminal sin
+   * efectos colaterales: no hay imputaciones, caja ni CC que revertir.
+   */
+  const cancelarPendiente = useCallback(
+    (id, motivo) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/ordenes-pago/${id}/cancelar-pendiente`,
+          { motivo }
+        );
         return data;
       }),
     [wrap]
@@ -115,6 +154,8 @@ export default function useComprasOP() {
     listar,
     obtener,
     crear,
+    editar,
+    cancelarPendiente,
     pagar,
     anular,
     distribuirAutomatico,

@@ -15,6 +15,8 @@ import {
   ChevronUp,
   Clock,
   Trash2,
+  Pencil,
+  XCircle,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -28,7 +30,7 @@ import styles from './TabOrdenesPago.module.css';
 
 const PAGE_SIZE = 50;
 
-const ESTADOS_OP = ['pendiente', 'pagado', 'anulado'];
+const ESTADOS_OP = ['pendiente', 'pagado', 'anulado', 'cancelado'];
 
 const estadoBadgeClass = (estado) => {
   switch (estado) {
@@ -37,6 +39,8 @@ const estadoBadgeClass = (estado) => {
     case 'pagado':
       return styles.badgePagado;
     case 'anulado':
+      return styles.badgeAnulado;
+    case 'cancelado':
       return styles.badgeAnulado;
     default:
       return styles.badgeNeutral;
@@ -70,9 +74,11 @@ export default function TabOrdenesPago() {
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   const {
     listar: listarOPs,
+    obtener: obtenerOP,
     distribuirAutomatico,
     anular: anularOP,
     eliminar: eliminarOP,
+    cancelarPendiente: cancelarOPPendiente,
     loading: opLoading,
     error: opError,
   } = useComprasOP();
@@ -101,6 +107,19 @@ export default function TabOrdenesPago() {
   const [anularMotivo, setAnularMotivo] = useState('');
   const [anularLoading, setAnularLoading] = useState(false);
   const [anularError, setAnularError] = useState(null);
+
+  // ── Editar OP pendiente (sub-batch 1.1) ──
+  // `opEditar` es { op, items } cargado desde /ordenes-pago/{id} para
+  // pre-cargar el modal con los items del último evento items_*.
+  const [opEditar, setOpEditar] = useState(null);
+  const [opEditarLoading, setOpEditarLoading] = useState(false);
+  const [opEditarError, setOpEditarError] = useState(null);
+
+  // ── Cancelar OP pendiente (sub-batch 1.2) ──
+  const [cancelarModal, setCancelarModal] = useState(null); // op obj
+  const [cancelarMotivo, setCancelarMotivo] = useState('');
+  const [cancelarLoading, setCancelarLoading] = useState(false);
+  const [cancelarError, setCancelarError] = useState(null);
 
   // ── Pedidos pendientes de pago (Batch C) ──
   const [pendientes, setPendientes] = useState([]);
@@ -222,6 +241,53 @@ export default function TabOrdenesPago() {
     setShowModalNueva(true);
   };
 
+  /**
+   * Abre el modal de edición de OP pendiente. Fetchea el detalle para
+   * extraer los items del último evento items_registrados/items_editados.
+   */
+  const handleOpenEditar = async (op) => {
+    setOpEditarLoading(true);
+    setOpEditarError(null);
+    try {
+      const detalle = await obtenerOP(op.id);
+      // Buscar el evento items_* más reciente (editados tiene prioridad).
+      const eventos = detalle?.eventos || [];
+      const eventoItems = eventos.find(
+        (e) => e.tipo === 'items_editados' || e.tipo === 'items_registrados'
+      );
+      const opItems = eventoItems?.payload?.items || [];
+      setOpEditar({ op: detalle, opItems });
+    } catch (err) {
+      setOpEditarError(
+        err.response?.data?.detail || 'Error al cargar la OP para edición.'
+      );
+    } finally {
+      setOpEditarLoading(false);
+    }
+  };
+
+  const handleCancelarSubmit = async () => {
+    if (!cancelarModal) return;
+    const motivo = cancelarMotivo.trim();
+    if (!motivo) {
+      setCancelarError('El motivo es requerido.');
+      return;
+    }
+    setCancelarLoading(true);
+    setCancelarError(null);
+    try {
+      await cancelarOPPendiente(cancelarModal.id, motivo);
+      setCancelarModal(null);
+      setCancelarMotivo('');
+      fetchOPs();
+      fetchPendientes();
+    } catch (err) {
+      setCancelarError(err.response?.data?.detail || 'Error al cancelar la OP.');
+    } finally {
+      setCancelarLoading(false);
+    }
+  };
+
   // Fecha formateada + helper "vence en N días"
   const diasHasta = (isoDate) => {
     if (!isoDate) return null;
@@ -240,6 +306,8 @@ export default function TabOrdenesPago() {
 
   const renderAcciones = (op) => {
     const puedePagar = canPay && op.estado === 'pendiente';
+    const puedeEditar = canManage && op.estado === 'pendiente';
+    const puedeCancelarPendiente = canManage && op.estado === 'pendiente';
     const puedeAnular = canPay && op.estado === 'pagado';
     const puedeDistribuir =
       canManage &&
@@ -257,6 +325,17 @@ export default function TabOrdenesPago() {
         >
           <Eye size={14} />
         </button>
+        {puedeEditar && (
+          <button
+            className={styles.iconBtn}
+            onClick={() => handleOpenEditar(op)}
+            disabled={opEditarLoading}
+            aria-label="Editar"
+            title="Editar OP pendiente"
+          >
+            <Pencil size={14} />
+          </button>
+        )}
         {puedePagar && (
           <button
             className={styles.iconBtnSuccess}
@@ -275,6 +354,20 @@ export default function TabOrdenesPago() {
             title="Distribuir automáticamente (FIFO)"
           >
             <Layers size={14} />
+          </button>
+        )}
+        {puedeCancelarPendiente && (
+          <button
+            className={styles.iconBtnDanger}
+            onClick={() => {
+              setCancelarModal(op);
+              setCancelarMotivo('');
+              setCancelarError(null);
+            }}
+            aria-label="Cancelar pendiente"
+            title="Cancelar OP pendiente"
+          >
+            <XCircle size={14} />
           </button>
         )}
         {puedeAnular && (
@@ -551,6 +644,27 @@ export default function TabOrdenesPago() {
         />
       )}
 
+      {/* Modal editar OP pendiente (sub-batch 1.1) */}
+      {opEditar && (
+        <ModalOrdenPagoNueva
+          empresas={empresas}
+          op={opEditar.op}
+          opItems={opEditar.opItems}
+          pendientesDelProveedor={pendientes}
+          onClose={(reload) => {
+            setOpEditar(null);
+            if (reload) {
+              fetchOPs();
+              fetchPendientes();
+            }
+          }}
+        />
+      )}
+
+      {opEditarError && (
+        <div className={styles.errorBanner}>{opEditarError}</div>
+      )}
+
       {opPagar && (
         <ModalEjecutarPago
           op={opPagar}
@@ -626,6 +740,64 @@ export default function TabOrdenesPago() {
                 disabled={anularLoading}
               >
                 {anularLoading ? 'Anulando...' : 'Anular OP'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal cancelar OP pendiente (sub-batch 1.2) */}
+      {cancelarModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                Cancelar OP {cancelarModal.numero}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => {
+                  setCancelarModal(null);
+                  setCancelarMotivo('');
+                }}
+                aria-label="Cerrar"
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {cancelarError && <div className={styles.errorBanner}>{cancelarError}</div>}
+            <p className={styles.modalWarning}>
+              Esta acción marca la OP como cancelada y no se podrá ejecutar el pago.
+              No hay movimientos de caja ni imputaciones que revertir porque la OP
+              todavía está pendiente.
+            </p>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Motivo *</label>
+              <textarea
+                className={styles.textarea}
+                value={cancelarMotivo}
+                onChange={(e) => setCancelarMotivo(e.target.value)}
+                placeholder="Ej: cargada con error, monto incorrecto..."
+                rows={3}
+              />
+            </div>
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setCancelarModal(null)}
+                disabled={cancelarLoading}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className={styles.btnDanger}
+                onClick={handleCancelarSubmit}
+                disabled={cancelarLoading}
+              >
+                {cancelarLoading ? 'Cancelando...' : 'Cancelar OP'}
               </button>
             </div>
           </div>

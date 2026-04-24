@@ -456,6 +456,59 @@ class TestPedidosEtiquetaYEventos:
         eventos = r.json()
         assert any(e["tipo"] == "creado" for e in eventos)
 
+    def test_documentos_erp_imputados_vacio(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
+        """Pedido sin imputaciones vivas → lista vacía."""
+        r = client.get(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/documentos-erp-imputados",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == []
+
+    def test_documentos_erp_imputados_muestra_op(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        active_user,
+        pedido_aprobado,
+        con_todos_los_permisos,
+    ):
+        """Tras pagar una OP imputada al pedido, el endpoint lista la OP como doc imputado."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/documentos-erp-imputados",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        docs = r.json()
+        assert len(docs) == 1
+        assert docs[0]["origen_tipo"] == "orden_pago"
+        assert docs[0]["origen_id"] == op.id
+        assert Decimal(docs[0]["monto_imputado"]) == Decimal("5000.00")
+
 
 # ==========================================================================
 # Órdenes de Pago — CRUD + create con 409 duplicado
@@ -1009,6 +1062,82 @@ class TestCCProveedor:
         grupos = r.json()
         # Debería haber al menos el grupo del pedido_aprobado
         assert any(g["pedido_compra_id"] == pedido_aprobado.id for g in grupos)
+
+    # ──────────────────────────────────────────────────────────────────
+    # Sub-batch 5.H — Ajuste manual CC
+    # ──────────────────────────────────────────────────────────────────
+
+    def test_ajuste_manual_cc_happy(self, client, auth_headers, empresa, proveedor, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/ajuste-manual",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "fecha_movimiento": date.today().isoformat(),
+                "signo_ajuste": 1,
+                "monto": "100.50",
+                "moneda": "ARS",
+                "motivo": "Compensación con proveedor fuera del sistema",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["tipo"] == "ajuste"
+        assert body["signo_ajuste"] == 1
+        assert Decimal(body["monto"]) == Decimal("100.50")
+        assert body["origen_tipo"] == "ajuste_manual"
+        assert body["origen_id"] is None
+        assert "AJUSTE MANUAL" in body["descripcion"]
+
+    def test_ajuste_manual_cc_signo_invalido_400(
+        self, client, auth_headers, empresa, proveedor, con_todos_los_permisos
+    ):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/ajuste-manual",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "fecha_movimiento": date.today().isoformat(),
+                "signo_ajuste": 5,  # inválido
+                "monto": "100",
+                "moneda": "ARS",
+                "motivo": "test",
+            },
+        )
+        assert r.status_code == 400
+
+    # ──────────────────────────────────────────────────────────────────
+    # Sub-batch 5.G — Pago rápido (crea OP a_cuenta + ejecuta)
+    # ──────────────────────────────────────────────────────────────────
+
+    def test_pago_rapido_happy(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        con_todos_los_permisos,
+    ):
+        r = client.post(
+            f"{BASE}/cc-proveedor/{proveedor.id}/pago-rapido",
+            headers=auth_headers,
+            json={
+                "empresa_id": empresa.id,
+                "caja_id": caja_ars.id,
+                "moneda": "ARS",
+                "monto": "2500",
+                "fecha_pago_real": date.today().isoformat(),
+                "observaciones": "pago adelanto pedido especial",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["estado"] == "pagado"
+        assert body["modo_imputacion"] == "a_cuenta"
+        assert Decimal(body["monto_total"]) == Decimal("2500")
 
 
 # ==========================================================================

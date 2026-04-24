@@ -50,7 +50,9 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.models.tb_sale_document import SaleDocument
 from app.models.usuario import Usuario
-from app.schemas.cc_proveedor import (
+from app.schemas.cc_proveedor import (  # noqa: I001
+    AjusteCCManualRequest,
+    PagoRapidoRequest,
     CCAgrupadoPorPedido,
     CCMovimientoResponse,
     CCProveedorDetalle,
@@ -83,13 +85,16 @@ from app.schemas.nota_credito_local import (
 )
 from app.schemas.orden_pago import (
     CajaMovimientoResumen,
+    OrdenPagoCancelarPendiente,
     OrdenPagoCreate,
     OrdenPagoDetalle,
+    OrdenPagoEditar,
     OrdenPagoEjecutarPago,
     OrdenPagoPaginated,
     OrdenPagoResponse,
 )
 from app.schemas.pedido_compra import (
+    DocumentoERPImputado,
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
@@ -768,6 +773,131 @@ def listar_eventos_pedido(
     return [CompraEventoResponse.model_validate(e) for e in eventos]
 
 
+@router.get(
+    "/pedidos/{pedido_id}/documentos-erp-imputados",
+    response_model=list[DocumentoERPImputado],
+    summary="Lista de documentos (facturas ERP, NCs) imputados al pedido",
+)
+def listar_documentos_erp_imputados(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[DocumentoERPImputado]:
+    """Lista los documentos ERP/locales imputados al pedido (sub-batch 3.1).
+
+    Fuente de verdad: tabla `imputaciones`. Filtra por
+    `destino_tipo='pedido_compra' AND destino_id=pedido_id AND es_reversal=False`.
+
+    Enriquece con datos del documento origen:
+      - `origen_tipo='orden_pago'` → numero de OP + fecha pago + estado.
+      - `origen_tipo='nota_credito_local'` → numero NC + fecha emisión + estado.
+      - `origen_tipo='factura_erp'` o si hay ct_transaction en el origen
+        → ct_docnumber + ct_date + ct_total.
+    """
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+
+    _obtener_pedido_o_404(db, pedido_id)
+
+    # Imputaciones vivas al pedido.
+    imps = list(
+        db.execute(
+            select(Imputacion)
+            .where(
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.destino_id == pedido_id,
+                Imputacion.es_reversal.is_(False),
+            )
+            .order_by(Imputacion.created_at.asc(), Imputacion.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    # Resolver en batch por tipo de origen para evitar N+1.
+    op_ids = {int(i.origen_id) for i in imps if i.origen_tipo == "orden_pago"}
+    nc_ids = {int(i.origen_id) for i in imps if i.origen_tipo == "nota_credito_local"}
+    ct_ids: set[int] = set()
+    for imp in imps:
+        if imp.origen_tipo in ("factura_erp", "nota_credito_erp") and imp.origen_id is not None:
+            ct_ids.add(int(imp.origen_id))
+
+    ops_map: dict[int, OrdenPago] = {}
+    if op_ids:
+        for row in db.execute(select(OrdenPago).where(OrdenPago.id.in_(op_ids))).scalars().all():
+            ops_map[int(row.id)] = row
+
+    ncs_map: dict[int, NotaCreditoLocal] = {}
+    if nc_ids:
+        for row in db.execute(select(NotaCreditoLocal).where(NotaCreditoLocal.id.in_(nc_ids))).scalars().all():
+            ncs_map[int(row.id)] = row
+
+    cts_map: dict[int, CommercialTransaction] = {}
+    if ct_ids:
+        try:
+            for row in (
+                db.execute(select(CommercialTransaction).where(CommercialTransaction.ct_transaction.in_(ct_ids)))
+                .scalars()
+                .all()
+            ):
+                cts_map[int(row.ct_transaction)] = row
+        except Exception as exc:  # noqa: BLE001
+            # Tabla ERP puede no existir en tests: degradamos gracefully.
+            logger.debug("listar_documentos_erp_imputados: query ERP falló: %s", exc)
+
+    resultado: list[DocumentoERPImputado] = []
+    for imp in imps:
+        numero: Optional[str] = None
+        fecha: Optional[datetime] = None
+        estado: Optional[str] = None
+        descripcion: Optional[str] = None
+        origen_id_int = int(imp.origen_id) if imp.origen_id is not None else 0
+
+        if imp.origen_tipo == "orden_pago":
+            op = ops_map.get(origen_id_int)
+            if op is not None:
+                numero = op.numero
+                if op.fecha_pago_real:
+                    fecha = datetime.combine(op.fecha_pago_real, datetime.min.time())
+                estado = op.estado
+                descripcion = f"OP {op.numero}"
+        elif imp.origen_tipo == "nota_credito_local":
+            nc = ncs_map.get(origen_id_int)
+            if nc is not None:
+                numero = nc.numero
+                if nc.fecha_emision:
+                    fecha = datetime.combine(nc.fecha_emision, datetime.min.time())
+                estado = nc.estado
+                descripcion = f"NC local {nc.numero}"
+        elif imp.origen_tipo in ("factura_erp", "nota_credito_erp"):
+            ct = cts_map.get(origen_id_int)
+            if ct is not None:
+                numero = ct.ct_docNumber
+                fecha = ct.ct_date
+                descripcion = (
+                    f"Factura ERP {ct.ct_docNumber}"
+                    if imp.origen_tipo == "factura_erp"
+                    else f"NC ERP {ct.ct_docNumber}"
+                )
+            else:
+                numero = f"#{origen_id_int}"
+                descripcion = f"{imp.origen_tipo} id={origen_id_int}"
+
+        resultado.append(
+            DocumentoERPImputado(
+                origen_tipo=imp.origen_tipo,
+                origen_id=origen_id_int,
+                numero=numero,
+                fecha=fecha,
+                monto_imputado=Decimal(imp.monto_imputado),
+                moneda_imputada=str(imp.moneda_imputada),
+                estado=estado,
+                descripcion=descripcion,
+            )
+        )
+
+    return resultado
+
+
 # ==========================================================================
 # §9.2 — ÓRDENES DE PAGO
 # ==========================================================================
@@ -959,6 +1089,107 @@ def crear_orden_pago(
     return _op_response(op)
 
 
+@router.put(
+    "/ordenes-pago/{op_id}",
+    response_model=OrdenPagoResponse,
+    summary="Editar OP en estado 'pendiente' (409 si ya fue pagada/anulada/cancelada)",
+)
+def editar_orden_pago(
+    op_id: int,
+    data: OrdenPagoEditar,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OrdenPagoResponse:
+    """Editar OP pendiente — sub-batch 1.1.
+
+    Reglas:
+      - 409 si OP no está en estado 'pendiente'.
+      - Body idéntico a create pero todo opcional.
+      - Items se revalidan contra whitelist + modo + suma.
+      - Registra evento 'op_editada' con diff y, si cambian items,
+        evento 'items_editados' (append-only).
+    """
+    items_norm: Optional[list[dict]]
+    if data.items is None:
+        items_norm = None
+    else:
+        items_norm = [
+            {
+                "tipo": it.tipo,
+                "id": it.id,
+                "monto": it.monto,
+                "numero_factura": it.numero_factura,
+            }
+            for it in data.items
+        ]
+
+    try:
+        op = ordenes_pago_service.editar(
+            db,
+            op_id=op_id,
+            monto_total=data.monto_total,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            modo_imputacion=data.modo_imputacion,  # type: ignore[arg-type]
+            items=items_norm,
+            observaciones=data.observaciones,
+            tipo_cambio=data.tipo_cambio,
+            fecha_pago_estimada=data.fecha_pago_estimada,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("editar_orden_pago falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al editar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="editar_orden_pago")
+    db.refresh(op)
+    return _op_response(op)
+
+
+@router.post(
+    "/ordenes-pago/{op_id}/cancelar-pendiente",
+    response_model=OrdenPagoResponse,
+    summary="Cancelar OP pendiente (estado terminal, sin efectos colaterales)",
+)
+def cancelar_orden_pago_pendiente(
+    op_id: int,
+    data: OrdenPagoCancelarPendiente,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OrdenPagoResponse:
+    """Cancelar OP pendiente — sub-batch 1.2.
+
+    Transición segura `pendiente → cancelado` porque no hay imputaciones
+    físicas, caja ni CC. Solo UPDATE + evento auditado.
+
+    Raises:
+        409 si OP no está en estado 'pendiente'.
+        404 si OP inexistente.
+        400 si motivo vacío.
+    """
+    try:
+        op = ordenes_pago_service.cancelar_pendiente(
+            db,
+            op_id=op_id,
+            motivo=data.motivo,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("cancelar_orden_pago_pendiente falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al cancelar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="cancelar_orden_pago_pendiente")
+    db.refresh(op)
+    return _op_response(op)
+
+
 @router.post(
     "/ordenes-pago/{op_id}/pagar",
     response_model=OrdenPagoResponse,
@@ -986,6 +1217,7 @@ def pagar_orden_pago(
             caja_id=data.caja_id,
             fecha_pago_real=data.fecha_pago_real,
             user_id=user.id,
+            tipo_cambio_override=data.tipo_cambio_override,
         )
     except HTTPException:
         db.rollback()
@@ -1662,6 +1894,130 @@ def obtener_cc_por_pedido(
         reverse=True,
     )
     return resultado
+
+
+@router.post(
+    "/cc-proveedor/{proveedor_id}/ajuste-manual",
+    response_model=CCMovimientoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajuste manual de CC del proveedor (sub-batch 5.H — permiso crítico)",
+)
+def crear_ajuste_cc_manual(
+    proveedor_id: int,
+    data: AjusteCCManualRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ajustar_cc_proveedor_manual")),
+) -> CCMovimientoResponse:
+    """Inserta un movimiento de ajuste manual en la CC del proveedor.
+
+    Append-only: NO modifica movimientos existentes. Genera un movimiento
+    `tipo='ajuste'` con `origen_tipo='ajuste_manual'`, `origen_id=None` y
+    `descripcion` con el motivo + metadata de usuario para auditoría.
+
+    Valida signo_ajuste ∈ {+1, -1}.
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+    if data.signo_ajuste not in (1, -1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="signo_ajuste debe ser +1 (debe) o -1 (haber).",
+        )
+    try:
+        mov = cc_proveedor_service.insertar_mov(
+            db,
+            proveedor_id=proveedor_id,
+            empresa_id=data.empresa_id,
+            fecha_movimiento=data.fecha_movimiento,
+            tipo="ajuste",
+            signo_ajuste=data.signo_ajuste,
+            monto=data.monto,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            origen_tipo="ajuste_manual",
+            origen_id=None,
+            descripcion=f"[AJUSTE MANUAL user_id={user.id}] {data.motivo.strip()}",
+            creado_por_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("crear_ajuste_cc_manual falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al crear el ajuste manual.") from exc
+
+    _commit_or_rollback(db, operacion="crear_ajuste_cc_manual")
+    db.refresh(mov)
+    return CCMovimientoResponse.model_validate(mov)
+
+
+@router.post(
+    "/cc-proveedor/{proveedor_id}/pago-rapido",
+    response_model=OrdenPagoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Pago rápido: crea OP a_cuenta + ejecuta pago en un solo request (sub-batch 5.G)",
+)
+def pago_rapido_cc_proveedor(
+    proveedor_id: int,
+    data: PagoRapidoRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ejecutar_pagos")),
+) -> OrdenPagoResponse:
+    """Pago rápido desde el tab CC Proveedores.
+
+    Atomic: crea OP modo `a_cuenta` + ejecuta pago en la misma transacción.
+    Si cualquier paso falla, rollbackea todo. Deja trazabilidad completa
+    (número OP, evento, caja_movimiento, imputación a saldo).
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+
+    try:
+        # Step 1: crear OP a_cuenta
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor_id,
+            empresa_id=data.empresa_id,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            monto_total=data.monto,
+            modo_imputacion="a_cuenta",
+            items=[],
+            observaciones=(f"[PAGO RÁPIDO user_id={user.id}] {data.observaciones or ''}".strip()),
+            creado_por_id=user.id,
+            confirmar_duplicado=True,  # flow rápido, no bloqueamos por ERP duplicate check
+        )
+        # Setear TC si vino (se persiste por ejecutar_pago como tipo_cambio_override)
+        # Step 2: ejecutar pago
+        op = ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=data.caja_id,
+            fecha_pago_real=data.fecha_pago_real,
+            user_id=user.id,
+            tipo_cambio_override=data.tipo_cambio,
+        )
+
+        # Evento extra para distinguir este flow en auditoría
+        ordenes_pago_service.registrar_evento_auditoria(
+            db,
+            op_id=op.id,
+            tipo="op_creada_y_pagada_rapido",
+            usuario_id=user.id,
+            payload={
+                "motivo": "Pago rápido sin pedido específico desde tab CC Proveedores.",
+                "monto": str(data.monto),
+                "moneda": data.moneda,
+            },
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("pago_rapido_cc_proveedor falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al ejecutar el pago rápido.") from exc
+
+    _commit_or_rollback(db, operacion="pago_rapido_cc_proveedor")
+    db.refresh(op)
+    return _op_response(op)
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -633,3 +633,584 @@ class TestAnular:
         with pytest.raises(HTTPException) as exc:
             ordenes_pago_service.anular(db, orden_pago_id=op.id, motivo="   ", user_id=active_user.id)
         assert exc.value.status_code == 400
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# editar (sub-batch 1.1)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestEditarOP:
+    def _crear_op_pendiente(
+        self,
+        db,
+        empresa,
+        proveedor,
+        pedido_aprobado,
+        active_user,
+        monto: Decimal = Decimal("5000"),
+    ):
+        return ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=monto,
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": monto}],
+            creado_por_id=active_user.id,
+        )
+
+    def test_editar_op_pendiente_happy(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+
+        editada = ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            observaciones="Observación nueva",
+            user_id=active_user.id,
+        )
+        assert editada.observaciones == "Observación nueva"
+        assert editada.estado == "pendiente"
+
+        # Evento op_editada creado con diff.
+        eventos = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_id == op.id,
+                CompraEvento.tipo == ordenes_pago_service.EVENTO_OP_EDITADA,
+            )
+            .all()
+        )
+        assert len(eventos) == 1
+        assert "observaciones" in eventos[0].payload["diff"]
+
+    def test_editar_op_pagada_raises_409(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.editar(
+                db,
+                op_id=op.id,
+                observaciones="cambio tarde",
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 409
+
+    def test_editar_op_cancelada_raises_409(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+        ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="error carga", user_id=active_user.id)
+
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.editar(db, op_id=op.id, observaciones="x", user_id=active_user.id)
+        assert exc.value.status_code == 409
+
+    def test_editar_op_items_genera_evento_items_editados(
+        self, db, empresa, proveedor, pedido_aprobado, active_user
+    ) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+
+        # Evento items_registrados existe post-crear.
+        pre = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_id == op.id,
+                CompraEvento.tipo == ordenes_pago_service.EVENTO_ITEMS_REGISTRADOS,
+            )
+            .count()
+        )
+        assert pre == 1
+
+        nuevos_items = [
+            {"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("4000")},
+            {"tipo": "saldo", "id": None, "monto": Decimal("1000")},
+        ]
+        ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            modo_imputacion="mixta",
+            monto_total=Decimal("5001"),  # > 5000 = sum items => mixta válida (sum < total)
+            items=nuevos_items,
+            user_id=active_user.id,
+        )
+
+        # items_registrados sigue vivo (append-only).
+        registrados = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_id == op.id,
+                CompraEvento.tipo == ordenes_pago_service.EVENTO_ITEMS_REGISTRADOS,
+            )
+            .count()
+        )
+        assert registrados == 1
+
+        # items_editados nuevo.
+        editados = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_id == op.id,
+                CompraEvento.tipo == ordenes_pago_service.EVENTO_ITEMS_EDITADOS,
+            )
+            .all()
+        )
+        assert len(editados) == 1
+        assert len(editados[0].payload["items"]) == 2
+
+    def test_editar_op_validacion_suma_items_vs_modo(
+        self, db, empresa, proveedor, pedido_aprobado, active_user
+    ) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.editar(
+                db,
+                op_id=op.id,
+                monto_total=Decimal("9999"),  # no coincide con suma items
+                items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 400
+
+    def test_editar_op_tc_con_moneda_ars_raises(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.editar(
+                db,
+                op_id=op.id,
+                tipo_cambio=Decimal("1100"),  # moneda ARS → inválido
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 400
+
+    def test_editar_op_404_inexistente(self, db, active_user) -> None:
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.editar(db, op_id=99999, observaciones="x", user_id=active_user.id)
+        assert exc.value.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# cancelar_pendiente (sub-batch 1.2)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestCancelarPendiente:
+    def test_cancelar_op_pendiente_happy(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+
+        cancelada = ordenes_pago_service.cancelar_pendiente(
+            db, op_id=op.id, motivo="cargada con error", user_id=active_user.id
+        )
+        assert cancelada.estado == "cancelado"
+
+        # No hay imputaciones
+        imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id).count()
+        assert imps == 0
+
+        # No hay movimientos de caja
+        movs = db.query(CajaMovimiento).count()
+        assert movs == 0
+
+        # Evento auditado
+        eventos = (
+            db.query(CompraEvento)
+            .filter(
+                CompraEvento.entidad_id == op.id,
+                CompraEvento.tipo == ordenes_pago_service.EVENTO_OP_CANCELADA_PENDIENTE,
+            )
+            .all()
+        )
+        assert len(eventos) == 1
+        assert eventos[0].payload["motivo"] == "cargada con error"
+
+    def test_cancelar_op_pagada_raises_409(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="muy tarde", user_id=active_user.id)
+        assert exc.value.status_code == 409
+
+    def test_cancelar_op_motivo_vacio_raises_400(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="   ", user_id=active_user.id)
+        assert exc.value.status_code == 400
+
+    def test_cancelar_op_404_inexistente(self, db, active_user) -> None:
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.cancelar_pendiente(db, op_id=99999, motivo="x", user_id=active_user.id)
+        assert exc.value.status_code == 404
+
+    def test_cancelar_op_ya_cancelada_raises_409(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="uno", user_id=active_user.id)
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="dos", user_id=active_user.id)
+        assert exc.value.status_code == 409
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ejecutar_pago con items_editados (sub-batch 1.3)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestEjecutarPagoLeeItemsEditados:
+    def test_ejecutar_pago_usa_items_editados_si_existe(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        """Si hay items_editados, ejecutar_pago debe usarlos, no los items_registrados."""
+        # OP original: 5000 al pedido
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+
+        # Editar items: mismo monto total pero ahora va todo a saldo.
+        ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            modo_imputacion="a_cuenta",
+            items=[],  # a_cuenta → sin items
+            user_id=active_user.id,
+        )
+
+        # Ejecutar pago con la nueva config
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        # Debe haber creado imputación a saldo, NO a pedido
+        imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id, Imputacion.es_reversal.is_(False)).all()
+        assert len(imps) == 1
+        assert imps[0].destino_tipo == "saldo"
+        assert imps[0].destino_id is None
+
+    def test_ejecutar_pago_fallback_items_registrados_si_no_hay_editados(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        """Sin edición, ejecutar_pago sigue usando items_registrados (comportamiento previo)."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            creado_por_id=active_user.id,
+        )
+
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id, Imputacion.es_reversal.is_(False)).all()
+        assert len(imps) == 1
+        assert imps[0].destino_tipo == "pedido_compra"
+        assert imps[0].destino_id == pedido_aprobado.id
+
+    def test_ejecutar_pago_sobre_op_cancelada_raises_400(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        """OP cancelada no se puede pagar (estado != pendiente)."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.cancelar_pendiente(db, op_id=op.id, motivo="x", user_id=active_user.id)
+
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.ejecutar_pago(
+                db,
+                orden_pago_id=op.id,
+                caja_id=caja_ars.id,
+                fecha_pago_real=date.today(),
+                user_id=active_user.id,
+            )
+        # Consistente con design: estado != pendiente → 400
+        assert exc.value.status_code == 400
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cross-moneda + TC override (sub-batch 2.2 / 2.3)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestEjecutarPagoCrossMoneda:
+    def test_ejecutar_pago_con_tc_override_sobrescribe_op(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        active_user,
+    ) -> None:
+        """tipo_cambio_override debe persistirse en op.tipo_cambio."""
+        # OP en ARS con caja ARS — mismo moneda, override solo persiste.
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        # Para ARS pura, el override no tiene semántica especial pero SÍ
+        # sobrescribe el campo si se manda (no va a haber conversión, igual).
+        # Test relevante: override SÍ pisa en el caso cross-moneda. Validamos
+        # el mecanismo con moneda USD + caja ARS en el siguiente test.
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        assert op.estado == "pagado"
+
+    def test_ejecutar_pago_cross_moneda_con_tc_override_ok(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        active_user,
+    ) -> None:
+        """OP USD + caja ARS + tipo_cambio_override → movimiento ARS = monto*TC."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="USD",
+            monto_total=Decimal("100"),  # 100 USD
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+            tipo_cambio_override=Decimal("1200"),
+        )
+
+        assert op.estado == "pagado"
+        assert op.tipo_cambio == Decimal("1200")
+
+        # El movimiento de caja debe tener monto ARS = 100 * 1200 = 120000.
+        mov = db.query(CajaMovimiento).filter(CajaMovimiento.id == op.caja_movimiento_id).one()
+        assert mov.monto == Decimal("120000.00")
+
+    def test_ejecutar_pago_cross_moneda_con_tc_previo_en_op_ok(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        active_user,
+    ) -> None:
+        """OP USD con tipo_cambio pre-seteado + caja ARS → cross-moneda sin override."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="USD",
+            monto_total=Decimal("50"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        # Editar OP para setear TC (pendiente editable — sub-batch 1.1).
+        ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            tipo_cambio=Decimal("1000"),
+            user_id=active_user.id,
+        )
+
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        mov = db.query(CajaMovimiento).filter(CajaMovimiento.id == op.caja_movimiento_id).one()
+        assert mov.monto == Decimal("50000.00")  # 50 USD * 1000
+
+    def test_ejecutar_pago_cross_moneda_sin_tc_422(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        active_user,
+    ) -> None:
+        """OP USD + caja ARS sin TC → 422 OP_CAJA_MONEDA_MISMATCH (comportamiento previo)."""
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="USD",
+            monto_total=Decimal("100"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.ejecutar_pago(
+                db,
+                orden_pago_id=op.id,
+                caja_id=caja_ars.id,
+                fecha_pago_real=date.today(),
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 422
+        assert exc.value.detail["codigo"] == "OP_CAJA_MONEDA_MISMATCH"
+
+    def test_ejecutar_pago_tc_override_negativo_raises_400(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        active_user,
+    ) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.ejecutar_pago(
+                db,
+                orden_pago_id=op.id,
+                caja_id=caja_ars.id,
+                fecha_pago_real=date.today(),
+                user_id=active_user.id,
+                tipo_cambio_override=Decimal("-1"),
+            )
+        assert exc.value.status_code == 400

@@ -56,15 +56,25 @@ export default function ModalOrdenPagoNueva({
   onClose,
   pedidoInicial = null,
   pendientesDelProveedor = [],
+  op = null,
+  opItems = [],
+  proveedorInicial = null,
 }) {
   const user = useAuthStore((s) => s.user);
   const userId = user?.id || 'anon';
   const opApi = useComprasOP();
 
-  // ── Banner anti-doble-contab ──
+  // ── Modo edición ──
+  // Si viene `op`, estamos editando una OP pendiente (sub-batch 1.1).
+  // `opItems` debe ser la lista de items del último evento items_*
+  // leída desde el detalle de la OP (items_editados si existe, sino
+  // items_registrados). El componente NO va a la DB a buscarlos.
+  const isEditMode = op !== null && op !== undefined;
+
+  // ── Banner anti-doble-contab (solo en creación) ──
   const bannerKey = bannerKeyFor(userId);
   const [bannerDismissed, setBannerDismissed] = useState(
-    sessionStorage.getItem(bannerKey) === 'true'
+    isEditMode ? true : sessionStorage.getItem(bannerKey) === 'true'
   );
 
   const dismissBanner = () => {
@@ -73,26 +83,52 @@ export default function ModalOrdenPagoNueva({
   };
 
   // ── Form state ──
-  // Si vino pedidoInicial: pre-cargamos empresa/proveedor/moneda y un item
-  // imputado por el saldo_pendiente (o monto) del pedido. El usuario puede
-  // agregar más pedidos/facturas del mismo proveedor desde dentro.
+  // Prioridad: op (edit) > pedidoInicial (pre-carga) > defaults.
   const saldoInicial = pedidoInicial
     ? Number(pedidoInicial.saldo_pendiente ?? pedidoInicial.monto) || 0
     : 0;
 
-  const [form, setForm] = useState({
-    empresa_id: pedidoInicial ? String(pedidoInicial.empresa_id) : '',
-    proveedor_id: pedidoInicial ? String(pedidoInicial.proveedor_id) : '',
-    moneda: pedidoInicial?.moneda || 'ARS',
-    monto_total: pedidoInicial ? String(saldoInicial) : '',
-    modo_imputacion: pedidoInicial ? 'especifica' : 'a_cuenta',
-    observaciones: pedidoInicial
-      ? `Pago imputado a pedido ${pedidoInicial.numero}`
-      : '',
+  const [form, setForm] = useState(() => {
+    if (isEditMode) {
+      return {
+        empresa_id: String(op.empresa_id ?? ''),
+        proveedor_id: String(op.proveedor_id ?? ''),
+        moneda: op.moneda || 'ARS',
+        monto_total: String(op.monto_total ?? ''),
+        modo_imputacion: op.modo_imputacion || 'a_cuenta',
+        observaciones: op.observaciones || '',
+      };
+    }
+    return {
+      empresa_id: pedidoInicial
+        ? String(pedidoInicial.empresa_id)
+        : proveedorInicial?.empresa_id
+          ? String(proveedorInicial.empresa_id)
+          : '',
+      proveedor_id: pedidoInicial
+        ? String(pedidoInicial.proveedor_id)
+        : proveedorInicial?.id
+          ? String(proveedorInicial.id)
+          : '',
+      moneda: pedidoInicial?.moneda || 'ARS',
+      monto_total: pedidoInicial ? String(saldoInicial) : '',
+      modo_imputacion: pedidoInicial ? 'especifica' : 'a_cuenta',
+      observaciones: pedidoInicial
+        ? `Pago imputado a pedido ${pedidoInicial.numero}`
+        : '',
+    };
   });
 
-  const [items, setItems] = useState(
-    pedidoInicial
+  const [items, setItems] = useState(() => {
+    if (isEditMode) {
+      return (opItems || []).map((it) => ({
+        tipo: it.tipo || 'pedido_compra',
+        id: it.id !== null && it.id !== undefined ? String(it.id) : '',
+        monto: String(it.monto ?? ''),
+        numero_factura: it.numero_factura || '',
+      }));
+    }
+    return pedidoInicial
       ? [
           {
             tipo: 'pedido_compra',
@@ -101,8 +137,8 @@ export default function ModalOrdenPagoNueva({
             numero_factura: pedidoInicial.numero_factura || '',
           },
         ]
-      : []
-  );
+      : [];
+  });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -209,6 +245,19 @@ export default function ModalOrdenPagoNueva({
     confirmar_duplicado: confirmarDuplicado,
   });
 
+  const buildEditPayload = () => ({
+    monto_total: montoTotalNum,
+    moneda: form.moneda,
+    modo_imputacion: form.modo_imputacion,
+    observaciones: form.observaciones || null,
+    items: items.map((it) => ({
+      tipo: it.tipo,
+      id: it.id ? Number(it.id) : null,
+      monto: parseFloat(it.monto),
+      numero_factura: it.numero_factura || null,
+    })),
+  });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const v = validar();
@@ -219,6 +268,11 @@ export default function ModalOrdenPagoNueva({
     setSaving(true);
     setError(null);
     try {
+      if (isEditMode) {
+        await opApi.editar(op.id, buildEditPayload());
+        onClose(true);
+        return;
+      }
       await opApi.crear(buildPayload(false));
       onClose(true);
     } catch (err) {
@@ -274,7 +328,9 @@ export default function ModalOrdenPagoNueva({
     <div className={styles.modalOverlay}>
       <div className={styles.modalContent}>
         <div className={styles.modalHeader}>
-          <span className={styles.modalTitle}>Nueva Orden de Pago</span>
+          <span className={styles.modalTitle}>
+            {isEditMode ? `Editar OP ${op.numero}` : 'Nueva Orden de Pago'}
+          </span>
           <button
             className={styles.modalCloseBtn}
             onClick={() => onClose(false)}
@@ -565,7 +621,13 @@ export default function ModalOrdenPagoNueva({
               Cancelar
             </button>
             <button type="submit" className={styles.btnSuccess} disabled={saving}>
-              {saving ? 'Creando...' : 'Crear OP'}
+              {saving
+                ? isEditMode
+                  ? 'Guardando...'
+                  : 'Creando...'
+                : isEditMode
+                  ? 'Guardar cambios'
+                  : 'Crear OP'}
             </button>
           </div>
         </form>

@@ -67,6 +67,10 @@ EVENTO_OP_CREADA: Final[str] = "op_creada"
 EVENTO_OP_CREADA_DUP_CONFIRMADA: Final[str] = "op_creada_con_duplicado_confirmado"
 EVENTO_OP_PAGADA: Final[str] = "op_pagada"
 EVENTO_OP_ANULADA: Final[str] = "op_anulada"
+EVENTO_OP_EDITADA: Final[str] = "op_editada"
+EVENTO_OP_CANCELADA_PENDIENTE: Final[str] = "op_cancelada_pendiente"
+EVENTO_ITEMS_REGISTRADOS: Final[str] = "items_registrados"
+EVENTO_ITEMS_EDITADOS: Final[str] = "items_editados"
 
 
 # Nombres de `caja_tipo_documentos` seed (COMPRAS-1.13).
@@ -454,7 +458,7 @@ def crear(
         _registrar_evento(
             session,
             op_id=op.id,
-            tipo="items_registrados",
+            tipo=EVENTO_ITEMS_REGISTRADOS,
             usuario_id=creado_por_id,
             payload={"items": [_serializar_item(it) for it in items_norm]},
         )
@@ -482,13 +486,19 @@ def _serializar_item(item: dict) -> dict:
 
 
 def _leer_items_de_op(session: Session, op_id: int) -> list[dict]:
-    """Lee los items persistidos como evento `items_registrados`."""
+    """Lee los items persistidos de una OP.
+
+    Append-only: cada edición de items agrega un evento `items_editados`
+    sin borrar el `items_registrados` original. Esta función retorna
+    los items del evento MÁS RECIENTE entre ambos tipos, así
+    `ejecutar_pago` siempre ve la última versión.
+    """
     evento = session.execute(
         select(CompraEvento)
         .where(
             CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_ORDEN_PAGO,
             CompraEvento.entidad_id == op_id,
-            CompraEvento.tipo == "items_registrados",
+            CompraEvento.tipo.in_([EVENTO_ITEMS_REGISTRADOS, EVENTO_ITEMS_EDITADOS]),
         )
         .order_by(CompraEvento.id.desc())
         .limit(1)
@@ -510,12 +520,16 @@ def ejecutar_pago(
     caja_id: int,
     fecha_pago_real: date,
     user_id: int,
+    tipo_cambio_override: Optional[Decimal] = None,
 ) -> OrdenPago:
     """
     Ejecuta el pago de una OP en 9 pasos ATÓMICOS (design §2.3).
 
     1. SELECT FOR UPDATE sobre la OP + valida `estado='pendiente'`.
-    2. Valida `caja.moneda == op.moneda` (D7: HTTP 422 OP_CAJA_MONEDA_MISMATCH).
+    2. Valida `caja.moneda == op.moneda` O cross-moneda con TC disponible
+       (sub-batch 2.3). Si `op.moneda != caja.moneda` sin TC → 422
+       OP_CAJA_MONEDA_MISMATCH. Con TC (en `tipo_cambio_override` o en
+       `op.tipo_cambio`) → permitido, monto en caja = op.monto_total * TC.
     3. Valida `caja.empresa_id == op.empresa_id`.
     4. `caja_service.registrar_movimiento(tipo='egreso', origen='orden_pago', ...)`.
     5. `caja_service.crear_documento(tipo='Orden de Pago', entidad='orden_pago', ...)`.
@@ -525,7 +539,8 @@ def ejecutar_pago(
        Si `modo='a_cuenta'` → toda la OP a saldo (o via `distribuir_fifo`
        si el caller prefiere — v1 delega según política del caller).
     8. Set `op.caja_movimiento_id`, `caja_documento_id`, `estado='pagado'`,
-       `fecha_pago_real`, `paid_at`, `pagado_por_id`.
+       `fecha_pago_real`, `paid_at`, `pagado_por_id`. Si hubo
+       `tipo_cambio_override`, se persiste en `op.tipo_cambio`.
     9. Evento `op_pagada` en compras_eventos.
 
     Propaga transiciones automáticas en pedidos vía
@@ -541,6 +556,10 @@ def ejecutar_pago(
         caja_id: PK de la caja donde se registra el egreso.
         fecha_pago_real: fecha contable del pago.
         user_id: usuario que ejecuta el pago.
+        tipo_cambio_override: TC al momento del pago (sub-batch 2.2). Si
+            viene, sobrescribe `op.tipo_cambio` antes de registrar en caja.
+            Requerido cuando la moneda de la OP difiere de la caja (y no
+            hay TC previo en la OP).
 
     Returns:
         La OP en estado `pagado` con todas las FKs seteadas.
@@ -548,7 +567,8 @@ def ejecutar_pago(
     Raises:
         HTTPException 400: OP en estado distinto a `pendiente`.
         HTTPException 404: OP inexistente.
-        HTTPException 422: caja.moneda != op.moneda (OP_CAJA_MONEDA_MISMATCH).
+        HTTPException 422: caja.moneda != op.moneda y no hay TC disponible
+            (OP_CAJA_MONEDA_MISMATCH).
         HTTPException 409: caja.empresa_id != op.empresa_id.
     """
     # Paso 1: SELECT FOR UPDATE y validación de estado
@@ -565,25 +585,42 @@ def ejecutar_pago(
             detail=f"OP {op.numero} en estado '{op.estado}' — solo se pueden pagar OPs en 'pendiente'.",
         )
 
-    # Paso 2 y 3: validar caja moneda + empresa
+    # Paso 2 y 3: validar caja moneda + empresa.
     caja = session.get(Caja, caja_id)
     if caja is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Caja id={caja_id} no encontrada.",
         )
+
+    # Aplicar tipo_cambio_override ANTES de validar cross-moneda, así el
+    # usuario puede pagar con una caja de moneda distinta siempre que
+    # provea TC explícito (sub-batch 2.2 + 2.3).
+    if tipo_cambio_override is not None:
+        if Decimal(tipo_cambio_override) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"tipo_cambio_override debe ser > 0 (recibido: {tipo_cambio_override}).",
+            )
+        op.tipo_cambio = Decimal(tipo_cambio_override)
+
+    tc_efectivo: Optional[Decimal] = op.tipo_cambio
+
     if caja.moneda != op.moneda:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "codigo": CODIGO_ERROR_CAJA_MONEDA,
-                "mensaje": (
-                    f"La caja seleccionada (id={caja.id}, moneda={caja.moneda}) no coincide "
-                    f"con la moneda de la OP ({op.moneda}). Elegí una caja en {op.moneda} "
-                    f"o creá una nueva."
-                ),
-            },
-        )
+        # Cross-moneda sólo se permite con TC disponible (override o op).
+        if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "codigo": CODIGO_ERROR_CAJA_MONEDA,
+                    "mensaje": (
+                        f"La caja seleccionada (id={caja.id}, moneda={caja.moneda}) no coincide "
+                        f"con la moneda de la OP ({op.moneda}). Para pagar cross-moneda, "
+                        f"la OP debe tener `tipo_cambio` o se debe enviar "
+                        f"`tipo_cambio_override` en el body."
+                    ),
+                },
+            )
     if caja.empresa_id != op.empresa_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -596,28 +633,43 @@ def ejecutar_pago(
     proveedor = session.get(Proveedor, op.proveedor_id)
     proveedor_nombre = proveedor.nombre if proveedor is not None else f"proveedor_id={op.proveedor_id}"
 
-    # Paso 4: CajaMovimiento (egreso)
+    # Monto en moneda de la caja:
+    #   - mismo moneda  → op.monto_total.
+    #   - cross-moneda → op.monto_total * TC (si caja=ARS y op=USD).
+    #                    op.monto_total / TC (si caja=USD y op=ARS).
+    #   Asumimos TC siempre expresado como "ARS por 1 USD" (consistente
+    #   con el modelo de pedidos_compra y tipo_cambio.venta).
+    if caja.moneda == op.moneda:
+        monto_en_caja = Decimal(op.monto_total)
+    elif op.moneda == "USD" and caja.moneda == "ARS":
+        monto_en_caja = (Decimal(op.monto_total) * Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+    else:
+        # op ARS → caja USD: monto / TC. TC es ARS/USD, dividir para USD.
+        monto_en_caja = (Decimal(op.monto_total) / Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+
+    # Paso 4: CajaMovimiento (egreso) — monto en la moneda de la caja.
     caja_svc = CajaService(session)
+    detalle_cross = f" (TC {tc_efectivo})" if caja.moneda != op.moneda and tc_efectivo is not None else ""
     movimiento = caja_svc.registrar_movimiento(
         caja_id=caja.id,
         fecha=fecha_pago_real,
-        detalle=f"OP {op.numero} - {proveedor_nombre}",
+        detalle=f"OP {op.numero} - {proveedor_nombre}{detalle_cross}",
         tipo="egreso",
-        monto=Decimal(op.monto_total),
+        monto=monto_en_caja,
         user_id=user_id,
         observaciones=op.observaciones,
         origen="orden_pago",
     )
 
-    # Paso 5: CajaDocumento
+    # Paso 5: CajaDocumento — monto en moneda de la caja.
     tipo_doc_id = _lookup_tipo_documento_id(session, TIPO_DOC_ORDEN_PAGO)
     documento = caja_svc.crear_documento(
         tipo_documento_id=tipo_doc_id,
         user_id=user_id,
         numero=op.numero,
-        descripcion=f"OP {op.numero} pago a {proveedor_nombre}",
+        descripcion=f"OP {op.numero} pago a {proveedor_nombre}{detalle_cross}",
         fecha_documento=fecha_pago_real,
-        monto_documento=Decimal(op.monto_total),
+        monto_documento=monto_en_caja,
         movimiento_ids=[movimiento.id],
         entidad_tipo="orden_pago",
         entidad_id=op.id,
@@ -706,6 +758,9 @@ def ejecutar_pago(
             "fecha_pago_real": fecha_pago_real.isoformat(),
             "imputaciones_creadas": [imp.id for imp in imputaciones_creadas],
             "pedidos_afectados": sorted(pedidos_afectados),
+            "tipo_cambio_efectivo": str(tc_efectivo) if tc_efectivo is not None else None,
+            "tipo_cambio_override_aplicado": tipo_cambio_override is not None,
+            "monto_en_caja": str(monto_en_caja),
         },
     )
 
@@ -725,6 +780,239 @@ def ejecutar_pago(
         movimiento.id,
         documento.id,
         len(imputaciones_creadas),
+    )
+    return op
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# editar (sub-batch 1.1) — solo OPs en estado `pendiente`
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def editar(
+    session: Session,
+    *,
+    op_id: int,
+    monto_total: Optional[Decimal] = None,
+    moneda: Optional[Moneda] = None,
+    modo_imputacion: Optional[ModoImputacion] = None,
+    items: Optional[list[dict]] = None,
+    observaciones: Optional[str] = None,
+    tipo_cambio: Optional[Decimal] = None,
+    fecha_pago_estimada: Optional[date] = None,
+    user_id: int,
+) -> OrdenPago:
+    """
+    Edita una OP en estado `pendiente`. Otros estados → HTTP 409.
+
+    Reglas:
+      - Solo `pendiente` es editable (pagado/anulado/cancelado son terminales).
+      - Revalida items contra whitelist + sum(items) vs modo.
+      - Revalida TC si moneda USD (consistente con `crear`).
+      - Si `items` viene, registra evento `items_editados` con el nuevo
+        estado SIN borrar el `items_registrados` original (append-only).
+      - `ejecutar_pago` lee los items del último evento entre
+        `items_registrados` y `items_editados` (ver `_leer_items_de_op`).
+      - Registra evento `op_editada` con diff de campos cambiados.
+
+    Args:
+        session: tx activa.
+        op_id: PK de la OP a editar.
+        monto_total, moneda, modo_imputacion, items, observaciones,
+        tipo_cambio, fecha_pago_estimada: campos nuevos (None = no cambia).
+        user_id: usuario que edita (para auditoría).
+
+    Returns:
+        La OP editada (recargada desde la DB).
+
+    Raises:
+        HTTPException 404: OP inexistente.
+        HTTPException 409: OP en estado distinto a `pendiente`.
+        HTTPException 400: validaciones de monto/modo/items/TC.
+    """
+    op = session.execute(select(OrdenPago).where(OrdenPago.id == op_id).with_for_update()).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OrdenPago id={op_id} no encontrada.",
+        )
+    if op.estado != "pendiente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"OP {op.numero} en estado '{op.estado}' — solo se pueden editar OPs en 'pendiente'."),
+        )
+
+    # Diff para auditoría (solo campos que cambian).
+    diff: dict[str, Any] = {}
+
+    nueva_moneda: str = moneda if moneda is not None else str(op.moneda)
+    nuevo_monto: Decimal = Decimal(monto_total) if monto_total is not None else Decimal(op.monto_total)
+    nuevo_modo: str = modo_imputacion if modo_imputacion is not None else str(op.modo_imputacion)
+
+    if monto_total is not None and Decimal(monto_total) <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"monto_total debe ser > 0 (recibido: {monto_total}).",
+        )
+
+    # Validar TC contra moneda final (si viene moneda o TC, revalidar combo).
+    # Regla: moneda USD puede tener TC; moneda ARS NO debe tener TC.
+    tc_final: Optional[Decimal] = tipo_cambio if tipo_cambio is not None else op.tipo_cambio
+    if nueva_moneda == "ARS" and tc_final is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tipo_cambio debe ser null cuando moneda=ARS.",
+        )
+
+    # Si se envían items → revalidar combo (modo + whitelist + suma).
+    items_norm: Optional[list[dict]] = None
+    if items is not None:
+        items_norm = list(items or [])
+        _validar_items_por_modo(nuevo_modo, items_norm, nuevo_monto)
+        _validar_items_whitelist(items_norm)
+    else:
+        # Si cambió monto o modo pero NO vienen items, revalidar con los
+        # items existentes para no dejar la OP inconsistente.
+        if monto_total is not None or modo_imputacion is not None:
+            items_actuales = _leer_items_de_op(session, op.id)
+            _validar_items_por_modo(nuevo_modo, items_actuales, nuevo_monto)
+
+    # Aplicar cambios en la OP
+    if monto_total is not None and Decimal(op.monto_total) != Decimal(monto_total):
+        diff["monto_total"] = {"de": str(op.monto_total), "a": str(monto_total)}
+        op.monto_total = Decimal(monto_total)
+    if moneda is not None and str(op.moneda) != moneda:
+        diff["moneda"] = {"de": str(op.moneda), "a": moneda}
+        op.moneda = moneda
+    if modo_imputacion is not None and str(op.modo_imputacion) != modo_imputacion:
+        diff["modo_imputacion"] = {"de": str(op.modo_imputacion), "a": modo_imputacion}
+        op.modo_imputacion = modo_imputacion
+    if observaciones is not None and (op.observaciones or "") != observaciones:
+        diff["observaciones"] = {"de": op.observaciones, "a": observaciones}
+        op.observaciones = observaciones
+    if tipo_cambio is not None and (op.tipo_cambio is None or Decimal(op.tipo_cambio) != Decimal(tipo_cambio)):
+        diff["tipo_cambio"] = {
+            "de": str(op.tipo_cambio) if op.tipo_cambio is not None else None,
+            "a": str(tipo_cambio),
+        }
+        op.tipo_cambio = Decimal(tipo_cambio)
+    if fecha_pago_estimada is not None and op.fecha_pago_estimada != fecha_pago_estimada:
+        diff["fecha_pago_estimada"] = {
+            "de": op.fecha_pago_estimada.isoformat() if op.fecha_pago_estimada else None,
+            "a": fecha_pago_estimada.isoformat(),
+        }
+        op.fecha_pago_estimada = fecha_pago_estimada
+
+    session.flush()
+
+    # Evento `items_editados` (append-only, NO borra items_registrados).
+    if items_norm is not None:
+        _registrar_evento(
+            session,
+            op_id=op.id,
+            tipo=EVENTO_ITEMS_EDITADOS,
+            usuario_id=user_id,
+            payload={"items": [_serializar_item(it) for it in items_norm]},
+        )
+        diff["items_count"] = len(items_norm)
+
+    # Evento general `op_editada` con diff (siempre, aunque diff sea vacío,
+    # para auditar el intento de edición).
+    _registrar_evento(
+        session,
+        op_id=op.id,
+        tipo=EVENTO_OP_EDITADA,
+        usuario_id=user_id,
+        payload={"diff": diff},
+    )
+
+    logger.info(
+        "op_editada id=%s numero=%s user_id=%s campos_cambiados=%s",
+        op.id,
+        op.numero,
+        user_id,
+        sorted(diff.keys()),
+    )
+    return op
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# cancelar_pendiente (sub-batch 1.2) — transición terminal sin efectos
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def cancelar_pendiente(
+    session: Session,
+    *,
+    op_id: int,
+    motivo: str,
+    user_id: int,
+) -> OrdenPago:
+    """
+    Transiciona una OP `pendiente` → `cancelado`. Cero efecto colateral.
+
+    Es seguro porque en `pendiente`:
+      - NO hay `caja_movimiento` asociado.
+      - NO hay `caja_documento` asociado.
+      - NO hay imputaciones físicas (los items viven solo como payload
+        en `compras_eventos.items_registrados` / `items_editados`).
+      - NO se movió la CC del proveedor.
+
+    Por eso la cancelación es solo un UPDATE de `estado` + un evento
+    auditado `op_cancelada_pendiente`. No hay nada que revertir.
+
+    Args:
+        session: tx activa.
+        op_id: PK de la OP a cancelar.
+        motivo: texto obligatorio.
+        user_id: usuario que cancela.
+
+    Returns:
+        La OP en estado `cancelado`.
+
+    Raises:
+        HTTPException 404: OP inexistente.
+        HTTPException 409: OP en estado distinto a `pendiente`.
+        HTTPException 400: motivo vacío.
+    """
+    if not motivo or not motivo.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="motivo es requerido para cancelar una OP pendiente.",
+        )
+
+    op = session.execute(select(OrdenPago).where(OrdenPago.id == op_id).with_for_update()).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OrdenPago id={op_id} no encontrada.",
+        )
+    if op.estado != "pendiente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"OP {op.numero} en estado '{op.estado}' — solo se pueden cancelar "
+                f"OPs en 'pendiente'. Para OPs pagadas usá 'anular'."
+            ),
+        )
+
+    op.estado = "cancelado"
+    session.flush()
+
+    _registrar_evento(
+        session,
+        op_id=op.id,
+        tipo=EVENTO_OP_CANCELADA_PENDIENTE,
+        usuario_id=user_id,
+        payload={"motivo": motivo.strip()},
+    )
+
+    logger.info(
+        "op_cancelada_pendiente id=%s numero=%s user_id=%s motivo='%s'",
+        op.id,
+        op.numero,
+        user_id,
+        motivo.strip(),
     )
     return op
 
@@ -885,19 +1173,41 @@ def anular(
     return op
 
 
+def registrar_evento_auditoria(
+    session: Session,
+    *,
+    op_id: int,
+    tipo: str,
+    usuario_id: int,
+    payload: Optional[dict[str, Any]] = None,
+) -> CompraEvento:
+    """Wrapper público para insertar un evento en compras_eventos para
+    una OP. Útil para flows que combinan operaciones del service y
+    quieren dejar una entrada adicional en el timeline (p. ej. pago
+    rápido del tab CC)."""
+    return _registrar_evento(session, op_id=op_id, tipo=tipo, usuario_id=usuario_id, payload=payload)
+
+
 __all__ = [
     "CODIGO_ERROR_CAJA_MONEDA",
     "CODIGO_ERROR_DUPLICADO_ERP",
+    "EVENTO_ITEMS_EDITADOS",
+    "EVENTO_ITEMS_REGISTRADOS",
     "EVENTO_OP_ANULADA",
+    "EVENTO_OP_CANCELADA_PENDIENTE",
     "EVENTO_OP_CREADA",
     "EVENTO_OP_CREADA_DUP_CONFIRMADA",
+    "EVENTO_OP_EDITADA",
     "EVENTO_OP_PAGADA",
     "ModoImputacion",
     "Moneda",
     "TIPO_DOC_ORDEN_PAGO",
     "TIPO_DOC_ORDEN_PAGO_ANULADA",
     "anular",
+    "cancelar_pendiente",
     "crear",
     "detectar_duplicado_erp",
+    "editar",
     "ejecutar_pago",
+    "registrar_evento_auditoria",
 ]

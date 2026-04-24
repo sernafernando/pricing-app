@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 MODOS_IMPUTACION: tuple[str, ...] = ("especifica", "a_cuenta", "mixta")
-ESTADOS_OP: tuple[str, ...] = ("pendiente", "pagado", "anulado")
+ESTADOS_OP: tuple[str, ...] = ("pendiente", "pagado", "anulado", "cancelado")
 
 
 class ImputacionItem(BaseModel):
@@ -61,10 +61,40 @@ class OrdenPagoCreate(OrdenPagoBase):
 
 
 class OrdenPagoEjecutarPago(BaseModel):
-    """Body del POST /ordenes-pago/{id}/pagar."""
+    """Body del POST /ordenes-pago/{id}/pagar.
+
+    `tipo_cambio_override` permite sobrescribir el TC de la OP al momento
+    del pago (sub-batch 2.2). Si viene, reemplaza `op.tipo_cambio` antes de
+    registrar el egreso en caja ARS cross-moneda (design §3.2 extendido).
+    """
 
     caja_id: int
     fecha_pago_real: date
+    tipo_cambio_override: Decimal | None = Field(None, gt=0)
+
+
+class OrdenPagoEditar(BaseModel):
+    """Body del PUT /ordenes-pago/{id} (sub-batch 1.1).
+
+    Todos los campos son opcionales: sólo se actualizan los que vengan
+    explícitos. Si `items` se envía, revalida contra whitelist + modo y
+    registra evento `items_editados` (append-only). La OP debe estar en
+    estado `pendiente` o el endpoint retorna 409.
+    """
+
+    monto_total: Decimal | None = Field(None, gt=0)
+    moneda: str | None = Field(None, pattern="^(ARS|USD)$", max_length=3)
+    modo_imputacion: str | None = Field(None, pattern="^(especifica|a_cuenta|mixta)$")
+    items: list[ImputacionItem] | None = None
+    observaciones: str | None = None
+    tipo_cambio: Decimal | None = Field(None, gt=0)
+    fecha_pago_estimada: date | None = None
+
+
+class OrdenPagoCancelarPendiente(BaseModel):
+    """Body del POST /ordenes-pago/{id}/cancelar-pendiente (sub-batch 1.2)."""
+
+    motivo: str = Field(..., min_length=1, max_length=500)
 
 
 class OrdenPagoResponse(OrdenPagoBase):
