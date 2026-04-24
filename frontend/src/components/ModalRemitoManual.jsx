@@ -12,6 +12,7 @@ import { useDocumentGenerator } from '../hooks/useDocumentGenerator';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla from './ModalTesla';
+import SearchInput from './SearchInput';
 import styles from './ModalRemitoManual.module.css';
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -298,16 +299,14 @@ export default function ModalRemitoManual({ isOpen, onClose, envio = null }) {
           </div>
 
           {/* Buscador de productos */}
-          <div className={styles.searchBox}>
-            <Search size={14} className={styles.searchIcon} />
-            <input
-              className={styles.searchInput}
-              placeholder="Buscar producto por código o descripción..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-            />
-            {buscando && <Loader2 size={14} className={styles.spin} />}
-          </div>
+          <SearchInput
+            value={busqueda}
+            onChange={setBusqueda}
+            placeholder="Buscar producto por código o descripción..."
+            size="sm"
+            className={styles.productSearch}
+            icon={buscando ? <Loader2 size={14} className={styles.spin} /> : undefined}
+          />
 
           {/* Resultados de búsqueda */}
           {resultados.length > 0 && (

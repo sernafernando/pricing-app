@@ -16,7 +16,7 @@
 .dateDropdown { composes: dateDropdown from './TabCheckeoColecta.module.css'; }
 .dateDropdownField { composes: dateDropdownField from './TabCheckeoColecta.module.css'; }
 .dateDropdownInput { composes: dateDropdownInput from './TabCheckeoColecta.module.css'; }
-.searchInput { composes: searchInput from './TabCheckeoColecta.module.css'; }
+.searchFilter { composes: searchFilter from './TabCheckeoColecta.module.css'; }
 .selectSm { composes: selectSm from './TabCheckeoColecta.module.css'; }
 .actions { composes: actions from './TabCheckeoColecta.module.css'; }
 .vistaToggle { composes: vistaToggle from './TabCheckeoColecta.module.css'; }

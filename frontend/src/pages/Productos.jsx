@@ -11,6 +11,7 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import CalcularPVPModal from '../components/CalcularPVPModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
+import SearchInput from '../components/SearchInput';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import '../styles/tabla-productos-shared.css';
@@ -1193,11 +1194,6 @@ export default function Productos() {
     
     // Limpiar datos pendientes
     setDatosGuardadoPendiente(null);
-  };
-
-  const handleSearchChange = (e) => {
-    setSearchInput(e.target.value);
-    setPage(1);
   };
 
   const iniciarEdicion = (producto) => {
@@ -2641,13 +2637,10 @@ export default function Productos() {
       </div>
 
       <div className="search-bar">
-        <input
-          type="text"
-          placeholder="Buscar productos..."
+        <SearchInput
           value={searchInput}
-          onChange={handleSearchChange}
-          onFocus={(e) => e.target.select()}
-          className="search-input"
+          onChange={(val) => { setSearchInput(val); setPage(1); }}
+          placeholder="Buscar productos..."
         />
       </div>
 

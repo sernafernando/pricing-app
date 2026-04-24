@@ -210,18 +210,8 @@
 }
 
 .searchInput {
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 14px;
   min-width: 280px;
   flex: 1;
-}
-
-.searchInput::placeholder {
-  color: var(--text-tertiary);
 }
 
 .checkboxLabel {

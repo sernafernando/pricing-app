@@ -1956,7 +1956,7 @@ export default function TabEnviosFlex({ operador = null }) {
             placeholder="Buscar (texto o escanear QR)..."
             parseJson
             size="sm"
-            className={styles.searchInput}
+            className={styles.searchFilter}
           />
 
           <select

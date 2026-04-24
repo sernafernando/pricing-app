@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Lock, Search, Check, X } from 'lucide-react';
+import { Lock, Check, X } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
+import SearchInput from './SearchInput';
 import styles from './PanelPermisos.module.css';
 
 const CATEGORIAS_NOMBRE = {
@@ -687,15 +688,13 @@ export default function PanelPermisos() {
                   {/* Header con buscador */}
                   <div className={styles.permisosHeader}>
                     <div className={styles.headerRow}>
-                      <div className={styles.searchBox}>
-                         <input
-                          type="text"
-                          placeholder="Buscar permiso por nombre, código o descripción..."
-                          value={busquedaPermiso}
-                          onChange={(e) => setBusquedaPermiso(e.target.value)}
-                          className={styles.searchInput}
-                        />
-                      </div>
+                      <SearchInput
+                        value={busquedaPermiso}
+                        onChange={setBusquedaPermiso}
+                        placeholder="Buscar permiso por nombre, código o descripción..."
+                        size="sm"
+                        className={styles.searchBox}
+                      />
                       <div className={styles.legend}>
                         <span className={styles.legendItem}>
                           <span className={styles.legendDot} style={{ background: 'var(--success)' }}></span>

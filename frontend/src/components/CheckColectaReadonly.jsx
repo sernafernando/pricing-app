@@ -6,6 +6,7 @@ import {
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
+import SearchInput from './SearchInput';
 import styles from './CheckColectaReadonly.module.css';
 
 const ML_STATUS_LABELS = {
@@ -298,12 +299,12 @@ export default function CheckColectaReadonly() {
           </div>
 
           {/* Search */}
-          <input
-            type="text"
+          <SearchInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder="Shipping ID o destinatario..."
-            className={styles.searchInput}
+            size="sm"
+            className={styles.searchFilter}
           />
 
           {/* ML Status filter */}

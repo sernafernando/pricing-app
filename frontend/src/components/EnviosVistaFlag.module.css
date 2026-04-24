@@ -22,7 +22,7 @@
 .dateDropdown { composes: dateDropdown from './TabEnviosFlex.module.css'; }
 .dateDropdownField { composes: dateDropdownField from './TabEnviosFlex.module.css'; }
 .dateDropdownInput { composes: dateDropdownInput from './TabEnviosFlex.module.css'; }
-.searchInput { composes: searchInput from './TabEnviosFlex.module.css'; }
+.searchFilter { composes: searchFilter from './TabEnviosFlex.module.css'; }
 .selectSm { composes: selectSm from './TabEnviosFlex.module.css'; }
 .btnRefresh { composes: btnRefresh from './TabEnviosFlex.module.css'; }
 .tableContainer { composes: tableContainer from './TabEnviosFlex.module.css'; }

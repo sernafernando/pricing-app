@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import Toast from './Toast';
+import SearchInput from './SearchInput';
 import styles from './SetupMarkups.module.css';
 
 export default function SetupMarkups() {
@@ -407,21 +408,12 @@ export default function SetupMarkups() {
 
         {/* Filtros */}
         <div className={styles.filters}>
-          <div className={styles.searchBox}>
-            <span className={styles.searchIcon}>🔍</span>
-            <input
-              type="text"
-              placeholder="Buscar marca..."
-              value={busquedaMarca}
-              onChange={(e) => setBusquedaMarca(e.target.value)}
-              className={styles.searchInput}
-            />
-            {busquedaMarca && (
-              <button onClick={() => setBusquedaMarca('')} className={styles.clearButton}>
-                ✕
-              </button>
-            )}
-          </div>
+          <SearchInput
+            value={busquedaMarca}
+            onChange={setBusquedaMarca}
+            placeholder="Buscar marca..."
+            className={styles.searchBox}
+          />
 
           <label className={styles.checkbox}>
             <input
@@ -607,22 +599,14 @@ export default function SetupMarkups() {
 
         {/* Buscador de productos */}
         <div className={styles.productSearch}>
-          <div className={styles.searchBox}>
-            <span className={styles.searchIcon}>🔍</span>
-            <input
-              type="text"
-              placeholder="Buscar producto por código o descripción..."
-              value={busquedaProducto}
-              onChange={(e) => setBusquedaProducto(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
-              className={styles.searchInput}
-            />
-            {busquedaProducto && (
-              <button onClick={() => { setBusquedaProducto(''); setProductosEncontrados([]); }} className={styles.clearButton}>
-                ✕
-              </button>
-            )}
-          </div>
+          <SearchInput
+            value={busquedaProducto}
+            onChange={setBusquedaProducto}
+            onClear={() => setProductosEncontrados([])}
+            onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
+            placeholder="Buscar producto por código o descripción..."
+            className={styles.searchBox}
+          />
           <button
             onClick={buscarProductos}
             disabled={busquedaProducto.length < 2 || buscandoProductos}

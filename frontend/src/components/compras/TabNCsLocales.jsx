@@ -434,14 +434,13 @@ export default function TabNCsLocales() {
             onChange={(e) => setFiltroHasta(e.target.value)}
             title="Hasta"
           />
-          <div className={styles.searchWrapper}>
-            <SearchInput
-              value={busqueda}
-              onChange={setBusqueda}
-              placeholder="Buscar por número o Nro NC prov..."
-              size="sm"
-            />
-          </div>
+          <SearchInput
+            value={busqueda}
+            onChange={setBusqueda}
+            placeholder="Buscar por número o Nro NC prov..."
+            size="sm"
+            className={styles.searchWrapper}
+          />
         </div>
         {canManage && (
           <button className={styles.btnSuccess} onClick={handleOpenCrear}>
