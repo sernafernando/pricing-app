@@ -43,6 +43,9 @@ class PedidoCompraBase(BaseModel):
     fecha_pago_estimada: date | None = None
     requiere_envio: bool = False
     numero_factura: str | None = Field(None, max_length=50)
+    # Notas libres del pedido. Editable en borrador y como metadata en
+    # aprobado/pagado_parcial/pagado (feature B — no impacta CC).
+    observaciones: str | None = None
 
 
 class PedidoCompraCreate(PedidoCompraBase):
@@ -63,6 +66,7 @@ class PedidoCompraUpdate(BaseModel):
     fecha_pago_estimada: date | None = None
     requiere_envio: bool | None = None
     numero_factura: str | None = Field(None, max_length=50)
+    observaciones: str | None = None
     estado: str | None = None
 
 
@@ -77,6 +81,11 @@ class PedidoCompraResponse(PedidoCompraBase):
     aprobado_por_id: int | None = None
     created_at: datetime
     updated_at: datetime
+
+    # Feature D — círculo cerrado de correcciones. Solo populados cuando el
+    # pedido forma parte de un par original↔clon (caso contrario: None).
+    corregido_desde_id: int | None = None
+    corregido_a_id: int | None = None
 
     # Nombres derivados de las relaciones `empresa` / `proveedor`. Los populan
     # los routers vía `model_validate(p, update={...})` usando los datos de
@@ -172,6 +181,48 @@ class VincularFacturaRequest(BaseModel):
         if v is None:
             return None
         return v.strip() or None
+
+
+# ==========================================================================
+# Feature D — Corregir pedido (clonación append-only bidireccional)
+# ==========================================================================
+
+
+class CorreccionPedidoRequest(BaseModel):
+    """Body de POST /pedidos/{id}/corregir.
+
+    Todos los campos editables son opcionales — se envían solo los que cambian.
+    Moneda NO se incluye: es inmutable al corregir (design decision D.3). Para
+    cambiar moneda hay que cancelar el pedido y crear uno nuevo.
+
+    `motivo_correccion` es OBLIGATORIO (trazabilidad) y se persiste en el
+    payload del evento `creado_por_correccion_de` (clon) y
+    `cancelado_por_correccion` (original).
+
+    Reglas del clon según qué cambió:
+      * Solo cosméticos (numero_factura, fecha_pago_*, requiere_envio,
+        observaciones) → clon hereda estado `aprobado`.
+      * Cambia monto o tipo_cambio → clon nace en `pendiente_aprobacion`
+        (requiere re-aprobar). Las imputaciones se "congelan" en el original
+        y se re-aplican al clon cuando se aprueba (opción Z del design).
+    """
+
+    numero_factura: str | None = Field(None, max_length=50)
+    tipo_cambio: Decimal | None = Field(None, gt=0)
+    monto: Decimal | None = Field(None, gt=0)
+    fecha_pago_texto: str | None = Field(None, max_length=200)
+    fecha_pago_estimada: date | None = None
+    requiere_envio: bool | None = None
+    observaciones: str | None = None
+    motivo_correccion: str = Field(..., min_length=5, max_length=500)
+
+    @field_validator("motivo_correccion")
+    @classmethod
+    def _limpiar_motivo_correccion(cls, v: str) -> str:
+        s = (v or "").strip()
+        if len(s) < 5:
+            raise ValueError("motivo_correccion debe tener al menos 5 caracteres significativos.")
+        return s
 
 
 # Forward refs — importar acá al final para evitar ciclos

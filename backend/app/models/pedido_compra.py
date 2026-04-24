@@ -23,6 +23,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -58,6 +59,9 @@ class PedidoCompra(Base):
     requiere_envio = Column(Boolean, nullable=False, default=False, server_default="false")
     numero_factura = Column(String(50), nullable=True)
     ct_transaction_id = Column(BigInteger, nullable=True)
+    # Notas libres del pedido. Editable en borrador y en aprobado/pagado_parcial/pagado
+    # como metadata (no impacta CC ni imputaciones). Ver compras_026_pedido_observaciones.
+    observaciones = Column(Text, nullable=True)
     estado = Column(
         String(24),
         nullable=False,
@@ -74,6 +78,19 @@ class PedidoCompra(Base):
         ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Feature D — círculo cerrado de correcciones (self-ref, nullable).
+    # Si no-NULL, este pedido es un clon corrección del referenciado.
+    corregido_desde_id = Column(
+        BigInteger,
+        ForeignKey("pedidos_compra.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Si no-NULL, este pedido fue reemplazado (cancelado) por el clon referenciado.
+    corregido_a_id = Column(
+        BigInteger,
+        ForeignKey("pedidos_compra.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -86,6 +103,22 @@ class PedidoCompra(Base):
     proveedor = relationship("Proveedor")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     aprobado_por = relationship("Usuario", foreign_keys=[aprobado_por_id])
+    # Self-ref relationships para el círculo de correcciones (Feature D).
+    # `post_update=True` evita ciclos en la transacción cuando se setean
+    # ambos FKs (clon.corregido_desde_id y original.corregido_a_id) a la
+    # vez: SQLAlchemy emite un UPDATE extra tras el flush inicial.
+    corregido_desde = relationship(
+        "PedidoCompra",
+        foreign_keys=[corregido_desde_id],
+        remote_side="PedidoCompra.id",
+        post_update=True,
+    )
+    corregido_a = relationship(
+        "PedidoCompra",
+        foreign_keys=[corregido_a_id],
+        remote_side="PedidoCompra.id",
+        post_update=True,
+    )
 
     __table_args__ = (
         UniqueConstraint("numero", name="uq_pedidos_compra_numero"),

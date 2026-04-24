@@ -229,10 +229,30 @@ export default function TabPedidosCompra() {
     setShowModalDetalle(true);
   };
 
-  const handleCloseDetalle = (reload) => {
+  const handleCloseDetalle = (result) => {
+    // Firma backward-compatible:
+    //   - false/undefined → cerrar sin recargar.
+    //   - true           → cerrar + recargar.
+    //   - objeto         → feature D: { reload, clonId?, pedidoId? }. Si
+    //     viene un ID nuevo, reabrimos el detalle con ese pedido (nav
+    //     bidireccional original↔clon).
     setShowModalDetalle(false);
+    if (typeof result === 'object' && result !== null) {
+      const { reload, clonId, pedidoId } = result;
+      const next = clonId || pedidoId || null;
+      if (next) {
+        // Reabrir modal con el pedido relacionado (clon o original).
+        setPedidoDetalleId(next);
+        setShowModalDetalle(true);
+        if (reload) fetchPedidos();
+        return;
+      }
+      setPedidoDetalleId(null);
+      if (reload) fetchPedidos();
+      return;
+    }
     setPedidoDetalleId(null);
-    if (reload) fetchPedidos();
+    if (result) fetchPedidos();
   };
 
   const handleEnviarAprobacion = async (pedido) => {

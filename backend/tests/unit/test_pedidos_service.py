@@ -331,7 +331,166 @@ class TestEditarPedido:
             )
         assert exc.value.status_code == 409
 
-    def test_editar_en_pagado_raise_409(self, db, empresa, proveedor, active_user) -> None:
+    def test_editar_en_pagado_permite_campos_metadata(self, db, empresa, proveedor, active_user) -> None:
+        """Política post Feature B: en estado `pagado` se permiten los mismos campos
+        que en `aprobado` (numero_factura, tipo_cambio, observaciones). Son metadata,
+        no disparan recalculos en CC/imputaciones."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "pagado"
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            numero_factura="FA-1",
+        )
+        db.refresh(p)
+        assert p.numero_factura == "FA-1"
+
+    def test_editar_pedido_aprobado_tipo_cambio_ok(self, db, empresa, proveedor, active_user) -> None:
+        """USD + estado aprobado → permite editar tipo_cambio."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("100"),
+            tipo_cambio=Decimal("1000.0"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            tipo_cambio=Decimal("1234.50"),
+        )
+        db.refresh(p)
+        assert p.tipo_cambio == Decimal("1234.50")
+
+    def test_editar_pedido_aprobado_observaciones_ok(self, db, empresa, proveedor, active_user) -> None:
+        """Estado aprobado → permite editar observaciones."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            observaciones="Nota de auditoría post-aprobación",
+        )
+        db.refresh(p)
+        assert p.observaciones == "Nota de auditoría post-aprobación"
+
+    def test_editar_pedido_aprobado_monto_raises_409(self, db, empresa, proveedor, active_user) -> None:
+        """Estado aprobado → monto sigue bloqueado (impacta CC)."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                monto=Decimal("200"),
+            )
+        assert exc.value.status_code == 409
+
+    def test_editar_pedido_aprobado_moneda_raises_409(self, db, empresa, proveedor, active_user) -> None:
+        """Estado aprobado → moneda sigue bloqueada (impacta CC)."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                moneda="USD",
+            )
+        assert exc.value.status_code == 409
+
+    def test_editar_pedido_pagado_tipo_cambio_ok(self, db, empresa, proveedor, active_user) -> None:
+        """Estado pagado → permite editar TC (metadata, no toca CC ya fijada)."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("100"),
+            tipo_cambio=Decimal("1000.0"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "pagado"
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            tipo_cambio=Decimal("1320.00"),
+        )
+        db.refresh(p)
+        assert p.tipo_cambio == Decimal("1320.00")
+
+    def test_editar_pedido_pagado_observaciones_ok(self, db, empresa, proveedor, active_user) -> None:
+        """Estado pagado → permite editar observaciones."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "pagado"
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            observaciones="Aclaración retroactiva",
+        )
+        db.refresh(p)
+        assert p.observaciones == "Aclaración retroactiva"
+
+    def test_editar_pedido_pagado_monto_raises_409(self, db, empresa, proveedor, active_user) -> None:
+        """Estado pagado → monto bloqueado incluso en pagado (CC intocable)."""
         p = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -348,7 +507,29 @@ class TestEditarPedido:
                 db,
                 pedido_id=p.id,
                 user_id=active_user.id,
-                numero_factura="FA-1",
+                monto=Decimal("200"),
+            )
+        assert exc.value.status_code == 409
+
+    def test_editar_pedido_pagado_moneda_raises_409(self, db, empresa, proveedor, active_user) -> None:
+        """Estado pagado → moneda bloqueada."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "pagado"
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                moneda="USD",
             )
         assert exc.value.status_code == 409
 
