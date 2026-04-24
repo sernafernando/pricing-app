@@ -426,7 +426,7 @@ def obtener_pedido(
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     return detalle
 
 
@@ -1018,7 +1018,7 @@ def obtener_orden_pago(
             "proveedor_nombre": prov.nombre if prov is not None else None,
         }
     )
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
 
     # Resumen del movimiento de caja (solo si está pagada).
@@ -1783,6 +1783,153 @@ def reimputar_imputacion(
 # ==========================================================================
 
 
+def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimientoResponse]:
+    """Enriquece movimientos de CC proveedor con `origen_descripcion` legible.
+
+    Batch (0 N+1): hace 4-5 queries agrupadas por origen_tipo y resuelve los
+    nombres/numeros de documento en memoria. Mapping:
+
+      - orden_pago          → "OP {numero}"
+      - nota_credito_local  → "NC {numero}"
+      - ajuste_pedido       → "Ajuste pedido {numero}"    (origen_id = pedido)
+      - ajuste_manual       → "Ajuste manual"
+      - nota_credito_erp    → "NC ERP {ct_docnumber}"
+      - pedido_compra       → "Pedido {numero}"           (legacy, si aplica)
+
+    Fallback: `"{origen_tipo} #{id}"` si la FK está huérfana o el tipo es
+    desconocido (p.ej. tipos nuevos todavía no mapeados acá).
+    """
+    if not movs:
+        return []
+
+    from app.models.commercial_transaction import CommercialTransaction  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    # ── Recolectar IDs por origen_tipo ───────────────────────────────────
+    # IMPORTANTE: los movimientos "haber" generados por `aplicar_imputacion`
+    # llegan con `origen_tipo='imputacion'` y `origen_id=imputacion.id`. Para
+    # resolver a "OP {numero}" / "NC {numero}" hay que hacer un hop: buscar
+    # la imputacion y usar su `origen_tipo`/`origen_id` como referencia
+    # real. Los reversales (tipo='debe', origen_tipo='reimputacion') siguen
+    # el mismo patrón.
+    op_ids: set[int] = set()
+    nc_local_ids: set[int] = set()
+    pedido_ids: set[int] = set()  # ajuste_pedido + pedido_compra (legacy)
+    ct_ids: set[int] = set()  # nota_credito_erp + facturas
+    imp_ids: set[int] = set()  # imputacion / reimputacion — hop al origen real
+
+    for m in movs:
+        oid = getattr(m, "origen_id", None)
+        if oid is None:
+            continue
+        otipo = getattr(m, "origen_tipo", None)
+        if otipo == "orden_pago":
+            op_ids.add(int(oid))
+        elif otipo == "nota_credito_local":
+            nc_local_ids.add(int(oid))
+        elif otipo in ("ajuste_pedido", "pedido_compra"):
+            pedido_ids.add(int(oid))
+        elif otipo == "nota_credito_erp":
+            ct_ids.add(int(oid))
+        elif otipo in ("imputacion", "reimputacion"):
+            imp_ids.add(int(oid))
+
+    # ── Hop: cargar imputaciones referenciadas y propagar sus origenes ───
+    # Una imputacion puede tener origen orden_pago, nota_credito_local o
+    # nota_credito_erp. Recolectamos esos IDs secundarios para batch fetch.
+    imps_resueltos: dict[int, tuple[str, int]] = {}  # imp_id → (origen_tipo, origen_id)
+    if imp_ids:
+        rows = db.execute(
+            select(Imputacion.id, Imputacion.origen_tipo, Imputacion.origen_id).where(Imputacion.id.in_(imp_ids))
+        ).all()
+        for r in rows:
+            imps_resueltos[int(r[0])] = (str(r[1]), int(r[2]))
+            otipo2, oid2 = str(r[1]), int(r[2])
+            if otipo2 == "orden_pago":
+                op_ids.add(oid2)
+            elif otipo2 == "nota_credito_local":
+                nc_local_ids.add(oid2)
+            elif otipo2 == "nota_credito_erp":
+                ct_ids.add(oid2)
+
+    # ── Batch fetch: numeros por ID ──────────────────────────────────────
+    ops_numeros: dict[int, str] = {}
+    if op_ids:
+        rows = db.execute(select(OrdenPago.id, OrdenPago.numero).where(OrdenPago.id.in_(op_ids))).all()
+        ops_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    ncs_numeros: dict[int, str] = {}
+    if nc_local_ids:
+        rows = db.execute(
+            select(NotaCreditoLocal.id, NotaCreditoLocal.numero).where(NotaCreditoLocal.id.in_(nc_local_ids))
+        ).all()
+        ncs_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    pedidos_numeros: dict[int, str] = {}
+    if pedido_ids:
+        rows = db.execute(select(PedidoCompra.id, PedidoCompra.numero).where(PedidoCompra.id.in_(pedido_ids))).all()
+        pedidos_numeros = {int(r[0]): str(r[1]) for r in rows}
+
+    ct_docnumbers: dict[int, str | None] = {}
+    if ct_ids:
+        try:
+            rows = db.execute(
+                select(CommercialTransaction.ct_transaction, CommercialTransaction.ct_docNumber).where(
+                    CommercialTransaction.ct_transaction.in_(ct_ids)
+                )
+            ).all()
+            ct_docnumbers = {int(r[0]): (str(r[1]) if r[1] is not None else None) for r in rows}
+        except Exception:  # noqa: BLE001 — ERP no disponible (SQLite tests)
+            ct_docnumbers = {}
+
+    # ── Resolver descripción por movimiento ─────────────────────────────
+    def _describir_ref(otipo: str, oid: int) -> str:
+        """Resuelve un par (tipo, id) a texto humano — sin hop de imputacion."""
+        if otipo == "orden_pago":
+            num = ops_numeros.get(oid)
+            return f"OP {num}" if num else f"OP #{oid}"
+        if otipo == "nota_credito_local":
+            num = ncs_numeros.get(oid)
+            return f"NC {num}" if num else f"NC #{oid}"
+        if otipo == "ajuste_pedido":
+            num = pedidos_numeros.get(oid)
+            return f"Ajuste pedido {num}" if num else f"Ajuste pedido #{oid}"
+        if otipo == "pedido_compra":
+            num = pedidos_numeros.get(oid)
+            return f"Pedido {num}" if num else f"Pedido #{oid}"
+        if otipo == "nota_credito_erp":
+            doc = ct_docnumbers.get(oid)
+            return f"NC ERP {doc}" if doc else f"NC ERP #{oid}"
+        if otipo == "factura_erp":
+            doc = ct_docnumbers.get(oid)
+            return f"Factura {doc}" if doc else f"Factura #{oid}"
+        return f"{otipo} #{oid}"
+
+    def _descripcion(m: Any) -> str:
+        otipo = getattr(m, "origen_tipo", None)
+        oid = getattr(m, "origen_id", None)
+        if otipo == "ajuste_manual":
+            return "Ajuste manual"
+        # Hop: imputacion/reimputacion → usar origen real de la imputacion.
+        if otipo in ("imputacion", "reimputacion") and oid is not None:
+            ref = imps_resueltos.get(int(oid))
+            if ref is not None:
+                prefijo = "Reversal " if otipo == "reimputacion" else ""
+                return prefijo + _describir_ref(ref[0], ref[1])
+            return f"{otipo} #{oid}"
+        if oid is not None and otipo:
+            return _describir_ref(otipo, int(oid))
+        # Fallback: tipo desconocido o sin origen_id
+        return f"{otipo} #{oid}" if oid is not None else (otipo or "—")
+
+    resultado: list[CCMovimientoResponse] = []
+    for m in movs:
+        resp = CCMovimientoResponse.model_validate(m)
+        resp.origen_descripcion = _descripcion(m)
+        resultado.append(resp)
+    return resultado
+
+
 @router.get(
     "/cc-proveedor/{proveedor_id}",
     response_model=CCProveedorDetalle,
@@ -1833,7 +1980,7 @@ def obtener_cc_proveedor(
         proveedor_id=proveedor_id,
         nombre_proveedor=str(nombre_prov),
         saldos=saldos_list,
-        movimientos=[CCMovimientoResponse.model_validate(m) for m in movimientos],
+        movimientos=_enriquecer_movimientos_cc(db, list(movimientos)),
     )
 
 
@@ -1885,7 +2032,7 @@ def obtener_cc_por_pedido(
                 pedido_estado=pedido.estado,
                 pedido_monto=Decimal(pedido.monto),
                 pedido_moneda=pedido.moneda,
-                movimientos=[CCMovimientoResponse.model_validate(m) for m in movs],
+                movimientos=_enriquecer_movimientos_cc(db, list(movs)),
             )
         )
     # Orden: por fecha desc del primer movimiento de cada grupo
@@ -1894,6 +2041,86 @@ def obtener_cc_por_pedido(
         reverse=True,
     )
     return resultado
+
+
+@router.get(
+    "/cc-proveedor/{proveedor_id}/facturas-erp-vigentes",
+    response_model=list[FacturaCandidataResponse],
+    summary="Facturas ERP vigentes del proveedor (para aplicar NC local a factura_erp)",
+)
+def listar_facturas_erp_vigentes_proveedor(
+    proveedor_id: int,
+    moneda: Optional[str] = Query(None, pattern="^(ARS|USD)$"),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> list[FacturaCandidataResponse]:
+    """Lista facturas del ERP vigentes del proveedor (v_facturas_compra_vigentes),
+    sin filtrar por pedido.
+
+    Uso: el modal `ModalAplicarNC` necesita mostrar facturas ERP del proveedor
+    cuando el usuario elige destino `factura_erp` (sub-batch 3). La vista ya
+    excluye contrapartes/anuladas. Filtra por `supp_id` del proveedor y,
+    opcionalmente, por moneda (vía `curr_id_transaction`: 1=ARS, 2=USD por
+    convención ERP).
+
+    Si el proveedor no tiene `supp_id` ERP → lista vacía + log WARNING.
+    En SQLite (tests sin vista ERP) → lista vacía silenciosa.
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+    supp_id = db.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": proveedor_id},
+    ).scalar_one_or_none()
+    if supp_id is None:
+        logger.warning(
+            "facturas-erp-vigentes: proveedor_id=%s sin supp_id ERP → lista vacía",
+            proveedor_id,
+        )
+        return []
+
+    params: dict[str, Any] = {"supp_id": int(supp_id)}
+    # Filtro opcional por moneda — convención: curr_id=1 ARS, curr_id=2 USD
+    # (es el mapping de tb_currency en el ERP). Si no matchea, simplemente no
+    # aplica el where y la UI muestra todas.
+    moneda_where = ""
+    if moneda == "ARS":
+        moneda_where = "AND v.curr_id_transaction = 1"
+    elif moneda == "USD":
+        moneda_where = "AND v.curr_id_transaction = 2"
+
+    stmt = text(
+        f"""
+        SELECT v.ct_transaction,
+               v.ct_docnumber,
+               v.ct_date,
+               v.ct_total,
+               v.curr_id_transaction
+        FROM v_facturas_compra_vigentes v
+        WHERE v.supp_id = :supp_id
+          {moneda_where}
+        ORDER BY v.ct_date DESC NULLS LAST, v.ct_transaction DESC
+        LIMIT 200
+        """
+    )
+    try:
+        filas = db.execute(stmt, params).all()
+    except Exception as exc:  # noqa: BLE001 — vista ERP ausente (SQLite tests)
+        logger.warning(
+            "facturas-erp-vigentes: vista ERP no disponible (probablemente tests): %s",
+            exc,
+        )
+        return []
+
+    return [
+        FacturaCandidataResponse(
+            ct_transaction=int(row[0]),
+            ct_docnumber=str(row[1] or ""),
+            ct_date=row[2],
+            ct_total=Decimal(str(row[3] or 0)),
+            curr_id_transaction=int(row[4]) if row[4] is not None else None,
+        )
+        for row in filas
+    ]
 
 
 @router.post(
@@ -1947,7 +2174,10 @@ def crear_ajuste_cc_manual(
 
     _commit_or_rollback(db, operacion="crear_ajuste_cc_manual")
     db.refresh(mov)
-    return CCMovimientoResponse.model_validate(mov)
+    # Enriquecer con origen_descripcion (batch de 1) para consistencia con el
+    # listado cronológico — la UI puede renderizar sin re-fetchear.
+    enriquecidos = _enriquecer_movimientos_cc(db, [mov])
+    return enriquecidos[0]
 
 
 @router.post(
@@ -2899,7 +3129,7 @@ def obtener_nc_local(
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
-    detalle.imputaciones = [ImputacionResponse.model_validate(i) for i in imputaciones]
+    detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
     return detalle
 
 
