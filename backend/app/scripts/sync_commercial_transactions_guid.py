@@ -93,43 +93,36 @@ def parse_uuid(value: Any) -> UUID | None:
 
 
 def _notificar_admin_catalogo_vacio(db: Session, *, mensaje: str) -> None:
-    """Crea 1 Notificacion para cada admin activo cuando el catálogo
-    `tb_sale_document` está vacío y abortamos el hook de matching.
+    """Crea 1 Notificacion para cada usuario autorizado a gestionar compras
+    cuando el catálogo `tb_sale_document` está vacío y abortamos el hook de
+    matching.
 
     Defensivo: cualquier fallo acá se loggea y se traga. NO debe tumbar
     el sync aunque falle el sistema de notificaciones.
 
     Commitea su propia transacción.
-    """
-    from app.models.notificacion import (  # noqa: PLC0415
-        EstadoNotificacion,
-        Notificacion,
-        SeveridadNotificacion,
-    )
-    from app.models.usuario import RolUsuario, Usuario  # noqa: PLC0415
 
-    admins = (
-        db.query(Usuario.id)
-        .filter(
-            Usuario.activo == True,  # noqa: E712
-            Usuario.rol.in_([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]),
-        )
-        .all()
+    Sub-batch 2: migrado del fan-out manual por rol (ADMIN+SUPERADMIN) al
+    helper unificado `crear_notificaciones_para_permisos` que resuelve
+    destinatarios por permiso efectivo (rol base + overrides). Esto
+    respeta el principio de granularidad del sistema híbrido.
+    """
+    from app.models.notificacion import SeveridadNotificacion  # noqa: PLC0415
+    from app.services.notificacion_service import (  # noqa: PLC0415
+        crear_notificaciones_para_permisos,
     )
-    for (admin_id,) in admins:
-        db.add(
-            Notificacion(
-                user_id=admin_id,
-                tipo="compras_catalogo_vacio",
-                mensaje=mensaje,
-                severidad=SeveridadNotificacion.CRITICAL,
-                estado=EstadoNotificacion.PENDIENTE,
-            )
-        )
+
+    notifs = crear_notificaciones_para_permisos(
+        db,
+        permisos_requeridos=["administracion.gestionar_ordenes_compra"],
+        tipo="compras_catalogo_vacio",
+        mensaje=mensaje,
+        severidad=SeveridadNotificacion.CRITICAL,
+    )
     db.commit()
     logger.warning(
-        "[compras.matching] Notificación enviada a %d admin(s): catálogo vacío",
-        len(admins),
+        "[compras.matching] Notificación enviada a %d destinatario(s): catálogo vacío",
+        len(notifs),
     )
 
 
