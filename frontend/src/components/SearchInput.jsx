@@ -28,6 +28,7 @@ const SearchInput = forwardRef(function SearchInput(
     size = 'md',
     disabled = false,
     icon,
+    onKeyDown,
   },
   ref,
 ) {
@@ -131,6 +132,7 @@ const SearchInput = forwardRef(function SearchInput(
         className={inputClass}
         value={currentValue}
         onChange={handleChange}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './Admin.module.css';
 import { useAuthStore } from '../store/authStore';
+import SearchInput from '../components/SearchInput';
 
 export default function MLABanlist() {
   const [mlas, setMlas] = useState([]);
@@ -158,22 +159,14 @@ export default function MLABanlist() {
           <h2 className={styles.sectionTitle}>MLAs Baneados ({mlas.length})</h2>
         </div>
 
-        <input
-          type="text"
-          placeholder="Buscar por MLA, motivo o usuario..."
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            fontSize: '14px',
-            background: 'var(--bg-primary)',
-            color: 'var(--text-primary)',
-            marginBottom: '16px'
-          }}
-        />
+        <div style={{ marginBottom: '16px' }}>
+          <SearchInput
+            value={filtro}
+            onChange={setFiltro}
+            placeholder="Buscar por MLA, motivo o usuario..."
+            size="md"
+          />
+        </div>
 
         {mlasFiltrados.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
-import { DollarSign, Download, Search, RotateCcw, AlertTriangle } from 'lucide-react';
+import { DollarSign, Download, RotateCcw, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import SearchInput from '../components/SearchInput';
 import styles from './RRHHSueldos.module.css';
 
 export default function RRHHSueldos() {
@@ -94,16 +95,12 @@ export default function RRHHSueldos() {
         </div>
       )}
 
-      <div className={styles.filters}>
-        <Search size={16} style={{ color: 'var(--cf-text-tertiary)' }} />
-        <input
-          type="text"
-          className={styles.input}
-          placeholder="Buscar por nombre, legajo o CUIL..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
+      <SearchInput
+        value={searchTerm}
+        onChange={setSearchTerm}
+        placeholder="Buscar por nombre, legajo o CUIL..."
+        className={styles.filters}
+      />
 
       {loading && <div className={styles.loading}>Cargando datos bancarios...</div>}
       {error && <div className={styles.error}>{error}</div>}

@@ -16,6 +16,7 @@
 import { useState } from 'react';
 import { Search, ScanBarcode, ShoppingCart, FileText, UserSearch, CreditCard, AtSign } from 'lucide-react';
 import api from '../services/api';
+import SearchInput from '../components/SearchInput';
 import TrazaViewer from '../components/TrazaViewer';
 import TrazaClienteViewer from '../components/TrazaClienteViewer';
 import styles from './Traza.module.css';
@@ -180,18 +181,13 @@ export default function Traza() {
         {/* Input fields */}
         <div className={styles.inputRow}>
           {modo !== 'factura' ? (
-            <div className={styles.inputWrapper}>
-              <Search size={14} className={styles.inputIcon} />
-              <input
-                type="text"
-                className="input-tesla"
-                placeholder={currentModo?.placeholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                style={{ paddingLeft: '36px', width: '100%' }}
-              />
-            </div>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder={currentModo?.placeholder}
+              onKeyDown={handleKeyDown}
+              size="sm"
+            />
           ) : (
             <div className={styles.facturaInputs}>
               <select

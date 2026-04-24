@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './Admin.module.css';
+import SearchInput from '../components/SearchInput';
 
 export default function GestionPM() {
   const [registros, setRegistros] = useState([]);
@@ -98,21 +99,14 @@ export default function GestionPM() {
       <div className={styles.section}>
         {/* Search + View Toggle */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-          <input
-            type="text"
-            placeholder="Buscar por marca, categoria o PM..."
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              fontSize: '14px',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-            }}
-          />
+          <div style={{ flex: 1 }}>
+            <SearchInput
+              value={filtro}
+              onChange={setFiltro}
+              placeholder="Buscar por marca, categoria o PM..."
+              size="md"
+            />
+          </div>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => setVistaAgrupada('pm')}

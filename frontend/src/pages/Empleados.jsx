@@ -4,7 +4,6 @@ import { useDebounce } from '../hooks/useDebounce';
 import { rrhhAPI, empresasAPI } from '../services/api';
 import {
   Plus,
-  Search,
   RotateCcw,
   ChevronLeft,
   ChevronRight,
@@ -32,6 +31,7 @@ import {
   Pencil,
   Save,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -1066,16 +1066,12 @@ export default function Empleados() {
       <>
       {/* Filters */}
       <div className={styles.filters}>
-        <div className={styles.searchBox}>
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre, DNI, legajo..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={styles.searchInput}
-          />
-        </div>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Buscar por nombre, DNI, legajo..."
+          className={styles.searchBox}
+        />
         <select
           value={estado}
           onChange={(e) => { setEstado(e.target.value); setPage(1); }}

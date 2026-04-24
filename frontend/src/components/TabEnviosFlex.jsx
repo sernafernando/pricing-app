@@ -20,6 +20,7 @@ import { useToast } from '../hooks/useToast';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
 import Toast from './Toast';
+import SearchInput from './SearchInput';
 import styles from './TabEnviosFlex.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -148,24 +149,6 @@ export default function TabEnviosFlex({ operador = null }) {
   const [soloDemora, setSoloDemora] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
-
-  // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
-  const handleSearchChange = (value) => {
-    const trimmed = value.trim();
-    if (trimmed.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        const shippingId = parsed.id || parsed.shipping_id;
-        if (shippingId) {
-          setSearch(String(shippingId));
-          return;
-        }
-      } catch {
-        // No es JSON válido (todavía se está escribiendo), dejar pasar
-      }
-    }
-    setSearch(value);
-  };
 
   // Filtros rápidos de fecha (copiados del Dashboard)
   const aplicarFiltroRapido = (filtro) => {
@@ -1967,11 +1950,12 @@ export default function TabEnviosFlex({ operador = null }) {
             )}
           </div>
 
-          <input
-            type="text"
-            placeholder="Buscar (texto o escanear QR)..."
+          <SearchInput
             value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
+            onChange={setSearch}
+            placeholder="Buscar (texto o escanear QR)..."
+            parseJson
+            size="sm"
             className={styles.searchInput}
           />
 

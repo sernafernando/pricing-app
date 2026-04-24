@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDebounce } from '../hooks/useDebounce';
 import {
-  RefreshCw, MapPin, Calendar, Flag, Search, X, Building, RotateCcw,
+  RefreshCw, MapPin, Calendar, Flag, X, Building, RotateCcw,
 } from 'lucide-react';
 import api from '../services/api';
+import SearchInput from './SearchInput';
 import { toLocalDateString } from '../utils/dateUtils';
 import { computeStats } from '../utils/envioStats';
 import { useSSEChannel } from '../hooks/useSSEChannel';
@@ -568,12 +569,12 @@ export default function EnviosVistaFlag() {
             )}
           </div>
 
-          <input
-            type="text"
-            placeholder="Buscar (shipping ID, destinatario)..."
+          <SearchInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
+            placeholder="Buscar (shipping ID, destinatario)..."
             className={styles.searchInput}
+            size="sm"
           />
 
           <select

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
-  Search,
   Loader2,
   Eye,
   Pencil,
@@ -25,6 +24,7 @@ import ModalPedidoCompra from './ModalPedidoCompra';
 import ModalPedidoDetalle from './ModalPedidoDetalle';
 import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import SearchInput from '../SearchInput';
 import styles from './TabPedidosCompra.module.css';
 
 const PAGE_SIZE = 50;
@@ -502,12 +502,11 @@ export default function TabPedidosCompra() {
             title="Hasta"
           />
           <div className={styles.searchWrapper}>
-            <Search size={14} className={styles.searchIcon} />
-            <input
-              className={styles.searchInput}
-              placeholder="Buscar por número..."
+            <SearchInput
               value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              onChange={setBusqueda}
+              placeholder="Buscar por número..."
+              size="sm"
             />
           </div>
         </div>

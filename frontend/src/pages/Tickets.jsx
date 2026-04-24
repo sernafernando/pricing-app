@@ -5,11 +5,11 @@ import { ticketsAPI, sectoresAPI } from '../services/api';
 import {
   Ticket,
   Plus,
-  Search,
   RotateCcw,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import TicketCreateModal from '../components/TicketCreateModal';
 import TicketDetail from '../components/TicketDetail';
 import styles from './Tickets.module.css';
@@ -185,16 +185,12 @@ export default function Tickets() {
 
       {/* Filters */}
       <div className={styles.filters}>
-        <div className={styles.searchBox}>
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Buscar por título..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={styles.input}
-          />
-        </div>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Buscar por título..."
+          className={styles.searchBox}
+        />
         <select
           value={sectorId}
           onChange={(e) => setSectorId(e.target.value)}

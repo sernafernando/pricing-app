@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
+import SearchInput from '../components/SearchInput';
 import styles from './AdministracionCaja.module.css';
 import { registrarPagina } from '../registry/tabRegistry';
 import {
@@ -21,7 +22,6 @@ import {
   X,
   Paperclip,
   Settings2,
-  Search,
   Upload,
   FileText,
   Trash2,
@@ -750,8 +750,12 @@ export default function AdministracionCaja() {
           {tags.filter(t => t.activo).map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
         </select>
         <div className={styles.searchWrapper}>
-          <Search size={14} className={styles.searchIcon} />
-          <input className={styles.searchInputWithIcon} placeholder="Buscar en detalle..." value={filtroBusqueda} onChange={e => setFiltroBusqueda(e.target.value)} />
+          <SearchInput
+            value={filtroBusqueda}
+            onChange={setFiltroBusqueda}
+            placeholder="Buscar en detalle..."
+            size="sm"
+          />
         </div>
       </div>
 

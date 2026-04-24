@@ -10,7 +10,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Search,
   Pencil,
   Check,
   X,
@@ -30,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
+import SearchInput from './SearchInput';
 import styles from './RmaProveedores.module.css';
 
 const PAGE_SIZE = 25;
@@ -207,15 +207,13 @@ export default function RmaProveedores() {
 
       {/* Filters */}
       <div className={styles.filters}>
-        <div className={styles.searchBox}>
-          <Search size={14} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre, CUIT, ciudad o representante..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Buscar por nombre, CUIT, ciudad o representante..."
+          size="sm"
+          className={styles.searchBox}
+        />
         <label className={styles.toggleLabel}>
           <input
             type="checkbox"

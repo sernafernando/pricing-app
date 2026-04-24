@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import SearchInput from './SearchInput';
 import styles from './TabRentabilidad.module.css';
 
 export default function TabAdminVentasFuera() {
@@ -48,8 +49,7 @@ export default function TabAdminVentasFuera() {
     }
   };
 
-  const handleBusquedaChange = (e) => {
-    const valor = e.target.value;
+  const handleBusquedaChange = (valor) => {
     setBusqueda(valor);
     buscarVendedores(valor);
   };
@@ -128,12 +128,12 @@ export default function TabAdminVentasFuera() {
       <div className={styles.seccionBuscar}>
         <h3>Agregar vendedor a excluir</h3>
         <div className={styles.buscadorContainer}>
-          <input
-            type="text"
-            placeholder="Buscar vendedor por nombre..."
+          <SearchInput
             value={busqueda}
             onChange={handleBusquedaChange}
+            placeholder="Buscar vendedor por nombre..."
             className={styles.inputBuscar}
+            size="sm"
           />
         </div>
 

@@ -9,6 +9,7 @@ import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
+import SearchInput from '../components/SearchInput';
 import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star, RefreshCw, Download } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -770,11 +771,11 @@ export default function DashboardMetricasML() {
           />
 
           <div className={styles.buscadorContainer}>
-            <input
-              type="text"
-              placeholder="Buscar por ML ID, código, producto o marca..."
+            <SearchInput
               value={pagination.searchTerm}
-              onChange={(e) => pagination.setSearchTerm(e.target.value)}
+              onChange={pagination.setSearchTerm}
+              placeholder="Buscar por ML ID, código, producto o marca..."
+              size="md"
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
