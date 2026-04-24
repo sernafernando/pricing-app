@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
+import api from '../../services/api';
 import AdjuntosPanel from './AdjuntosPanel';
 import ModalVincularFactura from './ModalVincularFactura';
 import styles from './ModalPedidoDetalle.module.css';
@@ -74,18 +75,38 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
 
+  // Documentos ERP imputados (sub-batch 3.1).
+  const [documentos, setDocumentos] = useState([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+
+  const fetchDocumentos = useCallback(async (id) => {
+    if (!id) return;
+    setLoadingDocs(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/compras/pedidos/${id}/documentos-erp-imputados`
+      );
+      setDocumentos(Array.isArray(data) ? data : []);
+    } catch {
+      setDocumentos([]);
+    } finally {
+      setLoadingDocs(false);
+    }
+  }, []);
+
   const fetchDetalle = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await obtenerPedido(pedidoId);
       setPedido(data);
+      fetchDocumentos(data?.id);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cargar el pedido.');
     } finally {
       setLoading(false);
     }
-  }, [obtenerPedido, pedidoId]);
+  }, [obtenerPedido, pedidoId, fetchDocumentos]);
 
   useEffect(() => {
     fetchDetalle();
@@ -168,17 +189,30 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 </strong>
               </div>
               {pedido.moneda === 'USD' && (
-                <div>
-                  <span className={styles.infoLabel}>Tipo de cambio</span>
-                  <strong className={styles.infoValue}>
-                    {pedido.tipo_cambio
-                      ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 4,
-                        })} / USD`
-                      : '—'}
-                  </strong>
-                </div>
+                <>
+                  <div>
+                    <span className={styles.infoLabel}>Tipo de cambio</span>
+                    <strong className={styles.infoValue}>
+                      {pedido.tipo_cambio
+                        ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          })} / USD`
+                        : '—'}
+                    </strong>
+                  </div>
+                  {pedido.tipo_cambio && (
+                    <div>
+                      <span className={styles.infoLabel}>Equivalente ARS</span>
+                      <strong className={styles.infoValue}>
+                        {formatCurrency(
+                          Number(pedido.monto) * Number(pedido.tipo_cambio),
+                          'ARS'
+                        )}
+                      </strong>
+                    </div>
+                  )}
+                </>
               )}
               <div>
                 <span className={styles.infoLabel}>Plazo (PM)</span>
@@ -266,6 +300,50 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 </div>
               )}
             </div>
+
+            {/* ── Documentos ERP imputados (sub-batch 3) ── */}
+            <h3 className={styles.sectionTitle}>
+              <FileText size={14} /> Documentos imputados ({documentos.length})
+            </h3>
+            {loadingDocs ? (
+              <div className={styles.centered}>
+                <Loader2 size={16} className={styles.spin} /> Cargando documentos...
+              </div>
+            ) : documentos.length === 0 ? (
+              <div className={styles.emptySection}>
+                Sin documentos imputados aún. Se listan acá las OPs, NCs y facturas que
+                se fueron imputando al pedido.
+              </div>
+            ) : (
+              <div className={styles.tableWrapper}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Número</th>
+                      <th>Fecha</th>
+                      <th className={styles.thRight}>Monto imputado</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documentos.map((d, i) => (
+                      <tr key={`${d.origen_tipo}-${d.origen_id}-${i}`}>
+                        <td className={styles.tdSecondary}>{d.descripcion || d.origen_tipo}</td>
+                        <td className={styles.tdMono}>{d.numero || `#${d.origen_id}`}</td>
+                        <td className={styles.tdSecondary}>
+                          {d.fecha ? formatDate(d.fecha) : '—'}
+                        </td>
+                        <td className={styles.tdRight}>
+                          {formatCurrency(d.monto_imputado, d.moneda_imputada)}
+                        </td>
+                        <td>{d.estado || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {/* ── Adjuntos ── */}
             <h3 className={styles.sectionTitle}>
