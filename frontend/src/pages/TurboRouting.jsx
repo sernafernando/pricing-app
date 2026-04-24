@@ -7,6 +7,7 @@ import GestionZonas from '../components/turbo/GestionZonas';
 import TabBanlist from '../components/turbo/TabBanlist';
 import TabAsignaciones from '../components/turbo/TabAsignaciones';
 import { registrarPagina } from '../registry/tabRegistry';
+import SearchInput from '../components/SearchInput';
 
 registrarPagina({
   pagePath: '/turbo-routing',
@@ -615,12 +616,11 @@ function TabEnvios({
       {/* TOOLBAR */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
-          <input 
-            type="text"
-            placeholder="Buscar por ID, destinatario, dirección..."
+          <SearchInput
             value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={styles.searchInput}
+            onChange={onSearchChange}
+            placeholder="Buscar por ID, destinatario, dirección..."
+            size="md"
           />
           
           <select 
@@ -746,12 +746,11 @@ function TabMotoqueros({ motoqueros, search, onSearchChange, onCrear, onEditar, 
     <div className={styles.tabContent}>
       {/* TOOLBAR */}
       <div className={styles.toolbar}>
-        <input 
-          type="text"
-          placeholder="Buscar motoquero..."
+        <SearchInput
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className={styles.searchInput}
+          onChange={onSearchChange}
+          placeholder="Buscar motoquero..."
+          size="md"
         />
         
         <button 

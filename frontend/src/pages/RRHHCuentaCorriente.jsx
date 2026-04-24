@@ -5,6 +5,7 @@ import {
   Wallet, Plus, Minus, ArrowLeft, CreditCard, Wrench,
   Calendar, RefreshCw, ArrowUpCircle, ArrowDownCircle,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import styles from './RRHHCuentaCorriente.module.css';
 
 const formatDate = (dateStr) => {
@@ -367,12 +368,11 @@ export default function RRHHCuentaCorriente() {
       {activeTab === 'cuentas' && !detalleEmpleadoId && (
         <>
           <div className={styles.filters}>
-            <input
-              className={styles.input}
-              type="text"
-              placeholder="Buscar por nombre o legajo..."
+            <SearchInput
               value={searchCuentas}
-              onChange={(e) => setSearchCuentas(e.target.value)}
+              onChange={setSearchCuentas}
+              placeholder="Buscar por nombre o legajo..."
+              size="sm"
             />
             <label className={styles.checkLabel}>
               <input

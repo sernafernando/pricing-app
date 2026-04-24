@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Upload, MapPin, ExternalLink, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import api from '../services/api';
+import SearchInput from './SearchInput';
 import styles from './TabCodigosPostales.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -153,12 +154,12 @@ export default function TabCodigosPostales() {
       {/* Controles */}
       <div className={styles.controls}>
         <div className={styles.filtros}>
-          <input
-            type="text"
-            placeholder="Buscar CP o localidad..."
+          <SearchInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
+            placeholder="Buscar CP o localidad..."
             className={styles.searchInput}
+            size="sm"
           />
 
           <select

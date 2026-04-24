@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck } from 'lucide-react';
 import api from '../services/api';
+import SearchInput from '../components/SearchInput';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
 import TabCodigosPostales from '../components/TabCodigosPostales';
@@ -633,12 +634,12 @@ export default function PedidosPreparacion() {
                 ))}
               </select>
 
-              <input
-                type="text"
-                placeholder="Buscar codigo o descripcion..."
+              <SearchInput
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={setSearch}
+                placeholder="Buscar codigo o descripcion..."
                 className={styles.searchInput}
+                size="sm"
               />
             </div>
             {vistaProduccion && (

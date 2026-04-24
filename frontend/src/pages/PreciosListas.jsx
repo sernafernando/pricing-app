@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
+import SearchInput from '../components/SearchInput';
 
 const LISTAS = {
   4: "Clásica",
@@ -45,8 +46,8 @@ export default function PreciosListas() {
     }
   };
 
-  const handleSearchChange = (e) => {
-    setSearchInput(e.target.value);
+  const handleSearchChange = (value) => {
+    setSearchInput(value);
     setPage(1);
   };
 
@@ -58,12 +59,11 @@ export default function PreciosListas() {
 
       {/* Búsqueda */}
       <div className={styles.searchBar} style={{ marginBottom: '16px' }}>
-        <input
-          type="text"
-          placeholder="Buscar por código, descripción o marca..."
+        <SearchInput
           value={searchInput}
           onChange={handleSearchChange}
-          className={styles.searchInput}
+          placeholder="Buscar por código, descripción o marca..."
+          size="md"
         />
       </div>
 

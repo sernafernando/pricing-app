@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, AlertTriangle, Check, X } from 'lucide-react';
 import api from '../../services/api';
+import SearchInput from '../SearchInput';
 import styles from './TabSaleDocumentCatalog.module.css';
 
 const FLAG_COLS = [
@@ -124,12 +125,11 @@ export default function TabSaleDocumentCatalog() {
               </option>
             ))}
           </select>
-          <input
-            type="text"
-            className={styles.input}
-            placeholder="Buscar por sd_id o descripción..."
+          <SearchInput
             value={filtroBusqueda}
-            onChange={(e) => setFiltroBusqueda(e.target.value)}
+            onChange={setFiltroBusqueda}
+            placeholder="Buscar por sd_id o descripción..."
+            size="sm"
           />
         </div>
         <div className={styles.countBadge}>

@@ -1,0 +1,112 @@
+/* SearchInput — Reusable search with icon, clear button, sizes */
+
+/* ── Wrapper ─────────────────────────────────────────────────── */
+
+.wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* ── Size variants (custom properties consumed by .input) ───── */
+
+.sm {
+  --search-height: 32px;
+  --search-icon: 14px;
+  --search-font: 13px;
+  --search-pl: 30px;
+  --search-pr: 28px;
+}
+
+.md {
+  --search-height: 38px;
+  --search-icon: 16px;
+  --search-font: 14px;
+  --search-pl: 34px;
+  --search-pr: 32px;
+}
+
+.lg {
+  --search-height: 44px;
+  --search-icon: 18px;
+  --search-font: 15px;
+  --search-pl: 38px;
+  --search-pr: 36px;
+}
+
+/* ── Input ───────────────────────────────────────────────────── */
+
+.input {
+  width: 100%;
+  height: var(--search-height, 38px);
+  padding: 0 var(--search-pr, 32px) 0 var(--search-pl, 34px);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--search-font, 14px);
+  line-height: 1;
+  transition:
+    border-color var(--duration-200, 200ms) var(--ease-out, ease-out),
+    background var(--duration-200, 200ms) var(--ease-out, ease-out),
+    box-shadow var(--duration-200, 200ms) var(--ease-out, ease-out);
+}
+
+.input::placeholder {
+  color: var(--cf-text-tertiary);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Icon (left) ─────────────────────────────────────────────── */
+
+.icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Clear button (right) ────────────────────────────────────── */
+
+.clearBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--cf-text-muted, var(--cf-text-tertiary));
+  cursor: pointer;
+  transition:
+    color var(--duration-150, 150ms) var(--ease-out, ease-out),
+    background var(--duration-150, 150ms) var(--ease-out, ease-out);
+}
+
+.clearBtn:hover {
+  color: var(--cf-text-secondary);
+  background: var(--cf-hover-overlay, rgba(255, 255, 255, 0.05));
+}
+
+/* ── Disabled ────────────────────────────────────────────────── */
+
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

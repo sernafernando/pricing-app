@@ -21,7 +21,6 @@ import { PLAYER_ROLE_ES } from '../components/claimTranslations';
 import {
   ShieldAlert,
   RefreshCcw,
-  Search,
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
@@ -40,6 +39,7 @@ import {
   PackageX,
   MapPin,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import styles from './ClaimsDashboard.module.css';
 
 const STAGE_LABELS = {
@@ -426,15 +426,12 @@ export default function ClaimsDashboard() {
 
       {/* Filters */}
       <div className={styles.filtersBar}>
-        <div className={styles.searchBox}>
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Buscar por motivo, título, claim ID, order ID..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          value={searchText}
+          onChange={setSearchText}
+          placeholder="Buscar por motivo, título, claim ID, order ID..."
+          className={styles.searchBox}
+        />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={styles.select}>
           <option value="">Todos</option>
           <option value="opened">Abiertos</option>
@@ -635,15 +632,12 @@ export default function ClaimsDashboard() {
 
           {/* Returns filters */}
           <div className={styles.filtersBar}>
-            <div className={styles.searchBox}>
-              <Search size={16} />
-              <input
-                type="text"
-                placeholder="Buscar por motivo, claim ID, order ID..."
-                value={returnSearchText}
-                onChange={(e) => setReturnSearchText(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              value={returnSearchText}
+              onChange={setReturnSearchText}
+              placeholder="Buscar por motivo, claim ID, order ID..."
+              className={styles.searchBox}
+            />
             <select value={returnShipmentFilter} onChange={(e) => setReturnShipmentFilter(e.target.value)} className={styles.select}>
               <option value="">Todos los estados</option>
               <option value="pending">Pendientes (sin despachar)</option>

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Search,
   Download,
   Trash2,
   X,
@@ -18,6 +17,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
 import api from '../services/api';
 import ModalDetalleCliente from '../components/ModalDetalleCliente';
+import SearchInput from '../components/SearchInput';
 
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
@@ -310,16 +310,12 @@ export default function Clientes() {
 
       {/* Main filters bar */}
       <div className={styles.filters}>
-        <div className={styles.searchBox}>
-          <Search size={16} className={styles.searchIcon} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre, CUIT, email, ciudad o N° cliente..."
-            value={searchInput}
-            onChange={(e) => updateFilters({ search: e.target.value, page: 1 })}
-            className={styles.searchInput}
-          />
-        </div>
+        <SearchInput
+          value={searchInput}
+          onChange={(val) => updateFilters({ search: val, page: 1 })}
+          placeholder="Buscar por nombre, CUIT, email, ciudad o N° cliente..."
+          className={styles.searchBox}
+        />
 
         <select
           value={filtroProvinciaId}

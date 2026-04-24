@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
-  Search,
   Loader2,
   Eye,
   Pencil,
@@ -22,6 +21,7 @@ import useNCsLocales from '../../hooks/useNCsLocales';
 import ModalNCLocal from './ModalNCLocal';
 import ModalNCLocalDetalle from './ModalNCLocalDetalle';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import SearchInput from '../SearchInput';
 import styles from './TabNCsLocales.module.css';
 
 const PAGE_SIZE = 50;
@@ -435,12 +435,11 @@ export default function TabNCsLocales() {
             title="Hasta"
           />
           <div className={styles.searchWrapper}>
-            <Search size={14} className={styles.searchIcon} />
-            <input
-              className={styles.searchInput}
-              placeholder="Buscar por número o Nro NC prov..."
+            <SearchInput
               value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              onChange={setBusqueda}
+              placeholder="Buscar por número o Nro NC prov..."
+              size="sm"
             />
           </div>
         </div>

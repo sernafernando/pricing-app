@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 
 registrarPagina({
   pagePath: '/administracion/proveedores',
@@ -36,7 +37,6 @@ export default function AdministracionProveedores() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [soloActivos, setSoloActivos] = useState(true);
 
@@ -108,10 +108,9 @@ export default function AdministracionProveedores() {
   }, [selectedId, fetchDetalle]);
 
   // ── Handlers ───────────────────────────────────────────────────
-  const handleSearch = (e) => {
-    e.preventDefault();
+  const handleSearchChange = (value) => {
     setPage(1);
-    setSearch(searchInput);
+    setSearch(value);
   };
 
   const handleConsultarAfip = async () => {
@@ -217,15 +216,14 @@ export default function AdministracionProveedores() {
 
       {/* Search bar */}
       <div className={styles.searchBar}>
-        <form onSubmit={handleSearch} className={styles.searchForm}>
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+        <div className={styles.searchForm}>
+          <SearchInput
+            value={search}
+            onChange={handleSearchChange}
             placeholder="Buscar por nombre, CUIT o ciudad..."
-            className={styles.searchInput}
+            debounce={300}
           />
-        </form>
+        </div>
         <label className={styles.checkLabel}>
           <input
             type="checkbox"

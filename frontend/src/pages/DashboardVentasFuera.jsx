@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
+import SearchInput from '../components/SearchInput';
 import { Star, DollarSign } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -677,11 +678,11 @@ export default function DashboardVentasFuera() {
           />
 
           <div className={styles.buscadorContainer}>
-            <input
-              type="text"
-              placeholder="🔍 Buscar por código, producto, marca o cliente..."
+            <SearchInput
               value={pagination.searchTerm}
-              onChange={(e) => pagination.setSearchTerm(e.target.value)}
+              onChange={pagination.setSearchTerm}
+              placeholder="🔍 Buscar por código, producto, marca o cliente..."
+              size="md"
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>

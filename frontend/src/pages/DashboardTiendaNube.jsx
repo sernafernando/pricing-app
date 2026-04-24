@@ -6,6 +6,7 @@ import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
+import SearchInput from '../components/SearchInput';
 import { Star, DollarSign } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -589,11 +590,11 @@ export default function DashboardTiendaNube() {
         /* Tab de Detalle de Operaciones */
         <div className={styles.operacionesContainer}>
           <div className={styles.buscadorContainer}>
-            <input
-              type="text"
-              placeholder="🔍 Buscar por código, producto, marca, cliente o vendedor..."
+            <SearchInput
               value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              onChange={setBusqueda}
+              placeholder="🔍 Buscar por código, producto, marca, cliente o vendedor..."
+              size="md"
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
