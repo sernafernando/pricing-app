@@ -215,7 +215,7 @@ class MercadoLibreItemPublicado(Base):
     mlp_loyalty_discount_eligible = Column(Boolean, default=False)
 
     # Configuraciones adicionales
-    mlp_official_store_id = Column(Integer)
+    mlp_official_store_id = Column(Integer, index=True)
     mlp_sizeChartID = Column("mlp_sizechartid", Integer)
     mlp_attributesVerificationNeeded = Column("mlp_attributesverificationneeded", Boolean, default=False)
     mlp_channelID = Column("mlp_channelid", Integer)
