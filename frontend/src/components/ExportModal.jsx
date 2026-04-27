@@ -6,6 +6,35 @@ import styles from './ExportModal.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 
 /**
+ * Tiendas oficiales (multi-select) para filtrar a nivel MLA.
+ * Solo aplica en tabs Rebate ML, Clásica y PVP. Distinto de `filtroTiendaOficial`
+ * (singular, scope producto) que vive en filtrosActivos.
+ *
+ * 'sin_tienda' es un sentinel literal → mlp_official_store_id IS NULL en backend.
+ * El resto son IDs numéricos como string para preservar tipos al serializar.
+ */
+const TIENDAS_OFICIALES_OPCIONES = [
+  { id: 'sin_tienda', label: 'Sin tienda' },
+  { id: '57997', label: 'Gauss' },
+  { id: '2645', label: 'TP-Link' },
+  { id: '144', label: 'Forza/Verbatim' },
+  { id: '191942', label: 'Multi-marca' },
+];
+
+const TIENDAS_OFICIALES_IDS = TIENDAS_OFICIALES_OPCIONES.map(t => t.id);
+
+/**
+ * Serializa el Set de IDs de tiendas oficiales a CSV para el backend.
+ * Devuelve null cuando todas o ninguna están tildadas (= sin filtro efectivo).
+ */
+const serializarTiendasOficiales = (set) => {
+  if (!set || set.size === 0 || set.size === TIENDAS_OFICIALES_IDS.length) {
+    return null;
+  }
+  return Array.from(set).join(',');
+};
+
+/**
  * Construye query string de filtros para exports GET.
  * Centraliza la lógica que antes estaba copy-pasteada en 4 funciones.
  */
@@ -148,6 +177,60 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [monedaListaWebTransf, setMonedaListaWebTransf] = useState('ARS'); // ARS o USD para lista web transf
   const [dolarVenta, setDolarVenta] = useState(null);
   const [offsetDolar, setOffsetDolar] = useState('0');
+
+  // Tiendas oficiales (filtro a nivel MLA, solo aplica en tabs Rebate/Clásica/PVP).
+  // Default: todas tildadas → no filtra (idéntico al comportamiento actual).
+  const [tiendasOficialesMLA, setTiendasOficialesMLA] = useState(
+    () => new Set(TIENDAS_OFICIALES_IDS)
+  );
+
+  /**
+   * Render del display informativo del subset activo (Spec R2 scenario 4).
+   * Solo se muestra cuando `serializarTiendasOficiales` produce un CSV no-null,
+   * es decir SOLO cuando el filtro está aplicando (subset estricto).
+   * Se mantiene SEPARADO de `FiltrosActivosDisplay` porque `tiendasOficialesMLA`
+   * NO es un filtro de productos — viaja por su propia vía al backend.
+   */
+  const renderTiendasOficialesActivas = () => {
+    const csv = serializarTiendasOficiales(tiendasOficialesMLA);
+    if (!csv) return null; // todas o ninguna tildada → sin filtro efectivo
+    const labels = TIENDAS_OFICIALES_OPCIONES
+      .filter(opcion => tiendasOficialesMLA.has(opcion.id))
+      .map(opcion => opcion.label)
+      .join(', ');
+    return (
+      <small className={styles.filterInfo}>
+        Filtro activo en MLAs: {labels}
+      </small>
+    );
+  };
+
+  const renderTiendasOficialesCheckboxes = () => (
+    <div className={styles.formGroup}>
+      <label className={styles.label}>Tiendas oficiales (MLAs):</label>
+      <div className={styles.tiendasOficialesGroup}>
+        {TIENDAS_OFICIALES_OPCIONES.map(opcion => (
+          <label key={opcion.id} className={styles.tiendaCheckboxLabel}>
+            <input
+              type="checkbox"
+              checked={tiendasOficialesMLA.has(opcion.id)}
+              onChange={(e) => {
+                const next = new Set(tiendasOficialesMLA);
+                if (e.target.checked) next.add(opcion.id);
+                else next.delete(opcion.id);
+                setTiendasOficialesMLA(next);
+              }}
+            />
+            {opcion.label}
+          </label>
+        ))}
+      </div>
+      <small className={styles.filterInfo}>
+        Filtra qué MLAs se exportan. Si están todas tildadas o ninguna, no se aplica filtro.
+      </small>
+      {renderTiendasOficialesActivas()}
+    </div>
+  );
 
   // Auto-focus en primer input al abrir modal (via ref)
   useEffect(() => {
@@ -351,6 +434,13 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         body.filtros = agregarFiltrosAvanzados(body.filtros);
       }
 
+      // Tiendas oficiales viajan en el TOP-LEVEL del body (no dentro de filtros)
+      // porque en backend el campo está en ExportRebateRequest.tiendas_oficiales.
+      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      if (tiendasOfMLA) {
+        body.tiendas_oficiales = tiendasOfMLA;
+      }
+
       const response = await api.post('/productos/exportar-rebate', body, {
         responseType: 'blob'
       });
@@ -380,6 +470,12 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
       if (aplicarFiltros) {
         params += buildFilterQueryString(filtrosActivos);
+      }
+
+      // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
+      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      if (tiendasOfMLA) {
+        params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
 
       const response = await api.get(`/exportar-clasica?${params}`, {
@@ -547,6 +643,12 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
       if (aplicarFiltros) {
         params += buildFilterQueryString(filtrosActivos);
+      }
+
+      // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
+      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      if (tiendasOfMLA) {
+        params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
 
       const response = await api.get(`/exportar-clasica?${params}`, {
@@ -930,6 +1032,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 </div>
               )}
 
+              {renderTiendasOficialesCheckboxes()}
+
               <div className={styles.formGroup}>
                 <label className={styles.label}>Formato de exportación:</label>
                 <select
@@ -1165,6 +1269,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 </div>
               )}
 
+              {renderTiendasOficialesCheckboxes()}
+
               <p className={styles.description}>
                 Exporta precios de Clásica. Si el producto tiene rebate activo, aplica el % sobre el precio rebate. Si no, exporta el precio clásica original.
               </p>
@@ -1279,6 +1385,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   {aplicarFiltros && <FiltrosActivosDisplay filtrosActivos={filtrosActivos} />}
                 </div>
               )}
+
+              {renderTiendasOficialesCheckboxes()}
 
               <p className={styles.description}>
                 Exporta precios de PVP (Listas 12, 18, 19, 20, 21). Usa precios base de lista PVP.

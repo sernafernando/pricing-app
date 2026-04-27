@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
+from sqlalchemy.sql.elements import ColumnElement
 from typing import Optional
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
@@ -53,6 +54,70 @@ def _cargar_precios_mlwebhook(mla_ids: list[str]) -> dict[str, float]:
     return result
 
 
+def _parsear_tiendas_oficiales_mla(csv: Optional[str]) -> Optional[tuple[list[int], bool]]:
+    """
+    Parsea CSV de tiendas oficiales para filtrar MLAs.
+
+    Acepta IDs numéricos y el literal 'sin_tienda'.
+    Retorna (lista_ids, incluir_sin_tienda) o None si el filtro no debe aplicarse.
+
+    Raises HTTPException(400) si encuentra un token inválido (no numérico y distinto de 'sin_tienda').
+    """
+    if not csv:
+        return None
+    tokens = [t.strip() for t in csv.split(",") if t.strip()]
+    if not tokens:
+        return None
+    ids: list[int] = []
+    incluir_sin_tienda = False
+    for token in tokens:
+        if token == "sin_tienda":
+            # 'sin_tienda' es sentinel para mlp_official_store_id IS NULL (productos publicados sin tienda oficial).
+            incluir_sin_tienda = True
+        else:
+            try:
+                ids.append(int(token))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Token inválido en tiendas_oficiales: '{token}'. Esperado: int o 'sin_tienda'.",
+                )
+    return (ids, incluir_sin_tienda)
+
+
+def _build_filtro_tiendas_oficiales_mla(
+    parsed: tuple[list[int], bool],
+) -> Optional[ColumnElement[bool]]:
+    """
+    Construye la expresión SQLAlchemy para filtrar MLAs por tienda oficial.
+    Retorna una expresión que se puede usar en .filter() sobre MercadoLibreItemPublicado.
+
+    parsed: tupla (lista_ids, incluir_sin_tienda) del parser.
+
+    El retorno puede ser:
+      - `BinaryExpression` (1 sola condición: `.in_(...)` o `.is_(None)`)
+      - `BooleanClauseList` (2 condiciones combinadas con `or_(...)`)
+      - `None` (si parsed no produce condiciones, ej. ([], False))
+
+    Ambas variantes concretas heredan de `ColumnElement[bool]` en SQLAlchemy 2.0+,
+    que es el ancestro común correcto para tipar el retorno.
+    """
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    from sqlalchemy import or_
+
+    ids, incluir_sin_tienda = parsed
+    condiciones = []
+    if ids:
+        condiciones.append(MercadoLibreItemPublicado.mlp_official_store_id.in_(ids))
+    if incluir_sin_tienda:
+        condiciones.append(MercadoLibreItemPublicado.mlp_official_store_id.is_(None))
+    if not condiciones:
+        return None
+    if len(condiciones) == 1:
+        return condiciones[0]
+    return or_(*condiciones)
+
+
 @router.post("/productos/exportar-rebate")
 def exportar_rebate(
     request: ExportRebateRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
@@ -71,6 +136,26 @@ def exportar_rebate(
     # Obtener MLAs baneados
     mlas_baneados = db.query(MLABanlist.mla).filter(MLABanlist.activo == True).all()
     mlas_baneados_set = {mla[0] for mla in mlas_baneados}
+
+    # Filtro de tiendas oficiales (MLA): parsear CSV una sola vez al inicio.
+    # `tiendas_oficiales` (plural) opera a nivel MLA, distinto de filtros["tienda_oficial"]
+    # (singular, scope producto). Si parser devuelve None → no aplica filtro.
+    parsed_tiendas_oficiales = _parsear_tiendas_oficiales_mla(request.tiendas_oficiales)
+    filtro_tiendas_oficiales_mla = (
+        _build_filtro_tiendas_oficiales_mla(parsed_tiendas_oficiales) if parsed_tiendas_oficiales is not None else None
+    )
+    # Subquery de MLAs (mlp_publicationID) permitidos. Se usa en .filter(PublicacionML.mla.in_(...))
+    # porque la query primaria de Rebate es sobre PublicacionML, no sobre MercadoLibreItemPublicado.
+    subq_mlas_permitidos = None
+    if filtro_tiendas_oficiales_mla is not None:
+        subq_mlas_permitidos = (
+            db.query(MercadoLibreItemPublicado.mlp_publicationID)
+            .filter(
+                filtro_tiendas_oficiales_mla,
+                MercadoLibreItemPublicado.mlp_publicationID.isnot(None),
+            )
+            .subquery()
+        )
 
     # Fechas por defecto
     hoy = date.today()
@@ -443,27 +528,25 @@ def exportar_rebate(
     row = 2
     for producto_erp, producto_pricing in productos:
         # Buscar MLAs de la lista seleccionada
-        mlas = (
-            db.query(PublicacionML)
-            .filter(
-                PublicacionML.item_id == producto_erp.item_id,
-                PublicacionML.pricelist_id == pricelist_id,
-                PublicacionML.activo == True,
-            )
-            .all()
+        query_mlas = db.query(PublicacionML).filter(
+            PublicacionML.item_id == producto_erp.item_id,
+            PublicacionML.pricelist_id == pricelist_id,
+            PublicacionML.activo == True,
         )
+        if subq_mlas_permitidos is not None:
+            query_mlas = query_mlas.filter(PublicacionML.mla.in_(select(subq_mlas_permitidos)))
+        mlas = query_mlas.all()
 
         # Para cuotas: también traer MLAs de la pricelist PVP equivalente y unificar
         if pricelist_pvp_equivalente:
-            mlas_pvp = (
-                db.query(PublicacionML)
-                .filter(
-                    PublicacionML.item_id == producto_erp.item_id,
-                    PublicacionML.pricelist_id == pricelist_pvp_equivalente,
-                    PublicacionML.activo == True,
-                )
-                .all()
+            query_mlas_pvp = db.query(PublicacionML).filter(
+                PublicacionML.item_id == producto_erp.item_id,
+                PublicacionML.pricelist_id == pricelist_pvp_equivalente,
+                PublicacionML.activo == True,
             )
+            if subq_mlas_permitidos is not None:
+                query_mlas_pvp = query_mlas_pvp.filter(PublicacionML.mla.in_(select(subq_mlas_permitidos)))
+            mlas_pvp = query_mlas_pvp.all()
             # Deduplicar por MLA (el código MLA es único, priorizar el de cuotas)
             mlas_existentes = {m.mla for m in mlas}
             for m in mlas_pvp:
@@ -1070,6 +1153,15 @@ def exportar_clasica(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
+    tiendas_oficiales: Optional[str] = Query(
+        None,
+        description=(
+            "CSV de IDs de tiendas oficiales con literal 'sin_tienda'. "
+            "Filtra columnas MLA dinámicas (mlp_official_store_id). "
+            "Ej: 'sin_tienda,57997,2645'. "
+            "Distinto de 'tienda_oficial' (filtro a nivel producto)."
+        ),
+    ),
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1571,6 +1663,14 @@ def exportar_clasica(
     # Obtener MLA IDs para cada producto de la lista seleccionada
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
+    # Filtro de tiendas oficiales (MLA): se inyecta como AND directo en la query
+    # primaria de MercadoLibreItemPublicado (no necesita subquery porque la query
+    # ya está sobre ese modelo). Distinto de `tienda_oficial` (singular, scope producto).
+    parsed_tiendas_oficiales = _parsear_tiendas_oficiales_mla(tiendas_oficiales)
+    filtro_tiendas_oficiales_mla = (
+        _build_filtro_tiendas_oficiales_mla(parsed_tiendas_oficiales) if parsed_tiendas_oficiales is not None else None
+    )
+
     # Crear diccionario: item_id -> [mla_ids]
     mla_por_item = {}
 
@@ -1579,23 +1679,25 @@ def exportar_clasica(
         # optval_statusId: 2 = Publicada, 3 = Pausada, 5 = Finalizada, 6 = Pausada Forzada, 10 = Des-Enlazada
         item_ids = [p[0] for p in productos]
 
-        publicaciones = (
-            db.query(MercadoLibreItemPublicado.item_id, MercadoLibreItemPublicado.mlp_publicationID)
-            .filter(
-                MercadoLibreItemPublicado.item_id.in_(item_ids),
-                MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
-                MercadoLibreItemPublicado.mlp_id.isnot(None),
-                # Incluir publicadas (2), pausadas (3), pausadas forzadas (6)
-                # Excluir finalizadas (5) y des-enlazadas (10)
-                or_(
-                    MercadoLibreItemPublicado.optval_statusId == 2,
-                    MercadoLibreItemPublicado.optval_statusId == 3,
-                    MercadoLibreItemPublicado.optval_statusId == 6,
-                    MercadoLibreItemPublicado.optval_statusId.is_(None),
-                ),
-            )
-            .all()
+        query_publicaciones = db.query(
+            MercadoLibreItemPublicado.item_id, MercadoLibreItemPublicado.mlp_publicationID
+        ).filter(
+            MercadoLibreItemPublicado.item_id.in_(item_ids),
+            MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
+            MercadoLibreItemPublicado.mlp_id.isnot(None),
+            # Incluir publicadas (2), pausadas (3), pausadas forzadas (6)
+            # Excluir finalizadas (5) y des-enlazadas (10)
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId == 3,
+                MercadoLibreItemPublicado.optval_statusId == 6,
+                MercadoLibreItemPublicado.optval_statusId.is_(None),
+            ),
         )
+        if filtro_tiendas_oficiales_mla is not None:
+            query_publicaciones = query_publicaciones.filter(filtro_tiendas_oficiales_mla)
+
+        publicaciones = query_publicaciones.all()
 
         # Agrupar MLAs por item_id
         for item_id, mla_id in publicaciones:

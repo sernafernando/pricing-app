@@ -187,6 +187,15 @@ class ExportRebateRequest(BaseModel):
     tipo_cuotas: Optional[str] = "clasica"  # clasica, 3, 6, 9, 12
     porcentaje_rebate_override: Optional[float] = None  # Override global para cuotas (ej: 1.5)
     offset_pvp_lleno: Optional[float] = None  # Offset % sobre precio cuotas para PVP LLENO (ej: 5.0)
+    tiendas_oficiales: Optional[str] = Field(
+        default=None,
+        description=(
+            "CSV de IDs de tiendas oficiales con literal 'sin_tienda'. "
+            "Filtra a nivel MLA (mlp_official_store_id). "
+            "Ej: 'sin_tienda,57997,2645'. "
+            "Distinto de 'tienda_oficial' (filtro a nivel producto)."
+        ),
+    )
 
 
 class CalculoWebMasivoRequest(BaseModel):
