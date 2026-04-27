@@ -1174,6 +1174,81 @@ class TestCCProveedor:
         # Debería haber al menos el grupo del pedido_aprobado
         assert any(g["pedido_compra_id"] == pedido_aprobado.id for g in grupos)
 
+    def test_cc_por_pedido_incluye_pago_y_reversal(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        seed_caja_tipos,
+        active_user,
+        pedido_aprobado,
+        con_todos_los_permisos,
+    ):
+        """Regresión: el grupo del pedido debe incluir TODOS los movimientos
+        vinculados — DEBE inicial + HABER por pago de OP imputada + DEBE por
+        desimputación (reversal). Antes del fix solo aparecía el DEBE inicial
+        porque el agrupado filtraba por `origen_tipo='pedido_compra'`.
+        """
+        from app.services import imputaciones_service
+
+        # 1) Pago de OP imputada al pedido (genera HABER vía origen_tipo='imputacion')
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("1000")}],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        db.commit()
+
+        # 2) Desimputación → reversal (DEBE vía origen_tipo='reimputacion')
+        from app.models.imputacion import Imputacion
+        from sqlalchemy import select
+
+        imp = db.execute(
+            select(Imputacion).where(
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.es_reversal.is_(False),
+            )
+        ).scalar_one()
+        imputaciones_service.desimputar(
+            db,
+            imputacion_id=imp.id,
+            user_id=active_user.id,
+            motivo="test reversal",
+        )
+        db.commit()
+
+        # 3) Endpoint debe retornar el grupo con los 3 movimientos
+        r = client.get(f"{BASE}/cc-proveedor/{proveedor.id}/por-pedido", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        grupos = r.json()
+        grupo_pedido = next((g for g in grupos if g["pedido_compra_id"] == pedido_aprobado.id), None)
+        assert grupo_pedido is not None
+        movs = grupo_pedido["movimientos"]
+        origenes = [m["origen_tipo"] for m in movs]
+        # DEBE inicial al aprobar
+        assert "pedido_compra" in origenes, f"falta DEBE inicial. origenes={origenes}"
+        # HABER por pago via imputación
+        assert "imputacion" in origenes, f"falta HABER por pago. origenes={origenes}"
+        # DEBE por reversal de desimputación
+        assert "reimputacion" in origenes, f"falta DEBE por reversal. origenes={origenes}"
+        assert len(movs) >= 3
+
     # ──────────────────────────────────────────────────────────────────
     # Sub-batch 1 — origen_descripcion enriquecido en movimientos CC
     # ──────────────────────────────────────────────────────────────────
