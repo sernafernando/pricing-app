@@ -2082,8 +2082,7 @@ def obtener_cc_por_pedido(
     imps_por_id: dict[int, Imputacion] = {}
     if imp_ids:
         imps_por_id = {
-            i.id: i
-            for i in db.execute(select(Imputacion).where(Imputacion.id.in_(imp_ids))).scalars().all()
+            i.id: i for i in db.execute(select(Imputacion).where(Imputacion.id.in_(imp_ids))).scalars().all()
         }
 
     # Agrupar por pedido_compra_id resuelto desde origen directo o vía imputación.
