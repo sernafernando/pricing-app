@@ -419,13 +419,57 @@ export default function TabCCProveedores() {
                       </div>
                     </div>
                     <div className={styles.grupoMovs}>
-                      {g.movimientos.map((m) => (
-                        <div key={m.id} className={styles.grupoMovRow}>
-                          <span>{formatDate(m.fecha_movimiento)}</span>
-                          <span className={styles.tdSecondary}>{m.tipo}</span>
-                          <span>{formatMoneda(m.monto, m.moneda)}</span>
-                        </div>
-                      ))}
+                      {g.movimientos.map((m) => {
+                        const navegable =
+                          m.origen_id &&
+                          ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
+                            m.origen_tipo
+                          );
+                        return (
+                          <div
+                            key={m.id}
+                            className={`${styles.grupoMovRow} ${navegable ? styles.rowClickable : ''}`}
+                          >
+                            <span className={styles.tdSecondary}>
+                              {formatDate(m.fecha_movimiento)}
+                            </span>
+                            <span
+                              className={
+                                m.tipo === 'debe'
+                                  ? styles.badgeDebe
+                                  : m.tipo === 'haber'
+                                    ? styles.badgeHaber
+                                    : styles.badgeAjuste
+                              }
+                            >
+                              {m.tipo}
+                            </span>
+                            <span className={styles.grupoMovDesc}>
+                              {m.origen_descripcion ||
+                                `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`}
+                              {m.descripcion ? ` — ${m.descripcion}` : ''}
+                            </span>
+                            <span className={styles.grupoMovMonto}>
+                              {formatMoneda(m.monto, m.moneda)} {m.moneda}
+                            </span>
+                            <span>
+                              {navegable && (
+                                <button
+                                  type="button"
+                                  className={styles.iconBtn}
+                                  onClick={() =>
+                                    setDetalleMov({ tipo: m.origen_tipo, id: m.origen_id })
+                                  }
+                                  aria-label="Ver detalle"
+                                  title="Ver detalle del documento origen"
+                                >
+                                  <Eye size={14} />
+                                </button>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))
