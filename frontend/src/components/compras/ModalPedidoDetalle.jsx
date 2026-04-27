@@ -466,45 +466,47 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
             )}
 
-            {/* ── Timeline de eventos ── */}
-            <h3 className={styles.sectionTitle}>
-              Timeline ({pedido.eventos?.length || 0})
-            </h3>
-            {(!pedido.eventos || pedido.eventos.length === 0) ? (
-              <div className={styles.emptySection}>Sin eventos.</div>
-            ) : (
-              <ul className={styles.timeline}>
-                {pedido.eventos.map((ev) => {
-                  const Icon = eventoIcon(ev.tipo);
-                  return (
-                    <li key={ev.id} className={styles.timelineItem}>
-                      <div className={styles.timelineIcon}>
-                        <Icon size={14} />
-                      </div>
-                      <div className={styles.timelineBody}>
-                        <div className={styles.timelineHeader}>
-                          <span className={styles.timelineType}>{ev.tipo}</span>
-                          <span className={styles.timelineDate}>{formatDate(ev.created_at)}</span>
+            {/* ── Timeline de eventos (sección entera colapsable) ── */}
+            <details className={styles.timelineSection}>
+              <summary className={styles.timelineSectionSummary}>
+                Timeline ({pedido.eventos?.length || 0})
+              </summary>
+              {!pedido.eventos || pedido.eventos.length === 0 ? (
+                <div className={styles.emptySection}>Sin eventos.</div>
+              ) : (
+                <ul className={styles.timeline}>
+                  {pedido.eventos.map((ev) => {
+                    const Icon = eventoIcon(ev.tipo);
+                    return (
+                      <li key={ev.id} className={styles.timelineItem}>
+                        <div className={styles.timelineIcon}>
+                          <Icon size={14} />
                         </div>
-                        <div className={styles.timelineMeta}>
-                          Usuario #{ev.usuario_id}
+                        <div className={styles.timelineBody}>
+                          <div className={styles.timelineHeader}>
+                            <span className={styles.timelineType}>{ev.tipo}</span>
+                            <span className={styles.timelineDate}>{formatDate(ev.created_at)}</span>
+                          </div>
+                          <div className={styles.timelineMeta}>
+                            Usuario #{ev.usuario_id}
+                          </div>
+                          {ev.payload && Object.keys(ev.payload).length > 0 && (
+                            <details className={styles.timelinePayloadDetails}>
+                              <summary className={styles.timelinePayloadSummary}>
+                                Ver detalle
+                              </summary>
+                              <pre className={styles.timelinePayload}>
+                                {JSON.stringify(ev.payload, null, 2)}
+                              </pre>
+                            </details>
+                          )}
                         </div>
-                        {ev.payload && Object.keys(ev.payload).length > 0 && (
-                          <details className={styles.timelinePayloadDetails}>
-                            <summary className={styles.timelinePayloadSummary}>
-                              Ver detalle
-                            </summary>
-                            <pre className={styles.timelinePayload}>
-                              {JSON.stringify(ev.payload, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </details>
           </>
         )}
 
