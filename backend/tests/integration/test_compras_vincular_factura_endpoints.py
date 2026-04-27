@@ -155,7 +155,8 @@ def pedido(db, empresa, proveedor, active_user) -> PedidoCompra:
     return p
 
 
-def _mk_ct(db, *, ct_transaction, supp_id, ct_total, docnum="DOC123"):
+def _mk_ct(db, *, ct_transaction, supp_id, ct_total, docnum="DOC123", curr_id=1):
+    """curr_id default=1 (ARS) — los pedidos de fixture suelen ser ARS."""
     ct = CommercialTransaction(
         ct_transaction=ct_transaction,
         comp_id=1,
@@ -164,6 +165,7 @@ def _mk_ct(db, *, ct_transaction, supp_id, ct_total, docnum="DOC123"):
         ct_docNumber=docnum,
         sd_id=101,
         ct_total=ct_total,
+        curr_id_transaction=curr_id,
         ct_date=datetime(2026, 4, 15, 10, 0, 0),
         ct_isCancelled=False,
     )

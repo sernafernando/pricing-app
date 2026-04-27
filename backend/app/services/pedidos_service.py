@@ -985,6 +985,48 @@ def _buscar_ct_vigente_para_proveedor(
     return str(ct_docnumber or ""), Decimal(str(ct_total or 0)), int(curr_id or 0)
 
 
+def _curr_id_a_moneda(curr_id: int) -> Optional[str]:
+    """Mapea `curr_id_transaction` del ERP a la moneda usada por el módulo
+    compras. Convención ERP: 1=ARS, 2=USD. Si no matchea, retorna None
+    (caller decide cómo manejar).
+    """
+    if curr_id == 1:
+        return "ARS"
+    if curr_id == 2:
+        return "USD"
+    return None
+
+
+def _validar_moneda_factura_coincide(
+    *, pedido: PedidoCompra, ct_transaction: int, ct_docnumber: str, curr_id: int
+) -> None:
+    """Verifica que la moneda de la factura ERP coincida con la del pedido.
+
+    Si difieren, vincular o ajustar produciría datos incoherentes (un pedido
+    USD con monto en pesos, o viceversa). Caso real detectado: pedido
+    P-02-2026-00001 quedó con monto 46M USD por vincular factura ARS.
+    """
+    moneda_factura = _curr_id_a_moneda(curr_id)
+    if moneda_factura is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Factura ct={ct_transaction} ({ct_docnumber}) tiene curr_id={curr_id} "
+                f"que no mapea a ARS ni USD. No se puede vincular."
+            ),
+        )
+    if moneda_factura != pedido.moneda:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Moneda de la factura ({moneda_factura}) no coincide con la del "
+                f"pedido ({pedido.moneda}). ct={ct_transaction} ({ct_docnumber}). "
+                f"Si el pedido tiene la moneda mal, corregilo primero; si la factura "
+                f"es la correcta, vinculá una factura del proveedor en {pedido.moneda}."
+            ),
+        )
+
+
 def vincular_factura(
     session: Session,
     *,
@@ -1044,7 +1086,10 @@ def vincular_factura(
                 f"para el proveedor id={pedido.proveedor_id} (supp_id={supp_id})."
             ),
         )
-    ct_docnumber, ct_total, _curr_id = match
+    ct_docnumber, ct_total, curr_id = match
+    _validar_moneda_factura_coincide(
+        pedido=pedido, ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id
+    )
 
     pedido.ct_transaction_id = int(ct_transaction)
     session.flush()
@@ -1216,7 +1261,10 @@ def ajustar_monto_con_factura(
                 f"para el proveedor id={pedido.proveedor_id}."
             ),
         )
-    ct_docnumber, _ct_total, _curr_id = match
+    ct_docnumber, _ct_total, curr_id = match
+    _validar_moneda_factura_coincide(
+        pedido=pedido, ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id
+    )
 
     monto_anterior = Decimal(pedido.monto)
     nuevo_monto_dec = Decimal(str(nuevo_monto))

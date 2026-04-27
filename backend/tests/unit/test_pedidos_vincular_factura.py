@@ -160,7 +160,8 @@ def _crear_pedido(db, empresa, proveedor, active_user, *, monto=Decimal("1000"),
     return p
 
 
-def _crear_ct(db, *, ct_transaction, supp_id, ct_total, ct_docnumber="0000001", sd_id=101):
+def _crear_ct(db, *, ct_transaction, supp_id, ct_total, ct_docnumber="0000001", sd_id=101, curr_id=1):
+    """curr_id default=1 (ARS) para coincidir con el default de _crear_pedido."""
     ct = CommercialTransaction(
         ct_transaction=ct_transaction,
         comp_id=1,
@@ -169,6 +170,7 @@ def _crear_ct(db, *, ct_transaction, supp_id, ct_total, ct_docnumber="0000001", 
         ct_docNumber=ct_docnumber,
         sd_id=sd_id,
         ct_total=ct_total,
+        curr_id_transaction=curr_id,
         ct_date=datetime(2026, 4, 15, 10, 0, 0),
         ct_isCancelled=False,
     )
@@ -257,6 +259,48 @@ class TestVincularFactura:
                 user_id=active_user.id,
             )
         assert exc.value.status_code == 400
+
+    def test_moneda_factura_distinta_a_pedido_400(self, db, empresa, proveedor, sd_factura, active_user):
+        """Regresión: pedido USD + factura ARS (curr_id=1) → 400. Reproduce el
+        bug del pedido legacy P-02-2026-00001 que quedó en 46M USD por vincular
+        una factura ARS sin validar moneda.
+        """
+        pedido = PedidoCompra(
+            numero="P-USD-00001",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("1000"),
+            tipo_cambio=Decimal("1400"),
+            estado="aprobado",
+            creado_por_id=active_user.id,
+        )
+        db.add(pedido)
+        db.flush()
+
+        # Factura ERP en ARS (curr_id=1) — distinta a la del pedido (USD)
+        _crear_ct(
+            db,
+            ct_transaction=700099,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("1500000"),
+            curr_id=1,
+        )
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.vincular_factura(
+                db,
+                pedido_id=pedido.id,
+                ct_transaction=700099,
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 400
+        assert "no coincide" in exc.value.detail.lower()
+        # El pedido sigue intacto
+        db.refresh(pedido)
+        assert pedido.ct_transaction_id is None
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -472,6 +516,50 @@ class TestAjustarMontoConFactura:
                 user_id=active_user.id,
             )
         assert exc.value.status_code == 409
+
+    def test_moneda_factura_distinta_a_pedido_400(self, db, empresa, proveedor, sd_factura, active_user):
+        """Regresión: pedido USD + factura ARS (curr_id=1) → 400 sin tocar monto.
+        Reproduce el bug del pedido P-02-2026-00001 que pasó de 34K USD a 46M USD.
+        """
+        pedido = PedidoCompra(
+            numero="P-USD-00002",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("1000"),
+            tipo_cambio=Decimal("1400"),
+            estado="aprobado",
+            creado_por_id=active_user.id,
+        )
+        db.add(pedido)
+        db.flush()
+
+        # Factura ERP en ARS (curr_id=1) — distinta a la del pedido (USD)
+        _crear_ct(
+            db,
+            ct_transaction=800099,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("1500000"),
+            curr_id=1,
+        )
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.ajustar_monto_con_factura(
+                db,
+                pedido_id=pedido.id,
+                ct_transaction=800099,
+                nuevo_monto=Decimal("1500000"),
+                motivo="ajuste por factura",
+                user_id=active_user.id,
+            )
+        assert exc.value.status_code == 400
+        assert "no coincide" in exc.value.detail.lower()
+        # Pedido sin tocar
+        db.refresh(pedido)
+        assert pedido.monto == Decimal("1000")
+        assert pedido.ct_transaction_id is None
 
 
 # ══════════════════════════════════════════════════════════════════════════
