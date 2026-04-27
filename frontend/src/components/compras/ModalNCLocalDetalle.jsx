@@ -525,9 +525,14 @@ export default function ModalNCLocalDetalle({ ncId, onClose }) {
                           Usuario #{ev.usuario_id}
                         </div>
                         {ev.payload && Object.keys(ev.payload).length > 0 && (
-                          <pre className={styles.timelinePayload}>
-                            {JSON.stringify(ev.payload, null, 2)}
-                          </pre>
+                          <details className={styles.timelinePayloadDetails}>
+                            <summary className={styles.timelinePayloadSummary}>
+                              Ver detalle
+                            </summary>
+                            <pre className={styles.timelinePayload}>
+                              {JSON.stringify(ev.payload, null, 2)}
+                            </pre>
+                          </details>
                         )}
                       </div>
                     </li>

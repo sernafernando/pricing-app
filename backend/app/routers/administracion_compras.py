@@ -2043,11 +2043,20 @@ def obtener_cc_por_pedido(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_cuentas_corrientes")),
 ) -> list[CCAgrupadoPorPedido]:
-    """CC agrupada por pedido — movimientos cuyo `origen_tipo='pedido_compra'`.
+    """CC agrupada por pedido — TODOS los movimientos vinculados a cada pedido.
 
-    Agrupa los movimientos de CC por el `origen_id` (pedido_compra.id),
-    incluyendo metadata del pedido. Solo cubre movimientos con origen
-    pedido (no OPs puras sobre saldo).
+    Resuelve el `pedido_compra_id` desde múltiples fuentes para no perder movs:
+      - Directo por `origen_id`, cuando `origen_tipo` ∈
+        `{pedido_compra, cancelacion_pedido, ajuste_pedido,
+        cancelacion_pedido_por_correccion}` (DEBE inicial / re-aprobación clon,
+        cancelaciones, ajustes por factura ERP, cancelación por corrección).
+      - Vía imputación, cuando `origen_tipo` ∈ `{imputacion, reimputacion}`:
+        se carga la `Imputacion` por `origen_id` y se agrupa por su
+        `destino_id` si `destino_tipo='pedido_compra'` (HABER de pagos/NCs y
+        DEBE de reversals).
+
+    Quedan fuera por diseño los movimientos sin vínculo a pedido (ej.
+    `ajuste_manual` con `origen_id=None`).
     """
     _obtener_proveedor_o_404(db, proveedor_id)
 
@@ -2056,11 +2065,39 @@ def obtener_cc_por_pedido(
         proveedor_id=proveedor_id,
     )
 
-    # Agrupar por origen_id cuando origen_tipo == 'pedido_compra'
+    # origen_tipo cuyo origen_id apunta DIRECTAMENTE al pedido_compra.
+    ORIGEN_DIRECTO_PEDIDO = {
+        "pedido_compra",
+        "cancelacion_pedido",
+        "ajuste_pedido",
+        "cancelacion_pedido_por_correccion",
+    }
+
+    # Resolver imputaciones referenciadas en un solo query (batch).
+    imp_ids = {
+        int(m.origen_id)
+        for m in movimientos
+        if m.origen_tipo in ("imputacion", "reimputacion") and m.origen_id is not None
+    }
+    imps_por_id: dict[int, Imputacion] = {}
+    if imp_ids:
+        imps_por_id = {
+            i.id: i for i in db.execute(select(Imputacion).where(Imputacion.id.in_(imp_ids))).scalars().all()
+        }
+
+    # Agrupar por pedido_compra_id resuelto desde origen directo o vía imputación.
     grupos: dict[int, list] = {}
     for m in movimientos:
-        if m.origen_tipo == "pedido_compra" and m.origen_id is not None:
-            grupos.setdefault(int(m.origen_id), []).append(m)
+        pedido_id: Optional[int] = None
+        if m.origen_tipo in ORIGEN_DIRECTO_PEDIDO and m.origen_id is not None:
+            pedido_id = int(m.origen_id)
+        elif m.origen_tipo in ("imputacion", "reimputacion") and m.origen_id is not None:
+            imp = imps_por_id.get(int(m.origen_id))
+            if imp is not None and imp.destino_tipo == "pedido_compra" and imp.destino_id is not None:
+                pedido_id = int(imp.destino_id)
+
+        if pedido_id is not None:
+            grupos.setdefault(pedido_id, []).append(m)
 
     if not grupos:
         return []
