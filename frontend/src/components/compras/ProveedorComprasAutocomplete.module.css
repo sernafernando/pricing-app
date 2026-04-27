@@ -20,7 +20,10 @@
   pointer-events: none;
 }
 
-.input {
+/* Especificidad compound (.inputWrap .input) para ganarle a la regla global
+ * `input[type="text"]` de theme.css que tiene attribute selector + padding 14px.
+ * Sin esto, la lupa absoluta (left: 10px, ~14px wide) se monta sobre el texto. */
+.inputWrap .input {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
   padding-left: 30px;
@@ -33,14 +36,14 @@
   transition: all var(--duration-200) var(--ease-out);
 }
 
-.input:focus {
+.inputWrap .input:focus {
   outline: none;
   border-color: var(--cf-accent-blue);
   background: var(--cf-bg-hover);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-.input:disabled {
+.inputWrap .input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
