@@ -37,7 +37,11 @@
 
 /* ── Input ───────────────────────────────────────────────────── */
 
-.input {
+/* Especificidad compound (.wrapper .input) para ganar contra la regla global
+ * `input[type="text"]` de theme.css (que tiene attribute selector y por defecto
+ * pisa una single class). Sin esto, el padding-left global de 14px hacía que
+ * la lupa absoluta (left: 10px, ~16px wide) se montara sobre el texto. */
+.wrapper .input {
   width: 100%;
   height: var(--search-height, 38px);
   padding: 0 var(--search-pr, 32px) 0 var(--search-pl, 34px);
@@ -53,11 +57,11 @@
     box-shadow var(--duration-200, 200ms) var(--ease-out, ease-out);
 }
 
-.input::placeholder {
+.wrapper .input::placeholder {
   color: var(--cf-text-tertiary);
 }
 
-.input:focus {
+.wrapper .input:focus {
   outline: none;
   border-color: var(--cf-accent-blue);
   background: var(--cf-bg-hover);
