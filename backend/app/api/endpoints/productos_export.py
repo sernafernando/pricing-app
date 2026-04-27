@@ -103,7 +103,6 @@ def _build_filtro_tiendas_oficiales_mla(
     que es el ancestro común correcto para tipar el retorno.
     """
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-    from sqlalchemy import or_
 
     ids, incluir_sin_tienda = parsed
     condiciones = []
