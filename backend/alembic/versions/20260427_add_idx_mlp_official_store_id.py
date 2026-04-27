@@ -1,6 +1,6 @@
 """add index on mlp_official_store_id (CONCURRENTLY)
 
-Revision ID: 20260427_add_index_mlp_official_store_id
+Revision ID: add_idx_mlp_official_store_id
 Revises: compras_027_pedido_corregido
 Create Date: 2026-04-27
 
@@ -23,7 +23,7 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = "20260427_add_index_mlp_official_store_id"
+revision: str = "add_idx_mlp_official_store_id"
 down_revision: Union[str, None] = "compras_027_pedido_corregido"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
