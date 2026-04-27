@@ -307,11 +307,25 @@
 
 .grupoMovRow {
   display: grid;
-  grid-template-columns: 120px 100px 1fr;
+  grid-template-columns: 90px 70px 1fr 160px 36px;
   gap: var(--spacing-sm);
+  align-items: center;
   font-size: var(--font-sm);
-  padding: 4px 0;
+  padding: 6px 0;
   border-top: 1px dashed var(--cf-border-default);
+}
+
+.grupoMovDesc {
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grupoMovMonto {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
 }
 
 /* ── States ──────────────────────────────────────────────────── */
