@@ -47,6 +47,38 @@ const formatDate = (isoStr) => {
   }
 };
 
+/**
+ * Calcula running balance por moneda, descomponiendo cada movimiento en
+ * Debe / Haber. Convención libro mayor:
+ *  - tipo='debe'                          → suma a Debe (incrementa deuda)
+ *  - tipo='haber'                         → suma a Haber (paga deuda)
+ *  - tipo='ajuste' con signo_ajuste=+1    → suma a Debe
+ *  - tipo='ajuste' con signo_ajuste=-1    → suma a Haber
+ *
+ * Devuelve cada movimiento enriquecido con { debe, haber, saldoCorriente }.
+ * El saldo es por moneda — sumar ARS y USD juntos no tiene sentido.
+ */
+const enriquecerConDebeHaberYSaldo = (movimientos = []) => {
+  const saldosPorMoneda = {};
+  return movimientos.map((m) => {
+    const monto = Number(m.monto) || 0;
+    let debe = 0;
+    let haber = 0;
+    if (m.tipo === 'debe') {
+      debe = monto;
+    } else if (m.tipo === 'haber') {
+      haber = monto;
+    } else if (m.tipo === 'ajuste') {
+      if (m.signo_ajuste === 1) debe = monto;
+      else if (m.signo_ajuste === -1) haber = monto;
+    }
+    const prev = saldosPorMoneda[m.moneda] || 0;
+    const saldoCorriente = prev + debe - haber;
+    saldosPorMoneda[m.moneda] = saldoCorriente;
+    return { ...m, debe, haber, saldoCorriente };
+  });
+};
+
 export default function TabCCProveedores() {
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   // El objeto `ccApi` se recrea en cada render; las funciones internas son estables.
@@ -331,11 +363,11 @@ export default function TabCCProveedores() {
                 <thead>
                   <tr>
                     <th>Fecha</th>
-                    <th>Tipo</th>
-                    <th>Origen</th>
-                    <th>Descripción</th>
-                    <th className={styles.thRight}>Monto</th>
-                    <th>Moneda</th>
+                    <th>Origen / Descripción</th>
+                    <th className={styles.thRight}>Debe</th>
+                    <th className={styles.thRight}>Haber</th>
+                    <th className={styles.thRight}>Saldo</th>
+                    <th>Mon.</th>
                     <th />
                   </tr>
                 </thead>
@@ -347,39 +379,49 @@ export default function TabCCProveedores() {
                       </td>
                     </tr>
                   ) : (
-                    detalle.movimientos.map((m) => {
+                    enriquecerConDebeHaberYSaldo(detalle.movimientos).map((m) => {
                       const navegable =
                         m.origen_id &&
                         ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
                           m.origen_tipo
                         );
+                      const origenLabel =
+                        m.origen_descripcion ||
+                        `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`;
                       return (
                         <tr key={m.id} className={navegable ? styles.rowClickable : undefined}>
                           <td className={styles.tdSecondary}>
                             {formatDate(m.fecha_movimiento)}
                           </td>
                           <td>
-                            <span
-                              className={
-                                m.tipo === 'debe'
-                                  ? styles.badgeDebe
-                                  : m.tipo === 'haber'
-                                    ? styles.badgeHaber
-                                    : styles.badgeAjuste
-                              }
-                            >
-                              {m.tipo}
-                            </span>
+                            <div className={styles.origenLine}>
+                              <span
+                                className={
+                                  m.tipo === 'debe'
+                                    ? styles.badgeDebe
+                                    : m.tipo === 'haber'
+                                      ? styles.badgeHaber
+                                      : styles.badgeAjuste
+                                }
+                              >
+                                {m.tipo}
+                              </span>
+                              <span className={styles.origenLabel}>{origenLabel}</span>
+                            </div>
+                            {m.descripcion && (
+                              <div className={styles.tdSecondary}>{m.descripcion}</div>
+                            )}
                           </td>
-                          <td className={styles.tdSecondary}>
-                            {m.origen_descripcion ||
-                              `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`}
+                          <td className={styles.tdRightDebe}>
+                            {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
                           </td>
-                          <td>{m.descripcion || '—'}</td>
-                          <td className={styles.tdRight}>
-                            {formatMoneda(m.monto, m.moneda)}
+                          <td className={styles.tdRightHaber}>
+                            {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
                           </td>
-                          <td>{m.moneda}</td>
+                          <td className={styles.tdRightSaldo}>
+                            {formatMoneda(m.saldoCorriente, m.moneda)}
+                          </td>
+                          <td className={styles.tdSecondary}>{m.moneda}</td>
                           <td>
                             {navegable && (
                               <button
@@ -419,12 +461,23 @@ export default function TabCCProveedores() {
                       </div>
                     </div>
                     <div className={styles.grupoMovs}>
-                      {g.movimientos.map((m) => {
+                      <div className={`${styles.grupoMovRow} ${styles.grupoMovHeader}`}>
+                        <span className={styles.tdSecondary}>Fecha</span>
+                        <span className={styles.tdSecondary}>Origen / Desc.</span>
+                        <span className={styles.tdSecondaryRight}>Debe</span>
+                        <span className={styles.tdSecondaryRight}>Haber</span>
+                        <span className={styles.tdSecondaryRight}>Saldo</span>
+                        <span />
+                      </div>
+                      {enriquecerConDebeHaberYSaldo(g.movimientos).map((m) => {
                         const navegable =
                           m.origen_id &&
                           ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
                             m.origen_tipo
                           );
+                        const origenLabel =
+                          m.origen_descripcion ||
+                          `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`;
                         return (
                           <div
                             key={m.id}
@@ -433,24 +486,28 @@ export default function TabCCProveedores() {
                             <span className={styles.tdSecondary}>
                               {formatDate(m.fecha_movimiento)}
                             </span>
-                            <span
-                              className={
-                                m.tipo === 'debe'
-                                  ? styles.badgeDebe
-                                  : m.tipo === 'haber'
-                                    ? styles.badgeHaber
-                                    : styles.badgeAjuste
-                              }
-                            >
-                              {m.tipo}
+                            <span className={styles.grupoMovDesc} title={m.descripcion || ''}>
+                              <span
+                                className={
+                                  m.tipo === 'debe'
+                                    ? styles.badgeDebe
+                                    : m.tipo === 'haber'
+                                      ? styles.badgeHaber
+                                      : styles.badgeAjuste
+                                }
+                              >
+                                {m.tipo}
+                              </span>{' '}
+                              {origenLabel}
                             </span>
-                            <span className={styles.grupoMovDesc}>
-                              {m.origen_descripcion ||
-                                `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`}
-                              {m.descripcion ? ` — ${m.descripcion}` : ''}
+                            <span className={styles.tdRightDebe}>
+                              {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
                             </span>
-                            <span className={styles.grupoMovMonto}>
-                              {formatMoneda(m.monto, m.moneda)} {m.moneda}
+                            <span className={styles.tdRightHaber}>
+                              {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
+                            </span>
+                            <span className={styles.tdRightSaldo}>
+                              {formatMoneda(m.saldoCorriente, m.moneda)}
                             </span>
                             <span>
                               {navegable && (
