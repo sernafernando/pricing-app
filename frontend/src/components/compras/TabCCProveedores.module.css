@@ -547,25 +547,28 @@
 }
 
 /* ── Debe / Haber / Saldo (libro mayor) ─────────────────────────────── */
-.tdRightDebe {
+/* Selector compound (.table td.tdRightX) para ganarle al `.table td { color }`
+ * que tiene mayor especificidad que `.tdRightX` solo. Sin esto, los colores
+ * rojo/verde no se aplican y todo queda en color neutro. */
+.table td.tdRightDebe {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
   color: var(--cf-accent-red);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.tdRightHaber {
+.table td.tdRightHaber {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
   color: var(--cf-accent-green);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.tdRightSaldo {
+.table td.tdRightSaldo {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
