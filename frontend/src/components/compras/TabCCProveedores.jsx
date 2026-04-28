@@ -3,7 +3,6 @@ import {
   Loader2,
   Layers,
   List,
-  DollarSign,
   ChevronDown,
   ChevronRight,
   Plus,
@@ -13,6 +12,12 @@ import {
   FileText,
   Receipt,
   X,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Wallet,
+  Search as SearchIcon,
+  Inbox,
+  Coins,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -45,6 +50,16 @@ const formatDate = (isoStr) => {
   } catch {
     return isoStr;
   }
+};
+
+/** Extrae 2 iniciales del nombre del proveedor para el monogram del hero. */
+const getInitials = (nombre) => {
+  if (!nombre) return '··';
+  const cleaned = String(nombre).replace(/[^A-Za-zÀ-ÿ\s]/g, '').trim();
+  if (!cleaned) return '··';
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
 /**
@@ -199,9 +214,13 @@ export default function TabCCProveedores() {
       ? Number(saldoArs) + Number(saldoUsd) * tcEstimado
       : null;
 
+  const movsArsCount = saldos.find((s) => s.moneda === 'ARS')?.movimientos_count || 0;
+  const movsUsdCount = saldos.find((s) => s.moneda === 'USD')?.movimientos_count || 0;
+  const initials = detalle ? getInitials(detalle.nombre_proveedor) : '';
+
   return (
     <div className={styles.container}>
-      {/* Buscador — autocomplete dispara fetch al seleccionar (sin botón Buscar) */}
+      {/* ── Search bar (sticky-feel) ───────────────────────────────── */}
       <div className={styles.searchBar}>
         <div className={styles.searchProveedor}>
           <ProveedorComprasAutocomplete
@@ -214,6 +233,7 @@ export default function TabCCProveedores() {
           className={styles.select}
           value={filtroEmpresa}
           onChange={(e) => setFiltroEmpresa(e.target.value)}
+          aria-label="Filtrar por empresa"
         >
           <option value="">Todas las empresas</option>
           {empresas.map((emp) => (
@@ -228,132 +248,167 @@ export default function TabCCProveedores() {
           value={filtroHasta}
           onChange={(e) => setFiltroHasta(e.target.value)}
           title="Hasta fecha"
+          aria-label="Filtrar hasta fecha"
         />
       </div>
 
       {ccError && <div className={styles.errorBanner}>{ccError}</div>}
 
       {!proveedorIdActivo ? (
-        <div className={styles.emptyState}>
-          Ingresá el ID del proveedor para ver su cuenta corriente.
+        <div className={styles.heroEmpty}>
+          <div className={styles.heroEmptyIcon}>
+            <SearchIcon size={36} strokeWidth={1.5} />
+          </div>
+          <div className={styles.heroEmptyTitle}>Buscá un proveedor</div>
+          <div className={styles.heroEmptySub}>
+            Empezá tipeando el nombre o el CUIT en el buscador. La cuenta corriente
+            aparece acá con todos los movimientos al instante.
+          </div>
         </div>
       ) : ccLoading && !detalle ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando CC...
+        <div className={styles.heroLoading}>
+          <Loader2 size={28} className={styles.spin} strokeWidth={1.8} />
+          <div className={styles.heroLoadingText}>Cargando cuenta corriente…</div>
         </div>
       ) : !detalle ? (
-        <div className={styles.emptyState}>Sin datos para este proveedor.</div>
+        <div className={styles.heroEmpty}>
+          <div className={styles.heroEmptyIcon}>
+            <Inbox size={36} strokeWidth={1.5} />
+          </div>
+          <div className={styles.heroEmptyTitle}>Sin datos</div>
+          <div className={styles.heroEmptySub}>
+            No encontramos información para este proveedor con los filtros actuales.
+          </div>
+        </div>
       ) : (
         <>
-          {/* Header con nombre — el ID queda secundario como pill pequeño. */}
-          <div className={styles.proveedorHeader}>
-            <h2 className={styles.proveedorNombre}>
-              {detalle.nombre_proveedor || `Proveedor #${detalle.proveedor_id}`}
-            </h2>
-            <span className={styles.proveedorId}>#{detalle.proveedor_id}</span>
-          </div>
+          {/* ── HERO: identidad del proveedor + saldos como métricas ── */}
+          <section className={styles.hero}>
+            <div className={styles.heroIdentity}>
+              <div className={styles.monogram} aria-hidden="true">
+                {initials}
+              </div>
+              <div className={styles.heroIdentityText}>
+                <h2 className={styles.proveedorNombre}>
+                  {detalle.nombre_proveedor || `Proveedor #${detalle.proveedor_id}`}
+                </h2>
+                <div className={styles.heroIdentityMeta}>
+                  <span className={styles.proveedorId}>#{detalle.proveedor_id}</span>
+                  {filtroEmpresa && (
+                    <span className={styles.heroChip}>
+                      {empresas.find((e) => String(e.id) === filtroEmpresa)?.nombre || 'Empresa'}
+                    </span>
+                  )}
+                  {filtroHasta && (
+                    <span className={styles.heroChip}>hasta {formatDate(filtroHasta)}</span>
+                  )}
+                </div>
+              </div>
+            </div>
 
-          {/* Sub-batch 5: acciones rápidas desde CC */}
-          <div className={styles.accionesBar}>
+            <div className={styles.metrics}>
+              <MetricTile
+                label="Saldo ARS"
+                value={formatMoneda(saldoArs, 'ARS')}
+                hint={`${movsArsCount} movimientos`}
+                tone={Number(saldoArs) > 0 ? 'debe' : Number(saldoArs) < 0 ? 'haber' : 'neutral'}
+              />
+              <MetricTile
+                label="Saldo USD"
+                value={formatMoneda(saldoUsd, 'USD')}
+                hint={`${movsUsdCount} movimientos`}
+                tone={Number(saldoUsd) > 0 ? 'debe' : Number(saldoUsd) < 0 ? 'haber' : 'neutral'}
+              />
+              <MetricTile
+                label="Consolidado ARS"
+                value={consolidadoArs !== null ? formatMoneda(consolidadoArs, 'ARS') : '—'}
+                hint={consolidadoArs !== null ? 'Estimado · TC del día' : 'TC no disponible'}
+                tone="estimate"
+              />
+            </div>
+          </section>
+
+          {/* ── Quick actions (chips) ──────────────────────────────── */}
+          <div className={styles.accionesBar} role="toolbar" aria-label="Acciones rápidas">
             {canGestionar && (
               <button
                 type="button"
-                className={styles.btnPrimary}
+                className={styles.actionChip}
                 onClick={() => setShowNuevoPedido(true)}
                 title="Crear pedido pre-cargado con este proveedor"
               >
-                <Plus size={14} /> Nuevo pedido
+                <Plus size={13} /> Nuevo pedido
               </button>
             )}
             {canGestionar && (
               <button
                 type="button"
-                className={styles.btnPrimary}
+                className={styles.actionChip}
                 onClick={() => setShowNuevaOP(true)}
                 title="Crear OP pre-cargada con este proveedor"
               >
-                <Plus size={14} /> Nueva OP
+                <Plus size={13} /> Nueva OP
               </button>
             )}
             {canGestionar && (
               <button
                 type="button"
-                className={styles.btnPrimary}
+                className={styles.actionChip}
                 onClick={() => setShowNuevaNC(true)}
                 title="Crear NC local pre-cargada con este proveedor"
               >
-                <Plus size={14} /> Nueva NC
+                <Plus size={13} /> Nueva NC
               </button>
             )}
             {canEjecutarPagos && (
               <button
                 type="button"
-                className={styles.btnSuccess}
+                className={`${styles.actionChip} ${styles.actionChipAccent}`}
                 onClick={() => setShowPagoRapido(true)}
                 title="Crear OP a_cuenta + ejecutar pago en un solo paso"
               >
-                <Zap size={14} /> Pago rápido
+                <Zap size={13} /> Pago rápido
               </button>
             )}
             {canAjustarCcManual && (
               <button
                 type="button"
-                className={styles.btnDanger}
+                className={`${styles.actionChip} ${styles.actionChipDanger}`}
                 onClick={() => setShowAjusteManual(true)}
                 title="Ajuste manual append-only (permiso crítico)"
               >
-                <Sliders size={14} /> Ajuste manual
+                <Sliders size={13} /> Ajuste manual
               </button>
             )}
           </div>
 
-          {/* Cards saldos por moneda (FUENTE DE VERDAD) */}
-          <div className={styles.saldosGrid}>
-            <div className={styles.saldoCard}>
-              <div className={styles.saldoLabel}>
-                <DollarSign size={14} /> Saldo ARS
-              </div>
-              <div className={styles.saldoValue}>{formatMoneda(saldoArs, 'ARS')}</div>
-              <div className={styles.saldoMeta}>
-                {saldos.find((s) => s.moneda === 'ARS')?.movimientos_count || 0} movs
-              </div>
+          {/* ── Section title + view switcher ──────────────────────── */}
+          <div className={styles.ledgerToolbar}>
+            <div className={styles.ledgerTitleBlock}>
+              <Wallet size={14} className={styles.ledgerTitleIcon} />
+              <span className={styles.ledgerTitle}>Libro mayor</span>
+              <span className={styles.ledgerSubtitle}>
+                Movimientos {view === 'cronologico' ? 'cronológicos' : 'agrupados por pedido'}
+              </span>
             </div>
-            <div className={styles.saldoCard}>
-              <div className={styles.saldoLabel}>
-                <DollarSign size={14} /> Saldo USD
-              </div>
-              <div className={styles.saldoValue}>{formatMoneda(saldoUsd, 'USD')}</div>
-              <div className={styles.saldoMeta}>
-                {saldos.find((s) => s.moneda === 'USD')?.movimientos_count || 0} movs
-              </div>
+            <div className={styles.viewSwitcher} role="tablist" aria-label="Vista">
+              <button
+                role="tab"
+                aria-selected={view === 'cronologico'}
+                className={view === 'cronologico' ? styles.viewBtnActive : styles.viewBtn}
+                onClick={() => setView('cronologico')}
+              >
+                <List size={13} /> Cronológico
+              </button>
+              <button
+                role="tab"
+                aria-selected={view === 'por-pedido'}
+                className={view === 'por-pedido' ? styles.viewBtnActive : styles.viewBtn}
+                onClick={() => setView('por-pedido')}
+              >
+                <Layers size={13} /> Por pedido
+              </button>
             </div>
-            <div className={styles.saldoCardSecondary}>
-              <div className={styles.saldoLabel}>Estimado consolidado (ARS)</div>
-              <div className={styles.saldoValueSecondary}>
-                {consolidadoArs !== null
-                  ? formatMoneda(consolidadoArs, 'ARS')
-                  : 'TC no disponible'}
-              </div>
-              <div className={styles.saldoMetaWarning}>
-                Estimado. Fuente de verdad: saldos por moneda.
-              </div>
-            </div>
-          </div>
-
-          {/* View switcher */}
-          <div className={styles.viewSwitcher}>
-            <button
-              className={view === 'cronologico' ? styles.viewBtnActive : styles.viewBtn}
-              onClick={() => setView('cronologico')}
-            >
-              <List size={14} /> Cronológico
-            </button>
-            <button
-              className={view === 'por-pedido' ? styles.viewBtnActive : styles.viewBtn}
-              onClick={() => setView('por-pedido')}
-            >
-              <Layers size={14} /> Agrupado por pedido
-            </button>
           </div>
 
           {/* Vistas */}
@@ -374,8 +429,11 @@ export default function TabCCProveedores() {
                 <tbody>
                   {(detalle.movimientos || []).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className={styles.emptyState}>
-                        Sin movimientos en este periodo.
+                      <td colSpan={7} className={styles.emptyRow}>
+                        <div className={styles.emptyRowInner}>
+                          <Coins size={28} strokeWidth={1.5} />
+                          <span>Sin movimientos en este periodo.</span>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -447,13 +505,16 @@ export default function TabCCProveedores() {
           ) : (
             <div className={styles.grupoList}>
               {porPedido.length === 0 ? (
-                <div className={styles.emptyState}>Sin pedidos con movimientos CC.</div>
+                <div className={styles.emptyBlock}>
+                  <Layers size={28} strokeWidth={1.5} />
+                  <span>Sin pedidos con movimientos en CC.</span>
+                </div>
               ) : (
                 porPedido.map((g) => (
                   <div key={g.pedido_compra_id} className={styles.grupoCard}>
                     <div className={styles.grupoHeader}>
-                      <div>
-                        <strong>{g.pedido_numero}</strong>
+                      <div className={styles.grupoHeaderLeft}>
+                        <strong className={styles.grupoNumero}>{g.pedido_numero}</strong>
                         <span className={styles.grupoEstado}>{g.pedido_estado}</span>
                       </div>
                       <div className={styles.grupoMonto}>
@@ -535,24 +596,26 @@ export default function TabCCProveedores() {
           )}
 
           {/* Imputaciones del proveedor — colapsable para no saturar. */}
-          <div className={styles.imputacionesSection}>
-            <button
-              type="button"
-              className={styles.imputacionesToggle}
-              onClick={() => setMostrarImputaciones((v) => !v)}
-              aria-expanded={mostrarImputaciones}
-            >
-              {mostrarImputaciones ? (
-                <ChevronDown size={16} />
-              ) : (
-                <ChevronRight size={16} />
-              )}
-              <span>Imputaciones</span>
-            </button>
+          <details
+            className={styles.imputacionesSection}
+            open={mostrarImputaciones}
+            onToggle={(e) => setMostrarImputaciones(e.currentTarget.open)}
+          >
+            <summary className={styles.imputacionesToggle}>
+              <span className={styles.imputacionesToggleIcon} aria-hidden="true">
+                {mostrarImputaciones ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </span>
+              <span className={styles.imputacionesToggleLabel}>Imputaciones del proveedor</span>
+              <span className={styles.imputacionesToggleHint}>
+                origen ↔ destino · trazabilidad completa
+              </span>
+            </summary>
             {mostrarImputaciones && (
-              <PanelImputaciones proveedorIdFijo={proveedorIdActivo} />
+              <div className={styles.imputacionesBody}>
+                <PanelImputaciones proveedorIdFijo={proveedorIdActivo} />
+              </div>
             )}
-          </div>
+          </details>
         </>
       )}
 
@@ -638,6 +701,32 @@ export default function TabCCProveedores() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Internal helper components
+// ══════════════════════════════════════════════════════════════════════════
+
+function MetricTile({ label, value, hint, tone = 'neutral' }) {
+  const toneClass =
+    tone === 'debe'
+      ? styles.metricTileDebe
+      : tone === 'haber'
+        ? styles.metricTileHaber
+        : tone === 'estimate'
+          ? styles.metricTileEstimate
+          : styles.metricTileNeutral;
+  const Glyph = tone === 'haber' ? ArrowUpFromLine : tone === 'debe' ? ArrowDownToLine : Wallet;
+  return (
+    <div className={`${styles.metricTile} ${toneClass}`}>
+      <div className={styles.metricLabelRow}>
+        <Glyph size={12} strokeWidth={2} />
+        <span className={styles.metricLabel}>{label}</span>
+      </div>
+      <div className={styles.metricValue}>{value}</div>
+      <div className={styles.metricHint}>{hint}</div>
     </div>
   );
 }
