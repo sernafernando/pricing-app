@@ -3,7 +3,6 @@ import {
   Loader2,
   Layers,
   List,
-  ChevronDown,
   ChevronRight,
   Plus,
   Zap,
@@ -18,6 +17,11 @@ import {
   Search as SearchIcon,
   Inbox,
   Coins,
+  ArrowRight,
+  Link2,
+  CheckCircle2,
+  CircleAlert,
+  Clock,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -28,7 +32,6 @@ import ModalPedidoDetalle from './ModalPedidoDetalle';
 import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import ModalNCLocal from './ModalNCLocal';
 import ModalNCLocalDetalle from './ModalNCLocalDetalle';
-import PanelImputaciones from './PanelImputaciones';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import styles from './TabCCProveedores.module.css';
 
@@ -100,6 +103,7 @@ export default function TabCCProveedores() {
   const {
     obtenerDetalle,
     obtenerPorPedido,
+    listarImputaciones,
     loading: ccLoading,
     error: ccError,
   } = useCCProveedor();
@@ -116,14 +120,12 @@ export default function TabCCProveedores() {
   const [filtroEmpresa, setFiltroEmpresa] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [view, setView] = useState('cronologico'); // 'cronologico' | 'por-pedido'
-  // Sección colapsable de imputaciones (COMPRAS-7.5 refactor UX: se integró
-  // acá en vez de vivir como sub-tab de OPs).
-  const [mostrarImputaciones, setMostrarImputaciones] = useState(false);
 
   const [empresas, setEmpresas] = useState([]);
 
   const [detalle, setDetalle] = useState(null);
   const [porPedido, setPorPedido] = useState([]);
+  const [imputaciones, setImputaciones] = useState([]);
   const [tcEstimado, setTcEstimado] = useState(null);
 
   // ── Sub-batch 5 — acciones desde el header del proveedor ──
@@ -195,12 +197,26 @@ export default function TabCCProveedores() {
     }
   }, [obtenerPorPedido, proveedorIdActivo]);
 
+  const fetchImputaciones = useCallback(async () => {
+    if (!proveedorIdActivo) return;
+    try {
+      const data = await listarImputaciones({
+        proveedor_id: proveedorIdActivo,
+        page_size: 200,
+      });
+      setImputaciones(data?.items || []);
+    } catch {
+      setImputaciones([]);
+    }
+  }, [listarImputaciones, proveedorIdActivo]);
+
   useEffect(() => {
     if (proveedorIdActivo) {
       fetchDetalle();
       fetchPorPedido();
+      fetchImputaciones();
     }
-  }, [proveedorIdActivo, fetchDetalle, fetchPorPedido]);
+  }, [proveedorIdActivo, fetchDetalle, fetchPorPedido, fetchImputaciones]);
 
   useEffect(() => {
     if (proveedorIdActivo) fetchDetalle();
@@ -217,6 +233,16 @@ export default function TabCCProveedores() {
   const movsArsCount = saldos.find((s) => s.moneda === 'ARS')?.movimientos_count || 0;
   const movsUsdCount = saldos.find((s) => s.moneda === 'USD')?.movimientos_count || 0;
   const initials = detalle ? getInitials(detalle.nombre_proveedor) : '';
+
+  // Agrupar imputaciones por pedido_compra (destino) para mostrarlas inline.
+  const imputacionesPorPedido = imputaciones.reduce((acc, imp) => {
+    if (imp.destino_tipo === 'pedido_compra' && imp.destino_id) {
+      const k = imp.destino_id;
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(imp);
+    }
+    return acc;
+  }, {});
 
   return (
     <div className={styles.container}>
@@ -411,97 +437,14 @@ export default function TabCCProveedores() {
             </div>
           </div>
 
-          {/* Vistas */}
+          {/* Vistas — comparten el mismo componente <LedgerTable /> */}
           {view === 'cronologico' ? (
-            <div className={styles.tableWrapper}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Origen / Descripción</th>
-                    <th className={styles.thRight}>Debe</th>
-                    <th className={styles.thRight}>Haber</th>
-                    <th className={styles.thRight}>Saldo</th>
-                    <th>Mon.</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {(detalle.movimientos || []).length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className={styles.emptyRow}>
-                        <div className={styles.emptyRowInner}>
-                          <Coins size={28} strokeWidth={1.5} />
-                          <span>Sin movimientos en este periodo.</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    enriquecerConDebeHaberYSaldo(detalle.movimientos).map((m) => {
-                      const navegable =
-                        m.origen_id &&
-                        ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
-                          m.origen_tipo
-                        );
-                      const origenLabel =
-                        m.origen_descripcion ||
-                        `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`;
-                      return (
-                        <tr key={m.id} className={navegable ? styles.rowClickable : undefined}>
-                          <td className={styles.tdSecondary}>
-                            {formatDate(m.fecha_movimiento)}
-                          </td>
-                          <td>
-                            <div className={styles.origenLine}>
-                              <span
-                                className={
-                                  m.tipo === 'debe'
-                                    ? styles.badgeDebe
-                                    : m.tipo === 'haber'
-                                      ? styles.badgeHaber
-                                      : styles.badgeAjuste
-                                }
-                              >
-                                {m.tipo}
-                              </span>
-                              <span className={styles.origenLabel}>{origenLabel}</span>
-                            </div>
-                            {m.descripcion && (
-                              <div className={styles.tdSecondary}>{m.descripcion}</div>
-                            )}
-                          </td>
-                          <td className={styles.tdRightDebe}>
-                            {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
-                          </td>
-                          <td className={styles.tdRightHaber}>
-                            {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
-                          </td>
-                          <td className={styles.tdRightSaldo}>
-                            {formatMoneda(m.saldoCorriente, m.moneda)}
-                          </td>
-                          <td className={styles.tdSecondary}>{m.moneda}</td>
-                          <td>
-                            {navegable && (
-                              <button
-                                type="button"
-                                className={styles.iconBtn}
-                                onClick={() =>
-                                  setDetalleMov({ tipo: m.origen_tipo, id: m.origen_id })
-                                }
-                                aria-label="Ver detalle"
-                                title="Ver detalle del documento origen"
-                              >
-                                <Eye size={14} />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <LedgerTable
+              movimientos={detalle.movimientos || []}
+              onMovClick={(tipo, id) => setDetalleMov({ tipo, id })}
+              emptyIcon={<Coins size={28} strokeWidth={1.5} />}
+              emptyText="Sin movimientos en este periodo."
+            />
           ) : (
             <div className={styles.grupoList}>
               {porPedido.length === 0 ? (
@@ -511,111 +454,16 @@ export default function TabCCProveedores() {
                 </div>
               ) : (
                 porPedido.map((g) => (
-                  <div key={g.pedido_compra_id} className={styles.grupoCard}>
-                    <div className={styles.grupoHeader}>
-                      <div className={styles.grupoHeaderLeft}>
-                        <strong className={styles.grupoNumero}>{g.pedido_numero}</strong>
-                        <span className={styles.grupoEstado}>{g.pedido_estado}</span>
-                      </div>
-                      <div className={styles.grupoMonto}>
-                        {formatMoneda(g.pedido_monto, g.pedido_moneda)}
-                      </div>
-                    </div>
-                    <div className={styles.grupoMovs}>
-                      <div className={`${styles.grupoMovRow} ${styles.grupoMovHeader}`}>
-                        <span className={styles.tdSecondary}>Fecha</span>
-                        <span className={styles.tdSecondary}>Origen / Desc.</span>
-                        <span className={styles.tdSecondaryRight}>Debe</span>
-                        <span className={styles.tdSecondaryRight}>Haber</span>
-                        <span className={styles.tdSecondaryRight}>Saldo</span>
-                        <span />
-                      </div>
-                      {enriquecerConDebeHaberYSaldo(g.movimientos).map((m) => {
-                        const navegable =
-                          m.origen_id &&
-                          ['pedido_compra', 'orden_pago', 'nota_credito_local'].includes(
-                            m.origen_tipo
-                          );
-                        const origenLabel =
-                          m.origen_descripcion ||
-                          `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`;
-                        return (
-                          <div
-                            key={m.id}
-                            className={`${styles.grupoMovRow} ${navegable ? styles.rowClickable : ''}`}
-                          >
-                            <span className={styles.tdSecondary}>
-                              {formatDate(m.fecha_movimiento)}
-                            </span>
-                            <span className={styles.grupoMovDesc} title={m.descripcion || ''}>
-                              <span
-                                className={
-                                  m.tipo === 'debe'
-                                    ? styles.badgeDebe
-                                    : m.tipo === 'haber'
-                                      ? styles.badgeHaber
-                                      : styles.badgeAjuste
-                                }
-                              >
-                                {m.tipo}
-                              </span>{' '}
-                              {origenLabel}
-                            </span>
-                            <span className={styles.tdRightDebe}>
-                              {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
-                            </span>
-                            <span className={styles.tdRightHaber}>
-                              {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
-                            </span>
-                            <span className={styles.tdRightSaldo}>
-                              {formatMoneda(m.saldoCorriente, m.moneda)}
-                            </span>
-                            <span>
-                              {navegable && (
-                                <button
-                                  type="button"
-                                  className={styles.iconBtn}
-                                  onClick={() =>
-                                    setDetalleMov({ tipo: m.origen_tipo, id: m.origen_id })
-                                  }
-                                  aria-label="Ver detalle"
-                                  title="Ver detalle del documento origen"
-                                >
-                                  <Eye size={14} />
-                                </button>
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <GrupoPedidoCard
+                    key={g.pedido_compra_id}
+                    grupo={g}
+                    imputaciones={imputacionesPorPedido[g.pedido_compra_id] || []}
+                    onMovClick={(tipo, id) => setDetalleMov({ tipo, id })}
+                  />
                 ))
               )}
             </div>
           )}
-
-          {/* Imputaciones del proveedor — colapsable para no saturar. */}
-          <details
-            className={styles.imputacionesSection}
-            open={mostrarImputaciones}
-            onToggle={(e) => setMostrarImputaciones(e.currentTarget.open)}
-          >
-            <summary className={styles.imputacionesToggle}>
-              <span className={styles.imputacionesToggleIcon} aria-hidden="true">
-                {mostrarImputaciones ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </span>
-              <span className={styles.imputacionesToggleLabel}>Imputaciones del proveedor</span>
-              <span className={styles.imputacionesToggleHint}>
-                origen ↔ destino · trazabilidad completa
-              </span>
-            </summary>
-            {mostrarImputaciones && (
-              <div className={styles.imputacionesBody}>
-                <PanelImputaciones proveedorIdFijo={proveedorIdActivo} />
-              </div>
-            )}
-          </details>
         </>
       )}
 
@@ -708,6 +556,253 @@ export default function TabCCProveedores() {
 // ══════════════════════════════════════════════════════════════════════════
 // Internal helper components
 // ══════════════════════════════════════════════════════════════════════════
+
+const NAVEGABLE_TIPOS = ['pedido_compra', 'orden_pago', 'nota_credito_local'];
+
+/**
+ * Tabla libro mayor reutilizable. Misma estructura visual en vista
+ * cronológica y dentro de cada card de pedido (resuelve el "choque visual"
+ * entre vistas + el problema de columnas que se solapaban).
+ */
+function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
+  const filas = enriquecerConDebeHaberYSaldo(movimientos);
+  return (
+    <div className={styles.tableWrapper}>
+      <table className={styles.table}>
+        <colgroup>
+          <col className={styles.colFecha} />
+          <col className={styles.colOrigen} />
+          <col className={styles.colNum} />
+          <col className={styles.colNum} />
+          <col className={styles.colNum} />
+          <col className={styles.colMon} />
+          <col className={styles.colAccion} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th className={styles.thLeft}>Fecha</th>
+            <th className={styles.thLeft}>Origen / Descripción</th>
+            <th className={styles.thRight}>Debe</th>
+            <th className={styles.thRight}>Haber</th>
+            <th className={styles.thRight}>Saldo</th>
+            <th className={styles.thCenter}>Mon.</th>
+            <th aria-hidden="true" />
+          </tr>
+        </thead>
+        <tbody>
+          {filas.length === 0 ? (
+            <tr>
+              <td colSpan={7} className={styles.emptyRow}>
+                <div className={styles.emptyRowInner}>
+                  {emptyIcon}
+                  <span>{emptyText || 'Sin movimientos.'}</span>
+                </div>
+              </td>
+            </tr>
+          ) : (
+            filas.map((m) => {
+              const navegable = m.origen_id && NAVEGABLE_TIPOS.includes(m.origen_tipo);
+              const origenLabel =
+                m.origen_descripcion ||
+                `${m.origen_tipo}${m.origen_id ? ` #${m.origen_id}` : ''}`;
+              return (
+                <tr key={m.id} className={navegable ? styles.rowClickable : undefined}>
+                  <td className={styles.tdSecondary}>{formatDate(m.fecha_movimiento)}</td>
+                  <td>
+                    <div className={styles.origenLine}>
+                      <span
+                        className={
+                          m.tipo === 'debe'
+                            ? styles.badgeDebe
+                            : m.tipo === 'haber'
+                              ? styles.badgeHaber
+                              : styles.badgeAjuste
+                        }
+                      >
+                        {m.tipo}
+                      </span>
+                      <span className={styles.origenLabel}>{origenLabel}</span>
+                    </div>
+                    {m.descripcion && (
+                      <div className={styles.tdSecondary}>{m.descripcion}</div>
+                    )}
+                  </td>
+                  <td className={styles.tdRightDebe}>
+                    {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
+                  </td>
+                  <td className={styles.tdRightHaber}>
+                    {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
+                  </td>
+                  <td className={styles.tdRightSaldo}>
+                    {formatMoneda(m.saldoCorriente, m.moneda)}
+                  </td>
+                  <td className={styles.tdMoneda}>{m.moneda}</td>
+                  <td className={styles.tdAccion}>
+                    {navegable && onMovClick && (
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        onClick={() => onMovClick(m.origen_tipo, m.origen_id)}
+                        aria-label="Ver detalle"
+                        title="Ver detalle del documento origen"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Badge visual del estado del pedido + saldo. A primera vista responde
+ * "¿este pedido está saldado?". Tres tonos:
+ *  - verde "Pagado" (saldo=0)
+ *  - amarillo "Parcial" (estado=pagado_parcial)
+ *  - rojo "Pendiente" (saldo>0 sin pagos aún)
+ *  - gris "Cancelado" o "Borrador" (estado terminal sin movs)
+ */
+function EstadoPedidoBadge({ estado, saldo }) {
+  const esPagado = Number(saldo) === 0 && (estado === 'pagado' || estado === 'pagado_parcial');
+  const esParcial = estado === 'pagado_parcial' && Number(saldo) !== 0;
+  const esCancelado = estado === 'cancelado' || estado === 'rechazado';
+  const esBorrador = estado === 'borrador' || estado === 'pendiente_aprobacion';
+
+  let tone, label, Icon;
+  if (esPagado) {
+    tone = styles.estadoPagado;
+    label = 'Pagado';
+    Icon = CheckCircle2;
+  } else if (esParcial) {
+    tone = styles.estadoParcial;
+    label = 'Parcial';
+    Icon = Clock;
+  } else if (esCancelado) {
+    tone = styles.estadoCancelado;
+    label = estado === 'cancelado' ? 'Cancelado' : 'Rechazado';
+    Icon = X;
+  } else if (esBorrador) {
+    tone = styles.estadoBorrador;
+    label = estado === 'borrador' ? 'Borrador' : 'Sin aprobar';
+    Icon = Clock;
+  } else {
+    tone = styles.estadoPendiente;
+    label = 'Pendiente';
+    Icon = CircleAlert;
+  }
+
+  return (
+    <span className={`${styles.estadoBadge} ${tone}`}>
+      <Icon size={11} strokeWidth={2.5} />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Card colapsable de un pedido en la vista "Por Pedido". Cerrado por default
+ * — el summary muestra todo lo necesario para entender de un vistazo:
+ *    P-XX-... [Estado] [Pagado/Parcial/Pendiente]    Total · Saldo
+ * El body abre con la misma <LedgerTable /> que usa la vista cronológica
+ * + una subsección con las imputaciones que apuntan a este pedido.
+ */
+function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
+  // Saldo del pedido = último saldoCorriente del enriquecimiento (en la
+  // moneda del pedido). Para un pedido pagado: saldo=0.
+  const filas = enriquecerConDebeHaberYSaldo(grupo.movimientos);
+  const saldoFinal = filas.length > 0 ? filas[filas.length - 1].saldoCorriente : 0;
+  const tienePendiente = Math.abs(saldoFinal) > 0.01;
+
+  return (
+    <details className={styles.grupoCard}>
+      <summary className={styles.grupoSummary}>
+        <span className={styles.grupoSummaryChevron} aria-hidden="true">
+          <ChevronRight size={14} />
+        </span>
+        <div className={styles.grupoHeaderLeft}>
+          <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
+          <EstadoPedidoBadge estado={grupo.pedido_estado} saldo={saldoFinal} />
+        </div>
+        <div className={styles.grupoHeaderRight}>
+          <div className={styles.grupoHeaderTotals}>
+            <div className={styles.grupoTotalRow}>
+              <span className={styles.grupoTotalLabel}>Total</span>
+              <span className={styles.grupoMonto}>
+                {formatMoneda(grupo.pedido_monto, grupo.pedido_moneda)}
+              </span>
+            </div>
+            <div className={styles.grupoTotalRow}>
+              <span className={styles.grupoTotalLabel}>Saldo</span>
+              <span
+                className={
+                  tienePendiente ? styles.grupoSaldoPendiente : styles.grupoSaldoOk
+                }
+              >
+                {formatMoneda(saldoFinal, grupo.pedido_moneda)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </summary>
+
+      <div className={styles.grupoBody}>
+        <LedgerTable
+          movimientos={grupo.movimientos}
+          onMovClick={onMovClick}
+          emptyIcon={<Coins size={24} strokeWidth={1.5} />}
+          emptyText="Sin movimientos en este pedido."
+        />
+
+        {/* Imputaciones que apuntan a este pedido (origen → destino) */}
+        <div className={styles.impInline}>
+          <div className={styles.impInlineHeader}>
+            <Link2 size={12} />
+            <span>Imputaciones</span>
+            <span className={styles.impInlineCount}>
+              {imputaciones.length}
+            </span>
+          </div>
+          {imputaciones.length === 0 ? (
+            <div className={styles.impInlineEmpty}>
+              Este pedido todavía no tiene imputaciones.
+            </div>
+          ) : (
+            <ul className={styles.impInlineList}>
+              {imputaciones.map((imp) => (
+                <li key={imp.id} className={styles.impInlineItem}>
+                  <span
+                    className={
+                      imp.es_reversal ? styles.impInlineReversal : styles.impInlineNormal
+                    }
+                  >
+                    {imp.es_reversal ? 'reversal' : 'imp'}
+                  </span>
+                  <span className={styles.impInlineOrigen}>
+                    {imp.origen_descripcion || `${imp.origen_tipo} #${imp.origen_id}`}
+                  </span>
+                  <ArrowRight size={11} className={styles.impInlineArrow} />
+                  <span className={styles.impInlineDestino}>
+                    {imp.destino_descripcion ||
+                      `${imp.destino_tipo} #${imp.destino_id}`}
+                  </span>
+                  <span className={styles.impInlineMonto}>
+                    {formatMoneda(imp.monto_imputado, imp.moneda_imputada)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </details>
+  );
+}
 
 function MetricTile({ label, value, hint, tone = 'neutral' }) {
   const toneClass =
