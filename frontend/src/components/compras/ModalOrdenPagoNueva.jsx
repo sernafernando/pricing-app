@@ -95,6 +95,7 @@ export default function ModalOrdenPagoNueva({
         proveedor_id: String(op.proveedor_id ?? ''),
         moneda: op.moneda || 'ARS',
         monto_total: String(op.monto_total ?? ''),
+        tipo_cambio: op.tipo_cambio ? String(op.tipo_cambio) : '',
         modo_imputacion: op.modo_imputacion || 'a_cuenta',
         observaciones: op.observaciones || '',
       };
@@ -112,6 +113,11 @@ export default function ModalOrdenPagoNueva({
           : '',
       moneda: pedidoInicial?.moneda || 'ARS',
       monto_total: pedidoInicial ? String(saldoInicial) : '',
+      // Pre-cargar TC del pedido si viene (Feature B). Cuando el user cambia
+      // de moneda, este TC se usa para convertir el monto.
+      tipo_cambio: pedidoInicial?.tipo_cambio
+        ? String(pedidoInicial.tipo_cambio)
+        : '',
       modo_imputacion: pedidoInicial ? 'especifica' : 'a_cuenta',
       observaciones: pedidoInicial
         ? `Pago imputado a pedido ${pedidoInicial.numero}`
@@ -174,6 +180,36 @@ export default function ModalOrdenPagoNueva({
       if (campo === 'modo_imputacion' && valor === 'a_cuenta') {
         setItems([]);
       }
+      // Conversión automática al cambiar moneda usando el TC actual del form.
+      // USD → ARS: monto_ars = monto_usd × tc
+      // ARS → USD: monto_usd = monto_ars / tc
+      if (campo === 'moneda' && valor !== f.moneda) {
+        const tcNum = parseFloat(f.tipo_cambio);
+        const montoNum = parseFloat(f.monto_total);
+        if (Number.isFinite(tcNum) && tcNum > 0 && Number.isFinite(montoNum) && montoNum > 0) {
+          const nuevoMonto =
+            f.moneda === 'USD' && valor === 'ARS'
+              ? montoNum * tcNum
+              : f.moneda === 'ARS' && valor === 'USD'
+                ? montoNum / tcNum
+                : montoNum;
+          next.monto_total = nuevoMonto.toFixed(2);
+          // Convertir también los items
+          setItems((prev) =>
+            prev.map((it) => {
+              const im = parseFloat(it.monto);
+              if (!Number.isFinite(im) || im <= 0) return it;
+              const conv =
+                f.moneda === 'USD' && valor === 'ARS'
+                  ? im * tcNum
+                  : f.moneda === 'ARS' && valor === 'USD'
+                    ? im / tcNum
+                    : im;
+              return { ...it, monto: conv.toFixed(2) };
+            })
+          );
+        }
+      }
       return next;
     });
   };
@@ -229,11 +265,16 @@ export default function ModalOrdenPagoNueva({
     return null;
   };
 
+  const tcNum = parseFloat(form.tipo_cambio);
+  const tcEnviable =
+    form.moneda === 'USD' && Number.isFinite(tcNum) && tcNum > 0 ? tcNum : null;
+
   const buildPayload = (confirmarDuplicado = false) => ({
     empresa_id: Number(form.empresa_id),
     proveedor_id: Number(form.proveedor_id),
     moneda: form.moneda,
     monto_total: montoTotalNum,
+    tipo_cambio: tcEnviable,
     modo_imputacion: form.modo_imputacion,
     observaciones: form.observaciones || null,
     items: items.map((it) => ({
@@ -248,6 +289,7 @@ export default function ModalOrdenPagoNueva({
   const buildEditPayload = () => ({
     monto_total: montoTotalNum,
     moneda: form.moneda,
+    tipo_cambio: tcEnviable,
     modo_imputacion: form.modo_imputacion,
     observaciones: form.observaciones || null,
     items: items.map((it) => ({
@@ -430,6 +472,27 @@ export default function ModalOrdenPagoNueva({
               </select>
             </div>
           </div>
+
+          {form.moneda === 'USD' && (
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Tipo de cambio (ARS por 1 USD)
+              </label>
+              <input
+                type="number"
+                step="0.0001"
+                min="0"
+                className={styles.input}
+                value={form.tipo_cambio}
+                onChange={(e) => handleChange('tipo_cambio', e.target.value)}
+                placeholder="Ej: 1500.00"
+              />
+              <div className={styles.fieldHint}>
+                Si cambiás de moneda con TC válido, los montos se convierten
+                automáticamente.
+              </div>
+            </div>
+          )}
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Observaciones</label>
