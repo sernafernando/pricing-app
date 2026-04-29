@@ -639,17 +639,23 @@ Fallback: si la combinación variant+estado no existe en el mapping → renderea
 
 ## Resumen
 
-| Batch | PR | Tasks | Size total | Paralelizable internamente |
+| Batch | PR | Tasks | Size total | Estado |
 |---|---|---|---|---|
-| 0 | tokens | T0.1 | S | N/A |
-| 1 | shared | T1.1-T1.7 | L+M×4+S×2+L | T1.1-T1.6 sí, T1.7 después |
-| 2 | pedidos | T2.1-T2.4 | L+L+M+M | T2.1 primero, T2.2-T2.4 después |
-| 3 | ops | T3.1-T3.4 | L+L+L+M | T3.1 primero, T3.2-T3.4 después |
-| 4 | ncs | T4.1-T4.5 | L+XL+M+M+M | T4.1 primero, T4.2-T4.5 después |
-| 5 | admin | T5.1-T5.6 | L+M+M+L+S+M | T5.1-T5.6 paralelizables |
+| 0 | tokens | T0.1 | S | ✅ done |
+| 1 | shared | T1.1-T1.7 | L+M×4+S×2+L | ✅ done |
+| 2 | pedidos | T2.1-T2.4 | L+L+M+M | ✅ done (T2.3+T2.4 sin cambios — forms ya consistentes) |
+| 3 | ops | T3.1-T3.4 | L+L+L+M | ✅ done (T3.3+T3.4 sin cambios — forms ya consistentes) |
+| 4 | ncs | T4.1-T4.5 | L+XL+M+M+M | ✅ done (T4.2-T4.5 sin cambios — modales sin estado badge prominente) |
+| 5 | admin | T5.1-T5.6 | L+M+M+L+S+M | 🟡 partial (T5.1-T5.3 done, T5.4-T5.6 deferred) |
 
-**Total tasks**: 27
-**Total estimado**: 8-12 horas-foco (depende del cuidado en testing manual visual).
+**Total tasks**: 27 — completados 21, deferred 3, sin cambios necesarios 3.
+
+**Tasks deferred** (sin dolor concreto, scope creep si se hicieran sin user story):
+- T5.4 `PanelImputaciones`: tiene UX propia (filtros con labels arriba) que difiere del patrón FiltersBar. Refactorizar requeriría rediseñar el patrón de filtros.
+- T5.5 `ModalConfirmarEliminacion`: modal genérico de confirmación, ya consistente con el módulo.
+- T5.6 `ModalVincularFactura`: form simple, ya consistente.
+
+Si en el futuro aparecen feedbacks visuales puntuales, se atacan ahí.
 
 ## Implementation Order
 
