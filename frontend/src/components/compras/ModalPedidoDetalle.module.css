@@ -75,6 +75,14 @@
   font-weight: 600;
 }
 
+.infoSubvalue {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+}
+
 /* ── Section title ───────────────────────────────────────────── */
 .sectionTitle {
   font-size: var(--font-base);

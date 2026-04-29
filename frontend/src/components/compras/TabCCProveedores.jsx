@@ -617,13 +617,36 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
                     )}
                   </td>
                   <td className={styles.tdRightDebe}>
-                    {m.debe > 0 ? formatMoneda(m.debe, m.moneda) : ''}
+                    {m.debe > 0 ? (
+                      <>
+                        {formatMoneda(m.debe, m.moneda)}
+                        {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                          <div className={styles.tdEquivalenteArs}>
+                            ≈ {formatMoneda(m.debe * Number(m.tipo_cambio_a_ars), 'ARS')}
+                          </div>
+                        )}
+                      </>
+                    ) : ''}
                   </td>
                   <td className={styles.tdRightHaber}>
-                    {m.haber > 0 ? formatMoneda(m.haber, m.moneda) : ''}
+                    {m.haber > 0 ? (
+                      <>
+                        {formatMoneda(m.haber, m.moneda)}
+                        {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                          <div className={styles.tdEquivalenteArs}>
+                            ≈ {formatMoneda(m.haber * Number(m.tipo_cambio_a_ars), 'ARS')}
+                          </div>
+                        )}
+                      </>
+                    ) : ''}
                   </td>
                   <td className={styles.tdRightSaldo}>
                     {formatMoneda(m.saldoCorriente, m.moneda)}
+                    {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                      <div className={styles.tdEquivalenteArs}>
+                        ≈ {formatMoneda(m.saldoCorriente * Number(m.tipo_cambio_a_ars), 'ARS')}
+                      </div>
+                    )}
                   </td>
                   <td className={styles.tdMoneda}>{m.moneda}</td>
                   <td className={styles.tdAccion}>
@@ -662,6 +685,10 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
   const filas = enriquecerConDebeHaberYSaldo(grupo.movimientos);
   const saldoFinal = filas.length > 0 ? filas[filas.length - 1].saldoCorriente : 0;
   const tienePendiente = Math.abs(saldoFinal) > 0.01;
+  // Si pedido es USD y tiene TC, calculamos equivalente ARS para mostrar
+  // junto al monto/saldo (la empresa paga en pesos).
+  const tcPedido = grupo.pedido_tipo_cambio ? Number(grupo.pedido_tipo_cambio) : null;
+  const mostrarEquivArs = grupo.pedido_moneda === 'USD' && tcPedido && tcPedido > 0;
 
   return (
     <details className={styles.grupoCard}>
@@ -677,9 +704,18 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
           <div className={styles.grupoHeaderTotals}>
             <div className={styles.grupoTotalRow}>
               <span className={styles.grupoTotalLabel}>Total</span>
-              <span className={styles.grupoMonto}>
-                {formatMoneda(grupo.pedido_monto, grupo.pedido_moneda)}
-              </span>
+              <div className={styles.grupoMontoBlock}>
+                <span className={styles.grupoMonto}>
+                  {mostrarEquivArs
+                    ? formatMoneda(Number(grupo.pedido_monto) * tcPedido, 'ARS')
+                    : formatMoneda(grupo.pedido_monto, grupo.pedido_moneda)}
+                </span>
+                {mostrarEquivArs && (
+                  <span className={styles.grupoMontoSubvalue}>
+                    {formatMoneda(grupo.pedido_monto, 'USD')} @ {tcPedido.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+              </div>
             </div>
             <div className={styles.grupoTotalRow}>
               <span className={styles.grupoTotalLabel}>Saldo</span>
@@ -688,7 +724,9 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
                   tienePendiente ? styles.grupoSaldoPendiente : styles.grupoSaldoOk
                 }
               >
-                {formatMoneda(saldoFinal, grupo.pedido_moneda)}
+                {mostrarEquivArs
+                  ? formatMoneda(saldoFinal * tcPedido, 'ARS')
+                  : formatMoneda(saldoFinal, grupo.pedido_moneda)}
               </span>
             </div>
           </div>

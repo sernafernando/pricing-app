@@ -10,6 +10,7 @@ Expone:
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -79,6 +80,7 @@ class CCAgrupadoPorPedido(BaseModel):
     pedido_estado: str
     pedido_monto: Decimal
     pedido_moneda: str = Field(..., pattern="^(ARS|USD)$")
+    pedido_tipo_cambio: Optional[Decimal] = None
     movimientos: list[CCMovimientoResponse]
 
 

@@ -221,35 +221,40 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
               <div>
                 <span className={styles.infoLabel}>Monto</span>
-                <strong className={styles.infoValue}>
-                  {formatCurrency(pedido.monto, pedido.moneda)}
-                </strong>
+                {pedido.moneda === 'USD' && pedido.tipo_cambio ? (
+                  <>
+                    <strong className={styles.infoValue}>
+                      {formatCurrency(
+                        Number(pedido.monto) * Number(pedido.tipo_cambio),
+                        'ARS'
+                      )}
+                    </strong>
+                    <div className={styles.infoSubvalue}>
+                      {formatCurrency(pedido.monto, 'USD')} @{' '}
+                      {Number(pedido.tipo_cambio).toLocaleString('es-AR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <strong className={styles.infoValue}>
+                    {formatCurrency(pedido.monto, pedido.moneda)}
+                  </strong>
+                )}
               </div>
               {pedido.moneda === 'USD' && (
-                <>
-                  <div>
-                    <span className={styles.infoLabel}>Tipo de cambio</span>
-                    <strong className={styles.infoValue}>
-                      {pedido.tipo_cambio
-                        ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 4,
-                          })} / USD`
-                        : '—'}
-                    </strong>
-                  </div>
-                  {pedido.tipo_cambio && (
-                    <div>
-                      <span className={styles.infoLabel}>Equivalente ARS</span>
-                      <strong className={styles.infoValue}>
-                        {formatCurrency(
-                          Number(pedido.monto) * Number(pedido.tipo_cambio),
-                          'ARS'
-                        )}
-                      </strong>
-                    </div>
-                  )}
-                </>
+                <div>
+                  <span className={styles.infoLabel}>Tipo de cambio</span>
+                  <strong className={styles.infoValue}>
+                    {pedido.tipo_cambio
+                      ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 4,
+                        })} / USD`
+                      : '—'}
+                  </strong>
+                </div>
               )}
               <div>
                 <span className={styles.infoLabel}>Plazo (PM)</span>
