@@ -1,0 +1,32 @@
+/* FiltersBar — Filters toolbar with optional right-aligned actions */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .actions {
+    margin-left: 0;
+    width: 100%;
+  }
+}

@@ -1,0 +1,94 @@
+/* MetricTile — Card métrica con border-left coloreado por tone */
+
+.tile {
+  position: relative;
+  padding: var(--spacing-md);
+  border-radius: var(--radius-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--cf-shadow-card);
+  transition:
+    transform var(--duration-200) var(--ease-out),
+    border-color var(--duration-200) var(--ease-out);
+}
+
+.tile:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--cf-border-default) 60%, var(--cf-text-tertiary));
+}
+
+.tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--spacing-md);
+  bottom: var(--spacing-md);
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--cf-text-tertiary);
+}
+
+/* ── Tones ─────────────────────────────────────────────── */
+.toneDebe::before {
+  background: var(--cf-saldo-negative);
+}
+
+.toneHaber::before {
+  background: var(--cf-saldo-positive);
+}
+
+.toneNeutral::before {
+  background: var(--cf-border-default);
+}
+
+.toneEstimate::before {
+  background: var(--cf-accent-orange);
+}
+
+.toneEstimate {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 8px,
+      var(--cf-bg-hover) 8px,
+      var(--cf-bg-hover) 9px
+    ),
+    var(--cf-bg-card);
+}
+
+/* ── Content ───────────────────────────────────────────── */
+.labelRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cf-text-tertiary);
+}
+
+.label {
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.value {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.hint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.toneEstimate .hint {
+  color: var(--cf-accent-orange);
+}
