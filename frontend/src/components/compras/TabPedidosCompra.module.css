@@ -6,22 +6,7 @@
   gap: var(--spacing-md);
 }
 
-/* ── Top bar ─────────────────────────────────────────────────── */
-.topBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  flex-wrap: wrap;
-}
-
-.filters {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  flex: 1;
-}
+/* topBar y filters migraron a _shared/FiltersBar */
 
 /* ── Form controls (local, NO globales) ──────────────────────── */
 .input,
@@ -92,131 +77,33 @@
   composes: btn-tesla outline-subtle-danger icon-only sm from '../../styles/buttons-tesla.css';
 }
 
-/* ── Table ───────────────────────────────────────────────────── */
-.tableWrapper {
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-sm);
-}
-
-.table th {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-secondary);
-  font-weight: 600;
-  text-align: left;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--cf-border-default);
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.table td {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--cf-border-default);
-  color: var(--cf-text-primary);
-  vertical-align: middle;
-}
-
-.table tr:last-child td {
-  border-bottom: none;
-}
-
-.table tr:hover td {
-  background: var(--cf-bg-hover);
-}
+/* Tabla migrada a _shared/DataTable. Mantenemos clases helper para celdas. */
 
 .tdMono {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
-}
-
-.tdRight {
-  text-align: right;
-  font-weight: 500;
-}
-
-.thRight {
-  text-align: right;
 }
 
 .tdSecondary {
   color: var(--cf-text-secondary);
 }
 
+.fechaPagoCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
 .rowActions {
   display: flex;
   gap: 4px;
   align-items: center;
+  justify-content: flex-end;
 }
 
-/* ── Badges (estado) ─────────────────────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-xs);
-  font-weight: 600;
-  text-transform: lowercase;
-  white-space: nowrap;
-}
-
-.badgeNeutral {
-  composes: badge;
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-secondary);
-}
-
-.badgeBorrador {
-  composes: badge;
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-secondary);
-}
-
-.badgePendiente {
-  composes: badge;
-  background: rgba(245, 158, 11, 0.12);
-  color: var(--cf-accent-orange);
-}
-
-.badgeAprobado {
-  composes: badge;
-  background: rgba(59, 130, 246, 0.12);
-  color: var(--cf-accent-blue);
-}
-
-.badgeRechazado {
-  composes: badge;
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--cf-accent-red);
-}
-
-.badgeCancelado {
-  composes: badge;
-  background: rgba(100, 116, 139, 0.15);
-  color: var(--cf-text-tertiary);
-}
-
-.badgePagadoParcial {
-  composes: badge;
-  background: rgba(34, 197, 94, 0.08);
-  color: var(--cf-accent-green);
-}
-
-.badgePagado {
-  composes: badge;
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--cf-accent-green);
-}
+/* Badges de estado migraron a _shared/EstadoBadge */
 
 /* ── Pagination ──────────────────────────────────────────────── */
 .pagination {
@@ -238,34 +125,7 @@
   composes: btn-tesla outline-subtle-primary icon-only xs from '../../styles/buttons-tesla.css';
 }
 
-/* ── States ──────────────────────────────────────────────────── */
-.centered {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-2xl);
-  color: var(--cf-text-secondary);
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.emptyState {
-  text-align: center;
-  padding: var(--spacing-2xl);
-  color: var(--cf-text-tertiary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-lg);
-}
+/* States — loading/empty migraron a _shared/LoadingBlock y _shared/EmptyState */
 
 .errorBanner {
   background: rgba(239, 68, 68, 0.1);

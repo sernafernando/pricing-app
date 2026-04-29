@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
-  Loader2,
   Eye,
   Pencil,
   Send,
@@ -15,6 +14,7 @@ import {
   DollarSign,
   Clock,
   Trash2,
+  Inbox,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -25,6 +25,10 @@ import ModalPedidoDetalle from './ModalPedidoDetalle';
 import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import SearchInput from '../SearchInput';
+import DataTable from './_shared/DataTable';
+import EstadoBadge from './_shared/EstadoBadge';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabPedidosCompra.module.css';
 
 const PAGE_SIZE = 50;
@@ -39,26 +43,17 @@ const ESTADOS = [
   'pagado',
 ];
 
-const estadoBadgeClass = (estado) => {
-  switch (estado) {
-    case 'borrador':
-      return styles.badgeBorrador;
-    case 'pendiente_aprobacion':
-      return styles.badgePendiente;
-    case 'aprobado':
-      return styles.badgeAprobado;
-    case 'rechazado':
-      return styles.badgeRechazado;
-    case 'cancelado':
-      return styles.badgeCancelado;
-    case 'pagado_parcial':
-      return styles.badgePagadoParcial;
-    case 'pagado':
-      return styles.badgePagado;
-    default:
-      return styles.badgeNeutral;
-  }
-};
+const COLUMNS = [
+  { key: 'numero', label: 'Número', width: '160px' },
+  { key: 'empresa', label: 'Empresa', width: '140px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
+  { key: 'monto', label: 'Monto', align: 'right', width: '140px' },
+  { key: 'plazo', label: 'Plazo', width: '120px' },
+  { key: 'fecha_pago', label: 'Fecha pago', width: '160px' },
+  { key: 'estado', label: 'Estado', width: '110px' },
+  { key: 'acciones', label: '', align: 'right', width: '180px' },
+];
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -471,70 +466,116 @@ export default function TabPedidosCompra() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const loading = pedidosLoading;
 
+  // Renderea contenido de cada celda según la columna.
+  const renderCell = (p, col) => {
+    switch (col.key) {
+      case 'numero':
+        return <span className={styles.tdMono}>{p.numero}</span>;
+      case 'empresa':
+        return p.empresa_nombre || `#${p.empresa_id}`;
+      case 'proveedor':
+        return p.proveedor_nombre || `#${p.proveedor_id}`;
+      case 'moneda':
+        return <span className={styles.tdMono}>{p.moneda}</span>;
+      case 'monto':
+        return formatCurrency(p.monto, p.moneda);
+      case 'plazo':
+        return <span className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</span>;
+      case 'fecha_pago': {
+        const dias = diasHasta(p.fecha_pago_estimada);
+        const mostrarBadgeVence = p.estado === 'aprobado' && dias !== null && dias <= 7;
+        return (
+          <span className={styles.fechaPagoCell}>
+            <span className={styles.tdSecondary}>{formatDate(p.fecha_pago_estimada)}</span>
+            {mostrarBadgeVence && (
+              <span
+                className={dias < 0 ? styles.badgeVencido : styles.badgeVenceUrgente}
+              >
+                <Clock size={11} />
+                {dias < 0 ? `Vencido ${Math.abs(dias)}d` : dias === 0 ? 'Hoy' : `${dias}d`}
+              </span>
+            )}
+          </span>
+        );
+      }
+      case 'estado':
+        return <EstadoBadge variant="pedido" estado={p.estado} />;
+      case 'acciones':
+        return renderAcciones(p);
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={styles.container}>
-      {/* Header actions */}
-      <div className={styles.topBar}>
-        <div className={styles.filters}>
-          <select
-            className={styles.select}
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-          >
-            <option value="">Todos los estados</option>
-            {ESTADOS.map((estado) => (
-              <option key={estado} value={estado}>
-                {estado}
-              </option>
-            ))}
-          </select>
-          <select
-            className={styles.select}
-            value={filtroEmpresa}
-            onChange={(e) => setFiltroEmpresa(e.target.value)}
-          >
-            <option value="">Todas las empresas</option>
-            {empresas.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.nombre}
-              </option>
-            ))}
-          </select>
-          <div className={styles.filterProveedor}>
-            <ProveedorComprasAutocomplete
-              value={filtroProveedorId ? Number(filtroProveedorId) : null}
-              onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
-              placeholder="Proveedor..."
-            />
-          </div>
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroDesde}
-            onChange={(e) => setFiltroDesde(e.target.value)}
-            title="Desde"
-          />
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroHasta}
-            onChange={(e) => setFiltroHasta(e.target.value)}
-            title="Hasta"
-          />
-          <SearchInput
-            value={busqueda}
-            onChange={setBusqueda}
-            placeholder="Buscar por número..."
-            size="sm"
-            className={styles.searchWrapper}
+      {/* Filters + primary action */}
+      <FiltersBar
+        actions={
+          canManage && (
+            <button className={styles.btnSuccess} onClick={handleOpenCrear}>
+              <Plus size={14} /> Nuevo pedido
+            </button>
+          )
+        }
+      >
+        <select
+          className={styles.select}
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          aria-label="Filtrar por estado"
+        >
+          <option value="">Todos los estados</option>
+          {ESTADOS.map((estado) => (
+            <option key={estado} value={estado}>
+              {estado}
+            </option>
+          ))}
+        </select>
+        <select
+          className={styles.select}
+          value={filtroEmpresa}
+          onChange={(e) => setFiltroEmpresa(e.target.value)}
+          aria-label="Filtrar por empresa"
+        >
+          <option value="">Todas las empresas</option>
+          {empresas.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.nombre}
+            </option>
+          ))}
+        </select>
+        <div className={styles.filterProveedor}>
+          <ProveedorComprasAutocomplete
+            value={filtroProveedorId ? Number(filtroProveedorId) : null}
+            onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
+            placeholder="Proveedor..."
           />
         </div>
-        {canManage && (
-          <button className={styles.btnSuccess} onClick={handleOpenCrear}>
-            <Plus size={14} /> Nuevo pedido
-          </button>
-        )}
-      </div>
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroDesde}
+          onChange={(e) => setFiltroDesde(e.target.value)}
+          title="Desde"
+          aria-label="Desde"
+        />
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroHasta}
+          onChange={(e) => setFiltroHasta(e.target.value)}
+          title="Hasta"
+          aria-label="Hasta"
+        />
+        <SearchInput
+          value={busqueda}
+          onChange={setBusqueda}
+          placeholder="Buscar por número..."
+          size="sm"
+          className={styles.searchWrapper}
+        />
+      </FiltersBar>
 
       {pedidosError && (
         <div className={styles.errorBanner}>{pedidosError}</div>
@@ -542,68 +583,19 @@ export default function TabPedidosCompra() {
 
       {/* Table */}
       {loading && items.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando pedidos...
-        </div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>No hay pedidos con los filtros aplicados.</div>
+        <LoadingBlock text="Cargando pedidos…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Número</th>
-                <th>Empresa</th>
-                <th>Proveedor</th>
-                <th>Moneda</th>
-                <th className={styles.thRight}>Monto</th>
-                <th>Plazo (PM)</th>
-                <th>Fecha pago estimada</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p) => {
-                const dias = diasHasta(p.fecha_pago_estimada);
-                const mostrarBadgeVence =
-                  p.estado === 'aprobado' && dias !== null && dias <= 7;
-                return (
-                  <tr key={p.id}>
-                    <td className={styles.tdMono}>{p.numero}</td>
-                    <td>{p.empresa_nombre || `#${p.empresa_id}`}</td>
-                    <td>{p.proveedor_nombre || `#${p.proveedor_id}`}</td>
-                    <td>{p.moneda}</td>
-                    <td className={styles.tdRight}>{formatCurrency(p.monto, p.moneda)}</td>
-                    <td className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</td>
-                    <td className={styles.tdSecondary}>
-                      {formatDate(p.fecha_pago_estimada)}
-                      {mostrarBadgeVence && (
-                        <span
-                          className={
-                            dias < 0 ? styles.badgeVencido : styles.badgeVenceUrgente
-                          }
-                        >
-                          <Clock size={11} />
-                          {dias < 0
-                            ? `Vencido ${Math.abs(dias)}d`
-                            : dias === 0
-                            ? 'Hoy'
-                            : `${dias}d`}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`${styles.badge} ${estadoBadgeClass(p.estado)}`}>
-                        {p.estado}
-                      </span>
-                    </td>
-                    <td>{renderAcciones(p)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <>
+          <DataTable
+            columns={COLUMNS}
+            rows={items}
+            renderCell={renderCell}
+            empty={{
+              icon: <Inbox size={28} strokeWidth={1.5} />,
+              title: 'No hay pedidos con los filtros aplicados.',
+            }}
+            minWidth="1100px"
+          />
 
           {totalPages > 1 && (
             <div className={styles.pagination}>
@@ -630,7 +622,7 @@ export default function TabPedidosCompra() {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Modals */}

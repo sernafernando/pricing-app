@@ -23,6 +23,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import api from '../../services/api';
 import AdjuntosPanel from './AdjuntosPanel';
+import EstadoBadge from './_shared/EstadoBadge';
 import ModalVincularFactura from './ModalVincularFactura';
 import ModalCorregirPedido from './ModalCorregirPedido';
 import styles from './ModalPedidoDetalle.module.css';
@@ -198,7 +199,9 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
             <div className={styles.infoGrid}>
               <div>
                 <span className={styles.infoLabel}>Estado</span>
-                <strong className={styles.infoValue}>{pedido.estado}</strong>
+                <div className={styles.infoValue}>
+                  <EstadoBadge variant="pedido" estado={pedido.estado} size="md" />
+                </div>
               </div>
               <div>
                 <span className={styles.infoLabel}>Empresa</span>
