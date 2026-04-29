@@ -358,6 +358,14 @@
   text-decoration: underline;
 }
 
+/* Hint debajo de un campo (ej. TC con explicación de conversión). */
+.fieldHint {
+  margin-top: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-style: italic;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {
