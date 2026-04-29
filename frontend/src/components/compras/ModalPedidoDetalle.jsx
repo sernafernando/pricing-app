@@ -220,7 +220,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <strong className={styles.infoValue}>{pedido.moneda}</strong>
               </div>
               <div>
-                <span className={styles.infoLabel}>Monto</span>
+                <span className={styles.infoLabel}>Total pedido</span>
                 {pedido.moneda === 'USD' && pedido.tipo_cambio ? (
                   <>
                     <strong className={styles.infoValue}>
@@ -243,6 +243,28 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                   </strong>
                 )}
               </div>
+              {pedido.saldo_pendiente !== null && pedido.saldo_pendiente !== undefined && (
+                <div>
+                  <span className={styles.infoLabel}>Saldo pendiente</span>
+                  {pedido.moneda === 'USD' && pedido.tipo_cambio ? (
+                    <>
+                      <strong className={styles.infoValue}>
+                        {formatCurrency(
+                          Number(pedido.saldo_pendiente) * Number(pedido.tipo_cambio),
+                          'ARS'
+                        )}
+                      </strong>
+                      <div className={styles.infoSubvalue}>
+                        {formatCurrency(pedido.saldo_pendiente, 'USD')} @ TC actual
+                      </div>
+                    </>
+                  ) : (
+                    <strong className={styles.infoValue}>
+                      {formatCurrency(pedido.saldo_pendiente, pedido.moneda)}
+                    </strong>
+                  )}
+                </div>
+              )}
               {pedido.moneda === 'USD' && (
                 <div>
                   <span className={styles.infoLabel}>Tipo de cambio</span>

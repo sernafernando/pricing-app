@@ -49,7 +49,7 @@ const COLUMNS = [
   { key: 'empresa', label: 'Empresa', width: '140px' },
   { key: 'proveedor', label: 'Proveedor' },
   { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
-  { key: 'monto', label: 'Monto', align: 'right', width: '140px' },
+  { key: 'monto', label: 'Saldo', align: 'right', width: '180px' },
   { key: 'plazo', label: 'Plazo', width: '120px' },
   { key: 'fecha_pago', label: 'Fecha pago', width: '160px' },
   { key: 'estado', label: 'Estado', width: '110px' },
@@ -479,15 +479,36 @@ export default function TabPedidosCompra() {
       case 'moneda':
         return <span className={styles.tdMono}>{p.moneda}</span>;
       case 'monto': {
-        const equivArs = equivalenteEnArs(p.monto, p.moneda, p.tipo_cambio);
-        if (equivArs !== null) {
+        // Saldo pendiente (= monto - imputaciones efectivas) en moneda del
+        // pedido. Si pedido es USD con TC, mostramos saldo ARS = saldo_usd × TC.
+        // El total se muestra como subvalor para no perder contexto.
+        const saldo = p.saldo_pendiente !== null && p.saldo_pendiente !== undefined
+          ? Number(p.saldo_pendiente)
+          : Number(p.monto);
+        const equivSaldoArs = equivalenteEnArs(saldo, p.moneda, p.tipo_cambio);
+        const equivTotalArs = equivalenteEnArs(p.monto, p.moneda, p.tipo_cambio);
+        if (equivSaldoArs !== null) {
           return (
             <div className={styles.montoDual}>
               <span className={styles.montoArsPrincipal}>
-                {formatCurrency(equivArs, 'ARS')}
+                {formatCurrency(equivSaldoArs, 'ARS')}
               </span>
               <span className={styles.montoUsdSecundario}>
-                {formatCurrency(p.monto, 'USD')} @ {Number(p.tipo_cambio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                {formatCurrency(saldo, 'USD')} pend.
+                {equivTotalArs !== null && saldo !== Number(p.monto)
+                  ? ` · total ${formatCurrency(equivTotalArs, 'ARS')}`
+                  : ''}
+              </span>
+            </div>
+          );
+        }
+        // ARS o sin TC: mostrar saldo directo
+        if (saldo !== Number(p.monto)) {
+          return (
+            <div className={styles.montoDual}>
+              <span className={styles.montoArsPrincipal}>{formatCurrency(saldo, p.moneda)}</span>
+              <span className={styles.montoUsdSecundario}>
+                pend. · total {formatCurrency(p.monto, p.moneda)}
               </span>
             </div>
           );

@@ -81,6 +81,10 @@ class CCAgrupadoPorPedido(BaseModel):
     pedido_monto: Decimal
     pedido_moneda: str = Field(..., pattern="^(ARS|USD)$")
     pedido_tipo_cambio: Optional[Decimal] = None
+    # Saldo pendiente en la moneda del pedido (= monto - imputaciones efectivas).
+    # Si pedido es USD, este es el saldo USD; el frontend multiplica por
+    # pedido_tipo_cambio para mostrar el equivalente ARS.
+    pedido_saldo_pendiente: Optional[Decimal] = None
     movimientos: list[CCMovimientoResponse]
 
 
