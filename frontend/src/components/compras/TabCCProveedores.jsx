@@ -680,10 +680,17 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
  * + una subsección con las imputaciones que apuntan a este pedido.
  */
 function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
-  // Saldo del pedido = último saldoCorriente del enriquecimiento (en la
-  // moneda del pedido). Para un pedido pagado: saldo=0.
+  // Saldo del pedido en su moneda nativa (lo que falta pagar). Viene del
+  // backend calculado como `pedido.monto - sum(imputaciones efectivas)`.
+  // Si pedido es USD, este saldo es USD; el frontend lo convierte a ARS
+  // multiplicando por tcPedido para visualización dinámica.
   const filas = enriquecerConDebeHaberYSaldo(grupo.movimientos);
-  const saldoFinal = filas.length > 0 ? filas[filas.length - 1].saldoCorriente : 0;
+  const saldoFinal =
+    grupo.pedido_saldo_pendiente !== null && grupo.pedido_saldo_pendiente !== undefined
+      ? Number(grupo.pedido_saldo_pendiente)
+      : filas.length > 0
+        ? filas[filas.length - 1].saldoCorriente
+        : 0;
   const tienePendiente = Math.abs(saldoFinal) > 0.01;
   // Si pedido es USD y tiene TC, calculamos equivalente ARS para mostrar
   // junto al monto/saldo (la empresa paga en pesos).

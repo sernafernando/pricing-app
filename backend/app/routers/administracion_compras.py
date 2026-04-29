@@ -207,7 +207,12 @@ def _obtener_proveedor_o_404(db: Session, proveedor_id: int) -> Proveedor:
     return prov
 
 
-def _pedido_response(p: PedidoCompra, *, puede_eliminar: bool = False) -> PedidoCompraResponse:
+def _pedido_response(
+    p: PedidoCompra,
+    *,
+    puede_eliminar: bool = False,
+    saldo_pendiente: Optional[Decimal] = None,
+) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
     `model_validate` en Pydantic v2 no soporta `update=`; usamos
@@ -219,6 +224,10 @@ def _pedido_response(p: PedidoCompra, *, puede_eliminar: bool = False) -> Pedido
     `puede_eliminar` lo calcula el caller vía
     `compras_papelera_service._calcular_puede_eliminar_pedidos_batch`
     (opción C — 3 queries fijas sin importar N).
+
+    `saldo_pendiente` lo calcula el caller vía
+    `pedidos_service.calcular_saldos_pendientes_batch` (1 query agregada
+    sin importar N). Si no se pasa → queda None.
     """
     emp = getattr(p, "empresa", None)
     prov = getattr(p, "proveedor", None)
@@ -228,6 +237,7 @@ def _pedido_response(p: PedidoCompra, *, puede_eliminar: bool = False) -> Pedido
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "puede_eliminar": puede_eliminar,
+            "saldo_pendiente": saldo_pendiente,
         }
     )
 
@@ -290,8 +300,18 @@ def listar_pedidos(
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items)
+    # Saldo pendiente batch (1 query agregada — sin N+1).
+    pedido_ids = [p.id for p in items]
+    saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
     return PedidoCompraPaginated(
-        items=[_pedido_response(p, puede_eliminar=puede_map.get(p.id, False)) for p in items],
+        items=[
+            _pedido_response(
+                p,
+                puede_eliminar=puede_map.get(p.id, False),
+                saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
+            )
+            for p in items
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -419,11 +439,13 @@ def obtener_pedido(
 
     emp = getattr(pedido, "empresa", None)
     prov = getattr(pedido, "proveedor", None)
+    saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, pedido.id)
     detalle = PedidoCompraDetalle.model_validate(pedido)
     detalle = detalle.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
+            "saldo_pendiente": saldo,
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -2106,11 +2128,15 @@ def obtener_cc_por_pedido(
     pedido_ids = list(grupos.keys())
     pedidos = {p.id: p for p in db.execute(select(PedidoCompra).where(PedidoCompra.id.in_(pedido_ids))).scalars().all()}
 
+    # Saldos pendientes batch (1 query agregada — sin N+1).
+    saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
+
     resultado: list[CCAgrupadoPorPedido] = []
     for pid, movs in grupos.items():
         pedido = pedidos.get(pid)
         if pedido is None:
             continue  # pedido fue borrado: skip
+        saldo_pendiente = Decimal(pedido.monto) - saldo_imp_map.get(pid, Decimal(0))
         resultado.append(
             CCAgrupadoPorPedido(
                 pedido_compra_id=pid,
@@ -2119,6 +2145,7 @@ def obtener_cc_por_pedido(
                 pedido_monto=Decimal(pedido.monto),
                 pedido_moneda=pedido.moneda,
                 pedido_tipo_cambio=Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None,
+                pedido_saldo_pendiente=saldo_pendiente,
                 movimientos=_enriquecer_movimientos_cc(db, list(movs)),
             )
         )

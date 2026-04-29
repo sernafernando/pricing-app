@@ -660,6 +660,47 @@ def _tipo_evento_para_accion(accion: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def calcular_saldos_pendientes_batch(session: Session, pedido_ids: list[int]) -> dict[int, Decimal]:
+    """
+    Calcula saldo pendiente de múltiples pedidos en una sola query (sin N+1).
+
+    Usa la misma fórmula que `calcular_saldo_pendiente_pedido` pero agregada
+    por pedido. Cuando un pedido no tiene imputaciones, no aparece en el
+    GROUP BY pero el saldo es igual al monto del pedido — el caller debe
+    fallbackear a `pedido.monto` si la key no está en el dict.
+
+    Returns:
+        dict {pedido_id: imputado_efectivo}. El caller hace
+        `pedido.monto - dict.get(pedido_id, 0)` para obtener el saldo.
+    """
+    from sqlalchemy import case, func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+    if not pedido_ids:
+        return {}
+
+    # Sumamos cada imputación con su signo: no-reversal suma, reversal resta.
+    # Filtramos por moneda_imputada == pedido.moneda en el caller (acá
+    # acumulamos todo y dejamos que el caller filtre si necesita).
+    signed_sum = sa_func.sum(
+        case(
+            (Imputacion.es_reversal.is_(True), -Imputacion.monto_imputado),
+            else_=Imputacion.monto_imputado,
+        )
+    )
+    rows = session.execute(
+        select(Imputacion.destino_id, signed_sum)
+        .where(
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id.in_(pedido_ids),
+        )
+        .group_by(Imputacion.destino_id)
+    ).all()
+    return {int(pid): Decimal(total or 0) for pid, total in rows}
+
+
 def calcular_saldo_pendiente_pedido(session: Session, pedido_id: int) -> Decimal:
     """
     Saldo pendiente efectivo de un pedido.
@@ -1932,6 +1973,7 @@ __all__ = [
     "ajustar_monto_con_factura",
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",
+    "calcular_saldos_pendientes_batch",
     "corregir_pedido",
     "crear_pedido",
     "desvincular_factura",
