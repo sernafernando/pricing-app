@@ -153,6 +153,11 @@ export default function ModalOrdenPagoNueva({
   const [duplicadoInfo, setDuplicadoInfo] = useState(null);
   const [submittingConfirm, setSubmittingConfirm] = useState(false);
 
+  // ── Confirm cambio de moneda con items pre-cargados ──
+  // Cross-moneda OP↔pedido no soportada (D3): si user cambia moneda
+  // con items destino_pedido, debemos limpiarlos.
+  const [confirmMoneda, setConfirmMoneda] = useState(null);
+
   const requiereItems =
     form.modo_imputacion === 'especifica' || form.modo_imputacion === 'mixta';
 
@@ -180,10 +185,23 @@ export default function ModalOrdenPagoNueva({
       if (campo === 'modo_imputacion' && valor === 'a_cuenta') {
         setItems([]);
       }
-      // Conversión automática al cambiar moneda usando el TC actual del form.
-      // USD → ARS: monto_ars = monto_usd × tc
-      // ARS → USD: monto_usd = monto_ars / tc
       if (campo === 'moneda' && valor !== f.moneda) {
+        // Cross-moneda OP↔pedido NO está soportada en backend (D3). Si la
+        // OP viene pre-cargada de un pedido y el user cambia la moneda,
+        // mostramos modal de confirmación destructiva en lugar de aplicar
+        // el cambio inmediato (preserva el state si el user cancela).
+        const tienePedidos = items.some(
+          (it) => it.tipo === 'pedido_compra' && it.id
+        );
+        if (tienePedidos) {
+          setConfirmMoneda({ from: f.moneda, to: valor });
+          // No aplicamos el cambio: el state queda como estaba hasta que
+          // el user confirme o cancele en el modal.
+          return f;
+        }
+        // Sin items destino_pedido: solo conversión del monto si hay TC.
+        // USD → ARS: monto_ars = monto_usd × tc
+        // ARS → USD: monto_usd = monto_ars / tc
         const tcNum = parseFloat(f.tipo_cambio);
         const montoNum = parseFloat(f.monto_total);
         if (Number.isFinite(tcNum) && tcNum > 0 && Number.isFinite(montoNum) && montoNum > 0) {
@@ -194,24 +212,23 @@ export default function ModalOrdenPagoNueva({
                 ? montoNum / tcNum
                 : montoNum;
           next.monto_total = nuevoMonto.toFixed(2);
-          // Convertir también los items
-          setItems((prev) =>
-            prev.map((it) => {
-              const im = parseFloat(it.monto);
-              if (!Number.isFinite(im) || im <= 0) return it;
-              const conv =
-                f.moneda === 'USD' && valor === 'ARS'
-                  ? im * tcNum
-                  : f.moneda === 'ARS' && valor === 'USD'
-                    ? im / tcNum
-                    : im;
-              return { ...it, monto: conv.toFixed(2) };
-            })
-          );
         }
       }
       return next;
     });
+  };
+
+  // Confirma el cambio de moneda destructivo (limpia items pre-cargados).
+  const handleConfirmMoneda = () => {
+    if (!confirmMoneda) return;
+    setForm((f) => ({
+      ...f,
+      moneda: confirmMoneda.to,
+      monto_total: '',
+      modo_imputacion: 'a_cuenta',
+    }));
+    setItems([]);
+    setConfirmMoneda(null);
   };
 
   const addItem = () => {
@@ -768,6 +785,55 @@ export default function ModalOrdenPagoNueva({
                   disabled={submittingConfirm}
                 >
                   {submittingConfirm ? 'Guardando...' : 'Confirmar, es un pago distinto'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal confirmación cambio de moneda destructivo */}
+        {confirmMoneda && (
+          <div className={styles.modalOverlay}>
+            <div className={styles.modalContentDup}>
+              <div className={styles.modalHeader}>
+                <span className={styles.modalTitle}>
+                  <AlertTriangle
+                    size={18}
+                    style={{ verticalAlign: 'middle', marginRight: 6 }}
+                  />
+                  Cambiar moneda invalida los items
+                </span>
+                <button
+                  className={styles.modalCloseBtn}
+                  onClick={() => setConfirmMoneda(null)}
+                  aria-label="Cerrar"
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <p className={styles.dupMessage}>
+                Estás cambiando la moneda de <strong>{confirmMoneda.from}</strong>{' '}
+                a <strong>{confirmMoneda.to}</strong>. Cross-moneda OP↔pedido no
+                está soportado: si confirmás, los pedidos pre-cargados se quitan
+                de la OP y el modo se resetea a <strong>a_cuenta</strong>.
+              </p>
+
+              <div className={styles.formActions}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => setConfirmMoneda(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnWarning}
+                  onClick={handleConfirmMoneda}
+                >
+                  Continuar (limpiar items)
                 </button>
               </div>
             </div>
