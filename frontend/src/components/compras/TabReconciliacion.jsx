@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Play, CheckCircle, AlertCircle, TrendingUp, X } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, TrendingUp, X, Inbox } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCCProveedor from '../../hooks/useCCProveedor';
+import DataTable from './_shared/DataTable';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabReconciliacion.module.css';
+
+const COLUMNS = [
+  { key: 'fecha', label: 'Fecha', width: '110px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
+  { key: 'libro_mayor', label: 'Libro mayor', align: 'right', width: '160px' },
+  { key: 'snapshot', label: 'Snapshot', align: 'right', width: '160px' },
+  { key: 'diferencia', label: 'Diferencia', align: 'right', width: '160px' },
+  { key: 'tolerancia', label: 'Tolerancia', align: 'right', width: '110px' },
+  { key: 'estado', label: 'Estado', width: '110px' },
+];
 
 const formatMoneda = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -169,42 +183,45 @@ export default function TabReconciliacion() {
         </div>
       </div>
 
-      {/* Top bar: filtros + forzar */}
-      <div className={styles.topBar}>
-        <div className={styles.filters}>
+      {/* Filters + acción primaria */}
+      <FiltersBar
+        actions={
+          canForzar && (
+            <button
+              className={styles.btnPrimary}
+              onClick={() => setConfirmForzar(true)}
+              disabled={forzando}
+            >
+              <Play size={14} /> Forzar reconciliación
+            </button>
+          )
+        }
+      >
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroDesde}
+          onChange={(e) => setFiltroDesde(e.target.value)}
+          title="Desde"
+          aria-label="Desde"
+        />
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroHasta}
+          onChange={(e) => setFiltroHasta(e.target.value)}
+          title="Hasta"
+          aria-label="Hasta"
+        />
+        <label className={styles.checkboxLabel}>
           <input
-            type="date"
-            className={styles.input}
-            value={filtroDesde}
-            onChange={(e) => setFiltroDesde(e.target.value)}
-            title="Desde"
+            type="checkbox"
+            checked={soloDivergencias}
+            onChange={(e) => setSoloDivergencias(e.target.checked)}
           />
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroHasta}
-            onChange={(e) => setFiltroHasta(e.target.value)}
-            title="Hasta"
-          />
-          <label className={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={soloDivergencias}
-              onChange={(e) => setSoloDivergencias(e.target.checked)}
-            />
-            <span>Solo divergencias</span>
-          </label>
-        </div>
-        {canForzar && (
-          <button
-            className={styles.btnPrimary}
-            onClick={() => setConfirmForzar(true)}
-            disabled={forzando}
-          >
-            <Play size={14} /> Forzar reconciliación
-          </button>
-        )}
-      </div>
+          <span>Solo divergencias</span>
+        </label>
+      </FiltersBar>
 
       {forzarError && <div className={styles.errorBanner}>{forzarError}</div>}
       {forzarResult && (
@@ -219,60 +236,45 @@ export default function TabReconciliacion() {
 
       {/* Tabla logs */}
       {ccLoading && logs.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando reconciliaciones...
-        </div>
-      ) : logs.length === 0 ? (
-        <div className={styles.emptyState}>
-          Sin corridas de reconciliación en este periodo.
-        </div>
+        <LoadingBlock text="Cargando reconciliaciones…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Proveedor</th>
-                <th>Moneda</th>
-                <th className={styles.thRight}>Libro mayor</th>
-                <th className={styles.thRight}>Snapshot</th>
-                <th className={styles.thRight}>Diferencia</th>
-                <th className={styles.thRight}>Tolerancia</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log) => (
-                <tr key={log.id}>
-                  <td className={styles.tdSecondary}>{formatDate(log.fecha_corrida)}</td>
-                  <td>{log.proveedor_nombre || `#${log.proveedor_id}`}</td>
-                  <td>{log.moneda}</td>
-                  <td className={styles.tdRight}>
-                    {formatMoneda(log.saldo_libro_mayor, log.moneda)}
-                  </td>
-                  <td className={styles.tdRight}>
-                    {formatMoneda(log.saldo_snapshot, log.moneda)}
-                  </td>
-                  <td className={styles.tdRight}>
-                    {formatMoneda(log.diferencia, log.moneda)}
-                  </td>
-                  <td className={styles.tdRight}>
-                    {formatMoneda(log.tolerancia_aplicada, log.moneda)}
-                  </td>
-                  <td>
-                    <span
-                      className={
-                        log.estado === 'ok' ? styles.badgeOk : styles.badgeDivergencia
-                      }
-                    >
-                      {log.estado}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={COLUMNS}
+          rows={logs}
+          renderCell={(log, col) => {
+            switch (col.key) {
+              case 'fecha':
+                return <span className={styles.tdSecondary}>{formatDate(log.fecha_corrida)}</span>;
+              case 'proveedor':
+                return log.proveedor_nombre || `#${log.proveedor_id}`;
+              case 'moneda':
+                return log.moneda;
+              case 'libro_mayor':
+                return formatMoneda(log.saldo_libro_mayor, log.moneda);
+              case 'snapshot':
+                return formatMoneda(log.saldo_snapshot, log.moneda);
+              case 'diferencia':
+                return formatMoneda(log.diferencia, log.moneda);
+              case 'tolerancia':
+                return formatMoneda(log.tolerancia_aplicada, log.moneda);
+              case 'estado':
+                return (
+                  <span
+                    className={log.estado === 'ok' ? styles.badgeOk : styles.badgeDivergencia}
+                  >
+                    {log.estado}
+                  </span>
+                );
+              default:
+                return null;
+            }
+          }}
+          empty={{
+            icon: <Inbox size={28} strokeWidth={1.5} />,
+            title: 'Sin corridas de reconciliación en este periodo.',
+          }}
+          minWidth="1100px"
+        />
       )}
 
       {/* Modal confirmación forzar */}

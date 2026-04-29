@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
-  Loader2,
   Eye,
   Pencil,
   Send,
@@ -13,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Link2,
+  Inbox,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -22,6 +22,10 @@ import ModalNCLocal from './ModalNCLocal';
 import ModalNCLocalDetalle from './ModalNCLocalDetalle';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import SearchInput from '../SearchInput';
+import DataTable from './_shared/DataTable';
+import EstadoBadge from './_shared/EstadoBadge';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabNCsLocales.module.css';
 
 const PAGE_SIZE = 50;
@@ -36,26 +40,18 @@ const ESTADOS = [
   'aplicada',
 ];
 
-const estadoBadgeClass = (estado) => {
-  switch (estado) {
-    case 'borrador':
-      return styles.badgeBorrador;
-    case 'pendiente_aprobacion':
-      return styles.badgePendiente;
-    case 'aprobado':
-      return styles.badgeAprobado;
-    case 'aplicada_parcial':
-      return styles.badgeAplicadaParcial;
-    case 'aplicada':
-      return styles.badgeAplicada;
-    case 'rechazado':
-      return styles.badgeRechazado;
-    case 'cancelado':
-      return styles.badgeCancelado;
-    default:
-      return styles.badgeNeutral;
-  }
-};
+const COLUMNS = [
+  { key: 'numero', label: 'Número', width: '160px' },
+  { key: 'empresa', label: 'Empresa', width: '140px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'numero_nc_proveedor', label: 'Nro NC prov', width: '140px' },
+  { key: 'fecha_emision', label: 'Fecha emisión', width: '110px' },
+  { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
+  { key: 'monto', label: 'Monto', align: 'right', width: '160px' },
+  { key: 'estado', label: 'Estado', width: '110px' },
+  { key: 'erp', label: 'ERP', width: '90px' },
+  { key: 'acciones', label: '', align: 'right', width: '180px' },
+];
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -384,148 +380,144 @@ export default function TabNCsLocales() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const loading = ncsLoading;
 
+  const renderNCCell = (nc, col) => {
+    switch (col.key) {
+      case 'numero':
+        return <span className={styles.tdMono}>{nc.numero}</span>;
+      case 'empresa':
+        return nc.empresa_nombre || `#${nc.empresa_id}`;
+      case 'proveedor':
+        return nc.proveedor_nombre || `#${nc.proveedor_id}`;
+      case 'numero_nc_proveedor':
+        return <span className={styles.tdSecondary}>{nc.numero_nc_proveedor || '—'}</span>;
+      case 'fecha_emision':
+        return <span className={styles.tdSecondary}>{formatDate(nc.fecha_emision)}</span>;
+      case 'moneda':
+        return <span className={styles.tdMono}>{nc.moneda}</span>;
+      case 'monto': {
+        const montoNum = Number(nc.monto) || 0;
+        const saldoNum = Number(nc.saldo_pendiente);
+        const mostrarSaldo =
+          nc.estado === 'aplicada_parcial' &&
+          Number.isFinite(saldoNum) &&
+          saldoNum > 0 &&
+          saldoNum < montoNum;
+        return (
+          <>
+            {formatCurrency(nc.monto, nc.moneda)}
+            {mostrarSaldo && (
+              <div className={styles.saldoPendienteHint}>
+                Saldo: {formatCurrency(saldoNum, nc.moneda)}
+              </div>
+            )}
+          </>
+        );
+      }
+      case 'estado':
+        return <EstadoBadge variant="nc" estado={nc.estado} />;
+      case 'erp':
+        return nc.ct_transaction_id ? (
+          <span className={styles.erpChip} title="Vinculada al ERP">
+            <Link2 size={11} />
+            #{nc.ct_transaction_id}
+          </span>
+        ) : (
+          <span className={styles.tdSecondary}>—</span>
+        );
+      case 'acciones':
+        return renderAcciones(nc);
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={styles.container}>
-      {/* Header actions */}
-      <div className={styles.topBar}>
-        <div className={styles.filters}>
-          <select
-            className={styles.select}
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-          >
-            <option value="">Todos los estados</option>
-            {ESTADOS.map((estado) => (
-              <option key={estado} value={estado}>
-                {estado}
-              </option>
-            ))}
-          </select>
-          <select
-            className={styles.select}
-            value={filtroEmpresa}
-            onChange={(e) => setFiltroEmpresa(e.target.value)}
-          >
-            <option value="">Todas las empresas</option>
-            {empresas.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.nombre}
-              </option>
-            ))}
-          </select>
-          <div className={styles.filterProveedor}>
-            <ProveedorComprasAutocomplete
-              value={filtroProveedorId ? Number(filtroProveedorId) : null}
-              onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
-              placeholder="Proveedor..."
-            />
-          </div>
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroDesde}
-            onChange={(e) => setFiltroDesde(e.target.value)}
-            title="Desde"
-          />
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroHasta}
-            onChange={(e) => setFiltroHasta(e.target.value)}
-            title="Hasta"
-          />
-          <SearchInput
-            value={busqueda}
-            onChange={setBusqueda}
-            placeholder="Buscar por número o Nro NC prov..."
-            size="sm"
-            className={styles.searchWrapper}
+      {/* Filters + primary action */}
+      <FiltersBar
+        actions={
+          canManage && (
+            <button className={styles.btnSuccess} onClick={handleOpenCrear}>
+              <Plus size={14} /> Nueva NC
+            </button>
+          )
+        }
+      >
+        <select
+          className={styles.select}
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          aria-label="Filtrar por estado"
+        >
+          <option value="">Todos los estados</option>
+          {ESTADOS.map((estado) => (
+            <option key={estado} value={estado}>
+              {estado}
+            </option>
+          ))}
+        </select>
+        <select
+          className={styles.select}
+          value={filtroEmpresa}
+          onChange={(e) => setFiltroEmpresa(e.target.value)}
+          aria-label="Filtrar por empresa"
+        >
+          <option value="">Todas las empresas</option>
+          {empresas.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.nombre}
+            </option>
+          ))}
+        </select>
+        <div className={styles.filterProveedor}>
+          <ProveedorComprasAutocomplete
+            value={filtroProveedorId ? Number(filtroProveedorId) : null}
+            onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
+            placeholder="Proveedor..."
           />
         </div>
-        {canManage && (
-          <button className={styles.btnSuccess} onClick={handleOpenCrear}>
-            <Plus size={14} /> Nueva NC
-          </button>
-        )}
-      </div>
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroDesde}
+          onChange={(e) => setFiltroDesde(e.target.value)}
+          title="Desde"
+          aria-label="Desde"
+        />
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroHasta}
+          onChange={(e) => setFiltroHasta(e.target.value)}
+          title="Hasta"
+          aria-label="Hasta"
+        />
+        <SearchInput
+          value={busqueda}
+          onChange={setBusqueda}
+          placeholder="Buscar por número o Nro NC prov..."
+          size="sm"
+          className={styles.searchWrapper}
+        />
+      </FiltersBar>
 
       {ncsError && <div className={styles.errorBanner}>{ncsError}</div>}
 
       {/* Table */}
       {loading && items.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando NCs...
-        </div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>No hay NCs con los filtros aplicados.</div>
+        <LoadingBlock text="Cargando NCs…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Número</th>
-                <th>Empresa</th>
-                <th>Proveedor</th>
-                <th>Nro NC prov</th>
-                <th>Fecha emisión</th>
-                <th>Moneda</th>
-                <th className={styles.thRight}>Monto</th>
-                <th>Estado</th>
-                <th>ERP</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((nc) => {
-                const montoNum = Number(nc.monto) || 0;
-                const saldoNum = Number(nc.saldo_pendiente);
-                const mostrarSaldo =
-                  nc.estado === 'aplicada_parcial' &&
-                  Number.isFinite(saldoNum) &&
-                  saldoNum > 0 &&
-                  saldoNum < montoNum;
-
-                return (
-                  <tr key={nc.id}>
-                    <td className={styles.tdMono}>{nc.numero}</td>
-                    <td>{nc.empresa_nombre || `#${nc.empresa_id}`}</td>
-                    <td>{nc.proveedor_nombre || `#${nc.proveedor_id}`}</td>
-                    <td className={styles.tdSecondary}>
-                      {nc.numero_nc_proveedor || '—'}
-                    </td>
-                    <td className={styles.tdSecondary}>
-                      {formatDate(nc.fecha_emision)}
-                    </td>
-                    <td>{nc.moneda}</td>
-                    <td className={styles.tdRight}>
-                      {formatCurrency(nc.monto, nc.moneda)}
-                      {mostrarSaldo && (
-                        <div className={styles.saldoPendienteHint}>
-                          Saldo: {formatCurrency(saldoNum, nc.moneda)}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`${styles.badge} ${estadoBadgeClass(nc.estado)}`}>
-                        {nc.estado}
-                      </span>
-                    </td>
-                    <td>
-                      {nc.ct_transaction_id ? (
-                        <span className={styles.erpChip} title="Vinculada al ERP">
-                          <Link2 size={11} />
-                          #{nc.ct_transaction_id}
-                        </span>
-                      ) : (
-                        <span className={styles.tdSecondary}>—</span>
-                      )}
-                    </td>
-                    <td>{renderAcciones(nc)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <>
+          <DataTable
+            columns={COLUMNS}
+            rows={items}
+            renderCell={renderNCCell}
+            empty={{
+              icon: <Inbox size={28} strokeWidth={1.5} />,
+              title: 'No hay NCs con los filtros aplicados.',
+            }}
+            minWidth="1200px"
+          />
 
           {totalPages > 1 && (
             <div className={styles.pagination}>
@@ -552,7 +544,7 @@ export default function TabNCsLocales() {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Modal crear/editar */}

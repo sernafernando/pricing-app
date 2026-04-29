@@ -117,6 +117,75 @@ def _build_filtro_tiendas_oficiales_mla(
     return or_(*condiciones)
 
 
+def _apply_search_filter(query, search: Optional[str]):
+    """Aplica filtro de búsqueda sobre ProductoERP (descripcion, marca, codigo).
+
+    Soporta los mismos operadores que el listado de productos:
+      - `*valor`       → termina en `valor`
+      - `valor*`       → comienza con `valor`
+      - `campo:valor`  → match sobre `ean`/`codigo`/`marca` (exacto) o `desc`/`descripcion` (normalizado)
+      - texto plano    → contiene (normalizado: sin guiones ni espacios, case-insensitive)
+
+    Retorna el query con el filtro aplicado, o el query original si `search` es vacío.
+    """
+    if not search:
+        return query
+
+    search_filter = None
+
+    if ":" in search and not search.startswith("*") and not search.endswith("*"):
+        parts = search.split(":", 1)
+        if len(parts) == 2:
+            field, value = parts[0].strip().lower(), parts[1].strip()
+            if field in ("ean", "codigo"):
+                search_filter = and_(
+                    ProductoERP.codigo.isnot(None),
+                    ProductoERP.codigo != "",
+                    func.upper(ProductoERP.codigo) == value.upper(),
+                )
+            elif field == "marca":
+                search_filter = and_(
+                    ProductoERP.marca.isnot(None),
+                    ProductoERP.marca != "",
+                    func.upper(ProductoERP.marca) == value.upper(),
+                )
+            elif field in ("desc", "descripcion"):
+                value_normalized = value.replace("-", "").replace(" ", "").upper()
+                search_filter = and_(
+                    ProductoERP.descripcion.isnot(None),
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
+                        f"%{value_normalized}%"
+                    ),
+                )
+    elif search.startswith("*") and not search.endswith("*"):
+        value = search[1:].upper()
+        search_filter = or_(
+            and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
+            and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
+            and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}")),
+        )
+    elif search.endswith("*") and not search.startswith("*"):
+        value = search[:-1].upper()
+        search_filter = or_(
+            and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"{value}%")),
+            and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"{value}%")),
+            and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%")),
+        )
+    else:
+        search_normalized = search.replace("-", "").replace(" ", "").upper()
+        search_filter = or_(
+            func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
+                f"%{search_normalized}%"
+            ),
+            func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(f"%{search_normalized}%"),
+            func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
+        )
+
+    if search_filter is not None:
+        query = query.filter(search_filter)
+    return query
+
+
 @router.post("/productos/exportar-rebate")
 def exportar_rebate(
     request: ExportRebateRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
@@ -185,19 +254,7 @@ def exportar_rebate(
     if request.filtros:
         filtros = request.filtros
 
-        if filtros.get("search"):
-            search_normalized = filtros["search"].replace("-", "").replace(" ", "").upper()
-            query = query.filter(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-                )
-            )
+        query = _apply_search_filter(query, filtros.get("search"))
 
         if filtros.get("con_stock") is not None:
             query = query.filter(ProductoERP.stock > 0 if filtros["con_stock"] else ProductoERP.stock == 0)
@@ -832,19 +889,7 @@ def exportar_web_transferencia(
             )
 
     # Aplicar filtros básicos
-    if search:
-        search_normalized = search.replace("-", "").replace(" ", "").upper()
-        query = query.filter(
-            or_(
-                func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                    f"%{search_normalized}%"
-                ),
-                func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                    f"%{search_normalized}%"
-                ),
-                func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-            )
-        )
+    query = _apply_search_filter(query, search)
 
     if con_stock:
         query = query.filter(ProductoERP.stock > 0)
@@ -1279,69 +1324,7 @@ def exportar_clasica(
             )
 
     # Aplicar filtros básicos (con soporte para operadores *, +, :)
-    if search:
-        search_filter = None
-
-        # Detectar búsquedas literales: campo:valor
-        if ":" in search and not search.startswith("*") and not search.endswith("*"):
-            parts = search.split(":", 1)
-            if len(parts) == 2:
-                field, value = parts[0].strip().lower(), parts[1].strip()
-
-                if field == "ean" or field == "codigo":
-                    search_filter = and_(
-                        ProductoERP.codigo.isnot(None),
-                        ProductoERP.codigo != "",
-                        func.upper(ProductoERP.codigo) == value.upper(),
-                    )
-                elif field == "marca":
-                    search_filter = and_(
-                        ProductoERP.marca.isnot(None),
-                        ProductoERP.marca != "",
-                        func.upper(ProductoERP.marca) == value.upper(),
-                    )
-                elif field == "desc" or field == "descripcion":
-                    value_normalized = value.replace("-", "").replace(" ", "").upper()
-                    search_filter = and_(
-                        ProductoERP.descripcion.isnot(None),
-                        func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                            f"%{value_normalized}%"
-                        ),
-                    )
-
-        # Detectar wildcards: *valor (termina en) o valor* (comienza con)
-        elif search.startswith("*") and not search.endswith("*"):
-            # Termina en
-            value = search[1:].upper()
-            search_filter = or_(
-                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
-                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
-                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}")),
-            )
-        elif search.endswith("*") and not search.startswith("*"):
-            # Comienza con
-            value = search[:-1].upper()
-            search_filter = or_(
-                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"{value}%")),
-                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"{value}%")),
-                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%")),
-            )
-        else:
-            # Búsqueda normal (contiene)
-            search_normalized = search.replace("-", "").replace(" ", "").upper()
-            search_filter = or_(
-                func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                    f"%{search_normalized}%"
-                ),
-                func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                    f"%{search_normalized}%"
-                ),
-                func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-            )
-
-        # Aplicar filtro de búsqueda
-        if search_filter is not None:
-            query = query.filter(search_filter)
+    query = _apply_search_filter(query, search)
 
     if con_stock:
         query = query.filter(ProductoERP.stock > 0)
@@ -1882,19 +1865,7 @@ def exportar_vista_actual(
         )
 
         # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
-        if search:
-            search_normalized = search.replace("-", "").replace(" ", "").upper()
-            query = query.filter(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-                )
-            )
+        query = _apply_search_filter(query, search)
 
         if con_stock is not None:
             query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
@@ -2311,19 +2282,7 @@ def exportar_lista_gremio(
         )
 
         # Aplicar filtros
-        if search:
-            search_normalized = search.replace("-", "").replace(" ", "").upper()
-            query = query.filter(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-                )
-            )
+        query = _apply_search_filter(query, search)
 
         if con_stock is not None:
             query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
@@ -2517,19 +2476,7 @@ def exportar_lista_sugerido(
         )
 
         # Aplicar filtros
-        if search:
-            search_normalized = search.replace("-", "").replace(" ", "").upper()
-            query = query.filter(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-                )
-            )
+        query = _apply_search_filter(query, search)
 
         if con_stock is not None:
             query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
@@ -2725,19 +2672,7 @@ def exportar_lista_web_transferencia(
         )
 
         # Aplicar filtros
-        if search:
-            search_normalized = search.replace("-", "").replace(" ", "").upper()
-            query = query.filter(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), "-", ""), " ", "").like(
-                        f"%{search_normalized}%"
-                    ),
-                    func.replace(func.upper(ProductoERP.codigo), "-", "").like(f"%{search_normalized}%"),
-                )
-            )
+        query = _apply_search_filter(query, search)
 
         if con_stock is not None:
             query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)

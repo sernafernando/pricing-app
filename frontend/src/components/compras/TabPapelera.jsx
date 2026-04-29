@@ -2,15 +2,30 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Trash2,
   Eye,
-  Loader2,
   ChevronLeft,
   ChevronRight,
   X,
   FileText,
   Wallet,
+  Inbox,
 } from 'lucide-react';
 import useComprasPapelera from '../../hooks/useComprasPapelera';
+import DataTable from './_shared/DataTable';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabPapelera.module.css';
+
+const COLUMNS = [
+  { key: 'tipo', label: 'Tipo', width: '120px' },
+  { key: 'numero', label: 'Número', width: '160px' },
+  { key: 'empresa', label: 'Empresa', width: '140px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'estado_original', label: 'Estado original', width: '140px' },
+  { key: 'eliminado_por', label: 'Eliminado por', width: '140px' },
+  { key: 'fecha', label: 'Fecha', width: '140px' },
+  { key: 'motivo', label: 'Motivo' },
+  { key: 'acciones', label: '', align: 'right', width: '60px' },
+];
 
 const PAGE_SIZE = 50;
 
@@ -105,11 +120,12 @@ export default function TabPapelera() {
       </div>
 
       {/* Filters */}
-      <div className={styles.filters}>
+      <FiltersBar>
         <select
           className={styles.select}
           value={filtroTipo}
           onChange={(e) => setFiltroTipo(e.target.value)}
+          aria-label="Filtrar por tipo"
         >
           {TIPOS.map((t) => (
             <option key={t.value} value={t.value}>
@@ -117,68 +133,72 @@ export default function TabPapelera() {
             </option>
           ))}
         </select>
-      </div>
+      </FiltersBar>
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
       {loading && items.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando papelera...
-        </div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>La papelera está vacía.</div>
+        <LoadingBlock text="Cargando papelera…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Número</th>
-                <th>Empresa</th>
-                <th>Proveedor</th>
-                <th>Estado original</th>
-                <th>Eliminado por</th>
-                <th>Fecha</th>
-                <th>Motivo</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => {
-                const Icon = iconoPorTipo(it.entidad_tipo);
-                return (
-                  <tr key={it.id}>
-                    <td>
-                      <span className={styles.tipoBadge}>
-                        <Icon size={13} />
-                        {labelTipo(it.entidad_tipo)}
-                      </span>
-                    </td>
-                    <td className={styles.tdMono}>{it.numero || `#${it.entidad_id_original}`}</td>
-                    <td>{it.empresa_nombre || '—'}</td>
-                    <td>{it.proveedor_nombre || '—'}</td>
-                    <td className={styles.tdSecondary}>{it.estado_original || '—'}</td>
-                    <td>{it.eliminado_por_nombre || `#${it.eliminado_por_id}`}</td>
-                    <td className={styles.tdSecondary}>{formatDateTime(it.created_at)}</td>
-                    <td className={styles.tdMotivo} title={it.motivo}>
+        <>
+          <DataTable
+            columns={COLUMNS}
+            rows={items}
+            renderCell={(it, col) => {
+              switch (col.key) {
+                case 'tipo': {
+                  const Icon = iconoPorTipo(it.entidad_tipo);
+                  return (
+                    <span className={styles.tipoBadge}>
+                      <Icon size={13} />
+                      {labelTipo(it.entidad_tipo)}
+                    </span>
+                  );
+                }
+                case 'numero':
+                  return (
+                    <span className={styles.tdMono}>
+                      {it.numero || `#${it.entidad_id_original}`}
+                    </span>
+                  );
+                case 'empresa':
+                  return it.empresa_nombre || '—';
+                case 'proveedor':
+                  return it.proveedor_nombre || '—';
+                case 'estado_original':
+                  return <span className={styles.tdSecondary}>{it.estado_original || '—'}</span>;
+                case 'eliminado_por':
+                  return it.eliminado_por_nombre || `#${it.eliminado_por_id}`;
+                case 'fecha':
+                  return <span className={styles.tdSecondary}>{formatDateTime(it.created_at)}</span>;
+                case 'motivo':
+                  return (
+                    <span className={styles.tdMotivo} title={it.motivo}>
                       {it.motivo}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className={styles.iconBtn}
-                        onClick={() => handleVerDetalle(it)}
-                        aria-label="Ver snapshot"
-                        title="Ver snapshot completo"
-                      >
-                        <Eye size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </span>
+                  );
+                case 'acciones':
+                  return (
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => handleVerDetalle(it)}
+                      aria-label="Ver snapshot"
+                      title="Ver snapshot completo"
+                    >
+                      <Eye size={14} />
+                    </button>
+                  );
+                default:
+                  return null;
+              }
+            }}
+            empty={{
+              icon: <Inbox size={28} strokeWidth={1.5} />,
+              title: 'La papelera está vacía.',
+            }}
+            minWidth="1200px"
+          />
 
           {totalPages > 1 && (
             <div className={styles.pagination}>
@@ -205,7 +225,7 @@ export default function TabPapelera() {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Detalle modal */}

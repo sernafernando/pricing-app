@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, Check, X } from 'lucide-react';
+import { AlertTriangle, Check, X, Inbox } from 'lucide-react';
 import api from '../../services/api';
 import SearchInput from '../SearchInput';
+import DataTable from './_shared/DataTable';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabSaleDocumentCatalog.module.css';
 
 const FLAG_COLS = [
@@ -13,6 +16,15 @@ const FLAG_COLS = [
   ['sd_ispackinglist', 'remito'],
   ['sd_isannulment', 'anul'],
   ['sd_isquotation', 'cotiz'],
+];
+
+const COLUMNS = [
+  { key: 'sd_id', label: 'sd_id', width: '80px' },
+  { key: 'sd_desc', label: 'Descripción' },
+  { key: 'sd_plusorminus', label: '+/-', align: 'center', width: '60px' },
+  { key: 'hacc_group', label: 'hacc_group', width: '110px' },
+  { key: 'clasificacion', label: 'Clasificación', width: '160px' },
+  ...FLAG_COLS.map(([key, label]) => ({ key, label, align: 'center', width: '70px' })),
 ];
 
 const clasificacionBadge = (c) => {
@@ -105,89 +117,69 @@ export default function TabSaleDocumentCatalog() {
       )}
 
       {loadingFaltantes && faltantes.length === 0 && (
-        <div className={styles.centered}>
-          <Loader2 size={14} className={styles.spin} /> Verificando sd_ids faltantes...
-        </div>
+        <LoadingBlock tone="inline" text="Verificando sd_ids faltantes…" />
       )}
 
       {/* Filtros */}
-      <div className={styles.topBar}>
-        <div className={styles.filters}>
-          <select
-            className={styles.select}
-            value={filtroClasif}
-            onChange={(e) => setFiltroClasif(e.target.value)}
-          >
-            <option value="">Todas las clasificaciones</option>
-            {clasificacionesUnicas.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <SearchInput
-            value={filtroBusqueda}
-            onChange={setFiltroBusqueda}
-            placeholder="Buscar por sd_id o descripción..."
-            size="sm"
-          />
-        </div>
-        <div className={styles.countBadge}>
-          {itemsFiltrados.length} / {items.length}
-        </div>
-      </div>
+      <FiltersBar
+        actions={
+          <div className={styles.countBadge}>
+            {itemsFiltrados.length} / {items.length}
+          </div>
+        }
+      >
+        <select
+          className={styles.select}
+          value={filtroClasif}
+          onChange={(e) => setFiltroClasif(e.target.value)}
+          aria-label="Filtrar por clasificación"
+        >
+          <option value="">Todas las clasificaciones</option>
+          {clasificacionesUnicas.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <SearchInput
+          value={filtroBusqueda}
+          onChange={setFiltroBusqueda}
+          placeholder="Buscar por sd_id o descripción..."
+          size="sm"
+        />
+      </FiltersBar>
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
       {loading && items.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando catálogo...
-        </div>
-      ) : itemsFiltrados.length === 0 ? (
-        <div className={styles.emptyState}>Sin resultados con los filtros aplicados.</div>
+        <LoadingBlock text="Cargando catálogo…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>sd_id</th>
-                <th>Descripción</th>
-                <th>+/-</th>
-                <th>hacc_group</th>
-                <th>Clasificación</th>
-                {FLAG_COLS.map((col) => (
-                  <th key={col[1]} className={styles.thCenter}>
-                    {col[1]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {itemsFiltrados.map((it) => (
-                <tr key={it.sd_id}>
-                  <td className={styles.tdMono}>{it.sd_id}</td>
-                  <td>{it.sd_desc}</td>
-                  <td className={styles.tdCenter}>{it.sd_plusorminus > 0 ? '+1' : '-1'}</td>
-                  <td className={styles.tdSecondary}>{it.hacc_group ?? '—'}</td>
-                  <td>
-                    <span className={styles.clasifBadge}>
-                      {clasificacionBadge(it.clasificacion)}
-                    </span>
-                  </td>
-                  {FLAG_COLS.map(([key]) => (
-                    <td key={key} className={styles.tdCenter}>
-                      {it[key] ? (
-                        <Check size={14} className={styles.iconCheck} />
-                      ) : (
-                        <X size={14} className={styles.iconX} />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={COLUMNS}
+          rows={itemsFiltrados}
+          renderCell={(it, col) => {
+            if (col.key === 'sd_id') return <span className={styles.tdMono}>{it.sd_id}</span>;
+            if (col.key === 'sd_desc') return it.sd_desc;
+            if (col.key === 'sd_plusorminus') return it.sd_plusorminus > 0 ? '+1' : '-1';
+            if (col.key === 'hacc_group')
+              return <span className={styles.tdSecondary}>{it.hacc_group ?? '—'}</span>;
+            if (col.key === 'clasificacion')
+              return (
+                <span className={styles.clasifBadge}>{clasificacionBadge(it.clasificacion)}</span>
+              );
+            // Flag columns
+            return it[col.key] ? (
+              <Check size={14} className={styles.iconCheck} />
+            ) : (
+              <X size={14} className={styles.iconX} />
+            );
+          }}
+          empty={{
+            icon: <Inbox size={28} strokeWidth={1.5} />,
+            title: 'Sin resultados con los filtros aplicados.',
+          }}
+          minWidth="1300px"
+        />
       )}
     </div>
   );

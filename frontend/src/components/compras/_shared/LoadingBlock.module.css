@@ -1,0 +1,42 @@
+/* LoadingBlock — Spinner + texto */
+
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-secondary);
+}
+
+.block {
+  flex-direction: column;
+  padding: var(--spacing-2xl);
+  gap: var(--spacing-md);
+}
+
+.inline {
+  flex-direction: row;
+  padding: var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  color: var(--cf-accent-blue);
+}
+
+.text {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-weight: 500;
+}
+
+.inline .text {
+  font-size: var(--font-xs);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

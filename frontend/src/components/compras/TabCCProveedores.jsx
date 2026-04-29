@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Loader2,
   Layers,
   List,
   ChevronRight,
@@ -11,17 +10,11 @@ import {
   FileText,
   Receipt,
   X,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Wallet,
   Search as SearchIcon,
   Inbox,
   Coins,
   ArrowRight,
   Link2,
-  CheckCircle2,
-  CircleAlert,
-  Clock,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -33,6 +26,10 @@ import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import ModalNCLocal from './ModalNCLocal';
 import ModalNCLocalDetalle from './ModalNCLocalDetalle';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import EstadoBadge from './_shared/EstadoBadge';
+import EmptyState from './_shared/EmptyState';
+import LoadingBlock from './_shared/LoadingBlock';
+import MetricTile from './_shared/MetricTile';
 import styles from './TabCCProveedores.module.css';
 
 const formatMoneda = (value, moneda = 'ARS') => {
@@ -281,31 +278,21 @@ export default function TabCCProveedores() {
       {ccError && <div className={styles.errorBanner}>{ccError}</div>}
 
       {!proveedorIdActivo ? (
-        <div className={styles.heroEmpty}>
-          <div className={styles.heroEmptyIcon}>
-            <SearchIcon size={36} strokeWidth={1.5} />
-          </div>
-          <div className={styles.heroEmptyTitle}>Buscá un proveedor</div>
-          <div className={styles.heroEmptySub}>
-            Empezá tipeando el nombre o el CUIT en el buscador. La cuenta corriente
-            aparece acá con todos los movimientos al instante.
-          </div>
-        </div>
+        <EmptyState
+          icon={<SearchIcon size={36} strokeWidth={1.5} />}
+          title="Buscá un proveedor"
+          subtitle="Empezá tipeando el nombre o el CUIT en el buscador. La cuenta corriente aparece acá con todos los movimientos al instante."
+          tone="hero"
+        />
       ) : ccLoading && !detalle ? (
-        <div className={styles.heroLoading}>
-          <Loader2 size={28} className={styles.spin} strokeWidth={1.8} />
-          <div className={styles.heroLoadingText}>Cargando cuenta corriente…</div>
-        </div>
+        <LoadingBlock text="Cargando cuenta corriente…" />
       ) : !detalle ? (
-        <div className={styles.heroEmpty}>
-          <div className={styles.heroEmptyIcon}>
-            <Inbox size={36} strokeWidth={1.5} />
-          </div>
-          <div className={styles.heroEmptyTitle}>Sin datos</div>
-          <div className={styles.heroEmptySub}>
-            No encontramos información para este proveedor con los filtros actuales.
-          </div>
-        </div>
+        <EmptyState
+          icon={<Inbox size={36} strokeWidth={1.5} />}
+          title="Sin datos"
+          subtitle="No encontramos información para este proveedor con los filtros actuales."
+          tone="hero"
+        />
       ) : (
         <>
           {/* ── HERO: identidad del proveedor + saldos como métricas ── */}
@@ -448,10 +435,11 @@ export default function TabCCProveedores() {
           ) : (
             <div className={styles.grupoList}>
               {porPedido.length === 0 ? (
-                <div className={styles.emptyBlock}>
-                  <Layers size={28} strokeWidth={1.5} />
-                  <span>Sin pedidos con movimientos en CC.</span>
-                </div>
+                <EmptyState
+                  icon={<Layers size={28} strokeWidth={1.5} />}
+                  title="Sin pedidos con movimientos en CC."
+                  tone="default"
+                />
               ) : (
                 porPedido.map((g) => (
                   <GrupoPedidoCard
@@ -593,10 +581,11 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
           {filas.length === 0 ? (
             <tr>
               <td colSpan={7} className={styles.emptyRow}>
-                <div className={styles.emptyRowInner}>
-                  {emptyIcon}
-                  <span>{emptyText || 'Sin movimientos.'}</span>
-                </div>
+                <EmptyState
+                  icon={emptyIcon}
+                  title={emptyText || 'Sin movimientos.'}
+                  tone="inline"
+                />
               </td>
             </tr>
           ) : (
@@ -661,51 +650,6 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
 }
 
 /**
- * Badge visual del estado del pedido + saldo. A primera vista responde
- * "¿este pedido está saldado?". Tres tonos:
- *  - verde "Pagado" (saldo=0)
- *  - amarillo "Parcial" (estado=pagado_parcial)
- *  - rojo "Pendiente" (saldo>0 sin pagos aún)
- *  - gris "Cancelado" o "Borrador" (estado terminal sin movs)
- */
-function EstadoPedidoBadge({ estado, saldo }) {
-  const esPagado = Number(saldo) === 0 && (estado === 'pagado' || estado === 'pagado_parcial');
-  const esParcial = estado === 'pagado_parcial' && Number(saldo) !== 0;
-  const esCancelado = estado === 'cancelado' || estado === 'rechazado';
-  const esBorrador = estado === 'borrador' || estado === 'pendiente_aprobacion';
-
-  let tone, label, Icon;
-  if (esPagado) {
-    tone = styles.estadoPagado;
-    label = 'Pagado';
-    Icon = CheckCircle2;
-  } else if (esParcial) {
-    tone = styles.estadoParcial;
-    label = 'Parcial';
-    Icon = Clock;
-  } else if (esCancelado) {
-    tone = styles.estadoCancelado;
-    label = estado === 'cancelado' ? 'Cancelado' : 'Rechazado';
-    Icon = X;
-  } else if (esBorrador) {
-    tone = styles.estadoBorrador;
-    label = estado === 'borrador' ? 'Borrador' : 'Sin aprobar';
-    Icon = Clock;
-  } else {
-    tone = styles.estadoPendiente;
-    label = 'Pendiente';
-    Icon = CircleAlert;
-  }
-
-  return (
-    <span className={`${styles.estadoBadge} ${tone}`}>
-      <Icon size={11} strokeWidth={2.5} />
-      {label}
-    </span>
-  );
-}
-
-/**
  * Card colapsable de un pedido en la vista "Por Pedido". Cerrado por default
  * — el summary muestra todo lo necesario para entender de un vistazo:
  *    P-XX-... [Estado] [Pagado/Parcial/Pendiente]    Total · Saldo
@@ -727,7 +671,7 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
         </span>
         <div className={styles.grupoHeaderLeft}>
           <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
-          <EstadoPedidoBadge estado={grupo.pedido_estado} saldo={saldoFinal} />
+          <EstadoBadge variant="pedido" estado={grupo.pedido_estado} saldo={saldoFinal} />
         </div>
         <div className={styles.grupoHeaderRight}>
           <div className={styles.grupoHeaderTotals}>
@@ -801,28 +745,6 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
         </div>
       </div>
     </details>
-  );
-}
-
-function MetricTile({ label, value, hint, tone = 'neutral' }) {
-  const toneClass =
-    tone === 'debe'
-      ? styles.metricTileDebe
-      : tone === 'haber'
-        ? styles.metricTileHaber
-        : tone === 'estimate'
-          ? styles.metricTileEstimate
-          : styles.metricTileNeutral;
-  const Glyph = tone === 'haber' ? ArrowUpFromLine : tone === 'debe' ? ArrowDownToLine : Wallet;
-  return (
-    <div className={`${styles.metricTile} ${toneClass}`}>
-      <div className={styles.metricLabelRow}>
-        <Glyph size={12} strokeWidth={2} />
-        <span className={styles.metricLabel}>{label}</span>
-      </div>
-      <div className={styles.metricValue}>{value}</div>
-      <div className={styles.metricHint}>{hint}</div>
-    </div>
   );
 }
 

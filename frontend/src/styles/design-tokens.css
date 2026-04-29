@@ -264,6 +264,22 @@
   /* ── Flag modal button ───────────────────────────────── */
   --cf-flag-btn-bg: #ea580c;
   --cf-flag-btn-hover-bg: #c2410c;
+
+  /* ============================================
+     FINANCE / LEDGER TOKENS — usados en módulo compras
+     ============================================ */
+
+  /* Monospace stack centralizada — para tabular nums en montos, IDs, etc.
+   * Se usa con `font-family: var(--font-mono)` + `font-variant-numeric: tabular-nums`. */
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* Sombras reusables para cards y modales (default = dark theme) */
+  --cf-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 2px 8px -2px rgba(0, 0, 0, 0.35);
+  --cf-shadow-modal: 0 20px 60px -20px rgba(0, 0, 0, 0.5);
+
+  /* Alias semánticos contables (sobre accent green/red) */
+  --cf-saldo-positive: var(--cf-accent-green);
+  --cf-saldo-negative: var(--cf-accent-red);
 }
 
 /* ============================================
@@ -308,6 +324,10 @@
   --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.1);
   --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.15);
+
+  /* Finance/ledger overrides — más sutiles sobre fondo claro */
+  --cf-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px -1px rgba(0, 0, 0, 0.08);
+  --cf-shadow-modal: 0 12px 40px -8px rgba(0, 0, 0, 0.18);
 }
 
 /* ============================================

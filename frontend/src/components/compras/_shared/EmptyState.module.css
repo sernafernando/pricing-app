@@ -1,0 +1,127 @@
+/* EmptyState — Vacío con personalidad */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--spacing-sm);
+}
+
+/* ── Tone: hero (dashed border, padding generoso) ──────── */
+.hero {
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(59, 130, 246, 0.04), transparent 60%),
+    var(--cf-bg-card);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-xl);
+}
+
+.hero .icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cf-text-tertiary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.hero .title {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.hero .subtitle {
+  max-width: 420px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Tone: inline (compacto, sin border) ───────────────── */
+.inline {
+  padding: var(--spacing-2xl) var(--spacing-md);
+  gap: var(--spacing-xs);
+}
+
+.inline .icon {
+  color: var(--cf-text-tertiary);
+  opacity: 0.5;
+}
+
+.inline .title {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  font-weight: 500;
+}
+
+.inline .subtitle {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Tone: default (intermedio) ────────────────────────── */
+.default {
+  padding: var(--spacing-2xl);
+  background: var(--cf-bg-card);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.default .icon {
+  color: var(--cf-text-tertiary);
+  opacity: 0.5;
+}
+
+.default .title {
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.default .subtitle {
+  font-size: var(--font-xs);
+}
+
+/* ── CTA buttons ───────────────────────────────────────── */
+.ctaPrimary,
+.ctaSecondary {
+  margin-top: var(--spacing-sm);
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-out);
+  border: 1px solid var(--cf-border-default);
+}
+
+.ctaPrimary {
+  background: var(--cf-accent-blue);
+  color: white;
+  border-color: var(--cf-accent-blue);
+}
+
+.ctaPrimary:hover {
+  filter: brightness(1.08);
+}
+
+.ctaSecondary {
+  background: transparent;
+  color: var(--cf-text-secondary);
+}
+
+.ctaSecondary:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+  color: var(--cf-text-primary);
+}

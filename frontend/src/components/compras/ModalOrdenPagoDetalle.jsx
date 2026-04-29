@@ -18,6 +18,7 @@ import {
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasOP from '../../hooks/useComprasOP';
 import AdjuntosPanel from './AdjuntosPanel';
+import EstadoBadge from './_shared/EstadoBadge';
 import styles from './ModalOrdenPagoDetalle.module.css';
 
 const eventoIcon = (tipo) => {
@@ -70,19 +71,6 @@ const formatCurrency = (value, moneda = 'ARS') => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-};
-
-const estadoBadgeClass = (estado, styles) => {
-  switch (estado) {
-    case 'pendiente':
-      return styles.badgePendiente;
-    case 'pagado':
-      return styles.badgePagado;
-    case 'anulado':
-      return styles.badgeAnulado;
-    default:
-      return styles.badgeNeutral;
-  }
 };
 
 const descripcionModo = (modo) => {
@@ -173,11 +161,7 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
             <span className={styles.modalTitle}>
               {detalle ? `OP ${detalle.numero}` : `OP ${op?.numero || ''}`}
             </span>
-            {estadoActual && (
-              <span className={`${styles.badge} ${estadoBadgeClass(estadoActual, styles)}`}>
-                {estadoActual}
-              </span>
-            )}
+            {estadoActual && <EstadoBadge variant="op" estado={estadoActual} size="md" />}
           </div>
           <button
             className={styles.modalCloseBtn}
