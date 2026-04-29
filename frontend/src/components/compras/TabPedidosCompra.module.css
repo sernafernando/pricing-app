@@ -96,6 +96,30 @@
   flex-wrap: wrap;
 }
 
+/* Monto dual: ARS principal + USD origen secundario.
+ * Pedidos USD se muestran convertidos a ARS (= monto × TC) porque la
+ * empresa paga en pesos. El TC es editable post-aprobado (Feature B). */
+.montoDual {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.montoArsPrincipal {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.montoUsdSecundario {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+}
+
 .rowActions {
   display: flex;
   gap: 4px;

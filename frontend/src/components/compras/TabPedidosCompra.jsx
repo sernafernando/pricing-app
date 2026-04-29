@@ -29,6 +29,7 @@ import DataTable from './_shared/DataTable';
 import EstadoBadge from './_shared/EstadoBadge';
 import LoadingBlock from './_shared/LoadingBlock';
 import FiltersBar from './_shared/FiltersBar';
+import { equivalenteEnArs } from './_shared/formatMoneda';
 import styles from './TabPedidosCompra.module.css';
 
 const PAGE_SIZE = 50;
@@ -477,8 +478,22 @@ export default function TabPedidosCompra() {
         return p.proveedor_nombre || `#${p.proveedor_id}`;
       case 'moneda':
         return <span className={styles.tdMono}>{p.moneda}</span>;
-      case 'monto':
+      case 'monto': {
+        const equivArs = equivalenteEnArs(p.monto, p.moneda, p.tipo_cambio);
+        if (equivArs !== null) {
+          return (
+            <div className={styles.montoDual}>
+              <span className={styles.montoArsPrincipal}>
+                {formatCurrency(equivArs, 'ARS')}
+              </span>
+              <span className={styles.montoUsdSecundario}>
+                {formatCurrency(p.monto, 'USD')} @ {Number(p.tipo_cambio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          );
+        }
         return formatCurrency(p.monto, p.moneda);
+      }
       case 'plazo':
         return <span className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</span>;
       case 'fecha_pago': {

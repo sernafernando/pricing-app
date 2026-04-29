@@ -2118,6 +2118,7 @@ def obtener_cc_por_pedido(
                 pedido_estado=pedido.estado,
                 pedido_monto=Decimal(pedido.monto),
                 pedido_moneda=pedido.moneda,
+                pedido_tipo_cambio=Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None,
                 movimientos=_enriquecer_movimientos_cc(db, list(movs)),
             )
         )
