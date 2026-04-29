@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
-  Loader2,
   Eye,
   Wallet,
   Ban,
@@ -17,6 +16,7 @@ import {
   Trash2,
   Pencil,
   XCircle,
+  Inbox,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -26,26 +26,27 @@ import ModalEjecutarPago from './ModalEjecutarPago';
 import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import DataTable from './_shared/DataTable';
+import EstadoBadge from './_shared/EstadoBadge';
+import LoadingBlock from './_shared/LoadingBlock';
+import FiltersBar from './_shared/FiltersBar';
 import styles from './TabOrdenesPago.module.css';
 
 const PAGE_SIZE = 50;
 
 const ESTADOS_OP = ['pendiente', 'pagado', 'anulado', 'cancelado'];
 
-const estadoBadgeClass = (estado) => {
-  switch (estado) {
-    case 'pendiente':
-      return styles.badgePendiente;
-    case 'pagado':
-      return styles.badgePagado;
-    case 'anulado':
-      return styles.badgeAnulado;
-    case 'cancelado':
-      return styles.badgeAnulado;
-    default:
-      return styles.badgeNeutral;
-  }
-};
+const COLUMNS = [
+  { key: 'numero', label: 'Número', width: '160px' },
+  { key: 'empresa', label: 'Empresa', width: '140px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
+  { key: 'monto', label: 'Monto', align: 'right', width: '140px' },
+  { key: 'modo', label: 'Modo', width: '110px' },
+  { key: 'estado', label: 'Estado', width: '110px' },
+  { key: 'fecha_pago', label: 'Fecha pago', width: '110px' },
+  { key: 'acciones', label: '', align: 'right', width: '180px' },
+];
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -419,6 +420,31 @@ export default function TabOrdenesPago() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const loading = opLoading;
 
+  const renderOPCell = (op, col) => {
+    switch (col.key) {
+      case 'numero':
+        return <span className={styles.tdMono}>{op.numero}</span>;
+      case 'empresa':
+        return op.empresa_nombre || `#${op.empresa_id}`;
+      case 'proveedor':
+        return op.proveedor_nombre || `#${op.proveedor_id}`;
+      case 'moneda':
+        return <span className={styles.tdMono}>{op.moneda}</span>;
+      case 'monto':
+        return formatCurrency(op.monto_total, op.moneda);
+      case 'modo':
+        return <span className={styles.tdSecondary}>{op.modo_imputacion}</span>;
+      case 'estado':
+        return <EstadoBadge variant="op" estado={op.estado} />;
+      case 'fecha_pago':
+        return <span className={styles.tdSecondary}>{formatDate(op.fecha_pago_real)}</span>;
+      case 'acciones':
+        return renderAcciones(op);
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={styles.container}>
       {/* Sección: pedidos aprobados esperando pago */}
@@ -495,109 +521,84 @@ export default function TabOrdenesPago() {
         )}
       </div>
 
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        <div className={styles.filters}>
-          <select
-            className={styles.select}
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-          >
-            <option value="">Todos los estados</option>
-            {ESTADOS_OP.map((estado) => (
-              <option key={estado} value={estado}>
-                {estado}
-              </option>
-            ))}
-          </select>
-          <select
-            className={styles.select}
-            value={filtroEmpresa}
-            onChange={(e) => setFiltroEmpresa(e.target.value)}
-          >
-            <option value="">Todas las empresas</option>
-            {empresas.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.nombre}
-              </option>
-            ))}
-          </select>
-          <div className={styles.filterProveedor}>
-            <ProveedorComprasAutocomplete
-              value={filtroProveedorId ? Number(filtroProveedorId) : null}
-              onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
-              placeholder="Proveedor..."
-            />
-          </div>
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroDesde}
-            onChange={(e) => setFiltroDesde(e.target.value)}
-            title="Desde"
-          />
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroHasta}
-            onChange={(e) => setFiltroHasta(e.target.value)}
-            title="Hasta"
+      {/* Filters + primary action */}
+      <FiltersBar
+        actions={
+          canManage && (
+            <button className={styles.btnSuccess} onClick={() => setShowModalNueva(true)}>
+              <Plus size={14} /> Nueva OP
+            </button>
+          )
+        }
+      >
+        <select
+          className={styles.select}
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          aria-label="Filtrar por estado"
+        >
+          <option value="">Todos los estados</option>
+          {ESTADOS_OP.map((estado) => (
+            <option key={estado} value={estado}>
+              {estado}
+            </option>
+          ))}
+        </select>
+        <select
+          className={styles.select}
+          value={filtroEmpresa}
+          onChange={(e) => setFiltroEmpresa(e.target.value)}
+          aria-label="Filtrar por empresa"
+        >
+          <option value="">Todas las empresas</option>
+          {empresas.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.nombre}
+            </option>
+          ))}
+        </select>
+        <div className={styles.filterProveedor}>
+          <ProveedorComprasAutocomplete
+            value={filtroProveedorId ? Number(filtroProveedorId) : null}
+            onChange={(id) => setFiltroProveedorId(id ? String(id) : '')}
+            placeholder="Proveedor..."
           />
         </div>
-        {canManage && (
-          <button className={styles.btnSuccess} onClick={() => setShowModalNueva(true)}>
-            <Plus size={14} /> Nueva OP
-          </button>
-        )}
-      </div>
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroDesde}
+          onChange={(e) => setFiltroDesde(e.target.value)}
+          title="Desde"
+          aria-label="Desde"
+        />
+        <input
+          type="date"
+          className={styles.input}
+          value={filtroHasta}
+          onChange={(e) => setFiltroHasta(e.target.value)}
+          title="Hasta"
+          aria-label="Hasta"
+        />
+      </FiltersBar>
 
       {opError && <div className={styles.errorBanner}>{opError}</div>}
 
       {/* Table */}
       {loading && items.length === 0 ? (
-        <div className={styles.centered}>
-          <Loader2 size={20} className={styles.spin} /> Cargando órdenes de pago...
-        </div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>No hay órdenes de pago con los filtros aplicados.</div>
+        <LoadingBlock text="Cargando órdenes de pago…" />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Número</th>
-                <th>Empresa</th>
-                <th>Proveedor</th>
-                <th>Moneda</th>
-                <th className={styles.thRight}>Monto</th>
-                <th>Modo</th>
-                <th>Estado</th>
-                <th>Fecha pago</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((op) => (
-                <tr key={op.id}>
-                  <td className={styles.tdMono}>{op.numero}</td>
-                  <td>{op.empresa_nombre || `#${op.empresa_id}`}</td>
-                  <td>{op.proveedor_nombre || `#${op.proveedor_id}`}</td>
-                  <td>{op.moneda}</td>
-                  <td className={styles.tdRight}>
-                    {formatCurrency(op.monto_total, op.moneda)}
-                  </td>
-                  <td className={styles.tdSecondary}>{op.modo_imputacion}</td>
-                  <td>
-                    <span className={`${styles.badge} ${estadoBadgeClass(op.estado)}`}>
-                      {op.estado}
-                    </span>
-                  </td>
-                  <td className={styles.tdSecondary}>{formatDate(op.fecha_pago_real)}</td>
-                  <td>{renderAcciones(op)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <>
+          <DataTable
+            columns={COLUMNS}
+            rows={items}
+            renderCell={renderOPCell}
+            empty={{
+              icon: <Inbox size={28} strokeWidth={1.5} />,
+              title: 'No hay órdenes de pago con los filtros aplicados.',
+            }}
+            minWidth="1100px"
+          />
 
           {totalPages > 1 && (
             <div className={styles.pagination}>
@@ -624,7 +625,7 @@ export default function TabOrdenesPago() {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Modals */}
