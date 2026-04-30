@@ -147,6 +147,91 @@
   composes: btn-tesla secondary icon-only sm from '../styles/buttons-tesla.css';
 }
 
+.btnSecondary {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+/* ── Horas Extras section (Batch 7 — T-7.2) ── */
+.heSection {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.heHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.heTitle {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  margin: 0;
+  color: var(--cf-text-primary);
+}
+
+.heHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.heLabel {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-weight: 500;
+}
+
+.heStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  align-items: stretch;
+}
+
+.heStatCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.heStatLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.heStatValue {
+  font-size: var(--font-xl);
+  color: var(--cf-text-primary);
+  font-weight: 600;
+}
+
+.heStatActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  justify-content: center;
+  align-items: stretch;
+}
+
+.colNumeric {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Mobile responsive ── */
 @media (max-width: 768px) {
   .container {
@@ -183,5 +268,24 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     font-size: 11px;
     white-space: nowrap;
+  }
+
+  .heHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .heHeaderActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .heStats {
+    grid-template-columns: 1fr;
+  }
+
+  .heStatActions {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 }

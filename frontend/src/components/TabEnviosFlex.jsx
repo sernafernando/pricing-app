@@ -2690,7 +2690,7 @@ export default function TabEnviosFlex({ operador = null }) {
                                     <span className={styles.itemCode}>{item.item_code}</span>
                                   )}
                                   <span className={styles.itemDesc}>{item.descripcion}</span>
-                                  <span className={styles.itemQty}>x{item.cantidad}</span>
+                                  <span className={styles.itemQty}>{item.cantidad}x</span>
                                   {item.precio_unitario != null && (
                                     <span className={styles.itemPrice}>
                                       ${item.precio_unitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}

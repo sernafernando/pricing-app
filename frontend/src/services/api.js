@@ -466,4 +466,33 @@ export const empresasAPI = {
   actualizar: (id, data) => api.put(`/admin/empresas/${id}`, data),
 };
 
+// =============================================================================
+// RRHH Horas Extras API (Batch 6 — design §10.5)
+// =============================================================================
+export const horasExtrasApi = {
+  list: (params) => api.get('/rrhh/horas-extras', { params }),
+  get: (id) => api.get(`/rrhh/horas-extras/${id}`),
+  create: (data) => api.post('/rrhh/horas-extras', data),
+  update: (id, data) => api.put(`/rrhh/horas-extras/${id}`, data),
+  aprobar: (id, body) => api.patch(`/rrhh/horas-extras/${id}/aprobar`, body),
+  rechazar: (id, body) => api.patch(`/rrhh/horas-extras/${id}/rechazar`, body),
+  reabrir: (id, body) => api.patch(`/rrhh/horas-extras/${id}/reabrir`, body),
+  bulkAprobar: (body) => api.post('/rrhh/horas-extras/bulk/aprobar', body),
+  bulkRechazar: (body) => api.post('/rrhh/horas-extras/bulk/rechazar', body),
+  completarFichada: (id, body) =>
+    api.post(`/rrhh/horas-extras/${id}/completar-fichada`, body),
+  descartarDia: (id, body) =>
+    api.post(`/rrhh/horas-extras/${id}/descartar-dia`, body),
+  recalcular: (body) => api.post('/rrhh/horas-extras/recalcular', body),
+  liquidar: (body) => api.post('/rrhh/horas-extras/liquidar', body),
+  alertasList: (params) => api.get('/rrhh/horas-extras/alertas', { params }),
+  alertaMarcarLeida: (id) =>
+    api.patch(`/rrhh/horas-extras/alertas/${id}/leida`),
+  historial: (heId) => api.get(`/rrhh/horas-extras/historial/${heId}`),
+  configGet: () => api.get('/rrhh/horas-extras/config'),
+  configPut: (body) => api.put('/rrhh/horas-extras/config', body),
+  exportarXlsx: (params) =>
+    api.get('/rrhh/horas-extras/exportar', { params, responseType: 'blob' }),
+};
+
 export default api;

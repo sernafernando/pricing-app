@@ -99,6 +99,16 @@ from app.models.rrhh_empleado_horario import RRHHEmpleadoHorario
 from app.models.rrhh_hikvision_user import RRHHHikvisionUser
 from app.models.rrhh_motivo_ausencia import RRHHMotivoAusencia
 from app.models.rrhh_motivo_baja import RRHHMotivoBaja
+from app.models.rrhh_horas_extras import (
+    RRHHHorasExtras,
+    RRHHHorasExtrasConfig,
+    RRHHHorasExtrasHistorial,
+    RRHHHorasExtrasAlerta,
+    EstadoHE,
+    TipoDiaHE,
+    GeneradaPorHE,
+    ErrorTipoHE,
+)
 
 # Documentos — Templates PDF
 from app.models.document_template import DocumentTemplate
@@ -266,6 +276,15 @@ __all__ = [
     "RRHHHikvisionUser",
     "RRHHMotivoAusencia",
     "RRHHMotivoBaja",
+    # RRHH — Horas Extras
+    "RRHHHorasExtras",
+    "RRHHHorasExtrasConfig",
+    "RRHHHorasExtrasHistorial",
+    "RRHHHorasExtrasAlerta",
+    "EstadoHE",
+    "TipoDiaHE",
+    "GeneradaPorHE",
+    "ErrorTipoHE",
     # Documentos
     "DocumentTemplate",
     # Proveedores — Módulo Administración

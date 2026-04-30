@@ -128,6 +128,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Vacaciones', path: '/rrhh/vacaciones', permiso: 'rrhh.ver' },
         { label: 'Materiales a Cargo', path: '/rrhh/cuenta-corriente', permiso: 'rrhh.ver' },
         { label: 'Horarios', path: '/rrhh/horarios', permiso: 'rrhh.ver' },
+        { label: 'Horas Extras', path: '/rrhh/horas-extras', permiso: 'rrhh.ver_horas_extras' },
         { label: 'Sueldos', path: '/rrhh/sueldos', permiso: 'rrhh.ver' },
         { label: 'Reportes', path: '/rrhh/reportes', permiso: 'rrhh.ver' },
       ],
