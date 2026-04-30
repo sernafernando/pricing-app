@@ -200,6 +200,46 @@ def _validar_items_whitelist(items: list[dict]) -> None:
                 )
 
 
+def _validar_items_misma_moneda_que_op(session: Session, *, items: list[dict], op_moneda: str) -> None:
+    """
+    Valida que cada item con `destino_tipo='pedido_compra'` apunte a un
+    pedido cuya `moneda` coincida con la `op_moneda`.
+
+    Cross-moneda OP↔pedido NO está soportada en v1 (design D3): sin TC en
+    la imputación, el saldo del pedido se rompe contablemente. Si el user
+    quiere pagar un pedido USD desde una OP, la OP debe ser USD también
+    (la conversión a ARS se hace al imputar contra una caja ARS con TC).
+
+    Bug histórico: hasta este fix, `crear` permitía OP_ARS con item destino
+    pedido_USD → al ejecutar_pago se grababa imputación con
+    moneda_imputada=ARS, tipo_cambio=NULL, destino_id=pedido_USD. La
+    imputación NO descontaba del saldo USD del pedido (filtrado por
+    moneda) → pedido quedaba colgado en pagado_parcial con saldo entero.
+
+    Raises:
+        HTTPException 400 si encuentra inconsistencia.
+    """
+    for idx, item in enumerate(items):
+        if item.get("tipo") != "pedido_compra":
+            continue
+        pedido_id = item.get("id")
+        if pedido_id is None:
+            continue
+        pedido = session.get(PedidoCompra, pedido_id)
+        if pedido is None:
+            continue  # ya rechaza otra validación más adelante
+        if pedido.moneda != op_moneda:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"item[{idx}]: la OP es en {op_moneda} pero el pedido "
+                    f"#{pedido_id} ({pedido.numero}) es en {pedido.moneda}. "
+                    f"Cross-moneda OP↔pedido no soportado. Creá la OP en "
+                    f"{pedido.moneda} para pagar este pedido."
+                ),
+            )
+
+
 def _resolver_supp_id(session: Session, proveedor_id: int) -> Optional[int]:
     prov = session.get(Proveedor, proveedor_id)
     if prov is None:
@@ -372,6 +412,7 @@ def crear(
     items_norm = list(items or [])
     _validar_items_por_modo(modo_imputacion, items_norm, monto_total)
     _validar_items_whitelist(items_norm)
+    _validar_items_misma_moneda_que_op(session, items=items_norm, op_moneda=moneda)
 
     # Detección de duplicados: extraer numeros_factura de items con
     # destino_tipo='factura_erp' o del propio item si trae numero_factura.
@@ -677,6 +718,11 @@ def ejecutar_pago(
 
     # Paso 6 + 7: crear imputaciones según modo + items
     items = _leer_items_de_op(session, op.id)
+    # Defensa en profundidad: validar cross-moneda antes de imputar.
+    # Si una OP llegó hasta acá con items destino_pedido en moneda
+    # distinta a op.moneda (legacy o por bug), abortar antes de grabar
+    # imputación inválida que rompe el saldo del pedido.
+    _validar_items_misma_moneda_que_op(session, items=items, op_moneda=str(op.moneda))
     imputaciones_creadas: list[Imputacion] = []
     pedidos_afectados: set[int] = set()
     sum_items = Decimal("0")
@@ -864,18 +910,21 @@ def editar(
             detail="tipo_cambio debe ser null cuando moneda=ARS.",
         )
 
-    # Si se envían items → revalidar combo (modo + whitelist + suma).
+    # Si se envían items → revalidar combo (modo + whitelist + suma + cross-moneda).
     items_norm: Optional[list[dict]] = None
     if items is not None:
         items_norm = list(items or [])
         _validar_items_por_modo(nuevo_modo, items_norm, nuevo_monto)
         _validar_items_whitelist(items_norm)
+        _validar_items_misma_moneda_que_op(session, items=items_norm, op_moneda=nueva_moneda)
     else:
-        # Si cambió monto o modo pero NO vienen items, revalidar con los
+        # Si cambió monto, modo o moneda pero NO vienen items, revalidar con los
         # items existentes para no dejar la OP inconsistente.
-        if monto_total is not None or modo_imputacion is not None:
+        if monto_total is not None or modo_imputacion is not None or moneda is not None:
             items_actuales = _leer_items_de_op(session, op.id)
             _validar_items_por_modo(nuevo_modo, items_actuales, nuevo_monto)
+            if moneda is not None:
+                _validar_items_misma_moneda_que_op(session, items=items_actuales, op_moneda=nueva_moneda)
 
     # Aplicar cambios en la OP
     if monto_total is not None and Decimal(op.monto_total) != Decimal(monto_total):

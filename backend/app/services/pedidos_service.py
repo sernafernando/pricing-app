@@ -669,21 +669,27 @@ def calcular_saldos_pendientes_batch(session: Session, pedido_ids: list[int]) ->
     GROUP BY pero el saldo es igual al monto del pedido — el caller debe
     fallbackear a `pedido.monto` si la key no está en el dict.
 
+    IMPORTANTE: filtra por `moneda_imputada == pedido.moneda`. Si una imp
+    se grabó en moneda distinta al pedido (caso edge de cross-moneda mal
+    cargada), NO descuenta — el saldo se mantiene en la moneda nativa
+    del pedido. Sin este filtro, un pedido USD con imp ARS sumaba el
+    monto ARS como si fuera USD y daba saldos negativos absurdos.
+
     Returns:
-        dict {pedido_id: imputado_efectivo}. El caller hace
-        `pedido.monto - dict.get(pedido_id, 0)` para obtener el saldo.
+        dict {pedido_id: imputado_efectivo} en la moneda de cada pedido.
+        El caller hace `pedido.monto - dict.get(pedido_id, 0)`.
     """
     from sqlalchemy import case, func as sa_func  # noqa: PLC0415
     from sqlalchemy import select  # noqa: PLC0415
 
     from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
 
     if not pedido_ids:
         return {}
 
     # Sumamos cada imputación con su signo: no-reversal suma, reversal resta.
-    # Filtramos por moneda_imputada == pedido.moneda en el caller (acá
-    # acumulamos todo y dejamos que el caller filtre si necesita).
+    # JOIN con pedido para filtrar imps en la moneda nativa del pedido.
     signed_sum = sa_func.sum(
         case(
             (Imputacion.es_reversal.is_(True), -Imputacion.monto_imputado),
@@ -692,9 +698,11 @@ def calcular_saldos_pendientes_batch(session: Session, pedido_ids: list[int]) ->
     )
     rows = session.execute(
         select(Imputacion.destino_id, signed_sum)
+        .join(PedidoCompra, PedidoCompra.id == Imputacion.destino_id)
         .where(
             Imputacion.destino_tipo == "pedido_compra",
             Imputacion.destino_id.in_(pedido_ids),
+            Imputacion.moneda_imputada == PedidoCompra.moneda,
         )
         .group_by(Imputacion.destino_id)
     ).all()
