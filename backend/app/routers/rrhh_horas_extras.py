@@ -441,7 +441,7 @@ def _cron_lock_activo() -> bool:
 
 
 @router.get(
-    "/",
+    "",
     response_model=HorasExtrasListResponse,
     summary="Listar bloques de HE con filtros y paginación",
 )
@@ -503,7 +503,7 @@ def listar_horas_extras(
 
 
 @router.post(
-    "/",
+    "",
     response_model=HorasExtrasResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear bloque HE manual",
