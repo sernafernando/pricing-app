@@ -40,6 +40,7 @@ import RRHHVacaciones from './pages/RRHHVacaciones';
 import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
 import RRHHHorarios from './pages/RRHHHorarios';
 import RRHHSueldos from './pages/RRHHSueldos';
+const RRHHHorasExtras = lazy(() => import('./pages/RRHHHorasExtras'));
 import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import FichajeMobile from './pages/FichajeMobile';
@@ -277,6 +278,13 @@ function App() {
             <Route path="/rrhh/sueldos" element={
               <ProtectedRoute permiso="rrhh.ver">
                 <RRHHSueldos />
+              </ProtectedRoute>
+            } />
+            <Route path="/rrhh/horas-extras" element={
+              <ProtectedRoute permiso="rrhh.ver_horas_extras">
+                <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Horas Extras...</div>}>
+                  <RRHHHorasExtras />
+                </Suspense>
               </ProtectedRoute>
             } />
             <Route path="/cumpleanos" element={<RRHHCumpleanos />} />

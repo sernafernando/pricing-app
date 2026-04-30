@@ -75,6 +75,7 @@ from app.routers import (
     rrhh_vacaciones,
     rrhh_cuenta_corriente,
     rrhh_horarios,
+    rrhh_horas_extras,
     rrhh_cumpleanos,
     rrhh_reportes,
     seriales,
@@ -92,6 +93,12 @@ from app.tickets.api.endpoints import (
 from app.core.config import settings
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
+
+# Importar `app.events.rrhh_he_hooks` dispara los `@event.listens_for` que
+# detectan modificaciones de fichadas / cambios de turno y generan alertas
+# o recálculos de Horas Extras. DEBE ocurrir ANTES de `include_router(...)`
+# para que los listeners estén activos cuando empiece a aceptar requests.
+from app.events import rrhh_he_hooks  # noqa: F401  (side-effect: registra listeners)
 
 logger = get_logger(__name__)
 
@@ -279,6 +286,7 @@ app.include_router(rrhh_sanciones.router, prefix="/api", tags=["rrhh-sanciones"]
 app.include_router(rrhh_vacaciones.router, prefix="/api", tags=["rrhh-vacaciones"])
 app.include_router(rrhh_cuenta_corriente.router, prefix="/api", tags=["rrhh-cuenta-corriente"])
 app.include_router(rrhh_horarios.router, prefix="/api", tags=["rrhh-horarios"])
+app.include_router(rrhh_horas_extras.router, prefix="/api", tags=["rrhh-horas-extras"])
 app.include_router(rrhh_fichaje_mobile.router, prefix="/api", tags=["rrhh-fichaje-mobile"])
 app.include_router(rrhh_cumpleanos.router, prefix="/api", tags=["rrhh-cumpleanos"])
 app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
