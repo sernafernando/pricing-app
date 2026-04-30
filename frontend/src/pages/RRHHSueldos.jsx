@@ -152,50 +152,12 @@ export default function RRHHSueldos() {
     fetchHorasExtras();
   }, [fetchHorasExtras]);
 
-  if (!tienePermiso('rrhh.ver')) {
-    return <div className={styles.container}>No tienes permiso para ver esta sección.</div>;
-  }
-
-  const normalizedSearch = searchTerm.toLowerCase().trim();
-  const filteredData = normalizedSearch
-    ? data.filter((e) => {
-        const fullName = `${e.apellido} ${e.nombre}`.toLowerCase();
-        const legajo = String(e.legajo || '').toLowerCase();
-        const cuil = String(e.cuil || '').toLowerCase();
-        return fullName.includes(normalizedSearch) || legajo.includes(normalizedSearch) || cuil.includes(normalizedSearch);
-      })
-    : data;
-
-  const incompleteCount = filteredData.filter((e) => !e.banco_cbu).length;
-
-  const handleExportXLSX = () => {
-    const wsData = filteredData.map((e) => ({
-      Legajo: e.legajo,
-      Apellido: e.apellido,
-      Nombre: e.nombre,
-      CUIL: e.cuil || '',
-      Empresa: e.empresa_nombre || '',
-      Banco: e.banco_nombre || '',
-      'Tipo Cuenta': e.banco_tipo_cuenta || '',
-      CBU: e.banco_cbu || '',
-      'Alias CBU': e.banco_alias || '',
-      'Nro Cuenta': e.banco_nro_cuenta || '',
-    }));
-    const ws = XLSX.utils.json_to_sheet(wsData);
-    // Auto-width columns
-    const colWidths = Object.keys(wsData[0] || {}).map((key) => ({
-      wch: Math.max(key.length, ...wsData.map((r) => String(r[key] || '').length)) + 2,
-    }));
-    ws['!cols'] = colWidths;
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Datos Bancarios');
-    XLSX.writeFile(wb, `datos_bancarios_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
   // ── Aggregación por empleado de los bloques HE liquidados ─────────
   // Acumula minutos al 50% (tipo_dia === 'habil_50') y al 100%
   // (tipo_dia ∈ {'sabado_100', 'domingo_100', 'feriado_100'}).
   // 'manual' se cuenta según porcentaje_recargo: <100 → 50%, ≥100 → 100%.
+  // NOTA: estos useMemo deben declararse ANTES del early return de permisos
+  // para no violar rules-of-hooks (orden estable de hooks por render).
   const empleadosHE = useMemo(() => {
     const acc = new Map();
     for (const b of bloquesHE) {
@@ -241,6 +203,46 @@ export default function RRHHSueldos() {
       totalHoras100: totalMin100 / 60,
     };
   }, [empleadosHE]);
+
+  if (!tienePermiso('rrhh.ver')) {
+    return <div className={styles.container}>No tienes permiso para ver esta sección.</div>;
+  }
+
+  const normalizedSearch = searchTerm.toLowerCase().trim();
+  const filteredData = normalizedSearch
+    ? data.filter((e) => {
+        const fullName = `${e.apellido} ${e.nombre}`.toLowerCase();
+        const legajo = String(e.legajo || '').toLowerCase();
+        const cuil = String(e.cuil || '').toLowerCase();
+        return fullName.includes(normalizedSearch) || legajo.includes(normalizedSearch) || cuil.includes(normalizedSearch);
+      })
+    : data;
+
+  const incompleteCount = filteredData.filter((e) => !e.banco_cbu).length;
+
+  const handleExportXLSX = () => {
+    const wsData = filteredData.map((e) => ({
+      Legajo: e.legajo,
+      Apellido: e.apellido,
+      Nombre: e.nombre,
+      CUIL: e.cuil || '',
+      Empresa: e.empresa_nombre || '',
+      Banco: e.banco_nombre || '',
+      'Tipo Cuenta': e.banco_tipo_cuenta || '',
+      CBU: e.banco_cbu || '',
+      'Alias CBU': e.banco_alias || '',
+      'Nro Cuenta': e.banco_nro_cuenta || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(wsData);
+    // Auto-width columns
+    const colWidths = Object.keys(wsData[0] || {}).map((key) => ({
+      wch: Math.max(key.length, ...wsData.map((r) => String(r[key] || '').length)) + 2,
+    }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Datos Bancarios');
+    XLSX.writeFile(wb, `datos_bancarios_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   const handleVerDetalleHE = () => {
     if (!/^\d{6}$/.test(periodoHE)) return;

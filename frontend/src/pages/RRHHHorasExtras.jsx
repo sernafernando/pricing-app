@@ -718,7 +718,6 @@ function BloquesTable({
   onToggleSelectAll,
   puedeAprobar,
   puedeGestionar,
-  puedeLiquidar,
   editingPctId,
   editingPctValue,
   setEditingPctValue,
@@ -775,7 +774,6 @@ function BloquesTable({
         <tbody>
           {items.map((it) => {
             const selected = selectedIds.includes(it.id);
-            const eraLiquidada = it.estado === 'liquidada';
             return (
               <tr key={it.id} className={selected ? styles.rowSelected : undefined}>
                 {showCheckbox && (
