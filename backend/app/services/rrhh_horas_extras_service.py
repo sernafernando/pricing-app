@@ -658,6 +658,14 @@ class HorasExtrasService:
                         self.db.delete(old)
                         actualizados += 1
 
+                    # Forzar DELETE antes de los INSERTs siguientes. SQLAlchemy
+                    # no garantiza el orden DELETE→INSERT en un flush sobre la
+                    # misma tabla, y el unique constraint
+                    # uq_rrhh_he_emp_fecha_tipo (empleado_id, fecha, tipo_dia)
+                    # rompería si el INSERT corre antes que el DELETE.
+                    if existentes_editables:
+                        self.db.flush()
+
                     # Si quedan bloques congelados para (emp, fecha), no recalculamos
                     # nada nuevo (ya fueron procesados). El service confía en el hook
                     # `notificar_fichada_modificada` para detectar divergencias.
