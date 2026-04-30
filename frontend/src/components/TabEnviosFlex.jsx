@@ -5,7 +5,7 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain, Flag, FileDown, Clock,
+  Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
@@ -243,6 +243,10 @@ export default function TabEnviosFlex({ operador = null }) {
   const [bulkLogisticaId, setBulkLogisticaId] = useState('');
   const [bulkTransporteId, setBulkTransporteId] = useState('');
   const [bulkActualizando, setBulkActualizando] = useState(false);
+
+  // Filas expandidas con detalle de productos
+  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [rowItems, setRowItems] = useState({}); // { shipping_id: [items] | 'loading' | 'error' }
 
   // Error inline (reemplaza alert())
   const { toast, showToast: showErrorToast, hideToast } = useToast(5000);
@@ -1065,6 +1069,31 @@ export default function TabEnviosFlex({ operador = null }) {
     setLastSelected(null);
     setBulkLogisticaId('');
     setBulkTransporteId('');
+  };
+
+  // ── Filas expandidas (detalle de productos) ─────────────────
+
+  const toggleExpanded = async (shippingId) => {
+    const nueva = new Set(expandedRows);
+
+    if (nueva.has(shippingId)) {
+      nueva.delete(shippingId);
+      setExpandedRows(nueva);
+      return;
+    }
+
+    nueva.add(shippingId);
+    setExpandedRows(nueva);
+
+    if (!rowItems[shippingId]) {
+      setRowItems((prev) => ({ ...prev, [shippingId]: 'loading' }));
+      try {
+        const { data } = await api.get(`/etiquetas-envio/${shippingId}/items`);
+        setRowItems((prev) => ({ ...prev, [shippingId]: data }));
+      } catch {
+        setRowItems((prev) => ({ ...prev, [shippingId]: 'error' }));
+      }
+    }
   };
 
   const asignarLogisticaMasivo = async () => {
@@ -2264,6 +2293,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     aria-label="Seleccionar todas las etiquetas"
                   />
                 </th>
+                <th className={styles.thChevron} />
                 <th>Shipping ID</th>
                 <th>Destinatario</th>
                 <th>Dirección</th>
@@ -2281,25 +2311,33 @@ export default function TabEnviosFlex({ operador = null }) {
                 <th></th>
               </tr>
             </thead>
-            <tbody>
-              {etiquetasFiltradas.length === 0 ? (
+            {etiquetasFiltradas.length === 0 ? (
+              <tbody>
                 <tr>
-                  <td colSpan={puedeVerCostos ? 15 : 14} className={styles.empty}>
+                  <td colSpan={puedeVerCostos ? 16 : 15} className={styles.empty}>
                     {soloFlag ? 'No hay etiquetas flaggeadas' : 'No hay etiquetas para la fecha seleccionada'}
                   </td>
                 </tr>
-              ) : (
-                <>
+              </tbody>
+            ) : (
+              <>
                 {rowVirtualizer.getVirtualItems()[0]?.start > 0 && (
-                  <tr><td colSpan={puedeVerCostos ? 15 : 14} style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0, border: 'none' }} /></tr>
+                  <tbody aria-hidden="true">
+                    <tr><td colSpan={puedeVerCostos ? 16 : 15} style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0, border: 'none' }} /></tr>
+                  </tbody>
                 )}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const e = etiquetasFiltradas[virtualRow.index];
+                  const isExpanded = expandedRows.has(e.shipping_id);
+                  const items = rowItems[e.shipping_id];
                   return (
-                  <tr
+                  <tbody
                     key={e.shipping_id}
                     ref={rowVirtualizer.measureElement}
                     data-index={virtualRow.index}
+                    className={styles.rowGroup}
+                  >
+                  <tr
                     className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
                   >
                     <td className={styles.tdCheckbox}>
@@ -2310,6 +2348,20 @@ export default function TabEnviosFlex({ operador = null }) {
                         className={styles.checkbox}
                         aria-label={`Seleccionar envío ${e.shipping_id}`}
                       />
+                    </td>
+                    <td className={styles.tdChevron}>
+                      <button
+                        type="button"
+                        className={styles.btnExpand}
+                        onClick={() => toggleExpanded(e.shipping_id)}
+                        aria-label={isExpanded ? 'Ocultar productos' : 'Ver productos'}
+                        aria-expanded={isExpanded}
+                      >
+                        <ChevronRight
+                          size={14}
+                          className={`${styles.expandIcon} ${isExpanded ? styles.expandIconOpen : ''}`}
+                        />
+                      </button>
                     </td>
                     <td>
                       {!e.es_manual && e.ml_order_id ? (
@@ -2617,6 +2669,42 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr className={styles.expandedRow}>
+                      <td colSpan={puedeVerCostos ? 16 : 15}>
+                        {items === 'loading' && (
+                          <div className={styles.expandedLoading}>Cargando productos...</div>
+                        )}
+                        {items === 'error' && (
+                          <div className={styles.expandedEmpty}>Error cargando productos</div>
+                        )}
+                        {Array.isArray(items) && items.length === 0 && (
+                          <div className={styles.expandedEmpty}>Sin productos vinculados</div>
+                        )}
+                        {Array.isArray(items) && items.length > 0 && (
+                          <div className={styles.expandedContent}>
+                            <div className={styles.itemsList}>
+                              {items.map((item, idx) => (
+                                <div key={idx} className={styles.itemRow}>
+                                  {item.item_code && (
+                                    <span className={styles.itemCode}>{item.item_code}</span>
+                                  )}
+                                  <span className={styles.itemDesc}>{item.descripcion}</span>
+                                  <span className={styles.itemQty}>x{item.cantidad}</span>
+                                  {item.precio_unitario != null && (
+                                    <span className={styles.itemPrice}>
+                                      ${item.precio_unitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </tbody>
                   );
                 })}
                 {(() => {
@@ -2624,12 +2712,13 @@ export default function TabEnviosFlex({ operador = null }) {
                   const lastItem = virtualItems[virtualItems.length - 1];
                   const paddingBottom = lastItem ? rowVirtualizer.getTotalSize() - lastItem.end : 0;
                   return paddingBottom > 0 ? (
-                    <tr><td colSpan={puedeVerCostos ? 15 : 14} style={{ height: paddingBottom, padding: 0, border: 'none' }} /></tr>
+                    <tbody aria-hidden="true">
+                      <tr><td colSpan={puedeVerCostos ? 16 : 15} style={{ height: paddingBottom, padding: 0, border: 'none' }} /></tr>
+                    </tbody>
                   ) : null;
                 })()}
-                </>
-              )}
-            </tbody>
+              </>
+            )}
            </table>
         </div>
         </>

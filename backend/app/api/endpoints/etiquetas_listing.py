@@ -7,9 +7,10 @@ Incluye:
 """
 
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, case, cast, func, Numeric, or_
 from sqlalchemy.orm import Session, aliased
 
@@ -25,7 +26,10 @@ from app.models.sale_order_status import SaleOrderStatus
 from app.models.operador import Operador
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
+from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_user_data import MercadoLibreUserData
+from app.models.tb_item import TBItem
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -40,6 +44,19 @@ from app.api.endpoints.etiquetas_shared import (
     EtiquetaEnvioResponse,
     EtiquetaPaginatedResponse,
 )
+
+
+class ItemEnvioFlexResponse(BaseModel):
+    """Item/producto de un envío flex."""
+
+    item_id: Optional[int] = None
+    item_code: Optional[str] = None
+    descripcion: str
+    cantidad: float
+    precio_unitario: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 router = APIRouter()
 
@@ -628,3 +645,72 @@ def check_updates(
         count=row.count,
         last_updated=row.last_updated.isoformat() if row.last_updated else None,
     )
+
+
+@router.get(
+    "/etiquetas-envio/{shipping_id}/items",
+    response_model=List[ItemEnvioFlexResponse],
+    summary="Items/productos de un envío flex",
+)
+def items_envio_flex(
+    shipping_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[ItemEnvioFlexResponse]:
+    """
+    Devuelve los productos que componen un envío flex.
+
+    Cadena: shipping_id → MercadoLibreOrderShipping.mlshippingid → mlo_id
+    → MercadoLibreOrderDetail → mlo_title + item_id → TBItem.item_desc/item_code
+
+    Si la etiqueta es manual o no tiene órdenes ML asociadas, devuelve [].
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    shipping_rows = (
+        db.query(MercadoLibreOrderShipping.mlo_id)
+        .filter(MercadoLibreOrderShipping.mlshippingid == shipping_id)
+        .distinct()
+        .all()
+    )
+
+    mlo_ids = [r.mlo_id for r in shipping_rows if r.mlo_id]
+    if not mlo_ids:
+        return []
+
+    items_query = (
+        db.query(
+            MercadoLibreOrderDetail.item_id,
+            MercadoLibreOrderDetail.mlo_title,
+            MercadoLibreOrderDetail.mlo_quantity,
+            MercadoLibreOrderDetail.mlo_unit_price,
+            TBItem.item_code,
+            TBItem.item_desc,
+        )
+        .outerjoin(
+            TBItem,
+            MercadoLibreOrderDetail.item_id == TBItem.item_id,
+        )
+        .filter(MercadoLibreOrderDetail.mlo_id.in_(mlo_ids))
+        .all()
+    )
+
+    seen: dict[str, dict] = {}
+    for row in items_query:
+        key = f"{row.item_id or 'none'}_{row.mlo_title or ''}"
+        if key in seen:
+            seen[key]["cantidad"] += float(row.mlo_quantity or 0)
+        else:
+            seen[key] = {
+                "item_id": row.item_id,
+                "item_code": row.item_code,
+                "descripcion": row.mlo_title or row.item_desc or "Sin descripción",
+                "cantidad": float(row.mlo_quantity or 0),
+                "precio_unitario": float(row.mlo_unit_price) if row.mlo_unit_price else None,
+            }
+
+    return [ItemEnvioFlexResponse(**item) for item in seen.values()]

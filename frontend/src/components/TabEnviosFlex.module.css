@@ -1208,6 +1208,121 @@
   background-color: var(--bg-hover) !important;
 }
 
+/* ── Expand chevron + fila expandida con productos ──────────── */
+
+.thChevron {
+  width: 28px;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.tdChevron {
+  width: 28px;
+  text-align: center;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.btnExpand {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btnExpand:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.expandIcon {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(90deg);
+}
+
+/* tbody wrapper de cada fila — necesario para virtualización con altura variable */
+.rowGroup {
+  display: table-row-group;
+}
+
+.expandedRow td {
+  padding: 0 !important;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-primary);
+}
+
+.expandedContent {
+  padding: 12px 14px 12px 70px;
+  animation: expandIn 0.15s ease;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 400px; }
+}
+
+.itemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.itemCode {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.itemDesc {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.itemQty {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.itemPrice {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.expandedLoading {
+  padding: 12px 14px 12px 70px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.expandedEmpty {
+  padding: 12px 14px 12px 70px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
 /* ── Selection Bar (floating) ──────────────────────────────── */
 
 .selectionBar {
