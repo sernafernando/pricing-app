@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { MapPin, AlertTriangle, Zap, CloudRain, Crosshair } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
+import api from '../services/api';
 import styles from './MapaEnviosFlex.module.css';
 
 // Fix iconos de Leaflet que no cargan por default
@@ -105,6 +106,93 @@ const CORDON_COLORS = {
   'Cordón 3': '#ef4444',
 };
 
+// ── Items del envío (lazy fetch al abrir el popup) ──────────────
+const PopupItems = ({ shippingId }) => {
+  const [items, setItems] = useState('loading');
+
+  useEffect(() => {
+    let cancelado = false;
+    api
+      .get(`/etiquetas-envio/${shippingId}/items`)
+      .then(({ data }) => {
+        if (!cancelado) setItems(data);
+      })
+      .catch(() => {
+        if (!cancelado) setItems('error');
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [shippingId]);
+
+  if (items === 'loading') {
+    return <div className={styles.popupItemsLoading}>Cargando productos...</div>;
+  }
+  if (items === 'error') {
+    return <div className={styles.popupItemsEmpty}>Error cargando productos</div>;
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return <div className={styles.popupItemsEmpty}>Sin productos vinculados</div>;
+  }
+
+  return (
+    <div className={styles.popupItems}>
+      <div className={styles.popupItemsTitle}>Productos:</div>
+      {items.map((item, idx) => (
+        <div key={idx} className={styles.popupItemRow}>
+          <span className={styles.popupItemQty}>{item.cantidad}x</span>
+          {item.item_code && (
+            <span className={styles.popupItemCode}>{item.item_code}</span>
+          )}
+          <span className={styles.popupItemDesc}>{item.descripcion}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ── Marker individual con popup que carga items on-demand ──────
+const EnvioMarker = ({ envio, color }) => {
+  const [popupAbierto, setPopupAbierto] = useState(false);
+
+  return (
+    <Marker
+      position={[envio.latitud, envio.longitud]}
+      icon={createColoredIcon(color, envio.es_turbo)}
+      eventHandlers={{
+        popupopen: () => setPopupAbierto(true),
+        popupclose: () => setPopupAbierto(false),
+      }}
+    >
+      <Popup>
+        <div className={styles.popup}>
+          <h4>
+            Envío #{envio.shipping_id}
+            {envio.es_turbo && <Zap size={14} className={styles.popupTurboIcon} />}
+            {envio.es_lluvia && <CloudRain size={14} className={styles.popupLluviaIcon} />}
+          </h4>
+          <p><strong>Destinatario:</strong> {envio.mlreceiver_name}</p>
+          <p><strong>Dirección:</strong> {envio.direccion_completa || [envio.mlstreet_name, envio.mlstreet_number].filter(Boolean).join(' ') || 'Sin dirección'}</p>
+          <p><strong>CP:</strong> {envio.mlzip_code}</p>
+          <p><strong>Cordón:</strong> {envio.cordon || 'Sin asignar'}</p>
+          <p><strong>Logística:</strong> {envio.logistica_nombre || 'Sin asignar'}</p>
+          {envio.transporte_nombre && (
+            <p><strong>Transporte:</strong> {envio.transporte_nombre}</p>
+          )}
+          <p>
+            <strong>Estado ML:</strong>{' '}
+            {ML_STATUS_LABELS[envio.mlstatus] || envio.mlstatus}
+          </p>
+          {envio.pistoleado_at && (
+            <p><strong>Pistoleado:</strong> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}</p>
+          )}
+          {popupAbierto && <PopupItems shippingId={envio.shipping_id} />}
+        </div>
+      </Popup>
+    </Marker>
+  );
+};
+
 // ── Main Component ──────────────────────────────────────────────
 export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodificando = false }) {
   const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
@@ -192,36 +280,11 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
         {posiciones.length > 0 && <FitBounds positions={posiciones} resetKey={fitBoundsKey} />}
 
         {conCoords.map((envio) => (
-          <Marker
+          <EnvioMarker
             key={envio.shipping_id}
-            position={[envio.latitud, envio.longitud]}
-            icon={createColoredIcon(getColor(envio), envio.es_turbo)}
-          >
-            <Popup>
-              <div className={styles.popup}>
-                <h4>
-                  Envío #{envio.shipping_id}
-                  {envio.es_turbo && <Zap size={14} className={styles.popupTurboIcon} />}
-                  {envio.es_lluvia && <CloudRain size={14} className={styles.popupLluviaIcon} />}
-                </h4>
-                <p><strong>Destinatario:</strong> {envio.mlreceiver_name}</p>
-                <p><strong>Dirección:</strong> {envio.direccion_completa || [envio.mlstreet_name, envio.mlstreet_number].filter(Boolean).join(' ') || 'Sin dirección'}</p>
-                <p><strong>CP:</strong> {envio.mlzip_code}</p>
-                <p><strong>Cordón:</strong> {envio.cordon || 'Sin asignar'}</p>
-                <p><strong>Logística:</strong> {envio.logistica_nombre || 'Sin asignar'}</p>
-                {envio.transporte_nombre && (
-                  <p><strong>Transporte:</strong> {envio.transporte_nombre}</p>
-                )}
-                <p>
-                  <strong>Estado ML:</strong>{' '}
-                  {ML_STATUS_LABELS[envio.mlstatus] || envio.mlstatus}
-                </p>
-                {envio.pistoleado_at && (
-                  <p><strong>Pistoleado:</strong> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}</p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
+            envio={envio}
+            color={getColor(envio)}
+          />
         ))}
       </MapContainer>
 

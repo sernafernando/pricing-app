@@ -248,6 +248,71 @@
   font-weight: var(--font-medium);
 }
 
+/* ── Items del envío dentro del popup ──────────────────────── */
+
+.popupItems {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.popupItemsTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.popupItemRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.popupItemQty {
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  min-width: 28px;
+  flex-shrink: 0;
+}
+
+.popupItemCode {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.popupItemDesc {
+  flex: 1;
+}
+
+.popupItemsLoading {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-primary);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.popupItemsEmpty {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-primary);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
 /* ============================================
    LEAFLET POPUP OVERRIDE (global dentro del módulo)
    ============================================ */
