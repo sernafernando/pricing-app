@@ -21,7 +21,7 @@ import zipfile
 from io import BytesIO
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import List, Optional
@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
+from app.models.colecta import Colecta
 from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
@@ -67,6 +68,9 @@ class EtiquetaColectaResponse(BaseModel):
 
     shipping_id: str
     fecha_carga: date
+    colecta_id: int
+    colecta_numero: int
+    colecta_estado: str
     mlreceiver_name: Optional[str] = None
     mlstatus: Optional[str] = None
     mlsubstatus: Optional[str] = None
@@ -111,6 +115,9 @@ class ScanIndividualRequest(BaseModel):
     """Payload para carga individual por escaneo de QR."""
 
     qr_json: str = Field(..., description="JSON crudo del QR de la etiqueta (tal cual lo lee la pistola)")
+    colecta_id: Optional[int] = Field(None, description="Colecta destino. Si no se pasa, se resuelve por fecha/numero")
+    fecha: Optional[date] = Field(None, description="Fecha de la colecta (default hoy)")
+    numero: Optional[int] = Field(None, description="Número de colecta del día")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -179,6 +186,7 @@ def _insertar_etiqueta_colecta(
     hash_code: Optional[str],
     nombre_archivo: Optional[str],
     fecha_carga: date,
+    colecta_id: int,
 ) -> bool:
     """
     Inserta una etiqueta de colecta si no existe.
@@ -194,9 +202,69 @@ def _insertar_etiqueta_colecta(
         hash_code=hash_code,
         nombre_archivo=nombre_archivo,
         fecha_carga=fecha_carga,
+        colecta_id=colecta_id,
     )
     db.add(etiqueta)
     return True
+
+
+def _resolver_colecta(
+    db: Session,
+    colecta_id: Optional[int],
+    fecha: Optional[date],
+    numero: Optional[int],
+) -> Colecta:
+    """
+    Resuelve la colecta destino para una operación de upload/scan.
+
+    Reglas:
+      - Si viene colecta_id, se usa esa (debe existir y estar pendiente).
+      - Si viene fecha+numero, busca o crea esa colecta.
+      - Si viene solo fecha, usa la última pendiente del día o crea #1.
+      - Si no viene nada, usa hoy con esa misma lógica.
+    """
+    if colecta_id is not None:
+        colecta = db.query(Colecta).filter(Colecta.id == colecta_id).first()
+        if not colecta:
+            raise HTTPException(404, f"Colecta id={colecta_id} no encontrada")
+        if colecta.estado == Colecta.ESTADO_DESPACHADA:
+            raise HTTPException(
+                400,
+                f"La colecta {colecta.fecha} #{colecta.numero} ya fue despachada — no se pueden agregar etiquetas",
+            )
+        return colecta
+
+    f = fecha or date.today()
+
+    if numero is not None:
+        colecta = db.query(Colecta).filter(Colecta.fecha == f, Colecta.numero == numero).first()
+        if colecta:
+            if colecta.estado == Colecta.ESTADO_DESPACHADA:
+                raise HTTPException(
+                    400,
+                    f"Colecta {f} #{numero} ya fue despachada — no se pueden agregar etiquetas",
+                )
+            return colecta
+        nueva = Colecta(fecha=f, numero=numero, estado=Colecta.ESTADO_PENDIENTE)
+        db.add(nueva)
+        db.flush()
+        return nueva
+
+    # Sin número: usa última pendiente del día o crea #1
+    pendiente = (
+        db.query(Colecta)
+        .filter(Colecta.fecha == f, Colecta.estado == Colecta.ESTADO_PENDIENTE)
+        .order_by(Colecta.numero.desc())
+        .first()
+    )
+    if pendiente:
+        return pendiente
+
+    max_num = db.query(func.max(Colecta.numero)).filter(Colecta.fecha == f).scalar() or 0
+    nueva = Colecta(fecha=f, numero=max_num + 1, estado=Colecta.ESTADO_PENDIENTE)
+    db.add(nueva)
+    db.flush()
+    return nueva
 
 
 def _soh_status_subquery(db: Session):
@@ -283,6 +351,7 @@ def _procesar_archivo_zpl(
     filename: str,
     db: Session,
     fecha_carga: date,
+    colecta_id: int,
 ) -> tuple[int, int, int, int, List[str]]:
     """
     Procesa un archivo ZPL (.zip o .txt), extrae QRs y registra etiquetas.
@@ -322,6 +391,7 @@ def _procesar_archivo_zpl(
                 hash_code=parsed["hash_code"],
                 nombre_archivo=filename,
                 fecha_carga=fecha_carga,
+                colecta_id=colecta_id,
             )
             if insertada:
                 nuevas += 1
@@ -342,21 +412,28 @@ def _procesar_archivo_zpl(
 )
 async def upload_etiquetas_colecta(
     files: List[UploadFile] = File(..., description="Archivos .zip o .txt con etiquetas ZPL de colecta"),
+    colecta_id: Optional[int] = Form(None, description="Colecta destino. Si no se pasa, se resuelve por fecha/numero"),
+    fecha: Optional[date] = Form(None, description="Fecha de la colecta (default hoy)"),
+    numero: Optional[int] = Form(None, description="Número de colecta del día (default próximo disponible)"),
     db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> UploadResultResponse:
     """
     Sube uno o más archivos ZPL de colecta (.zip o .txt), extrae los QR codes
-    y registra las etiquetas en la tabla etiquetas_colecta.
+    y registra las etiquetas asociadas a una colecta.
+
+    La colecta se resuelve por colecta_id, o por (fecha, numero). Si la colecta
+    no existe, se crea. Si está despachada, se rechaza la operación.
     """
     _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    colecta = _resolver_colecta(db, colecta_id, fecha, numero)
 
     total = 0
     nuevas = 0
     duplicadas = 0
     errores = 0
     detalle_errores: List[str] = []
-    hoy = date.today()
 
     for file in files:
         filename = file.filename or ""
@@ -366,7 +443,7 @@ async def upload_etiquetas_colecta(
             continue
 
         content = await file.read()
-        f_total, f_nuevas, f_dup, f_err, f_det = _procesar_archivo_zpl(content, filename, db, hoy)
+        f_total, f_nuevas, f_dup, f_err, f_det = _procesar_archivo_zpl(content, filename, db, colecta.fecha, colecta.id)
         total += f_total
         nuevas += f_nuevas
         duplicadas += f_dup
@@ -384,6 +461,7 @@ async def upload_etiquetas_colecta(
         raise HTTPException(500, "Error guardando etiquetas")
 
     await sse_publish("etiquetas:changed", {"hint": "reload"})
+    await sse_publish("colectas:changed", {"hint": "reload"})
 
     return UploadResultResponse(
         total=total,
@@ -402,6 +480,10 @@ async def upload_etiquetas_colecta(
 def listar_etiquetas_colecta(
     fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),
     fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha (inclusive)"),
+    colecta_id: Optional[int] = Query(None, description="Filtrar por colecta específica"),
+    incluir_despachadas: bool = Query(
+        False, description="Si False (default), oculta etiquetas de colectas despachadas"
+    ),
     mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP (ssos_id)"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id o destinatario"),
@@ -420,11 +502,23 @@ def listar_etiquetas_colecta(
     from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 
     # ── 1) Etiquetas base ──────────────────────────────────────────
-    q = db.query(EtiquetaColecta.shipping_id, EtiquetaColecta.fecha_carga)
+    q = db.query(
+        EtiquetaColecta.shipping_id,
+        EtiquetaColecta.fecha_carga,
+        EtiquetaColecta.colecta_id,
+        Colecta.numero.label("colecta_numero"),
+        Colecta.estado.label("colecta_estado"),
+    ).join(Colecta, EtiquetaColecta.colecta_id == Colecta.id)
+
     if fecha_desde:
         q = q.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
     if fecha_hasta:
         q = q.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
+    if colecta_id is not None:
+        q = q.filter(EtiquetaColecta.colecta_id == colecta_id)
+    if not incluir_despachadas:
+        q = q.filter(Colecta.estado == Colecta.ESTADO_PENDIENTE)
+
     etiquetas_rows = q.order_by(EtiquetaColecta.shipping_id).all()
 
     if not etiquetas_rows:
@@ -542,6 +636,9 @@ def listar_etiquetas_colecta(
         row = EtiquetaColectaResponse(
             shipping_id=sid,
             fecha_carga=et.fecha_carga,
+            colecta_id=et.colecta_id,
+            colecta_numero=et.colecta_numero,
+            colecta_estado=et.colecta_estado,
             mlreceiver_name=ship.mlreceiver_name if ship else None,
             mlstatus=ship.mlstatus if ship else None,
             mlsubstatus=ship.mlsubstatus if ship else None,
@@ -749,14 +846,16 @@ def scan_individual_colecta(
     except (json.JSONDecodeError, ValueError) as e:
         raise HTTPException(400, f"QR inválido: {e}")
 
-    hoy = date.today()
+    colecta = _resolver_colecta(db, payload.colecta_id, payload.fecha, payload.numero)
+
     insertada = _insertar_etiqueta_colecta(
         db,
         shipping_id=parsed["shipping_id"],
         sender_id=parsed["sender_id"],
         hash_code=parsed["hash_code"],
         nombre_archivo="scan_individual",
-        fecha_carga=hoy,
+        fecha_carga=colecta.fecha,
+        colecta_id=colecta.id,
     )
 
     try:
@@ -767,6 +866,7 @@ def scan_individual_colecta(
         raise HTTPException(500, "Error guardando etiqueta")
 
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+    sse_publish_bg("colectas:changed", {"hint": "reload"})
 
     if insertada:
         return ScanIndividualResponse(

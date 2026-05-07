@@ -68,6 +68,7 @@ from app.models.rma_caso_historial import RmaCasoHistorial
 from app.models.rma_control_deposito_item import ControlDepoItem
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.rma_claim_ml_message import RmaClaimMLMessage
+from app.models.colecta import Colecta
 from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.weather_history import WeatherHistory
 
@@ -238,6 +239,7 @@ __all__ = [
     "ControlDepoItem",
     "RmaClaimML",
     "RmaClaimMLMessage",
+    "Colecta",
     "EtiquetaColecta",
     "WeatherHistory",
     # RRHH
