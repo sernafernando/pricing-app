@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Column,
+    ForeignKey,
     Integer,
     BigInteger,
     String,
@@ -8,6 +9,7 @@ from sqlalchemy import (
     Text,
     Index,
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -38,7 +40,11 @@ class EtiquetaColecta(Base):
 
     fecha_carga = Column(Date, nullable=False)
 
+    colecta_id = Column(Integer, ForeignKey("colectas.id", ondelete="RESTRICT"), nullable=False, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    colecta = relationship("Colecta", back_populates="etiquetas")
 
     __table_args__ = (Index("idx_etiquetas_colecta_fecha", "fecha_carga"),)

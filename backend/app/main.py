@@ -56,6 +56,7 @@ from app.api.endpoints import (
     sounds,
     transportes,
     etiquetas_colecta,
+    colectas,
 )
 from app.routers import (
     administracion_bancos,
@@ -277,6 +278,7 @@ app.include_router(rma_control_deposito.router, prefix="/api", tags=["rma-contro
 app.include_router(rma_proveedores.router, prefix="/api", tags=["RMA Proveedores"])
 app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboard"])
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
+app.include_router(colectas.router, prefix="/api", tags=["colectas"])
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
