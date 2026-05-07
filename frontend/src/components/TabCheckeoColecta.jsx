@@ -718,22 +718,27 @@ export default function TabCheckeoColecta() {
             </select>
           )}
 
-          {/* Selector de lote */}
-          {lotes.length > 0 && (
-            <select
-              value={filtroBatchId || ''}
-              onChange={(e) => setFiltroBatchId(e.target.value || null)}
-              className={styles.selectSm}
-              title="Filtrar por lote de carga"
-            >
-              <option value="">Lote ({lotes.length})</option>
-              {lotes.map((l) => (
-                <option key={l.upload_batch_id} value={l.upload_batch_id}>
-                  {formatLoteLabel(l)}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Selector de lote — siempre visible para que el usuario sepa que existe */}
+          <select
+            value={filtroBatchId || ''}
+            onChange={(e) => setFiltroBatchId(e.target.value || null)}
+            className={styles.selectSm}
+            title={
+              lotes.length > 0
+                ? 'Filtrar por lote de carga'
+                : 'Sin lotes en este rango (subí ZPLs para crear uno)'
+            }
+            disabled={lotes.length === 0}
+          >
+            <option value="">
+              {lotes.length > 0 ? `Lote (${lotes.length})` : 'Lote — sin lotes'}
+            </option>
+            {lotes.map((l) => (
+              <option key={l.upload_batch_id} value={l.upload_batch_id}>
+                {formatLoteLabel(l)}
+              </option>
+            ))}
+          </select>
 
           {/* Toggle ver despachadas */}
           <button
