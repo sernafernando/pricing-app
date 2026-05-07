@@ -84,8 +84,20 @@ class ErrorTipoHE(str, enum.Enum):
     Sub-clasificación del estado `error_fichadas`.
 
     Solo válido cuando `estado='error_fichadas'`. NULL en cualquier otro estado.
+
+    Activo:
+        FICHADA_UNICA — única causa real de error con la lógica simple
+        (primera fichada = entrada, última = salida). Si solo hay 1
+        fichada en el día, es ambigua: el operador completa con
+        "Completar fichada".
+
+    Legacy (mantenidos para compat con bloques en DB creados antes del
+    cambio de lógica que parea por orden ignorando `tipo`):
+        FICHADAS_DESBALANCEADAS, SIN_FICHADA_ENTRADA, SIN_FICHADA_SALIDA,
+        SOLAPAMIENTO. No se generan nuevos.
     """
 
+    FICHADA_UNICA = "fichada_unica"
     FICHADAS_DESBALANCEADAS = "fichadas_desbalanceadas"
     SIN_FICHADA_ENTRADA = "sin_fichada_entrada"
     SIN_FICHADA_SALIDA = "sin_fichada_salida"

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { horasExtrasApi } from '../services/api';
 import {
@@ -14,6 +15,7 @@ import {
   Undo2,
   Trash2,
   PenLine,
+  CalendarDays,
 } from 'lucide-react';
 import styles from './RRHHHorasExtras.module.css';
 import HEModalMotivo from './components/HEModalMotivo';
@@ -32,11 +34,13 @@ const TABS = [
   { key: 'alertas', label: 'Alertas' },
 ];
 
+// `pendiente_asignacion_turno` va al tab Anomalías (junto con `error_fichadas`):
+// son casos que requieren intervención humana antes de que haya HE aprobables.
 const ESTADOS_POR_TAB = {
-  pendientes: 'detectada,pendiente_asignacion_turno',
+  pendientes: 'detectada',
   aprobadas: 'aprobada',
   liquidadas: 'liquidada',
-  anomalias: 'error_fichadas',
+  anomalias: 'error_fichadas,pendiente_asignacion_turno',
 };
 
 const PAGE_SIZE = 500;
@@ -84,7 +88,9 @@ function periodoLabel(periodoYYYYMM) {
 }
 
 function fmtHoras(min) {
-  if (min == null || Number.isNaN(min)) return '0m';
+  // null = no calculado (pendiente_asignacion_turno o error_fichadas).
+  // Distinto de "0 minutos calculados" — usamos guion para que se vea claro.
+  if (min == null || Number.isNaN(min)) return '—';
   const total = Math.max(0, Math.round(min));
   const h = Math.floor(total / 60);
   const m = total % 60;
@@ -155,6 +161,7 @@ function tipoDiaBadge(tipo) {
 
 export default function RRHHHorasExtras() {
   const { tienePermiso } = usePermisos();
+  const navigate = useNavigate();
 
   // Permisos puntuales
   const puedeVer = tienePermiso('rrhh.ver_horas_extras');
@@ -285,13 +292,14 @@ export default function RRHHHorasExtras() {
       );
       setCounts({
         // Caveat: el backend devuelve empleados distintos POR estado, no globalmente.
-        // Sumar `detectada + pendiente_asignacion_turno` puede sobrecontar si un mismo
-        // empleado tiene bloques en ambos estados (raro, y solo afecta el badge cosmético).
-        pendientes:
-          (porEstado.detectada || 0) + (porEstado.pendiente_asignacion_turno || 0),
+        // Sumar estados en anomalías puede sobrecontar si un empleado tiene bloques
+        // en ambos (error_fichadas + pendiente_asignacion_turno) — raro, y solo
+        // afecta el badge cosmético.
+        pendientes: porEstado.detectada || 0,
         aprobadas: porEstado.aprobada || 0,
         liquidadas: porEstado.liquidada || 0,
-        anomalias: porEstado.error_fichadas || 0,
+        anomalias:
+          (porEstado.error_fichadas || 0) + (porEstado.pendiente_asignacion_turno || 0),
         alertas: data.empleados_con_alertas || 0,
       });
     } catch (err) {
@@ -795,6 +803,7 @@ export default function RRHHHorasExtras() {
           }
           onCompletar={(id) => setModal({ type: 'completar', id })}
           onDescartar={(id) => setModal({ type: 'descartar', id })}
+          onAsignarTurno={() => navigate('/rrhh/horarios')}
           onDetalle={(id) => setModal({ type: 'detalle', id })}
           onLiquidar={(ids) => setModal({ type: 'liquidar', ids })}
         />
@@ -947,6 +956,7 @@ function EmpleadosView({
   onReabrir,
   onCompletar,
   onDescartar,
+  onAsignarTurno,
   onDetalle,
   onLiquidar,
 }) {
@@ -990,6 +1000,7 @@ function EmpleadosView({
           onReabrir={onReabrir}
           onCompletar={onCompletar}
           onDescartar={onDescartar}
+          onAsignarTurno={onAsignarTurno}
           onDetalle={onDetalle}
           onLiquidar={onLiquidar}
         />
@@ -1014,6 +1025,7 @@ function EmpleadoAcordeon({
   onReabrir,
   onCompletar,
   onDescartar,
+  onAsignarTurno,
   onDetalle,
   onLiquidar,
 }) {
@@ -1090,6 +1102,7 @@ function EmpleadoAcordeon({
         onReabrir={onReabrir}
         onCompletar={onCompletar}
         onDescartar={onDescartar}
+        onAsignarTurno={onAsignarTurno}
         onDetalle={onDetalle}
       />
     </details>
@@ -1109,6 +1122,7 @@ function BloquesTable({
   onReabrir,
   onCompletar,
   onDescartar,
+  onAsignarTurno,
   onDetalle,
 }) {
   return (
@@ -1221,24 +1235,38 @@ function BloquesTable({
 
                     {activeTab === 'anomalias' && (
                       <>
-                        {puedeGestionar && (
-                          <button
-                            className={styles.btnPrimary}
-                            onClick={() => onCompletar(b.id)}
-                            title="Completar fichada"
-                          >
-                            <PenLine size={14} /> Completar
-                          </button>
-                        )}
-                        {puedeAprobar && (
-                          <button
-                            className={styles.btnWarning}
-                            onClick={() => onDescartar(b.id)}
-                            title="Descartar día"
-                            aria-label="Descartar día"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                        {b.estado === 'pendiente_asignacion_turno' ? (
+                          puedeGestionar && (
+                            <button
+                              className={styles.btnPrimary}
+                              onClick={() => onAsignarTurno()}
+                              title="Asignar turno al empleado"
+                            >
+                              <CalendarDays size={14} /> Asignar turno
+                            </button>
+                          )
+                        ) : (
+                          <>
+                            {puedeGestionar && (
+                              <button
+                                className={styles.btnPrimary}
+                                onClick={() => onCompletar(b.id)}
+                                title="Completar fichada"
+                              >
+                                <PenLine size={14} /> Completar
+                              </button>
+                            )}
+                            {puedeAprobar && (
+                              <button
+                                className={styles.btnWarning}
+                                onClick={() => onDescartar(b.id)}
+                                title="Descartar día"
+                                aria-label="Descartar día"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </>
                         )}
                       </>
                     )}

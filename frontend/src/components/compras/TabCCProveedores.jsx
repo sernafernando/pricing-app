@@ -15,6 +15,7 @@ import {
   Coins,
   ArrowRight,
   Link2,
+  Wallet,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
