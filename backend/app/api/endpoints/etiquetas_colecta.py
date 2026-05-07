@@ -156,6 +156,29 @@ class BorrarColectaRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReasignarColectaRequest(BaseModel):
+    """Payload para reasignar etiquetas a otra colecta."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    colecta_destino_id: Optional[int] = Field(None, description="Si se omite, usa fecha+numero")
+    fecha: Optional[date] = Field(None, description="Fecha de la colecta destino (default hoy)")
+    numero: Optional[int] = Field(None, description="Número de colecta del día destino")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReasignarColectaResponse(BaseModel):
+    """Resultado de reasignación masiva."""
+
+    movidas: int
+    no_encontradas: List[str] = []
+    colecta_destino_id: int
+    colecta_destino_fecha: date
+    colecta_destino_numero: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LoteCargaResponse(BaseModel):
     """Resumen de un lote de carga (todas las etiquetas subidas en un mismo POST)."""
 
@@ -1015,6 +1038,58 @@ def borrar_etiquetas_colecta(
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "eliminadas": deleted}
+
+
+@router.post(
+    "/etiquetas-colecta/reasignar",
+    response_model=ReasignarColectaResponse,
+    summary="Reasignar etiquetas a otra colecta",
+)
+def reasignar_etiquetas_colecta(
+    payload: ReasignarColectaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ReasignarColectaResponse:
+    """
+    Mueve un conjunto de etiquetas a otra colecta. La colecta destino se resuelve
+    igual que en upload: por colecta_destino_id, o por (fecha, numero) — si no
+    existe, se crea. La colecta destino debe estar pendiente.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    destino = _resolver_colecta(db, payload.colecta_destino_id, payload.fecha, payload.numero)
+
+    etiquetas = db.query(EtiquetaColecta).filter(EtiquetaColecta.shipping_id.in_(payload.shipping_ids)).all()
+    encontradas = {e.shipping_id for e in etiquetas}
+    no_encontradas = [sid for sid in payload.shipping_ids if sid not in encontradas]
+
+    if not etiquetas:
+        raise HTTPException(404, "Ninguna de las etiquetas existe")
+
+    movidas = 0
+    for e in etiquetas:
+        if e.colecta_id != destino.id:
+            e.colecta_id = destino.id
+            e.fecha_carga = destino.fecha
+            movidas += 1
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Error en commit de reasignación: %s", exc)
+        raise HTTPException(500, "Error reasignando etiquetas")
+
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+    sse_publish_bg("colectas:changed", {"hint": "reload"})
+
+    return ReasignarColectaResponse(
+        movidas=movidas,
+        no_encontradas=no_encontradas,
+        colecta_destino_id=destino.id,
+        colecta_destino_fecha=destino.fecha,
+        colecta_destino_numero=destino.numero,
+    )
 
 
 @router.get(

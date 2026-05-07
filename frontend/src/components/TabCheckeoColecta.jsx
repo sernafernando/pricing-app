@@ -3,7 +3,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, Calendar, Table, ExternalLink,
   ScanBarcode, Trash2, X, CheckCircle, AlertCircle, ChevronRight,
-  PackageCheck, RotateCcw, Eye, EyeOff,
+  PackageCheck, RotateCcw, Eye, EyeOff, Move,
 } from 'lucide-react';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -124,6 +124,13 @@ export default function TabCheckeoColecta() {
 
   // Delete confirmation (replaces window.confirm)
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Move (reasignar) dropdown
+  const [showMoveDropdown, setShowMoveDropdown] = useState(false);
+  const [moveFecha, setMoveFecha] = useState(todayStr());
+  const [moveNumero, setMoveNumero] = useState(1);
+  const [moveResult, setMoveResult] = useState(null);
+  const [moving, setMoving] = useState(false);
 
   // Expanded rows (product details)
   const [expandedRows, setExpandedRows] = useState(new Set());
@@ -397,6 +404,35 @@ export default function TabCheckeoColecta() {
     setSelectedIds(new Set());
     setLastSelected(null);
     setConfirmDelete(false);
+  };
+
+  // ── Mover seleccionados a otra colecta ───────────────────────
+
+  const moverSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+
+    setMoving(true);
+    setMoveResult(null);
+    try {
+      const { data } = await api.post('/etiquetas-colecta/reasignar', {
+        shipping_ids: Array.from(selectedIds),
+        fecha: moveFecha,
+        numero: moveNumero,
+      });
+      setMoveResult({ ok: true, ...data });
+      setShowMoveDropdown(false);
+      limpiarSeleccion();
+      cargarTodo();
+      // Auto-clear feedback después de 4s
+      setTimeout(() => setMoveResult(null), 4000);
+    } catch (err) {
+      setMoveResult({
+        ok: false,
+        error: err.response?.data?.detail || err.message,
+      });
+    } finally {
+      setMoving(false);
+    }
   };
 
   // ── Borrar seleccionados ─────────────────────────────────────
@@ -1007,6 +1043,24 @@ export default function TabCheckeoColecta() {
         </>
       )}
 
+      {/* Move result feedback */}
+      {moveResult && (
+        <div className={moveResult.ok ? styles.uploadSuccess : styles.uploadError}>
+          {moveResult.ok ? (
+            <p>
+              <strong>{moveResult.movidas}</strong> etiqueta{moveResult.movidas !== 1 ? 's' : ''} movida
+              {moveResult.movidas !== 1 ? 's' : ''} a colecta {moveResult.colecta_destino_fecha} #
+              {moveResult.colecta_destino_numero}
+              {moveResult.no_encontradas?.length > 0 && (
+                <> · {moveResult.no_encontradas.length} no encontrada{moveResult.no_encontradas.length !== 1 ? 's' : ''}</>
+              )}
+            </p>
+          ) : (
+            <p>Error al mover: {moveResult.error}</p>
+          )}
+        </div>
+      )}
+
       {/* Selection bar */}
       {selectedIds.size > 0 && !confirmDelete && (
         <div className={styles.selectionBar}>
@@ -1015,6 +1069,62 @@ export default function TabCheckeoColecta() {
           </span>
 
           <div className={styles.selectionActions}>
+            {puedeSubir && (
+              <div className={styles.uploadDropdownWrap}>
+                <button
+                  onClick={() => setShowMoveDropdown(!showMoveDropdown)}
+                  className={styles.colectaBtnDespachar}
+                  title="Mover a otra colecta"
+                  aria-label="Mover etiquetas seleccionadas a otra colecta"
+                  disabled={moving}
+                >
+                  <Move size={16} />
+                  {moving ? 'Moviendo...' : 'Mover'}
+                </button>
+
+                {showMoveDropdown && (
+                  <>
+                    <div className={styles.dateDropdownOverlay} onClick={() => setShowMoveDropdown(false)} />
+                    <div className={styles.uploadDropdown}>
+                      <div className={styles.uploadDropdownField}>
+                        <label>Fecha colecta destino</label>
+                        <input
+                          type="date"
+                          value={moveFecha}
+                          onChange={(e) => setMoveFecha(e.target.value)}
+                          className={styles.uploadDropdownInput}
+                        />
+                      </div>
+                      <div className={styles.uploadDropdownField}>
+                        <label>Número de colecta</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={moveNumero}
+                          onChange={(e) => setMoveNumero(parseInt(e.target.value, 10) || 1)}
+                          className={styles.uploadDropdownInput}
+                        />
+                        <span className={styles.uploadDropdownHint}>
+                          Si no existe, se crea. Debe estar pendiente.
+                        </span>
+                      </div>
+                      <div className={styles.uploadDropdownActions}>
+                        <button
+                          type="button"
+                          onClick={moverSeleccionados}
+                          className={`${styles.btnUpload} ${styles.uploadDropdownBtnFile}`}
+                          disabled={moving}
+                        >
+                          <Move size={14} />
+                          Mover {selectedIds.size}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {puedeEliminar && (
               <button
                 onClick={() => setConfirmDelete(true)}
