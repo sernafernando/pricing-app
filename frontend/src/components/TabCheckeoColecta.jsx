@@ -1085,7 +1085,7 @@ export default function TabCheckeoColecta() {
                 {showMoveDropdown && (
                   <>
                     <div className={styles.dateDropdownOverlay} onClick={() => setShowMoveDropdown(false)} />
-                    <div className={styles.uploadDropdown}>
+                    <div className={`${styles.uploadDropdown} ${styles.uploadDropdownAbove}`}>
                       <div className={styles.uploadDropdownField}>
                         <label>Fecha colecta destino</label>
                         <input

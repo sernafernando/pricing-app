@@ -939,6 +939,11 @@
   gap: 10px;
 }
 
+.uploadDropdownAbove {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .uploadDropdownField {
   display: flex;
   flex-direction: column;
