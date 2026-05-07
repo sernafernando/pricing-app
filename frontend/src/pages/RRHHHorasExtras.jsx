@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
-import { rrhhAPI, horasExtrasApi } from '../services/api';
+import { horasExtrasApi } from '../services/api';
 import {
   Clock,
   RotateCcw,
@@ -9,7 +9,6 @@ import {
   Eye,
   AlertTriangle,
   Bell,
-  Percent,
   FileSpreadsheet,
   CheckCheck,
   Undo2,
@@ -26,42 +25,133 @@ import HEModalHistorial from './components/HEModalHistorial';
 
 // ── Constantes ───────────────────────────────────────────
 const TABS = [
-  { key: 'pendientes', label: 'Pendientes', estados: ['detectada', 'error_fichadas', 'pendiente_asignacion_turno'] },
-  { key: 'aprobadas', label: 'Aprobadas', estados: ['aprobada'] },
-  { key: 'liquidadas', label: 'Liquidadas', estados: ['liquidada'] },
-  { key: 'anomalias', label: 'Anomalías', estados: ['error_fichadas'] },
-  { key: 'alertas', label: 'Alertas', estados: null },
+  { key: 'pendientes', label: 'Pendientes' },
+  { key: 'aprobadas', label: 'Aprobadas' },
+  { key: 'liquidadas', label: 'Liquidadas' },
+  { key: 'anomalias', label: 'Anomalías' },
+  { key: 'alertas', label: 'Alertas' },
 ];
 
-const PAGE_SIZE = 50;
-
-const formatFechaISO = (dateStr) => {
-  if (!dateStr) return '-';
-  try {
-    const d = new Date(dateStr + 'T12:00:00');
-    if (Number.isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
+const ESTADOS_POR_TAB = {
+  pendientes: 'detectada,pendiente_asignacion_turno',
+  aprobadas: 'aprobada',
+  liquidadas: 'liquidada',
+  anomalias: 'error_fichadas',
 };
 
-const formatTimestamp = (ts) => {
+const PAGE_SIZE = 500;
+const MAX_PAGES = 10; // safety cap
+
+// ── Helpers de período / formato ─────────────────────────
+function currentPeriodo() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function periodoToInputMonth(p) {
+  // "202605" -> "2026-05"
+  if (!p || p.length !== 6) return '';
+  return `${p.slice(0, 4)}-${p.slice(4, 6)}`;
+}
+
+function inputMonthToPeriodo(v) {
+  // "2026-05" -> "202605"
+  if (!v || v.length !== 7) return '';
+  return v.replace('-', '');
+}
+
+function mesToRango(periodoYYYYMM) {
+  const yyyy = parseInt(periodoYYYYMM.slice(0, 4), 10);
+  const mm = parseInt(periodoYYYYMM.slice(4, 6), 10);
+  if (Number.isNaN(yyyy) || Number.isNaN(mm)) {
+    return { fecha_desde: '', fecha_hasta: '' };
+  }
+  const desde = new Date(Date.UTC(yyyy, mm - 1, 1));
+  const hasta = new Date(Date.UTC(yyyy, mm, 0));
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  return { fecha_desde: fmt(desde), fecha_hasta: fmt(hasta) };
+}
+
+function periodoLabel(periodoYYYYMM) {
+  const yyyy = periodoYYYYMM.slice(0, 4);
+  const mm = parseInt(periodoYYYYMM.slice(4, 6), 10);
+  const meses = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+  const nombre = meses[mm - 1] || mm;
+  return `${nombre} ${yyyy}`;
+}
+
+function fmtHoras(min) {
+  if (min == null || Number.isNaN(min)) return '0m';
+  const total = Math.max(0, Math.round(min));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
+function fmtFechaCorta(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getDay()];
+  return `${dd}/${mm} ${dia}`;
+}
+
+function fmtHora(timestampISO) {
+  if (!timestampISO) return '—';
+  const d = new Date(timestampISO);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function fmtTimestamp(ts) {
   if (!ts) return '-';
-  try {
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return ts;
-    return d.toLocaleString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return ts;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// Clasifica un bloque entre 50% y 100% para los totales por empleado.
+function clasificarRecargo(b) {
+  const min = b.extras_minutos || 0;
+  if (b.tipo_dia === 'habil_50') return { p50: min, p100: 0 };
+  if (
+    b.tipo_dia === 'sabado_100' ||
+    b.tipo_dia === 'domingo_100' ||
+    b.tipo_dia === 'feriado_100'
+  ) {
+    return { p50: 0, p100: min };
   }
+  // manual u otros: clasificar por porcentaje_recargo
+  const pct = Number(b.porcentaje_recargo) || 0;
+  if (pct >= 100) return { p50: 0, p100: min };
+  return { p50: min, p100: 0 };
+}
+
+const TIPO_DIA_BADGE = {
+  habil_50: { label: '50%', cls: 'tipoDiaInfo' },
+  sabado_100: { label: 'Sábado 100%', cls: 'tipoDiaWarn' },
+  domingo_100: { label: 'Domingo 100%', cls: 'tipoDiaWarn' },
+  feriado_100: { label: 'Feriado 100%', cls: 'tipoDiaWarn' },
+  manual: { label: 'Manual', cls: 'tipoDiaNeutral' },
 };
+
+function tipoDiaBadge(tipo) {
+  const meta = TIPO_DIA_BADGE[tipo] || { label: tipo || '-', cls: 'tipoDiaNeutral' };
+  return { label: meta.label, cls: styles[meta.cls] || styles.tipoDiaNeutral };
+}
 
 export default function RRHHHorasExtras() {
   const { tienePermiso } = usePermisos();
@@ -72,31 +162,21 @@ export default function RRHHHorasExtras() {
   const puedeAprobar = tienePermiso('rrhh.aprobar_horas_extras');
   const puedeLiquidar = tienePermiso('rrhh.liquidar_horas_extras');
 
-  // ── Tab state ─────────────────────────────
+  // ── Tab + período ─────────────────────────
   const [activeTab, setActiveTab] = useState('pendientes');
+  const [periodo, setPeriodo] = useState(currentPeriodo());
 
-  // ── Filtros ───────────────────────────────
-  const [filtroEmpleadoId, setFiltroEmpleadoId] = useState('');
-  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
-  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
-  const [filtroTipoDia, setFiltroTipoDia] = useState('');
-  const [filtroPeriodo, setFiltroPeriodo] = useState('');
-  const [empleados, setEmpleados] = useState([]);
-
-  // ── Datos ─────────────────────────────────
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // ── Datos: bloques (todas las tabs no-alertas) ──
+  const [bloques, setBloques] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Alertas (tab dedicado)
+  // Alertas
   const [alertas, setAlertas] = useState([]);
-  const [alertasTotal, setAlertasTotal] = useState(0);
-  const [verLeidas, setVerLeidas] = useState(false);
   const [loadingAlertas, setLoadingAlertas] = useState(false);
+  const [verLeidas, setVerLeidas] = useState(false);
 
-  // Counts para badges de tabs
+  // Counts para badges (cantidad de empleados con bloques en el mes/tab)
   const [counts, setCounts] = useState({
     pendientes: 0,
     aprobadas: 0,
@@ -105,91 +185,86 @@ export default function RRHHHorasExtras() {
     alertas: 0,
   });
 
-  // Selección múltiple
-  const [selectedIds, setSelectedIds] = useState([]);
+  // ── Selección bulk ─────────────────────────
+  // Modelo dual para preservar la decisión del usuario entre refreshes:
+  //   - tab "pendientes": default = TODOS tildados. Usamos `excludedIds`
+  //     (ids destildados manualmente). Así un refresh no re-tilda lo que
+  //     el usuario destildó.
+  //   - tab "aprobadas": default = NINGUNO tildado. Usamos `manualSelectedIds`
+  //     (selección manual desde cero, comportamiento estándar).
+  // Reset de ambos en cambio de tab o período.
+  const [excludedIds, setExcludedIds] = useState(new Set());
+  const [manualSelectedIds, setManualSelectedIds] = useState(new Set());
 
-  // Edición inline %
-  const [editingPctId, setEditingPctId] = useState(null);
-  const [editingPctValue, setEditingPctValue] = useState('');
-
-  // ── Modal state ───────────────────────────
+  // Modal state
   const [modal, setModal] = useState(null);
-  // shapes:
-  //  { type: 'rechazar', target: 'individual'|'bulk', id?: number, ids?: number[] }
-  //  { type: 'reabrir', id, era_liquidada }
-  //  { type: 'descartar', id }
-  //  { type: 'completar', id }
-  //  { type: 'aprobar', id?, ids? }
-  //  { type: 'detalle', id }
-  //  { type: 'recalcular' }
-  //  { type: 'liquidar', ids }
 
-  // ── Empleados (para filter select) ────────
-  useEffect(() => {
-    if (!puedeVer) return;
-    rrhhAPI
-      .listarEmpleados({ page_size: 200, estado: 'activo' })
-      .then(({ data }) => {
-        setEmpleados(Array.isArray(data) ? data : data.items || []);
-      })
-      .catch(() => setEmpleados([]));
-  }, [puedeVer]);
+  const { fecha_desde, fecha_hasta } = useMemo(() => mesToRango(periodo), [periodo]);
 
-  // ── Fetch list ─────────────────────────────
-  const tab = useMemo(() => TABS.find((t) => t.key === activeTab), [activeTab]);
+  // ── Fetch helpers ─────────────────────────
+  const fetchBloquesEstado = useCallback(
+    async (estado) => {
+      const acc = [];
+      let pageNum = 1;
+      // Loop conservador: page_size=500, hasta MAX_PAGES.
+      // En la práctica un mes tiene <1000 bloques, así que con 1-2 páginas alcanza.
+      while (pageNum <= MAX_PAGES) {
+        const { data } = await horasExtrasApi.list({
+          estado,
+          fecha_desde,
+          fecha_hasta,
+          page: pageNum,
+          page_size: PAGE_SIZE,
+        });
+        const items = data.items || [];
+        acc.push(...items);
+        const total = data.total ?? items.length;
+        if (acc.length >= total || items.length === 0) break;
+        pageNum += 1;
+      }
+      return acc;
+    },
+    [fecha_desde, fecha_hasta],
+  );
 
   const fetchList = useCallback(async () => {
     if (!puedeVer || activeTab === 'alertas') return;
     setLoading(true);
     setError(null);
-    setSelectedIds([]);
     try {
-      const params = {
-        page,
-        page_size: PAGE_SIZE,
-      };
-      if (tab && tab.estados) {
-        params.estado = tab.estados.join(',');
+      const estado = ESTADOS_POR_TAB[activeTab];
+      if (!estado) {
+        setBloques([]);
+        return;
       }
-      if (filtroEmpleadoId) params.empleado_id = filtroEmpleadoId;
-      if (filtroFechaDesde) params.fecha_desde = filtroFechaDesde;
-      if (filtroFechaHasta) params.fecha_hasta = filtroFechaHasta;
-      if (filtroTipoDia) params.tipo_dia = filtroTipoDia;
-      if (activeTab === 'liquidadas' && filtroPeriodo) params.periodo = filtroPeriodo;
-
-      const { data } = await horasExtrasApi.list(params);
-      setItems(data.items || []);
-      setTotal(data.total ?? (data.items?.length || 0));
+      const items = await fetchBloquesEstado(estado);
+      setBloques(items);
     } catch (err) {
       setError(err?.response?.data?.detail || 'Error al cargar bloques');
-      setItems([]);
-      setTotal(0);
+      setBloques([]);
     } finally {
       setLoading(false);
     }
-  }, [puedeVer, activeTab, page, tab, filtroEmpleadoId, filtroFechaDesde, filtroFechaHasta, filtroTipoDia, filtroPeriodo]);
+  }, [puedeVer, activeTab, fetchBloquesEstado]);
 
   useEffect(() => {
     fetchList();
   }, [fetchList]);
 
-  // ── Fetch alertas ──────────────────────────
   const fetchAlertas = useCallback(async () => {
     if (!puedeVer || activeTab !== 'alertas') return;
     setLoadingAlertas(true);
     setError(null);
     try {
       const { data } = await horasExtrasApi.alertasList({
+        solo_no_leidas: !verLeidas,
         page: 1,
         page_size: PAGE_SIZE,
-        solo_no_leidas: !verLeidas,
       });
       setAlertas(data.items || []);
-      setAlertasTotal(data.total ?? (data.items?.length || 0));
     } catch (err) {
       setError(err?.response?.data?.detail || 'Error al cargar alertas');
       setAlertas([]);
-      setAlertasTotal(0);
     } finally {
       setLoadingAlertas(false);
     }
@@ -199,28 +274,31 @@ export default function RRHHHorasExtras() {
     fetchAlertas();
   }, [fetchAlertas]);
 
-  // ── Fetch counts (todos los tabs) ──────────
+  // Counts: cantidad de empleados distintos con bloques en el mes por tab.
+  // Una única llamada al endpoint /resumen que agrega por estado en backend.
   const fetchCounts = useCallback(async () => {
     if (!puedeVer) return;
     try {
-      const [pend, apr, liq, ano, alr] = await Promise.all([
-        horasExtrasApi.list({ estado: 'detectada,error_fichadas,pendiente_asignacion_turno', page: 1, page_size: 1 }).catch(() => ({ data: { total: 0 } })),
-        horasExtrasApi.list({ estado: 'aprobada', page: 1, page_size: 1 }).catch(() => ({ data: { total: 0 } })),
-        horasExtrasApi.list({ estado: 'liquidada', page: 1, page_size: 1 }).catch(() => ({ data: { total: 0 } })),
-        horasExtrasApi.list({ estado: 'error_fichadas', page: 1, page_size: 1 }).catch(() => ({ data: { total: 0 } })),
-        horasExtrasApi.alertasList({ solo_no_leidas: true, page: 1, page_size: 1 }).catch(() => ({ data: { total: 0 } })),
-      ]);
+      const { data } = await horasExtrasApi.resumen(periodo);
+      const porEstado = Object.fromEntries(
+        (data.estados || []).map((e) => [e.estado, e.empleados]),
+      );
       setCounts({
-        pendientes: pend.data?.total || 0,
-        aprobadas: apr.data?.total || 0,
-        liquidadas: liq.data?.total || 0,
-        anomalias: ano.data?.total || 0,
-        alertas: alr.data?.total || 0,
+        // Caveat: el backend devuelve empleados distintos POR estado, no globalmente.
+        // Sumar `detectada + pendiente_asignacion_turno` puede sobrecontar si un mismo
+        // empleado tiene bloques en ambos estados (raro, y solo afecta el badge cosmético).
+        pendientes:
+          (porEstado.detectada || 0) + (porEstado.pendiente_asignacion_turno || 0),
+        aprobadas: porEstado.aprobada || 0,
+        liquidadas: porEstado.liquidada || 0,
+        anomalias: porEstado.error_fichadas || 0,
+        alertas: data.empleados_con_alertas || 0,
       });
-    } catch {
-      // silently
+    } catch (err) {
+      // Counts son cosméticos: no bloqueamos UI, solo logueamos.
+      console.error('Error cargando resumen mensual:', err);
     }
-  }, [puedeVer]);
+  }, [puedeVer, periodo]);
 
   useEffect(() => {
     fetchCounts();
@@ -233,7 +311,320 @@ export default function RRHHHorasExtras() {
     fetchCounts();
   }, [fetchList, fetchAlertas, fetchCounts]);
 
-  // ── Permission gate ───────────────────────
+  // ── Agrupación por empleado ───────────────
+  const empleadosAgrupados = useMemo(() => {
+    const acc = new Map();
+    for (const b of bloques) {
+      if (!acc.has(b.empleado_id)) {
+        acc.set(b.empleado_id, {
+          empleado_id: b.empleado_id,
+          empleado_nombre: b.empleado_nombre || `#${b.empleado_id}`,
+          empleado_legajo: b.empleado_legajo || '-',
+          bloques: [],
+          total_minutos_50: 0,
+          total_minutos_100: 0,
+        });
+      }
+      const ref = acc.get(b.empleado_id);
+      ref.bloques.push(b);
+      const { p50, p100 } = clasificarRecargo(b);
+      ref.total_minutos_50 += p50;
+      ref.total_minutos_100 += p100;
+    }
+    return Array.from(acc.values())
+      .sort((a, b) => a.empleado_nombre.localeCompare(b.empleado_nombre, 'es'))
+      .map((e) => ({
+        ...e,
+        bloques: [...e.bloques].sort((a, b) => {
+          const cmp = a.fecha.localeCompare(b.fecha);
+          if (cmp !== 0) return cmp;
+          return (a.id || 0) - (b.id || 0);
+        }),
+      }));
+  }, [bloques]);
+
+  // selectedIds derivado del modelo dual.
+  //   - pendientes: aprobables (estado=detectada) - excluidos por el user
+  //   - aprobadas:  manualSelectedIds (intersección con bloques visibles para
+  //                 evitar ids "fantasma" que sobreviven a un refresh)
+  //   - resto:      vacío (no hay bulk select)
+  const selectedIds = useMemo(() => {
+    if (activeTab === 'pendientes') {
+      const aprobables = bloques
+        .filter((b) => b.estado === 'detectada')
+        .map((b) => b.id);
+      return new Set(aprobables.filter((id) => !excludedIds.has(id)));
+    }
+    if (activeTab === 'aprobadas') {
+      const visibles = new Set(bloques.map((b) => b.id));
+      return new Set(
+        Array.from(manualSelectedIds).filter((id) => visibles.has(id)),
+      );
+    }
+    return new Set();
+  }, [activeTab, bloques, excludedIds, manualSelectedIds]);
+
+  // Reset de ambos sets al cambiar de tab o período.
+  useEffect(() => {
+    setExcludedIds(new Set());
+    setManualSelectedIds(new Set());
+  }, [activeTab, periodo]);
+
+  // Agrupación de alertas por empleado
+  const alertasFiltradas = useMemo(() => {
+    // Filtra al mes seleccionado por la fecha de la alerta cuando está disponible.
+    const inRange = (iso) => {
+      if (!iso) return true;
+      return iso >= fecha_desde && iso <= fecha_hasta;
+    };
+    return alertas.filter((a) => inRange(a.fecha));
+  }, [alertas, fecha_desde, fecha_hasta]);
+
+  const alertasAgrupadas = useMemo(() => {
+    const acc = new Map();
+    for (const a of alertasFiltradas) {
+      const key = a.empleado_id || 0;
+      if (!acc.has(key)) {
+        acc.set(key, {
+          empleado_id: a.empleado_id,
+          empleado_nombre: a.empleado_nombre || (a.empleado_id ? `#${a.empleado_id}` : 'Sin empleado'),
+          empleado_legajo: a.empleado_legajo || '-',
+          alertas: [],
+        });
+      }
+      acc.get(key).alertas.push(a);
+    }
+    return Array.from(acc.values()).sort((a, b) =>
+      (a.empleado_nombre || '').localeCompare(b.empleado_nombre || '', 'es'),
+    );
+  }, [alertasFiltradas]);
+
+  // ── Selección bulk helpers ────────────────
+  // Toggle: en "pendientes" mutamos `excludedIds` (lógica invertida);
+  // en "aprobadas" mutamos `manualSelectedIds` (lógica directa).
+  const toggleSelectId = useCallback(
+    (id) => {
+      if (activeTab === 'pendientes') {
+        setExcludedIds((prev) => {
+          const next = new Set(prev);
+          // Si está excluido → re-tildar (quitar del exclude set).
+          // Si no está excluido → destildar (agregar al exclude set).
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      } else if (activeTab === 'aprobadas') {
+        setManualSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      }
+    },
+    [activeTab],
+  );
+
+  const toggleSelectEmpleado = useCallback(
+    (emp) => {
+      const ids = emp.bloques
+        .filter(
+          (b) => b.estado !== 'error_fichadas' && b.estado !== 'pendiente_asignacion_turno',
+        )
+        .map((b) => b.id);
+      if (ids.length === 0) return;
+
+      if (activeTab === 'pendientes') {
+        // En pendientes: si TODOS están tildados (= ninguno está en excluded),
+        // los destildamos a todos (los agregamos a excluded).
+        // Si alguno está destildado, los re-tildamos a todos (los quitamos de excluded).
+        setExcludedIds((prev) => {
+          const next = new Set(prev);
+          const allOn = ids.every((id) => !next.has(id));
+          if (allOn) ids.forEach((id) => next.add(id));
+          else ids.forEach((id) => next.delete(id));
+          return next;
+        });
+      } else if (activeTab === 'aprobadas') {
+        setManualSelectedIds((prev) => {
+          const next = new Set(prev);
+          const allOn = ids.every((id) => next.has(id));
+          if (allOn) ids.forEach((id) => next.delete(id));
+          else ids.forEach((id) => next.add(id));
+          return next;
+        });
+      }
+    },
+    [activeTab],
+  );
+
+  // Helper: limpia selección actual (según tab activo).
+  // En "pendientes" eso significa destildar todo (excluir todos los aprobables).
+  // En "aprobadas" significa vaciar el set manual.
+  const clearSelection = useCallback(() => {
+    if (activeTab === 'pendientes') {
+      const aprobables = bloques
+        .filter((b) => b.estado === 'detectada')
+        .map((b) => b.id);
+      setExcludedIds(new Set(aprobables));
+    } else if (activeTab === 'aprobadas') {
+      setManualSelectedIds(new Set());
+    }
+  }, [activeTab, bloques]);
+
+  // Helper: tras una acción bulk exitosa, los ids procesados ya no están
+  // en `bloques`, pero mantenemos los sets coherentes (no acumular basura).
+  const resetSelection = useCallback(() => {
+    setExcludedIds(new Set());
+    setManualSelectedIds(new Set());
+  }, []);
+
+  // ── Actions ────────────────────────────────
+  const handleAprobarIndividual = useCallback(
+    async (id, body = {}) => {
+      await horasExtrasApi.aprobar(id, body);
+      refresh();
+    },
+    [refresh],
+  );
+
+  const handleRechazarIndividual = useCallback(
+    async (id, motivo) => {
+      await horasExtrasApi.rechazar(id, { motivo });
+      refresh();
+    },
+    [refresh],
+  );
+
+  const handleReabrir = useCallback(
+    async (id, motivo) => {
+      await horasExtrasApi.reabrir(id, { motivo });
+      refresh();
+    },
+    [refresh],
+  );
+
+  const handleBulkAprobar = useCallback(
+    async (body) => {
+      const ids = Array.from(selectedIds);
+      await horasExtrasApi.bulkAprobar({ ids, ...body });
+      resetSelection();
+      refresh();
+    },
+    [selectedIds, refresh, resetSelection],
+  );
+
+  const handleBulkRechazar = useCallback(
+    async (motivo) => {
+      const ids = Array.from(selectedIds);
+      await horasExtrasApi.bulkRechazar({ ids, motivo });
+      resetSelection();
+      refresh();
+    },
+    [selectedIds, refresh, resetSelection],
+  );
+
+  const handleBulkReabrir = useCallback(
+    async (motivo) => {
+      const ids = Array.from(selectedIds);
+      // Una sola llamada al endpoint bulk: errores parciales vienen en `fallidos`,
+      // no como excepción global. Un fallido individual no aborta al resto.
+      const { data } = await horasExtrasApi.bulkReabrir({ ids, motivo });
+      const fallidos = data?.fallidos || [];
+      if (fallidos.length > 0) {
+        const detalle = fallidos
+          .slice(0, 5)
+          .map((f) => `#${f.id}: ${f.detail || f.status}`)
+          .join('; ');
+        const extra = fallidos.length > 5 ? ` (+${fallidos.length - 5} más)` : '';
+        setError(`No se pudieron reabrir ${fallidos.length} bloque(s): ${detalle}${extra}`);
+      }
+      resetSelection();
+      refresh();
+    },
+    [selectedIds, refresh, resetSelection],
+  );
+
+  const handleCompletarFichada = useCallback(
+    async (id, body) => {
+      await horasExtrasApi.completarFichada(id, body);
+      refresh();
+    },
+    [refresh],
+  );
+
+  const handleDescartarDia = useCallback(
+    async (id, motivo) => {
+      await horasExtrasApi.descartarDia(id, { motivo });
+      refresh();
+    },
+    [refresh],
+  );
+
+  const handleRecalcular = useCallback(
+    async (body) => {
+      const { data } = await horasExtrasApi.recalcular(body);
+      refresh();
+      return data;
+    },
+    [refresh],
+  );
+
+  const handleLiquidar = useCallback(
+    async (body) => {
+      await horasExtrasApi.liquidar(body);
+      resetSelection();
+      refresh();
+    },
+    [refresh, resetSelection],
+  );
+
+  const handleAlertaMarcarLeida = useCallback(
+    async (id) => {
+      try {
+        await horasExtrasApi.alertaMarcarLeida(id);
+        fetchAlertas();
+        fetchCounts();
+      } catch (err) {
+        setError(err?.response?.data?.detail || 'Error al marcar la alerta');
+      }
+    },
+    [fetchAlertas, fetchCounts],
+  );
+
+  // Export Excel — usa el periodo global (siempre disponible).
+  const handleExportar = useCallback(async () => {
+    if (!periodo || !/^\d{6}$/.test(periodo)) {
+      setError('Período inválido para exportar.');
+      return;
+    }
+    try {
+      const res = await horasExtrasApi.exportarXlsx({ periodo });
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `horas_extras_${periodo}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Error al exportar Excel');
+    }
+  }, [periodo]);
+
+  // ── Render ────────────────────────────────
+  const isAlertasTab = activeTab === 'alertas';
+  const isAnomaliasTab = activeTab === 'anomalias';
+  const isPendientesTab = activeTab === 'pendientes';
+  const isAprobadasTab = activeTab === 'aprobadas';
+  const isLiquidadasTab = activeTab === 'liquidadas';
+  const showBulkBar =
+    !isAlertasTab && !isAnomaliasTab && selectedIds.size > 0 && (isPendientesTab || isAprobadasTab);
+
   if (!puedeVer) {
     return (
       <div className={styles.container}>
@@ -244,130 +635,6 @@ export default function RRHHHorasExtras() {
     );
   }
 
-  // ── Selección bulk ────────────────────────
-  const toggleSelect = (id) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.length === items.length && items.length > 0) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(items.map((it) => it.id));
-    }
-  };
-
-  // ── Actions ────────────────────────────────
-  const handleAprobarIndividual = async (id, body = {}) => {
-    await horasExtrasApi.aprobar(id, body);
-    refresh();
-  };
-
-  const handleRechazarIndividual = async (id, motivo) => {
-    await horasExtrasApi.rechazar(id, { motivo });
-    refresh();
-  };
-
-  const handleReabrir = async (id, motivo) => {
-    await horasExtrasApi.reabrir(id, { motivo });
-    refresh();
-  };
-
-  const handleBulkAprobar = async (body) => {
-    await horasExtrasApi.bulkAprobar({ ids: selectedIds, ...body });
-    setSelectedIds([]);
-    refresh();
-  };
-
-  const handleBulkRechazar = async (motivo) => {
-    await horasExtrasApi.bulkRechazar({ ids: selectedIds, motivo });
-    setSelectedIds([]);
-    refresh();
-  };
-
-  const handleCompletarFichada = async (id, body) => {
-    await horasExtrasApi.completarFichada(id, body);
-    refresh();
-  };
-
-  const handleDescartarDia = async (id, motivo) => {
-    await horasExtrasApi.descartarDia(id, { motivo });
-    refresh();
-  };
-
-  const handleRecalcular = async (body) => {
-    const { data } = await horasExtrasApi.recalcular(body);
-    refresh();
-    return data;
-  };
-
-  const handleLiquidar = async (body) => {
-    await horasExtrasApi.liquidar(body);
-    setSelectedIds([]);
-    refresh();
-  };
-
-  const handleAlertaMarcarLeida = async (id) => {
-    try {
-      await horasExtrasApi.alertaMarcarLeida(id);
-      fetchAlertas();
-      fetchCounts();
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Error al marcar la alerta');
-    }
-  };
-
-  // Edición inline %
-  const startEditPct = (it) => {
-    setEditingPctId(it.id);
-    setEditingPctValue(String(it.porcentaje_recargo ?? ''));
-  };
-
-  const commitEditPct = async (id) => {
-    const num = editingPctValue === '' ? null : Number(editingPctValue);
-    if (num !== null && (Number.isNaN(num) || num < 0 || num > 500)) {
-      setEditingPctId(null);
-      return;
-    }
-    try {
-      await horasExtrasApi.update(id, { porcentaje_recargo: num });
-      setEditingPctId(null);
-      refresh();
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Error al guardar el porcentaje');
-      setEditingPctId(null);
-    }
-  };
-
-  // Export Excel
-  const handleExportar = async () => {
-    if (!filtroPeriodo || !/^\d{6}$/.test(filtroPeriodo)) {
-      setError('Seleccioná un período válido (YYYYMM) para exportar.');
-      return;
-    }
-    try {
-      const res = await horasExtrasApi.exportarXlsx({ periodo: filtroPeriodo });
-      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `horas_extras_${filtroPeriodo}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Error al exportar Excel');
-    }
-  };
-
-  // ── Render helpers ─────────────────────────
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const showBulkBar = selectedIds.length > 0 && (activeTab === 'pendientes' || activeTab === 'aprobadas');
-
-  // ── Render ────────────────────────────────
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -377,6 +644,18 @@ export default function RRHHHorasExtras() {
           <h1>RRHH › Horas Extras</h1>
         </div>
         <div className={styles.headerActions}>
+          <label className={styles.monthPickerLabel}>
+            Mes
+            <input
+              type="month"
+              className={styles.input}
+              value={periodoToInputMonth(periodo)}
+              onChange={(e) => {
+                const next = inputMonthToPeriodo(e.target.value);
+                if (next) setPeriodo(next);
+              }}
+            />
+          </label>
           {puedeGestionar && (
             <button
               className={styles.btnPrimary}
@@ -385,11 +664,8 @@ export default function RRHHHorasExtras() {
               <RotateCcw size={14} /> Recalcular período
             </button>
           )}
-          {activeTab === 'liquidadas' && filtroPeriodo && (
-            <button
-              className={styles.btnPrimary}
-              onClick={handleExportar}
-            >
+          {isLiquidadasTab && (
+            <button className={styles.btnPrimary} onClick={handleExportar}>
               <FileSpreadsheet size={14} /> Exportar Excel
             </button>
           )}
@@ -410,7 +686,6 @@ export default function RRHHHorasExtras() {
               className={isActive ? styles.tabActive : styles.tab}
               onClick={() => {
                 setActiveTab(t.key);
-                setPage(1);
                 setError(null);
               }}
             >
@@ -426,114 +701,57 @@ export default function RRHHHorasExtras() {
       {/* Error */}
       {error && <div className={styles.errorMsg}>{error}</div>}
 
-      {/* Filtros (no aplican al tab Alertas) */}
-      {activeTab !== 'alertas' && (
-        <div className={styles.filters}>
-          <select
-            className={styles.select}
-            value={filtroEmpleadoId}
-            onChange={(e) => { setFiltroEmpleadoId(e.target.value); setPage(1); }}
-          >
-            <option value="">Todos los empleados</option>
-            {empleados.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.apellido}, {emp.nombre} ({emp.legajo})
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroFechaDesde}
-            onChange={(e) => { setFiltroFechaDesde(e.target.value); setPage(1); }}
-            placeholder="Desde"
-            aria-label="Fecha desde"
-          />
-          <input
-            type="date"
-            className={styles.input}
-            value={filtroFechaHasta}
-            onChange={(e) => { setFiltroFechaHasta(e.target.value); setPage(1); }}
-            placeholder="Hasta"
-            aria-label="Fecha hasta"
-          />
-
-          {(activeTab === 'pendientes' || activeTab === 'aprobadas') && (
-            <select
-              className={styles.select}
-              value={filtroTipoDia}
-              onChange={(e) => { setFiltroTipoDia(e.target.value); setPage(1); }}
-            >
-              <option value="">Todos los tipos</option>
-              <option value="habil_50">Hábil 50%</option>
-              <option value="sabado_50">Sábado 50%</option>
-              <option value="sabado_100">Sábado 100%</option>
-              <option value="domingo_100">Domingo 100%</option>
-              <option value="feriado_100">Feriado 100%</option>
-              <option value="manual">Manual</option>
-            </select>
-          )}
-
-          {activeTab === 'liquidadas' && (
-            <input
-              type="text"
-              className={styles.input}
-              value={filtroPeriodo}
-              onChange={(e) => { setFiltroPeriodo(e.target.value.replace(/[^0-9]/g, '').slice(0, 6)); setPage(1); }}
-              placeholder="Período YYYYMM"
-              maxLength={6}
-            />
-          )}
-        </div>
-      )}
-
       {/* Bulk bar */}
       {showBulkBar && (
         <div className={styles.bulkBar}>
           <span className={styles.bulkCount}>
-            {selectedIds.length} seleccionado{selectedIds.length === 1 ? '' : 's'}
+            {selectedIds.size} bloque{selectedIds.size === 1 ? '' : 's'} seleccionado{selectedIds.size === 1 ? '' : 's'}
           </span>
-          {activeTab === 'pendientes' && puedeAprobar && (
+          {isPendientesTab && puedeAprobar && (
             <>
               <button
                 className={styles.btnApprove}
-                onClick={() => setModal({ type: 'aprobar', ids: selectedIds })}
+                onClick={() => setModal({ type: 'aprobar', ids: Array.from(selectedIds) })}
               >
-                <CheckCheck size={14} /> Aprobar selección
+                <CheckCheck size={14} /> Aprobar seleccionados
               </button>
               <button
                 className={styles.btnReject}
-                onClick={() => setModal({ type: 'rechazar', target: 'bulk', ids: selectedIds })}
+                onClick={() => setModal({ type: 'rechazar', target: 'bulk', ids: Array.from(selectedIds) })}
               >
-                <X size={14} /> Rechazar selección
+                <X size={14} /> Rechazar seleccionados
               </button>
             </>
           )}
-          {activeTab === 'pendientes' && puedeGestionar && (
+          {isAprobadasTab && puedeLiquidar && (
             <button
               className={styles.btnPrimary}
-              onClick={() => setModal({ type: 'aprobar', ids: selectedIds })}
-              title="Aprobar con override de %"
+              onClick={() => setModal({ type: 'liquidar', ids: Array.from(selectedIds) })}
             >
-              <Percent size={14} /> Cambiar % al aprobar
+              <FileSpreadsheet size={14} /> Liquidar seleccionados
             </button>
           )}
-          {activeTab === 'aprobadas' && puedeLiquidar && (
+          {isAprobadasTab && puedeAprobar && (
             <button
-              className={styles.btnPrimary}
-              onClick={() => setModal({ type: 'liquidar', ids: selectedIds })}
+              className={styles.btnWarning}
+              onClick={() => setModal({ type: 'reabrirBulk', ids: Array.from(selectedIds) })}
             >
-              <FileSpreadsheet size={14} /> Liquidar selección
+              <Undo2 size={14} /> Reabrir seleccionados
             </button>
           )}
+          <button
+            className={styles.btnSecondary}
+            onClick={clearSelection}
+          >
+            Limpiar selección
+          </button>
         </div>
       )}
 
       {/* Toggle ver leídas (alertas) */}
-      {activeTab === 'alertas' && (
+      {isAlertasTab && (
         <div className={styles.filters}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)' }}>
+          <label className={styles.checkboxRow}>
             <input
               type="checkbox"
               checked={verLeidas}
@@ -545,70 +763,52 @@ export default function RRHHHorasExtras() {
       )}
 
       {/* Tab content */}
-      {activeTab === 'alertas' ? (
-        <AlertasTable
+      {isAlertasTab ? (
+        <AlertasView
           loading={loadingAlertas}
-          alertas={alertas}
-          total={alertasTotal}
+          empleados={alertasAgrupadas}
           puedeAprobar={puedeAprobar}
           puedeGestionar={puedeGestionar}
+          periodoLabel={periodoLabel(periodo)}
           onMarcarLeida={handleAlertaMarcarLeida}
           onAbrirDetalle={(heId) => setModal({ type: 'detalle', id: heId })}
-          onReabrir={(heId, eraLiquidada) => setModal({ type: 'reabrir', id: heId, era_liquidada: eraLiquidada })}
+          onReabrir={(heId, eraLiquidada) =>
+            setModal({ type: 'reabrir', id: heId, era_liquidada: eraLiquidada })
+          }
         />
       ) : (
-        <BloquesTable
+        <EmpleadosView
           loading={loading}
-          items={items}
+          empleados={empleadosAgrupados}
           activeTab={activeTab}
           selectedIds={selectedIds}
-          onToggleSelect={toggleSelect}
-          onToggleSelectAll={toggleSelectAll}
+          onToggleSelectId={toggleSelectId}
+          onToggleSelectEmpleado={toggleSelectEmpleado}
           puedeAprobar={puedeAprobar}
           puedeGestionar={puedeGestionar}
           puedeLiquidar={puedeLiquidar}
-          editingPctId={editingPctId}
-          editingPctValue={editingPctValue}
-          setEditingPctValue={setEditingPctValue}
-          startEditPct={startEditPct}
-          commitEditPct={commitEditPct}
+          periodoLabelText={periodoLabel(periodo)}
           onAprobar={(id) => setModal({ type: 'aprobar', id })}
           onRechazar={(id) => setModal({ type: 'rechazar', target: 'individual', id })}
-          onReabrir={(id, eraLiquidada) => setModal({ type: 'reabrir', id, era_liquidada: eraLiquidada })}
+          onReabrir={(id, eraLiquidada) =>
+            setModal({ type: 'reabrir', id, era_liquidada: eraLiquidada })
+          }
           onCompletar={(id) => setModal({ type: 'completar', id })}
           onDescartar={(id) => setModal({ type: 'descartar', id })}
           onDetalle={(id) => setModal({ type: 'detalle', id })}
+          onLiquidar={(ids) => setModal({ type: 'liquidar', ids })}
         />
-      )}
-
-      {/* Pagination */}
-      {activeTab !== 'alertas' && totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            className={styles.btnSecondary}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-          >
-            Anterior
-          </button>
-          <span className={styles.pageInfo}>
-            Página {page} de {totalPages} ({total} bloques)
-          </span>
-          <button
-            className={styles.btnSecondary}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Siguiente
-          </button>
-        </div>
       )}
 
       {/* ── Modals ───────────────────────────── */}
       <HEModalAprobar
         open={modal?.type === 'aprobar'}
         bulkCount={modal?.type === 'aprobar' && modal.ids ? modal.ids.length : null}
-        defaultPorcentaje={modal?.type === 'aprobar' && modal.id ? items.find((i) => i.id === modal.id)?.porcentaje_recargo : null}
+        defaultPorcentaje={
+          modal?.type === 'aprobar' && modal.id
+            ? bloques.find((i) => i.id === modal.id)?.porcentaje_recargo
+            : null
+        }
         onClose={() => setModal(null)}
         onConfirm={async (body) => {
           if (modal?.ids) {
@@ -622,11 +822,15 @@ export default function RRHHHorasExtras() {
 
       <HEModalMotivo
         open={modal?.type === 'rechazar'}
-        title={modal?.target === 'bulk' ? `Rechazar ${modal.ids?.length || 0} bloques` : 'Rechazar bloque'}
+        title={
+          modal?.target === 'bulk'
+            ? `Rechazar ${modal.ids?.length || 0} bloques`
+            : 'Rechazar bloque'
+        }
         confirmLabel="Rechazar"
         confirmVariant="danger"
         placeholder="Motivo del rechazo..."
-        bulkCount={modal?.target === 'bulk' ? (modal.ids?.length || 0) : null}
+        bulkCount={modal?.target === 'bulk' ? modal.ids?.length || 0 : null}
         onClose={() => setModal(null)}
         onConfirm={async (motivo) => {
           if (modal?.target === 'bulk') {
@@ -644,12 +848,30 @@ export default function RRHHHorasExtras() {
         confirmLabel="Reabrir"
         confirmVariant="warning"
         placeholder="Motivo de la reapertura..."
-        warning={modal?.era_liquidada ? 'Este bloque fue liquidado. Reabrirlo afecta una liquidación cerrada.' : null}
+        warning={
+          modal?.era_liquidada
+            ? 'Este bloque fue liquidado. Reabrirlo afecta una liquidación cerrada.'
+            : null
+        }
         onClose={() => setModal(null)}
         onConfirm={async (motivo) => {
           if (modal?.id) {
             await handleReabrir(modal.id, motivo);
           }
+          setModal(null);
+        }}
+      />
+
+      <HEModalMotivo
+        open={modal?.type === 'reabrirBulk'}
+        title={`Reabrir ${modal?.ids?.length || 0} bloques`}
+        confirmLabel="Reabrir"
+        confirmVariant="warning"
+        placeholder="Motivo de la reapertura..."
+        bulkCount={modal?.type === 'reabrirBulk' ? modal.ids?.length || 0 : null}
+        onClose={() => setModal(null)}
+        onConfirm={async (motivo) => {
+          await handleBulkReabrir(motivo);
           setModal(null);
         }}
       />
@@ -707,22 +929,181 @@ export default function RRHHHorasExtras() {
 }
 
 // ─────────────────────────────────────────────────────────
-// Subcomponente: tabla de bloques
+// Subcomponente: empleados con acordeones (tabs de bloques)
 // ─────────────────────────────────────────────────────────
-function BloquesTable({
+function EmpleadosView({
   loading,
-  items,
+  empleados,
   activeTab,
   selectedIds,
-  onToggleSelect,
-  onToggleSelectAll,
+  onToggleSelectId,
+  onToggleSelectEmpleado,
   puedeAprobar,
   puedeGestionar,
-  editingPctId,
-  editingPctValue,
-  setEditingPctValue,
-  startEditPct,
-  commitEditPct,
+  puedeLiquidar,
+  periodoLabelText,
+  onAprobar,
+  onRechazar,
+  onReabrir,
+  onCompletar,
+  onDescartar,
+  onDetalle,
+  onLiquidar,
+}) {
+  if (loading) {
+    return <div className={styles.loading}>Cargando bloques de {periodoLabelText}...</div>;
+  }
+  if (empleados.length === 0) {
+    const tabName = {
+      pendientes: 'pendientes',
+      aprobadas: 'aprobadas',
+      liquidadas: 'liquidadas',
+      anomalias: 'anomalías',
+    }[activeTab] || 'el período';
+    return (
+      <div className={styles.emptyState}>
+        No hay horas extras {tabName} en {periodoLabelText}.
+      </div>
+    );
+  }
+
+  const showCheckbox = activeTab === 'pendientes' || activeTab === 'aprobadas';
+  const onlyOne = empleados.length === 1;
+
+  return (
+    <div className={styles.empleadosList}>
+      {empleados.map((e) => (
+        <EmpleadoAcordeon
+          key={e.empleado_id}
+          empleado={e}
+          activeTab={activeTab}
+          showCheckbox={showCheckbox}
+          openDefault={onlyOne}
+          selectedIds={selectedIds}
+          onToggleSelectId={onToggleSelectId}
+          onToggleSelectEmpleado={onToggleSelectEmpleado}
+          puedeAprobar={puedeAprobar}
+          puedeGestionar={puedeGestionar}
+          puedeLiquidar={puedeLiquidar}
+          onAprobar={onAprobar}
+          onRechazar={onRechazar}
+          onReabrir={onReabrir}
+          onCompletar={onCompletar}
+          onDescartar={onDescartar}
+          onDetalle={onDetalle}
+          onLiquidar={onLiquidar}
+        />
+      ))}
+    </div>
+  );
+}
+
+function EmpleadoAcordeon({
+  empleado,
+  activeTab,
+  showCheckbox,
+  openDefault,
+  selectedIds,
+  onToggleSelectId,
+  onToggleSelectEmpleado,
+  puedeAprobar,
+  puedeGestionar,
+  puedeLiquidar,
+  onAprobar,
+  onRechazar,
+  onReabrir,
+  onCompletar,
+  onDescartar,
+  onDetalle,
+  onLiquidar,
+}) {
+  const idsAprobables = empleado.bloques
+    .filter((b) => b.estado !== 'error_fichadas' && b.estado !== 'pendiente_asignacion_turno')
+    .map((b) => b.id);
+  const allEmpSelected = idsAprobables.length > 0 && idsAprobables.every((id) => selectedIds.has(id));
+  const someEmpSelected = idsAprobables.some((id) => selectedIds.has(id));
+
+  const idsAprobados = empleado.bloques
+    .filter((b) => b.estado === 'aprobada')
+    .map((b) => b.id);
+
+  return (
+    <details className={styles.empleadoCard} open={openDefault}>
+      <summary className={styles.empleadoHeader}>
+        <div className={styles.empleadoHeaderLeft}>
+          {showCheckbox && (
+            <input
+              type="checkbox"
+              checked={allEmpSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = !allEmpSelected && someEmpSelected;
+              }}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleSelectEmpleado(empleado);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Seleccionar bloques de ${empleado.empleado_nombre}`}
+            />
+          )}
+          <div className={styles.empleadoIdent}>
+            <span className={styles.empleadoNombre}>{empleado.empleado_nombre}</span>
+            <span className={styles.empleadoLegajo}>Legajo {empleado.empleado_legajo}</span>
+          </div>
+        </div>
+        <div className={styles.empleadoTotales}>
+          <span className={styles.totalBadge50}>
+            50% — {fmtHoras(empleado.total_minutos_50)}
+          </span>
+          <span className={styles.totalBadge100}>
+            100% — {fmtHoras(empleado.total_minutos_100)}
+          </span>
+          <span className={styles.totalBadgeNeutral}>
+            {empleado.bloques.length} bloque{empleado.bloques.length === 1 ? '' : 's'}
+          </span>
+          {activeTab === 'aprobadas' && puedeLiquidar && idsAprobados.length > 0 && (
+            <button
+              className={styles.btnPrimary}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onLiquidar(idsAprobados);
+              }}
+              title={`Liquidar los ${idsAprobados.length} bloques aprobados de ${empleado.empleado_nombre}`}
+            >
+              <FileSpreadsheet size={14} /> Liquidar mes
+            </button>
+          )}
+        </div>
+      </summary>
+
+      <BloquesTable
+        bloques={empleado.bloques}
+        activeTab={activeTab}
+        showCheckbox={showCheckbox}
+        selectedIds={selectedIds}
+        onToggleSelectId={onToggleSelectId}
+        puedeAprobar={puedeAprobar}
+        puedeGestionar={puedeGestionar}
+        onAprobar={onAprobar}
+        onRechazar={onRechazar}
+        onReabrir={onReabrir}
+        onCompletar={onCompletar}
+        onDescartar={onDescartar}
+        onDetalle={onDetalle}
+      />
+    </details>
+  );
+}
+
+function BloquesTable({
+  bloques,
+  activeTab,
+  showCheckbox,
+  selectedIds,
+  onToggleSelectId,
+  puedeAprobar,
+  puedeGestionar,
   onAprobar,
   onRechazar,
   onReabrir,
@@ -730,151 +1111,120 @@ function BloquesTable({
   onDescartar,
   onDetalle,
 }) {
-  if (loading) {
-    return <div className={styles.loading}>Cargando bloques...</div>;
-  }
-  if (items.length === 0) {
-    return <div className={styles.empty}>No hay bloques para mostrar</div>;
-  }
-
-  const showCheckbox = activeTab === 'pendientes' || activeTab === 'aprobadas';
-  const allSelected = showCheckbox && selectedIds.length === items.length && items.length > 0;
-
   return (
-    <div className={styles.tableContainer}>
-      <table className={styles.table}>
+    <div className={styles.bloquesTableWrap}>
+      <table className={styles.bloquesTable}>
         <thead>
           <tr>
-            {showCheckbox && (
-              <th>
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={onToggleSelectAll}
-                  aria-label="Seleccionar todos"
-                />
-              </th>
-            )}
-            <th>Legajo</th>
-            <th>Empleado</th>
-            <th>Fecha</th>
-            <th>Tipo día</th>
-            <th>Min</th>
-            <th>%</th>
+            {showCheckbox && <th className={styles.colCheck} aria-label="Seleccionar" />}
+            <th className={styles.colFecha}>Fecha</th>
+            <th>Entrada → Salida</th>
+            <th>Tipo</th>
+            <th className={styles.colMinutos}>HE</th>
+            <th className={styles.colPct}>%</th>
             {activeTab === 'anomalias' && <th>Error</th>}
             {activeTab === 'aprobadas' && <th>Aprobado por</th>}
-            {activeTab === 'aprobadas' && <th>Aprobado el</th>}
-            {activeTab === 'liquidadas' && <th>Período</th>}
+            {activeTab === 'liquidadas' && <th>Período liq.</th>}
             {activeTab === 'liquidadas' && <th>Liquidado por</th>}
-            {activeTab === 'liquidadas' && <th>Liquidado el</th>}
             <th>Estado</th>
-            <th>Acciones</th>
+            <th className={styles.colActions}>Acciones</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((it) => {
-            const selected = selectedIds.includes(it.id);
+          {bloques.map((b) => {
+            const tipo = tipoDiaBadge(b.tipo_dia);
+            const selectable =
+              showCheckbox &&
+              b.estado !== 'error_fichadas' &&
+              b.estado !== 'pendiente_asignacion_turno';
+            const isSelected = selectedIds.has(b.id);
             return (
-              <tr key={it.id} className={selected ? styles.rowSelected : undefined}>
+              <tr key={b.id} className={isSelected ? styles.rowSelected : undefined}>
                 {showCheckbox && (
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => onToggleSelect(it.id)}
-                      aria-label={`Seleccionar bloque ${it.id}`}
-                    />
+                  <td className={styles.colCheck}>
+                    {selectable ? (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => onToggleSelectId(b.id)}
+                        aria-label={`Seleccionar bloque ${b.id}`}
+                      />
+                    ) : null}
                   </td>
                 )}
-                <td>{it.legajo || '-'}</td>
-                <td>{it.empleado_nombre || `#${it.empleado_id}`}</td>
-                <td>{formatFechaISO(it.fecha)}</td>
-                <td>{it.tipo_dia || '-'}</td>
-                <td>{it.minutos_extra ?? '-'}</td>
-                <td>
-                  {editingPctId === it.id ? (
-                    <input
-                      type="number"
-                      className={styles.inputInline}
-                      value={editingPctValue}
-                      onChange={(e) => setEditingPctValue(e.target.value)}
-                      onBlur={() => commitEditPct(it.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitEditPct(it.id);
-                        if (e.key === 'Escape') {
-                          setEditingPctValue('');
-                        }
-                      }}
-                      min={0}
-                      max={500}
-                      autoFocus
-                    />
-                  ) : (
-                    <span
-                      className={styles.pctCell}
-                      onClick={() => {
-                        if (puedeGestionar && (it.estado === 'detectada' || it.estado === 'error_fichadas' || it.estado === 'pendiente_asignacion_turno')) {
-                          startEditPct(it);
-                        }
-                      }}
-                      style={{
-                        cursor: puedeGestionar && it.estado === 'detectada' ? 'pointer' : 'default',
-                      }}
-                    >
-                      {it.porcentaje_recargo ?? '-'}
-                      <span className={styles.pctSuffix}>%</span>
-                    </span>
-                  )}
-                </td>
-                {activeTab === 'anomalias' && <td>{it.error_tipo || '-'}</td>}
-                {activeTab === 'aprobadas' && <td>{it.aprobado_por_nombre || it.aprobado_por_id || '-'}</td>}
-                {activeTab === 'aprobadas' && <td>{formatTimestamp(it.aprobado_at)}</td>}
-                {activeTab === 'liquidadas' && <td>{it.liquidacion_periodo || '-'}</td>}
-                {activeTab === 'liquidadas' && <td>{it.liquidado_por_nombre || it.liquidado_por_id || '-'}</td>}
-                {activeTab === 'liquidadas' && <td>{formatTimestamp(it.liquidado_at)}</td>}
-                <td>
-                  <span className={styles[`estado--${it.estado}`] || styles.estadoBadge}>
-                    {it.estado}
+                <td className={styles.colFecha}>{fmtFechaCorta(b.fecha)}</td>
+                <td className={styles.colHorario}>
+                  <span className={styles.horarioRange}>
+                    {fmtHora(b.fichada_entrada?.timestamp)}
+                    <span className={styles.horarioArrow}>→</span>
+                    {fmtHora(b.fichada_salida?.timestamp)}
                   </span>
                 </td>
                 <td>
+                  <span className={tipo.cls}>{tipo.label}</span>
+                </td>
+                <td className={styles.colMinutos}>{fmtHoras(b.extras_minutos)}</td>
+                <td className={styles.colPct}>
+                  {b.porcentaje_recargo != null ? `${b.porcentaje_recargo}%` : '-'}
+                </td>
+                {activeTab === 'anomalias' && <td>{b.error_tipo || '-'}</td>}
+                {activeTab === 'aprobadas' && (
+                  <td>{b.aprobado_por_nombre || '-'}</td>
+                )}
+                {activeTab === 'liquidadas' && <td>{b.liquidacion_periodo || '-'}</td>}
+                {activeTab === 'liquidadas' && (
+                  <td>
+                    {b.aprobado_por_nombre || '-'}
+                    {b.liquidado_at && (
+                      <div className={styles.subtle}>{fmtTimestamp(b.liquidado_at)}</div>
+                    )}
+                  </td>
+                )}
+                <td>
+                  <span className={styles[`estado--${b.estado}`] || styles.estadoBadge}>
+                    {b.estado}
+                  </span>
+                </td>
+                <td className={styles.colActions}>
                   <div className={styles.actions}>
                     <button
                       className={styles.btnIcon}
-                      onClick={() => onDetalle(it.id)}
+                      onClick={() => onDetalle(b.id)}
                       title="Ver detalle"
                       aria-label="Ver detalle"
                     >
                       <Eye size={14} />
                     </button>
 
-                    {/* Pendientes / Anomalías */}
-                    {activeTab === 'pendientes' && it.estado !== 'error_fichadas' && it.estado !== 'pendiente_asignacion_turno' && puedeAprobar && (
-                      <>
-                        <button
-                          className={styles.btnApprove}
-                          onClick={() => onAprobar(it.id)}
-                          title="Aprobar"
-                        >
-                          <Check size={14} />
-                        </button>
-                        <button
-                          className={styles.btnReject}
-                          onClick={() => onRechazar(it.id)}
-                          title="Rechazar"
-                        >
-                          <X size={14} />
-                        </button>
-                      </>
-                    )}
+                    {activeTab === 'pendientes' &&
+                      b.estado === 'detectada' &&
+                      puedeAprobar && (
+                        <>
+                          <button
+                            className={styles.btnApprove}
+                            onClick={() => onAprobar(b.id)}
+                            title="Aprobar"
+                            aria-label="Aprobar"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            className={styles.btnReject}
+                            onClick={() => onRechazar(b.id)}
+                            title="Rechazar"
+                            aria-label="Rechazar"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      )}
 
-                    {/* Anomalías tab */}
                     {activeTab === 'anomalias' && (
                       <>
                         {puedeGestionar && (
                           <button
                             className={styles.btnPrimary}
-                            onClick={() => onCompletar(it.id)}
+                            onClick={() => onCompletar(b.id)}
                             title="Completar fichada"
                           >
                             <PenLine size={14} /> Completar
@@ -883,8 +1233,9 @@ function BloquesTable({
                         {puedeAprobar && (
                           <button
                             className={styles.btnWarning}
-                            onClick={() => onDescartar(it.id)}
+                            onClick={() => onDescartar(b.id)}
                             title="Descartar día"
+                            aria-label="Descartar día"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -892,18 +1243,15 @@ function BloquesTable({
                       </>
                     )}
 
-                    {/* Aprobadas */}
                     {activeTab === 'aprobadas' && puedeAprobar && (
                       <button
                         className={styles.btnWarning}
-                        onClick={() => onReabrir(it.id, false)}
+                        onClick={() => onReabrir(b.id, false)}
                         title="Reabrir"
                       >
                         <Undo2 size={14} /> Reabrir
                       </button>
                     )}
-
-                    {/* Liquidadas: NO permite reabrir desde acá (read-only). */}
                   </div>
                 </td>
               </tr>
@@ -916,14 +1264,14 @@ function BloquesTable({
 }
 
 // ─────────────────────────────────────────────────────────
-// Subcomponente: tabla de alertas
+// Subcomponente: alertas agrupadas por empleado
 // ─────────────────────────────────────────────────────────
-function AlertasTable({
+function AlertasView({
   loading,
-  alertas,
-  total,
+  empleados,
   puedeAprobar,
   puedeGestionar,
+  periodoLabel: periodoLabelText,
   onMarcarLeida,
   onAbrirDetalle,
   onReabrir,
@@ -931,81 +1279,108 @@ function AlertasTable({
   if (loading) {
     return <div className={styles.loading}>Cargando alertas...</div>;
   }
-  if (alertas.length === 0) {
-    return <div className={styles.empty}>No hay alertas para mostrar</div>;
+  if (empleados.length === 0) {
+    return (
+      <div className={styles.emptyState}>
+        No hay alertas para mostrar en {periodoLabelText}.
+      </div>
+    );
   }
 
+  const REOPEN_TIPOS = new Set([
+    'liquidacion_afectada_por_cambio_turno',
+    'fichada_modificada_post_aprobacion',
+  ]);
+
+  const onlyOne = empleados.length === 1;
+
   return (
-    <div className={styles.tableContainer}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th>Severidad</th>
-            <th>Tipo</th>
-            <th>Mensaje</th>
-            <th>Bloque</th>
-            <th>Fecha</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {alertas.map((a) => {
-            const sevClass = styles[`sev--${a.severidad}`] || styles.sevBadge;
-            const esCambioTurno = a.tipo === 'liquidacion_afectada_por_cambio_turno';
-            return (
-              <tr key={a.id} style={a.leida ? { opacity: 0.6 } : undefined}>
-                <td><span className={sevClass}>{a.severidad}</span></td>
-                <td>{a.tipo}</td>
-                <td>
-                  {a.mensaje}
-                  {esCambioTurno && (
-                    <span className={styles.warningBox} style={{ marginTop: 4, padding: '2px 8px', display: 'inline-flex' }}>
-                      Revisar período liquidado
-                    </span>
-                  )}
-                </td>
-                <td>
-                  {a.he_id ? (
-                    <button
-                      className={styles.btnIcon}
-                      onClick={() => onAbrirDetalle(a.he_id)}
-                      title="Abrir bloque"
-                    >
-                      #{a.he_id}
-                    </button>
-                  ) : '-'}
-                </td>
-                <td>{formatTimestamp(a.created_at)}</td>
-                <td>
-                  <div className={styles.actions}>
-                    {!a.leida && (puedeGestionar || puedeAprobar) && (
-                      <button
-                        className={styles.btnSecondary}
-                        onClick={() => onMarcarLeida(a.id)}
-                        title="Marcar leída"
-                      >
-                        <Check size={14} /> Marcar leída
-                      </button>
-                    )}
-                    {a.he_id && a.bloque_estado === 'liquidada' && puedeAprobar && (
-                      <button
-                        className={styles.btnWarning}
-                        onClick={() => onReabrir(a.he_id, true)}
-                        title="Reabrir bloque liquidado"
-                      >
-                        <Undo2 size={14} /> Reabrir
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <div className={styles.pageInfo} style={{ textAlign: 'center', padding: 'var(--spacing-sm)' }}>
-        {total} alerta{total === 1 ? '' : 's'}
-      </div>
+    <div className={styles.empleadosList}>
+      {empleados.map((emp) => (
+        <details
+          key={emp.empleado_id || 'sin-empleado'}
+          className={styles.empleadoCard}
+          open={onlyOne}
+        >
+          <summary className={styles.empleadoHeader}>
+            <div className={styles.empleadoHeaderLeft}>
+              <div className={styles.empleadoIdent}>
+                <span className={styles.empleadoNombre}>{emp.empleado_nombre}</span>
+                <span className={styles.empleadoLegajo}>Legajo {emp.empleado_legajo}</span>
+              </div>
+            </div>
+            <div className={styles.empleadoTotales}>
+              <span className={styles.totalBadgeNeutral}>
+                {emp.alertas.length} alerta{emp.alertas.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          </summary>
+
+          <div className={styles.bloquesTableWrap}>
+            <table className={styles.bloquesTable}>
+              <thead>
+                <tr>
+                  <th>Severidad</th>
+                  <th>Tipo</th>
+                  <th>Mensaje</th>
+                  <th>Fecha bloque</th>
+                  <th>Generada</th>
+                  <th className={styles.colActions}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emp.alertas.map((a) => {
+                  const sevClass = styles[`sev--${a.severidad}`] || styles.sevBadge;
+                  const puedeReabrirAlerta = REOPEN_TIPOS.has(a.tipo);
+                  return (
+                    <tr key={a.id} className={a.leida_at ? styles.rowFaded : undefined}>
+                      <td>
+                        <span className={sevClass}>{a.severidad}</span>
+                      </td>
+                      <td>{a.tipo}</td>
+                      <td>{a.mensaje}</td>
+                      <td>{fmtFechaCorta(a.fecha)}</td>
+                      <td>{fmtTimestamp(a.created_at)}</td>
+                      <td className={styles.colActions}>
+                        <div className={styles.actions}>
+                          {a.he_id && (
+                            <button
+                              className={styles.btnIcon}
+                              onClick={() => onAbrirDetalle(a.he_id)}
+                              title={`Abrir bloque #${a.he_id}`}
+                              aria-label="Abrir bloque"
+                            >
+                              <Eye size={14} />
+                            </button>
+                          )}
+                          {!a.leida_at && (puedeGestionar || puedeAprobar) && (
+                            <button
+                              className={styles.btnSecondary}
+                              onClick={() => onMarcarLeida(a.id)}
+                              title="Marcar leída"
+                            >
+                              <Check size={14} /> Marcar leída
+                            </button>
+                          )}
+                          {a.he_id && puedeReabrirAlerta && puedeAprobar && (
+                            <button
+                              className={styles.btnWarning}
+                              onClick={() => onReabrir(a.he_id, true)}
+                              title="Reabrir bloque"
+                            >
+                              <Undo2 size={14} /> Reabrir bloque
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

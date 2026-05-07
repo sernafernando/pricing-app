@@ -479,6 +479,8 @@ export const horasExtrasApi = {
   reabrir: (id, body) => api.patch(`/rrhh/horas-extras/${id}/reabrir`, body),
   bulkAprobar: (body) => api.post('/rrhh/horas-extras/bulk/aprobar', body),
   bulkRechazar: (body) => api.post('/rrhh/horas-extras/bulk/rechazar', body),
+  bulkReabrir: (body) => api.post('/rrhh/horas-extras/bulk/reabrir', body),
+  resumen: (mes) => api.get('/rrhh/horas-extras/resumen', { params: { mes } }),
   completarFichada: (id, body) =>
     api.post(`/rrhh/horas-extras/${id}/completar-fichada`, body),
   descartarDia: (id, body) =>

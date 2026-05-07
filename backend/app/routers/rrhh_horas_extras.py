@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import io
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +39,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
@@ -208,6 +209,30 @@ class BulkRechazarRequest(BaseModel):
     motivo: str = Field(min_length=3, max_length=2000)
 
 
+class BulkReabrirRequest(BaseModel):
+    """Body de POST /bulk/reabrir."""
+
+    ids: list[int] = Field(min_length=1, max_length=500)
+    motivo: str = Field(min_length=3, max_length=2000)
+
+
+class ResumenEstadoEntry(BaseModel):
+    """Conteo de bloques y empleados distintos por estado en un mes."""
+
+    estado: str
+    bloques: int
+    empleados: int
+
+
+class ResumenMensualResponse(BaseModel):
+    """Resumen mensual: counts por estado + alertas no leídas."""
+
+    mes: str  # YYYYMM
+    estados: list[ResumenEstadoEntry] = []
+    alertas_no_leidas: int = 0
+    empleados_con_alertas: int = 0
+
+
 class LiquidacionRequest(BaseModel):
     """Body de POST /liquidar."""
 
@@ -260,6 +285,12 @@ class AlertaResponse(BaseModel):
     leida_at: Optional[datetime] = None
     leida_por_nombre: Optional[str] = None
     created_at: datetime
+    # Empleado del bloque HE asociado (joined) — para que el frontend pueda
+    # agrupar alertas por empleado sin un fetch adicional por cada bloque.
+    empleado_id: Optional[int] = None
+    empleado_nombre: Optional[str] = None
+    empleado_legajo: Optional[str] = None
+    fecha: Optional[date] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -456,7 +487,7 @@ def listar_horas_extras(
     tipo_dia: Optional[str] = None,
     con_alertas: Optional[bool] = Query(None, description="Si true, solo bloques con alertas no leídas"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> HorasExtrasListResponse:
@@ -587,11 +618,15 @@ def listar_alertas(
     solo_no_leidas: bool = Query(True, description="Si true, filtra leida_at IS NULL"),
     severidad: Optional[str] = Query(None, pattern="^(info|warning|critical)$"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> AlertasListResponse:
-    """Lista paginada de alertas de divergencia HE."""
+    """Lista paginada de alertas de divergencia HE.
+
+    Joinea el bloque HE (`he`) y el empleado para que el frontend pueda
+    agrupar por empleado sin un fetch extra por alerta.
+    """
     _check_permiso(db, current_user, "rrhh.ver_horas_extras")
 
     query = db.query(RRHHHorasExtrasAlerta)
@@ -603,7 +638,10 @@ def listar_alertas(
     total = query.count()
     offset = (page - 1) * page_size
     alertas = (
-        query.options(joinedload(RRHHHorasExtrasAlerta.leida_por))
+        query.options(
+            joinedload(RRHHHorasExtrasAlerta.leida_por),
+            joinedload(RRHHHorasExtrasAlerta.he).joinedload(RRHHHorasExtras.empleado),
+        )
         .order_by(RRHHHorasExtrasAlerta.created_at.desc())
         .offset(offset)
         .limit(page_size)
@@ -613,6 +651,17 @@ def listar_alertas(
     items: list[AlertaResponse] = []
     for a in alertas:
         leida_por_nombre = a.leida_por.nombre if a.leida_por is not None else None
+        empleado_id: Optional[int] = None
+        empleado_nombre: Optional[str] = None
+        empleado_legajo: Optional[str] = None
+        fecha: Optional[date] = None
+        if a.he is not None:
+            fecha = a.he.fecha
+            if a.he.empleado is not None:
+                emp = a.he.empleado
+                empleado_id = emp.id
+                empleado_nombre = f"{emp.apellido}, {emp.nombre}"
+                empleado_legajo = emp.legajo
         items.append(
             AlertaResponse(
                 id=a.id,
@@ -624,6 +673,10 @@ def listar_alertas(
                 leida_at=a.leida_at,
                 leida_por_nombre=leida_por_nombre,
                 created_at=a.created_at,
+                empleado_id=empleado_id,
+                empleado_nombre=empleado_nombre,
+                empleado_legajo=empleado_legajo,
+                fecha=fecha,
             )
         )
 
@@ -736,6 +789,33 @@ def bulk_rechazar(
             fallidos.append({"id": he_id, "status": 500, "detail": str(exc)})
 
     return {"rechazados": rechazados, "fallidos": fallidos}
+
+
+@router.post(
+    "/bulk/reabrir",
+    summary="Reabrir bulk — los errores no bloquean al resto",
+)
+def bulk_reabrir(
+    data: BulkReabrirRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Reabre múltiples bloques aprobados/rechazados con un único motivo común."""
+    _check_permiso(db, current_user, "rrhh.aprobar_horas_extras")
+
+    service = HorasExtrasService(db)
+    reabiertos = 0
+    fallidos: list[dict[str, Any]] = []
+    for he_id in data.ids:
+        try:
+            service.reabrir_bloque(he_id=he_id, usuario_id=current_user.id, motivo=data.motivo)
+            reabiertos += 1
+        except HTTPException as exc:
+            fallidos.append({"id": he_id, "status": exc.status_code, "detail": exc.detail})
+        except Exception as exc:  # noqa: BLE001
+            fallidos.append({"id": he_id, "status": 500, "detail": str(exc)})
+
+    return {"reabiertos": reabiertos, "fallidos": fallidos}
 
 
 @router.get(
@@ -1017,6 +1097,68 @@ def listar_historial(
             )
         )
     return items
+
+
+@router.get(
+    "/resumen",
+    response_model=ResumenMensualResponse,
+    summary="Resumen mensual: counts por estado + alertas no leídas",
+)
+def resumen_mensual(
+    mes: str = Query(..., pattern="^[0-9]{6}$", description="Mes YYYYMM"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ResumenMensualResponse:
+    """Devuelve cantidad de bloques y empleados distintos por estado para el mes,
+    más conteo de alertas no leídas. Reemplaza N fetches paralelos en frontend.
+    """
+    _check_permiso(db, current_user, "rrhh.ver_horas_extras")
+
+    yyyy = int(mes[:4])
+    mm = int(mes[4:])
+    fecha_desde = date(yyyy, mm, 1)
+    # último día del mes: el día 0 del mes siguiente.
+    if mm == 12:
+        fecha_hasta = date(yyyy + 1, 1, 1) - timedelta(days=1)
+    else:
+        fecha_hasta = date(yyyy, mm + 1, 1) - timedelta(days=1)
+
+    rows = (
+        db.query(
+            RRHHHorasExtras.estado,
+            func.count(RRHHHorasExtras.id).label("bloques"),
+            func.count(distinct(RRHHHorasExtras.empleado_id)).label("empleados"),
+        )
+        .filter(
+            RRHHHorasExtras.fecha >= fecha_desde,
+            RRHHHorasExtras.fecha <= fecha_hasta,
+        )
+        .group_by(RRHHHorasExtras.estado)
+        .all()
+    )
+
+    estados = [ResumenEstadoEntry(estado=r.estado, bloques=r.bloques, empleados=r.empleados) for r in rows]
+
+    # Alertas son cross-month por diseño: un cambio de turno en marzo puede
+    # afectar liquidaciones de enero, y queremos que el operador las vea
+    # independiente del mes que esté mirando. Por eso NO filtramos por fecha.
+    alertas_no_leidas = (
+        db.query(func.count(RRHHHorasExtrasAlerta.id)).filter(RRHHHorasExtrasAlerta.leida_at.is_(None)).scalar() or 0
+    )
+    empleados_con_alertas = (
+        db.query(func.count(distinct(RRHHHorasExtras.empleado_id)))
+        .join(RRHHHorasExtrasAlerta, RRHHHorasExtrasAlerta.he_id == RRHHHorasExtras.id)
+        .filter(RRHHHorasExtrasAlerta.leida_at.is_(None))
+        .scalar()
+        or 0
+    )
+
+    return ResumenMensualResponse(
+        mes=mes,
+        estados=estados,
+        alertas_no_leidas=alertas_no_leidas,
+        empleados_con_alertas=empleados_con_alertas,
+    )
 
 
 @router.post(
