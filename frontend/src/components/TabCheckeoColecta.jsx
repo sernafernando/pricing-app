@@ -107,9 +107,13 @@ export default function TabCheckeoColecta() {
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [filtroColectaId, setFiltroColectaId] = useState(null);
+  const [filtroBatchId, setFiltroBatchId] = useState(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [verDespachadas, setVerDespachadas] = useState(false);
+
+  // Lotes de carga
+  const [lotes, setLotes] = useState([]);
 
   // Vista: tabla o calendario
   const [vista, setVista] = useState('tabla');
@@ -185,6 +189,21 @@ export default function TabCheckeoColecta() {
     }
   }, [fechaDesde, fechaHasta, verDespachadas]);
 
+  const cargarLotes = useCallback(async () => {
+    try {
+      const params = {
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        incluir_despachadas: verDespachadas,
+      };
+      if (filtroColectaId) params.colecta_id = filtroColectaId;
+      const { data } = await api.get('/etiquetas-colecta/lotes', { params });
+      setLotes(data);
+    } catch (err) {
+      console.error('Error cargando lotes de colecta:', err);
+    }
+  }, [fechaDesde, fechaHasta, filtroColectaId, verDespachadas]);
+
   const cargarEtiquetas = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -197,6 +216,7 @@ export default function TabCheckeoColecta() {
       if (filtroMlStatus) params.mlstatus = filtroMlStatus;
       if (filtroSsosId) params.ssos_id = filtroSsosId;
       if (filtroColectaId) params.colecta_id = filtroColectaId;
+      if (filtroBatchId) params.upload_batch_id = filtroBatchId;
       if (debouncedSearch) params.search = debouncedSearch;
 
       const { data } = await api.get('/etiquetas-colecta', { params });
@@ -206,11 +226,11 @@ export default function TabCheckeoColecta() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, filtroColectaId, debouncedSearch, verDespachadas]);
+  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, filtroColectaId, filtroBatchId, debouncedSearch, verDespachadas]);
 
   const cargarTodo = useCallback(async () => {
-    await Promise.all([cargarColectas(), cargarEtiquetas()]);
-  }, [cargarColectas, cargarEtiquetas]);
+    await Promise.all([cargarColectas(), cargarLotes(), cargarEtiquetas()]);
+  }, [cargarColectas, cargarLotes, cargarEtiquetas]);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 
@@ -256,6 +276,10 @@ export default function TabCheckeoColecta() {
       });
 
       setUploadResult(data);
+      // Auto-filtrar por el lote recién cargado para que el operador vea exactamente lo que subió
+      if (data.upload_batch_id) {
+        setFiltroBatchId(data.upload_batch_id);
+      }
       cargarTodo();
     } catch (err) {
       setUploadResult({
@@ -434,6 +458,22 @@ export default function TabCheckeoColecta() {
     [colectas, filtroColectaId],
   );
 
+  const loteSeleccionado = useMemo(
+    () => lotes.find((l) => l.upload_batch_id === filtroBatchId) || null,
+    [lotes, filtroBatchId],
+  );
+
+  const formatLoteLabel = (l) => {
+    const ts = new Date(l.primer_carga_at);
+    const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return `${hora} · ${l.total} etiqueta${l.total !== 1 ? 's' : ''} · #${l.colecta_numero}`;
+  };
+
+  const seleccionarTodoLote = () => {
+    if (!filtroBatchId) return;
+    setSelectedIds(new Set(etiquetas.map((e) => e.shipping_id)));
+  };
+
   const erpStatesMap = useMemo(() => {
     const states = new Map();
     for (const e of etiquetas) {
@@ -533,6 +573,32 @@ export default function TabCheckeoColecta() {
         </div>
       )}
 
+      {/* Filtro de lote activo */}
+      {loteSeleccionado && (
+        <div className={styles.colectaFiltro}>
+          Lote de carga{' '}
+          <span className={styles.colectaFiltroBadge}>
+            {formatLoteLabel(loteSeleccionado)}
+          </span>
+          <button
+            type="button"
+            onClick={seleccionarTodoLote}
+            className={styles.toggleDespachadas}
+            title="Seleccionar todas las etiquetas del lote"
+          >
+            Seleccionar todo
+          </button>
+          <button
+            type="button"
+            onClick={() => setFiltroBatchId(null)}
+            className={styles.colectaFiltroClear}
+            aria-label="Limpiar filtro de lote"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Scanner individual */}
       {puedeSubir && (
         <div className={styles.scannerSection}>
@@ -613,6 +679,23 @@ export default function TabCheckeoColecta() {
               {[...erpStatesMap.entries()]
                 .sort(([, a], [, b]) => a.localeCompare(b))
                 .map(([id, name]) => (<option key={id} value={id}>{name}</option>))}
+            </select>
+          )}
+
+          {/* Selector de lote */}
+          {lotes.length > 0 && (
+            <select
+              value={filtroBatchId || ''}
+              onChange={(e) => setFiltroBatchId(e.target.value || null)}
+              className={styles.selectSm}
+              title="Filtrar por lote de carga"
+            >
+              <option value="">Lote ({lotes.length})</option>
+              {lotes.map((l) => (
+                <option key={l.upload_batch_id} value={l.upload_batch_id}>
+                  {formatLoteLabel(l)}
+                </option>
+              ))}
             </select>
           )}
 
