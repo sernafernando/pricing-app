@@ -17,9 +17,11 @@ Nota: "id" puede NO ser el primer campo del JSON (ej: carrier_data va primero).
 import logging
 import re
 import json
+import uuid
 import zipfile
 from io import BytesIO
-from datetime import date
+from datetime import date, datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
@@ -59,6 +61,7 @@ class UploadResultResponse(BaseModel):
     duplicadas: int
     errores: int = 0
     detalle_errores: List[str] = []
+    upload_batch_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,6 +74,7 @@ class EtiquetaColectaResponse(BaseModel):
     colecta_id: int
     colecta_numero: int
     colecta_estado: str
+    upload_batch_id: Optional[UUID] = None
     mlreceiver_name: Optional[str] = None
     mlstatus: Optional[str] = None
     mlsubstatus: Optional[str] = None
@@ -152,6 +156,44 @@ class BorrarColectaRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReasignarColectaRequest(BaseModel):
+    """Payload para reasignar etiquetas a otra colecta."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    colecta_destino_id: Optional[int] = Field(None, description="Si se omite, usa fecha+numero")
+    fecha: Optional[date] = Field(None, description="Fecha de la colecta destino (default hoy)")
+    numero: Optional[int] = Field(None, description="Número de colecta del día destino")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReasignarColectaResponse(BaseModel):
+    """Resultado de reasignación masiva."""
+
+    movidas: int
+    no_encontradas: List[str] = []
+    colecta_destino_id: int
+    colecta_destino_fecha: date
+    colecta_destino_numero: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LoteCargaResponse(BaseModel):
+    """Resumen de un lote de carga (todas las etiquetas subidas en un mismo POST)."""
+
+    upload_batch_id: UUID
+    primer_carga_at: datetime
+    total: int
+    colecta_id: int
+    colecta_fecha: date
+    colecta_numero: int
+    colecta_estado: str
+    nombre_archivo: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ── Helpers ──────────────────────────────────────────────────────
 
 
@@ -187,6 +229,7 @@ def _insertar_etiqueta_colecta(
     nombre_archivo: Optional[str],
     fecha_carga: date,
     colecta_id: int,
+    upload_batch_id: Optional[UUID] = None,
 ) -> bool:
     """
     Inserta una etiqueta de colecta si no existe.
@@ -203,6 +246,7 @@ def _insertar_etiqueta_colecta(
         nombre_archivo=nombre_archivo,
         fecha_carga=fecha_carga,
         colecta_id=colecta_id,
+        upload_batch_id=upload_batch_id,
     )
     db.add(etiqueta)
     return True
@@ -352,6 +396,7 @@ def _procesar_archivo_zpl(
     db: Session,
     fecha_carga: date,
     colecta_id: int,
+    upload_batch_id: Optional[UUID] = None,
 ) -> tuple[int, int, int, int, List[str]]:
     """
     Procesa un archivo ZPL (.zip o .txt), extrae QRs y registra etiquetas.
@@ -392,6 +437,7 @@ def _procesar_archivo_zpl(
                 nombre_archivo=filename,
                 fecha_carga=fecha_carga,
                 colecta_id=colecta_id,
+                upload_batch_id=upload_batch_id,
             )
             if insertada:
                 nuevas += 1
@@ -428,6 +474,7 @@ async def upload_etiquetas_colecta(
     _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
 
     colecta = _resolver_colecta(db, colecta_id, fecha, numero)
+    batch_id = uuid.uuid4()
 
     total = 0
     nuevas = 0
@@ -443,7 +490,9 @@ async def upload_etiquetas_colecta(
             continue
 
         content = await file.read()
-        f_total, f_nuevas, f_dup, f_err, f_det = _procesar_archivo_zpl(content, filename, db, colecta.fecha, colecta.id)
+        f_total, f_nuevas, f_dup, f_err, f_det = _procesar_archivo_zpl(
+            content, filename, db, colecta.fecha, colecta.id, batch_id
+        )
         total += f_total
         nuevas += f_nuevas
         duplicadas += f_dup
@@ -469,6 +518,7 @@ async def upload_etiquetas_colecta(
         duplicadas=duplicadas,
         errores=errores,
         detalle_errores=detalle_errores,
+        upload_batch_id=batch_id if nuevas > 0 else None,
     )
 
 
@@ -481,6 +531,7 @@ def listar_etiquetas_colecta(
     fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),
     fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha (inclusive)"),
     colecta_id: Optional[int] = Query(None, description="Filtrar por colecta específica"),
+    upload_batch_id: Optional[UUID] = Query(None, description="Filtrar por lote de carga"),
     incluir_despachadas: bool = Query(
         False, description="Si False (default), oculta etiquetas de colectas despachadas"
     ),
@@ -506,6 +557,7 @@ def listar_etiquetas_colecta(
         EtiquetaColecta.shipping_id,
         EtiquetaColecta.fecha_carga,
         EtiquetaColecta.colecta_id,
+        EtiquetaColecta.upload_batch_id,
         Colecta.numero.label("colecta_numero"),
         Colecta.estado.label("colecta_estado"),
     ).join(Colecta, EtiquetaColecta.colecta_id == Colecta.id)
@@ -516,6 +568,8 @@ def listar_etiquetas_colecta(
         q = q.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
     if colecta_id is not None:
         q = q.filter(EtiquetaColecta.colecta_id == colecta_id)
+    if upload_batch_id is not None:
+        q = q.filter(EtiquetaColecta.upload_batch_id == upload_batch_id)
     if not incluir_despachadas:
         q = q.filter(Colecta.estado == Colecta.ESTADO_PENDIENTE)
 
@@ -639,6 +693,7 @@ def listar_etiquetas_colecta(
             colecta_id=et.colecta_id,
             colecta_numero=et.colecta_numero,
             colecta_estado=et.colecta_estado,
+            upload_batch_id=et.upload_batch_id,
             mlreceiver_name=ship.mlreceiver_name if ship else None,
             mlstatus=ship.mlstatus if ship else None,
             mlsubstatus=ship.mlsubstatus if ship else None,
@@ -664,6 +719,79 @@ def listar_etiquetas_colecta(
         results.append(row)
 
     return results
+
+
+@router.get(
+    "/etiquetas-colecta/lotes",
+    response_model=List[LoteCargaResponse],
+    summary="Listar lotes de carga (uploads agrupados por upload_batch_id)",
+)
+def listar_lotes_carga(
+    fecha_desde: Optional[date] = Query(None),
+    fecha_hasta: Optional[date] = Query(None),
+    colecta_id: Optional[int] = Query(None),
+    incluir_despachadas: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[LoteCargaResponse]:
+    """
+    Devuelve los lotes de carga del rango. Cada lote agrupa todas las etiquetas
+    insertadas en un mismo POST de upload (mismo upload_batch_id).
+
+    Permite al frontend mostrar un selector "Lote: 14:32 — 45 etiquetas (Colecta #2)"
+    para que el operador seleccione todo el lote de una.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    q = (
+        db.query(
+            EtiquetaColecta.upload_batch_id,
+            func.min(EtiquetaColecta.created_at).label("primer_carga_at"),
+            func.count(EtiquetaColecta.id).label("total"),
+            EtiquetaColecta.colecta_id,
+            Colecta.fecha.label("colecta_fecha"),
+            Colecta.numero.label("colecta_numero"),
+            Colecta.estado.label("colecta_estado"),
+            func.min(EtiquetaColecta.nombre_archivo).label("nombre_archivo"),
+        )
+        .join(Colecta, EtiquetaColecta.colecta_id == Colecta.id)
+        .filter(EtiquetaColecta.upload_batch_id.isnot(None))
+    )
+
+    if fecha_desde:
+        q = q.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
+    if fecha_hasta:
+        q = q.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
+    if colecta_id is not None:
+        q = q.filter(EtiquetaColecta.colecta_id == colecta_id)
+    if not incluir_despachadas:
+        q = q.filter(Colecta.estado == Colecta.ESTADO_PENDIENTE)
+
+    rows = (
+        q.group_by(
+            EtiquetaColecta.upload_batch_id,
+            EtiquetaColecta.colecta_id,
+            Colecta.fecha,
+            Colecta.numero,
+            Colecta.estado,
+        )
+        .order_by(func.min(EtiquetaColecta.created_at).desc())
+        .all()
+    )
+
+    return [
+        LoteCargaResponse(
+            upload_batch_id=r.upload_batch_id,
+            primer_carga_at=r.primer_carga_at,
+            total=r.total,
+            colecta_id=r.colecta_id,
+            colecta_fecha=r.colecta_fecha,
+            colecta_numero=r.colecta_numero,
+            colecta_estado=r.colecta_estado,
+            nombre_archivo=r.nombre_archivo,
+        )
+        for r in rows
+    ]
 
 
 @router.get(
@@ -910,6 +1038,58 @@ def borrar_etiquetas_colecta(
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "eliminadas": deleted}
+
+
+@router.post(
+    "/etiquetas-colecta/reasignar",
+    response_model=ReasignarColectaResponse,
+    summary="Reasignar etiquetas a otra colecta",
+)
+def reasignar_etiquetas_colecta(
+    payload: ReasignarColectaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ReasignarColectaResponse:
+    """
+    Mueve un conjunto de etiquetas a otra colecta. La colecta destino se resuelve
+    igual que en upload: por colecta_destino_id, o por (fecha, numero) — si no
+    existe, se crea. La colecta destino debe estar pendiente.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    destino = _resolver_colecta(db, payload.colecta_destino_id, payload.fecha, payload.numero)
+
+    etiquetas = db.query(EtiquetaColecta).filter(EtiquetaColecta.shipping_id.in_(payload.shipping_ids)).all()
+    encontradas = {e.shipping_id for e in etiquetas}
+    no_encontradas = [sid for sid in payload.shipping_ids if sid not in encontradas]
+
+    if not etiquetas:
+        raise HTTPException(404, "Ninguna de las etiquetas existe")
+
+    movidas = 0
+    for e in etiquetas:
+        if e.colecta_id != destino.id:
+            e.colecta_id = destino.id
+            e.fecha_carga = destino.fecha
+            movidas += 1
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Error en commit de reasignación: %s", exc)
+        raise HTTPException(500, "Error reasignando etiquetas")
+
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+    sse_publish_bg("colectas:changed", {"hint": "reload"})
+
+    return ReasignarColectaResponse(
+        movidas=movidas,
+        no_encontradas=no_encontradas,
+        colecta_destino_id=destino.id,
+        colecta_destino_fecha=destino.fecha,
+        colecta_destino_numero=destino.numero,
+    )
 
 
 @router.get(

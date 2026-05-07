@@ -3,7 +3,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, Calendar, Table, ExternalLink,
   ScanBarcode, Trash2, X, CheckCircle, AlertCircle, ChevronRight,
-  PackageCheck, RotateCcw, Eye, EyeOff,
+  PackageCheck, RotateCcw, Eye, EyeOff, Move,
 } from 'lucide-react';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -107,9 +107,13 @@ export default function TabCheckeoColecta() {
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [filtroColectaId, setFiltroColectaId] = useState(null);
+  const [filtroBatchId, setFiltroBatchId] = useState(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [verDespachadas, setVerDespachadas] = useState(false);
+
+  // Lotes de carga
+  const [lotes, setLotes] = useState([]);
 
   // Vista: tabla o calendario
   const [vista, setVista] = useState('tabla');
@@ -120,6 +124,13 @@ export default function TabCheckeoColecta() {
 
   // Delete confirmation (replaces window.confirm)
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Move (reasignar) dropdown
+  const [showMoveDropdown, setShowMoveDropdown] = useState(false);
+  const [moveFecha, setMoveFecha] = useState(todayStr());
+  const [moveNumero, setMoveNumero] = useState(1);
+  const [moveResult, setMoveResult] = useState(null);
+  const [moving, setMoving] = useState(false);
 
   // Expanded rows (product details)
   const [expandedRows, setExpandedRows] = useState(new Set());
@@ -185,6 +196,21 @@ export default function TabCheckeoColecta() {
     }
   }, [fechaDesde, fechaHasta, verDespachadas]);
 
+  const cargarLotes = useCallback(async () => {
+    try {
+      const params = {
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        incluir_despachadas: verDespachadas,
+      };
+      if (filtroColectaId) params.colecta_id = filtroColectaId;
+      const { data } = await api.get('/etiquetas-colecta/lotes', { params });
+      setLotes(data);
+    } catch (err) {
+      console.error('Error cargando lotes de colecta:', err);
+    }
+  }, [fechaDesde, fechaHasta, filtroColectaId, verDespachadas]);
+
   const cargarEtiquetas = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -197,6 +223,7 @@ export default function TabCheckeoColecta() {
       if (filtroMlStatus) params.mlstatus = filtroMlStatus;
       if (filtroSsosId) params.ssos_id = filtroSsosId;
       if (filtroColectaId) params.colecta_id = filtroColectaId;
+      if (filtroBatchId) params.upload_batch_id = filtroBatchId;
       if (debouncedSearch) params.search = debouncedSearch;
 
       const { data } = await api.get('/etiquetas-colecta', { params });
@@ -206,11 +233,11 @@ export default function TabCheckeoColecta() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, filtroColectaId, debouncedSearch, verDespachadas]);
+  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, filtroColectaId, filtroBatchId, debouncedSearch, verDespachadas]);
 
   const cargarTodo = useCallback(async () => {
-    await Promise.all([cargarColectas(), cargarEtiquetas()]);
-  }, [cargarColectas, cargarEtiquetas]);
+    await Promise.all([cargarColectas(), cargarLotes(), cargarEtiquetas()]);
+  }, [cargarColectas, cargarLotes, cargarEtiquetas]);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 
@@ -256,6 +283,10 @@ export default function TabCheckeoColecta() {
       });
 
       setUploadResult(data);
+      // Auto-filtrar por el lote recién cargado para que el operador vea exactamente lo que subió
+      if (data.upload_batch_id) {
+        setFiltroBatchId(data.upload_batch_id);
+      }
       cargarTodo();
     } catch (err) {
       setUploadResult({
@@ -375,6 +406,35 @@ export default function TabCheckeoColecta() {
     setConfirmDelete(false);
   };
 
+  // ── Mover seleccionados a otra colecta ───────────────────────
+
+  const moverSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+
+    setMoving(true);
+    setMoveResult(null);
+    try {
+      const { data } = await api.post('/etiquetas-colecta/reasignar', {
+        shipping_ids: Array.from(selectedIds),
+        fecha: moveFecha,
+        numero: moveNumero,
+      });
+      setMoveResult({ ok: true, ...data });
+      setShowMoveDropdown(false);
+      limpiarSeleccion();
+      cargarTodo();
+      // Auto-clear feedback después de 4s
+      setTimeout(() => setMoveResult(null), 4000);
+    } catch (err) {
+      setMoveResult({
+        ok: false,
+        error: err.response?.data?.detail || err.message,
+      });
+    } finally {
+      setMoving(false);
+    }
+  };
+
   // ── Borrar seleccionados ─────────────────────────────────────
 
   const borrarSeleccionados = async () => {
@@ -433,6 +493,22 @@ export default function TabCheckeoColecta() {
     () => colectas.find((c) => c.id === filtroColectaId) || null,
     [colectas, filtroColectaId],
   );
+
+  const loteSeleccionado = useMemo(
+    () => lotes.find((l) => l.upload_batch_id === filtroBatchId) || null,
+    [lotes, filtroBatchId],
+  );
+
+  const formatLoteLabel = (l) => {
+    const ts = new Date(l.primer_carga_at);
+    const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return `${hora} · ${l.total} etiqueta${l.total !== 1 ? 's' : ''} · #${l.colecta_numero}`;
+  };
+
+  const seleccionarTodoLote = () => {
+    if (!filtroBatchId) return;
+    setSelectedIds(new Set(etiquetas.map((e) => e.shipping_id)));
+  };
 
   const erpStatesMap = useMemo(() => {
     const states = new Map();
@@ -533,6 +609,32 @@ export default function TabCheckeoColecta() {
         </div>
       )}
 
+      {/* Filtro de lote activo */}
+      {loteSeleccionado && (
+        <div className={styles.colectaFiltro}>
+          Lote de carga{' '}
+          <span className={styles.colectaFiltroBadge}>
+            {formatLoteLabel(loteSeleccionado)}
+          </span>
+          <button
+            type="button"
+            onClick={seleccionarTodoLote}
+            className={styles.toggleDespachadas}
+            title="Seleccionar todas las etiquetas del lote"
+          >
+            Seleccionar todo
+          </button>
+          <button
+            type="button"
+            onClick={() => setFiltroBatchId(null)}
+            className={styles.colectaFiltroClear}
+            aria-label="Limpiar filtro de lote"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Scanner individual */}
       {puedeSubir && (
         <div className={styles.scannerSection}>
@@ -613,6 +715,23 @@ export default function TabCheckeoColecta() {
               {[...erpStatesMap.entries()]
                 .sort(([, a], [, b]) => a.localeCompare(b))
                 .map(([id, name]) => (<option key={id} value={id}>{name}</option>))}
+            </select>
+          )}
+
+          {/* Selector de lote */}
+          {lotes.length > 0 && (
+            <select
+              value={filtroBatchId || ''}
+              onChange={(e) => setFiltroBatchId(e.target.value || null)}
+              className={styles.selectSm}
+              title="Filtrar por lote de carga"
+            >
+              <option value="">Lote ({lotes.length})</option>
+              {lotes.map((l) => (
+                <option key={l.upload_batch_id} value={l.upload_batch_id}>
+                  {formatLoteLabel(l)}
+                </option>
+              ))}
             </select>
           )}
 
@@ -924,6 +1043,24 @@ export default function TabCheckeoColecta() {
         </>
       )}
 
+      {/* Move result feedback */}
+      {moveResult && (
+        <div className={moveResult.ok ? styles.uploadSuccess : styles.uploadError}>
+          {moveResult.ok ? (
+            <p>
+              <strong>{moveResult.movidas}</strong> etiqueta{moveResult.movidas !== 1 ? 's' : ''} movida
+              {moveResult.movidas !== 1 ? 's' : ''} a colecta {moveResult.colecta_destino_fecha} #
+              {moveResult.colecta_destino_numero}
+              {moveResult.no_encontradas?.length > 0 && (
+                <> · {moveResult.no_encontradas.length} no encontrada{moveResult.no_encontradas.length !== 1 ? 's' : ''}</>
+              )}
+            </p>
+          ) : (
+            <p>Error al mover: {moveResult.error}</p>
+          )}
+        </div>
+      )}
+
       {/* Selection bar */}
       {selectedIds.size > 0 && !confirmDelete && (
         <div className={styles.selectionBar}>
@@ -932,6 +1069,62 @@ export default function TabCheckeoColecta() {
           </span>
 
           <div className={styles.selectionActions}>
+            {puedeSubir && (
+              <div className={styles.uploadDropdownWrap}>
+                <button
+                  onClick={() => setShowMoveDropdown(!showMoveDropdown)}
+                  className={styles.colectaBtnDespachar}
+                  title="Mover a otra colecta"
+                  aria-label="Mover etiquetas seleccionadas a otra colecta"
+                  disabled={moving}
+                >
+                  <Move size={16} />
+                  {moving ? 'Moviendo...' : 'Mover'}
+                </button>
+
+                {showMoveDropdown && (
+                  <>
+                    <div className={styles.dateDropdownOverlay} onClick={() => setShowMoveDropdown(false)} />
+                    <div className={styles.uploadDropdown}>
+                      <div className={styles.uploadDropdownField}>
+                        <label>Fecha colecta destino</label>
+                        <input
+                          type="date"
+                          value={moveFecha}
+                          onChange={(e) => setMoveFecha(e.target.value)}
+                          className={styles.uploadDropdownInput}
+                        />
+                      </div>
+                      <div className={styles.uploadDropdownField}>
+                        <label>Número de colecta</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={moveNumero}
+                          onChange={(e) => setMoveNumero(parseInt(e.target.value, 10) || 1)}
+                          className={styles.uploadDropdownInput}
+                        />
+                        <span className={styles.uploadDropdownHint}>
+                          Si no existe, se crea. Debe estar pendiente.
+                        </span>
+                      </div>
+                      <div className={styles.uploadDropdownActions}>
+                        <button
+                          type="button"
+                          onClick={moverSeleccionados}
+                          className={`${styles.btnUpload} ${styles.uploadDropdownBtnFile}`}
+                          disabled={moving}
+                        >
+                          <Move size={14} />
+                          Mover {selectedIds.size}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {puedeEliminar && (
               <button
                 onClick={() => setConfirmDelete(true)}

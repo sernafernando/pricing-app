@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     Index,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -41,6 +42,7 @@ class EtiquetaColecta(Base):
     fecha_carga = Column(Date, nullable=False)
 
     colecta_id = Column(Integer, ForeignKey("colectas.id", ondelete="RESTRICT"), nullable=False, index=True)
+    upload_batch_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
