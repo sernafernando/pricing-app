@@ -191,17 +191,22 @@ class HorasExtrasService:
 
     def _validar_fichadas_dia(self, fichadas: list[RRHHFichada]) -> tuple[bool, ErrorTipoHE | None]:
         """
-        Valida que las fichadas del día formen pares entrada/salida coherentes.
+        Valida las fichadas del día con la regla pragmática del scope:
+        primera fichada del día = entrada, última = salida, todo lo del
+        medio cuenta como trabajado (no hay scope de almuerzo).
+
+        El `tipo` de cada fichada se ignora porque el sync de Hikvision
+        lo alterna automáticamente por orden de timestamp y puede ser
+        engañoso (la última de un día con 3 fichadas queda marcada
+        'entrada' aunque pragmáticamente sea la salida).
 
         Asume `fichadas` ordenadas por timestamp ascendente.
 
         Reglas:
-          - Vacío → (False, None) — no hay HE para ese día (no error tampoco).
-          - Cantidad impar → fichadas_desbalanceadas.
-          - Primera es 'salida' → sin_fichada_entrada.
-          - Última es 'entrada' → sin_fichada_salida.
-          - Dos entradas (o dos salidas) consecutivas → solapamiento.
-          - Alternancia entrada→salida→entrada→salida → válido.
+          - 0 fichadas → (False, None) — no hay HE, no error.
+          - 1 fichada → (False, FICHADA_UNICA) — ambigua: el operador
+            decide en "Completar fichada" si falta entrada o salida.
+          - ≥ 2 fichadas → válido.
 
         Returns:
             (válido, error_tipo). Si válido, error_tipo es None.
@@ -209,22 +214,8 @@ class HorasExtrasService:
         if not fichadas:
             return False, None
 
-        if len(fichadas) % 2 != 0:
-            return False, ErrorTipoHE.FICHADAS_DESBALANCEADAS
-
-        if fichadas[0].tipo != "entrada":
-            return False, ErrorTipoHE.SIN_FICHADA_ENTRADA
-
-        if fichadas[-1].tipo != "salida":
-            return False, ErrorTipoHE.SIN_FICHADA_SALIDA
-
-        # Alternancia estricta.
-        esperado = "entrada"
-        for f in fichadas:
-            if f.tipo != esperado:
-                # Dos entradas o dos salidas seguidas.
-                return False, ErrorTipoHE.SOLAPAMIENTO
-            esperado = "salida" if esperado == "entrada" else "entrada"
+        if len(fichadas) == 1:
+            return False, ErrorTipoHE.FICHADA_UNICA
 
         return True, None
 
@@ -250,20 +241,19 @@ class HorasExtrasService:
 
     def _minutos_trabajados(self, fichadas: list[RRHHFichada]) -> int:
         """
-        Suma minutos trabajados emparejando entrada/salida secuencialmente.
+        Calcula minutos trabajados como `última fichada - primera fichada`.
 
-        Asume fichadas ordenadas y validadas (pares balanceados).
+        Regla del scope: primera fichada del día = entrada, última = salida.
+        Todas las fichadas intermedias se ignoran (no hay scope de almuerzo
+        ni cortes parciales).
+
+        Asume fichadas ordenadas por timestamp ascendente y validadas
+        (al menos 2 fichadas por `_validar_fichadas_dia`).
         """
-        total = 0
-        # Itera en pares (entrada, salida).
-        for i in range(0, len(fichadas), 2):
-            if i + 1 >= len(fichadas):
-                break
-            entrada = fichadas[i]
-            salida = fichadas[i + 1]
-            delta = salida.timestamp - entrada.timestamp
-            total += max(int(delta.total_seconds() // 60), 0)
-        return total
+        if len(fichadas) < 2:
+            return 0
+        delta = fichadas[-1].timestamp - fichadas[0].timestamp
+        return max(int(delta.total_seconds() // 60), 0)
 
     def _turno_esperado_minutos(self, empleado_id: int, fecha: date) -> tuple[int, bool]:
         """
@@ -488,11 +478,10 @@ class HorasExtrasService:
         # 8. Clasificar tipo_dia y dividir si corresponde.
         tramos = self._clasificar_tipo_dia(fecha, config.hora_corte_sabado)
 
-        # Armar pares (entrada_dt, salida_dt) para el split por tramo.
-        pares: list[tuple[datetime, datetime]] = []
-        for i in range(0, len(fichadas), 2):
-            if i + 1 < len(fichadas):
-                pares.append((fichadas[i].timestamp, fichadas[i + 1].timestamp))
+        # Ventana única (primera → última fichada). No pareamos cortes
+        # intermedios porque el scope NO contempla almuerzo: todo el rango
+        # entre la primera y la última fichada se considera trabajado.
+        pares: list[tuple[datetime, datetime]] = [(fichadas[0].timestamp, fichadas[-1].timestamp)]
 
         if len(tramos) == 1:
             # Caso simple: todo el extra va al único tipo_dia.
