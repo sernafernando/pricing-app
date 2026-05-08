@@ -228,7 +228,9 @@ def sync_item_storage_incremental(
             if stor_id is not None:
                 q = q.filter(TbItemStorage.stor_id == stor_id)
             last = q.scalar()
-            update_from = last.isoformat() if last else None
+            # Truncar microsegundos: SQL Server DATETIME no los soporta y rompe la conversión
+            # cuando se compara con `COALESCE(...) >= @updateFromDate`.
+            update_from = last.replace(microsecond=0).isoformat() if last else None
         logger.info(f"🔄 Sincronizando desde: {update_from}")
 
         registros = fetch_item_storage_from_erp(stor_id=stor_id, update_from=update_from)
