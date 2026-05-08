@@ -250,19 +250,21 @@ def obtener_componentes(item_id: int, db: Session = Depends(get_db), current_use
     if not asociaciones:
         return []
 
-    # Obtener detalles de los items asociados
+    # Obtener detalles de los items asociados.
+    # Si el componente no está en productos_erp (común en items "fantasma" del ERP
+    # como reemplazos -1), igual lo devolvemos con placeholder para que el front
+    # pueda mostrarlo destacado.
     componentes = []
     for asoc in asociaciones:
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == asoc.item_id_1).first()
 
-        if producto:
-            componentes.append(
-                ComponenteProductoResponse(
-                    item_id=producto.item_id,
-                    item_code=producto.codigo or "",
-                    item_desc=producto.descripcion or "",
-                    cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0,
-                )
+        componentes.append(
+            ComponenteProductoResponse(
+                item_id=asoc.item_id_1,
+                item_code=producto.codigo if producto and producto.codigo else f"#{asoc.item_id_1}",
+                item_desc=producto.descripcion if producto and producto.descripcion else "(componente sin sincronizar)",
+                cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0,
             )
+        )
 
     return componentes
