@@ -259,8 +259,8 @@ def obtener_componentes(item_id: int, db: Session = Depends(get_db), current_use
             componentes.append(
                 ComponenteProductoResponse(
                     item_id=producto.item_id,
-                    item_code=producto.item_code or "",
-                    item_desc=producto.item_desc or "",
+                    item_code=producto.codigo or "",
+                    item_desc=producto.descripcion or "",
                     cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0,
                 )
             )
