@@ -560,6 +560,37 @@ export default function TabCheckeoColecta() {
                   <div className={styles.colectaTotal}>{c.total_etiquetas}</div>
                   <div className={styles.colectaTotalLabel}>etiquetas</div>
                 </div>
+
+                {/* Breakdown ERP */}
+                {c.por_estado_erp && c.por_estado_erp.length > 0 && (
+                  <div className={styles.colectaBreakdown}>
+                    {c.por_estado_erp.map((b) => (
+                      <span
+                        key={`erp-${b.nombre}`}
+                        className={styles.colectaBreakdownBadge}
+                        style={
+                          b.color
+                            ? { background: `${b.color}20`, color: b.color }
+                            : undefined
+                        }
+                      >
+                        {b.nombre} {b.cantidad}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Breakdown ML */}
+                {c.por_estado_ml && c.por_estado_ml.length > 0 && (
+                  <div className={styles.colectaBreakdown}>
+                    {c.por_estado_ml.map((b) => (
+                      <span key={`ml-${b.nombre}`} className={styles.colectaBreakdownBadge}>
+                        {ML_STATUS_LABELS[b.nombre] || b.nombre} {b.cantidad}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {puedeSubir && (
                   <div className={styles.colectaActions} onClick={(ev) => ev.stopPropagation()}>
                     {!isDespachada ? (
