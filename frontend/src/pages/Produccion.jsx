@@ -8,9 +8,10 @@ import styles from './Produccion.module.css';
 
 export default function Produccion() {
   const [resumen, setResumen] = useState([]);
-  const [estadisticas, setEstadisticas] = useState(null);
   const [tiposEnvio, setTiposEnvio] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(null);
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [search, setSearch] = useState('');
   const [modoVista, setModoVista] = useState('lista');
@@ -24,15 +25,6 @@ export default function Produccion() {
       setTiposEnvio(response.data);
     } catch (error) {
       console.error('Error cargando tipos de envío:', error);
-    }
-  }, []);
-
-  const cargarEstadisticas = useCallback(async () => {
-    try {
-      const response = await api.get('/pedidos-preparacion/estadisticas');
-      setEstadisticas(response.data);
-    } catch (error) {
-      console.error('Error cargando estadísticas:', error);
     }
   }, []);
 
@@ -70,12 +62,25 @@ export default function Produccion() {
 
   useEffect(() => {
     cargarTiposEnvio();
-    cargarEstadisticas();
-  }, [cargarTiposEnvio, cargarEstadisticas]);
+  }, [cargarTiposEnvio]);
 
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  const sincronizarDatos = async () => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      await api.post('/pedidos-preparacion/sync', {});
+      await Promise.all([cargarDatos(), cargarTiposEnvio()]);
+    } catch (error) {
+      console.error('Error sincronizando:', error);
+      setSyncError(error.response?.data?.detail || error.message || 'Error desconocido');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const toggleExpandido = async (itemId) => {
     if (!componentes[itemId]) {
@@ -104,14 +109,6 @@ export default function Produccion() {
   const colapsarTodos = () => setExpandidos(new Set());
 
   const todosExpandidos = resumen.length > 0 && expandidos.size === resumen.length;
-
-  const formatearFecha = (fecha) => {
-    if (!fecha) return '-';
-    const date = new Date(fecha);
-    return date.toLocaleString('es-AR', {
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-    });
-  };
 
   const getBadgeClass = (tipo) => {
     switch (tipo?.toLowerCase()) {
@@ -171,9 +168,30 @@ export default function Produccion() {
         <h1 className={sharedStyles.title}>Producción</h1>
       </div>
 
+      {syncError && (
+        <div className={styles.syncErrorBanner} role="alert">
+          <span>Error al sincronizar con el ERP: {syncError}</span>
+          <button
+            type="button"
+            onClick={() => setSyncError(null)}
+            className={styles.syncErrorDismiss}
+            aria-label="Cerrar mensaje de error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className={sharedStyles.tabControls}>
-        <button onClick={cargarDatos} className={sharedStyles.refreshBtn} disabled={loading}>
+        <button onClick={cargarDatos} className={sharedStyles.refreshBtn} disabled={loading || syncing}>
           Actualizar
+        </button>
+        <button
+          onClick={sincronizarDatos}
+          className={sharedStyles.syncBtn}
+          disabled={syncing || loading}
+        >
+          {syncing ? 'Sincronizando...' : 'Sincronizar ERP'}
         </button>
         {modoVista === 'lista' && resumen.length > 0 && (
           <button
@@ -187,30 +205,6 @@ export default function Produccion() {
           </button>
         )}
       </div>
-
-      {estadisticas && (
-        <div className={sharedStyles.statsGrid}>
-          <div className={sharedStyles.statCard}>
-            <div className={sharedStyles.statValue}>{estadisticas.total_items}</div>
-            <div className={sharedStyles.statLabel}>Items distintos</div>
-          </div>
-          <div className={sharedStyles.statCard}>
-            <div className={sharedStyles.statValue}>{Math.round(estadisticas.total_unidades)}</div>
-            <div className={sharedStyles.statLabel}>Unidades total</div>
-          </div>
-          <div className={sharedStyles.statCard}>
-            <div className={sharedStyles.statValue}>{estadisticas.total_paquetes}</div>
-            <div className={sharedStyles.statLabel}>Paquetes total</div>
-          </div>
-        </div>
-      )}
-
-      {estadisticas?.ultima_actualizacion && (
-        <div className={sharedStyles.ultimaActualizacion}>
-          Ultima actualizacion: {formatearFecha(estadisticas.ultima_actualizacion)}
-          <span className={sharedStyles.updateInfo}>(se actualiza cada 5 min)</span>
-        </div>
-      )}
 
       <div className={sharedStyles.filtrosContainer}>
         <div className={sharedStyles.filtrosRow}>
