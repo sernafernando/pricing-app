@@ -25,6 +25,8 @@ from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tb_state import TBState
 from app.models.tb_item_association import TbItemAssociation
+from app.models.tb_price_list_items import TbPriceListItems
+from app.models.tb_item_storage import TbItemStorage
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -188,6 +190,8 @@ __all__ = [
     "TBTaxNumberType",
     "TBState",
     "TbItemAssociation",
+    "TbPriceListItems",
+    "TbItemStorage",
     "OffsetGanancia",
     "OffsetGrupo",
     "OffsetGrupoFiltro",
