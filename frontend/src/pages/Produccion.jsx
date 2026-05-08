@@ -183,12 +183,12 @@ export default function Produccion() {
       )}
 
       <div className={sharedStyles.tabControls}>
-        <button onClick={cargarDatos} className={sharedStyles.refreshBtn} disabled={loading || syncing}>
+        <button onClick={cargarDatos} className={styles.actionBtn} disabled={loading || syncing}>
           Actualizar
         </button>
         <button
           onClick={sincronizarDatos}
-          className={sharedStyles.syncBtn}
+          className={`${styles.actionBtn} ${styles.actionBtnAccent}`}
           disabled={syncing || loading}
         >
           {syncing ? 'Sincronizando...' : 'Sincronizar ERP'}
@@ -196,7 +196,7 @@ export default function Produccion() {
         {modoVista === 'lista' && resumen.length > 0 && (
           <button
             onClick={todosExpandidos ? colapsarTodos : desplegarTodos}
-            className={styles.toggleAllBtn}
+            className={styles.actionBtn}
             disabled={cargandoTodos}
           >
             {todosExpandidos
