@@ -211,21 +211,24 @@ def sync_item_storage_all(db: Session, stor_id: int | None = None) -> tuple[int,
 def sync_item_storage_incremental(
     db: Session, stor_id: int | None = None, update_from: str | None = None
 ) -> tuple[int, int]:
-    """Incremental: solo registros con itst_LastAvailableInRelalculation >= update_from. Sync (usa requests bloqueante).
+    """Incremental: solo registros modificados desde `update_from`. Sync (usa requests bloqueante).
 
-    Si no se pasa update_from, lo deduce del max(itst_LastAvailableInRelalculation) local.
+    Si no se pasa `update_from`, lo deduce del max(COALESCE(itst_LastAvailableInRelalculation, itst_cd)) local.
+    Usa COALESCE porque items recién creados pueden tener `itst_LastAvailableInRelalculation = NULL`
+    hasta que se ejecute la primera recalculación de stock; `itst_cd` (creation date) sí siempre está.
     Si se llama desde un endpoint async, usar `await asyncio.to_thread(...)`.
     """
+    from sqlalchemy import func
+
     logger.info("🔄 === Iniciando sincronización incremental de tb_item_storage ===")
     try:
         if update_from is None:
-            q = db.query(TbItemStorage.itst_LastAvailableInRelalculation).order_by(
-                TbItemStorage.itst_LastAvailableInRelalculation.desc()
-            )
+            efectiva = func.coalesce(TbItemStorage.itst_LastAvailableInRelalculation, TbItemStorage.itst_cd)
+            q = db.query(func.max(efectiva))
             if stor_id is not None:
                 q = q.filter(TbItemStorage.stor_id == stor_id)
-            last = q.first()
-            update_from = last[0].isoformat() if last and last[0] else None
+            last = q.scalar()
+            update_from = last.isoformat() if last else None
         logger.info(f"🔄 Sincronizando desde: {update_from}")
 
         registros = fetch_item_storage_from_erp(stor_id=stor_id, update_from=update_from)
