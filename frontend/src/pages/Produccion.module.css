@@ -45,27 +45,44 @@
   padding: 12px 16px 16px 56px;
 }
 
-.toggleAllBtn {
+/* Botones sutiles estilo Cloudflare — fondo de card, borde fino,
+ * sin gradientes ni sombras llamativas. Usados en `tabControls` para
+ * que la página respete el aesthetic minimal del design system. */
+.actionBtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--cf-border-default, var(--border-secondary));
+  background: var(--cf-bg-card, var(--bg-primary));
+  color: var(--cf-text-primary, var(--text-primary));
+  font-size: 13px;
+  font-weight: var(--font-medium, 500);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-.toggleAllBtn:hover {
-  background: var(--bg-hover);
+.actionBtn:hover:not(:disabled) {
+  background: var(--cf-bg-hover, var(--bg-hover));
+  border-color: var(--cf-border-default, var(--border-secondary));
 }
 
-.toggleAllBtn:disabled {
-  opacity: 0.6;
+.actionBtn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Variante con acento azul sutil para la acción principal (Sincronizar ERP).
+ * Borde + texto en accent, sin fondo sólido. */
+.actionBtnAccent {
+  border-color: var(--cf-accent-blue, var(--brand-primary));
+  color: var(--cf-accent-blue, var(--brand-primary));
+}
+
+.actionBtnAccent:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--cf-accent-blue, var(--brand-primary));
 }
 
 .syncErrorBanner {
