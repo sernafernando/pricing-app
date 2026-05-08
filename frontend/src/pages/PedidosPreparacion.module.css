@@ -535,6 +535,28 @@
   margin-left: 12px;
 }
 
+.componenteItemNegativo {
+  border-left: 3px solid var(--cf-accent-red);
+}
+
+.componenteIconoNegativo {
+  color: var(--cf-accent-red);
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.componenteCantidadNegativa {
+  color: var(--cf-accent-red);
+}
+
+.componenteReemplaza {
+  font-size: 11px;
+  color: var(--cf-accent-red);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
 /* Tabla */
 .tableContainer {
   background: var(--bg-primary);

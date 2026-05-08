@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck } from 'lucide-react';
+import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from '../components/SearchInput';
 import styles from './PedidosPreparacion.module.css';
@@ -81,17 +81,33 @@ function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass 
             <div className={styles.componentesEmpty}>Sin componentes asociados</div>
           ) : (
             <div className={styles.componentesList}>
-              {componentes.map((comp) => (
-                <div key={comp.item_id} className={styles.componenteItem}>
-                  <div className={styles.componenteInfo}>
-                    <strong>{comp.item_code}</strong>
-                    <span>{comp.item_desc}</span>
+              {componentes.map((comp) => {
+                const esNegativo = comp.cantidad < 0;
+                return (
+                  <div
+                    key={comp.item_id}
+                    className={`${styles.componenteItem} ${esNegativo ? styles.componenteItemNegativo : ''}`}
+                  >
+                    {esNegativo && (
+                      <MinusCircle
+                        size={14}
+                        className={styles.componenteIconoNegativo}
+                        aria-label="Se reemplaza del producto original"
+                      />
+                    )}
+                    <div className={styles.componenteInfo}>
+                      <strong>{comp.item_code}</strong>
+                      <span>{comp.item_desc}</span>
+                      {esNegativo && (
+                        <small className={styles.componenteReemplaza}>se reemplaza</small>
+                      )}
+                    </div>
+                    <div className={`${styles.componenteCantidad} ${esNegativo ? styles.componenteCantidadNegativa : ''}`}>
+                      x {comp.cantidad}
+                    </div>
                   </div>
-                  <div className={styles.componenteCantidad}>
-                    x {comp.cantidad}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
