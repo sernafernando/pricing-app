@@ -356,6 +356,12 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     Crea una notificación si el markup real es NEGATIVO y está por debajo del markup_calculado
     Solo alerta ventas en pérdida que están peor de lo esperado
     """
+    # Las ventas que forman parte de un paquete (pack_id no nulo) reparten costos/comisiones
+    # entre los items del pack, por lo que el markup individual no es comparable y genera
+    # falsos positivos. No notificar.
+    if row.pack_id:
+        return False
+
     if not producto_erp:
         return False
 
