@@ -26,8 +26,9 @@ registrarPagina({
   ],
 });
 
-// Componente Card para mostrar producto con sus componentes
-function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass }) {
+// Componente Card para mostrar producto con sus componentes.
+// Exportado para que la página /produccion lo reutilice sin duplicar la lógica.
+export function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass }) {
   const [mostrarComponentes, setMostrarComponentes] = useState(false);
 
   const toggleComponentes = () => {
