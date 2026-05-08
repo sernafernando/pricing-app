@@ -227,19 +227,25 @@ def sync_price_list_items_all(db: Session, price_list_id: int | None = None) -> 
 def sync_price_list_items_incremental(
     db: Session, price_list_id: int | None = None, update_from: str | None = None
 ) -> tuple[int, int]:
-    """Incremental: solo registros con prli_updatedAt >= update_from. Sync (usa requests bloqueante).
+    """Incremental: solo registros modificados desde `update_from`. Sync (usa requests bloqueante).
 
-    Si no se pasa update_from, lo deduce del max(prli_updatedAt) local.
+    Si no se pasa `update_from`, lo deduce del max(COALESCE(prli_updatedAt, prli_cd)) local.
+    Usa COALESCE porque algunos items tienen `prli_updatedAt = NULL` (no se dispara el trigger
+    de update en el ERP), y `prli_cd` (creation date) sí siempre está seteado. Si solo
+    miráramos `prli_updatedAt`, items nuevos con ese campo en NULL no se sincronizarían nunca.
     Si se llama desde un endpoint async, usar `await asyncio.to_thread(...)`.
     """
+    from sqlalchemy import func
+
     logger.info("🔄 === Iniciando sincronización incremental de tb_price_list_items ===")
     try:
         if update_from is None:
-            q = db.query(TbPriceListItems.prli_updatedAt).order_by(TbPriceListItems.prli_updatedAt.desc())
+            efectiva = func.coalesce(TbPriceListItems.prli_updatedAt, TbPriceListItems.prli_cd)
+            q = db.query(func.max(efectiva))
             if price_list_id is not None:
                 q = q.filter(TbPriceListItems.prli_id == price_list_id)
-            last = q.first()
-            update_from = last[0].isoformat() if last and last[0] else None
+            last = q.scalar()
+            update_from = last.isoformat() if last else None
         logger.info(f"🔄 Sincronizando desde: {update_from}")
 
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id, update_from=update_from)
