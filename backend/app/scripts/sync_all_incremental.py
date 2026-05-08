@@ -41,6 +41,18 @@ from app.scripts.sync_item_cost_history import sync_item_cost_history_incrementa
 from app.scripts.sync_item_cost_list import sync_item_cost_list_incremental
 from app.scripts.sync_customers_incremental import sync_customers_incremental
 from app.scripts.sync_ml_users_data_incremental import sync_ml_users_data_incremental
+from app.scripts.sync_price_list_items import sync_price_list_items_incremental
+from app.scripts.sync_item_storage import sync_item_storage_incremental
+
+
+# Wrappers async para los syncs sync (usan requests bloqueante via gbp-parser).
+# `asyncio.to_thread` evita bloquear el event loop del orquestador.
+async def _sync_price_list_items_wrapper(db):
+    return await asyncio.to_thread(sync_price_list_items_incremental, db, price_list_id=4)
+
+
+async def _sync_item_storage_wrapper(db):
+    return await asyncio.to_thread(sync_item_storage_incremental, db, stor_id=1)
 
 
 async def ejecutar_todas_sincronizaciones():
@@ -76,6 +88,18 @@ async def ejecutar_todas_sincronizaciones():
             "args_batch": False,
         },
         {"nombre": "Item Transaction Details", "emoji": "📋", "funcion": sync_details_incremental, "args_batch": False},
+        {
+            "nombre": "Price List Items (lista 4 = ML)",
+            "emoji": "🏷️",
+            "funcion": _sync_price_list_items_wrapper,
+            "args_batch": False,
+        },
+        {
+            "nombre": "Item Storage (depósito 1)",
+            "emoji": "📦",
+            "funcion": _sync_item_storage_wrapper,
+            "args_batch": False,
+        },
         {"nombre": "Item Cost List", "emoji": "💵", "funcion": sync_item_cost_list_incremental, "args_batch": False},
         {
             "nombre": "Item Cost List History",

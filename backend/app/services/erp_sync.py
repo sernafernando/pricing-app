@@ -1,18 +1,125 @@
-import httpx
+import asyncio
 import hashlib
+import httpx
 import logging
 import time
+from typing import Dict, List
+
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.constants import get_system_user_id
 from app.models.producto import ProductoERP, ProductoPricing
-from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
-# El gbp-parser ejecuta una query SQL Server con muchos SELECT TOP 1 anidados
-# que escala mal con el volumen. 5 min cubre escenarios actuales con margen.
+# Timeout legacy para el fetch HTTP del gbp-parser. Conservado por si se
+# necesita el fetch remoto como fallback, pero el flujo principal ahora usa
+# fetch_productos_local() que ejecuta la query directo en PostgreSQL.
 ERP_FETCH_TIMEOUT = 300.0
+
+
+# Query optimizada espejo de la del gbp-parser (scriptItem extendido) ejecutada
+# 100% local sobre las tablas espejo del ERP. Usa LATERAL JOIN en lugar de
+# OUTER APPLY (equivalente PostgreSQL) y devuelve los mismos campos que la
+# query SQL Server original para mantener compatibilidad con el resto del sync.
+PRODUCTOS_LOCAL_SQL = """
+SELECT DISTINCT
+    ti.item_id                                              AS "Item_ID",
+    tc.cat_desc                                             AS "Categoría",
+    tb.brand_desc                                           AS "Marca",
+    ti.item_code                                            AS "Código",
+    UPPER(ti.item_desc)                                     AS "Descripción",
+
+    CASE costo.curr_id WHEN 1 THEN 'ARS' WHEN 2 THEN 'USD' END  AS "Moneda_Costo",
+    historia_costo.iclh_price                               AS "iclh_price",
+    costo.coslis_price                                      AS "coslis_price",
+
+    CASE tpli.curr_id WHEN 1 THEN 'ARS' WHEN 2 THEN 'USD' END   AS "Moneda",
+    upp.it_price                                            AS "UPP",
+    tpli.prli_price                                         AS "Lista_Precios_ML",
+
+    ttn.tax_percentage                                      AS "IVA",
+    tbmlip.mlp_price4freeshipping                           AS "Envío",
+    ml_best.mlp_lastpriceinformedbyml                       AS "Precio_Publicado",
+    tsc.subcat_id                                           AS "subcat_id",
+
+    CASE
+        WHEN ml_best.item_id IS NULL THEN NULL
+        WHEN ml_best.mlp_active THEN 'Publicado'
+        ELSE 'Pausado'
+    END                                                     AS "Estado",
+
+    ml_best.mlp_publicationid                               AS "MLA",
+    ti.item_liquidation                                     AS "item_liquidation"
+
+FROM tb_item ti
+LEFT JOIN tb_category tc
+    ON tc.comp_id = ti.comp_id AND tc.cat_id = ti.cat_id
+LEFT JOIN tb_subcategory tsc
+    ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
+LEFT JOIN tb_brand tb
+    ON tb.comp_id = ti.comp_id AND tb.brand_id = ti.brand_id
+LEFT JOIN tb_mercadolibre_items_publicados tbmlip
+    ON tbmlip.comp_id = ti.comp_id AND tbmlip.item_id = ti.item_id
+LEFT JOIN tb_item_storage tis
+    ON tis.comp_id = ti.comp_id AND tis.item_id = ti.item_id
+LEFT JOIN tb_item_taxes tit
+    ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
+LEFT JOIN tb_tax_name ttn
+    ON ttn.comp_id = ti.comp_id AND ttn.tax_id = tit.tax_id
+LEFT JOIN tb_storage ts
+    ON ts.comp_id = ti.comp_id AND ts.stor_id = tis.stor_id
+INNER JOIN tb_price_list_items tpli
+    ON tpli.comp_id = ti.comp_id AND tpli.item_id = ti.item_id AND tpli.prli_id = 4
+
+LEFT JOIN LATERAL (
+    SELECT ticl2.curr_id, ticl2.coslis_price
+    FROM tb_item_cost_list ticl2
+    WHERE ticl2.item_id = ti.item_id AND ticl2.coslis_id = 1
+    LIMIT 1
+) costo ON true
+
+LEFT JOIN LATERAL (
+    SELECT ticlh2.iclh_price
+    FROM tb_item_cost_list_history ticlh2
+    WHERE ticlh2.item_id = ti.item_id AND ticlh2.coslis_id = 1
+    ORDER BY ticlh2.iclh_id DESC
+    LIMIT 1
+) historia_costo ON true
+
+LEFT JOIN LATERAL (
+    SELECT tit2.it_price
+    FROM tb_item_transactions tit2
+    WHERE tit2.item_id = ti.item_id AND tit2.puco_id = 10 AND tit2.stor_id = 1 AND tit2.it_price > 0
+    ORDER BY tit2.it_cd DESC
+    LIMIT 1
+) upp ON true
+
+LEFT JOIN LATERAL (
+    SELECT mlp2.item_id, mlp2.mlp_lastpriceinformedbyml, mlp2.mlp_active, mlp2.mlp_publicationid
+    FROM tb_mercadolibre_items_publicados mlp2
+    WHERE mlp2.item_id = ti.item_id AND mlp2.mlp_listing_type_id = 'gold_special'
+    ORDER BY
+        CASE WHEN mlp2.mlp_catalog_listing THEN 0 ELSE 1 END,
+        mlp2.mlp_lastupdate DESC NULLS LAST
+    LIMIT 1
+) ml_best ON true
+
+WHERE
+    (ts.stor_id IS NULL OR ts.stor_id <> 17)
+    AND tc.cat_id NOT IN (1, 67, 72)
+    AND (tis.stor_id = 1 OR tis.stor_id IS NULL)
+    AND (tbmlip.mlp_listing_type_id = 'gold_special' OR tbmlip.mlp_listing_type_id IS NULL)
+"""
+
+# Stock por item del depósito 1 (reemplaza el fetch HTTP a ItemStorage_funGetXMLData).
+STOCK_LOCAL_SQL = """
+SELECT item_id, COALESCE(itst_cant, 0) AS stock
+FROM tb_item_storage
+WHERE stor_id = 1
+"""
 
 
 def convertir_a_numero(valor, default=0):
@@ -75,8 +182,43 @@ def calcular_hash(producto: Dict) -> str:
     return hashlib.sha256(datos.encode()).hexdigest()
 
 
+def fetch_productos_local(db: Session) -> List[Dict]:
+    """Ejecuta la query optimizada sobre las tablas espejo locales en PostgreSQL.
+
+    Reemplaza el fetch HTTP al gbp-parser (que tarda 2+ min). Asume que las tablas
+    espejo (`tb_item`, `tb_price_list_items`, `tb_item_storage`, etc.) están al día
+    via cron de `sync_all_incremental`.
+    """
+    start = time.monotonic()
+    result = db.execute(text(PRODUCTOS_LOCAL_SQL))
+    productos = [dict(row._mapping) for row in result]
+    elapsed = time.monotonic() - start
+    logger.info("✅ fetch_productos_local: %d items en %.2fs", len(productos), elapsed)
+    return productos
+
+
+def fetch_stock_local(db: Session) -> Dict[int, int]:
+    """Trae el stock por item del depósito 1 desde tb_item_storage local."""
+    start = time.monotonic()
+    result = db.execute(text(STOCK_LOCAL_SQL))
+    stock_dict = {row.item_id: convertir_a_entero(row.stock) for row in result}
+    elapsed = time.monotonic() - start
+    logger.info("✅ fetch_stock_local: %d items en %.2fs", len(stock_dict), elapsed)
+    return stock_dict
+
+
 async def sincronizar_erp(db: Session) -> Dict:
-    """Sincroniza productos del ERP con la base de datos"""
+    """Sincroniza productos del ERP con la base de datos.
+
+    Flujo:
+    1. Sync incremental rápido de tb_price_list_items y tb_item_storage (las dos
+       tablas que más cambian: precios y stock).
+    2. Ejecuta la query optimizada SOBRE las tablas espejo locales (no HTTP al ERP).
+    3. Procesa los resultados igual que antes (upsert en productos_erp + pricing).
+
+    Las demás tablas espejo (tb_item, tb_brand, tb_mercadolibre_items_publicados, etc.)
+    se asume que las mantiene al día el cron de sync_all_incremental.
+    """
 
     stats = {
         "productos_nuevos": 0,
@@ -90,13 +232,24 @@ async def sincronizar_erp(db: Session) -> Dict:
     try:
         system_user_id = get_system_user_id(db)
 
-        print("Trayendo productos del ERP...")
-        productos = await fetch_productos_erp()
+        # Sync previo de las dos tablas que más cambian (~2-3 seg total).
+        # to_thread porque las funciones usan requests bloqueante.
+        from app.scripts.sync_price_list_items import sync_price_list_items_incremental
+        from app.scripts.sync_item_storage import sync_item_storage_incremental
 
-        print("Trayendo stock...")
-        stock_dict = await fetch_stock_erp()
+        logger.info("🔄 Sincronizando tb_price_list_items (lista 4)...")
+        await asyncio.to_thread(sync_price_list_items_incremental, db, price_list_id=4)
 
-        print(f"Procesando {len(productos)} productos...")
+        logger.info("🔄 Sincronizando tb_item_storage (depósito 1)...")
+        await asyncio.to_thread(sync_item_storage_incremental, db, stor_id=1)
+
+        logger.info("🔄 Ejecutando query local de productos...")
+        productos = fetch_productos_local(db)
+
+        logger.info("🔄 Cargando stock local...")
+        stock_dict = fetch_stock_local(db)
+
+        logger.info("🔄 Procesando %d productos...", len(productos))
 
         # Detectar duplicados en el ERP
         items_dict = {}
