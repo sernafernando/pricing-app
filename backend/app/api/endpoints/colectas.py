@@ -19,8 +19,13 @@ from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.colecta import Colecta
 from app.models.etiqueta_colecta import EtiquetaColecta
+from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.sale_order_header import SaleOrderHeader
+from app.models.sale_order_header_history import SaleOrderHeaderHistory
+from app.models.sale_order_status import SaleOrderStatus
 from app.services.permisos_service import verificar_permiso
 from app.core.sse import sse_publish_bg
+from sqlalchemy import desc
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,8 +34,18 @@ logger = logging.getLogger(__name__)
 # ── Pydantic models ──────────────────────────────────────────────
 
 
+class EstadoBreakdownItem(BaseModel):
+    """Una entrada de breakdown: nombre del estado, color (si aplica) y count."""
+
+    nombre: str
+    color: Optional[str] = None
+    cantidad: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ColectaResponse(BaseModel):
-    """Colecta con conteo de etiquetas."""
+    """Colecta con conteo de etiquetas y breakdown por estado ERP / ML."""
 
     id: int
     fecha: date
@@ -39,6 +54,8 @@ class ColectaResponse(BaseModel):
     despachada_at: Optional[datetime] = None
     observaciones: Optional[str] = None
     total_etiquetas: int = 0
+    por_estado_erp: List[EstadoBreakdownItem] = []
+    por_estado_ml: List[EstadoBreakdownItem] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,18 +92,139 @@ def _siguiente_numero(db: Session, fecha: date) -> int:
     return (max_num or 0) + 1
 
 
-def _serializar_con_total(db: Session, colectas: List[Colecta]) -> List[ColectaResponse]:
-    """Serializa colectas con total_etiquetas en una sola query."""
+def _serializar_con_breakdown(db: Session, colectas: List[Colecta]) -> List[ColectaResponse]:
+    """
+    Serializa colectas con total_etiquetas + breakdown por estado ERP y ML.
+
+    Estrategia: traer las etiquetas con sus shipping_ids, hacer queries deduplicadas
+    a MercadoLibreOrderShipping (ML) y SaleOrderHeader (ERP), agregar facturado por
+    SaleOrderHeaderHistory.ct_transaction. Mismo patrón que el listing principal.
+    """
     if not colectas:
         return []
 
-    ids = [c.id for c in colectas]
-    counts = dict(
-        db.query(EtiquetaColecta.colecta_id, func.count(EtiquetaColecta.id))
-        .filter(EtiquetaColecta.colecta_id.in_(ids))
-        .group_by(EtiquetaColecta.colecta_id)
+    colecta_ids = [c.id for c in colectas]
+
+    etq_rows = (
+        db.query(EtiquetaColecta.colecta_id, EtiquetaColecta.shipping_id)
+        .filter(EtiquetaColecta.colecta_id.in_(colecta_ids))
         .all()
     )
+    if not etq_rows:
+        return [
+            ColectaResponse(
+                id=c.id,
+                fecha=c.fecha,
+                numero=c.numero,
+                estado=c.estado,
+                despachada_at=c.despachada_at,
+                observaciones=c.observaciones,
+                total_etiquetas=0,
+                por_estado_erp=[],
+                por_estado_ml=[],
+            )
+            for c in colectas
+        ]
+
+    target_ids = list({r.shipping_id for r in etq_rows})
+
+    # ML status dedup
+    ranked_ship = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid,
+            MercadoLibreOrderShipping.mlstatus,
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(MercadoLibreOrderShipping.mlm_id),
+            )
+            .label("rn"),
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
+        )
+        .subquery()
+    )
+    ml_map = {r.mlshippingid: r.mlstatus for r in db.query(ranked_ship).filter(ranked_ship.c.rn == 1).all()}
+
+    # ERP status dedup (último pedido por shipping)
+    ranked_soh = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid,
+            SaleOrderHeader.ssos_id,
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(SaleOrderHeader.soh_cd),
+            )
+            .label("rn"),
+        )
+        .join(SaleOrderHeader, MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id)
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeader.mlo_id.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
+        )
+        .subquery()
+    )
+    erp_ssos_map = {r.mlshippingid: r.ssos_id for r in db.query(ranked_soh).filter(ranked_soh.c.rn == 1).all()}
+
+    # Facturado: si hay SaleOrderHeaderHistory con ct_transaction != NULL para ese mlo_id
+    ranked_fact = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid,
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(SaleOrderHeaderHistory.sohh_cd),
+            )
+            .label("rn"),
+        )
+        .join(SaleOrderHeaderHistory, MercadoLibreOrderShipping.mlo_id == SaleOrderHeaderHistory.mlo_id)
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeaderHistory.ct_transaction.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(target_ids),
+        )
+        .subquery()
+    )
+    facturado_ids = {r.mlshippingid for r in db.query(ranked_fact.c.mlshippingid).filter(ranked_fact.c.rn == 1).all()}
+
+    # Nombres y colores ERP
+    ssos_ids = {v for v in erp_ssos_map.values() if v}
+    status_map = {}
+    if ssos_ids:
+        status_map = {
+            s.ssos_id: s for s in db.query(SaleOrderStatus).filter(SaleOrderStatus.ssos_id.in_(ssos_ids)).all()
+        }
+
+    # Agrupar por colecta_id
+    breakdown_by_colecta: dict[int, dict] = {cid: {"total": 0, "erp": {}, "ml": {}} for cid in colecta_ids}
+    for row in etq_rows:
+        b = breakdown_by_colecta[row.colecta_id]
+        b["total"] += 1
+
+        sid = row.shipping_id
+        erp_ssos_id = erp_ssos_map.get(sid)
+        erp_status = status_map.get(erp_ssos_id) if erp_ssos_id else None
+        is_facturado = sid in facturado_ids
+
+        if erp_status:
+            key = (erp_status.ssos_name, erp_status.ssos_color)
+        elif is_facturado:
+            key = ("Facturado", "#22c55e")
+        else:
+            key = None
+
+        if key is not None:
+            b["erp"][key] = b["erp"].get(key, 0) + 1
+
+        ml_status = ml_map.get(sid)
+        if ml_status:
+            b["ml"][ml_status] = b["ml"].get(ml_status, 0) + 1
 
     return [
         ColectaResponse(
@@ -96,7 +234,15 @@ def _serializar_con_total(db: Session, colectas: List[Colecta]) -> List[ColectaR
             estado=c.estado,
             despachada_at=c.despachada_at,
             observaciones=c.observaciones,
-            total_etiquetas=counts.get(c.id, 0),
+            total_etiquetas=breakdown_by_colecta[c.id]["total"],
+            por_estado_erp=[
+                EstadoBreakdownItem(nombre=name, color=color, cantidad=cnt)
+                for (name, color), cnt in sorted(breakdown_by_colecta[c.id]["erp"].items(), key=lambda kv: -kv[1])
+            ],
+            por_estado_ml=[
+                EstadoBreakdownItem(nombre=name, cantidad=cnt)
+                for name, cnt in sorted(breakdown_by_colecta[c.id]["ml"].items(), key=lambda kv: -kv[1])
+            ],
         )
         for c in colectas
     ]
@@ -133,7 +279,7 @@ def listar_colectas(
         q = q.filter(Colecta.estado == Colecta.ESTADO_PENDIENTE)
 
     colectas = q.order_by(Colecta.fecha.desc(), Colecta.numero.asc()).all()
-    return _serializar_con_total(db, colectas)
+    return _serializar_con_breakdown(db, colectas)
 
 
 @router.get(
@@ -185,15 +331,7 @@ def crear_colecta(
 
     sse_publish_bg("colectas:changed", {"hint": "reload"})
 
-    return ColectaResponse(
-        id=colecta.id,
-        fecha=colecta.fecha,
-        numero=colecta.numero,
-        estado=colecta.estado,
-        despachada_at=colecta.despachada_at,
-        observaciones=colecta.observaciones,
-        total_etiquetas=0,
-    )
+    return _serializar_con_breakdown(db, [colecta])[0]
 
 
 @router.patch(
@@ -227,17 +365,7 @@ def despachar_colecta(
 
     sse_publish_bg("colectas:changed", {"hint": "reload"})
 
-    total = (db.query(func.count(EtiquetaColecta.id)).filter(EtiquetaColecta.colecta_id == colecta.id).scalar()) or 0
-
-    return ColectaResponse(
-        id=colecta.id,
-        fecha=colecta.fecha,
-        numero=colecta.numero,
-        estado=colecta.estado,
-        despachada_at=colecta.despachada_at,
-        observaciones=colecta.observaciones,
-        total_etiquetas=total,
-    )
+    return _serializar_con_breakdown(db, [colecta])[0]
 
 
 @router.patch(
@@ -268,17 +396,7 @@ def reabrir_colecta(
 
     sse_publish_bg("colectas:changed", {"hint": "reload"})
 
-    total = (db.query(func.count(EtiquetaColecta.id)).filter(EtiquetaColecta.colecta_id == colecta.id).scalar()) or 0
-
-    return ColectaResponse(
-        id=colecta.id,
-        fecha=colecta.fecha,
-        numero=colecta.numero,
-        estado=colecta.estado,
-        despachada_at=colecta.despachada_at,
-        observaciones=colecta.observaciones,
-        total_etiquetas=total,
-    )
+    return _serializar_con_breakdown(db, [colecta])[0]
 
 
 @router.delete(
