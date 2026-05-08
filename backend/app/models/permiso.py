@@ -504,6 +504,13 @@ PERMISOS_SISTEMA = [
         "orden": 66,
     },
     {
+        "codigo": "produccion.ver_combos",
+        "nombre": "Ver página Producción",
+        "descripcion": "Acceso a la página /produccion (combos en armado, vista filtrada con spoilers de componentes)",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 66,
+    },
+    {
         "codigo": "pedidos.ver_pendientes",
         "nombre": "Ver tab Pedidos Pendientes",
         "descripcion": "Acceso a la pestaña Pedidos Pendientes (exportar pedidos a logísticas)",
@@ -904,6 +911,7 @@ PERMISOS_POR_ROL = {
         "admin.gestionar_asignaciones",
         "produccion.marcar_prearmado",
         "produccion.ver_preparacion",
+        "produccion.ver_combos",
         "pedidos.ver_pendientes",
         "pedidos.crear_envio_flex",
         "config.*",
