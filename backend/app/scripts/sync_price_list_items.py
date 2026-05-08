@@ -245,7 +245,10 @@ def sync_price_list_items_incremental(
             if price_list_id is not None:
                 q = q.filter(TbPriceListItems.prli_id == price_list_id)
             last = q.scalar()
-            update_from = last.isoformat() if last else None
+            # Truncar microsegundos: SQL Server DATETIME (no DATETIME2) no los soporta y
+            # `COALESCE(...) >= @updateFromDate` falla con "Conversion failed when converting
+            # date and/or time from character string" si llega un ISO con .ffffff.
+            update_from = last.replace(microsecond=0).isoformat() if last else None
         logger.info(f"🔄 Sincronizando desde: {update_from}")
 
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id, update_from=update_from)

@@ -95,7 +95,9 @@ async def sync_all() -> None:
                 resultado_erp = await sincronizar_erp(db)
                 log(f"  ERP: {resultado_erp}")
 
-                resultado_precios = sincronizar_precios_ml(db)
+                # sincronizar_precios_ml maneja su propia sesión via get_background_db,
+                # NO recibe `db` (su primer arg es pricelist_id). Sin esto rompe con KeyError.
+                resultado_precios = sincronizar_precios_ml()
                 log(f"  Precios ML: {resultado_precios}")
             finally:
                 db.close()
