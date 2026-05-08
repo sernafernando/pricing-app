@@ -1,10 +1,18 @@
 import httpx
 import hashlib
+import logging
+import time
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import get_system_user_id
 from app.models.producto import ProductoERP, ProductoPricing
 from typing import Dict, List
+
+logger = logging.getLogger(__name__)
+
+# El gbp-parser ejecuta una query SQL Server con muchos SELECT TOP 1 anidados
+# que escala mal con el volumen. 5 min cubre escenarios actuales con margen.
+ERP_FETCH_TIMEOUT = 300.0
 
 
 def convertir_a_numero(valor, default=0):
@@ -30,15 +38,20 @@ def convertir_a_entero(valor, default=0):
 
 async def fetch_productos_erp() -> List[Dict]:
     """Trae productos del ERP via gbp-parser (localhost)"""
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    start = time.monotonic()
+    async with httpx.AsyncClient(timeout=ERP_FETCH_TIMEOUT) as client:
         response = await client.post(settings.GBP_PARSER_URL, json={"intExpgr_id": 64})
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+    elapsed = time.monotonic() - start
+    logger.info("fetch_productos_erp: %d items en %.1fs", len(data), elapsed)
+    return data
 
 
 async def fetch_stock_erp() -> Dict[int, int]:
     """Trae stock de todos los productos via gbp-parser (localhost)"""
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    start = time.monotonic()
+    async with httpx.AsyncClient(timeout=ERP_FETCH_TIMEOUT) as client:
         response = await client.get(
             settings.GBP_PARSER_URL, params={"opName": "ItemStorage_funGetXMLData", "intStor_id": 1, "intItem_id": -1}
         )
@@ -51,7 +64,9 @@ async def fetch_stock_erp() -> Dict[int, int]:
             stock = convertir_a_entero(item.get("Stock", 0))
             stock_dict[item_id] = stock
 
-        return stock_dict
+    elapsed = time.monotonic() - start
+    logger.info("fetch_stock_erp: %d items en %.1fs", len(stock_dict), elapsed)
+    return stock_dict
 
 
 def calcular_hash(producto: Dict) -> str:
