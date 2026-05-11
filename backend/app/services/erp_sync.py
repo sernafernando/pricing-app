@@ -211,10 +211,13 @@ async def sincronizar_erp(db: Session) -> Dict:
     """Sincroniza productos del ERP con la base de datos.
 
     Flujo:
-    1. Sync incremental rápido de tb_price_list_items y tb_item_storage (las dos
-       tablas que más cambian: precios y stock).
+    1. Sync incremental rápido de tb_price_list_items (precios cambian seguido).
     2. Ejecuta la query optimizada SOBRE las tablas espejo locales (no HTTP al ERP).
-    3. Procesa los resultados igual que antes (upsert en productos_erp + pricing).
+    3. **Stock se trae por HTTP via gbp-parser** (`ItemStorage_funGetXMLData`) porque
+       `tb_item_storage` se actualiza por `itst_LastAvailableInRelalculation`, que solo
+       se mueve al recalcular disponibilidad — NO refleja cambios de stock real-time
+       (ventas, movimientos). El fetch HTTP es rápido (~1-2 seg) y trae el estado actual.
+    4. Procesa los resultados igual que antes (upsert en productos_erp + pricing).
 
     Las demás tablas espejo (tb_item, tb_brand, tb_mercadolibre_items_publicados, etc.)
     se asume que las mantiene al día el cron de sync_all_incremental.
@@ -232,22 +235,20 @@ async def sincronizar_erp(db: Session) -> Dict:
     try:
         system_user_id = get_system_user_id(db)
 
-        # Sync previo de las dos tablas que más cambian (~2-3 seg total).
-        # to_thread porque las funciones usan requests bloqueante.
+        # Sync previo de tb_price_list_items (precios cambian con frecuencia).
+        # to_thread porque la función usa requests bloqueante.
+        # NOTA: tb_item_storage NO se sincroniza acá; el stock se trae directo del ERP
+        # más abajo via fetch_stock_erp() para tener valores real-time.
         from app.scripts.sync_price_list_items import sync_price_list_items_incremental
-        from app.scripts.sync_item_storage import sync_item_storage_incremental
 
         logger.info("🔄 Sincronizando tb_price_list_items (lista 4)...")
         await asyncio.to_thread(sync_price_list_items_incremental, db, price_list_id=4)
 
-        logger.info("🔄 Sincronizando tb_item_storage (depósito 1)...")
-        await asyncio.to_thread(sync_item_storage_incremental, db, stor_id=1)
-
         logger.info("🔄 Ejecutando query local de productos...")
         productos = fetch_productos_local(db)
 
-        logger.info("🔄 Cargando stock local...")
-        stock_dict = fetch_stock_local(db)
+        logger.info("🔄 Trayendo stock real-time del ERP (gbp-parser)...")
+        stock_dict = await fetch_stock_erp()
 
         logger.info("🔄 Procesando %d productos...", len(productos))
 
