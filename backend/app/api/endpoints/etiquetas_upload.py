@@ -8,12 +8,13 @@ Incluye:
 """
 
 import json
+import uuid
 import zipfile
 from datetime import date
 from io import BytesIO
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -47,6 +48,10 @@ router = APIRouter()
 def upload_etiquetas(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Archivo .zip o .txt con etiquetas ZPL"),
+    fecha_envio: date = Form(
+        default_factory=date.today,
+        description="Fecha de envío para todas las etiquetas del archivo (default hoy)",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> UploadResultResponse:
@@ -54,6 +59,10 @@ def upload_etiquetas(
     Recibe un .zip (que contiene .txt) o directamente un .txt con etiquetas ZPL.
     Extrae los JSONs de los QR codes, parsea shipping_id/sender_id/hash_code
     e inserta en etiquetas_envio con ON CONFLICT(shipping_id) DO NOTHING.
+
+    Todas las etiquetas insertadas en este POST comparten un mismo
+    upload_batch_id (UUID), que se devuelve en la respuesta y permite
+    identificar el lote para selección masiva posterior.
     """
     _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
 
@@ -96,7 +105,7 @@ def upload_etiquetas(
     errores = 0
     detalle_errores: List[str] = []
     nuevos_shipping_ids: List[str] = []
-    hoy = date.today()
+    batch_id = uuid.uuid4()
 
     for raw_json in qr_jsons:
         try:
@@ -107,7 +116,8 @@ def upload_etiquetas(
                 sender_id=parsed["sender_id"],
                 hash_code=parsed["hash_code"],
                 nombre_archivo=nombre_archivo,
-                fecha_envio=hoy,
+                fecha_envio=fecha_envio,
+                upload_batch_id=batch_id,
             )
             if es_nueva:
                 nuevas += 1
@@ -137,6 +147,7 @@ def upload_etiquetas(
         duplicadas=duplicadas,
         errores=errores,
         detalle_errores=detalle_errores[:20],
+        upload_batch_id=batch_id if nuevas > 0 else None,
     )
 
 
@@ -168,7 +179,7 @@ def registrar_manual(
         sender_id=parsed["sender_id"],
         hash_code=parsed["hash_code"],
         nombre_archivo="escaneo_manual",
-        fecha_envio=date.today(),
+        fecha_envio=payload.fecha_envio or date.today(),
     )
 
     try:

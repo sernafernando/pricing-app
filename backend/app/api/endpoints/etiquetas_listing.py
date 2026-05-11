@@ -8,6 +8,7 @@ Incluye:
 
 from datetime import date
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
@@ -43,6 +44,7 @@ from app.api.endpoints.etiquetas_shared import (
     CheckUpdatesResponse,
     EtiquetaEnvioResponse,
     EtiquetaPaginatedResponse,
+    LoteEnvioResponse,
 )
 
 
@@ -93,6 +95,7 @@ def listar_etiquetas(
     solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
     pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
     sin_cordon: bool = Query(False, description="Solo etiquetas sin cordón asignado"),
+    upload_batch_id: Optional[UUID] = Query(None, description="Filtrar por lote de carga (UUID)"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     page: Optional[int] = Query(None, ge=1, description="Página (si se omite, devuelve lista completa)"),
     page_size: int = Query(100, ge=1, le=500, description="Tamaño de página (default 100, max 500)"),
@@ -121,6 +124,8 @@ def listar_etiquetas(
             ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
         if fecha_hasta:
             ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+    if upload_batch_id is not None:
+        ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.upload_batch_id == upload_batch_id)
     ids_fecha_sub = ids_fecha_q.scalar_subquery()
 
     soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
@@ -195,6 +200,7 @@ def listar_etiquetas(
             EtiquetaEnvio.shipping_id,
             EtiquetaEnvio.sender_id,
             EtiquetaEnvio.nombre_archivo,
+            EtiquetaEnvio.upload_batch_id,
             EtiquetaEnvio.fecha_envio,
             EtiquetaEnvio.logistica_id,
             EtiquetaEnvio.transporte_id,
@@ -396,6 +402,9 @@ def listar_etiquetas(
     if sin_cordon:
         query = query.filter(CodigoPostalCordon.cordon.is_(None))
 
+    if upload_batch_id is not None:
+        query = query.filter(EtiquetaEnvio.upload_batch_id == upload_batch_id)
+
     if search:
         search_term = f"%{search}%"
         query = query.filter(
@@ -448,6 +457,8 @@ def listar_etiquetas(
             count_q = count_q.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
         elif pistoleado == "no":
             count_q = count_q.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+        if upload_batch_id is not None:
+            count_q = count_q.filter(EtiquetaEnvio.upload_batch_id == upload_batch_id)
 
         # Filtros que necesitan JOINs — solo agregarlos si están activos
         if cordon or sin_cordon:
@@ -507,6 +518,7 @@ def listar_etiquetas(
             shipping_id=row.shipping_id,
             sender_id=row.sender_id,
             nombre_archivo=row.nombre_archivo,
+            upload_batch_id=row.upload_batch_id,
             fecha_envio=row.fecha_envio,
             logistica_id=row.logistica_id,
             logistica_nombre=row.logistica_nombre,
@@ -714,3 +726,54 @@ def items_envio_flex(
             }
 
     return [ItemEnvioFlexResponse(**item) for item in seen.values()]
+
+
+@router.get(
+    "/etiquetas-envio/lotes",
+    response_model=List[LoteEnvioResponse],
+    summary="Listar lotes de carga (uploads agrupados por upload_batch_id)",
+)
+def listar_lotes_envio(
+    fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha de envío (inclusive)"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha de envío (inclusive)"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[LoteEnvioResponse]:
+    """
+    Devuelve los lotes de carga del rango. Cada lote agrupa todas las etiquetas
+    insertadas en un mismo POST /etiquetas-envio/upload (mismo upload_batch_id).
+
+    Permite al frontend mostrar un selector "Lote: 14:32 — 45 etiquetas" para
+    seleccionar todo el lote de una y aplicarle acciones masivas (cambio de
+    fecha, borrado, etc.).
+
+    Las etiquetas legacy (pre-feature) y los envíos manuales tienen
+    upload_batch_id = NULL y no aparecen en esta vista.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    q = db.query(
+        EtiquetaEnvio.upload_batch_id,
+        func.min(EtiquetaEnvio.created_at).label("primer_carga_at"),
+        func.count(EtiquetaEnvio.id).label("total"),
+        func.min(EtiquetaEnvio.nombre_archivo).label("nombre_archivo"),
+        func.min(EtiquetaEnvio.fecha_envio).label("fecha_envio"),
+    ).filter(EtiquetaEnvio.upload_batch_id.isnot(None))
+
+    if fecha_desde:
+        q = q.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+    if fecha_hasta:
+        q = q.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+
+    rows = q.group_by(EtiquetaEnvio.upload_batch_id).order_by(func.min(EtiquetaEnvio.created_at).desc()).all()
+
+    return [
+        LoteEnvioResponse(
+            upload_batch_id=r.upload_batch_id,
+            primer_carga_at=r.primer_carga_at,
+            total=r.total,
+            nombre_archivo=r.nombre_archivo,
+            fecha_envio=r.fecha_envio,
+        )
+        for r in rows
+    ]

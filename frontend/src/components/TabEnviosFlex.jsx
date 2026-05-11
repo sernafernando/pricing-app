@@ -242,7 +242,14 @@ export default function TabEnviosFlex({ operador = null }) {
   const [lastSelected, setLastSelected] = useState(null);
   const [bulkLogisticaId, setBulkLogisticaId] = useState('');
   const [bulkTransporteId, setBulkTransporteId] = useState('');
+  const [bulkFecha, setBulkFecha] = useState(todayStr());
   const [bulkActualizando, setBulkActualizando] = useState(false);
+
+  // Lotes de carga + dropdown de upload
+  const [filtroBatchId, setFiltroBatchId] = useState(null);
+  const [lotes, setLotes] = useState([]);
+  const [showUploadDropdown, setShowUploadDropdown] = useState(false);
+  const [uploadFecha, setUploadFecha] = useState(todayStr());
 
   // Filas expandidas con detalle de productos
   const [expandedRows, setExpandedRows] = useState(new Set());
@@ -401,9 +408,22 @@ export default function TabEnviosFlex({ operador = null }) {
     if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
     if (filtroSsosId) p.append('ssos_id', filtroSsosId);
     if (filtroPistoleado) p.append('pistoleado', filtroPistoleado);
+    if (filtroBatchId) p.append('upload_batch_id', filtroBatchId);
     if (debouncedSearch) p.append('search', debouncedSearch);
     return p;
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, debouncedSearch]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, filtroBatchId, debouncedSearch]);
+
+  const cargarLotes = useCallback(async () => {
+    try {
+      const params = {};
+      if (fechaDesde) params.fecha_desde = fechaDesde;
+      if (fechaHasta) params.fecha_hasta = fechaHasta;
+      const { data } = await api.get('/etiquetas-envio/lotes', { params });
+      setLotes(data);
+    } catch (err) {
+      console.error('Error cargando lotes de envío:', err);
+    }
+  }, [fechaDesde, fechaHasta]);
 
   const cargarDatos = useCallback(async () => {
     // Cancelar request anterior si todavía está en vuelo
@@ -441,6 +461,10 @@ export default function TabEnviosFlex({ operador = null }) {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  useEffect(() => {
+    cargarLotes();
+  }, [cargarLotes]);
 
   // ── SSE-driven reload: replace 10s polling with event-driven updates ──
 
@@ -631,17 +655,24 @@ export default function TabEnviosFlex({ operador = null }) {
 
     setUploading(true);
     setUploadResult(null);
+    setShowUploadDropdown(false);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('fecha_envio', uploadFecha);
 
       const { data } = await api.post('/etiquetas-envio/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       setUploadResult(data);
+      // Auto-filtrar por el lote recién cargado para que el operador vea exactamente lo que subió
+      if (data.upload_batch_id) {
+        setFiltroBatchId(data.upload_batch_id);
+      }
       cargarDatos();
+      cargarLotes();
     } catch (err) {
       setUploadResult({
         errores: 1,
@@ -1127,6 +1158,36 @@ export default function TabEnviosFlex({ operador = null }) {
     } finally {
       setBulkActualizando(false);
     }
+  };
+
+  const cambiarFechaMasivo = async () => {
+    if (!bulkFecha || selectedIds.size === 0) return;
+
+    setBulkActualizando(true);
+    try {
+      await api.put('/etiquetas-envio/fecha-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        fecha_envio: bulkFecha,
+      });
+
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id) ? { ...e, fecha_envio: bulkFecha } : e
+        )
+      );
+
+      limpiarSeleccion();
+      cargarLotes();
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
+  const seleccionarTodoLote = () => {
+    if (!filtroBatchId) return;
+    setSelectedIds(new Set(etiquetas.map(e => e.shipping_id)));
   };
 
   const asignarTransporteMasivo = async () => {
@@ -2031,6 +2092,33 @@ export default function TabEnviosFlex({ operador = null }) {
             <option value="no">No</option>
           </select>
 
+          {/* Selector de lote — siempre visible para que se sepa que existe la feature */}
+          <select
+            value={filtroBatchId || ''}
+            onChange={(e) => setFiltroBatchId(e.target.value || null)}
+            className={styles.selectSm}
+            title={
+              lotes.length > 0
+                ? 'Filtrar por lote de carga'
+                : 'Sin lotes en este rango (subí ZPLs para crear uno)'
+            }
+            disabled={lotes.length === 0}
+          >
+            <option value="">
+              {lotes.length > 0 ? `Lote (${lotes.length})` : 'Lote — sin lotes'}
+            </option>
+            {lotes.map((l) => {
+              const ts = new Date(l.primer_carga_at);
+              const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+              const fecha = new Date(`${l.fecha_envio}T00:00:00`).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+              return (
+                <option key={l.upload_batch_id} value={l.upload_batch_id}>
+                  {fecha} · {hora} · {l.total} etiqueta{l.total !== 1 ? 's' : ''}
+                </option>
+              );
+            })}
+          </select>
+
           {(() => {
             const erpOptions = [];
             const seen = new Set();
@@ -2125,23 +2213,48 @@ export default function TabEnviosFlex({ operador = null }) {
           </button>
 
           {puedeSubir && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip,.txt"
-                onChange={handleUpload}
-                className={styles.fileInputHidden}
-                id="zpl-upload"
-              />
-              <label
-                htmlFor="zpl-upload"
+            <div className={styles.uploadDropdownWrap}>
+              <button
+                type="button"
+                onClick={() => setShowUploadDropdown(!showUploadDropdown)}
                 className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
+                disabled={uploading}
               >
                 <Upload size={16} />
                 {uploading ? 'Subiendo...' : 'Subir ZPL'}
-              </label>
-            </>
+              </button>
+
+              {showUploadDropdown && (
+                <>
+                  <div className={styles.uploadDropdownOverlay} onClick={() => setShowUploadDropdown(false)} />
+                  <div className={styles.uploadDropdown}>
+                    <div className={styles.uploadDropdownField}>
+                      <label>Fecha de envío</label>
+                      <input
+                        type="date"
+                        value={uploadFecha}
+                        onChange={(e) => setUploadFecha(e.target.value)}
+                        className={styles.uploadDropdownInput}
+                      />
+                    </div>
+                    <div className={styles.uploadDropdownActions}>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".zip,.txt"
+                        onChange={handleUpload}
+                        className={styles.fileInputHidden}
+                        id="zpl-upload"
+                      />
+                      <label htmlFor="zpl-upload" className={`${styles.btnUpload} ${styles.uploadDropdownBtnFile}`}>
+                        <Upload size={14} />
+                        Elegir archivo
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {puedeSubir && (
@@ -2218,6 +2331,38 @@ export default function TabEnviosFlex({ operador = null }) {
           )}
         </div>
       </div>
+
+      {/* Filtro de lote activo */}
+      {filtroBatchId && (() => {
+        const lote = lotes.find(l => l.upload_batch_id === filtroBatchId);
+        return (
+          <div className={styles.loteFiltro}>
+            Filtrando por lote{' '}
+            <span className={styles.loteFiltroBadge}>
+              {lote
+                ? `${new Date(lote.primer_carga_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} · ${lote.total} etiqueta${lote.total !== 1 ? 's' : ''}`
+                : 'cargado recién'}
+            </span>
+            <button
+              type="button"
+              onClick={seleccionarTodoLote}
+              className={`btn-tesla outline-subtle-primary sm`}
+              title="Seleccionar todas las etiquetas del lote"
+              disabled={etiquetas.length === 0}
+            >
+              Seleccionar todo
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltroBatchId(null)}
+              className={styles.loteFiltroClear}
+              aria-label="Limpiar filtro de lote"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Upload result */}
       {uploadResult && (
@@ -2779,6 +2924,28 @@ export default function TabEnviosFlex({ operador = null }) {
                 className={styles.selectionBtnAsignar}
               >
                 {bulkActualizando ? 'Asignando...' : 'Asignar'}
+              </button>
+            </div>
+          )}
+
+          {puedeCambiarFecha && (
+            <div className={styles.selectionActions}>
+              <input
+                type="date"
+                value={bulkFecha}
+                onChange={(ev) => setBulkFecha(ev.target.value)}
+                className={styles.bulkFechaInput}
+                disabled={bulkActualizando}
+                title="Nueva fecha de envío"
+              />
+              <button
+                onClick={cambiarFechaMasivo}
+                disabled={!bulkFecha || bulkActualizando}
+                className={styles.selectionBtnAsignar}
+                title="Cambiar fecha de envío a las etiquetas seleccionadas"
+              >
+                <Calendar size={16} />
+                {bulkActualizando ? 'Cambiando...' : 'Cambiar fecha'}
               </button>
             </div>
           )}
