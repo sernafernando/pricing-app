@@ -2299,6 +2299,129 @@
   min-width: 130px;
 }
 
+/* ── Upload dropdown (fecha de envío al subir ZPL) ─────────── */
+
+.uploadDropdownWrap {
+  position: relative;
+}
+
+.uploadDropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.uploadDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  min-width: 280px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.uploadDropdownField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uploadDropdownField label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.uploadDropdownInput {
+  padding: 7px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.uploadDropdownInput:focus {
+  border-color: var(--brand-primary);
+}
+
+.uploadDropdownActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.uploadDropdownBtnFile {
+  flex: 1;
+  text-align: center;
+  cursor: pointer;
+}
+
+/* ── Filtro activo de lote ─────────────────────────────────── */
+
+.loteFiltro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+}
+
+.loteFiltroBadge {
+  font-weight: 600;
+  color: var(--brand-primary);
+}
+
+.loteFiltroClear {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.loteFiltroClear:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ── Selection bar — input de fecha para cambio masivo ─────── */
+
+.bulkFechaInput {
+  padding: 6px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 140px;
+}
+
+.bulkFechaInput:focus {
+  border-color: var(--brand-primary);
+}
+
 @media (max-width: 600px) {
   .formGrid {
     grid-template-columns: 1fr;

@@ -35,6 +35,7 @@ from app.api.endpoints.etiquetas_shared import (
     AsignarLogisticaRequest,
     AsignarMasivoRequest,
     AsignarTransporteMasivoRequest,
+    CambiarFechaMasivoRequest,
     CambiarFechaRequest,
     CostoOverrideRequest,
     FlagEnvioMasivoRequest,
@@ -195,6 +196,42 @@ def asignar_masivo(
         "actualizadas": updated,
         "logistica_id": payload.logistica_id,
         "logistica_nombre": logistica.nombre,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/fecha-masivo",
+    response_model=dict,
+    summary="Cambiar fecha de envío masivamente",
+)
+def cambiar_fecha_masivo(
+    payload: CambiarFechaMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Reprograma la fecha de envío de un lote de etiquetas en una sola transacción.
+
+    Usa el mismo permiso que el endpoint individual de cambio de fecha.
+    """
+    _check_permiso(db, current_user, "envios_flex.cambiar_fecha")
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update(
+            {EtiquetaEnvio.fecha_envio: payload.fecha_envio},
+            synchronize_session="fetch",
+        )
+    )
+
+    db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
+    return {
+        "ok": True,
+        "actualizadas": updated,
+        "fecha_envio": str(payload.fecha_envio),
     }
 
 

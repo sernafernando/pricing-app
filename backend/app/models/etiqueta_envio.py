@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -50,6 +51,7 @@ class EtiquetaEnvio(Base):
     sender_id = Column(BigInteger, nullable=True)
     hash_code = Column(Text, nullable=True)
     nombre_archivo = Column(String(255), nullable=True)  # De qué archivo .zip/.txt vino
+    upload_batch_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     fecha_envio = Column(Date, nullable=False)  # Fecha programada del envío (editable)
     logistica_id = Column(Integer, ForeignKey("logisticas.id"), nullable=True)

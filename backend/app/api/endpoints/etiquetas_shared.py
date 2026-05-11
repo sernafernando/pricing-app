@@ -12,8 +12,9 @@ Este archivo contiene:
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any, List, Optional
+from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -460,6 +461,7 @@ def _insertar_etiqueta(
     hash_code: Optional[str],
     nombre_archivo: Optional[str],
     fecha_envio: date,
+    upload_batch_id: Optional[UUID] = None,
 ) -> bool:
     """
     Inserta una etiqueta si no existe.
@@ -475,6 +477,7 @@ def _insertar_etiqueta(
         hash_code=hash_code,
         nombre_archivo=nombre_archivo,
         fecha_envio=fecha_envio,
+        upload_batch_id=upload_batch_id,
     )
     db.add(etiqueta)
     return True
@@ -491,6 +494,7 @@ class UploadResultResponse(BaseModel):
     duplicadas: int
     errores: int = 0
     detalle_errores: List[str] = []
+    upload_batch_id: Optional[UUID] = None
 
 
 class ManualScanRequest(BaseModel):
@@ -499,6 +503,27 @@ class ManualScanRequest(BaseModel):
     json_data: str = Field(
         description='JSON raw del QR, ej: {"id":"46458064834","sender_id":413658225,...}',
     )
+    fecha_envio: Optional[date] = Field(
+        None,
+        description="Fecha de envío para esta etiqueta. Default: hoy.",
+    )
+
+
+class LoteEnvioResponse(BaseModel):
+    """Resumen de un lote de carga de flex (un POST /etiquetas-envio/upload)."""
+
+    upload_batch_id: UUID
+    primer_carga_at: datetime
+    total: int
+    nombre_archivo: Optional[str] = None
+    fecha_envio: date
+
+
+class CambiarFechaMasivoRequest(BaseModel):
+    """Payload para cambio masivo de fecha de envío."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    fecha_envio: date
 
 
 class ManualScanResponse(BaseModel):
@@ -515,6 +540,7 @@ class EtiquetaEnvioResponse(BaseModel):
     shipping_id: str
     sender_id: Optional[int] = None
     nombre_archivo: Optional[str] = None
+    upload_batch_id: Optional[UUID] = None
     fecha_envio: date
     logistica_id: Optional[int] = None
     logistica_nombre: Optional[str] = None
