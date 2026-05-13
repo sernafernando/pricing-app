@@ -39,6 +39,9 @@ const ESTADO_CLASS = {
 };
 const WINDOWS_LABEL = { home: 'Win 11 Home', pro: 'Win 11 Pro' };
 
+const formatFechaArg = (iso) =>
+  iso ? new Date(iso).toLocaleString('es-AR', { hour12: false }) : '';
+
 // Iconos para cada transición de estado (avance vs retroceso)
 const TRANSITION_ICON = {
   pendiente: RotateCcw, // volver atrás
@@ -389,7 +392,7 @@ export default function Prearmado() {
                       </td>
                       <td>
                         <span className={styles.smallMuted}>
-                          {p.created_at ? new Date(p.created_at).toLocaleString('es-AR') : ''}
+                          {formatFechaArg(p.created_at)}
                         </span>
                       </td>
                       <td>
@@ -584,9 +587,7 @@ export default function Prearmado() {
                     <div className={styles.detalleField}>
                       <span className={styles.detalleLabel}>Creado</span>
                       <span className={styles.smallMuted}>
-                        {verPrearmado.created_at
-                          ? new Date(verPrearmado.created_at).toLocaleString('es-AR')
-                          : ''}
+                        {formatFechaArg(verPrearmado.created_at)}
                       </span>
                     </div>
                     {verPrearmado.consumido_por_soh_id && (
@@ -595,7 +596,7 @@ export default function Prearmado() {
                         <span>SOH {verPrearmado.consumido_por_soh_id}</span>
                         {verPrearmado.consumido_at && (
                           <span className={styles.smallMuted}>
-                            {new Date(verPrearmado.consumido_at).toLocaleString('es-AR')}
+                            {formatFechaArg(verPrearmado.consumido_at)}
                           </span>
                         )}
                       </div>
