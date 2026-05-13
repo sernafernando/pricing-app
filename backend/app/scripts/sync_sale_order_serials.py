@@ -123,6 +123,29 @@ def fetch_and_process(db: Session, params: dict) -> list[dict]:
     return normalized_data
 
 
+def _run_post_sync_hooks(db: Session) -> None:
+    """
+    Hooks que corren después de un sync exitoso de tb_sale_order_serials.
+
+    Errores se loguean pero NO abortan el sync. Solo se invoca desde sync_full y
+    sync_incremental — NO desde sync_by_filter (uso puntual de inspección).
+    """
+    try:
+        # Import local para evitar dependencias circulares
+        from app.services.prearmado_matcher import match_prearmados_with_sales_orders
+
+        result = match_prearmados_with_sales_orders(db)
+        print(
+            f"✅ Post-sync matcher: matched={result['matched']}/"
+            f"{result['total_checked']} errors={len(result['errors'])}"
+        )
+    except Exception as e:
+        print(f"❌ Post-sync matcher falló (sync OK, no aborta): {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
 def sync_full(db: Session) -> None:
     """Sincronización completa usando cursor por sose_id (sose_id > X)"""
     print("\n🔄 Sincronización COMPLETA de tb_sale_order_serials")
@@ -187,6 +210,8 @@ def sync_full(db: Session) -> None:
     print("\n✅ Sincronización completa finalizada")
     print(f"   Total procesado: {total_procesado} registros")
 
+    _run_post_sync_hooks(db)
+
 
 def sync_incremental(db: Session, from_id: int | None = None) -> None:
     """Sincronización incremental desde el último sose_id en la DB (o desde from_id)"""
@@ -227,6 +252,8 @@ def sync_incremental(db: Session, from_id: int | None = None) -> None:
 
     print("\n✅ Sincronización incremental finalizada")
     print(f"   Total actualizado: {total_procesado} registros")
+
+    _run_post_sync_hooks(db)
 
 
 def sync_by_filter(db: Session, filter_name: str, filter_value: int) -> None:
