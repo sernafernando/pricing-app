@@ -173,8 +173,8 @@ def buscar_combos(
     Búsqueda de combos del catálogo (`tb_item`) por código o descripción (ILIKE parcial).
 
     Solo retorna items que son combos: tienen al menos un row en `tb_item_association`
-    como `itema_id` con `iasso_qty > 0`. Independiente del cache de pedidos pendientes —
-    permite prearmar cualquier combo del catálogo aunque no tenga pedido en curso.
+    como `item_id` (padre) con `iasso_qty > 0`. Independiente del cache de pedidos
+    pendientes — permite prearmar cualquier combo del catálogo aunque no tenga pedido.
     """
     search_pattern = f"%{q}%"
     rows = (
@@ -184,7 +184,7 @@ def buscar_combos(
                 SELECT DISTINCT ti.item_id, ti.item_code, ti.item_desc
                 FROM tb_item ti
                 INNER JOIN tb_item_association ia
-                    ON ia.itema_id = ti.item_id
+                    ON ia.item_id = ti.item_id
                     AND ia.comp_id = ti.comp_id
                     AND ia.iasso_qty > 0
                 WHERE ti.item_code ILIKE :search
@@ -232,7 +232,7 @@ def obtener_componentes_para_prearmado(
     es_combo = (
         db.query(TbItemAssociation)
         .filter(
-            TbItemAssociation.itema_id == combo_item_id,
+            TbItemAssociation.item_id == combo_item_id,
             TbItemAssociation.iasso_qty > 0,
         )
         .first()
@@ -243,22 +243,24 @@ def obtener_componentes_para_prearmado(
             detail="El item no es un combo (sin componentes positivos en BOM)",
         )
 
+    # En tb_item_association: item_id = COMBO (padre), item_id_1 = COMPONENTE (hijo).
+    # itema_id es PK interno de la tabla, NO el id del combo.
     rows = (
         db.execute(
             text(
                 """
             SELECT
-                ia.item_id,
+                ia.item_id_1 AS item_id,
                 COALESCE(ti.item_code, '') AS item_code,
                 COALESCE(ti.item_desc, '') AS item_desc,
                 ia.iasso_qty,
                 COALESCE(ti.item_expser, TRUE) AS requiere_serie
             FROM tb_item_association ia
             LEFT JOIN tb_item ti
-                ON ti.item_id = ia.item_id AND ti.comp_id = ia.comp_id
-            WHERE ia.itema_id = :combo_id
+                ON ti.item_id = ia.item_id_1 AND ti.comp_id = ia.comp_id
+            WHERE ia.item_id = :combo_id
               AND ia.iasso_qty > 0
-            ORDER BY ia.item_id
+            ORDER BY ia.item_id_1
             """
             ),
             {"combo_id": combo_item_id},
@@ -319,7 +321,7 @@ def crear_prearmado(
     es_combo = (
         db.query(TbItemAssociation)
         .filter(
-            TbItemAssociation.itema_id == body.combo_item_id,
+            TbItemAssociation.item_id == body.combo_item_id,
             TbItemAssociation.iasso_qty > 0,
         )
         .first()
