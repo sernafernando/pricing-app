@@ -604,73 +604,91 @@
   margin-top: 2px;
 }
 
-/* Vista stats: grid de cards agrupadas por combo */
-.statsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+/* Resumen inline arriba (siempre visible, solo combos con prearmados ACTIVOS) */
+.statsResumen {
+  margin-bottom: 16px;
 }
 
-.statsCard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-secondary);
-  border-radius: 12px;
-  background: var(--bg-primary);
-}
-
-.statsCardHeader {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.statsCardCode {
-  font-family: monospace;
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-primary);
-  font-size: 13px;
-  word-break: break-all;
-}
-
-.statsCardDesc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.statsCardTotal {
+.statsResumenHeader {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-secondary);
+  margin-bottom: 8px;
 }
 
-.statsCardTotalLabel {
-  font-size: 11px;
+.statsResumenTitulo {
+  font-size: 13px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statsResumenSubtitulo {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.statsResumenGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.statsMiniCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  min-width: 0;
+}
+
+.statsMiniCardCode {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: var(--font-medium, 500);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statsMiniCardTotal {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.statsMiniCardTotalLabel {
+  font-size: 10px;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: var(--font-medium, 500);
 }
 
-.statsCardTotalValue {
-  font-size: 22px;
+.statsMiniCardTotalValue {
+  font-size: 18px;
   font-weight: var(--font-semibold, 600);
   color: var(--text-primary);
   line-height: 1;
 }
 
-.statsCardEstados {
+.statsMiniCardEstados {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+}
+
+.statsMiniEstado {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }

@@ -15,8 +15,6 @@ import {
   Pencil,
   Trash2,
   Save,
-  List,
-  BarChart3,
 } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from '../components/SearchInput';
@@ -53,10 +51,10 @@ const TRANSITION_ICON = {
 
 export default function Prearmado() {
   const [prearmados, setPrearmados] = useState([]);
+  const [prearmadosActivos, setPrearmadosActivos] = useState([]); // para stats arriba (sin filtros)
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroCodigo, setFiltroCodigo] = useState('');
-  const [vista, setVista] = useState('lista'); // 'lista' | 'stats'
   const [showForm, setShowForm] = useState(false);
   const [rematching, setRematching] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
@@ -79,8 +77,6 @@ export default function Prearmado() {
       const params = {};
       if (filtroEstado) params.estado = filtroEstado;
       if (filtroCodigo) params.codigo = filtroCodigo;
-      // En vista stats subo el limit para que el agregado sea representativo
-      if (vista === 'stats') params.limit = 1000;
       const resp = await api.get('/prearmado', { params });
       setPrearmados(resp.data || []);
     } catch (err) {
@@ -88,12 +84,26 @@ export default function Prearmado() {
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, filtroCodigo, vista]);
+  }, [filtroEstado, filtroCodigo]);
 
-  // Stats agrupadas por combo (calculadas en el FE sobre los prearmados ya cargados)
-  const stats = useMemo(() => {
+  // Fetch separado para las stats: sin filtros, solo activos (pendiente/en_proceso/armado).
+  // Cuando un prearmado pasa a consumido o anulado, deja de contar.
+  const cargarStats = useCallback(async () => {
+    try {
+      const resp = await api.get('/prearmado', { params: { limit: 2000 } });
+      const activos = (resp.data || []).filter(
+        (p) => p.estado === 'pendiente' || p.estado === 'en_proceso' || p.estado === 'armado',
+      );
+      setPrearmadosActivos(activos);
+    } catch {
+      setPrearmadosActivos([]);
+    }
+  }, []);
+
+  // Stats agrupadas por combo (solo activos, ignora filtros — siempre muestran lo que HAY)
+  const statsActivas = useMemo(() => {
     const map = new Map();
-    for (const p of prearmados) {
+    for (const p of prearmadosActivos) {
       const key = p.combo_item_id;
       if (!map.has(key)) {
         map.set(key, {
@@ -105,8 +115,6 @@ export default function Prearmado() {
           pendiente: 0,
           en_proceso: 0,
           armado: 0,
-          consumido: 0,
-          anulado: 0,
         });
       }
       const stat = map.get(key);
@@ -114,12 +122,19 @@ export default function Prearmado() {
       if (p.estado in stat) stat[p.estado] += 1;
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [prearmados]);
+  }, [prearmadosActivos]);
+
+  const totalActivos = prearmadosActivos.length;
 
   useEffect(() => {
     const t = setTimeout(cargar, filtroCodigo ? 300 : 0);
     return () => clearTimeout(t);
   }, [cargar, filtroCodigo]);
+
+  // Stats al mount + cuando se recarga manualmente
+  useEffect(() => {
+    cargarStats();
+  }, [cargarStats]);
 
   const rematchear = async () => {
     setRematching(true);
@@ -132,6 +147,7 @@ export default function Prearmado() {
         texto: `Matcher: ${matched}/${total_checked} consumidos${errors.length ? ` (${errors.length} errores)` : ''}`,
       });
       await cargar();
+      await cargarStats();
     } catch (err) {
       setStatusMsg({
         tipo: 'error',
@@ -148,6 +164,7 @@ export default function Prearmado() {
     try {
       await api.patch(`/prearmado/${p.id}`, { estado: nuevoEstado });
       await cargar();
+      await cargarStats();
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo cambiar el estado');
     }
@@ -173,6 +190,7 @@ export default function Prearmado() {
       });
       cerrarAnular();
       await cargar();
+      await cargarStats();
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo anular');
     }
@@ -251,6 +269,7 @@ export default function Prearmado() {
       });
       await recargarDetalle(verPrearmado.id);
       await cargar();
+      await cargarStats();
       cancelarEdicion();
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -275,6 +294,7 @@ export default function Prearmado() {
       setConfirmDeleteSerial(null);
       await recargarDetalle(verPrearmado.id);
       await cargar();
+      await cargarStats();
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo borrar el serial');
     }
@@ -298,6 +318,42 @@ export default function Prearmado() {
       <div className={sharedStyles.header}>
         <h1 className={sharedStyles.title}>Prearmado de Combos</h1>
       </div>
+
+      {totalActivos > 0 && (
+        <div className={styles.statsResumen}>
+          <div className={styles.statsResumenHeader}>
+            <span className={styles.statsResumenTitulo}>Activos</span>
+            <span className={styles.statsResumenSubtitulo}>
+              {statsActivas.length} combo{statsActivas.length === 1 ? '' : 's'} ·{' '}
+              {totalActivos} prearmado{totalActivos === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className={styles.statsResumenGrid}>
+            {statsActivas.map((s) => (
+              <div key={s.combo_item_id} className={styles.statsMiniCard}>
+                <span className={styles.statsMiniCardCode} title={s.combo_item_desc || ''}>
+                  {s.combo_item_code}
+                </span>
+                <div className={styles.statsMiniCardTotal}>
+                  <span className={styles.statsMiniCardTotalLabel}>Total</span>
+                  <span className={styles.statsMiniCardTotalValue}>{s.total}</span>
+                </div>
+                <div className={styles.statsMiniCardEstados}>
+                  {s.pendiente > 0 && (
+                    <span className={styles.statsMiniEstado}>Pendiente {s.pendiente}</span>
+                  )}
+                  {s.en_proceso > 0 && (
+                    <span className={styles.statsMiniEstado}>En proceso {s.en_proceso}</span>
+                  )}
+                  {s.armado > 0 && (
+                    <span className={styles.statsMiniEstado}>Armado {s.armado}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {statusMsg && (
         <div
@@ -331,27 +387,6 @@ export default function Prearmado() {
 
       <div className={sharedStyles.filtrosContainer}>
         <div className={sharedStyles.filtrosRow}>
-          <div className={sharedStyles.modoVistaButtons}>
-            <button
-              type="button"
-              className={`${sharedStyles.modoVistaBtn} ${vista === 'lista' ? sharedStyles.modoVistaActivo : ''}`}
-              onClick={() => setVista('lista')}
-              title="Vista lista"
-              aria-label="Vista lista"
-            >
-              <List size={18} />
-            </button>
-            <button
-              type="button"
-              className={`${sharedStyles.modoVistaBtn} ${vista === 'stats' ? sharedStyles.modoVistaActivo : ''}`}
-              onClick={() => setVista('stats')}
-              title="Vista stats agrupadas por combo"
-              aria-label="Vista stats"
-            >
-              <BarChart3 size={18} />
-            </button>
-          </div>
-
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
@@ -384,47 +419,6 @@ export default function Prearmado() {
 
       {loading ? (
         <div className={sharedStyles.loading}>Cargando prearmados...</div>
-      ) : vista === 'stats' ? (
-        stats.length === 0 ? (
-          <div className={sharedStyles.empty}>No hay prearmados para agregar</div>
-        ) : (
-          <div className={styles.statsGrid}>
-            {stats.map((s) => (
-              <div key={s.combo_item_id} className={styles.statsCard}>
-                <div className={styles.statsCardHeader}>
-                  <span className={styles.statsCardCode}>{s.combo_item_code}</span>
-                  <span className={styles.statsCardDesc}>{s.combo_item_desc}</span>
-                  {s.incluye_windows && (
-                    <span className={styles.windowsBadge}>
-                      {WINDOWS_LABEL[s.incluye_windows]}
-                    </span>
-                  )}
-                </div>
-                <div className={styles.statsCardTotal}>
-                  <span className={styles.statsCardTotalLabel}>Total</span>
-                  <span className={styles.statsCardTotalValue}>{s.total}</span>
-                </div>
-                <div className={styles.statsCardEstados}>
-                  {s.pendiente > 0 && (
-                    <span className={styles.estadoPendiente}>Pendiente: {s.pendiente}</span>
-                  )}
-                  {s.en_proceso > 0 && (
-                    <span className={styles.estadoEnProceso}>En proceso: {s.en_proceso}</span>
-                  )}
-                  {s.armado > 0 && (
-                    <span className={styles.estadoArmado}>Armado: {s.armado}</span>
-                  )}
-                  {s.consumido > 0 && (
-                    <span className={styles.estadoConsumido}>Consumido: {s.consumido}</span>
-                  )}
-                  {s.anulado > 0 && (
-                    <span className={styles.estadoAnulado}>Anulado: {s.anulado}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )
       ) : (
         <div className={sharedStyles.tableContainer}>
           <table className={sharedStyles.table}>
@@ -542,14 +536,18 @@ export default function Prearmado() {
       )}
 
       <div className={sharedStyles.footer}>
-        <span>
-          {vista === 'stats'
-            ? `${stats.length} combos · ${prearmados.length} prearmados`
-            : `Mostrando ${prearmados.length} prearmados`}
-        </span>
+        <span>Mostrando {prearmados.length} prearmados</span>
       </div>
 
-      {showForm && <PrearmadoForm onClose={() => setShowForm(false)} onSaved={cargar} />}
+      {showForm && (
+        <PrearmadoForm
+          onClose={() => setShowForm(false)}
+          onSaved={async () => {
+            await cargar();
+            await cargarStats();
+          }}
+        />
+      )}
 
       {anularPrearmado && (
         <div className={styles.modalBackdrop} onClick={cerrarAnular}>
