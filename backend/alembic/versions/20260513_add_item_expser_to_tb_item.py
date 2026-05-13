@@ -23,6 +23,9 @@ def upgrade():
         ALTER TABLE tb_item
         ADD COLUMN IF NOT EXISTS item_expser BOOLEAN;
     """)
+    # Cleanup: si algún dev corrió la migración 20260513_items_config_serializable
+    # (que fue eliminada del repo en este mismo cambio), la tabla queda zombi.
+    op.execute("DROP TABLE IF EXISTS items_config_serializable;")
 
 
 def downgrade():
