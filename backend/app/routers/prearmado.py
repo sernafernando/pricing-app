@@ -28,6 +28,7 @@ from app.models.tb_item_association import TbItemAssociation
 from app.models.tb_item_serials import TbItemSerial
 from app.models.usuario import Usuario
 from app.schemas.prearmado import (
+    ComboSearchResult,
     ComponenteForPrearmado,
     ComponentesForCombo,
     PrearmadoCreate,
@@ -156,6 +157,55 @@ def _get_prearmado_or_404(db: Session, prearmado_id: int) -> Prearmado:
 
 
 # --- Endpoints ---
+
+
+@router.get(
+    "/prearmado/combos/search",
+    response_model=List[ComboSearchResult],
+    dependencies=[Depends(require_permiso(PERMISO))],
+)
+def buscar_combos(
+    q: str = Query(..., min_length=2, description="Texto parcial (item_code o item_desc)"),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> List[ComboSearchResult]:
+    """
+    Búsqueda de combos del catálogo (`tb_item`) por código o descripción (ILIKE parcial).
+
+    Solo retorna items que son combos: tienen al menos un row en `tb_item_association`
+    como `itema_id` con `iasso_qty > 0`. Independiente del cache de pedidos pendientes —
+    permite prearmar cualquier combo del catálogo aunque no tenga pedido en curso.
+    """
+    search_pattern = f"%{q}%"
+    rows = (
+        db.execute(
+            text(
+                """
+                SELECT DISTINCT ti.item_id, ti.item_code, ti.item_desc
+                FROM tb_item ti
+                INNER JOIN tb_item_association ia
+                    ON ia.itema_id = ti.item_id
+                    AND ia.comp_id = ti.comp_id
+                    AND ia.iasso_qty > 0
+                WHERE ti.item_code ILIKE :search
+                   OR ti.item_desc ILIKE :search
+                ORDER BY ti.item_code
+                LIMIT :limit
+                """
+            ),
+            {"search": search_pattern, "limit": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        ComboSearchResult(
+            item_id=r["item_id"],
+            item_code=r["item_code"] or "",
+            item_desc=r["item_desc"],
+        )
+        for r in rows
+    ]
 
 
 @router.get(

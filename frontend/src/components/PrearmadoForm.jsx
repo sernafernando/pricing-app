@@ -30,8 +30,8 @@ export default function PrearmadoForm({ onClose, onSaved }) {
     const handle = setTimeout(async () => {
       setSearching(true);
       try {
-        const resp = await api.get('/pedidos-preparacion/resumen', {
-          params: { search: searchTerm, vista_produccion: true, limit: 20 },
+        const resp = await api.get('/prearmado/combos/search', {
+          params: { q: searchTerm, limit: 20 },
         });
         setCombosResults(resp.data || []);
       } catch {
@@ -179,7 +179,7 @@ export default function PrearmadoForm({ onClose, onSaved }) {
                 <div className={styles.combosResultsList}>
                   {combosResults.map((r) => (
                     <button
-                      key={r.id}
+                      key={r.item_id}
                       type="button"
                       onClick={() => seleccionarCombo(r)}
                       className={styles.comboResultBtn}
