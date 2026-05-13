@@ -76,6 +76,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       items: [
         { label: 'Preparación', path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
         { label: 'Producción', path: '/produccion', permiso: 'produccion.ver_combos' },
+        { label: 'Prearmado', path: '/prearmado', permiso: 'produccion.prearmar_combos' },
         { label: 'Turbo', path: '/turbo-routing', permiso: 'ordenes.gestionar_turbo_routing' },
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
         { label: 'Configuración', path: '/config-operaciones', permiso: 'ordenes.ver_preparacion' },

@@ -69,6 +69,7 @@ from app.routers import (
     document_templates,
     empresas,
     free_shipping_alerts,
+    prearmado,
     rrhh_empleados,
     rrhh_fichaje_mobile,
     rrhh_presentismo,
@@ -262,6 +263,7 @@ app.include_router(pedidos_export_local.router, prefix="/api", tags=["pedidos-ex
 app.include_router(sale_order_status.router, prefix="/api", tags=["sale-order-status"])
 app.include_router(usuarios_erp.router, prefix="/api", tags=["usuarios-erp"])
 app.include_router(produccion_banlist.router, prefix="/api", tags=["produccion-banlist"])
+app.include_router(prearmado.router, prefix="/api", tags=["prearmado"])
 app.include_router(turbo_routing.router, prefix="/api", tags=["turbo-routing"])
 app.include_router(alertas.router, prefix="/api", tags=["alertas"])
 app.include_router(asignaciones.router, prefix="/api/asignaciones", tags=["asignaciones"])

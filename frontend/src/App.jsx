@@ -24,6 +24,7 @@ import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
 import PedidosPreparacion from './pages/PedidosPreparacion';
 import Produccion from './pages/Produccion';
+import Prearmado from './pages/Prearmado';
 import Clientes from './pages/Clientes';
 import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
@@ -199,6 +200,11 @@ function App() {
                 <Route path="/produccion" element={
                   <ProtectedRoute permiso="produccion.ver_combos">
                     <Produccion />
+                  </ProtectedRoute>
+                } />
+                <Route path="/prearmado" element={
+                  <ProtectedRoute permiso="produccion.prearmar_combos">
+                    <Prearmado />
                   </ProtectedRoute>
                 } />
                 <Route path="/clientes" element={
