@@ -427,7 +427,9 @@ def actualizar_prearmado(
             )
         p.estado = body.estado
 
-    if body.notas is not None:
+    # Distinguir "no envió notas" (no tocar) de "envió null/string" (asignar).
+    # Sin esto no se puede BORRAR una nota — solo agregarla o reemplazarla.
+    if "notas" in body.model_fields_set:
         p.notas = body.notas
 
     db.commit()

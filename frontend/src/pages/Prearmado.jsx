@@ -69,6 +69,8 @@ export default function Prearmado() {
   const [editForce, setEditForce] = useState(false);
   const [savingSerial, setSavingSerial] = useState(false);
   const [confirmDeleteSerial, setConfirmDeleteSerial] = useState(null);
+  const [notasEdit, setNotasEdit] = useState('');
+  const [guardandoNotas, setGuardandoNotas] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -203,6 +205,7 @@ export default function Prearmado() {
     try {
       const resp = await api.get(`/prearmado/${p.id}`);
       setVerPrearmado(resp.data);
+      setNotasEdit(resp.data.notas || '');
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo cargar el detalle');
       setVerPrearmado(null);
@@ -217,6 +220,26 @@ export default function Prearmado() {
     setEditValor('');
     setEditValidacion(null);
     setEditForce(false);
+    setNotasEdit('');
+  };
+
+  const guardarNotas = async () => {
+    if (!verPrearmado) return;
+    setGuardandoNotas(true);
+    setError(null);
+    try {
+      const valor = notasEdit.trim();
+      const resp = await api.patch(`/prearmado/${verPrearmado.id}`, {
+        notas: valor === '' ? null : valor,
+      });
+      setVerPrearmado(resp.data);
+      setNotasEdit(resp.data.notas || '');
+      await cargar();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'No se pudo guardar la nota');
+    } finally {
+      setGuardandoNotas(false);
+    }
   };
 
   const recargarDetalle = async (prearmadoId) => {
@@ -696,12 +719,37 @@ export default function Prearmado() {
                         )}
                       </div>
                     )}
-                    {verPrearmado.notas && (
-                      <div className={`${styles.detalleField} ${styles.detalleFieldFull}`}>
-                        <span className={styles.detalleLabel}>Notas</span>
-                        <span>{verPrearmado.notas}</span>
-                      </div>
-                    )}
+                    <div className={`${styles.detalleField} ${styles.detalleFieldFull}`}>
+                      <span className={styles.detalleLabel}>Notas</span>
+                      <textarea
+                        value={notasEdit}
+                        onChange={(e) => setNotasEdit(e.target.value)}
+                        rows={2}
+                        className={styles.notasTextarea}
+                        placeholder="Notas, pendientes, observaciones..."
+                        disabled={guardandoNotas}
+                      />
+                      {notasEdit !== (verPrearmado.notas || '') && (
+                        <div className={styles.notasActions}>
+                          <button
+                            type="button"
+                            className={`${styles.actionBtn} ${styles.actionBtnAccent}`}
+                            onClick={guardarNotas}
+                            disabled={guardandoNotas}
+                          >
+                            {guardandoNotas ? 'Guardando...' : 'Guardar nota'}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.actionBtn}
+                            onClick={() => setNotasEdit(verPrearmado.notas || '')}
+                            disabled={guardandoNotas}
+                          >
+                            Descartar
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <h3 className={styles.detalleSectionTitle}>
