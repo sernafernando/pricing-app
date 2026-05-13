@@ -308,6 +308,9 @@ async def sync_items_full(db: Session):
             subcat_id = to_int(row.get("subcat_id"))
             brand_id = to_int(row.get("brand_id"))
             item_liquidation = row.get("item_liquidation")
+            # item_expser: BIT en SQL Server (0/1) → bool. None si no viene en el payload.
+            _expser_raw = to_int(row.get("item_expser"))
+            item_expser = bool(_expser_raw) if _expser_raw is not None else None
             item_cd = parse_date(row.get("item_cd"))
             item_LastUpdate = parse_date(row.get("item_LastUpdate"))
             item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
@@ -328,6 +331,7 @@ async def sync_items_full(db: Session):
                     existente.subcat_id = subcat_id
                     existente.brand_id = brand_id
                     existente.item_liquidation = item_liquidation
+                    existente.item_expser = item_expser
                     existente.item_LastUpdate = item_LastUpdate
                     existente.item_lastUpdate_byProcess = item_lastUpdate_byProcess
                     actualizados += 1
@@ -341,6 +345,7 @@ async def sync_items_full(db: Session):
                     subcat_id=subcat_id,
                     brand_id=brand_id,
                     item_liquidation=item_liquidation,
+                    item_expser=item_expser,
                     item_cd=item_cd,
                     item_LastUpdate=item_LastUpdate,
                     item_lastUpdate_byProcess=item_lastUpdate_byProcess,

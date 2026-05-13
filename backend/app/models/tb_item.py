@@ -2,7 +2,7 @@
 Modelo para tbItem - Items/Productos
 """
 
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Boolean, Column, Integer, String, DateTime
 from app.core.database import Base
 
 
@@ -19,6 +19,9 @@ class TBItem(Base):
     subcat_id = Column(Integer)
     brand_id = Column(Integer)
     item_liquidation = Column(String(50))
+    # Flag GBP: el item exige N° de serie (BIT en SQL Server → BOOLEAN local)
+    # NULL hasta que el sync lo populate; default lógico en queries: TRUE
+    item_expser = Column(Boolean, nullable=True)
     item_cd = Column(DateTime)  # created date
     item_LastUpdate = Column(DateTime)  # last update (generic)
     item_lastUpdate_byProcess = Column(DateTime)  # last update by process (más preciso para sync incremental)

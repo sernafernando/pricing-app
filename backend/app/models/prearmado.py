@@ -4,8 +4,9 @@ Modelos para el feature de Prearmado de Combos.
 Tablas:
 - prearmados: cabecera de un prearmado (combo, estado, codigo único, metadata Win11).
 - prearmados_seriales: detalle de seriales cargados por componente.
-- items_config_serializable: override local de items que no requieren serie (gabinete,
-  descuento, servicios, etc.).
+
+El flag "este item requiere serie" se lee directo de `tb_item.item_expser` (sincronizado
+desde el ERP por `sync_erp_master_tables_full.py`). No hay override local.
 
 NOTA: el modelo legacy `ProduccionPrearmado` (produccion_banlist.py) coexiste y NO se
 reemplaza en este cambio. Se evalúa deprecarlo más adelante.
@@ -99,29 +100,3 @@ class PrearmadoSerial(Base):
             f"<PrearmadoSerial(id={self.id}, prearmado_id={self.prearmado_id}, "
             f"item_id={self.componente_item_id}, validado={self.validado})>"
         )
-
-
-class ItemConfigSerializable(Base):
-    """
-    Override local para marcar item_ids que NO requieren serie física en prearmados.
-    Casos: gabinete, descuento, servicios, etc.
-
-    La tabla arranca vacía: se puebla via SQL conforme se descubran items.
-    Default runtime: si un item no está en esta tabla → requiere_serie=true.
-    """
-
-    __tablename__ = "items_config_serializable"
-
-    item_id = Column(Integer, primary_key=True)
-    requiere_serie = Column(Boolean, nullable=False, default=True)
-    motivo = Column(Text, nullable=True)
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-    updated_by_user_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
-
-    def __repr__(self) -> str:
-        return f"<ItemConfigSerializable(item_id={self.item_id}, requiere_serie={self.requiere_serie})>"

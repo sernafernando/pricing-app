@@ -1,7 +1,7 @@
 """Agregar permiso produccion.prearmar_combos para el modulo de Prearmado
 
 Revision ID: 20260513_permiso_prearmar_combos
-Revises: 20260513_items_config_serializable
+Revises: 20260513_create_prearmados
 Create Date: 2026-05-13
 
 """
@@ -10,7 +10,7 @@ from alembic import op
 
 
 revision = "20260513_permiso_prearmar_combos"
-down_revision = "20260513_items_config_serializable"
+down_revision = "20260513_create_prearmados"
 branch_labels = None
 depends_on = None
 

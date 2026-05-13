@@ -169,7 +169,7 @@ def obtener_componentes_para_prearmado(
 ) -> ComponentesForCombo:
     """
     Devuelve la BOM del combo filtrada por `iasso_qty > 0`, con `requiere_serie`
-    resuelto via items_config_serializable (default true si no hay override).
+    leído desde `tb_item.item_expser` (flag del ERP, default TRUE si NULL).
 
     Detecta sufijo `WH`/`WP` del item_code del combo y retorna metadata
     `incluye_windows` ('home' | 'pro' | None). Win11 NO se agrega como componente:
@@ -202,12 +202,10 @@ def obtener_componentes_para_prearmado(
                 COALESCE(ti.item_code, '') AS item_code,
                 COALESCE(ti.item_desc, '') AS item_desc,
                 ia.iasso_qty,
-                COALESCE(ics.requiere_serie, TRUE) AS requiere_serie
+                COALESCE(ti.item_expser, TRUE) AS requiere_serie
             FROM tb_item_association ia
             LEFT JOIN tb_item ti
                 ON ti.item_id = ia.item_id AND ti.comp_id = ia.comp_id
-            LEFT JOIN items_config_serializable ics
-                ON ics.item_id = ia.item_id
             WHERE ia.itema_id = :combo_id
               AND ia.iasso_qty > 0
             ORDER BY ia.item_id
