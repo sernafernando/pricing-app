@@ -39,6 +39,7 @@ from app.schemas.prearmado import (
     SerialDetail,
     SerialesPayload,
     SerialInput,
+    SerialUpdate,
     ValidateSerialRequest,
     ValidateSerialResponse,
 )
@@ -545,6 +546,70 @@ def _resolver_meta_componente(db: Session, item: SerialInput) -> dict:
         "item_code": (ti.item_code if ti else "") or "",
         "item_desc": ti.item_desc if ti else None,
     }
+
+
+@router.patch(
+    "/prearmado/{prearmado_id}/seriales/{serial_id}",
+    response_model=PrearmadoDetail,
+    dependencies=[Depends(require_permiso(PERMISO))],
+)
+def actualizar_serial(
+    prearmado_id: int,
+    serial_id: int,
+    body: SerialUpdate,
+    db: Session = Depends(get_db),
+) -> PrearmadoDetail:
+    """
+    Reemplaza el `serial` de una row existente en `prearmados_seriales`.
+
+    Uso típico: corregir un serial mal cargado, o reemplazar un componente que
+    falló post-armado (ej: una memoria que dejó de funcionar). Re-valida contra
+    `tb_item_serials` para el `componente_item_id` original. Si la validación
+    falla y `force=false` → 422; con `force=true` se guarda con `validado=false`.
+    """
+    p = _get_prearmado_or_404(db, prearmado_id)
+    if p.estado in ("consumido", "anulado"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede modificar un prearmado en estado {p.estado}",
+        )
+
+    s = (
+        db.query(PrearmadoSerial)
+        .filter(
+            PrearmadoSerial.id == serial_id,
+            PrearmadoSerial.prearmado_id == prearmado_id,
+        )
+        .first()
+    )
+    if not s:
+        raise HTTPException(status_code=404, detail="Serial no encontrado")
+
+    if not s.requiere_serie:
+        raise HTTPException(
+            status_code=400,
+            detail="Este componente no requiere serie — no se puede editar",
+        )
+
+    validacion = _validar_serial_core(db, body.serial, s.componente_item_id)
+    if not validacion.valid and not body.force:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "motivo": validacion.motivo,
+                "item_id_real": validacion.item_id_real,
+                "item_code_real": validacion.item_code_real,
+            },
+        )
+
+    s.serial = body.serial.strip().upper()
+    s.is_id = validacion.is_id if validacion.valid else None
+    s.validado = validacion.valid
+    s.validado_at = func.now() if validacion.valid else None
+
+    db.commit()
+    db.refresh(p)
+    return _to_detail(p)
 
 
 @router.delete(
