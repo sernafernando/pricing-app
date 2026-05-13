@@ -12,6 +12,19 @@ IncluyeWindows = Literal["home", "pro"]
 ValidationMotivo = Literal["SerialNotFound", "ItemMismatch"]
 
 
+# --- Búsqueda de combos en el catálogo (no en cache de pedidos) ---
+
+
+class ComboSearchResult(BaseModel):
+    """Resultado de búsqueda en el catálogo de combos de tb_item."""
+
+    item_id: int
+    item_code: str
+    item_desc: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # --- Componentes del combo (para construir el form de carga) ---
 
 
