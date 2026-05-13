@@ -603,3 +603,74 @@
   gap: 4px;
   margin-top: 2px;
 }
+
+/* Vista stats: grid de cards agrupadas por combo */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.statsCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 12px;
+  background: var(--bg-primary);
+}
+
+.statsCardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.statsCardCode {
+  font-family: monospace;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.statsCardDesc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.statsCardTotal {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+.statsCardTotalLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: var(--font-medium, 500);
+}
+
+.statsCardTotalValue {
+  font-size: 22px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.statsCardEstados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
