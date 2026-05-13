@@ -448,3 +448,158 @@
   display: flex;
   align-items: center;
 }
+
+/* Separator + botón danger en acciones */
+.accionSeparator {
+  width: 1px;
+  height: 20px;
+  background: var(--border-secondary);
+  margin: 0 4px;
+  display: inline-block;
+}
+
+.iconBtnDanger {
+  color: var(--cf-accent-red);
+}
+
+.iconBtnDanger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--cf-accent-red);
+}
+
+/* Modal grande para detalle */
+.modalLarge {
+  max-width: 960px;
+}
+
+/* Grid de info general del prearmado */
+.detalleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.detalleField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.detalleFieldFull {
+  grid-column: 1 / -1;
+}
+
+.detalleLabel {
+  font-size: 11px;
+  font-weight: var(--font-medium, 500);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detalleValue {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.detalleSectionTitle {
+  font-size: 14px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  margin: 16px 0 8px 0;
+}
+
+/* Tabla de seriales del detalle */
+.serialesTableWrap {
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.serialesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.serialesTable thead th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium, 500);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.serialesTable tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-secondary);
+  vertical-align: middle;
+}
+
+.serialesTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.serialCell {
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.serialOk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #16a34a;
+  font-size: 12px;
+}
+
+.serialWarn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cf-accent-red);
+  font-size: 12px;
+}
+
+/* Edición inline del serial */
+.serialEditRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.serialEditInput {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--cf-accent-blue, var(--brand-primary));
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.serialEditInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue, var(--brand-primary));
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.forceInline {
+  font-size: 11px;
+  color: var(--cf-accent-red);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}

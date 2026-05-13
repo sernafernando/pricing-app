@@ -115,6 +115,13 @@ class SerialesPayload(BaseModel):
     items: List[SerialInput] = Field(default_factory=list)
 
 
+class SerialUpdate(BaseModel):
+    """Body de PATCH /prearmado/{id}/seriales/{serial_id} — reemplazar un serial."""
+
+    serial: str = Field(..., min_length=1, max_length=255)
+    force: bool = False  # guarda con validado=false si la validación falla
+
+
 # --- Respuestas de prearmado ---
 
 
