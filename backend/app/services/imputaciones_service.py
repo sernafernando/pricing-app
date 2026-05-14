@@ -91,18 +91,30 @@ def _validar_whitelist(origen_tipo: str, destino_tipo: str) -> None:
         )
 
 
-def _validar_moneda_consistente(origen_moneda: str, destino_moneda: str) -> None:
+def _validar_moneda_consistente(
+    origen_moneda: str,
+    destino_moneda: str,
+    tipo_cambio: Optional[Decimal] = None,
+) -> None:
     """
-    Valida que origen y destino compartan moneda (D3 — cross-moneda
-    prohibido en v1).
+    Valida coherencia de monedas entre origen y destino.
+
+    - Same-moneda (origen == destino): siempre OK (tipo_cambio ignorado).
+    - Cross-moneda (origen != destino): requiere `tipo_cambio > 0`; sin TC válido
+      lanza 400.
 
     Raises:
-        HTTPException 400 si las monedas no coinciden.
+        HTTPException 400 si cross-moneda sin TC > 0.
     """
-    if origen_moneda != destino_moneda:
+    if origen_moneda == destino_moneda:
+        return
+    if tipo_cambio is None or Decimal(tipo_cambio) <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(f"Cross-moneda no soportado en v1. Origen: {origen_moneda}, destino: {destino_moneda}."),
+            detail=(
+                f"Cross-moneda requiere tipo_cambio > 0. "
+                f"Origen: {origen_moneda}, destino: {destino_moneda}, TC recibido: {tipo_cambio}."
+            ),
         )
 
 
@@ -172,12 +184,13 @@ def crear_imputacion(
         destino_tipo: uno de los tipos del lado "derecho".
         destino_id: ID polimórfico del destino. `None` solo si destino='saldo'.
         monto_imputado: monto > 0.
-        moneda_imputada: 'ARS' o 'USD'. Debe coincidir con la del origen y,
-            si el destino no es 'saldo', con la del destino (D3).
+        moneda_imputada: 'ARS' o 'USD'. En cross-moneda (origen ≠ destino) DEBE
+            coincidir con la moneda del destino — el caller convierte el monto
+            usando `tipo_cambio` antes de invocar este método.
         proveedor_id: FK a `proveedores`.
         creado_por_id: FK a `usuarios`.
-        tipo_cambio: TC origen↔destino (v1 siempre igual moneda, pero el
-            campo existe para trazabilidad del TC vigente al momento).
+        tipo_cambio: TC origen↔destino. Obligatorio cuando origen.moneda ≠
+            destino.moneda; opcional (y típicamente `None`) cuando coinciden.
         es_reversal: si es True, apunta a una imputación previa.
         reimputada_desde_id: id de la imputación original que esta reimputa
             (sólo seteado por `reimputar` en F4).
@@ -195,10 +208,8 @@ def crear_imputacion(
 
     # La moneda del destino sólo se puede verificar si el caller la provee
     # por separado. A este nivel confiamos en que el caller haya validado
-    # moneda antes (el Literal del signature atrapa strings arbitrarios).
-    # La coherencia cross-moneda (origen vs destino) la enforce el caller
-    # — mantenemos `_validar_moneda_consistente` exportado abajo por si se
-    # necesita.
+    # moneda + TC antes (vía `_validar_moneda_consistente`, que ahora admite
+    # cross-moneda cuando viene `tipo_cambio > 0`).
 
     # Validación específica para origen NCs locales (v2):
     #   - La NC origen debe existir y estar en estado 'aprobado' o 'aplicada_parcial'.
