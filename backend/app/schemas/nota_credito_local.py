@@ -130,6 +130,26 @@ class NCErpCandidataResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NCDisponibleSummary(BaseModel):
+    """Resumen de una NC local con saldo pendiente disponible para imputar.
+
+    Usado por `GET /administracion/compras/ncs-locales/disponibles?proveedor_id=X`
+    (FR-007). Lista NCs en estado `aprobado` o `aplicada_parcial` con
+    `saldo_pendiente > 0`, para que la UI de CC proveedores muestre el
+    crédito disponible.
+    """
+
+    id: int
+    numero: str
+    fecha: date
+    importe: Decimal
+    moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    saldo_pendiente: Decimal
+    estado: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TransicionNCRequest(BaseModel):
     """Body genérico de transiciones que requieren motivo (rechazar, cancelar)."""
 

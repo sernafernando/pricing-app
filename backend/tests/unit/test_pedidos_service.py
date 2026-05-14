@@ -761,3 +761,232 @@ class TestAplicarImputacionAPedido:
         pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
         db.refresh(p)
         assert p.estado == "pagado"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# calcular_tc_ponderado_pedido (FR-005 / FR-008 — Batch 1)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, monto: Decimal):
+    """Helper: pedido USD aprobado (con TC 1500 default) para tests de TC ponderado."""
+    p = pedidos_service.crear_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        monto=monto,
+        creado_por_id=active_user.id,
+        tipo_cambio=Decimal("1500"),
+    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+    return p
+
+
+def _crear_imp_cross_moneda(
+    db,
+    *,
+    pedido_id: int,
+    proveedor_id: int,
+    creado_por_id: int,
+    monto_usd: Decimal,
+    tc: Decimal,
+    es_reversal: bool = False,
+):
+    """Helper: imp cross-moneda (OP ARS → pedido USD) directamente persistida."""
+    imp = Imputacion(
+        origen_tipo="orden_pago",
+        origen_id=9999,
+        destino_tipo="pedido_compra",
+        destino_id=pedido_id,
+        monto_imputado=monto_usd,
+        moneda_imputada="USD",
+        tipo_cambio=tc,
+        proveedor_id=proveedor_id,
+        es_reversal=es_reversal,
+        creado_por_id=creado_por_id,
+    )
+    db.add(imp)
+    db.flush()
+    return imp
+
+
+class TestCalcularTCPonderadoPedido:
+    """FR-005: TC ponderado por aporte de imps cross-moneda al pedido."""
+
+    def test_tc_ponderado_calcula_promedio_correcto(self, db, empresa, proveedor, active_user) -> None:
+        """2 imps con TCs distintos → TC pond = (1500*1000 + 1600*500) / 1500 = 1533.3333."""
+        p = _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("2000"))
+        _crear_imp_cross_moneda(
+            db,
+            pedido_id=p.id,
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            monto_usd=Decimal("1000"),
+            tc=Decimal("1500"),
+        )
+        _crear_imp_cross_moneda(
+            db,
+            pedido_id=p.id,
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            monto_usd=Decimal("500"),
+            tc=Decimal("1600"),
+        )
+
+        tc_pond = pedidos_service.calcular_tc_ponderado_pedido(db, p.id)
+        assert tc_pond is not None
+        # (1500*1000 + 1600*500) / 1500 = 2300000 / 1500 = 1533.3333...
+        # Cuantizado a 4 decimales con ROUND_HALF_UP → 1533.3333
+        assert tc_pond == Decimal("1533.3333")
+
+    def test_tc_ponderado_pedido_same_moneda_devuelve_none(self, db, empresa, proveedor, active_user) -> None:
+        """Pedido ARS con imps ARS (sin TC) → None (no hay cross-moneda)."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("10000"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+
+        # Imp same-moneda (ARS, sin TC) — no debe entrar al cálculo de TC pond
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=9999,
+            destino_tipo="pedido_compra",
+            destino_id=p.id,
+            monto_imputado=Decimal("5000"),
+            moneda_imputada="ARS",
+            tipo_cambio=None,
+            proveedor_id=proveedor.id,
+            es_reversal=False,
+            creado_por_id=active_user.id,
+        )
+        db.add(imp)
+        db.flush()
+
+        tc_pond = pedidos_service.calcular_tc_ponderado_pedido(db, p.id)
+        assert tc_pond is None
+
+    def test_tc_ponderado_sin_imputaciones_devuelve_none(self, db, empresa, proveedor, active_user) -> None:
+        """Pedido sin imps → None."""
+        p = _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("1000"))
+        assert pedidos_service.calcular_tc_ponderado_pedido(db, p.id) is None
+
+    def test_tc_ponderado_excluye_reversals(self, db, empresa, proveedor, active_user) -> None:
+        """Reversals NO se cuentan (append-only — el reversal no descuenta del cálculo)."""
+        p = _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("2000"))
+        # Imp activa con TC=1500
+        _crear_imp_cross_moneda(
+            db,
+            pedido_id=p.id,
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            monto_usd=Decimal("1000"),
+            tc=Decimal("1500"),
+        )
+        # Imp reversal con TC=9999 — debe ser ignorada
+        _crear_imp_cross_moneda(
+            db,
+            pedido_id=p.id,
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            monto_usd=Decimal("1000"),
+            tc=Decimal("9999"),
+            es_reversal=True,
+        )
+        tc_pond = pedidos_service.calcular_tc_ponderado_pedido(db, p.id)
+        assert tc_pond == Decimal("1500.0000")
+
+
+class TestCalcularTCPonderadoPedidoBatch:
+    """FR-005 batch + NFR-001: 1 query, sin N+1."""
+
+    def test_batch_devuelve_dict_con_todos_los_ids(self, db, empresa, proveedor, active_user) -> None:
+        """pedidos sin imps cross-moneda → None en el dict, pero la key existe."""
+        p1 = _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("1000"))
+        p2 = _crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("2000"))
+        # Solo p1 tiene imp cross-moneda
+        _crear_imp_cross_moneda(
+            db,
+            pedido_id=p1.id,
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            monto_usd=Decimal("500"),
+            tc=Decimal("1500"),
+        )
+
+        result = pedidos_service.calcular_tc_ponderado_pedido_batch(db, [p1.id, p2.id])
+        assert p1.id in result
+        assert p2.id in result
+        assert result[p1.id] == Decimal("1500.0000")
+        assert result[p2.id] is None
+
+    def test_batch_empty_list_devuelve_dict_vacio(self, db) -> None:
+        assert pedidos_service.calcular_tc_ponderado_pedido_batch(db, []) == {}
+
+    def test_tc_ponderado_batch_evita_n1(self, db, empresa, proveedor, active_user) -> None:
+        """Con N pedidos, la versión batch ejecuta UNA SOLA query agregada (NFR-001).
+
+        Usa sqlalchemy event listener para contar queries durante la llamada.
+        """
+        from sqlalchemy import event as sa_event  # noqa: PLC0415
+
+        # Crear 3 pedidos USD con 2 imps cross-moneda cada uno
+        pedidos = [_crear_pedido_usd_aprobado(db, empresa, proveedor, active_user, Decimal("1000")) for _ in range(3)]
+        for p in pedidos:
+            _crear_imp_cross_moneda(
+                db,
+                pedido_id=p.id,
+                proveedor_id=proveedor.id,
+                creado_por_id=active_user.id,
+                monto_usd=Decimal("500"),
+                tc=Decimal("1500"),
+            )
+            _crear_imp_cross_moneda(
+                db,
+                pedido_id=p.id,
+                proveedor_id=proveedor.id,
+                creado_por_id=active_user.id,
+                monto_usd=Decimal("300"),
+                tc=Decimal("1600"),
+            )
+
+        # Extraemos los IDs ANTES del expire_all para que el list comprehension
+        # no fuerce un re-fetch lazy de los pedidos (cada uno = 1 query extra).
+        # Lo que medimos es: dado el input (lista de IDs), cuántas queries hace
+        # el helper batch sobre `imputaciones`.
+        pedido_ids = [p.id for p in pedidos]
+        db.expire_all()
+
+        # Contar SOLO queries que toquen `imputaciones` (la responsabilidad del
+        # helper). Auto-reloads de pedidos_compra por expire_all son ortogonales
+        # al contrato N+1-free del batch.
+        query_count = {"n": 0}
+
+        def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+            stmt_upper = statement.strip().upper()
+            if stmt_upper.startswith("SELECT") and "IMPUTACIONES" in stmt_upper:
+                query_count["n"] += 1
+
+        bind = db.get_bind()
+        sa_event.listen(bind, "before_cursor_execute", _before_cursor_execute)
+        try:
+            result = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
+        finally:
+            sa_event.remove(bind, "before_cursor_execute", _before_cursor_execute)
+
+        assert query_count["n"] == 1, (
+            f"Esperaba 1 query agregada sobre imputaciones, se ejecutaron "
+            f"{query_count['n']}. calcular_tc_ponderado_pedido_batch debe ser "
+            "N+1-free (NFR-001)."
+        )
+        # Sanity: el cálculo es correcto
+        # (1500*500 + 1600*300) / (500+300) = 1230000 / 800 = 1537.5000
+        for pid in pedido_ids:
+            assert result[pid] == Decimal("1537.5000")

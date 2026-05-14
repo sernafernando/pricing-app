@@ -365,3 +365,137 @@ def Decimal_fast(v):
     from decimal import Decimal
 
     return Decimal(str(v))
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# /ncs-locales/disponibles (Batch 1 — Compras cross-moneda + NCs visibles en CC)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+ENDPOINT_NCS_DISPONIBLES = "/api/administracion/compras/ncs-locales/disponibles"
+
+
+def _aprobar_nc(db, nc, active_user):
+    """Helper: transiciona una NC local borrador → pendiente → aprobado."""
+    from app.services import ncs_locales_service
+
+    ncs_locales_service.transicionar(db, nc_id=nc.id, accion="enviar_aprobacion", user_id=active_user.id)
+    ncs_locales_service.transicionar(db, nc_id=nc.id, accion="aprobar", user_id=active_user.id)
+
+
+def _crear_nc_aprobada(db, empresa, proveedor, active_user, monto, moneda="ARS"):
+    """Helper: crea y aprueba una NC local."""
+    from datetime import date as _date
+
+    from app.services import ncs_locales_service
+
+    nc = ncs_locales_service.crear(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda=moneda,
+        monto=monto,
+        fecha_emision=_date.today(),
+        motivo="Test NC disponibles",
+        creado_por_id=active_user.id,
+    )
+    _aprobar_nc(db, nc, active_user)
+    return nc
+
+
+def _imputar_nc_a_saldo(db, nc, proveedor, active_user, monto):
+    """Helper: imputa parcialmente la NC a 'saldo' (consume saldo_pendiente)."""
+    from app.models.imputacion import Imputacion
+
+    imp = Imputacion(
+        origen_tipo="nota_credito_local",
+        origen_id=nc.id,
+        destino_tipo="saldo",
+        destino_id=None,
+        monto_imputado=monto,
+        moneda_imputada=nc.moneda,
+        proveedor_id=proveedor.id,
+        es_reversal=False,
+        creado_por_id=active_user.id,
+    )
+    db.add(imp)
+    db.flush()
+    return imp
+
+
+class TestEndpointNCsDisponibles:
+    """GET /ncs-locales/disponibles — NCs aprobadas con saldo > 0 (FR-007)."""
+
+    def test_sin_token_no_autorizado(self, client):
+        r = client.get(f"{ENDPOINT_NCS_DISPONIBLES}?proveedor_id=1")
+        assert r.status_code in (401, 403)
+
+    def test_sin_proveedor_id_422(self, client, auth_headers, con_permiso_ordenes_compra):
+        """Falta query param requerido → 422 (FastAPI Query(...)).
+
+        Mockeamos el permiso porque FastAPI evalúa Depends() ANTES de validar
+        params en el path operation, así que sin el mock daría 403 antes de 422.
+        En la práctica este test asegura que el endpoint declare `proveedor_id`
+        como required (Query(..., ...)) — un consumer con permiso pero sin el
+        param ve 422, no 200/400.
+        """
+        r = client.get(ENDPOINT_NCS_DISPONIBLES, headers=auth_headers)
+        assert r.status_code == 422
+
+    def test_filtra_por_proveedor_y_saldo(
+        self,
+        db,
+        client,
+        auth_headers,
+        con_permiso_ordenes_compra,
+        empresa_pendientes,
+        proveedor_pendientes,
+        active_user,
+    ):
+        """3 NCs aprobadas (saldo=500, saldo=200, saldo=0) → response con 2."""
+        # NC #1: saldo=500 (no se imputa nada)
+        nc1 = _crear_nc_aprobada(db, empresa_pendientes, proveedor_pendientes, active_user, Decimal_fast("500"))
+        # NC #2: saldo=200 (importe=500, imputo 300 a saldo)
+        nc2 = _crear_nc_aprobada(db, empresa_pendientes, proveedor_pendientes, active_user, Decimal_fast("500"))
+        _imputar_nc_a_saldo(db, nc2, proveedor_pendientes, active_user, Decimal_fast("300"))
+        # NC #3: saldo=0 (importe=500, imputo 500 a saldo — quedó sin saldo)
+        nc3 = _crear_nc_aprobada(db, empresa_pendientes, proveedor_pendientes, active_user, Decimal_fast("500"))
+        _imputar_nc_a_saldo(db, nc3, proveedor_pendientes, active_user, Decimal_fast("500"))
+        db.commit()
+
+        r = client.get(
+            f"{ENDPOINT_NCS_DISPONIBLES}?proveedor_id={proveedor_pendientes.id}",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        rows = r.json()
+        # Solo nc1 y nc2 tienen saldo > 0
+        ids = {row["id"] for row in rows}
+        assert nc1.id in ids
+        assert nc2.id in ids
+        assert nc3.id not in ids
+        # Saldos correctos en el response
+        por_id = {row["id"]: row for row in rows}
+        assert Decimal_fast(por_id[nc1.id]["saldo_pendiente"]) == Decimal_fast("500")
+        assert Decimal_fast(por_id[nc2.id]["saldo_pendiente"]) == Decimal_fast("200")
+
+    def test_proveedor_sin_ncs_devuelve_lista_vacia(
+        self,
+        client,
+        auth_headers,
+        con_permiso_ordenes_compra,
+        proveedor_pendientes,
+    ):
+        r = client.get(
+            f"{ENDPOINT_NCS_DISPONIBLES}?proveedor_id={proveedor_pendientes.id}",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_proveedor_inexistente_404(self, client, auth_headers, con_permiso_ordenes_compra):
+        r = client.get(
+            f"{ENDPOINT_NCS_DISPONIBLES}?proveedor_id=99999",
+            headers=auth_headers,
+        )
+        assert r.status_code == 404
