@@ -8,6 +8,7 @@ import {
   Sliders,
   Eye,
   FileText,
+  FileMinus,
   Receipt,
   X,
   Search as SearchIcon,
@@ -16,6 +17,8 @@ import {
   ArrowRight,
   Link2,
   Wallet,
+  CreditCard,
+  Undo2,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -26,11 +29,13 @@ import ModalPedidoDetalle from './ModalPedidoDetalle';
 import ModalOrdenPagoDetalle from './ModalOrdenPagoDetalle';
 import ModalNCLocal from './ModalNCLocal';
 import ModalNCLocalDetalle from './ModalNCLocalDetalle';
+import ModalAplicarNC from './ModalAplicarNC';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import EstadoBadge from './_shared/EstadoBadge';
 import EmptyState from './_shared/EmptyState';
 import LoadingBlock from './_shared/LoadingBlock';
 import MetricTile from './_shared/MetricTile';
+import DataTable from './_shared/DataTable';
 import styles from './TabCCProveedores.module.css';
 
 const formatMoneda = (value, moneda = 'ARS') => {
@@ -126,6 +131,16 @@ export default function TabCCProveedores() {
   const [imputaciones, setImputaciones] = useState([]);
   const [tcEstimado, setTcEstimado] = useState(null);
 
+  // Batch 6: NCs aprobadas del proveedor con saldo pendiente (FR-010).
+  // Backend endpoint /administracion/compras/ncs-locales/disponibles.
+  const [ncsDisponibles, setNcsDisponibles] = useState([]);
+
+  // Batch 6: state para los modales que se abren desde el footer de
+  // GrupoPedidoCard ("Aplicar NC" / "Imputar pago"). Ambos contextos llevan
+  // pedidoId pre-cargado para el modal correspondiente.
+  const [showAplicarNCDesdeCard, setShowAplicarNCDesdeCard] = useState(null); // { pedidoId, nc }
+  const [showImputarPagoDesdeCard, setShowImputarPagoDesdeCard] = useState(null); // { pedidoId }
+
   // ── Sub-batch 5 — acciones desde el header del proveedor ──
   // proveedorCtx: contexto pre-cargado para los modales que crean entidades.
   const proveedorCtx = detalle
@@ -141,6 +156,12 @@ export default function TabCCProveedores() {
   const [showNuevaNC, setShowNuevaNC] = useState(false);
   const [showPagoRapido, setShowPagoRapido] = useState(false);
   const [showAjusteManual, setShowAjusteManual] = useState(false);
+
+  // Desimputar imputación inline (motivo en modal de confirmación).
+  const [confirmarDesimp, setConfirmarDesimp] = useState(null);
+  const [motivoDesimp, setMotivoDesimp] = useState('');
+  const [desimpLoading, setDesimpLoading] = useState(false);
+  const [desimpError, setDesimpError] = useState(null);
 
   // Sub-batch 5.D: detalle de movimiento clickeado.
   const [detalleMov, setDetalleMov] = useState(null); // { tipo, id }
@@ -208,13 +229,38 @@ export default function TabCCProveedores() {
     }
   }, [listarImputaciones, proveedorIdActivo]);
 
+  // Batch 6 — T6.1: NCs aprobadas/aplicada_parcial con saldo pendiente del
+  // proveedor activo. Si el endpoint falla, dejamos `[]` para no romper la
+  // vista del CC (la sección del hero simplemente no se renderiza).
+  const fetchNcsDisponibles = useCallback(async () => {
+    if (!proveedorIdActivo) return;
+    try {
+      const { data } = await api.get(
+        '/administracion/compras/ncs-locales/disponibles',
+        { params: { proveedor_id: proveedorIdActivo, limit: 100 } }
+      );
+      setNcsDisponibles(Array.isArray(data) ? data : []);
+    } catch (err) {
+      // No bloqueante: el resto del CC sigue funcionando.
+      console.error('fetchNcsDisponibles falló', err);
+      setNcsDisponibles([]);
+    }
+  }, [proveedorIdActivo]);
+
   useEffect(() => {
     if (proveedorIdActivo) {
       fetchDetalle();
       fetchPorPedido();
       fetchImputaciones();
+      fetchNcsDisponibles();
     }
-  }, [proveedorIdActivo, fetchDetalle, fetchPorPedido, fetchImputaciones]);
+  }, [
+    proveedorIdActivo,
+    fetchDetalle,
+    fetchPorPedido,
+    fetchImputaciones,
+    fetchNcsDisponibles,
+  ]);
 
   useEffect(() => {
     if (proveedorIdActivo) fetchDetalle();
@@ -241,6 +287,33 @@ export default function TabCCProveedores() {
     }
     return acc;
   }, {});
+
+  const handleDesimputar = async () => {
+    if (!confirmarDesimp) return;
+    const motivo = motivoDesimp.trim();
+    if (motivo.length < 3) {
+      setDesimpError('El motivo debe tener al menos 3 caracteres.');
+      return;
+    }
+    setDesimpLoading(true);
+    setDesimpError(null);
+    try {
+      await api.post(
+        `/administracion/compras/imputaciones/${confirmarDesimp.id}/desimputar`,
+        { motivo }
+      );
+      setConfirmarDesimp(null);
+      setMotivoDesimp('');
+      // Refrescar todo el CC: detalle, agrupado y lista de imputaciones.
+      fetchDetalle();
+      fetchPorPedido();
+      fetchImputaciones();
+    } catch (err) {
+      setDesimpError(err.response?.data?.detail || 'Error al desimputar.');
+    } finally {
+      setDesimpLoading(false);
+    }
+  };
 
   return (
     <div className={styles.container}>
@@ -342,6 +415,43 @@ export default function TabCCProveedores() {
             </div>
           </section>
 
+          {/* ── Batch 6 — T6.2 — NCs disponibles del proveedor ──
+              Render condicional: solo si el proveedor tiene NCs aprobadas con
+              saldo pendiente > 0. Sin paginación (max 100 del backend). */}
+          {ncsDisponibles.length > 0 && (
+            <section className={styles.ncsDisponiblesHero}>
+              <header className={styles.ncsDisponiblesHeader}>
+                <FileMinus size={14} className={styles.ncsDisponiblesIcon} />
+                <span className={styles.ncsDisponiblesTitle}>
+                  NCs disponibles del proveedor
+                </span>
+                <span className={styles.ncsDisponiblesCount}>
+                  {ncsDisponibles.length}
+                </span>
+              </header>
+              <DataTable
+                columns={[
+                  { key: 'numero', label: 'Número', width: '140px' },
+                  { key: 'fecha', label: 'Fecha', width: '110px' },
+                  { key: 'importe', label: 'Importe', align: 'right', width: '160px' },
+                  { key: 'saldo_pendiente', label: 'Saldo pendiente', align: 'right', width: '180px' },
+                  { key: 'estado', label: 'Estado', width: '140px' },
+                ]}
+                rows={ncsDisponibles}
+                renderCell={(row, col) => {
+                  if (col.key === 'fecha') return formatDate(row.fecha);
+                  if (col.key === 'importe') return formatMoneda(row.importe, row.moneda);
+                  if (col.key === 'saldo_pendiente')
+                    return formatMoneda(row.saldo_pendiente, row.moneda);
+                  if (col.key === 'estado')
+                    return <EstadoBadge variant="nc" estado={row.estado} />;
+                  return row[col.key];
+                }}
+                minWidth="780px"
+              />
+            </section>
+          )}
+
           {/* ── Quick actions (chips) ──────────────────────────────── */}
           <div className={styles.accionesBar} role="toolbar" aria-label="Acciones rápidas">
             {canGestionar && (
@@ -442,14 +552,46 @@ export default function TabCCProveedores() {
                   tone="default"
                 />
               ) : (
-                porPedido.map((g) => (
-                  <GrupoPedidoCard
-                    key={g.pedido_compra_id}
-                    grupo={g}
-                    imputaciones={imputacionesPorPedido[g.pedido_compra_id] || []}
-                    onMovClick={(tipo, id) => setDetalleMov({ tipo, id })}
-                  />
-                ))
+                porPedido.map((g) => {
+                  // Batch 6 — T6.4 (decisión pragmática): solo permitimos
+                  // "Aplicar NC" desde el card si hay al menos una NC
+                  // disponible del proveedor en la MISMA moneda que el pedido.
+                  // ModalAplicarNC hoy requiere `nc` no-null (filtra pedidos
+                  // por NC.moneda). Pre-cargamos la primera NC compatible y
+                  // dejamos al user cerrar y elegir otra desde el hero si lo
+                  // necesita. Si no hay NCs compatibles, el botón no aparece.
+                  const ncCompatible = ncsDisponibles.find(
+                    (n) => n.moneda === g.pedido_moneda
+                  );
+                  return (
+                    <GrupoPedidoCard
+                      key={g.pedido_compra_id}
+                      grupo={g}
+                      imputaciones={imputacionesPorPedido[g.pedido_compra_id] || []}
+                      onMovClick={(tipo, id) => setDetalleMov({ tipo, id })}
+                      onDesimputar={(imp) => {
+                        setConfirmarDesimp(imp);
+                        setMotivoDesimp('');
+                        setDesimpError(null);
+                      }}
+                      onAplicarNC={
+                        ncCompatible
+                          ? (pid) =>
+                              setShowAplicarNCDesdeCard({
+                                pedidoId: pid,
+                                nc: ncCompatible,
+                              })
+                          : null
+                      }
+                      onImputarPago={
+                        canEjecutarPagos
+                          ? (pid) =>
+                              setShowImputarPagoDesdeCard({ pedidoId: pid })
+                          : null
+                      }
+                    />
+                  );
+                })
               )}
             </div>
           )}
@@ -468,6 +610,71 @@ export default function TabCCProveedores() {
           }}
         />
       )}
+
+      {/* ── Batch 6 — T6.4 — Aplicar NC desde card de pedido ──
+          Se monta cuando el user clickea "Aplicar NC" en GrupoPedidoCard.
+          La NC viene pre-elegida (primera compatible por moneda); el modal
+          recibe `pedidoDestinoId` y bloquea el selector de destino. */}
+      {showAplicarNCDesdeCard && (
+        <ModalAplicarNC
+          nc={showAplicarNCDesdeCard.nc}
+          pedidoDestinoId={showAplicarNCDesdeCard.pedidoId}
+          onClose={(reload) => {
+            setShowAplicarNCDesdeCard(null);
+            if (reload) {
+              fetchDetalle();
+              fetchPorPedido();
+              fetchImputaciones();
+              fetchNcsDisponibles();
+            }
+          }}
+        />
+      )}
+
+      {/* ── Batch 6 — T6.5 — Imputar pago desde card de pedido ──
+          Abre ModalOrdenPagoNueva con pedido y proveedor pre-cargados. El
+          modal soporta cross-moneda con TC (Batch 5). */}
+      {showImputarPagoDesdeCard && proveedorCtx && (() => {
+        const grupo = porPedido.find(
+          (g) => g.pedido_compra_id === showImputarPagoDesdeCard.pedidoId
+        );
+        // El grupo del endpoint /por-pedido no trae empresa_id/proveedor_id,
+        // pero ModalOrdenPagoNueva los requiere en `pedidoInicial`. Los
+        // completamos desde el contexto del proveedor + filtro de empresa.
+        const pedidoInicial = grupo
+          ? {
+              id: grupo.pedido_compra_id,
+              numero: grupo.pedido_numero,
+              empresa_id: filtroEmpresa
+                ? Number(filtroEmpresa)
+                : proveedorCtx.empresa_id,
+              proveedor_id: proveedorCtx.id,
+              moneda: grupo.pedido_moneda,
+              monto: grupo.pedido_monto,
+              saldo_pendiente: grupo.pedido_saldo_pendiente,
+              tipo_cambio: grupo.pedido_tipo_cambio,
+              estado: grupo.pedido_estado,
+            }
+          : null;
+        if (!pedidoInicial) return null;
+        return (
+          <ModalOrdenPagoNueva
+            empresas={empresas}
+            proveedorInicial={proveedorCtx}
+            pedidoInicial={pedidoInicial}
+            pendientesDelProveedor={[]}
+            onClose={(reload) => {
+              setShowImputarPagoDesdeCard(null);
+              if (reload) {
+                fetchDetalle();
+                fetchPorPedido();
+                fetchImputaciones();
+                fetchNcsDisponibles();
+              }
+            }}
+          />
+        );
+      })()}
 
       {/* ── Sub-batch 5.F — Nuevo pedido pre-cargado ── */}
       {showNuevoPedido && proveedorCtx && (
@@ -537,6 +744,70 @@ export default function TabCCProveedores() {
             if (reload) fetchDetalle();
           }}
         />
+      )}
+
+      {/* ── Confirmación desimputar (motivo obligatorio) ── */}
+      {confirmarDesimp && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                <Undo2 size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Desimputar imputación #{confirmarDesimp.id}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => {
+                  setConfirmarDesimp(null);
+                  setDesimpError(null);
+                }}
+                aria-label="Cerrar"
+                type="button"
+                disabled={desimpLoading}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {desimpError && <div className={styles.errorBanner}>{desimpError}</div>}
+            <p className={styles.modalHelp}>
+              Crea un <strong>reversal</strong> que cancela el efecto de esta imputación
+              (append-only — la imp original queda como auditoría). El saldo del pedido
+              se restaura.
+            </p>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Motivo *</label>
+              <textarea
+                className={styles.textarea}
+                value={motivoDesimp}
+                onChange={(e) => setMotivoDesimp(e.target.value)}
+                placeholder="Describí por qué se desimputa (mínimo 3 chars)..."
+                rows={3}
+                disabled={desimpLoading}
+              />
+            </div>
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => {
+                  setConfirmarDesimp(null);
+                  setDesimpError(null);
+                }}
+                disabled={desimpLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnDanger}
+                onClick={handleDesimputar}
+                disabled={desimpLoading}
+              >
+                {desimpLoading ? 'Desimputando…' : 'Desimputar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -680,7 +951,16 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
  * El body abre con la misma <LedgerTable /> que usa la vista cronológica
  * + una subsección con las imputaciones que apuntan a este pedido.
  */
-function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
+function GrupoPedidoCard({
+  grupo,
+  imputaciones,
+  onMovClick,
+  onDesimputar,
+  // Batch 6 — handlers nuevos. Cualquiera puede venir null si el feature
+  // no aplica (ej. no hay NCs compatibles → onAplicarNC=null).
+  onAplicarNC,
+  onImputarPago,
+}) {
   // Saldo del pedido en su moneda nativa (lo que falta pagar). Viene del
   // backend calculado como `pedido.monto - sum(imputaciones efectivas)`.
   // Si pedido es USD, este saldo es USD; el frontend lo convierte a ARS
@@ -698,6 +978,18 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
   const tcPedido = grupo.pedido_tipo_cambio ? Number(grupo.pedido_tipo_cambio) : null;
   const mostrarEquivArs = grupo.pedido_moneda === 'USD' && tcPedido && tcPedido > 0;
 
+  // Batch 6 — T6.7: TC ponderado por imputaciones cross-moneda. Solo se
+  // renderiza si el backend lo expone (pedido USD con imps cross-moneda).
+  // null => no se muestra nada (NO placeholder ni "TC pond.: -").
+  const tcPonderadoVal =
+    grupo.tc_ponderado !== null && grupo.tc_ponderado !== undefined
+      ? Number(grupo.tc_ponderado)
+      : null;
+
+  // Mostramos footer solo si hay al menos una acción habilitada para evitar
+  // un footer vacío en pedidos sin acciones disponibles.
+  const hayAcciones = Boolean(onAplicarNC || onImputarPago);
+
   return (
     <details className={styles.grupoCard}>
       <summary className={styles.grupoSummary}>
@@ -705,8 +997,17 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
           <ChevronRight size={14} />
         </span>
         <div className={styles.grupoHeaderLeft}>
-          <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
-          <EstadoBadge variant="pedido" estado={grupo.pedido_estado} saldo={saldoFinal} />
+          <div className={styles.grupoHeaderLeftStack}>
+            <div className={styles.grupoHeaderLeftRow}>
+              <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
+              <EstadoBadge variant="pedido" estado={grupo.pedido_estado} saldo={saldoFinal} />
+            </div>
+            {tcPonderadoVal !== null && (
+              <span className={styles.tcPonderado}>
+                TC pond.: {tcPonderadoVal.toFixed(2)}
+              </span>
+            )}
+          </div>
         </div>
         <div className={styles.grupoHeaderRight}>
           <div className={styles.grupoHeaderTotals}>
@@ -784,11 +1085,51 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
                   <span className={styles.impInlineMonto}>
                     {formatMoneda(imp.monto_imputado, imp.moneda_imputada)}
                   </span>
+                  {onDesimputar && !imp.es_reversal && (
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => onDesimputar(imp)}
+                      aria-label="Desimputar"
+                      title="Desimputar (revertir esta imputación)"
+                    >
+                      <Undo2 size={12} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
+
+        {/* ── Batch 6 — T6.3 — Footer de acciones por pedido ──
+            "Aplicar NC" y "Imputar pago" abren modales pre-cargados con
+            este pedido. Los handlers vienen del componente padre y pueden
+            ser null si la acción no aplica (sin NCs / sin permiso). */}
+        {hayAcciones && (
+          <div className={styles.grupoActions}>
+            {onAplicarNC && (
+              <button
+                type="button"
+                className={styles.grupoActionBtn}
+                onClick={() => onAplicarNC(grupo.pedido_compra_id)}
+                title="Aplicar una NC del proveedor a este pedido"
+              >
+                <FileMinus size={13} /> Aplicar NC
+              </button>
+            )}
+            {onImputarPago && (
+              <button
+                type="button"
+                className={styles.grupoActionBtn}
+                onClick={() => onImputarPago(grupo.pedido_compra_id)}
+                title="Crear OP pre-cargada con este pedido como destino"
+              >
+                <CreditCard size={13} /> Imputar pago
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </details>
   );

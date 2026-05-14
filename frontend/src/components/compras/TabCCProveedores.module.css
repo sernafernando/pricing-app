@@ -1046,3 +1046,116 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Batch 6 — NCs disponibles del proveedor (hero) + acciones por pedido
+   ══════════════════════════════════════════════════════════════════════ */
+
+.ncsDisponiblesHero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-xl);
+}
+
+.ncsDisponiblesHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--cf-text-secondary);
+}
+
+.ncsDisponiblesIcon {
+  color: var(--cf-text-secondary);
+}
+
+.ncsDisponiblesTitle {
+  color: var(--cf-text-secondary);
+}
+
+.ncsDisponiblesCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* TC ponderado debajo del header del card (línea discreta, mono, tabular). */
+.grupoHeaderLeftStack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.grupoHeaderLeftRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tcPonderado {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
+  letter-spacing: 0.02em;
+}
+
+/* Footer de acciones por GrupoPedidoCard. */
+.grupoActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  padding-top: var(--spacing-sm);
+  border-top: 1px dashed var(--cf-border-default);
+}
+
+.grupoActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--spacing-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-out);
+}
+
+.grupoActionBtn:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+  color: var(--cf-accent-blue);
+}
+
+.grupoActionBtn:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.grupoActionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

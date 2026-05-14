@@ -787,16 +787,24 @@ class TestEditarOP:
             )
         assert exc.value.status_code == 400
 
-    def test_editar_op_tc_con_moneda_ars_raises(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+    def test_editar_op_ars_acepta_tc_para_cross_moneda(
+        self, db, empresa, proveedor, pedido_aprobado, active_user
+    ) -> None:
+        """
+        Con compras-cross-moneda-y-ncs-cc (Batch 3), una OP ARS PUEDE
+        tener `tipo_cambio` > 0 para soportar el flow de pagar pedidos USD
+        desde una OP ARS. La regla anterior "ARS no puede tener TC" fue
+        relajada porque colisionaba con el FR-004 del SDD.
+        """
         op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
-        with pytest.raises(HTTPException) as exc:
-            ordenes_pago_service.editar(
-                db,
-                op_id=op.id,
-                tipo_cambio=Decimal("1100"),  # moneda ARS → inválido
-                user_id=active_user.id,
-            )
-        assert exc.value.status_code == 400
+        editada = ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            tipo_cambio=Decimal("1100"),
+            user_id=active_user.id,
+        )
+        assert editada.tipo_cambio == Decimal("1100")
+        assert editada.moneda == "ARS"
 
     def test_editar_op_404_inexistente(self, db, active_user) -> None:
         with pytest.raises(HTTPException) as exc:
@@ -1214,3 +1222,236 @@ class TestEjecutarPagoCrossMoneda:
                 tipo_cambio_override=Decimal("-1"),
             )
         assert exc.value.status_code == 400
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cross-moneda OP↔pedido (compras-cross-moneda-y-ncs-cc — Batch 3)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def pedido_usd_aprobado(db, empresa, proveedor, active_user) -> PedidoCompra:
+    """Pedido en USD aprobado, listo para ser pagado por una OP cross-moneda."""
+    p = PedidoCompra(
+        numero="P-01-2026-USD001",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        monto=Decimal("5000"),  # 5000 USD
+        estado="aprobado",
+        aprobado_por_id=active_user.id,
+        creado_por_id=active_user.id,
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+class TestOPCrossMonedaImputacion:
+    """
+    Cubre los casos de OP cross-moneda OP↔pedido: la imputación se persiste
+    en moneda destino (la del pedido), monto convertido por TC con
+    ROUND_HALF_UP, y el `tipo_cambio` de la OP queda registrado en la imp.
+
+    Spec: compras-cross-moneda-y-ncs-cc → FR-002, FR-003, FR-004.
+    """
+
+    def test_op_cross_moneda_ejecuta_pago_genera_imp_usd(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_usd_aprobado,
+        active_user,
+    ) -> None:
+        """
+        OP ARS por 1.500.000 ARS con TC=1500 paga pedido USD →
+        imp `moneda_imputada='USD'`, `monto_imputado=1000`, `tipo_cambio=1500`.
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1500000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_usd_aprobado.id,
+                    "monto": Decimal("1500000"),
+                }
+            ],
+            tipo_cambio=Decimal("1500"),
+            creado_por_id=active_user.id,
+        )
+        assert op.tipo_cambio == Decimal("1500")
+
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        imps = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+            )
+            .all()
+        )
+        assert len(imps) == 1
+        imp = imps[0]
+        assert imp.destino_tipo == "pedido_compra"
+        assert imp.destino_id == pedido_usd_aprobado.id
+        assert imp.moneda_imputada == "USD"
+        # 1_500_000 / 1500 = 1000 (exacto, sin redondeo).
+        assert Decimal(imp.monto_imputado) == Decimal("1000.00")
+        assert Decimal(imp.tipo_cambio) == Decimal("1500")
+        # CC mov HABER en USD (no en ARS).
+        cc_movs = db.query(CCProveedorMovimiento).filter(CCProveedorMovimiento.origen_id == imp.id).all()
+        assert len(cc_movs) == 1
+        assert cc_movs[0].moneda == "USD"
+        assert cc_movs[0].tipo == "haber"
+
+    def test_op_cross_moneda_sin_tc_raise_400(
+        self,
+        db,
+        empresa,
+        proveedor,
+        pedido_usd_aprobado,
+        active_user,
+    ) -> None:
+        """OP ARS sin TC con item pedido USD → 400 al `crear` (validación)."""
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.crear(
+                db,
+                proveedor_id=proveedor.id,
+                empresa_id=empresa.id,
+                moneda="ARS",
+                monto_total=Decimal("1500000"),
+                modo_imputacion="especifica",
+                items=[
+                    {
+                        "tipo": "pedido_compra",
+                        "id": pedido_usd_aprobado.id,
+                        "monto": Decimal("1500000"),
+                    }
+                ],
+                creado_por_id=active_user.id,
+                # tipo_cambio omitido → debe rechazar.
+            )
+        assert exc.value.status_code == 400
+        assert "cross-moneda" in exc.value.detail.lower()
+
+    def test_op_cross_moneda_ejecuta_pago_redondea_half_up(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_usd_aprobado,
+        active_user,
+    ) -> None:
+        """
+        50 ARS / 100 = 0.5 → con ROUND_HALF_UP a 2 decimales debe persistir
+        0.50 (no 0.4, no truncado).
+        Adicional: 1 ARS / 200 = 0.005 → ROUND_HALF_UP a 2 decimales = 0.01
+        (no 0.00 que sería HALF_EVEN o truncado).
+        Verificamos el segundo (más restrictivo: discrimina HALF_UP vs HALF_EVEN).
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_usd_aprobado.id,
+                    "monto": Decimal("1"),
+                }
+            ],
+            tipo_cambio=Decimal("200"),
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+            )
+            .one()
+        )
+        # 1 ARS / 200 = 0.005 → HALF_UP a 2 decimales = 0.01 (HALF_EVEN sería 0.00).
+        # Confirma redondeo HALF_UP explícito, no HALF_EVEN ni truncado.
+        assert Decimal(imp.monto_imputado) == Decimal("0.01")
+        assert imp.moneda_imputada == "USD"
+        assert Decimal(imp.tipo_cambio) == Decimal("200")
+
+    def test_op_same_moneda_no_aplica_conversion(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,  # pedido ARS
+        active_user,
+    ) -> None:
+        """
+        OP ARS con item pedido ARS (same-moneda) → imp con
+        `moneda_imputada='ARS'`, `monto_imputado=item.monto`, `tipo_cambio=None`.
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_aprobado.id,
+                    "monto": Decimal("5000"),
+                }
+            ],
+            creado_por_id=active_user.id,
+            # Sin tipo_cambio: same-moneda no lo requiere.
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+        imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+            )
+            .one()
+        )
+        assert imp.moneda_imputada == "ARS"
+        assert Decimal(imp.monto_imputado) == Decimal("5000")
+        assert imp.tipo_cambio is None

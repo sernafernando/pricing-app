@@ -75,6 +75,7 @@ from app.schemas.imputacion import (
 )
 from app.schemas.nota_credito_local import (
     AplicarNCRequest,
+    NCDisponibleSummary,
     NCErpCandidataResponse,
     NotaCreditoLocalCreate,
     NotaCreditoLocalDetalle,
@@ -212,6 +213,7 @@ def _pedido_response(
     *,
     puede_eliminar: bool = False,
     saldo_pendiente: Optional[Decimal] = None,
+    tipo_cambio_ponderado: Optional[Decimal] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -228,6 +230,10 @@ def _pedido_response(
     `saldo_pendiente` lo calcula el caller vía
     `pedidos_service.calcular_saldos_pendientes_batch` (1 query agregada
     sin importar N). Si no se pasa → queda None.
+
+    `tipo_cambio_ponderado` lo calcula el caller vía
+    `pedidos_service.calcular_tc_ponderado_pedido_batch` (1 query agregada
+    sin importar N). None si el pedido no tiene imps cross-moneda.
     """
     emp = getattr(p, "empresa", None)
     prov = getattr(p, "proveedor", None)
@@ -238,6 +244,7 @@ def _pedido_response(
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "puede_eliminar": puede_eliminar,
             "saldo_pendiente": saldo_pendiente,
+            "tipo_cambio_ponderado": tipo_cambio_ponderado,
         }
     )
 
@@ -303,12 +310,15 @@ def listar_pedidos(
     # Saldo pendiente batch (1 query agregada — sin N+1).
     pedido_ids = [p.id for p in items]
     saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
+    # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
+    tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
     return PedidoCompraPaginated(
         items=[
             _pedido_response(
                 p,
                 puede_eliminar=puede_map.get(p.id, False),
                 saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
+                tipo_cambio_ponderado=tc_pond_map.get(p.id),
             )
             for p in items
         ],
@@ -440,12 +450,14 @@ def obtener_pedido(
     emp = getattr(pedido, "empresa", None)
     prov = getattr(pedido, "proveedor", None)
     saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, pedido.id)
+    tc_ponderado = pedidos_service.calcular_tc_ponderado_pedido(db, pedido.id)
     detalle = PedidoCompraDetalle.model_validate(pedido)
     detalle = detalle.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "saldo_pendiente": saldo,
+            "tipo_cambio_ponderado": tc_ponderado,
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -1146,6 +1158,8 @@ def crear_orden_pago(
             observaciones=data.observaciones,
             creado_por_id=user.id,
             confirmar_duplicado=data.confirmar_duplicado,
+            tipo_cambio=data.tipo_cambio,
+            fecha_pago_estimada=data.fecha_pago_estimada,
         )
     except HTTPException:
         db.rollback()
@@ -2130,6 +2144,8 @@ def obtener_cc_por_pedido(
 
     # Saldos pendientes batch (1 query agregada — sin N+1).
     saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
+    # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
+    tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
 
     resultado: list[CCAgrupadoPorPedido] = []
     for pid, movs in grupos.items():
@@ -2146,6 +2162,7 @@ def obtener_cc_por_pedido(
                 pedido_moneda=pedido.moneda,
                 pedido_tipo_cambio=Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None,
                 pedido_saldo_pendiente=saldo_pendiente,
+                tc_ponderado=tc_pond_map.get(pid),
                 movimientos=_enriquecer_movimientos_cc(db, list(movs)),
             )
         )
@@ -3178,6 +3195,95 @@ def listar_ncs_locales(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/ncs-locales/disponibles",
+    response_model=list[NCDisponibleSummary],
+    summary="NCs locales con saldo disponible para imputar (por proveedor)",
+)
+def listar_ncs_disponibles(
+    proveedor_id: int = Query(..., ge=1, description="ID del proveedor"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> list[NCDisponibleSummary]:
+    """NCs locales del proveedor en estados `aprobado` / `aplicada_parcial`
+    con saldo pendiente > 0 (FR-007).
+
+    El saldo NO está persistido en `NotaCreditoLocal` — se calcula como
+    `monto - (imps no-reversal - imps reversal)`. Para evitar N+1, se hace
+    UN batch query agregada sobre `imputaciones` con `GROUP BY origen_id`.
+
+    Orden: `created_at DESC, id DESC` (NFR-002 — recientes primero).
+
+    Como el `saldo > 0` se aplica POST-fetch (no en SQL — requiere agregación
+    derivada), la página devuelta puede tener menos de `limit` filas si hay
+    NCs con saldo=0 en el rango. Aceptable v1 (proveedores típicos < 50 NCs).
+
+    Filtros aplicados:
+      - `proveedor_id` (requerido, 422 si falta).
+      - `estado IN ('aprobado','aplicada_parcial')`.
+      - `saldo_pendiente > 0` (post-filter).
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+
+    candidatas = list(
+        db.execute(
+            select(NotaCreditoLocal)
+            .where(
+                NotaCreditoLocal.proveedor_id == proveedor_id,
+                NotaCreditoLocal.estado.in_(("aprobado", "aplicada_parcial")),
+            )
+            .order_by(NotaCreditoLocal.created_at.desc(), NotaCreditoLocal.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    if not candidatas:
+        return []
+
+    # Batch: saldo neto por NC = SUM(no-reversal) - SUM(reversal). Una sola
+    # query agregada con case() (mismo patrón que calcular_saldos_pendientes_batch).
+    from sqlalchemy import case  # noqa: PLC0415
+
+    nc_ids = [nc.id for nc in candidatas]
+    signed_sum = sa_func.sum(
+        case(
+            (Imputacion.es_reversal.is_(True), -Imputacion.monto_imputado),
+            else_=Imputacion.monto_imputado,
+        )
+    )
+    rows = db.execute(
+        select(Imputacion.origen_id, signed_sum)
+        .where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.origen_id.in_(nc_ids),
+        )
+        .group_by(Imputacion.origen_id)
+    ).all()
+    imputado_por_nc: dict[int, Decimal] = {int(oid): Decimal(total or 0) for oid, total in rows}
+
+    resultado: list[NCDisponibleSummary] = []
+    for nc in candidatas:
+        saldo = Decimal(nc.monto) - imputado_por_nc.get(int(nc.id), Decimal(0))
+        if saldo <= 0:
+            continue
+        resultado.append(
+            NCDisponibleSummary(
+                id=int(nc.id),
+                numero=nc.numero,
+                fecha=nc.created_at.date() if nc.created_at is not None else nc.fecha_emision,
+                importe=Decimal(nc.monto),
+                moneda=nc.moneda,
+                saldo_pendiente=saldo,
+                estado=nc.estado,
+            )
+        )
+    return resultado
 
 
 @router.get(

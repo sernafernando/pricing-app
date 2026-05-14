@@ -85,6 +85,9 @@ class CCAgrupadoPorPedido(BaseModel):
     # Si pedido es USD, este es el saldo USD; el frontend multiplica por
     # pedido_tipo_cambio para mostrar el equivalente ARS.
     pedido_saldo_pendiente: Optional[Decimal] = None
+    # TC ponderado por aporte de imputaciones cross-moneda al pedido (FR-008).
+    # 4 decimales. None si el pedido no tiene imps cross-moneda.
+    tc_ponderado: Optional[Decimal] = None
     movimientos: list[CCMovimientoResponse]
 
 

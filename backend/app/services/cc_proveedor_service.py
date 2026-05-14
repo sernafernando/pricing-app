@@ -266,6 +266,20 @@ def aplicar_imputacion(
             del pago/NC). Origen contable registrado como `'reimputacion'`
             para distinguir de imputaciones primarias al agrupar.
 
+    Cross-moneda (compras-cross-moneda-y-ncs-cc, FR-002):
+        El movimiento CC se proyecta SIEMPRE en `imp.moneda_imputada`, que
+        en cross-moneda equivale a la **moneda destino** (la del pedido),
+        NO a la moneda origen (la de la OP). Ejemplo:
+          - OP ARS paga pedido USD por 1.000 USD (1.500.000 ARS / TC 1500).
+          - `imp.moneda_imputada = 'USD'`, `imp.monto_imputado = 1000`.
+          - `aplicar_imputacion` emite un HABER de 1.000 USD en el CC.
+          - El egreso real de plata (1.500.000 ARS) queda registrado en
+            `caja_movimientos` (NO en CC).
+        Resultado: cada moneda del CC del proveedor cuadra de forma
+        independiente — el USD se cancela en USD, el ARS se cancela en
+        ARS. La conversión OP↔pedido vive en la imputación
+        (`monto_imputado` + `tipo_cambio`) y en el documento de caja.
+
     Nota: para imputaciones a `destino='saldo'` (saldo a cuenta del
     proveedor) NO se emite movimiento CC — el saldo a cuenta es una
     anticipación que todavía no se aplicó a una deuda concreta. Se proyecta

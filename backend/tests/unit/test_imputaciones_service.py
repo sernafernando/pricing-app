@@ -3,7 +3,7 @@ Tests de `imputaciones_service` (COMPRAS-2.3 — base).
 
 Cubre las operaciones base de F2:
   - Whitelist de los 6 combos válidos v1.
-  - Validación de moneda consistente (cross-moneda prohibido, D3).
+  - Validación de moneda consistente (cross-moneda permitido si TC > 0).
   - `crear_imputacion` básico + constraints.
   - `listar_por_origen` / `listar_por_destino`.
   - `monto_imputado_total_al_destino` (excluye reversals).
@@ -101,11 +101,31 @@ class TestMonedaConsistente:
         _validar_moneda_consistente("ARS", "ARS")
         _validar_moneda_consistente("USD", "USD")
 
-    def test_cross_moneda_raise_400(self) -> None:
+    def test_monedas_iguales_ignoran_tc(self) -> None:
+        _validar_moneda_consistente("ARS", "ARS", tipo_cambio=None)
+        _validar_moneda_consistente("ARS", "ARS", tipo_cambio=Decimal("1500"))
+        _validar_moneda_consistente("USD", "USD", tipo_cambio=Decimal("0"))
+
+    def test_cross_moneda_sin_tc_raise_400(self) -> None:
         with pytest.raises(HTTPException) as exc_info:
             _validar_moneda_consistente("ARS", "USD")
         assert exc_info.value.status_code == 400
         assert "Cross-moneda" in exc_info.value.detail
+
+    def test_cross_moneda_tc_cero_raise_400(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            _validar_moneda_consistente("ARS", "USD", tipo_cambio=Decimal("0"))
+        assert exc_info.value.status_code == 400
+        assert "tipo_cambio > 0" in exc_info.value.detail
+
+    def test_cross_moneda_tc_negativo_raise_400(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            _validar_moneda_consistente("USD", "ARS", tipo_cambio=Decimal("-100"))
+        assert exc_info.value.status_code == 400
+
+    def test_cross_moneda_con_tc_ok(self) -> None:
+        _validar_moneda_consistente("ARS", "USD", tipo_cambio=Decimal("1500"))
+        _validar_moneda_consistente("USD", "ARS", tipo_cambio=Decimal("0.000667"))
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -446,6 +466,73 @@ class TestDesimputar:
             desimputar(db, imputacion_id=imp.id, user_id=user_id)
         assert exc.value.status_code == 400
 
+    def test_reversal_cross_moneda_genera_debe_en_moneda_destino(self, db, proveedor, user_id, empresa_fifo) -> None:
+        """
+        Reversal de una imputación cross-moneda (OP ARS → pedido USD con TC):
+        el reversal copia `moneda_imputada=USD` + `monto_imputado` USD +
+        `tipo_cambio` original. La proyección al CC genera un DEBE en USD
+        (compensando el HABER USD que generó la imp original).
+
+        Append-only sagrado: el reversal es un INSERT nuevo con `es_reversal=True`
+        y `reimputada_desde_id` apuntando a la original.
+        """
+        from app.services import cc_proveedor_service  # noqa: PLC0415
+        from app.models.cc_proveedor_movimiento import CCProveedorMovimiento  # noqa: PLC0415
+        from app.services.imputaciones_service import desimputar  # noqa: PLC0415
+
+        # Imp original cross-moneda: OP ARS paga pedido USD por 666.67 USD con TC=1500.
+        imp_original = crear_imputacion(
+            db,
+            origen_tipo="orden_pago",
+            origen_id=100,
+            destino_tipo="pedido_compra",
+            destino_id=200,
+            monto_imputado=Decimal("666.67"),
+            moneda_imputada="USD",
+            proveedor_id=proveedor.id,
+            creado_por_id=user_id,
+            tipo_cambio=Decimal("1500"),
+        )
+        cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp_original.id)
+
+        # Verificar HABER USD original en CC.
+        movs_original = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.origen_tipo == "imputacion",
+                CCProveedorMovimiento.origen_id == imp_original.id,
+            )
+            .all()
+        )
+        assert len(movs_original) == 1
+        assert movs_original[0].tipo == "haber"
+        assert movs_original[0].monto == Decimal("666.67")
+        assert movs_original[0].moneda == "USD"
+
+        # Desimputar — el reversal copia moneda, monto y TC originales.
+        reversal = desimputar(db, imputacion_id=imp_original.id, user_id=user_id, motivo="test cross")
+        assert reversal.es_reversal is True
+        assert reversal.reimputada_desde_id == imp_original.id
+        assert reversal.moneda_imputada == "USD"
+        assert reversal.monto_imputado == Decimal("666.67")
+        assert reversal.tipo_cambio == Decimal("1500")
+
+        # CC mov del reversal: DEBE en USD (compensación del HABER original).
+        # NOTE: cc_proveedor_service usa origen_tipo='reimputacion' (no 'imputacion')
+        # cuando la imp fuente es es_reversal=True.
+        movs_reversal = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.origen_tipo == "reimputacion",
+                CCProveedorMovimiento.origen_id == reversal.id,
+            )
+            .all()
+        )
+        assert len(movs_reversal) == 1
+        assert movs_reversal[0].tipo == "debe"
+        assert movs_reversal[0].monto == Decimal("666.67")
+        assert movs_reversal[0].moneda == "USD"
+
 
 class TestReimputar:
     def test_reimputar_crea_2_filas(self, db, proveedor, user_id, empresa_fifo) -> None:
@@ -619,9 +706,7 @@ class TestDesimputarRecalculaEstadoPedido:
     cuando el destino de la imputación revertida es `pedido_compra`.
     """
 
-    def test_desimputar_nc_a_pedido_recalcula_estado_pedido(
-        self, db, proveedor, user_id, empresa_fifo
-    ) -> None:
+    def test_desimputar_nc_a_pedido_recalcula_estado_pedido(self, db, proveedor, user_id, empresa_fifo) -> None:
         """
         Escenario:
           1. NC aprobada de $1000 + pedido aprobado de $1500.
@@ -678,9 +763,7 @@ class TestDesimputarRecalculaEstadoPedido:
         # Disparar transición pedido por la imputación creada
         from app.services import pedidos_service  # noqa: PLC0415
 
-        pedidos_service.aplicar_imputacion_a_pedido(
-            db, pedido_id=pedido.id, monto_imputado=Decimal("1000")
-        )
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=pedido.id, monto_imputado=Decimal("1000"))
         db.refresh(pedido)
         db.refresh(nc)
         assert pedido.estado == "pagado_parcial"
@@ -692,14 +775,11 @@ class TestDesimputarRecalculaEstadoPedido:
         db.refresh(pedido)
         db.refresh(nc)
         assert pedido.estado == "aprobado", (
-            f"desimputar NC sobre pedido debería devolver el pedido a 'aprobado' "
-            f"pero quedó en '{pedido.estado}'"
+            f"desimputar NC sobre pedido debería devolver el pedido a 'aprobado' pero quedó en '{pedido.estado}'"
         )
         assert nc.estado == "aprobado"
 
-    def test_desimputar_op_a_pedido_recalcula_estado_pedido(
-        self, db, proveedor, user_id, empresa_fifo
-    ) -> None:
+    def test_desimputar_op_a_pedido_recalcula_estado_pedido(self, db, proveedor, user_id, empresa_fifo) -> None:
         """
         Escenario simétrico al anterior pero con OP como origen:
           1. Pedido aprobado de $1500 + OP pagada de $1500 imputada al pedido.
@@ -748,9 +828,7 @@ class TestDesimputarRecalculaEstadoPedido:
             creado_por_id=user_id,
         )
         cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
-        pedidos_service.aplicar_imputacion_a_pedido(
-            db, pedido_id=pedido.id, monto_imputado=Decimal("1500")
-        )
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=pedido.id, monto_imputado=Decimal("1500"))
         db.refresh(pedido)
         assert pedido.estado == "pagado"
 
