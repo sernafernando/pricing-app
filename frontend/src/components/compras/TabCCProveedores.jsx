@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Link2,
   Wallet,
+  Undo2,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -142,6 +143,12 @@ export default function TabCCProveedores() {
   const [showPagoRapido, setShowPagoRapido] = useState(false);
   const [showAjusteManual, setShowAjusteManual] = useState(false);
 
+  // Desimputar imputación inline (motivo en modal de confirmación).
+  const [confirmarDesimp, setConfirmarDesimp] = useState(null);
+  const [motivoDesimp, setMotivoDesimp] = useState('');
+  const [desimpLoading, setDesimpLoading] = useState(false);
+  const [desimpError, setDesimpError] = useState(null);
+
   // Sub-batch 5.D: detalle de movimiento clickeado.
   const [detalleMov, setDetalleMov] = useState(null); // { tipo, id }
 
@@ -241,6 +248,33 @@ export default function TabCCProveedores() {
     }
     return acc;
   }, {});
+
+  const handleDesimputar = async () => {
+    if (!confirmarDesimp) return;
+    const motivo = motivoDesimp.trim();
+    if (motivo.length < 3) {
+      setDesimpError('El motivo debe tener al menos 3 caracteres.');
+      return;
+    }
+    setDesimpLoading(true);
+    setDesimpError(null);
+    try {
+      await api.post(
+        `/administracion/compras/imputaciones/${confirmarDesimp.id}/desimputar`,
+        { motivo }
+      );
+      setConfirmarDesimp(null);
+      setMotivoDesimp('');
+      // Refrescar todo el CC: detalle, agrupado y lista de imputaciones.
+      fetchDetalle();
+      fetchPorPedido();
+      fetchImputaciones();
+    } catch (err) {
+      setDesimpError(err.response?.data?.detail || 'Error al desimputar.');
+    } finally {
+      setDesimpLoading(false);
+    }
+  };
 
   return (
     <div className={styles.container}>
@@ -448,6 +482,11 @@ export default function TabCCProveedores() {
                     grupo={g}
                     imputaciones={imputacionesPorPedido[g.pedido_compra_id] || []}
                     onMovClick={(tipo, id) => setDetalleMov({ tipo, id })}
+                    onDesimputar={(imp) => {
+                      setConfirmarDesimp(imp);
+                      setMotivoDesimp('');
+                      setDesimpError(null);
+                    }}
                   />
                 ))
               )}
@@ -537,6 +576,70 @@ export default function TabCCProveedores() {
             if (reload) fetchDetalle();
           }}
         />
+      )}
+
+      {/* ── Confirmación desimputar (motivo obligatorio) ── */}
+      {confirmarDesimp && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                <Undo2 size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Desimputar imputación #{confirmarDesimp.id}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => {
+                  setConfirmarDesimp(null);
+                  setDesimpError(null);
+                }}
+                aria-label="Cerrar"
+                type="button"
+                disabled={desimpLoading}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {desimpError && <div className={styles.errorBanner}>{desimpError}</div>}
+            <p className={styles.modalHelp}>
+              Crea un <strong>reversal</strong> que cancela el efecto de esta imputación
+              (append-only — la imp original queda como auditoría). El saldo del pedido
+              se restaura.
+            </p>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Motivo *</label>
+              <textarea
+                className={styles.textarea}
+                value={motivoDesimp}
+                onChange={(e) => setMotivoDesimp(e.target.value)}
+                placeholder="Describí por qué se desimputa (mínimo 3 chars)..."
+                rows={3}
+                disabled={desimpLoading}
+              />
+            </div>
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => {
+                  setConfirmarDesimp(null);
+                  setDesimpError(null);
+                }}
+                disabled={desimpLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnDanger}
+                onClick={handleDesimputar}
+                disabled={desimpLoading}
+              >
+                {desimpLoading ? 'Desimputando…' : 'Desimputar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -680,7 +783,7 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
  * El body abre con la misma <LedgerTable /> que usa la vista cronológica
  * + una subsección con las imputaciones que apuntan a este pedido.
  */
-function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
+function GrupoPedidoCard({ grupo, imputaciones, onMovClick, onDesimputar }) {
   // Saldo del pedido en su moneda nativa (lo que falta pagar). Viene del
   // backend calculado como `pedido.monto - sum(imputaciones efectivas)`.
   // Si pedido es USD, este saldo es USD; el frontend lo convierte a ARS
@@ -784,6 +887,17 @@ function GrupoPedidoCard({ grupo, imputaciones, onMovClick }) {
                   <span className={styles.impInlineMonto}>
                     {formatMoneda(imp.monto_imputado, imp.moneda_imputada)}
                   </span>
+                  {onDesimputar && !imp.es_reversal && (
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => onDesimputar(imp)}
+                      aria-label="Desimputar"
+                      title="Desimputar (revertir esta imputación)"
+                    >
+                      <Undo2 size={12} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
