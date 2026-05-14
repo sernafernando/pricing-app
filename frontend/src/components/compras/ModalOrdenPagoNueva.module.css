@@ -366,6 +366,36 @@
   font-style: italic;
 }
 
+/* Error inline por campo (ej. TC requerido en cross-moneda). Reemplaza
+   .fieldHint cuando hay error — no se acumula. */
+.errorInline {
+  margin-top: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  font-weight: 500;
+}
+
+/* Marca visual del input con error (borde rojo). */
+.inputError {
+  border-color: var(--cf-accent-red);
+}
+
+.inputError:focus {
+  border-color: var(--cf-accent-red);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+/* Preview de conversión cross-moneda debajo del input de monto del item.
+   Texto chico, no protagonista. */
+.previewConversion {
+  margin-top: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight, 1.2);
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {

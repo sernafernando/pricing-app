@@ -148,28 +148,69 @@ export default function ModalOrdenPagoNueva({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Error inline específico del campo TC (Batch 5 — cross-moneda).
+  const [tcError, setTcError] = useState(null);
 
   // ── 409 duplicado flow ──
   const [duplicadoInfo, setDuplicadoInfo] = useState(null);
   const [submittingConfirm, setSubmittingConfirm] = useState(false);
 
   // ── Confirm cambio de moneda con items pre-cargados ──
-  // Cross-moneda OP↔pedido no soportada (D3): si user cambia moneda
-  // con items destino_pedido, debemos limpiarlos.
+  // Cross-moneda OP↔pedido ahora SÍ está soportada cuando hay TC > 0
+  // (Batch 3 backend + Batch 5 frontend). El confirm solo se dispara
+  // como advertencia cuando NO hay TC válido: en ese caso el cambio
+  // de moneda exigiría TC para imputar los items pre-cargados.
   const [confirmMoneda, setConfirmMoneda] = useState(null);
 
   const requiereItems =
     form.modo_imputacion === 'especifica' || form.modo_imputacion === 'mixta';
 
-  // Pedidos pendientes del proveedor actualmente seleccionado,
-  // filtrados por moneda del form (no mezclar ARS/USD en una OP).
+  // Lookup de pedido por id. Combina pendientesDelProveedor (lista del
+  // dropdown) + pedidoInicial (pre-cargado vía prop, puede no estar en
+  // la lista si la moneda del form ya difiere). Sin esto, cross-moneda
+  // no se detecta cuando el user cambia la moneda del form.
+  const pedidoDe = (id) => {
+    if (!id) return null;
+    const sid = String(id);
+    const found = pendientesDelProveedor.find((p) => String(p.id) === sid);
+    if (found) return found;
+    if (pedidoInicial && String(pedidoInicial.id) === sid) return pedidoInicial;
+    return null;
+  };
+
+  // Pedidos pendientes del proveedor actualmente seleccionado.
+  // NO se filtran por moneda del form: cross-moneda con TC es válido,
+  // así que el dropdown sigue mostrando todos los pedidos del proveedor.
   const pedidosDisponibles = pendientesDelProveedor.filter((p) => {
     if (form.proveedor_id && String(p.proveedor_id) !== String(form.proveedor_id)) {
       return false;
     }
-    if (form.moneda && p.moneda !== form.moneda) return false;
     return true;
   });
+
+  // Cross-moneda: hay al menos un item pedido_compra cuya moneda difiere
+  // de la OP. Driver de UI (campo TC condicional, preview por item).
+  const tieneCrossMoneda = items.some((it) => {
+    if (it.tipo !== 'pedido_compra' || !it.id) return false;
+    const pedido = pedidoDe(it.id);
+    return !!pedido && pedido.moneda !== form.moneda;
+  });
+
+  // Moneda "del otro lado" cuando hay cross-moneda (para el label dinámico).
+  // Si hay items en distintas monedas distintas a la OP, mostramos solo la
+  // primera — improbable en práctica porque el flujo típico es un set
+  // homogéneo de pedidos.
+  const otraMonedaCross = (() => {
+    for (const it of items) {
+      if (it.tipo !== 'pedido_compra' || !it.id) continue;
+      const pedido = pedidoDe(it.id);
+      if (pedido && pedido.moneda !== form.moneda) return pedido.moneda;
+    }
+    return null;
+  })();
+
+  const tcNumLive = parseFloat(form.tipo_cambio);
+  const tcValido = Number.isFinite(tcNumLive) && tcNumLive > 0;
 
   // IDs de pedidos ya agregados como items (para evitar duplicar al elegir del dropdown).
   const idsPedidosYaAgregados = new Set(
@@ -186,25 +227,23 @@ export default function ModalOrdenPagoNueva({
         setItems([]);
       }
       if (campo === 'moneda' && valor !== f.moneda) {
-        // Cross-moneda OP↔pedido NO está soportada en backend (D3). Si la
-        // OP viene pre-cargada de un pedido y el user cambia la moneda,
-        // mostramos modal de confirmación destructiva en lugar de aplicar
-        // el cambio inmediato (preserva el state si el user cancela).
-        const tienePedidos = items.some(
+        // Cross-moneda OP↔pedido ahora se soporta con TC > 0 (Batch 3 BE).
+        // Solo advertimos al user si TC NO es válido: el cambio de moneda
+        // dejaría items pedido_compra sin forma de imputarse.
+        const tcNum = parseFloat(f.tipo_cambio);
+        const tcOk = Number.isFinite(tcNum) && tcNum > 0;
+        const tieneItemsPedido = items.some(
           (it) => it.tipo === 'pedido_compra' && it.id
         );
-        if (tienePedidos) {
+        if (tieneItemsPedido && !tcOk) {
+          // Advertencia: el cambio queda en pausa hasta confirm.
           setConfirmMoneda({ from: f.moneda, to: valor });
-          // No aplicamos el cambio: el state queda como estaba hasta que
-          // el user confirme o cancele en el modal.
           return f;
         }
-        // Sin items destino_pedido: solo conversión del monto si hay TC.
-        // USD → ARS: monto_ars = monto_usd × tc
-        // ARS → USD: monto_usd = monto_ars / tc
-        const tcNum = parseFloat(f.tipo_cambio);
+        // OK: cross-moneda con TC válido OR sin items pedido_compra.
+        // Convertimos el monto si hay TC (mantiene UX previa).
         const montoNum = parseFloat(f.monto_total);
-        if (Number.isFinite(tcNum) && tcNum > 0 && Number.isFinite(montoNum) && montoNum > 0) {
+        if (tcOk && Number.isFinite(montoNum) && montoNum > 0) {
           const nuevoMonto =
             f.moneda === 'USD' && valor === 'ARS'
               ? montoNum * tcNum
@@ -213,21 +252,25 @@ export default function ModalOrdenPagoNueva({
                 : montoNum;
           next.monto_total = nuevoMonto.toFixed(2);
         }
+        // Cuando el user corrige la moneda, limpiamos cualquier error
+        // previo del TC para no quedar con feedback obsoleto.
+        setTcError(null);
+      }
+      // Cualquier edición del campo tipo_cambio limpia el error inline.
+      if (campo === 'tipo_cambio') {
+        setTcError(null);
       }
       return next;
     });
   };
 
-  // Confirma el cambio de moneda destructivo (limpia items pre-cargados).
+  // Aplica el cambio de moneda sin destruir items: el user verá los
+  // items en cross-moneda y deberá cargar TC > 0 para poder hacer submit.
+  // Es el flujo "entendí, voy a cargar TC". NO se limpian los items —
+  // backend valida TC en submit y la UI muestra preview por item.
   const handleConfirmMoneda = () => {
     if (!confirmMoneda) return;
-    setForm((f) => ({
-      ...f,
-      moneda: confirmMoneda.to,
-      monto_total: '',
-      modo_imputacion: 'a_cuenta',
-    }));
-    setItems([]);
+    setForm((f) => ({ ...f, moneda: confirmMoneda.to }));
     setConfirmMoneda(null);
   };
 
@@ -282,9 +325,10 @@ export default function ModalOrdenPagoNueva({
     return null;
   };
 
-  const tcNum = parseFloat(form.tipo_cambio);
-  const tcEnviable =
-    form.moneda === 'USD' && Number.isFinite(tcNum) && tcNum > 0 ? tcNum : null;
+  // TC requerido cuando OP es USD (UX histórica) o cuando hay cross-moneda
+  // (Batch 5 — backend valida y rechaza si llega null/<=0).
+  const requiereTc = form.moneda === 'USD' || tieneCrossMoneda;
+  const tcEnviable = requiereTc && tcValido ? tcNumLive : null;
 
   const buildPayload = (confirmarDuplicado = false) => ({
     empresa_id: Number(form.empresa_id),
@@ -319,6 +363,18 @@ export default function ModalOrdenPagoNueva({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Validación específica del TC (Batch 5): error inline en el campo,
+    // no banner global. Si falta TC y se requiere, abortamos antes de
+    // mandar al backend (que también valida con 400).
+    if (requiereTc && !tcValido) {
+      setTcError(
+        tieneCrossMoneda
+          ? 'TC requerido (> 0) para imputar items en otra moneda.'
+          : 'TC requerido (> 0) cuando la OP es USD.'
+      );
+      return;
+    }
+    setTcError(null);
     const v = validar();
     if (v) {
       setError(v);
@@ -501,24 +557,35 @@ export default function ModalOrdenPagoNueva({
             </div>
           </div>
 
-          {form.moneda === 'USD' && (
+          {(form.moneda === 'USD' || tieneCrossMoneda) && (
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>
-                Tipo de cambio (ARS por 1 USD)
+                {tieneCrossMoneda && otraMonedaCross
+                  ? `TC ${form.moneda} ↔ ${otraMonedaCross} *`
+                  : 'Tipo de cambio (ARS por 1 USD) *'}
               </label>
               <input
                 type="number"
                 step="0.0001"
                 min="0"
-                className={styles.input}
+                className={`${styles.input}${tcError ? ` ${styles.inputError}` : ''}`}
                 value={form.tipo_cambio}
                 onChange={(e) => handleChange('tipo_cambio', e.target.value)}
-                placeholder="Ej: 1500.00"
+                placeholder="Ej: 1500"
+                aria-invalid={tcError ? 'true' : 'false'}
+                aria-describedby={tcError ? 'tc-error' : undefined}
               />
-              <div className={styles.fieldHint}>
-                Si cambiás de moneda con TC válido, los montos se convierten
-                automáticamente.
-              </div>
+              {tcError ? (
+                <div id="tc-error" className={styles.errorInline} role="alert">
+                  {tcError}
+                </div>
+              ) : (
+                <div className={styles.fieldHint}>
+                  {tieneCrossMoneda
+                    ? `Necesario para imputar items en ${otraMonedaCross}. Backend rechaza sin TC > 0.`
+                    : 'Si cambiás de moneda con TC válido, los montos se convierten automáticamente.'}
+                </div>
+              )}
             </div>
           )}
 
@@ -655,6 +722,42 @@ export default function ModalOrdenPagoNueva({
                                 onChange={(e) => updateItem(idx, 'monto', e.target.value)}
                                 placeholder="0.00"
                               />
+                              {(() => {
+                                // Preview de conversión cross-moneda por item.
+                                // Solo si: el item es pedido_compra, su moneda
+                                // difiere de la OP, hay TC válido y monto > 0.
+                                if (it.tipo !== 'pedido_compra' || !it.id) return null;
+                                const pedidoItem = pedidoDe(it.id);
+                                if (!pedidoItem || pedidoItem.moneda === form.moneda) {
+                                  return null;
+                                }
+                                if (!tcValido) return null;
+                                const montoItem = parseFloat(it.monto);
+                                if (!Number.isFinite(montoItem) || montoItem <= 0) {
+                                  return null;
+                                }
+                                // OP ARS pagando pedido USD → monto_item / TC = USD destino.
+                                // OP USD pagando pedido ARS → monto_item * TC = ARS destino.
+                                const convertido =
+                                  form.moneda === 'ARS' && pedidoItem.moneda === 'USD'
+                                    ? montoItem / tcNumLive
+                                    : form.moneda === 'USD' && pedidoItem.moneda === 'ARS'
+                                      ? montoItem * tcNumLive
+                                      : null;
+                                if (convertido === null) return null;
+                                const op = formatCurrency(montoItem, form.moneda);
+                                const dest = formatCurrency(convertido, pedidoItem.moneda);
+                                // Símbolo de operación según dirección.
+                                const opSign =
+                                  form.moneda === 'ARS' && pedidoItem.moneda === 'USD'
+                                    ? '÷'
+                                    : '×';
+                                return (
+                                  <div className={styles.previewConversion}>
+                                    {op} {opSign} TC {tcNumLive} = {dest}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td>
                               <input
@@ -812,7 +915,7 @@ export default function ModalOrdenPagoNueva({
                     size={18}
                     style={{ verticalAlign: 'middle', marginRight: 6 }}
                   />
-                  Cambiar moneda invalida los items
+                  Cross-moneda requiere TC
                 </span>
                 <button
                   className={styles.modalCloseBtn}
@@ -826,9 +929,10 @@ export default function ModalOrdenPagoNueva({
 
               <p className={styles.dupMessage}>
                 Estás cambiando la moneda de <strong>{confirmMoneda.from}</strong>{' '}
-                a <strong>{confirmMoneda.to}</strong>. Cross-moneda OP↔pedido no
-                está soportado: si confirmás, los pedidos pre-cargados se quitan
-                de la OP y el modo se resetea a <strong>a_cuenta</strong>.
+                a <strong>{confirmMoneda.to}</strong>. Los items pre-cargados van
+                a quedar en moneda distinta a la OP: para poder imputarlos vas a
+                tener que cargar un <strong>TC &gt; 0</strong> en el campo "Tipo
+                de cambio" antes de guardar. Los items se mantienen.
               </p>
 
               <div className={styles.formActions}>
@@ -844,7 +948,7 @@ export default function ModalOrdenPagoNueva({
                   className={styles.btnWarning}
                   onClick={handleConfirmMoneda}
                 >
-                  Continuar (limpiar items)
+                  Continuar (voy a cargar TC)
                 </button>
               </div>
             </div>
