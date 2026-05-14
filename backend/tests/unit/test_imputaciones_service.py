@@ -466,6 +466,73 @@ class TestDesimputar:
             desimputar(db, imputacion_id=imp.id, user_id=user_id)
         assert exc.value.status_code == 400
 
+    def test_reversal_cross_moneda_genera_debe_en_moneda_destino(self, db, proveedor, user_id, empresa_fifo) -> None:
+        """
+        Reversal de una imputación cross-moneda (OP ARS → pedido USD con TC):
+        el reversal copia `moneda_imputada=USD` + `monto_imputado` USD +
+        `tipo_cambio` original. La proyección al CC genera un DEBE en USD
+        (compensando el HABER USD que generó la imp original).
+
+        Append-only sagrado: el reversal es un INSERT nuevo con `es_reversal=True`
+        y `reimputada_desde_id` apuntando a la original.
+        """
+        from app.services import cc_proveedor_service  # noqa: PLC0415
+        from app.models.cc_proveedor_movimiento import CCProveedorMovimiento  # noqa: PLC0415
+        from app.services.imputaciones_service import desimputar  # noqa: PLC0415
+
+        # Imp original cross-moneda: OP ARS paga pedido USD por 666.67 USD con TC=1500.
+        imp_original = crear_imputacion(
+            db,
+            origen_tipo="orden_pago",
+            origen_id=100,
+            destino_tipo="pedido_compra",
+            destino_id=200,
+            monto_imputado=Decimal("666.67"),
+            moneda_imputada="USD",
+            proveedor_id=proveedor.id,
+            creado_por_id=user_id,
+            tipo_cambio=Decimal("1500"),
+        )
+        cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp_original.id)
+
+        # Verificar HABER USD original en CC.
+        movs_original = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.origen_tipo == "imputacion",
+                CCProveedorMovimiento.origen_id == imp_original.id,
+            )
+            .all()
+        )
+        assert len(movs_original) == 1
+        assert movs_original[0].tipo == "haber"
+        assert movs_original[0].monto == Decimal("666.67")
+        assert movs_original[0].moneda == "USD"
+
+        # Desimputar — el reversal copia moneda, monto y TC originales.
+        reversal = desimputar(db, imputacion_id=imp_original.id, user_id=user_id, motivo="test cross")
+        assert reversal.es_reversal is True
+        assert reversal.reimputada_desde_id == imp_original.id
+        assert reversal.moneda_imputada == "USD"
+        assert reversal.monto_imputado == Decimal("666.67")
+        assert reversal.tipo_cambio == Decimal("1500")
+
+        # CC mov del reversal: DEBE en USD (compensación del HABER original).
+        # NOTE: cc_proveedor_service usa origen_tipo='reimputacion' (no 'imputacion')
+        # cuando la imp fuente es es_reversal=True.
+        movs_reversal = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.origen_tipo == "reimputacion",
+                CCProveedorMovimiento.origen_id == reversal.id,
+            )
+            .all()
+        )
+        assert len(movs_reversal) == 1
+        assert movs_reversal[0].tipo == "debe"
+        assert movs_reversal[0].monto == Decimal("666.67")
+        assert movs_reversal[0].moneda == "USD"
+
 
 class TestReimputar:
     def test_reimputar_crea_2_filas(self, db, proveedor, user_id, empresa_fifo) -> None:
