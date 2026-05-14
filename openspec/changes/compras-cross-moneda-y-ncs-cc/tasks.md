@@ -255,6 +255,35 @@
   - **Spec mapping**: FR-009.
   - **Estimación**: M
 
+### Batch 5 QA Checklist
+
+> Implementación verificada por code-walk. `npm run build` y `npx eslint`
+> sobre `ModalOrdenPagoNueva.jsx` pasan sin warnings nuevos. Browser QA
+> queda pendiente del próximo deploy en staging.
+
+- [ ] **(a) Pedido USD pre-cargado, cambiar OP a ARS → NO confirm destructivo.**
+  - Implementado en `frontend/src/components/compras/ModalOrdenPagoNueva.jsx`:
+    - Lógica `handleChange('moneda')` líneas 229-262: confirm solo dispara si `tieneItemsPedido && !tcOk`. Si hay TC válido, el cambio procede sin diálogo.
+    - El handler `handleConfirmMoneda` (líneas 268-275) ya NO limpia items ni resetea modo. Solo aplica el cambio de moneda; el user carga TC después.
+    - Texto del confirm (líneas 854-862) reescrito: "Cross-moneda requiere TC" + "Los items se mantienen".
+- [ ] **(b) Ingresar TC=1500 con items cross-moneda → preview se muestra por item.**
+  - Implementado en líneas 729-768: bloque IIFE dentro del `<td>` del input de monto. Verifica `tipo === 'pedido_compra'`, `pedido.moneda !== form.moneda`, `tcValido`, y `montoItem > 0`. Renderiza `<div className={styles.previewConversion}>` con el formato `{op} {÷|×} TC {tc} = {dest}` usando `formatCurrency` del propio componente.
+  - Dirección: OP ARS / pedido USD → `÷` (montoARS / TC = USD). OP USD / pedido ARS → `×` (montoUSD × TC = ARS).
+- [ ] **(c) Submit con TC=0 (o vacío) y cross-moneda → error inline en campo TC, sin POST.**
+  - Implementado en `handleSubmit` líneas 369-379: corta antes del `validar()` y setea `tcError`. Render del error inline en líneas 595-602 (`<div id="tc-error" className={styles.errorInline} role="alert">`). Input adopta `aria-invalid="true"` y borde rojo vía `styles.inputError`.
+  - El error se limpia en cualquier cambio del campo `tipo_cambio` (línea 261) o de moneda válida (línea 258).
+- [ ] **(d) Submit con TC=1500 y cross-moneda → POST con `tipo_cambio: 1500`.**
+  - Implementado: `tcEnviable` línea 334 ahora se calcula con `requiereTc = form.moneda === 'USD' || tieneCrossMoneda`. `buildPayload` (línea 339) y `buildEditPayload` (línea 355) mandan `tipo_cambio: tcEnviable` sin cambios.
+- [ ] **(e) Label dinámico del campo TC en cross-moneda.**
+  - Implementado en líneas 581-585: `"TC {form.moneda} ↔ {otraMonedaCross} *"` (ej. `"TC ARS ↔ USD *"`). Para OP USD sin cross-moneda mantiene `"Tipo de cambio (ARS por 1 USD) *"`.
+- [ ] **(f) Field hint cambia según contexto (no se acumula con error).**
+  - Implementado líneas 603-609: `errorInline` y `fieldHint` son mutuamente exclusivos (`{tcError ? <errorInline/> : <fieldHint/>}`).
+
+**Notas técnicas adicionales**:
+- Lookup `pedidoDe(id)` (líneas 172-179) combina `pendientesDelProveedor` + `pedidoInicial` como fallback. Sin esto, el pedido pre-cargado no aparecería en el detector cross-moneda si el user cambia la moneda del form.
+- Filtro `pedidosDisponibles` (líneas 184-189) ahora NO filtra por moneda del form: cross-moneda es válido con TC, así que el dropdown muestra todos los pedidos del proveedor.
+- CSS Module: `errorInline`, `inputError`, `previewConversion` agregados a `ModalOrdenPagoNueva.module.css` usando `var(--cf-accent-red)` y `var(--cf-text-tertiary)`. Sin hardcoded colors ni inline styles.
+
 ---
 
 ## Batch 6: Frontend — `TabCCProveedores` con NCs disponibles + acciones por pedido
