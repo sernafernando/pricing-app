@@ -604,24 +604,28 @@
   margin-top: 2px;
 }
 
-/* Resumen inline arriba (siempre visible, solo combos con prearmados ACTIVOS) */
+/* ─── Resumen inline (solo combos con prearmados activos) ─── */
+
 .statsResumen {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .statsResumenHeader {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-secondary);
 }
 
-.statsResumenTitulo {
-  font-size: 13px;
+.statsResumenEyebrow {
+  font-size: 11px;
   font-weight: var(--font-semibold, 600);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
 }
 
 .statsResumenSubtitulo {
@@ -629,68 +633,132 @@
   color: var(--text-secondary);
 }
 
+.statsResumenSubtitulo strong {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold, 600);
+}
+
 .statsResumenGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
 }
 
 .statsMiniCard {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--border-secondary);
-  border-radius: 8px;
-  background: var(--bg-secondary);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.statsMiniCard:hover {
+  border-color: var(--cf-accent-blue, var(--brand-primary));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.statsMiniCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border-secondary);
   min-width: 0;
 }
 
 .statsMiniCardCode {
   font-family: monospace;
   font-size: 12px;
-  font-weight: var(--font-medium, 500);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  letter-spacing: -0.01em;
 }
 
-.statsMiniCardTotal {
+.statsMiniCardBody {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  align-items: center;
+}
+
+.statsMiniCardTotalBox {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+
+.statsMiniCardTotalValue {
+  font-size: 32px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .statsMiniCardTotalLabel {
   font-size: 10px;
+  font-weight: var(--font-semibold, 600);
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: var(--font-medium, 500);
+  letter-spacing: 0.08em;
+  margin-top: 4px;
 }
 
-.statsMiniCardTotalValue {
-  font-size: 18px;
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-primary);
-  line-height: 1;
-}
-
-.statsMiniCardEstados {
+.statsMiniBreakdown {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
-.statsMiniEstado {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-secondary);
+.statsDotRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.statsDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statsDotPendiente {
+  background: var(--text-secondary);
+  opacity: 0.45;
+}
+
+.statsDotEnProceso {
+  background: var(--cf-accent-blue, var(--brand-primary));
+}
+
+.statsDotArmado {
+  background: #d97706;
+}
+
+.statsDotCount {
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-primary);
+  min-width: 14px;
+}
+
+.statsDotLabel {
+  color: var(--text-secondary);
 }
 
 .notasActions {

@@ -345,39 +345,60 @@ export default function Prearmado() {
       </div>
 
       {totalActivos > 0 && (
-        <div className={styles.statsResumen}>
-          <div className={styles.statsResumenHeader}>
-            <span className={styles.statsResumenTitulo}>Activos</span>
+        <section className={styles.statsResumen}>
+          <header className={styles.statsResumenHeader}>
+            <span className={styles.statsResumenEyebrow}>En curso</span>
             <span className={styles.statsResumenSubtitulo}>
               {statsActivas.length} combo{statsActivas.length === 1 ? '' : 's'} ·{' '}
-              {totalActivos} prearmado{totalActivos === 1 ? '' : 's'}
+              <strong>{totalActivos}</strong> prearmado{totalActivos === 1 ? '' : 's'}
             </span>
-          </div>
+          </header>
           <div className={styles.statsResumenGrid}>
             {statsActivas.map((s) => (
-              <div key={s.combo_item_id} className={styles.statsMiniCard}>
-                <span className={styles.statsMiniCardCode} title={s.combo_item_desc || ''}>
-                  {s.combo_item_code}
-                </span>
-                <div className={styles.statsMiniCardTotal}>
-                  <span className={styles.statsMiniCardTotalLabel}>Total</span>
-                  <span className={styles.statsMiniCardTotalValue}>{s.total}</span>
-                </div>
-                <div className={styles.statsMiniCardEstados}>
-                  {s.pendiente > 0 && (
-                    <span className={styles.statsMiniEstado}>Pendiente {s.pendiente}</span>
-                  )}
-                  {s.en_proceso > 0 && (
-                    <span className={styles.statsMiniEstado}>En proceso {s.en_proceso}</span>
-                  )}
-                  {s.armado > 0 && (
-                    <span className={styles.statsMiniEstado}>Armado {s.armado}</span>
+              <article key={s.combo_item_id} className={styles.statsMiniCard}>
+                <div className={styles.statsMiniCardHead}>
+                  <span className={styles.statsMiniCardCode} title={s.combo_item_desc || ''}>
+                    {s.combo_item_code}
+                  </span>
+                  {s.incluye_windows && (
+                    <span className={styles.windowsBadge}>
+                      {WINDOWS_LABEL[s.incluye_windows]}
+                    </span>
                   )}
                 </div>
-              </div>
+                <div className={styles.statsMiniCardBody}>
+                  <div className={styles.statsMiniCardTotalBox}>
+                    <span className={styles.statsMiniCardTotalValue}>{s.total}</span>
+                    <span className={styles.statsMiniCardTotalLabel}>Total</span>
+                  </div>
+                  <div className={styles.statsMiniBreakdown}>
+                    {s.pendiente > 0 && (
+                      <div className={styles.statsDotRow}>
+                        <span className={`${styles.statsDot} ${styles.statsDotPendiente}`} />
+                        <span className={styles.statsDotCount}>{s.pendiente}</span>
+                        <span className={styles.statsDotLabel}>Pendiente</span>
+                      </div>
+                    )}
+                    {s.en_proceso > 0 && (
+                      <div className={styles.statsDotRow}>
+                        <span className={`${styles.statsDot} ${styles.statsDotEnProceso}`} />
+                        <span className={styles.statsDotCount}>{s.en_proceso}</span>
+                        <span className={styles.statsDotLabel}>En proceso</span>
+                      </div>
+                    )}
+                    {s.armado > 0 && (
+                      <div className={styles.statsDotRow}>
+                        <span className={`${styles.statsDot} ${styles.statsDotArmado}`} />
+                        <span className={styles.statsDotCount}>{s.armado}</span>
+                        <span className={styles.statsDotLabel}>Armado</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {statusMsg && (
