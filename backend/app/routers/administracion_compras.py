@@ -1158,6 +1158,8 @@ def crear_orden_pago(
             observaciones=data.observaciones,
             creado_por_id=user.id,
             confirmar_duplicado=data.confirmar_duplicado,
+            tipo_cambio=data.tipo_cambio,
+            fecha_pago_estimada=data.fecha_pago_estimada,
         )
     except HTTPException:
         db.rollback()
