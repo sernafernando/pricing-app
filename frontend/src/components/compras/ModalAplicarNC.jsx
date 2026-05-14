@@ -34,18 +34,24 @@ const formatDate = (isoStr) => {
  *   - saldo general del proveedor (crédito a cuenta).
  *
  * Props:
- *   nc       — NC local aprobada o aplicada_parcial (debe tener `saldo_pendiente`).
- *   onClose  — (reload) => void; true → el detalle debe refrescarse.
+ *   nc               — NC local aprobada o aplicada_parcial (debe tener `saldo_pendiente`).
+ *   onClose          — (reload) => void; true → el detalle debe refrescarse.
+ *   pedidoDestinoId  — (Batch 6 — T6.6) si viene, pre-carga el destino con ese
+ *                       pedido y bloquea el selector (read-only). Se usa cuando
+ *                       el modal se abre desde TabCCProveedores → GrupoPedidoCard.
+ *                       null = comportamiento original (user elige destino).
  *
  * REGLA AGENTS.md: cierra solo con X o Cancelar.
  */
-export default function ModalAplicarNC({ nc, onClose }) {
+export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) {
   const { aplicar } = useNCsLocales();
 
   const saldoNC = Number(nc?.saldo_pendiente ?? nc?.monto) || 0;
 
   const [destinoTipo, setDestinoTipo] = useState('pedido_compra');
-  const [pedidoId, setPedidoId] = useState('');
+  const [pedidoId, setPedidoId] = useState(
+    pedidoDestinoId ? String(pedidoDestinoId) : ''
+  );
   const [facturaId, setFacturaId] = useState('');
   const [monto, setMonto] = useState(String(saldoNC));
   const [pedidos, setPedidos] = useState([]);
@@ -54,6 +60,17 @@ export default function ModalAplicarNC({ nc, onClose }) {
   const [loadingFacturas, setLoadingFacturas] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Batch 6 — T6.6: si el modal se abre desde un pedido específico, el
+  // destino queda fijado a ese pedido y el selector se renderiza disabled.
+  // El effect cubre el caso (poco probable) de que `pedidoDestinoId` cambie
+  // mientras el modal está montado.
+  useEffect(() => {
+    if (pedidoDestinoId) {
+      setDestinoTipo('pedido_compra');
+      setPedidoId(String(pedidoDestinoId));
+    }
+  }, [pedidoDestinoId]);
 
   const pedidoSeleccionado = useMemo(
     () => pedidos.find((p) => String(p.id) === String(pedidoId)) || null,
@@ -242,6 +259,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 name="destino_tipo"
                 value="pedido_compra"
                 checked={destinoTipo === 'pedido_compra'}
+                disabled={pedidoDestinoId != null}
                 onChange={(e) => {
                   setDestinoTipo(e.target.value);
                   setFacturaId('');
@@ -255,6 +273,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 name="destino_tipo"
                 value="factura_erp"
                 checked={destinoTipo === 'factura_erp'}
+                disabled={pedidoDestinoId != null}
                 onChange={(e) => {
                   setDestinoTipo(e.target.value);
                   setPedidoId('');
@@ -268,6 +287,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
                 name="destino_tipo"
                 value="saldo"
                 checked={destinoTipo === 'saldo'}
+                disabled={pedidoDestinoId != null}
                 onChange={(e) => {
                   setDestinoTipo(e.target.value);
                   setPedidoId('');
@@ -281,7 +301,12 @@ export default function ModalAplicarNC({ nc, onClose }) {
 
         {destinoTipo === 'pedido_compra' && (
           <div className={styles.formGroup}>
-            <label className={styles.formLabel}>Pedido destino *</label>
+            <label className={styles.formLabel}>
+              Pedido destino *
+              {pedidoDestinoId != null && (
+                <span className={styles.labelHint}> (pre-cargado)</span>
+              )}
+            </label>
             {loadingPedidos ? (
               <div className={styles.centered}>
                 <Loader2 size={14} className={styles.spin} /> Cargando pedidos...
@@ -294,6 +319,7 @@ export default function ModalAplicarNC({ nc, onClose }) {
               <select
                 className={styles.select}
                 value={pedidoId}
+                disabled={pedidoDestinoId != null}
                 onChange={(e) => setPedidoId(e.target.value)}
               >
                 <option value="">Seleccionar...</option>

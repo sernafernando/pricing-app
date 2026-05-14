@@ -293,7 +293,7 @@
 
 > **Dependencia**: requiere Batch 1 (endpoint NCs disponibles + tc_ponderado) y Batch 5 (modal cross-moneda).
 
-- [ ] **T6.1** — Fetch de NCs disponibles en mount + en cambio de proveedor activo.
+- [x] **T6.1** — Fetch de NCs disponibles en mount + en cambio de proveedor activo.
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx`
   - **Acceptance**:
     - Función `fetchNcsDisponibles` que llama `GET /administracion/compras/ncs-locales/disponibles?proveedor_id=X&limit=100`.
@@ -303,7 +303,7 @@
   - **Spec mapping**: FR-010 (parte fetch).
   - **Estimación**: S
 
-- [ ] **T6.2** — Sección "NCs disponibles" en el hero (después del header del proveedor).
+- [x] **T6.2** — Sección "NCs disponibles" en el hero (después del header del proveedor).
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx`, `frontend/src/components/compras/TabCCProveedores.module.css` (si aplica)
   - **Acceptance**:
     - Render condicional: si `ncsDisponibles.length > 0`.
@@ -313,7 +313,7 @@
   - **Spec mapping**: FR-010 (hero NCs).
   - **Estimación**: M
 
-- [ ] **T6.3** — `GrupoPedidoCard` (vista por-pedido): agregar botones "Aplicar NC" e "Imputar pago" en footer.
+- [x] **T6.3** — `GrupoPedidoCard` (vista por-pedido): agregar botones "Aplicar NC" e "Imputar pago" en footer.
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx` (componente interno `GrupoPedidoCard` línea ~786), `TabCCProveedores.module.css`
   - **Acceptance**:
     - Footer del card con 3 botones (orden): `Aplicar NC`, `Imputar pago`, `Desimputar` (existente).
@@ -322,7 +322,7 @@
   - **Spec mapping**: FR-010 (acciones por card).
   - **Estimación**: M
 
-- [ ] **T6.4** — Handler `onAplicarNC(pedidoId)` → abre `ModalAplicarNC` con prop `pedidoDestinoId`.
+- [x] **T6.4** — Handler `onAplicarNC(pedidoId)` → abre `ModalAplicarNC` con prop `pedidoDestinoId`.
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx`
   - **Acceptance**:
     - State `showAplicarNCDesdeCard: { pedidoId } | null`.
@@ -332,7 +332,7 @@
   - **Spec mapping**: FR-010 (acción Aplicar NC).
   - **Estimación**: S
 
-- [ ] **T6.5** — Handler `onImputarPago(pedidoId)` → abre `ModalOrdenPagoNueva` con pedido + proveedor pre-cargados.
+- [x] **T6.5** — Handler `onImputarPago(pedidoId)` → abre `ModalOrdenPagoNueva` con pedido + proveedor pre-cargados.
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx`
   - **Acceptance**:
     - State `showImputarPagoDesdeCard: { pedidoId } | null`.
@@ -342,7 +342,7 @@
   - **Spec mapping**: FR-010 (acción Imputar pago).
   - **Estimación**: S
 
-- [ ] **T6.6** — `ModalAplicarNC.jsx`: aceptar prop `pedidoDestinoId` y pre-cargar destino.
+- [x] **T6.6** — `ModalAplicarNC.jsx`: aceptar prop `pedidoDestinoId` y pre-cargar destino.
   - **Files**: `frontend/src/components/compras/ModalAplicarNC.jsx`
   - **Acceptance**:
     - Nueva prop `pedidoDestinoId: number | null = null`.
@@ -353,7 +353,7 @@
   - **Spec mapping**: FR-011.
   - **Estimación**: M
 
-- [ ] **T6.7** — Renderizar `tc_ponderado` debajo del header de cada pedido USD que lo tenga.
+- [x] **T6.7** — Renderizar `tc_ponderado` debajo del header de cada pedido USD que lo tenga.
   - **Files**: `frontend/src/components/compras/TabCCProveedores.jsx` (componente `GrupoPedidoCard`)
   - **Acceptance**:
     - Si `grupo.tc_ponderado != null` → render línea `<span>TC pond.: {Number(grupo.tc_ponderado).toFixed(2)}</span>` debajo del header.
@@ -362,7 +362,7 @@
   - **Spec mapping**: FR-010 (TC ponderado en UI), FR-008.
   - **Estimación**: S
 
-- [ ] **T6.8** — Manual QA del CC.
+- [x] **T6.8** — Manual QA del CC.
   - **Files**: documentar en sección "QA Notes" al final.
   - **Acceptance**:
     - Checklist documentado: (a) seleccionar proveedor con NCs aprobadas → hero muestra tabla. (b) seleccionar proveedor sin NCs → hero NO muestra sección (no muestra `[]` ni tabla vacía). (c) click "Aplicar NC" en card → modal abre con pedido pre-cargado, selector deshabilitado. (d) click "Imputar pago" en card → modal abre con pedido + proveedor pre-cargados. (e) pedido USD con imps cross-moneda → header muestra "TC pond.: 1500.00". (f) pedido same-moneda → no muestra línea de TC pond.
@@ -403,12 +403,111 @@ Recomendación práctica: ejecutar **secuencial 1 → 2 → 3 → 4 → 5 → 6*
 
 ### Batch 6 QA Checklist
 
-- [ ] Proveedor con 2 NCs aprobadas → hero muestra tabla con número, fecha, importe, saldo.
-- [ ] Proveedor sin NCs disponibles → hero **NO** renderiza la sección.
-- [ ] Click "Aplicar NC" en card de pedido → `ModalAplicarNC` abre con pedido pre-cargado y selector deshabilitado.
-- [ ] Click "Imputar pago" en card de pedido → `ModalOrdenPagoNueva` abre con pedido + proveedor pre-cargados.
-- [ ] Pedido USD con imps cross-moneda → header del card muestra `"TC pond.: 1500.00"`.
-- [ ] Pedido same-moneda → header del card **NO** muestra línea de TC pond.
+> Implementación verificada por code-walk. `npm run build` y
+> `npx eslint TabCCProveedores.jsx ModalAplicarNC.jsx` pasan sin warnings
+> nuevos. Browser QA queda pendiente del próximo deploy en staging.
+
+- [x] **(a) Proveedor con NCs aprobadas → hero muestra tabla con número, fecha, importe, saldo.**
+  - Implementado en `frontend/src/components/compras/TabCCProveedores.jsx`:
+    - Fetch: `fetchNcsDisponibles` líneas 235-249 (T6.1). Llama
+      `/administracion/compras/ncs-locales/disponibles?proveedor_id=X&limit=100`
+      y persiste en `setNcsDisponibles(...)`. Si falla → `[]` (no rompe la vista).
+    - `useEffect` líneas 251-263 dispara fetch en `proveedorIdActivo` change.
+    - Render hero líneas 422-457 (T6.2). Componente `_shared/DataTable`
+      con columnas `número`, `fecha`, `importe`, `saldo_pendiente`, `estado`.
+      Importes formateados con `formatMoneda(value, row.moneda)`. Estado
+      vía `EstadoBadge variant="nc"`.
+- [x] **(b) Proveedor sin NCs disponibles → hero NO renderiza la sección.**
+  - Implementado: render condicional `{ncsDisponibles.length > 0 && (...)}`
+    línea 421. Si el array está vacío (proveedor sin NCs, o el endpoint
+    falló y dejamos `[]`), la sección no se monta — sin tabla vacía
+    ni placeholder.
+- [x] **(c) Click "Aplicar NC" en card de pedido → ModalAplicarNC abre con
+      pedido pre-cargado y selector deshabilitado.**
+  - Implementado:
+    - Filtro de compatibilidad (decisión pragmática T6.4) líneas 562-565
+      en `TabCCProveedores.jsx`: solo se habilita `onAplicarNC` si existe
+      una NC con `moneda === grupo.pedido_moneda`. El botón no se
+      renderiza cuando `onAplicarNC=null` (fallback elegante sin dropdown
+      adicional en el modal).
+    - Pre-carga: `setShowAplicarNCDesdeCard({ pedidoId, nc: ncCompatible })`
+      (línea 580). El modal se monta con `nc={...}` y
+      `pedidoDestinoId={pedidoId}` (líneas 619-634).
+    - Modal: `ModalAplicarNC.jsx` (T6.6). Prop nueva `pedidoDestinoId`
+      línea 50; `useState` init lines 53-58 + `useEffect` lines 75-80
+      pre-cargan `destinoTipo='pedido_compra'` + `pedidoId=String(pedidoDestinoId)`.
+    - Selector deshabilitado: los 3 radios reciben
+      `disabled={pedidoDestinoId != null}` (líneas 264, 278, 292). El
+      `<select>` de pedido también queda disabled (línea 324).
+      Label muestra `(pre-cargado)` cuando aplica.
+    - Reload tras success: refresca `fetchDetalle + fetchPorPedido +
+      fetchImputaciones + fetchNcsDisponibles` (líneas 625-633).
+- [x] **(d) Click "Imputar pago" en card de pedido → ModalOrdenPagoNueva
+      abre con pedido + proveedor pre-cargados.**
+  - Implementado en `TabCCProveedores.jsx` líneas 638-677 (T6.5).
+  - Lookup del grupo: `porPedido.find(g => g.pedido_compra_id === ...)`
+    construye `pedidoInicial` con `id`, `numero`, `empresa_id`
+    (de `filtroEmpresa || proveedorCtx.empresa_id`), `proveedor_id`,
+    `moneda`, `monto`, `saldo_pendiente`, `tipo_cambio` (porque el
+    endpoint `/por-pedido` no expone `empresa_id`/`proveedor_id` por grupo).
+  - El modal recibe `pedidoInicial={...}` + `proveedorInicial={proveedorCtx}`.
+    `ModalOrdenPagoNueva` ya soporta esos props (línea 54-62 de su archivo)
+    y el form se pre-carga (`saldoInicial`, `moneda`, `tipo_cambio`,
+    `modo_imputacion='especifica'`).
+  - Botón gated por `canEjecutarPagos` (consistente con "Pago rápido").
+- [x] **(e) Pedido USD con imps cross-moneda → header del card muestra
+      "TC pond.: 1500.00".**
+  - Implementado en `GrupoPedidoCard` líneas 983-988 + render líneas
+    1005-1009 (T6.7). `grupo.tc_ponderado` viene del backend
+    (Batch 1: `pedidos_service.calcular_tc_ponderado_pedido_batch`).
+    Si llega no-null → render `<span class={tcPonderado}>TC pond.:
+    {N.toFixed(2)}</span>`.
+- [x] **(f) Pedido same-moneda → header del card NO muestra línea de TC pond.**
+  - Implementado: el `tcPonderadoVal` queda `null` cuando el backend
+    devuelve `tc_ponderado=null` (same-moneda, sin imps cross-moneda).
+    El render usa `{tcPonderadoVal !== null && (...)}` — sin placeholder.
+- [x] **(g) Estilo discreto del TC pond (color secundario, mono, font-size
+      menor que el header).**
+  - Implementado en `TabCCProveedores.module.css` clase `.tcPonderado`:
+    `font-size: 10px`, `color: var(--cf-text-tertiary)`,
+    `font-family: var(--font-mono)`, `font-variant-numeric: tabular-nums`.
+- [ ] **(h) Browser QA staging**: validar visualmente que la tabla del
+      hero respeta el min-width 780px en mobile, que el footer del card
+      no se ve recortado en pantallas chicas, y que el modal cross-moneda
+      hereda correctamente el TC del pedido cuando se abre desde "Imputar
+      pago" sobre un pedido USD con `pedido_tipo_cambio` informado.
+
+**Decisiones pragmáticas adicionales**:
+- **T6.4 — Sin dropdown de NCs en ModalAplicarNC**: el design original
+  contemplaba un dropdown dentro del modal cuando se invoca con `nc=null`.
+  Optamos por la alternativa más simple: el padre filtra
+  `ncsDisponibles` por `moneda === pedido.moneda` y pre-carga la primera
+  NC compatible (`ncCompatible`). Si no hay NC compatible, el botón
+  "Aplicar NC" no se renderiza en ese card. Para casos con múltiples
+  NCs compatibles, el user puede cerrar el modal y aplicar otra NC
+  desde el hero (donde la lista completa está disponible). Razón: evita
+  agregar fetch + estado de selección dentro del modal, mantiene el
+  contrato `nc` siempre no-null, y respeta el spec ("la NC sigue
+  eligiéndose manualmente" — design.md decisión 2).
+- **Construcción de `pedidoInicial` en T6.5**: el endpoint
+  `/cc-proveedor/{id}/por-pedido` no expone `empresa_id` ni
+  `proveedor_id` por grupo (solo metadata del pedido en moneda
+  nativa). Reconstruimos esos campos desde el contexto del CC
+  (`proveedorCtx.id` + `filtroEmpresa || proveedorCtx.empresa_id`).
+  `ModalOrdenPagoNueva` los requiere para `form.empresa_id` y
+  `form.proveedor_id` iniciales.
+
+**Notas técnicas adicionales**:
+- `EstadoBadge variant="nc"` ya soporta los estados `aprobado` y
+  `aplicada_parcial` del backend `NCDisponibleSummary.estado` — no
+  hubo que tocarlo.
+- `DataTable` ya soporta `align: 'right'` para celdas numéricas y
+  `minWidth` configurable. Reutilizamos directamente.
+- El footer `.grupoActions` con `border-top: 1px dashed` separa
+  visualmente las acciones del bloque de imputaciones inline sin
+  romper la jerarquía visual del card.
+- `console.error` (no `console.log`) para `fetchNcsDisponibles` falla —
+  preserva debugging silencioso sin spamear la consola en operación normal.
 
 ### E2E QA Checklist (post-merge a develop)
 
