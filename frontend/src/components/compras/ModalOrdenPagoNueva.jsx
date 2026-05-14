@@ -429,6 +429,12 @@ export default function ModalOrdenPagoNueva({
                 value={form.empresa_id}
                 onChange={(e) => handleChange('empresa_id', e.target.value)}
                 required
+                disabled={!!pedidoInicial || isEditMode}
+                title={
+                  pedidoInicial
+                    ? 'Empresa heredada del pedido (no editable para evitar inconsistencias)'
+                    : undefined
+                }
               >
                 <option value="">Seleccionar...</option>
                 {empresas.map((emp) => (
@@ -437,6 +443,11 @@ export default function ModalOrdenPagoNueva({
                   </option>
                 ))}
               </select>
+              {pedidoInicial && (
+                <div className={styles.fieldHint}>
+                  Heredada del pedido {pedidoInicial.numero}
+                </div>
+              )}
             </div>
 
             <div className={styles.formGroup}>
