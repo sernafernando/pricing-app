@@ -27,7 +27,7 @@ Referencias:
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
@@ -755,6 +755,133 @@ def calcular_saldo_pendiente_pedido(session: Session, pedido_id: int) -> Decimal
 
     imputado_efectivo = Decimal(imputado_no_reversal) - Decimal(imputado_reversal)
     return Decimal(pedido.monto) - imputado_efectivo
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# TC ponderado por pedido (cross-moneda, FR-005 / FR-008)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def calcular_tc_ponderado_pedido(session: Session, pedido_id: int) -> Optional[Decimal]:
+    """
+    TC ponderado por aporte de imputaciones cross-moneda sobre un pedido.
+
+    Fórmula:
+        tc_pond = SUM(imp.tipo_cambio * imp.monto_imputado)
+                  / SUM(imp.monto_imputado)
+        WHERE imp.destino_tipo = 'pedido_compra'
+          AND imp.destino_id = pedido.id
+          AND imp.moneda_imputada = pedido.moneda
+          AND imp.tipo_cambio IS NOT NULL
+          AND imp.es_reversal = FALSE
+
+    Interpretación: numerador = total en moneda OP origen aportado, denominador
+    = total en moneda destino imputado. Cociente = unidades de moneda origen
+    por unidad de moneda destino, ponderado por aporte.
+
+    Reversals excluidos (append-only: imp original sigue contando si la
+    reversal aún no fue compensada por una nueva imp). El TC ponderado
+    describe el costo histórico declarado de las imps activas; los reversals
+    se descuentan correctamente en `calcular_saldos_pendientes_batch`.
+
+    Args:
+        session: tx activa.
+        pedido_id: id del pedido.
+
+    Returns:
+        Decimal cuantizado a 4 decimales (ROUND_HALF_UP) o None si no hay
+        imps cross-moneda (denominador = 0).
+
+    Raises:
+        HTTPException 404: si el pedido no existe.
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    row = session.execute(
+        select(
+            sa_func.coalesce(
+                sa_func.sum(Imputacion.tipo_cambio * Imputacion.monto_imputado),
+                0,
+            ).label("numerador"),
+            sa_func.coalesce(sa_func.sum(Imputacion.monto_imputado), 0).label("denominador"),
+        ).where(
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido.id,
+            Imputacion.moneda_imputada == pedido.moneda,
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(False),
+        )
+    ).one()
+    numerador = Decimal(row.numerador or 0)
+    denominador = Decimal(row.denominador or 0)
+    if denominador == 0:
+        return None
+    return (numerador / denominador).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def calcular_tc_ponderado_pedido_batch(
+    session: Session,
+    pedido_ids: list[int],
+) -> dict[int, Optional[Decimal]]:
+    """
+    TC ponderado batch para múltiples pedidos en una sola query (NFR-001).
+
+    Mismo cálculo que `calcular_tc_ponderado_pedido` pero agregado por
+    `destino_id`. JOIN con `pedidos_compra` para filtrar
+    `moneda_imputada == pedido.moneda` por cada pedido (cada uno puede
+    tener una moneda distinta).
+
+    Pedido ausente del result → None en el dict (no tiene imps cross-moneda,
+    o todas las imps fueron same-moneda / con TC NULL).
+
+    Args:
+        session: tx activa.
+        pedido_ids: lista de ids de pedidos. Si está vacía, devuelve {}.
+
+    Returns:
+        dict {pedido_id: Decimal | None}. Todos los `pedido_ids` están
+        presentes en el dict (los ausentes del result = None).
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+
+    if not pedido_ids:
+        return {}
+
+    rows = session.execute(
+        select(
+            Imputacion.destino_id,
+            sa_func.sum(Imputacion.tipo_cambio * Imputacion.monto_imputado).label("num"),
+            sa_func.sum(Imputacion.monto_imputado).label("den"),
+        )
+        .join(PedidoCompra, PedidoCompra.id == Imputacion.destino_id)
+        .where(
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id.in_(pedido_ids),
+            Imputacion.moneda_imputada == PedidoCompra.moneda,
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(False),
+        )
+        .group_by(Imputacion.destino_id)
+    ).all()
+
+    result: dict[int, Optional[Decimal]] = {pid: None for pid in pedido_ids}
+    for pid, num, den in rows:
+        if den is None:
+            continue
+        den_dec = Decimal(den)
+        if den_dec == 0:
+            continue
+        num_dec = Decimal(num or 0)
+        result[int(pid)] = (num_dec / den_dec).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return result
 
 
 def aplicar_imputacion_a_pedido(

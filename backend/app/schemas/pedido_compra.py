@@ -99,6 +99,12 @@ class PedidoCompraResponse(PedidoCompraBase):
     # en los listados genéricos queda None para evitar N+1.
     saldo_pendiente: Decimal | None = None
 
+    # TC ponderado por aporte de imputaciones cross-moneda al pedido (FR-005,
+    # FR-008). Cuantizado a 4 decimales. None si el pedido no tiene imps
+    # cross-moneda (todas same-moneda, sin TC, o sin imps). Calculado server-
+    # side vía `pedidos_service.calcular_tc_ponderado_pedido(_batch)`.
+    tipo_cambio_ponderado: Decimal | None = None
+
     # Flag de hard-delete calculado en batch por el router (opción C).
     # True si el pedido está en borrador/cancelado, NO fue aprobado nunca,
     # NO tiene imputaciones y — si está cancelado — el updated_at superó
