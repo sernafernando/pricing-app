@@ -90,14 +90,16 @@ export default function Prearmado() {
 
   // Fetch separado para las stats: sin filtros, solo activos (pendiente/en_proceso/armado).
   // Cuando un prearmado pasa a consumido o anulado, deja de contar.
+  // NOTE: el endpoint topa en limit=1000. Si hay más, conviene endpoint de stats agregadas.
   const cargarStats = useCallback(async () => {
     try {
-      const resp = await api.get('/prearmado', { params: { limit: 2000 } });
+      const resp = await api.get('/prearmado', { params: { limit: 1000 } });
       const activos = (resp.data || []).filter(
         (p) => p.estado === 'pendiente' || p.estado === 'en_proceso' || p.estado === 'armado',
       );
       setPrearmadosActivos(activos);
-    } catch {
+    } catch (err) {
+      console.error('Error cargando stats de prearmados', err);
       setPrearmadosActivos([]);
     }
   }, []);
