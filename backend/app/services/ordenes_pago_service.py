@@ -28,7 +28,7 @@ Referencias:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
@@ -200,24 +200,33 @@ def _validar_items_whitelist(items: list[dict]) -> None:
                 )
 
 
-def _validar_items_misma_moneda_que_op(session: Session, *, items: list[dict], op_moneda: str) -> None:
+def _validar_items_cross_moneda_con_tc(
+    session: Session,
+    *,
+    items: list[dict],
+    op_moneda: str,
+    op_tipo_cambio: Optional[Decimal],
+) -> None:
     """
-    Valida que cada item con `destino_tipo='pedido_compra'` apunte a un
-    pedido cuya `moneda` coincida con la `op_moneda`.
+    Valida la coherencia OP↔pedido considerando cross-moneda.
 
-    Cross-moneda OP↔pedido NO está soportada en v1 (design D3): sin TC en
-    la imputación, el saldo del pedido se rompe contablemente. Si el user
-    quiere pagar un pedido USD desde una OP, la OP debe ser USD también
-    (la conversión a ARS se hace al imputar contra una caja ARS con TC).
+    Política (compras-cross-moneda-y-ncs-cc, FR-004):
+      - Item con `destino_tipo == 'pedido_compra'` y `pedido.moneda == op_moneda`:
+        same-moneda → OK (no requiere TC).
+      - Item con `destino_tipo == 'pedido_compra'` y `pedido.moneda != op_moneda`:
+        cross-moneda → REQUIERE `op_tipo_cambio > 0`. Si falta o es <= 0, lanza
+        HTTPException 400 con mensaje detallado (índice del item, moneda OP, id
+        y moneda del pedido).
+      - Items con `destino_tipo != 'pedido_compra'` (factura_erp, saldo, etc):
+        no se valida cross-moneda — el destino vive en la moneda de la OP.
 
-    Bug histórico: hasta este fix, `crear` permitía OP_ARS con item destino
-    pedido_USD → al ejecutar_pago se grababa imputación con
-    moneda_imputada=ARS, tipo_cambio=NULL, destino_id=pedido_USD. La
-    imputación NO descontaba del saldo USD del pedido (filtrado por
-    moneda) → pedido quedaba colgado en pagado_parcial con saldo entero.
+    Reemplaza al viejo `_validar_items_misma_moneda_que_op` (que rechazaba
+    cross-moneda incondicionalmente). El motivo: con `tipo_cambio` declarado
+    en la OP, la imputación se persiste en moneda destino con TC trazable y
+    el saldo del pedido cuadra contablemente (design §4.3 + §10 Decision 1).
 
     Raises:
-        HTTPException 400 si encuentra inconsistencia.
+        HTTPException 400: cross-moneda OP↔pedido sin TC válido (> 0).
     """
     for idx, item in enumerate(items):
         if item.get("tipo") != "pedido_compra":
@@ -228,14 +237,16 @@ def _validar_items_misma_moneda_que_op(session: Session, *, items: list[dict], o
         pedido = session.get(PedidoCompra, pedido_id)
         if pedido is None:
             continue  # ya rechaza otra validación más adelante
-        if pedido.moneda != op_moneda:
+        if pedido.moneda == op_moneda:
+            continue
+        # Cross-moneda detectada → exige TC > 0 en la OP.
+        if op_tipo_cambio is None or Decimal(op_tipo_cambio) <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"item[{idx}]: la OP es en {op_moneda} pero el pedido "
-                    f"#{pedido_id} ({pedido.numero}) es en {pedido.moneda}. "
-                    f"Cross-moneda OP↔pedido no soportado. Creá la OP en "
-                    f"{pedido.moneda} para pagar este pedido."
+                    f"item[{idx}] (pedido #{pedido_id} {pedido.numero}, moneda {pedido.moneda}) "
+                    f"cross-moneda con OP ({op_moneda}) requiere tipo_cambio > 0 en la OP. "
+                    f"Recibido: {op_tipo_cambio}."
                 ),
             )
 
@@ -370,6 +381,8 @@ def crear(
     observaciones: Optional[str] = None,
     creado_por_id: int,
     confirmar_duplicado: bool = False,
+    tipo_cambio: Optional[Decimal] = None,
+    fecha_pago_estimada: Optional[date] = None,
 ) -> OrdenPago:
     """
     Crea una OP en estado `pendiente` con validaciones completas.
@@ -412,7 +425,12 @@ def crear(
     items_norm = list(items or [])
     _validar_items_por_modo(modo_imputacion, items_norm, monto_total)
     _validar_items_whitelist(items_norm)
-    _validar_items_misma_moneda_que_op(session, items=items_norm, op_moneda=moneda)
+    _validar_items_cross_moneda_con_tc(
+        session,
+        items=items_norm,
+        op_moneda=moneda,
+        op_tipo_cambio=tipo_cambio,
+    )
 
     # Detección de duplicados: extraer numeros_factura de items con
     # destino_tipo='factura_erp' o del propio item si trae numero_factura.
@@ -463,6 +481,8 @@ def crear(
         modo_imputacion=modo_imputacion,
         estado="pendiente",
         observaciones=observaciones,
+        tipo_cambio=Decimal(tipo_cambio) if tipo_cambio is not None else None,
+        fecha_pago_estimada=fecha_pago_estimada,
         creado_por_id=creado_por_id,
     )
     session.add(op)
@@ -576,9 +596,26 @@ def ejecutar_pago(
     5. `caja_service.crear_documento(tipo='Orden de Pago', entidad='orden_pago', ...)`.
     6. Por cada item de la OP → `imputaciones_service.crear_imputacion`
        + `cc_proveedor_service.aplicar_imputacion`.
-    7. Si `modo='mixta'` y sobra remanente → imputación (orden_pago, saldo).
-       Si `modo='a_cuenta'` → toda la OP a saldo (o via `distribuir_fifo`
-       si el caller prefiere — v1 delega según política del caller).
+
+       Cross-moneda OP↔pedido (compras-cross-moneda-y-ncs-cc, FR-002/003):
+       cuando `item.tipo == 'pedido_compra'` y `pedido.moneda != op.moneda`,
+       el `monto` del item (en moneda OP origen) se convierte a moneda
+       DESTINO (la del pedido) usando `op.tipo_cambio` y se persiste así:
+         - `moneda_imputada = pedido.moneda` (moneda destino).
+         - `tipo_cambio    = op.tipo_cambio` (TC declarado en la OP).
+         - `monto_imputado`:
+             - OP ARS → pedido USD:  USD = ARS_item / TC.
+             - OP USD → pedido ARS:  ARS = USD_item * TC.
+           En ambos casos cuantizado a 2 decimales con ROUND_HALF_UP
+           (límite de la columna `Numeric(18, 2)`).
+       Esto permite que `cc_proveedor_service.aplicar_imputacion` proyecte
+       el HABER del CC en moneda destino sin tocar nada (design §4.6).
+       Items NO `pedido_compra` (saldo / factura_erp) mantienen la moneda
+       de la OP origen.
+
+    7. Si `modo='mixta'` y sobra remanente → imputación (orden_pago, saldo)
+       en moneda OP origen. Si `modo='a_cuenta'` → toda la OP a saldo en
+       moneda OP origen.
     8. Set `op.caja_movimiento_id`, `caja_documento_id`, `estado='pagado'`,
        `fecha_pago_real`, `paid_at`, `pagado_por_id`. Si hubo
        `tipo_cambio_override`, se persiste en `op.tipo_cambio`.
@@ -719,10 +756,15 @@ def ejecutar_pago(
     # Paso 6 + 7: crear imputaciones según modo + items
     items = _leer_items_de_op(session, op.id)
     # Defensa en profundidad: validar cross-moneda antes de imputar.
-    # Si una OP llegó hasta acá con items destino_pedido en moneda
-    # distinta a op.moneda (legacy o por bug), abortar antes de grabar
-    # imputación inválida que rompe el saldo del pedido.
-    _validar_items_misma_moneda_que_op(session, items=items, op_moneda=str(op.moneda))
+    # Con compras-cross-moneda-y-ncs-cc (FR-004), una OP cross-moneda DEBE
+    # tener `tipo_cambio` > 0; en caso contrario abortar antes de grabar
+    # imputaciones inválidas que rompen el saldo del pedido.
+    _validar_items_cross_moneda_con_tc(
+        session,
+        items=items,
+        op_moneda=str(op.moneda),
+        op_tipo_cambio=op.tipo_cambio,
+    )
     imputaciones_creadas: list[Imputacion] = []
     pedidos_afectados: set[int] = set()
     sum_items = Decimal("0")
@@ -730,22 +772,71 @@ def ejecutar_pago(
     # Import acá para evitar ciclo con pedidos_service
     from app.services import cc_proveedor_service  # noqa: PLC0415
 
+    # Cuantización por moneda destino de la imputación.
+    # Columna `imputaciones.monto_imputado` es Numeric(18, 2) → la BD trunca
+    # a 2 decimales tanto en USD como en ARS. Cuantizamos en aplicación con
+    # ROUND_HALF_UP para tener control explícito (sin depender del HALF_EVEN
+    # default de Decimal o del redondeo implícito del cast a Numeric).
+    # Política contable explícita del SDD: ROUND_HALF_UP.
+    QUANT_USD = Decimal("0.01")
+    QUANT_ARS = Decimal("0.01")
+
     for item in items:
-        monto_item = Decimal(str(item["monto"]))
+        monto_item_origen = Decimal(str(item["monto"]))  # monto en moneda OP
+        pedido_destino: Optional[PedidoCompra] = None
+        if item.get("tipo") == "pedido_compra" and item.get("id"):
+            pedido_destino = session.get(PedidoCompra, int(item["id"]))
+
+        if pedido_destino is not None and pedido_destino.moneda != op.moneda:
+            # Cross-moneda OP↔pedido: convertir el monto a moneda destino y
+            # grabar la imputación con `moneda_imputada = pedido.moneda` y
+            # `tipo_cambio = op.tipo_cambio`. Garantía: TC > 0 por
+            # `_validar_items_cross_moneda_con_tc` (defensa en profundidad).
+            tc_op = Decimal(op.tipo_cambio) if op.tipo_cambio is not None else None
+            if tc_op is None or tc_op <= 0:
+                # Defensa final — no debería llegar acá si la validación pasó.
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(
+                        f"Cross-moneda OP {op.numero} → pedido #{pedido_destino.id} "
+                        f"sin tipo_cambio válido (inconsistencia interna)."
+                    ),
+                )
+            if op.moneda == "ARS" and pedido_destino.moneda == "USD":
+                # OP ARS paga pedido USD: USD_imp = ARS_item / TC.
+                monto_imp = (monto_item_origen / tc_op).quantize(QUANT_USD, rounding=ROUND_HALF_UP)
+            elif op.moneda == "USD" and pedido_destino.moneda == "ARS":
+                # OP USD paga pedido ARS: ARS_imp = USD_item * TC.
+                monto_imp = (monto_item_origen * tc_op).quantize(QUANT_ARS, rounding=ROUND_HALF_UP)
+            else:
+                # Combinación de monedas no soportada (whitelist ARS/USD).
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(f"Combinación de monedas no soportada: OP={op.moneda} pedido={pedido_destino.moneda}."),
+                )
+            moneda_imp: str = str(pedido_destino.moneda)
+            tc_imp: Optional[Decimal] = tc_op
+        else:
+            # Same-moneda (o destino != pedido_compra): sin conversión.
+            monto_imp = monto_item_origen
+            moneda_imp = str(op.moneda)
+            tc_imp = None
+
         imp = imputaciones_service.crear_imputacion(
             session,
             origen_tipo="orden_pago",
             origen_id=op.id,
             destino_tipo=item["tipo"],
             destino_id=item.get("id"),
-            monto_imputado=monto_item,
-            moneda_imputada=op.moneda,  # type: ignore[arg-type]
+            monto_imputado=monto_imp,
+            moneda_imputada=moneda_imp,  # type: ignore[arg-type]
+            tipo_cambio=tc_imp,
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
         )
         cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp.id)
         imputaciones_creadas.append(imp)
-        sum_items += monto_item
+        sum_items += monto_item_origen
         if item["tipo"] == "pedido_compra" and item.get("id"):
             pedidos_afectados.add(int(item["id"]))
 
@@ -901,14 +992,11 @@ def editar(
             detail=f"monto_total debe ser > 0 (recibido: {monto_total}).",
         )
 
-    # Validar TC contra moneda final (si viene moneda o TC, revalidar combo).
-    # Regla: moneda USD puede tener TC; moneda ARS NO debe tener TC.
+    # TC final resuelto (con override): se usa para validar cross-moneda con items.
+    # Con cross-moneda OP↔pedido (compras-cross-moneda-y-ncs-cc), tanto OP USD
+    # como OP ARS pueden tener `tipo_cambio` > 0 cuando hay items que apuntan a
+    # pedidos en moneda distinta. Ya no se rechaza ARS↔TC.
     tc_final: Optional[Decimal] = tipo_cambio if tipo_cambio is not None else op.tipo_cambio
-    if nueva_moneda == "ARS" and tc_final is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="tipo_cambio debe ser null cuando moneda=ARS.",
-        )
 
     # Si se envían items → revalidar combo (modo + whitelist + suma + cross-moneda).
     items_norm: Optional[list[dict]] = None
@@ -916,7 +1004,12 @@ def editar(
         items_norm = list(items or [])
         _validar_items_por_modo(nuevo_modo, items_norm, nuevo_monto)
         _validar_items_whitelist(items_norm)
-        _validar_items_misma_moneda_que_op(session, items=items_norm, op_moneda=nueva_moneda)
+        _validar_items_cross_moneda_con_tc(
+            session,
+            items=items_norm,
+            op_moneda=nueva_moneda,
+            op_tipo_cambio=tc_final,
+        )
     else:
         # Si cambió monto, modo o moneda pero NO vienen items, revalidar con los
         # items existentes para no dejar la OP inconsistente.
@@ -924,7 +1017,12 @@ def editar(
             items_actuales = _leer_items_de_op(session, op.id)
             _validar_items_por_modo(nuevo_modo, items_actuales, nuevo_monto)
             if moneda is not None:
-                _validar_items_misma_moneda_que_op(session, items=items_actuales, op_moneda=nueva_moneda)
+                _validar_items_cross_moneda_con_tc(
+                    session,
+                    items=items_actuales,
+                    op_moneda=nueva_moneda,
+                    op_tipo_cambio=tc_final,
+                )
 
     # Aplicar cambios en la OP
     if monto_total is not None and Decimal(op.monto_total) != Decimal(monto_total):
