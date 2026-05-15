@@ -65,7 +65,17 @@ _VALID_TRANSITIONS: dict[str, Set[str]] = {
 
 
 def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> ValidateSerialResponse:
-    """Lógica de validación reutilizable (endpoint + POST /seriales)."""
+    """Lógica de validación reutilizable (endpoint + POST /seriales + PATCH).
+
+    Orden de checks (corta al primer fallo):
+    1. SerialNotFound — no existe en tb_item_serials
+    2. ItemMismatch — el is_serial existe pero pertenece a otro item_id
+    3. AlreadyInSaleOrder — ya está asignado a un sales order pendiente (vendido)
+    4. AlreadyInvoiced — ya está en una factura emitida (ct_soh_id IS NOT NULL)
+
+    Los casos 3 y 4 son flags de "ya fue vendido en otro pedido" — el armador no
+    debería usarlo, pero se permite `force=true` para guardar igual con `validado=false`.
+    """
     if not serial or not serial.strip():
         return ValidateSerialResponse(valid=False, motivo="SerialNotFound")
 
@@ -87,6 +97,50 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
             item_id_real=ts.item_id,
             item_code_real=item_code_real,
             item_desc_real=item_desc_real,
+        )
+
+    # ¿Ya está asignado a un sales order pendiente (no facturado todavía)?
+    sos_row = db.execute(
+        text("SELECT soh_id FROM tb_sale_order_serials WHERE is_id = :is_id LIMIT 1"),
+        {"is_id": ts.is_id},
+    ).first()
+    if sos_row:
+        return ValidateSerialResponse(
+            valid=False,
+            motivo="AlreadyInSaleOrder",
+            is_id=ts.is_id,
+            item_id_real=ts.item_id,
+            item_code_real=item_code_real,
+            item_desc_real=item_desc_real,
+            usado_en_soh_id=sos_row.soh_id,
+        )
+
+    # ¿Ya está en una factura emitida (transacción comercial con ct_soh_id)?
+    fact_row = db.execute(
+        text(
+            """
+            SELECT ct.ct_transaction, ct.ct_soh_id
+            FROM tb_item_transaction_serials its
+            INNER JOIN tb_commercial_transactions ct
+                ON ct.ct_transaction = its.ct_transaction
+            WHERE its.is_id = :is_id
+              AND ct.ct_soh_id IS NOT NULL
+            ORDER BY ct.ct_transaction DESC
+            LIMIT 1
+            """
+        ),
+        {"is_id": ts.is_id},
+    ).first()
+    if fact_row:
+        return ValidateSerialResponse(
+            valid=False,
+            motivo="AlreadyInvoiced",
+            is_id=ts.is_id,
+            item_id_real=ts.item_id,
+            item_code_real=item_code_real,
+            item_desc_real=item_desc_real,
+            usado_en_factura=fact_row.ct_transaction,
+            usado_en_factura_soh_id=fact_row.ct_soh_id,
         )
 
     return ValidateSerialResponse(
