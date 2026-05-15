@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, Check, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from './SearchInput';
@@ -21,6 +21,21 @@ export default function PrearmadoForm({ onClose, onSaved }) {
   const [notas, setNotas] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  // Refs a cada input de serial (key → DOM node) para focus/select on scan
+  const serialInputRefs = useRef({});
+
+  // Orden de keys de inputs serializables — para saber a cuál saltar al validar OK
+  const serialInputKeys = useMemo(() => {
+    const keys = [];
+    componentes.forEach((c) => {
+      if (!c.requiere_serie) return;
+      for (let i = 0; i < (c.cantidad_esperada || 1); i++) {
+        keys.push(`${c.item_id}_${i}`);
+      }
+    });
+    return keys;
+  }, [componentes]);
 
   useEffect(() => {
     if (!searchTerm || searchTerm.length < 2 || combo) {
@@ -62,7 +77,7 @@ export default function PrearmadoForm({ onClose, onSaved }) {
   const validarSerial = useCallback(async (key, serial, itemId) => {
     if (!serial || !serial.trim()) {
       setValidaciones((v) => ({ ...v, [key]: null }));
-      return;
+      return null;
     }
     try {
       const resp = await api.post('/prearmado/validar-serial', {
@@ -70,13 +85,38 @@ export default function PrearmadoForm({ onClose, onSaved }) {
         item_id_esperado: itemId,
       });
       setValidaciones((v) => ({ ...v, [key]: resp.data }));
+      return resp.data;
     } catch {
-      setValidaciones((v) => ({
-        ...v,
-        [key]: { valid: false, motivo: 'NetworkError' },
-      }));
+      const err = { valid: false, motivo: 'NetworkError' };
+      setValidaciones((v) => ({ ...v, [key]: err }));
+      return err;
     }
   }, []);
+
+  // Enter de la pistola: si validó OK, salta al siguiente input.
+  // Si falló (rojo), selecciona todo el texto para que el próximo pistoletazo lo sobrescriba.
+  const onSerialKeyDown = useCallback(
+    async (e, key, itemId) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const serial = e.currentTarget.value;
+      const result = await validarSerial(key, serial, itemId);
+      if (result?.valid) {
+        const idx = serialInputKeys.indexOf(key);
+        const nextKey = serialInputKeys[idx + 1];
+        const nextEl = nextKey ? serialInputRefs.current[nextKey] : null;
+        if (nextEl) {
+          nextEl.focus();
+          nextEl.select();
+        } else {
+          e.currentTarget.blur();
+        }
+      } else {
+        e.currentTarget.select();
+      }
+    },
+    [validarSerial, serialInputKeys],
+  );
 
   const setSerialInput = (key, value) => {
     setSerialInputs((s) => ({ ...s, [key]: { ...(s[key] || {}), serial: value } }));
@@ -242,12 +282,17 @@ export default function PrearmadoForm({ onClose, onSaved }) {
                             <div className={styles.serialInputWrap}>
                               <div className={styles.serialInputRow}>
                                 <input
+                                  ref={(el) => {
+                                    if (el) serialInputRefs.current[key] = el;
+                                    else delete serialInputRefs.current[key];
+                                  }}
                                   type="text"
                                   className={styles.componenteSerialInput}
                                   placeholder="N° de serie"
                                   value={input?.serial || ''}
                                   onChange={(e) => setSerialInput(key, e.target.value)}
                                   onBlur={(e) => validarSerial(key, e.target.value, c.item_id)}
+                                  onKeyDown={(e) => onSerialKeyDown(e, key, c.item_id)}
                                 />
                                 {validation?.valid && (
                                   <Check size={16} className={styles.validacionOk} aria-label="Válido" />
