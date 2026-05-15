@@ -272,7 +272,11 @@ export default function PrearmadoForm({ onClose, onSaved }) {
                                     ? 'serial no encontrado en ERP'
                                     : validation.motivo === 'ItemMismatch'
                                       ? `pertenece a item ${validation.item_code_real || validation.item_id_real}`
-                                      : 'inválido'}
+                                      : validation.motivo === 'AlreadyInSaleOrder'
+                                        ? `ya asignado al pedido SOH ${validation.usado_en_soh_id}`
+                                        : validation.motivo === 'AlreadyInvoiced'
+                                          ? `ya facturado (pedido SOH ${validation.usado_en_factura_soh_id})`
+                                          : 'inválido'}
                                   )
                                 </label>
                               )}
