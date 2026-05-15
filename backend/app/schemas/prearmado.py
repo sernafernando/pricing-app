@@ -9,12 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 Estado = Literal["pendiente", "en_proceso", "armado", "consumido", "anulado"]
 Origen = Literal["bom", "sufijo"]
 IncluyeWindows = Literal["home", "pro"]
-ValidationMotivo = Literal[
-    "SerialNotFound",
-    "ItemMismatch",
-    "AlreadyInSaleOrder",
-    "AlreadyInvoiced",
-]
+ValidationMotivo = Literal["SerialNotFound", "ItemMismatch"]
 
 
 # --- Búsqueda de combos en el catálogo (no en cache de pedidos) ---
@@ -70,11 +65,7 @@ class ValidateSerialRequest(BaseModel):
 
 
 class ValidateSerialResponse(BaseModel):
-    """Resultado de validación contra el ERP.
-
-    `valid=true` solo si el serial existe, matchea el item esperado, y NO tiene
-    movimiento de venta previo (ni en sale order pendiente, ni en factura).
-    """
+    """Resultado de validación: existe en tb_item_serials y matchea con el item esperado."""
 
     valid: bool
     motivo: Optional[ValidationMotivo] = None
@@ -82,10 +73,6 @@ class ValidateSerialResponse(BaseModel):
     item_id_real: Optional[int] = None
     item_code_real: Optional[str] = None
     item_desc_real: Optional[str] = None
-    # Info de uso previo cuando motivo == AlreadyInSaleOrder o AlreadyInvoiced
-    usado_en_soh_id: Optional[int] = None
-    usado_en_factura: Optional[int] = None
-    usado_en_factura_soh_id: Optional[int] = None
 
 
 # --- Crear y editar prearmado ---

@@ -845,11 +845,7 @@ export default function Prearmado() {
                                         ? 'no existe en ERP'
                                         : editValidacion.motivo === 'ItemMismatch'
                                           ? `otro item: ${editValidacion.item_code_real || editValidacion.item_id_real}`
-                                          : editValidacion.motivo === 'AlreadyInSaleOrder'
-                                            ? `ya en pedido SOH ${editValidacion.usado_en_soh_id}`
-                                            : editValidacion.motivo === 'AlreadyInvoiced'
-                                              ? `ya facturado en SOH ${editValidacion.usado_en_factura_soh_id}`
-                                              : 'inválido'}
+                                          : 'inválido'}
                                       )
                                     </label>
                                   )}
