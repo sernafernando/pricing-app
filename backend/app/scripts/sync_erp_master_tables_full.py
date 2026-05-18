@@ -402,29 +402,27 @@ async def sync_item_taxes_full(db: Session):
 
         item_ids_recibidos = {to_int(row.get("item_id")) for row in data if to_int(row.get("item_id"))}
 
-        # Borrar en lotes para no armar un IN gigante
+        # Delete + insert van en UNA sola transacción: si algo se rompe a mitad,
+        # el rollback restaura las filas viejas y no queda la tabla en estado parcial.
         delete_batch = 500
         item_ids_list = list(item_ids_recibidos)
         for i in range(0, len(item_ids_list), delete_batch):
             batch_ids = item_ids_list[i : i + delete_batch]
             db.query(TBItemTaxes).filter(TBItemTaxes.item_id.in_(batch_ids)).delete(synchronize_session=False)
+
+        nuevos = [
+            TBItemTaxes(
+                comp_id=to_int(row.get("comp_id")),
+                item_id=to_int(row.get("item_id")),
+                tax_id=to_int(row.get("tax_id")),
+                tax_class=to_int(row.get("tax_class")),
+            )
+            for row in data
+        ]
+        db.bulk_save_objects(nuevos)
         db.commit()
 
-        insertados = 0
-        for i, row in enumerate(data):
-            comp_id = to_int(row.get("comp_id"))
-            item_id = to_int(row.get("item_id"))
-            tax_id = to_int(row.get("tax_id"))
-            tax_class = to_int(row.get("tax_class"))
-
-            db.add(TBItemTaxes(comp_id=comp_id, item_id=item_id, tax_id=tax_id, tax_class=tax_class))
-            insertados += 1
-
-            if (i + 1) % 500 == 0:
-                db.commit()
-                print(f"{i + 1}...", end=" ", flush=True)
-
-        db.commit()
+        insertados = len(nuevos)
         print(f"✓ ({insertados} insertados, {len(item_ids_recibidos)} items reemplazados)")
         return {"insertados": insertados, "items_reemplazados": len(item_ids_recibidos)}
 
