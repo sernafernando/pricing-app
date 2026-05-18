@@ -223,7 +223,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/config-operaciones" element={
-              <ProtectedRoute permiso="ordenes.ver_preparacion">
+              <ProtectedRoute permiso="envios_flex.config">
                 <ConfigOperaciones />
               </ProtectedRoute>
             } />
