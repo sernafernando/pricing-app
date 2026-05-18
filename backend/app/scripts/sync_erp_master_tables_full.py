@@ -373,7 +373,13 @@ async def sync_items_full(db: Session):
 
 async def sync_item_taxes_full(db: Session):
     """
-    Sincronizar TODOS los impuestos por item
+    Sincronizar TODOS los impuestos por item.
+
+    Estrategia REPLACE: borra las filas locales de los item_ids que vinieron
+    del ERP y reinserta todo lo recibido. Esto refleja cambios de tax_id
+    (el sync viejo solo insertaba, dejando filas huérfanas que rompían el
+    IVA del producto en la query local). Si el ERP devuelve vacío, NO se
+    borra nada (safeguard ante fallos transitorios).
     """
     print("  📦 Impuestos por item (TODOS)...", end=" ", flush=True)
 
@@ -386,46 +392,41 @@ async def sync_item_taxes_full(db: Session):
 
         if not isinstance(data, list) or len(data) == 0:
             print("✓ (sin datos)")
-            return {"nuevos": 0, "actualizados": 0}
+            return {"insertados": 0, "items_reemplazados": 0}
 
         if len(data) == 1 and "Column1" in data[0]:
             print("⚠️ (sin datos disponibles)")
-            return {"nuevos": 0, "actualizados": 0}
+            return {"insertados": 0, "items_reemplazados": 0}
 
         print(f"recibidos {len(data)} registros...", end=" ", flush=True)
 
-        nuevos = 0
-        actualizados = 0
+        item_ids_recibidos = {to_int(row.get("item_id")) for row in data if to_int(row.get("item_id"))}
 
+        # Borrar en lotes para no armar un IN gigante
+        delete_batch = 500
+        item_ids_list = list(item_ids_recibidos)
+        for i in range(0, len(item_ids_list), delete_batch):
+            batch_ids = item_ids_list[i : i + delete_batch]
+            db.query(TBItemTaxes).filter(TBItemTaxes.item_id.in_(batch_ids)).delete(synchronize_session=False)
+        db.commit()
+
+        insertados = 0
         for i, row in enumerate(data):
             comp_id = to_int(row.get("comp_id"))
             item_id = to_int(row.get("item_id"))
             tax_id = to_int(row.get("tax_id"))
             tax_class = to_int(row.get("tax_class"))
 
-            existente = (
-                db.query(TBItemTaxes)
-                .filter(TBItemTaxes.comp_id == comp_id, TBItemTaxes.item_id == item_id, TBItemTaxes.tax_id == tax_id)
-                .first()
-            )
+            db.add(TBItemTaxes(comp_id=comp_id, item_id=item_id, tax_id=tax_id, tax_class=tax_class))
+            insertados += 1
 
-            if existente:
-                if existente.tax_class != tax_class:
-                    existente.tax_class = tax_class
-                    actualizados += 1
-            else:
-                nuevo = TBItemTaxes(comp_id=comp_id, item_id=item_id, tax_id=tax_id, tax_class=tax_class)
-                db.add(nuevo)
-                nuevos += 1
-
-            # Commit cada 500 registros
             if (i + 1) % 500 == 0:
                 db.commit()
                 print(f"{i + 1}...", end=" ", flush=True)
 
         db.commit()
-        print(f"✓ ({nuevos} nuevos, {actualizados} actualizados)")
-        return {"nuevos": nuevos, "actualizados": actualizados}
+        print(f"✓ ({insertados} insertados, {len(item_ids_recibidos)} items reemplazados)")
+        return {"insertados": insertados, "items_reemplazados": len(item_ids_recibidos)}
 
     except Exception as e:
         print(f"❌ Error: {str(e)}")
@@ -433,7 +434,7 @@ async def sync_item_taxes_full(db: Session):
         import traceback
 
         traceback.print_exc()
-        return {"nuevos": 0, "actualizados": 0, "error": str(e)}
+        return {"insertados": 0, "items_reemplazados": 0, "error": str(e)}
 
 
 async def main_async():
