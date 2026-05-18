@@ -2402,7 +2402,19 @@ export default function TabEnviosFlex({ operador = null }) {
       ) : error ? (
         <div className={styles.error}>{error}</div>
       ) : vistaActiva === 'mapa' ? (
-        <MapaEnviosFlex envios={etiquetas} onGeolocalizar={geocodificarSeleccionados} geocodificando={bulkActualizando} />
+        <MapaEnviosFlex
+          envios={etiquetas}
+          onGeolocalizar={geocodificarSeleccionados}
+          geocodificando={bulkActualizando}
+          logisticasActivas={logisticasActivas}
+          transportesActivos={transportesActivos}
+          onCambiarLogistica={cambiarLogistica}
+          onCambiarTransporte={cambiarTransporte}
+          onCambiarFecha={cambiarFecha}
+          puedeAsignarLogistica={puedeAsignarLogistica}
+          puedeCambiarFecha={puedeCambiarFecha}
+          actualizando={actualizando}
+        />
       ) : vistaActiva === 'calendario' ? (
         <CalendarioEnvios
           onDiaClick={(dateStr) => {

@@ -152,8 +152,20 @@ const PopupItems = ({ shippingId }) => {
 };
 
 // ── Marker individual con popup que carga items on-demand ──────
-const EnvioMarker = ({ envio, color }) => {
+const EnvioMarker = ({
+  envio,
+  color,
+  logisticasActivas = [],
+  transportesActivos = [],
+  onCambiarLogistica,
+  onCambiarTransporte,
+  onCambiarFecha,
+  puedeAsignarLogistica = false,
+  puedeCambiarFecha = false,
+  actualizando,
+}) => {
   const [popupAbierto, setPopupAbierto] = useState(false);
+  const enActualizacion = actualizando?.has?.(envio.shipping_id) ?? false;
 
   return (
     <Marker
@@ -175,10 +187,6 @@ const EnvioMarker = ({ envio, color }) => {
           <p><strong>Dirección:</strong> {envio.direccion_completa || [envio.mlstreet_name, envio.mlstreet_number].filter(Boolean).join(' ') || 'Sin dirección'}</p>
           <p><strong>CP:</strong> {envio.mlzip_code}</p>
           <p><strong>Cordón:</strong> {envio.cordon || 'Sin asignar'}</p>
-          <p><strong>Logística:</strong> {envio.logistica_nombre || 'Sin asignar'}</p>
-          {envio.transporte_nombre && (
-            <p><strong>Transporte:</strong> {envio.transporte_nombre}</p>
-          )}
           <p>
             <strong>Estado ML:</strong>{' '}
             {ML_STATUS_LABELS[envio.mlstatus] || envio.mlstatus}
@@ -186,6 +194,54 @@ const EnvioMarker = ({ envio, color }) => {
           {envio.pistoleado_at && (
             <p><strong>Pistoleado:</strong> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}</p>
           )}
+
+          <div className={styles.popupActions}>
+            <label className={styles.popupActionRow}>
+              <span className={styles.popupActionLabel}>Logística:</span>
+              <select
+                value={envio.logistica_id || ''}
+                onChange={(ev) => onCambiarLogistica?.(envio.shipping_id, ev.target.value)}
+                disabled={!puedeAsignarLogistica || enActualizacion || !onCambiarLogistica}
+                className={styles.popupActionSelect}
+              >
+                <option value="">— Sin asignar —</option>
+                {logisticasActivas.map((l) => (
+                  <option key={l.id} value={l.id}>{l.nombre}</option>
+                ))}
+              </select>
+            </label>
+
+            {envio.es_manual ? (
+              <label className={styles.popupActionRow}>
+                <span className={styles.popupActionLabel}>Transporte:</span>
+                <select
+                  value={envio.transporte_id || ''}
+                  onChange={(ev) => onCambiarTransporte?.(envio.shipping_id, ev.target.value)}
+                  disabled={!puedeAsignarLogistica || enActualizacion || !onCambiarTransporte}
+                  className={styles.popupActionSelect}
+                >
+                  <option value="">— Sin transporte —</option>
+                  {transportesActivos.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                  ))}
+                </select>
+              </label>
+            ) : envio.transporte_nombre ? (
+              <p><strong>Transporte:</strong> {envio.transporte_nombre}</p>
+            ) : null}
+
+            <label className={styles.popupActionRow}>
+              <span className={styles.popupActionLabel}>Fecha:</span>
+              <input
+                type="date"
+                value={envio.fecha_envio || ''}
+                onChange={(ev) => onCambiarFecha?.(envio.shipping_id, ev.target.value)}
+                disabled={!puedeCambiarFecha || enActualizacion || !onCambiarFecha}
+                className={styles.popupActionInput}
+              />
+            </label>
+          </div>
+
           {popupAbierto && <PopupItems shippingId={envio.shipping_id} />}
         </div>
       </Popup>
@@ -194,7 +250,19 @@ const EnvioMarker = ({ envio, color }) => {
 };
 
 // ── Main Component ──────────────────────────────────────────────
-export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodificando = false }) {
+export default function MapaEnviosFlex({
+  envios = [],
+  onGeolocalizar,
+  geocodificando = false,
+  logisticasActivas = [],
+  transportesActivos = [],
+  onCambiarLogistica,
+  onCambiarTransporte,
+  onCambiarFecha,
+  puedeAsignarLogistica = false,
+  puedeCambiarFecha = false,
+  actualizando,
+}) {
   const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
   const [fitBoundsKey, setFitBoundsKey] = useState(0);
 
@@ -284,6 +352,14 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
             key={envio.shipping_id}
             envio={envio}
             color={getColor(envio)}
+            logisticasActivas={logisticasActivas}
+            transportesActivos={transportesActivos}
+            onCambiarLogistica={onCambiarLogistica}
+            onCambiarTransporte={onCambiarTransporte}
+            onCambiarFecha={onCambiarFecha}
+            puedeAsignarLogistica={puedeAsignarLogistica}
+            puedeCambiarFecha={puedeCambiarFecha}
+            actualizando={actualizando}
           />
         ))}
       </MapContainer>

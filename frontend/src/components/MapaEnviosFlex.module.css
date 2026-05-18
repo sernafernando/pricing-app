@@ -248,6 +248,59 @@
   font-weight: var(--font-medium);
 }
 
+/* ── Acciones editables dentro del popup ───────────────────── */
+
+.popupActions {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popupActionRow {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-sm);
+}
+
+.popupActionLabel {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.popupActionSelect,
+.popupActionInput {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  line-height: 1.3;
+}
+
+.popupActionSelect:focus,
+.popupActionInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.popupActionSelect:disabled,
+.popupActionInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+[data-theme="dark"] .popupActionSelect,
+[data-theme="dark"] .popupActionInput {
+  background: var(--bg-tertiary);
+}
+
 /* ── Items del envío dentro del popup ──────────────────────── */
 
 .popupItems {
