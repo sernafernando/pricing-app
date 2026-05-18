@@ -766,3 +766,48 @@
   gap: 6px;
   margin-top: 6px;
 }
+
+/* Row clickeable de la tabla: abre el detalle al hacer click en cualquier celda
+ * que no sea la columna de acciones (esa hace stopPropagation). */
+.rowClickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.rowClickable:hover {
+  background: var(--bg-hover);
+}
+
+/* Botones de transición de estado y anular dentro del campo Estado del modal de detalle */
+.detalleAcciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Variante danger del actionBtn — usada en el modal de detalle para Anular */
+.actionBtnDanger {
+  border-color: var(--cf-accent-red);
+  color: var(--cf-accent-red);
+}
+
+.actionBtnDanger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* Toggle de carga secuencial en el footer del modal de Nuevo prearmado */
+.cargaSecuencialToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cargaSecuencialToggle input[type='checkbox'] {
+  cursor: pointer;
+}

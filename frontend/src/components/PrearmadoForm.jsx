@@ -21,6 +21,10 @@ export default function PrearmadoForm({ onClose, onSaved }) {
   const [notas, setNotas] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Carga secuencial: al guardar no cierra el modal, resetea seriales/notas y
+  // mantiene combo+componentes para escanear la siguiente unidad del mismo EAN.
+  const [cargaSecuencial, setCargaSecuencial] = useState(false);
+  const [sesionCount, setSesionCount] = useState(0);
 
   // Refs a cada input de serial (key → DOM node) para focus/select on scan
   const serialInputRefs = useRef({});
@@ -174,7 +178,25 @@ export default function PrearmadoForm({ onClose, onSaved }) {
       }
 
       onSaved?.();
-      onClose?.();
+
+      if (cargaSecuencial) {
+        // Reset para próxima unidad del MISMO combo: limpiamos seriales/notas
+        // pero mantenemos combo y componentes ya cargados.
+        setSerialInputs({});
+        setValidaciones({});
+        setNotas('');
+        setSesionCount((c) => c + 1);
+        requestAnimationFrame(() => {
+          const firstKey = serialInputKeys[0];
+          const firstEl = firstKey ? serialInputRefs.current[firstKey] : null;
+          if (firstEl) {
+            firstEl.focus();
+            firstEl.select?.();
+          }
+        });
+      } else {
+        onClose?.();
+      }
     } catch (err) {
       const detail = err.response?.data?.detail;
       if (typeof detail === 'object' && detail?.errores) {
@@ -233,6 +255,18 @@ export default function PrearmadoForm({ onClose, onSaved }) {
             </div>
           ) : (
             <>
+              {sesionCount > 0 && (
+                <div
+                  className={`${styles.statusBanner} ${styles.statusBannerOk}`}
+                  role="status"
+                >
+                  <Check size={16} />
+                  <span>
+                    {sesionCount} prearmado{sesionCount === 1 ? '' : 's'} guardado
+                    {sesionCount === 1 ? '' : 's'} de este combo. Escaneá la siguiente unidad.
+                  </span>
+                </div>
+              )}
               <div className={styles.comboMeta}>
                 <div className={styles.comboMetaInfo}>
                   <div className={styles.comboMetaCode}>{combo.item_code}</div>
@@ -252,6 +286,7 @@ export default function PrearmadoForm({ onClose, onSaved }) {
                     setSerialInputs({});
                     setValidaciones({});
                     setIncluyeWindows(null);
+                    setSesionCount(0);
                   }}
                 >
                   Cambiar
@@ -352,8 +387,22 @@ export default function PrearmadoForm({ onClose, onSaved }) {
         </div>
 
         <div className={styles.modalFooter}>
+          {combo && (
+            <label
+              className={styles.cargaSecuencialToggle}
+              title="Al guardar, no cierra el modal: limpia seriales y queda listo para cargar la siguiente unidad del mismo combo."
+            >
+              <input
+                type="checkbox"
+                checked={cargaSecuencial}
+                onChange={(e) => setCargaSecuencial(e.target.checked)}
+                disabled={saving}
+              />
+              Carga secuencial
+            </label>
+          )}
           <button type="button" className={styles.actionBtn} onClick={onClose} disabled={saving}>
-            Cancelar
+            {sesionCount > 0 ? 'Cerrar' : 'Cancelar'}
           </button>
           <button
             type="button"
