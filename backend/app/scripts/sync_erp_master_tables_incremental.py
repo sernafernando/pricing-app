@@ -388,17 +388,23 @@ async def sync_items_incremental(db: Session, minutes: int = 15, usar_dia_comple
 
 async def sync_item_taxes_for_items(db: Session, item_ids: list):
     """
-    Sincronizar impuestos solo para los items que se actualizaron
+    Sincronizar impuestos solo para los items que se actualizaron.
+
+    Estrategia REPLACE por item: si el ERP responde con datos válidos,
+    se borran las filas locales del item y se reinsertan con lo que vino.
+    Esto refleja cambios de tax_id (el sync viejo solo insertaba, dejando
+    filas huérfanas que rompían el IVA del producto en la query local).
+    Si el ERP responde vacío, NO se borra (safeguard ante fallos transitorios).
     """
     if not item_ids:
         print("  📦 Impuestos por item... ✓ (sin items nuevos)")
-        return {"nuevos": 0, "actualizados": 0}
+        return {"reemplazados": 0, "sin_cambios": 0}
 
     print(f"  📦 Impuestos por item ({len(item_ids)} items)...", end=" ", flush=True)
 
     try:
-        nuevos = 0
-        actualizados = 0
+        reemplazados = 0
+        sin_cambios = 0
 
         # Procesar en lotes de 50 items para no sobrecargar el endpoint
         batch_size = 50
@@ -414,10 +420,14 @@ async def sync_item_taxes_for_items(db: Session, item_ids: list):
                     data = response.json()
 
                 if not isinstance(data, list) or len(data) == 0:
+                    sin_cambios += 1
                     continue
 
                 if len(data) == 1 and "Column1" in data[0]:
+                    sin_cambios += 1
                     continue
+
+                db.query(TBItemTaxes).filter(TBItemTaxes.item_id == item_id).delete(synchronize_session=False)
 
                 for row in data:
                     comp_id = to_int(row.get("comp_id"))
@@ -425,34 +435,19 @@ async def sync_item_taxes_for_items(db: Session, item_ids: list):
                     tax_id = to_int(row.get("tax_id"))
                     tax_class = to_int(row.get("tax_class"))
 
-                    existente = (
-                        db.query(TBItemTaxes)
-                        .filter(
-                            TBItemTaxes.comp_id == comp_id,
-                            TBItemTaxes.item_id == row_item_id,
-                            TBItemTaxes.tax_id == tax_id,
-                        )
-                        .first()
-                    )
+                    db.add(TBItemTaxes(comp_id=comp_id, item_id=row_item_id, tax_id=tax_id, tax_class=tax_class))
 
-                    if existente:
-                        if existente.tax_class != tax_class:
-                            existente.tax_class = tax_class
-                            actualizados += 1
-                    else:
-                        nuevo = TBItemTaxes(comp_id=comp_id, item_id=row_item_id, tax_id=tax_id, tax_class=tax_class)
-                        db.add(nuevo)
-                        nuevos += 1
+                reemplazados += 1
 
             db.commit()
 
-        print(f"✓ ({nuevos} nuevos, {actualizados} actualizados)")
-        return {"nuevos": nuevos, "actualizados": actualizados}
+        print(f"✓ ({reemplazados} reemplazados, {sin_cambios} sin datos ERP)")
+        return {"reemplazados": reemplazados, "sin_cambios": sin_cambios}
 
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         db.rollback()
-        return {"nuevos": 0, "actualizados": 0, "error": str(e)}
+        return {"reemplazados": 0, "sin_cambios": 0, "error": str(e)}
 
 
 async def verificar_items_faltantes(db: Session):
