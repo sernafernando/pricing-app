@@ -275,19 +275,25 @@ export default function Prearmado() {
     setEditForce(false);
   };
 
-  const validarEdicion = async (item_id_esperado) => {
-    if (!editValor || !editValor.trim()) {
+  const validarEdicion = async (item_id_esperado, valorOpcional) => {
+    // valorOpcional permite validar con el valor actual del input (e.currentTarget.value)
+    // sin esperar a que el state editValor se actualice — útil desde onKeyDown.
+    const serial = (valorOpcional ?? editValor)?.trim();
+    if (!serial) {
       setEditValidacion(null);
-      return;
+      return null;
     }
     try {
       const resp = await api.post('/prearmado/validar-serial', {
-        serial: editValor.trim(),
+        serial,
         item_id_esperado,
       });
       setEditValidacion(resp.data);
+      return resp.data;
     } catch {
-      setEditValidacion({ valid: false, motivo: 'NetworkError' });
+      const err = { valid: false, motivo: 'NetworkError' };
+      setEditValidacion(err);
+      return err;
     }
   };
 
@@ -860,6 +866,18 @@ export default function Prearmado() {
                                         value={editValor}
                                         onChange={(e) => setEditValor(e.target.value)}
                                         onBlur={() => validarEdicion(s.componente_item_id)}
+                                        onKeyDown={async (e) => {
+                                          if (e.key !== 'Enter') return;
+                                          e.preventDefault();
+                                          const target = e.currentTarget;
+                                          const result = await validarEdicion(
+                                            s.componente_item_id,
+                                            target.value,
+                                          );
+                                          if (!result?.valid) {
+                                            target.select();
+                                          }
+                                        }}
                                         autoFocus
                                       />
                                       {editValidacion?.valid && (
