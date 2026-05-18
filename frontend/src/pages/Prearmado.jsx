@@ -169,6 +169,9 @@ export default function Prearmado() {
       await api.patch(`/prearmado/${p.id}`, { estado: nuevoEstado });
       await cargar();
       await cargarStats();
+      if (verPrearmado && verPrearmado.id === p.id) {
+        await recargarDetalle(p.id);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo cambiar el estado');
     }
@@ -188,13 +191,18 @@ export default function Prearmado() {
     if (!anularPrearmado) return;
     setError(null);
     try {
-      await api.patch(`/prearmado/${anularPrearmado.id}`, {
+      const anuladoId = anularPrearmado.id;
+      await api.patch(`/prearmado/${anuladoId}`, {
         estado: 'anulado',
         notas: motivoAnular || null,
       });
       cerrarAnular();
       await cargar();
       await cargarStats();
+      // Si estaba abierto el detalle del que anulamos, cerrarlo (es terminal).
+      if (verPrearmado && verPrearmado.id === anuladoId) {
+        cerrarDetalle();
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'No se pudo anular');
     }
@@ -492,7 +500,12 @@ export default function Prearmado() {
                   const proximos = proximosEstados(p.estado);
                   const terminal = p.estado === 'consumido' || p.estado === 'anulado';
                   return (
-                    <tr key={p.id}>
+                    <tr
+                      key={p.id}
+                      className={styles.rowClickable}
+                      onClick={() => abrirDetalle(p)}
+                      title="Ver detalle y cambiar estado"
+                    >
                       <td className={styles.codigoCell}>{p.codigo}</td>
                       <td>
                         <div className={sharedStyles.producto}>
@@ -528,7 +541,7 @@ export default function Prearmado() {
                           {formatFechaArg(p.created_at)}
                         </span>
                       </td>
-                      <td>
+                      <td onClick={(e) => e.stopPropagation()}>
                         <div className={styles.acciones}>
                           <button
                             type="button"
@@ -716,6 +729,37 @@ export default function Prearmado() {
                       <span className={ESTADO_CLASS[verPrearmado.estado]}>
                         {ESTADO_LABEL[verPrearmado.estado]}
                       </span>
+                      {(() => {
+                        const proximos = proximosEstados(verPrearmado.estado);
+                        const terminal =
+                          verPrearmado.estado === 'consumido' ||
+                          verPrearmado.estado === 'anulado';
+                        if (terminal) return null;
+                        return (
+                          <div className={styles.detalleAcciones}>
+                            {proximos.map((next) => {
+                              const Icon = TRANSITION_ICON[next] || Play;
+                              return (
+                                <button
+                                  key={next}
+                                  type="button"
+                                  className={styles.actionBtn}
+                                  onClick={() => cambiarEstado(verPrearmado, next)}
+                                >
+                                  <Icon size={14} /> {ESTADO_LABEL[next]}
+                                </button>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                              onClick={() => onClickAnular(verPrearmado)}
+                            >
+                              <Ban size={14} /> Anular
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                     {verPrearmado.incluye_windows && (
                       <div className={styles.detalleField}>
