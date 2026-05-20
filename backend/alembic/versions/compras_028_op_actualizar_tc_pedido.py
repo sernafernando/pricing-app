@@ -25,7 +25,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = "compras_028_op_actualizar_tc_pedido"
-down_revision = "compras_027_pedido_corregido"
+down_revision = "compras_027a_widen_version"
 branch_labels = None
 depends_on = None
 
