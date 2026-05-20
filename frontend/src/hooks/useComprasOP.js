@@ -161,6 +161,23 @@ export default function useComprasOP() {
     [wrap]
   );
 
+  /**
+   * F4 — Aplicar NC local directamente desde el detalle de la OP.
+   * POST /ordenes-pago/{opId}/aplicar-nc
+   * Returns { imputacion_id, nc_estado }.
+   */
+  const aplicarNC = useCallback(
+    (opId, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/ordenes-pago/${opId}/aplicar-nc`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -174,5 +191,6 @@ export default function useComprasOP() {
     anular,
     distribuirAutomatico,
     eliminar,
+    aplicarNC,
   };
 }

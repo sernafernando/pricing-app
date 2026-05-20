@@ -208,6 +208,39 @@ class PosibleDuplicadoResponse(BaseModel):
     flag_confirmacion: str = Field(default="confirmar_duplicado")
 
 
+class AplicarNCDesdeOPRequest(BaseModel):
+    """Body del POST /ordenes-pago/{op_id}/aplicar-nc (F4).
+
+    Imputa una NC local aprobada directamente desde el detalle de una OP,
+    contra el pedido de compra al que la OP estaba pagando.
+
+    `pedido_id` es opcional: si la OP tiene imputaciones contra un único
+    pedido, se infiere automáticamente. Si la OP imputa múltiples pedidos,
+    `pedido_id` es obligatorio — el endpoint devuelve 422 si se omite en
+    ese caso (AC4.5).
+
+    Validaciones (AC4.2–AC4.4):
+      - monto no puede exceder el saldo disponible de la NC.
+      - nc_id debe pertenecer al mismo proveedor que la OP.
+      - La NC no puede estar completamente consumida.
+    """
+
+    nc_id: int = Field(..., ge=1)
+    monto: Decimal = Field(..., gt=0)
+    pedido_id: int | None = Field(None, ge=1)
+
+
+class AplicarNCDesdeOPResponse(BaseModel):
+    """Response del POST /ordenes-pago/{op_id}/aplicar-nc (F4).
+
+    Devuelve el ID de la imputación creada y el nuevo estado de la NC tras
+    la aplicación.
+    """
+
+    imputacion_id: int
+    nc_estado: str
+
+
 # Forward refs
 from app.schemas.compra_evento import CompraEventoResponse  # noqa: E402
 from app.schemas.imputacion import ImputacionResponse  # noqa: E402

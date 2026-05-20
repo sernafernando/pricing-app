@@ -14,9 +14,12 @@ import {
   Pencil,
   Link2,
   Paperclip,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasOP from '../../hooks/useComprasOP';
+import useNCsLocales from '../../hooks/useNCsLocales';
 import AdjuntosPanel from './AdjuntosPanel';
 import EstadoBadge from './_shared/EstadoBadge';
 import styles from './ModalOrdenPagoDetalle.module.css';
@@ -112,12 +115,23 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
   const canPay = tienePermiso('administracion.ejecutar_pagos');
   const canGestionarAdj = tienePermiso('administracion.gestionar_ordenes_compra');
 
-  const { obtener: obtenerOP } = useComprasOP();
+  const { obtener: obtenerOP, aplicarNC } = useComprasOP();
+  const { listarDisponibles: listarNCs } = useNCsLocales();
 
   const [detalle, setDetalle] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [historialAbierto, setHistorialAbierto] = useState(false);
+
+  // NC panel state (F4).
+  const [ncPanelAbierto, setNcPanelAbierto] = useState(false);
+  const [ncsDisponibles, setNcsDisponibles] = useState([]);
+  const [ncLoading, setNcLoading] = useState(false);
+  const [ncError, setNcError] = useState(null);
+  // Map nc.id → monto string being entered for that row.
+  const [ncMontos, setNcMontos] = useState({});
+  // Map nc.id → { loading, error } for per-row apply state.
+  const [ncAplicando, setNcAplicando] = useState({});
 
   const fetchDetalle = useCallback(async () => {
     if (!op?.id) return;
@@ -136,6 +150,62 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
   useEffect(() => {
     fetchDetalle();
   }, [fetchDetalle]);
+
+  // F4 — load NCs for this proveedor when the panel is opened.
+  const fetchNCs = useCallback(async () => {
+    if (!detalle?.proveedor_id) return;
+    setNcLoading(true);
+    setNcError(null);
+    try {
+      const result = await listarNCs({
+        proveedor_id: detalle.proveedor_id,
+        limit: 100,
+        offset: 0,
+      });
+      // /ncs-locales/disponibles already filters estado and saldo_pendiente > 0.
+      const items = Array.isArray(result) ? result : [];
+      setNcsDisponibles(items);
+    } catch (err) {
+      setNcError(err.response?.data?.detail || 'Error al cargar NCs del proveedor.');
+    } finally {
+      setNcLoading(false);
+    }
+  }, [listarNCs, detalle?.proveedor_id]);
+
+  useEffect(() => {
+    if (ncPanelAbierto) fetchNCs();
+  }, [ncPanelAbierto, fetchNCs]);
+
+  // F4 — apply NC to the OP.
+  const handleAplicarNC = useCallback(
+    async (nc) => {
+      const montoStr = ncMontos[nc.id] ?? '';
+      const monto = parseFloat(montoStr);
+      if (!monto || monto <= 0) {
+        setNcAplicando((prev) => ({
+          ...prev,
+          [nc.id]: { loading: false, error: 'Ingresá un monto mayor a 0.' },
+        }));
+        return;
+      }
+      setNcAplicando((prev) => ({ ...prev, [nc.id]: { loading: true, error: null } }));
+      try {
+        await aplicarNC(detalle.id, { nc_id: nc.id, monto });
+        // Clear the monto input for this row and refresh the NC list.
+        setNcMontos((prev) => ({ ...prev, [nc.id]: '' }));
+        setNcAplicando((prev) => ({ ...prev, [nc.id]: { loading: false, error: null } }));
+        await fetchNCs();
+      } catch (err) {
+        const msg =
+          err.response?.data?.detail || err.message || 'Error al aplicar la NC.';
+        setNcAplicando((prev) => ({
+          ...prev,
+          [nc.id]: { loading: false, error: typeof msg === 'string' ? msg : 'Error al aplicar la NC.' },
+        }));
+      }
+    },
+    [aplicarNC, detalle?.id, fetchNCs, ncMontos]
+  );
 
   const handleEjecutarPago = () => {
     if (!detalle) return;
@@ -292,6 +362,107 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
               entidadId={detalle.id}
               canManage={canGestionarAdj}
             />
+
+            {/* ── F4: Panel NCs disponibles del proveedor ── */}
+            {canGestionarAdj && (
+              <>
+                <button
+                  type="button"
+                  className={styles.historialToggle}
+                  onClick={() => setNcPanelAbierto((v) => !v)}
+                  aria-expanded={ncPanelAbierto}
+                >
+                  NCs disponibles del proveedor{' '}
+                  {ncPanelAbierto ? (
+                    <ChevronDown size={14} className={styles.historialArrow} />
+                  ) : (
+                    <ChevronRight size={14} className={styles.historialArrow} />
+                  )}
+                </button>
+                {ncPanelAbierto && (
+                  <div className={styles.ncPanel}>
+                    {ncLoading && (
+                      <div className={styles.centered}>
+                        <Loader2 size={16} className={styles.spin} /> Cargando NCs...
+                      </div>
+                    )}
+                    {ncError && <div className={styles.errorBanner}>{ncError}</div>}
+                    {!ncLoading && !ncError && ncsDisponibles.length === 0 && (
+                      <div className={styles.emptySection}>
+                        Sin NCs aprobadas con saldo disponible para este proveedor.
+                      </div>
+                    )}
+                    {!ncLoading && ncsDisponibles.length > 0 && (
+                      <div className={styles.tableWrapper}>
+                        <table className={styles.table}>
+                          <thead>
+                            <tr>
+                              <th>NC</th>
+                              <th>Moneda</th>
+                              <th className={styles.thRight}>Saldo disponible</th>
+                              <th>Monto a aplicar</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ncsDisponibles.map((nc) => {
+                              const rowState = ncAplicando[nc.id] ?? {};
+                              const saldo = Number(nc.saldo_pendiente ?? nc.monto) || 0;
+                              return (
+                                <tr key={nc.id}>
+                                  <td className={styles.tdSecondary}>{nc.numero}</td>
+                                  <td>{nc.moneda}</td>
+                                  <td className={styles.tdRight}>
+                                    {formatCurrency(saldo, nc.moneda)}
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      max={saldo}
+                                      placeholder="Monto"
+                                      className={styles.ncMontoInput}
+                                      value={ncMontos[nc.id] ?? ''}
+                                      onChange={(e) =>
+                                        setNcMontos((prev) => ({
+                                          ...prev,
+                                          [nc.id]: e.target.value,
+                                        }))
+                                      }
+                                      disabled={rowState.loading}
+                                      aria-label={`Monto a aplicar para NC ${nc.numero}`}
+                                    />
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className={styles.btnSmall}
+                                      onClick={() => handleAplicarNC(nc)}
+                                      disabled={rowState.loading}
+                                      aria-label={`Aplicar NC ${nc.numero}`}
+                                    >
+                                      {rowState.loading ? (
+                                        <Loader2 size={12} className={styles.spin} />
+                                      ) : (
+                                        'Aplicar'
+                                      )}
+                                    </button>
+                                    {rowState.error && (
+                                      <p className={styles.ncRowError}>{rowState.error}</p>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
             {/* ── Pago ejecutado ── */}
             {estadoActual === 'pagado' && detalle.caja_movimiento_resumen && (
