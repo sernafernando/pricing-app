@@ -186,10 +186,27 @@ export default function useNCsLocales() {
     [wrap]
   );
 
+  /**
+   * F4 — NCs locales con saldo > 0 disponibles para imputar a una OP.
+   * GET /ncs-locales/disponibles?proveedor_id=&limit=&offset=
+   * Returns NCDisponibleSummary[] (saldo_pendiente ya calculado en batch).
+   */
+  const listarDisponibles = useCallback(
+    (params = {}) =>
+      wrap(async () => {
+        const { data } = await api.get('/administracion/compras/ncs-locales/disponibles', {
+          params,
+        });
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
     listar,
+    listarDisponibles,
     obtener,
     crear,
     editar,

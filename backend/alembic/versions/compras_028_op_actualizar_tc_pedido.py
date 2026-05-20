@@ -1,7 +1,7 @@
 """compras 028 — actualizar_tc_pedido en ordenes_pago
 
 Revision ID: compras_028_op_actualizar_tc_pedido
-Revises: compras_027_pedido_corregido
+Revises: compras_027a_widen_version
 Create Date: 2026-05-20
 
 Feature F1 — TC Re-valuation via OP Checkbox "Actualizar TC del pedido":

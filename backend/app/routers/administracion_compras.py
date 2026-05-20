@@ -86,6 +86,8 @@ from app.schemas.nota_credito_local import (
     VincularFacturaNCRequest,
 )
 from app.schemas.orden_pago import (
+    AplicarNCDesdeOPRequest,
+    AplicarNCDesdeOPResponse,
     CajaMovimientoResumen,
     OrdenPagoCancelarPendiente,
     OrdenPagoCreate,
@@ -1250,6 +1252,62 @@ def crear_y_pagar_orden_pago(
     _commit_or_rollback(db, operacion="crear_y_pagar_orden_pago")
     db.refresh(op)
     return _op_response(op)
+
+
+@router.post(
+    "/ordenes-pago/{op_id}/aplicar-nc",
+    response_model=AplicarNCDesdeOPResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Aplicar NC local directamente desde el detalle de la OP (F4)",
+)
+def aplicar_nc_desde_op(
+    op_id: int,
+    body: AplicarNCDesdeOPRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> AplicarNCDesdeOPResponse:
+    """F4 — Imputa una NC local aprobada desde el detalle de la OP.
+
+    Resuelve el pedido destino a partir de las imputaciones activas de la OP:
+      - Si la OP tiene un único pedido destino, se infiere automáticamente.
+      - Si la OP imputa múltiples pedidos, `pedido_id` en el body es requerido.
+
+    Delega a `ordenes_pago_service.aplicar_nc_desde_op` que orquesta:
+      1. Validaciones: proveedor match (403), NC estado (409/422), saldo NC (422).
+      2. `imputaciones_service.crear_imputacion` (NC → pedido_compra).
+      3. `cc_proveedor_service.aplicar_imputacion` (HABER en CC).
+      4. `pedidos_service.aplicar_imputacion_a_pedido` (recálculo estado pedido).
+
+    Errores:
+      - 404: OP o NC no encontrada.
+      - 403: NC de distinto proveedor.
+      - 409: NC en estado `aplicada` (totalmente consumida).
+      - 422: NC en estado no aplicable, monto > saldo, OP multi-pedido sin pedido_id.
+
+    Permiso requerido: `administracion.gestionar_ordenes_compra`.
+    """
+    try:
+        result = ordenes_pago_service.aplicar_nc_desde_op(
+            db,
+            op_id=op_id,
+            nc_id=body.nc_id,
+            monto=body.monto,
+            pedido_id=body.pedido_id,
+            creado_por_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("aplicar_nc_desde_op falló op_id=%s: %s", op_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al aplicar la NC desde la OP.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="aplicar_nc_desde_op")
+    return result
 
 
 @router.post(

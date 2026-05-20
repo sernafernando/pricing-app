@@ -392,3 +392,38 @@
 .btnDanger {
   composes: btn-tesla outline-subtle-danger sm from '../../styles/buttons-tesla.css';
 }
+
+/* ── F4: NC panel ────────────────────────────────────────────── */
+.ncPanel {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.ncMontoInput {
+  width: 110px;
+  padding: var(--spacing-xs) var(--spacing-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.ncMontoInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.btnSmall {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.ncRowError {
+  margin: 2px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+}
