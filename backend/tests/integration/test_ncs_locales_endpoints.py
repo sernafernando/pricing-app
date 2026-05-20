@@ -194,6 +194,18 @@ class TestCrearNCEndpoint:
         r = client.post(f"{BASE}/ncs-locales", headers=auth_headers, json=payload)
         assert r.status_code == 422
 
+    def test_crear_nd_tipo_debito_persiste(self, client, auth_headers, empresa, proveedor, con_todos_los_permisos):
+        """T2.25 — F2: POST /ncs-locales con tipo='debito' debe persistir tipo='debito'."""
+        payload = _nc_payload(empresa.id, proveedor.id)
+        payload["tipo"] = "debito"
+        r = client.post(f"{BASE}/ncs-locales", headers=auth_headers, json=payload)
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["tipo"] == "debito", (
+            f"Expected tipo='debito', got '{data.get('tipo')}'. "
+            "El endpoint no está forwarding tipo=data.tipo al service."
+        )
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # GET listado / detalle

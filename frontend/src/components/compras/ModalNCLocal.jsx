@@ -37,6 +37,8 @@ export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial =
       : proveedorInicial?.id
         ? String(proveedorInicial.id)
         : '',
+    // F2 — ND/NC type: 'credito' (HABER, default) or 'debito' (DEBE, Nota de Débito).
+    tipo: nc?.tipo || 'credito',
     moneda: nc?.moneda || 'ARS',
     monto: nc?.monto ? String(nc.monto) : '',
     tipo_cambio: nc?.tipo_cambio ? String(nc.tipo_cambio) : '',
@@ -94,6 +96,8 @@ export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial =
       const payload = {
         empresa_id: Number(form.empresa_id),
         proveedor_id: Number(form.proveedor_id),
+        // F2 — tipo is immutable after creation; edición ignores it (handled below).
+        tipo: form.tipo,
         moneda: form.moneda,
         monto: parseFloat(form.monto),
         tipo_cambio: tcNum,
@@ -104,10 +108,11 @@ export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial =
       };
 
       if (esEdicion) {
-        // El backend PUT ignora empresa_id / proveedor_id (no editables).
+        // El backend PUT ignores empresa_id, proveedor_id, tipo (immutable fields).
         const updatePayload = { ...payload };
         delete updatePayload.empresa_id;
         delete updatePayload.proveedor_id;
+        delete updatePayload.tipo;
         await editar(nc.id, updatePayload);
       } else {
         await crear(payload);
@@ -129,7 +134,11 @@ export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial =
       <div className={styles.modalContent}>
         <div className={styles.modalHeader}>
           <span className={styles.modalTitle}>
-            {esEdicion ? `Editar NC ${nc.numero}` : 'Nueva NC'}
+            {esEdicion
+              ? `Editar ${nc.tipo === 'debito' ? 'ND' : 'NC'} ${nc.numero}`
+              : form.tipo === 'debito'
+                ? 'Nueva Nota de Débito (ND)'
+                : 'Nueva Nota de Crédito (NC)'}
           </span>
           <button
             className={styles.modalCloseBtn}
@@ -185,6 +194,20 @@ export default function ModalNCLocal({ nc, empresas, onClose, proveedorInicial =
               onChange={(id) => handleChange('proveedor_id', id ? String(id) : '')}
               disabled={esEdicion || saving}
             />
+          </div>
+
+          {/* F2 — tipo selector: NC (credito) or ND (debito). Immutable after creation. */}
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Tipo</label>
+            <select
+              className={styles.select}
+              value={form.tipo}
+              onChange={(e) => handleChange('tipo', e.target.value)}
+              disabled={esEdicion || saving}
+            >
+              <option value="credito">Nota de Crédito (NC) — reduce deuda</option>
+              <option value="debito">Nota de Débito (ND) — aumenta deuda</option>
+            </select>
           </div>
 
           <div className={styles.formRow}>

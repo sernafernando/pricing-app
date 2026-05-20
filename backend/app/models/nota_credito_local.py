@@ -73,6 +73,16 @@ class NotaCreditoLocal(Base):
     observaciones = Column(Text, nullable=True)
     # FK lógica al ERP (ver docstring del módulo).
     ct_transaction_id = Column(BigInteger, nullable=True)
+    # F2 — ND/NC variance circuit (compras_030).
+    # 'credito' → HABER en CC (reduce deuda). 'debito' → DEBE en CC (aumenta deuda).
+    # Backfill-safe: server_default='credito' preserva la semántica actual de todas
+    # las filas existentes (NC = reduce deuda = HABER).
+    tipo = Column(
+        String(8),
+        nullable=False,
+        default="credito",
+        server_default="credito",
+    )
     estado = Column(
         String(24),
         nullable=False,
@@ -104,6 +114,7 @@ class NotaCreditoLocal(Base):
 
     __table_args__ = (
         UniqueConstraint("numero", name="uq_notas_credito_local_numero"),
+        CheckConstraint("tipo IN ('credito','debito')", name="ck_ncs_local_tipo"),
         CheckConstraint("moneda IN ('ARS','USD')", name="ck_ncs_local_moneda"),
         CheckConstraint("monto > 0", name="ck_ncs_local_monto_positivo"),
         CheckConstraint(

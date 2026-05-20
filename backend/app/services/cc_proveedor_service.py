@@ -246,6 +246,31 @@ def insertar_mov(
     return mov
 
 
+def _resolver_tipo_nc_local(session: Session, origen_id: int, context: str) -> str:
+    """F2 — Resolve the tipo ('credito'|'debito') of a NotaCreditoLocal by PK.
+
+    Returns 'credito' as safe fallback and emits a warning when the NC is missing
+    (should not happen in a healthy DB but guards against data-integrity failures).
+
+    Args:
+        session: active ORM session.
+        origen_id: PK of the NotaCreditoLocal to look up.
+        context: descriptive string for the warning message (e.g. 'reversal').
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    nc = session.get(NotaCreditoLocal, origen_id)
+    if nc is None:
+        logger.warning(
+            "aplicar_imputacion %s: NotaCreditoLocal id=%s no encontrada; "
+            "asumiendo tipo='credito' para determinar dirección CC.",
+            context,
+            origen_id,
+        )
+        return "credito"
+    return nc.tipo
+
+
 def aplicar_imputacion(
     session: Session,
     *,
@@ -315,7 +340,15 @@ def aplicar_imputacion(
     #   - haber → pago/reducción de deuda al proveedor.
     #   - debe  → aumento de deuda o reversal de un haber previo.
     if imp.es_reversal:
-        tipo_mov: TipoMovimiento = "debe"
+        # Reversal inverts the original movement's direction.
+        # Normal NC credito emits HABER → its reversal is DEBE.
+        # ND (tipo='debito') emits DEBE → its reversal is HABER.
+        # orden_pago / nota_credito_erp always emit HABER → reversal is DEBE.
+        if imp.origen_tipo == "nota_credito_local":
+            nc_tipo = _resolver_tipo_nc_local(session, imp.origen_id, "reversal")
+            tipo_mov: TipoMovimiento = "haber" if nc_tipo == "debito" else "debe"
+        else:
+            tipo_mov = "debe"
         origen_cc = "reimputacion"
         descripcion = f"Reversal imputación id={imp.id} ({imp.destino_tipo}:{imp.destino_id})"
     else:
@@ -333,7 +366,15 @@ def aplicar_imputacion(
                     f"no tiene política de proyección a CC definida."
                 ),
             )
-        tipo_mov = "haber"
+        # F2 — directional sign for nota_credito_local (AD §3.6).
+        # tipo='credito' → HABER (reduces debt, identical to pre-F2 behaviour).
+        # tipo='debito'  → DEBE  (increases debt, used for ND/variance notes).
+        # nota_credito_erp and orden_pago always emit HABER.
+        if imp.origen_tipo == "nota_credito_local":
+            nc_tipo = _resolver_tipo_nc_local(session, imp.origen_id, "normal")
+            tipo_mov = "debe" if nc_tipo == "debito" else "haber"
+        else:
+            tipo_mov = "haber"
         origen_cc = "imputacion"
         descripcion = f"Imputación id={imp.id} → {imp.destino_tipo}:{imp.destino_id}"
 

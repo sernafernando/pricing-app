@@ -11,6 +11,7 @@ sintaxis `X | None`, `Decimal` para montos, `date` para fechas de negocio.
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +32,9 @@ class NotaCreditoLocalBase(BaseModel):
 
     empresa_id: int
     proveedor_id: int
+    # F2 — ND/NC variance circuit. 'credito' → HABER (reduce deuda).
+    # 'debito' → DEBE (aumenta deuda, usado para Notas de Débito de varianza TC).
+    tipo: Literal["credito", "debito"] = "credito"
     moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
     monto: Decimal = Field(..., gt=0)
     # Cotización ARS/USD al momento de cargar la NC. Solo aplica a 'USD'.

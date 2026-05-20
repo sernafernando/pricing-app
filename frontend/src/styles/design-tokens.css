@@ -198,6 +198,9 @@
   --cf-accent-gray: #64748b;
   --cf-accent-purple: #a855f7;
   --cf-accent-teal: #14b8a6;
+  /* Semantic role aliases — use these for intent, not raw accent colors */
+  --cf-warning: var(--cf-accent-yellow);
+  --cf-danger: var(--cf-accent-red);
 
   /* Badge color palette — used by RMA/dynamic badges via var(--color-{name}) */
   --color-blue: #3b82f6;
