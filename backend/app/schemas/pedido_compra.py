@@ -116,6 +116,14 @@ class PedidoCompraResponse(PedidoCompraBase):
     # la ventana de retención (configuracion `compras.dias_retencion_cancelados`).
     puede_eliminar: bool = False
 
+    # F2 — ND/NC variance circuit (AD-8: derived, never stored).
+    # `varianza_tc_neta`: ARS pendiente de compensación por diferencia TC entre
+    #   Caso-B pagos y el TC efectivo del pedido. Positivo → falta ND (debito);
+    #   negativo → falta NC (credito). Cero cuando está completamente compensado.
+    # `varianza_tc_pendiente`: True cuando abs(varianza_tc_neta) > umbral ARS 1.00.
+    varianza_tc_pendiente: bool = False
+    varianza_tc_neta: Decimal = Decimal("0")
+
     model_config = ConfigDict(from_attributes=True)
 
 

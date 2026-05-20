@@ -1056,6 +1056,137 @@ def resolver_tc_efectivo_pedido(
     return None
 
 
+def calcular_varianza_tc(session: Session, pedido: PedidoCompra) -> Decimal:
+    """
+    F2 — Compute the ARS variance not yet compensated by ND/NC imputaciones.
+
+    Per spec §3.3 and AD-8: this is a PURE DERIVATION — never stored.
+
+    Formula:
+        varianza_bruta = (TC_efectivo - TC_original) * SUM(monto_USD_Caso_B)
+        where:
+            TC_efectivo  = resolver_tc_efectivo_pedido(session, pedido)
+            TC_original  = pedido.tipo_cambio_original (TC at PO creation)
+            Caso-B payments = ARS OPs with actualizar_tc_pedido=False
+
+    For ARS pedidos (no TC) or pedidos with no Caso-B imputaciones:
+        varianza_bruta = 0.
+
+    varianza_compensada = SUM of NC-local → pedido_compra imputaciones (non-reversal)
+        signed by NC tipo: 'debito' → positive contribution (increases ND balance),
+        'credito' → negative contribution (reduces variance).
+
+    varianza_tc_neta = varianza_bruta - varianza_compensada.
+
+    Sign convention (matches spec §3.3):
+        positive → TC rose → buyer underpaid → ND needed.
+        negative → TC fell → buyer overpaid → NC needed.
+
+    Args:
+        session: active tx.
+        pedido: the PedidoCompra ORM instance.
+
+    Returns:
+        Decimal varianza_tc_neta. Zero for ARS pedidos or no Caso-B payments.
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    # ARS pedidos have no TC variance.
+    if pedido.moneda != "USD":
+        return Decimal("0")
+
+    tc_efectivo = resolver_tc_efectivo_pedido(session, pedido)
+    if tc_efectivo is None:
+        return Decimal("0")
+
+    # --- Caso-B imputaciones -----------------------------------------------
+    # Caso-B: ARS OP paying a USD pedido without actualizar_tc_pedido=True.
+    # moneda_imputada='USD', tipo_cambio IS NOT NULL (set by ejecutar_pago).
+    # Formula per spec §3.3: varianza_bruta = (TC_ef - TC_orig) * sum(monto_USD_caso_b).
+    # Append-only invariant: cancelled OPs insert reversal rows (es_reversal=True).
+    # We net non-reversals minus reversals so cancelled OPs don't over-count.
+    caso_b_non_rev = session.execute(
+        select(sa_func.sum(Imputacion.monto_imputado).label("total_usd"))
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido.id,
+            Imputacion.moneda_imputada == "USD",
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(False),
+            OrdenPago.actualizar_tc_pedido.is_(False),
+        )
+    ).one()
+    caso_b_rev = session.execute(
+        select(sa_func.sum(Imputacion.monto_imputado).label("total_usd"))
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido.id,
+            Imputacion.moneda_imputada == "USD",
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(True),
+            OrdenPago.actualizar_tc_pedido.is_(False),
+        )
+    ).one()
+
+    total_usd_caso_b = Decimal(caso_b_non_rev.total_usd or 0) - Decimal(caso_b_rev.total_usd or 0)
+    tc_original = Decimal(pedido.tipo_cambio_original) if pedido.tipo_cambio_original is not None else tc_efectivo
+    varianza_bruta = (tc_efectivo - tc_original) * total_usd_caso_b
+
+    # --- Compensación via NC-local → pedido_compra imputaciones -------------
+    # Signed by NC tipo: 'debito' → +ARS (ND covers positive varianza),
+    # 'credito' → -ARS (NC covers negative varianza).
+    # Append-only: cancelled NDs/NCs insert reversal imputaciones.
+    # We net non-reversals minus reversals so cancelled NDs don't over-compensate.
+    nc_rows_non_rev = session.execute(
+        select(
+            Imputacion.monto_imputado,
+            NotaCreditoLocal.tipo.label("nc_tipo"),
+        )
+        .join(NotaCreditoLocal, NotaCreditoLocal.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido.id,
+            Imputacion.moneda_imputada == "ARS",
+            Imputacion.es_reversal.is_(False),
+        )
+    ).all()
+    nc_rows_rev = session.execute(
+        select(
+            Imputacion.monto_imputado,
+            NotaCreditoLocal.tipo.label("nc_tipo"),
+        )
+        .join(NotaCreditoLocal, NotaCreditoLocal.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido.id,
+            Imputacion.moneda_imputada == "ARS",
+            Imputacion.es_reversal.is_(True),
+        )
+    ).all()
+
+    varianza_compensada = Decimal("0")
+    for monto_ars, nc_tipo in nc_rows_non_rev:
+        signo = Decimal("1") if nc_tipo == "debito" else Decimal("-1")
+        varianza_compensada += signo * Decimal(monto_ars)
+    for monto_ars, nc_tipo in nc_rows_rev:
+        # Reversal cancels the original: subtract the original's contribution.
+        signo = Decimal("1") if nc_tipo == "debito" else Decimal("-1")
+        varianza_compensada -= signo * Decimal(monto_ars)
+
+    return (varianza_bruta - varianza_compensada).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def aplicar_imputacion_a_pedido(
     session: Session,
     *,
@@ -2281,6 +2412,8 @@ __all__ = [
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",
     "calcular_saldos_pendientes_batch",
+    # F2 — ND/NC variance circuit
+    "calcular_varianza_tc",
     # F1 — TC re-valuation
     "calcular_tc_ponderado_caso_a",
     "calcular_tc_ponderado_caso_a_batch",

@@ -18,6 +18,7 @@ import {
   Paperclip,
   Edit3,
   History,
+  TrendingUp,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
@@ -82,6 +83,9 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
   const [showCorregirModal, setShowCorregirModal] = useState(false);
+  // F2 — ND/NC variance circuit.
+  const [resolviendoVarianza, setResolviendoVarianza] = useState(false);
+  const [errorVarianza, setErrorVarianza] = useState(null);
 
   const puedeCorregir =
     canGestionar && pedido && ESTADOS_CORREGIBLES.has(pedido.estado);
@@ -159,6 +163,27 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     },
     [onClose]
   );
+
+  // F2 — Resolve TC variance by creating and applying a ND or NC.
+  const handleResolverVarianza = useCallback(async () => {
+    if (!pedido) return;
+    setResolviendoVarianza(true);
+    setErrorVarianza(null);
+    try {
+      await api.post(
+        `/administracion/compras/pedidos/${pedido.id}/resolver-varianza-tc`
+      );
+      // Reload the pedido so varianza_tc_pendiente and varianza_tc_neta update.
+      onClose({ reload: true });
+    } catch (err) {
+      const msg =
+        err?.response?.data?.detail ||
+        'Error al resolver la varianza TC. Intente nuevamente.';
+      setErrorVarianza(msg);
+    } finally {
+      setResolviendoVarianza(false);
+    }
+  }, [pedido, onClose]);
 
   const handleNavegarAPedidoRelacionado = useCallback(
     (relacionadoId) => {
@@ -553,7 +578,45 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
           </>
         )}
 
+        {/* F2 — TC variance legend + resolver action */}
+        {pedido && pedido.varianza_tc_pendiente && (
+          <div className={styles.varianzaAlert}>
+            <TrendingUp size={14} />
+            <span>
+              Falta aplicar ND/NC por varianza TC:{' '}
+              <strong>
+                {Number(pedido.varianza_tc_neta) > 0 ? '+' : ''}
+                {Number(pedido.varianza_tc_neta).toLocaleString('es-AR', {
+                  style: 'currency',
+                  currency: 'ARS',
+                  minimumFractionDigits: 2,
+                })}
+              </strong>
+            </span>
+            {errorVarianza && (
+              <span className={styles.varianzaError}>{errorVarianza}</span>
+            )}
+          </div>
+        )}
+
         <div className={styles.formActions}>
+          {/* F2 — Show resolver button when variance is pending and user can manage */}
+          {canGestionar && pedido && pedido.varianza_tc_pendiente && (
+            <button
+              type="button"
+              className={styles.btnVarianza}
+              onClick={handleResolverVarianza}
+              disabled={resolviendoVarianza}
+              title="Crear y aplicar automáticamente la ND o NC de varianza TC"
+            >
+              {resolviendoVarianza ? (
+                <Loader2 size={14} className={styles.spin} />
+              ) : (
+                <TrendingUp size={14} />
+              )}
+              Resolver varianza TC
+            </button>
+          )}
           {puedeCorregir && (
             <button
               type="button"

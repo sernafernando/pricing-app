@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.config import settings
+from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.caja import CajaMovimiento
@@ -214,6 +215,9 @@ def _pedido_response(
     puede_eliminar: bool = False,
     saldo_pendiente: Optional[Decimal] = None,
     tipo_cambio_ponderado: Optional[Decimal] = None,
+    # F2 — ND/NC variance circuit. None means "not computed" (list endpoints skip it
+    # for performance; detail endpoint passes the computed value).
+    varianza_tc_neta: Optional[Decimal] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -245,6 +249,16 @@ def _pedido_response(
             "puede_eliminar": puede_eliminar,
             "saldo_pendiente": saldo_pendiente,
             "tipo_cambio_ponderado": tipo_cambio_ponderado,
+            # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
+            # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
+            **(
+                {
+                    "varianza_tc_neta": varianza_tc_neta,
+                    "varianza_tc_pendiente": abs(varianza_tc_neta) > VARIANZA_TC_THRESHOLD_ARS,
+                }
+                if varianza_tc_neta is not None
+                else {}
+            ),
         }
     )
 
@@ -451,6 +465,8 @@ def obtener_pedido(
     prov = getattr(pedido, "proveedor", None)
     saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, pedido.id)
     tc_ponderado = pedidos_service.calcular_tc_ponderado_pedido(db, pedido.id)
+    # F2 — compute TC variance for the detail view only (no N+1 in listings).
+    varianza_tc = pedidos_service.calcular_varianza_tc(db, pedido)
     detalle = PedidoCompraDetalle.model_validate(pedido)
     detalle = detalle.model_copy(
         update={
@@ -458,6 +474,8 @@ def obtener_pedido(
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "saldo_pendiente": saldo,
             "tipo_cambio_ponderado": tc_ponderado,
+            "varianza_tc_neta": varianza_tc,
+            "varianza_tc_pendiente": abs(varianza_tc) > VARIANZA_TC_THRESHOLD_ARS,
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -768,6 +786,51 @@ def corregir_pedido_endpoint(
     db.commit()
     db.refresh(clon)
     return _pedido_response(clon)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/resolver-varianza-tc",
+    response_model=NotaCreditoLocalResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Resolver varianza de TC creando y aplicando una ND o NC (F2)",
+)
+def resolver_varianza_tc_endpoint(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> NotaCreditoLocalResponse:
+    """Resolver varianza de tipo de cambio para un pedido USD con pagos Caso-B.
+
+    Cuando TC efectivo > TC original → crea y aplica una Nota de Débito (ND).
+    Cuando TC efectivo < TC original → crea y aplica una Nota de Crédito (NC).
+    Si abs(varianza) <= 1.00 ARS → 409 Conflict (mismo umbral que varianza_tc_pendiente).
+
+    La ND/NC generada se crea, envía a aprobación y aprueba automáticamente
+    (es un comprobante derivado del sistema, no ingresado manualmente).
+
+    Requiere permiso `administracion.gestionar_ordenes_compra`.
+    """
+    try:
+        nc_id = ncs_locales_service.resolver_varianza_tc(db, pedido_id=pedido_id, user_id=user.id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("resolver_varianza_tc falló para pedido_id=%s: %s", pedido_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al resolver la varianza TC. Reintentá o contactá soporte.",
+        ) from exc
+    _commit_or_rollback(db, operacion="resolver_varianza_tc")
+    nc = db.get(NotaCreditoLocal, nc_id)
+    return _nc_local_response(nc)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -3372,6 +3435,7 @@ def crear_nc_local(
             db,
             empresa_id=data.empresa_id,
             proveedor_id=data.proveedor_id,
+            tipo=data.tipo,  # F2 — ND ('debito') or NC ('credito')
             moneda=data.moneda,  # type: ignore[arg-type]
             monto=data.monto,
             tipo_cambio=data.tipo_cambio,

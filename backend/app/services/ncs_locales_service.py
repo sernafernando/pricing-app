@@ -48,6 +48,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.logging import get_logger
 from app.models.compra_evento import CompraEvento
 from app.models.imputacion import Imputacion
@@ -280,6 +281,7 @@ def crear(
     tipo_cambio: Optional[Decimal] = None,
     numero_nc_proveedor: Optional[str] = None,
     observaciones: Optional[str] = None,
+    tipo: Literal["credito", "debito"] = "credito",
 ) -> NotaCreditoLocal:
     """
     Crea una NC local en estado `borrador` con número correlativo.
@@ -305,6 +307,7 @@ def crear(
         tipo_cambio: opcional, solo USD (autollena del día si es None).
         numero_nc_proveedor: opcional, llave de matching contra ERP.
         observaciones: texto libre opcional.
+        tipo: 'credito' (HABER, default) o 'debito' (DEBE, Nota de Débito por varianza TC).
 
     Returns:
         La `NotaCreditoLocal` recién creada con `id` asignado.
@@ -346,6 +349,8 @@ def crear(
         observaciones=observaciones,
         estado="borrador",
         creado_por_id=creado_por_id,
+        # F2 — directional tipo: 'credito' (HABER) or 'debito' (DEBE).
+        tipo=tipo,
     )
     session.add(nc)
     session.flush()
@@ -364,6 +369,7 @@ def crear(
             "tipo_cambio": str(tc_resuelto) if tc_resuelto is not None else None,
             "fecha_emision": fecha_emision.isoformat(),
             "numero_nc_proveedor": numero_nc_proveedor,
+            "tipo": tipo,
         },
     )
 
@@ -1049,6 +1055,99 @@ def puede_eliminar_nc_local(
     return False, "Hard-delete de NCs locales no implementado en v2.1 (futuro v2.2)."
 
 
+def resolver_varianza_tc(
+    session: Session,
+    *,
+    pedido_id: int,
+    user_id: int,
+) -> int:
+    """
+    F2 — Resolve TC variance for a USD pedido de compra by creating and imputing
+    a ND (tipo='debito') when TC rose, or an NC (tipo='credito') when TC fell.
+
+    Steps (atomic — caller owns the transaction):
+      1. Load the pedido and compute varianza_tc_neta via pedidos_service.
+      2. Raise ValueError if varianza == 0 (nothing to resolve).
+      3. Determine tipo and monto_abs = abs(varianza).
+      4. Create ND or NC in 'borrador', approve it (borrador → pendiente_aprobacion → aprobado).
+      5. Create imputacion from the ND/NC to the pedido_compra.
+      6. Apply the imputacion to CC (cc_proveedor_service.aplicar_imputacion).
+
+    Args:
+        session: active tx.
+        pedido_id: PK of the PedidoCompra to resolve.
+        user_id: FK to usuarios (creador / aprobador de la ND/NC).
+
+    Returns:
+        int — ID of the created NotaCreditoLocal (ND or NC).
+
+    Raises:
+        ValueError: if abs(varianza_tc_neta) <= 1.00 ARS (within threshold — nothing to resolve).
+        HTTPException 404: if pedido_id not found.
+
+    Note on permissions: the auto-approve step bypasses the normal aprobar_ncs_locales check
+    because this ND/NC is system-derived (not hand-entered), and the resolver endpoint is
+    already gated by administracion.gestionar_ordenes_compra.
+    """
+    from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+    from app.services import cc_proveedor_service, imputaciones_service, pedidos_service  # noqa: PLC0415
+
+    pedido = session.get(PedidoCompra, pedido_id)
+    if pedido is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"PedidoCompra id={pedido_id} no encontrado.",
+        )
+
+    varianza = pedidos_service.calcular_varianza_tc(session, pedido)
+    if abs(varianza) <= VARIANZA_TC_THRESHOLD_ARS:
+        raise ValueError(
+            f"PedidoCompra id={pedido_id}: varianza_tc_neta={varianza:.2f} ARS "
+            f"está dentro del umbral de {VARIANZA_TC_THRESHOLD_ARS} ARS, no hay nada que resolver."
+        )
+
+    tipo_nc: Literal["credito", "debito"] = "debito" if varianza > 0 else "credito"
+    monto_abs = abs(varianza)
+    motivo = f"Varianza TC pedido {pedido.numero}: TC_orig={pedido.tipo_cambio_original} vs TC_ef; ARS {varianza:+.2f}"
+
+    nd_nc = crear(
+        session,
+        empresa_id=pedido.empresa_id,
+        proveedor_id=pedido.proveedor_id,
+        moneda="ARS",
+        monto=monto_abs,
+        fecha_emision=date.today(),
+        motivo=motivo,
+        creado_por_id=user_id,
+        tipo=tipo_nc,
+    )
+    # Auto-approve: borrador → pendiente_aprobacion → aprobado.
+    transicionar(session, nc_id=nd_nc.id, accion="enviar_aprobacion", user_id=user_id)
+    transicionar(session, nc_id=nd_nc.id, accion="aprobar", user_id=user_id)
+
+    imp = imputaciones_service.crear_imputacion(
+        session,
+        origen_tipo="nota_credito_local",
+        origen_id=nd_nc.id,
+        destino_tipo="pedido_compra",
+        destino_id=pedido_id,
+        monto_imputado=monto_abs,
+        moneda_imputada="ARS",
+        proveedor_id=pedido.proveedor_id,
+        creado_por_id=user_id,
+    )
+    cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp.id)
+
+    logger.info(
+        "resolver_varianza_tc pedido_id=%s varianza=%s tipo=%s nc_id=%s",
+        pedido_id,
+        varianza,
+        tipo_nc,
+        nd_nc.id,
+    )
+    return nd_nc.id
+
+
 __all__ = [
     "CAMPOS_EDITABLES_BORRADOR",
     "ESTADOS_TERMINALES",
@@ -1062,6 +1161,7 @@ __all__ = [
     "editar",
     "puede_eliminar_nc_local",
     "recalcular_estado_por_imputaciones",
+    "resolver_varianza_tc",
     "transicionar",
     "vincular_factura_erp",
 ]
