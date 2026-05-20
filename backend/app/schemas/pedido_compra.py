@@ -13,7 +13,7 @@ para montos; `date` para fechas de negocio; `datetime` para auditoría.
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 ESTADOS_PEDIDO: tuple[str, ...] = (
@@ -124,6 +124,17 @@ class PedidoCompraResponse(PedidoCompraBase):
     varianza_tc_pendiente: bool = False
     varianza_tc_neta: Decimal = Decimal("0")
 
+    # F5 — Manual TC override fields.
+    # `tipo_cambio_manual`: the override value (AD-3). None = no override active.
+    # `tipo_cambio_es_manual`: derived flag — True when tipo_cambio_manual is not None.
+    tipo_cambio_manual: Decimal | None = None
+    tipo_cambio_es_manual: bool = False
+
+    @model_validator(mode="after")
+    def _compute_tipo_cambio_es_manual(self) -> "PedidoCompraResponse":
+        self.tipo_cambio_es_manual = self.tipo_cambio_manual is not None
+        return self
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -221,13 +232,15 @@ class CorreccionPedidoRequest(BaseModel):
     Reglas del clon según qué cambió:
       * Solo cosméticos (numero_factura, fecha_pago_*, requiere_envio,
         observaciones) → clon hereda estado `aprobado`.
-      * Cambia monto o tipo_cambio → clon nace en `pendiente_aprobacion`
-        (requiere re-aprobar). Las imputaciones se "congelan" en el original
-        y se re-aplican al clon cuando se aprueba (opción Z del design).
+      * Cambia monto → clon nace en `pendiente_aprobacion` (requiere re-aprobar).
+        Las imputaciones se "congelan" en el original y se re-aplican al clon
+        cuando se aprueba (opción Z del design).
+        Nota F5: tipo_cambio ya NO es un campo corregible — usar PUT /pedidos/{id}/tipo-cambio.
     """
 
     numero_factura: str | None = Field(None, max_length=50)
-    tipo_cambio: Decimal | None = Field(None, gt=0)
+    # tipo_cambio is intentionally absent — F5 requires TC corrections to go through
+    # PUT /pedidos/{id}/tipo-cambio (in-place, append-only CC audit trail).
     monto: Decimal | None = Field(None, gt=0)
     fecha_pago_texto: str | None = Field(None, max_length=200)
     fecha_pago_estimada: date | None = None
@@ -242,6 +255,36 @@ class CorreccionPedidoRequest(BaseModel):
         if len(s) < 5:
             raise ValueError("motivo_correccion debe tener al menos 5 caracteres significativos.")
         return s
+
+
+class PedidoTipoCambioUpdate(BaseModel):
+    """Body de PUT /pedidos/{id}/tipo-cambio (F5 — manual TC override).
+
+    `tipo_cambio`: the new authoritative TC value, or null to CLEAR the override
+    and revert to weighted Caso-A / tipo_cambio_original mode.
+    `motivo`: required for audit trail (logged in the CC adjustment). Stripped
+    of leading/trailing whitespace; must be non-empty after stripping.
+    """
+
+    tipo_cambio: Decimal | None = Field(None, gt=0)
+    motivo: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("motivo")
+    @classmethod
+    def _strip_motivo(cls, v: str) -> str:
+        s = (v or "").strip()
+        if len(s) < 1:
+            raise ValueError("motivo no puede estar vacío.")
+        return s
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tipo_cambio": 1430.0,
+                "motivo": "Ajuste manual por acuerdo comercial",
+            }
+        }
+    )
 
 
 # Forward refs — importar acá al final para evitar ciclos

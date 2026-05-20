@@ -495,3 +495,95 @@
 .btnVarianza {
   composes: btn-tesla outline-subtle-warning sm from '../../styles/buttons-tesla.css';
 }
+
+/* ── F5 — Manual TC editor ── */
+.tcRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.badgeManual {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-blue) 30%, transparent);
+  color: var(--cf-accent-blue);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: 0.03em;
+}
+
+.tcEditorBlock {
+  grid-column: 1 / -1;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-blue) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-blue) 20%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.tcEditorForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.tcEditorRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.tcEditorField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  flex: 1;
+  min-width: 140px;
+}
+
+.tcEditorLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.tcAsterisk {
+  color: var(--cf-danger);
+}
+
+.tcEditorInput {
+  padding: 4px var(--spacing-sm);
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  outline: none;
+  transition: border-color var(--duration-200) var(--ease-out);
+}
+
+.tcEditorInput:focus {
+  border-color: var(--cf-accent-blue);
+}
+
+.tcEditorInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tcEditorError {
+  font-size: var(--font-xs);
+  color: var(--cf-danger);
+  padding: var(--spacing-xs) 0;
+}
+
+.tcEditorActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}

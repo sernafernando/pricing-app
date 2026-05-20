@@ -24,7 +24,6 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
   const [form, setForm] = useState({
     numero_factura: pedido?.numero_factura || '',
     monto: pedido?.monto ? String(pedido.monto) : '',
-    tipo_cambio: pedido?.tipo_cambio ? String(pedido.tipo_cambio) : '',
     fecha_pago_texto: pedido?.fecha_pago_texto || '',
     fecha_pago_estimada: pedido?.fecha_pago_estimada || '',
     requiere_envio: pedido?.requiere_envio || false,
@@ -39,17 +38,15 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
     setForm((f) => ({ ...f, [campo]: valor }));
   };
 
-  // ¿Cambió monto o TC respecto al original? Si sí → el clon nace pendiente.
+  // ¿Cambió monto respecto al original? Si sí → el clon nace pendiente.
+  // Nota F5: tipo_cambio ya no se puede corregir por esta vía — usar la
+  // acción "Editar TC" en el detalle del pedido.
   const cambiosFinancieros = useMemo(() => {
     const montoChg =
       form.monto !== '' &&
       Number(form.monto) !== Number(pedido?.monto);
-    const tcChg =
-      pedido?.moneda === 'USD' &&
-      form.tipo_cambio !== '' &&
-      Number(form.tipo_cambio) !== Number(pedido?.tipo_cambio || 0);
-    return { monto: montoChg, tipo_cambio: tcChg, any: montoChg || tcChg };
-  }, [form.monto, form.tipo_cambio, pedido]);
+    return { monto: montoChg, any: montoChg };
+  }, [form.monto, pedido]);
 
   const estadoClonPreview = cambiosFinancieros.any
     ? 'pendiente_aprobacion'
@@ -64,12 +61,6 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
       const m = parseFloat(form.monto);
       if (!Number.isFinite(m) || m <= 0) {
         return 'El monto debe ser mayor a 0.';
-      }
-    }
-    if (pedido?.moneda === 'USD' && form.tipo_cambio !== '') {
-      const tc = parseFloat(form.tipo_cambio);
-      if (!Number.isFinite(tc) || tc <= 0) {
-        return 'El tipo de cambio debe ser mayor a 0.';
       }
     }
     return null;
@@ -97,13 +88,6 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
       }
       if (form.monto !== '' && Number(form.monto) !== Number(pedido.monto)) {
         payload.monto = parseFloat(form.monto);
-      }
-      if (
-        pedido.moneda === 'USD' &&
-        form.tipo_cambio !== '' &&
-        Number(form.tipo_cambio) !== Number(pedido.tipo_cambio || 0)
-      ) {
-        payload.tipo_cambio = parseFloat(form.tipo_cambio);
       }
       if (form.fecha_pago_texto !== (pedido.fecha_pago_texto || '')) {
         payload.fecha_pago_texto = form.fecha_pago_texto || null;
@@ -160,11 +144,9 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
           <div className={styles.warningBanner}>
             <AlertTriangle size={14} />
             <span>
-              Cambió {cambiosFinancieros.monto && <code>monto</code>}
-              {cambiosFinancieros.monto && cambiosFinancieros.tipo_cambio && ' y '}
-              {cambiosFinancieros.tipo_cambio && <code>tipo_cambio</code>} — el
-              clon nacerá en <strong>pendiente_aprobacion</strong> y requerirá
-              re-aprobación antes de aplicarse a la cuenta corriente.
+              Cambió <code>monto</code> — el clon nacerá en{' '}
+              <strong>pendiente_aprobacion</strong> y requerirá re-aprobación
+              antes de aplicarse a la cuenta corriente.
             </span>
           </div>
         ) : (
@@ -207,23 +189,6 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
                 placeholder="0.00"
               />
             </div>
-
-            {pedido?.moneda === 'USD' && (
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  Tipo de cambio <span className={styles.labelHint}>(ARS/USD)</span>
-                </label>
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  className={styles.input}
-                  value={form.tipo_cambio}
-                  onChange={(e) => handleChange('tipo_cambio', e.target.value)}
-                  placeholder="Ej: 1250.50"
-                />
-              </div>
-            )}
           </div>
 
           <div className={styles.formGroup}>

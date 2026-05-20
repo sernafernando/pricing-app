@@ -78,8 +78,9 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
     {
         "numero_factura",
-        # TC puede variar entre aprobación y pago (solo aplica a USD, validado aparte)
-        "tipo_cambio",
+        # F5: tipo_cambio removed — TC corrections now go exclusively through
+        # PUT /pedidos/{id}/tipo-cambio (actualizar_tipo_cambio_manual).
+        # Attempting to pass tipo_cambio here returns HTTP 422.
         # Comentarios editables post-aprobación sin afectar CC/imputaciones
         "observaciones",
     }
@@ -131,6 +132,8 @@ class TiposEvento:
     CREADO_POR_CORRECCION_DE: Final[str] = "creado_por_correccion_de"
     CANCELADO_POR_CORRECCION: Final[str] = "cancelado_por_correccion"
     IMPUTACIONES_REAPLICADAS_POR_CORRECCION: Final[str] = "imputaciones_reaplicadas_por_correccion"
+    # F5 — manual TC override
+    TC_MANUAL_ACTUALIZADO: Final[str] = "tc_manual_actualizado"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -397,6 +400,19 @@ def editar_pedido(
             detail=(
                 f"No se puede editar un pedido en estado '{pedido.estado}'. "
                 f"Estados editables: borrador, aprobado, pagado_parcial, pagado."
+            ),
+        )
+
+    # F5 — tipo_cambio is no longer editable via this endpoint in non-borrador states (FR5.9, AC5.6).
+    # In 'borrador', tipo_cambio is still a valid setup field (CAMPOS_EDITABLES_BORRADOR).
+    # In 'aprobado' / 'pagado_parcial' / 'pagado', TC corrections go through PUT /tipo-cambio.
+    # Specific 422 before the generic rejection path for a more actionable error message.
+    if pedido.estado != "borrador" and "tipo_cambio" in campos and campos.get("tipo_cambio") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "tipo_cambio ya no es editable por esta vía. "
+                "Usá PUT /pedidos/{id}/tipo-cambio para ajustar el TC del pedido."
             ),
         )
 
@@ -1847,7 +1863,13 @@ ESTADOS_CORREGIBLES: Final[frozenset[str]] = frozenset({"aprobado", "pagado_parc
 # Campos que, si cambian respecto al original, fuerzan al clon a nacer en
 # `pendiente_aprobacion` (requieren re-aprobación). Cualquier otro cambio
 # es cosmético y el clon hereda `aprobado`.
-CAMPOS_FINANCIEROS_CORRECCION: Final[frozenset[str]] = frozenset({"monto", "tipo_cambio"})
+CAMPOS_FINANCIEROS_CORRECCION: Final[frozenset[str]] = frozenset(
+    {
+        "monto",
+        # F5: tipo_cambio removed from corregir_pedido — TC corrections go through
+        # PUT /pedidos/{id}/tipo-cambio (in-place, append-only, no clone).
+    }
+)
 
 
 def _imputaciones_vigentes_sobre_pedido(session: Session, pedido_id: int) -> list[Any]:
@@ -2030,13 +2052,24 @@ def corregir_pedido(
             detail=("No se puede cambiar la moneda al corregir un pedido. Cancelá el pedido y creá uno nuevo."),
         )
 
-    # 3. Normalizar `tipo_cambio` si vino (para la comparación Decimal con el
+    # 3. Rechazar tipo_cambio explícito en /corregir — F5 impone que las
+    # correcciones de TC vayan exclusivamente por PUT /tipo-cambio (in-place,
+    # append-only, con ajuste CC auditado). Aceptar tipo_cambio aquí haría que
+    # el clon herede el valor sin emitir el movimiento de revaluación.
+    if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "tipo_cambio no es corregible por esta vía. "
+                "Usá PUT /pedidos/{id}/tipo-cambio para ajustar el TC con auditoría de CC."
+            ),
+        )
+
+    # 3b. Normalizar `monto` si vino (para la comparación Decimal con el
     # original, que está en Numeric). Garantiza que `==` funcione como
     # esperamos.
     if "monto" in cambios and cambios["monto"] is not None:
         cambios["monto"] = Decimal(str(cambios["monto"]))
-    if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None:
-        cambios["tipo_cambio"] = Decimal(str(cambios["tipo_cambio"]))
 
     # 4. Determinar estado del clon según cambios financieros reales
     cambios_financieros_reales = any(
@@ -2062,11 +2095,11 @@ def corregir_pedido(
         proveedor_id=original.proveedor_id,
         moneda=original.moneda,  # inmutable por diseño
         monto=cambios.get("monto") if cambios.get("monto") is not None else original.monto,
-        tipo_cambio=(
-            cambios.get("tipo_cambio")
-            if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None
-            else original.tipo_cambio
-        ),
+        tipo_cambio=original.tipo_cambio,  # TC immutable via /corregir — use PUT /tipo-cambio (F5)
+        # F5: tipo_cambio_manual intentionally NOT cloned. The manual override is bound
+        # to the original pedido's CC history (it was applied in-place with an audit movement).
+        # The clone starts with no override; any TC adjustment on the clone must go through
+        # PUT /tipo-cambio on the clone explicitly (fresh audit trail required).
         fecha_pago_texto=cambios.get("fecha_pago_texto", original.fecha_pago_texto),
         fecha_pago_estimada=cambios.get("fecha_pago_estimada", original.fecha_pago_estimada),
         requiere_envio=cambios.get("requiere_envio")
@@ -2105,7 +2138,7 @@ def corregir_pedido(
         if k
         in {
             "monto",
-            "tipo_cambio",
+            # tipo_cambio removed — F5 rejects it with 422 before reaching here
             "fecha_pago_texto",
             "fecha_pago_estimada",
             "requiere_envio",
@@ -2399,6 +2432,140 @@ def _aplicar_transferencia_correccion_al_aprobar(
     )
 
 
+def actualizar_tipo_cambio_manual(
+    session: Session,
+    *,
+    pedido_id: int,
+    tipo_cambio: Optional[Decimal],
+    motivo: str,
+    user_id: int,
+) -> "PedidoCompra":
+    """
+    F5 — Set or clear a manual TC override on a pedido (§3.8, AD-2, AD-3, AD-5).
+
+    Precedence (AD-2):
+      1. tipo_cambio_manual is not None → authoritative.
+      2. Caso-A weighted average.
+      3. tipo_cambio_original.
+
+    Operations:
+      - `tipo_cambio` non-null → set/replace override.
+        * Stores value in `pedido.tipo_cambio_manual`.
+        * Re-derives effective TC via `resolver_tc_efectivo_pedido`.
+        * Emits an append-only CC `ajuste` movement for the ARS delta.
+      - `tipo_cambio` null → CLEAR override.
+        * Sets `pedido.tipo_cambio_manual = None`.
+        * Re-derives effective TC (falls back to Caso-A weighted or tipo_cambio_original).
+        * Emits CC `ajuste` for the delta from old to new effective TC.
+
+    This is IN-PLACE re-valuation — never cancels+clones the pedido (AD-9).
+    `pedido.monto` is NEVER changed.
+
+    Args:
+        session: active tx.
+        pedido_id: PK of the pedido.
+        tipo_cambio: new manual TC (non-null) or None (clear override).
+        motivo: reason for audit trail.
+        user_id: user performing the change.
+
+    Returns:
+        Updated PedidoCompra instance.
+
+    Raises:
+        HTTPException 400: motivo is blank.
+        HTTPException 400: pedido moneda is not 'USD' (ARS pedidos have no TC).
+        HTTPException 404: pedido not found.
+        HTTPException 409: pedido state is not in {aprobado, pagado_parcial, pagado}.
+    """
+    from app.services.cc_proveedor_service import registrar_ajuste_revaluacion_tc  # noqa: PLC0415
+
+    # Validate motivo — must be non-empty after stripping whitespace.
+    motivo_limpio = (motivo or "").strip()
+    if not motivo_limpio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="motivo no puede estar vacío.",
+        )
+    motivo = motivo_limpio
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+
+    # F5 — TC override only applies to USD pedidos (ARS has no TC concept).
+    if pedido.moneda != "USD":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El ajuste de TC manual solo aplica a pedidos en USD.",
+        )
+
+    # F5 — TC override is only allowed on financially-active states.
+    # ESTADOS_CORREGIBLES = {aprobado, pagado_parcial, pagado}.
+    # 'pagado' is included because variance revaluation on a fully-paid USD pedido
+    # is a valid operation (e.g. post-close TC audit adjustment).
+    # 'cancelado' and 'rechazado' are excluded — no open financial obligation.
+    if pedido.estado not in ESTADOS_CORREGIBLES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No se puede ajustar el TC de un pedido en estado '{pedido.estado}'. "
+                f"Estados permitidos: {sorted(ESTADOS_CORREGIBLES)}."
+            ),
+        )
+
+    # Capture old effective TC before any change.
+    tc_anterior = resolver_tc_efectivo_pedido(session, pedido)
+
+    # Apply the change.
+    pedido.tipo_cambio_manual = tipo_cambio  # None or Decimal
+
+    # Re-derive effective TC with the new override state.
+    tc_nuevo = resolver_tc_efectivo_pedido(session, pedido)
+
+    # Write the materialized cache (AD-1).
+    # Edge case: if tc_nuevo is None (no Caso-A payments, no tipo_cambio_original —
+    # a USD pedido approved when daily TC wasn't available), the cache is left as-is.
+    # This is intentional: the stale cache will be overwritten the next time any TC
+    # event (Caso-A payment, manual override) resolves a non-None value. A None cache
+    # on a USD pedido is already a pre-existing condition, not introduced by F5.
+    if tc_nuevo is not None:
+        pedido.tipo_cambio = tc_nuevo
+
+    # Emit append-only CC ajuste for the ARS delta (AD-9).
+    if tc_anterior is not None and tc_nuevo is not None:
+        registrar_ajuste_revaluacion_tc(
+            session,
+            pedido=pedido,
+            tc_anterior=tc_anterior,
+            tc_nuevo=tc_nuevo,
+            user_id=user_id,
+            motivo=motivo,
+        )
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.TC_MANUAL_ACTUALIZADO,
+        usuario_id=user_id,
+        payload={
+            "tc_anterior": str(tc_anterior) if tc_anterior is not None else None,
+            "tc_nuevo": str(tc_nuevo) if tc_nuevo is not None else None,
+            "motivo": motivo,
+        },
+    )
+
+    session.flush()
+
+    logger.info(
+        "actualizar_tipo_cambio_manual pedido_id=%s tc_anterior=%s tc_nuevo=%s motivo=%r user_id=%s",
+        pedido.id,
+        tc_anterior,
+        tc_nuevo,
+        motivo,
+        user_id,
+    )
+
+    return pedido
+
+
 __all__ = [
     "CAMPOS_EDITABLES_APROBADO",
     "CAMPOS_EDITABLES_BORRADOR",
@@ -2408,6 +2575,8 @@ __all__ = [
     "EstadoPedido",
     "TRANSICIONES_VALIDAS",
     "TiposEvento",
+    # F5 — Manual TC override
+    "actualizar_tipo_cambio_manual",
     "ajustar_monto_con_factura",
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",

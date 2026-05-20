@@ -355,8 +355,14 @@ class TestEditarPedido:
         db.refresh(p)
         assert p.numero_factura == "FA-1"
 
-    def test_editar_pedido_aprobado_tipo_cambio_ok(self, db, empresa, proveedor, active_user) -> None:
-        """USD + estado aprobado → permite editar tipo_cambio."""
+    def test_editar_pedido_aprobado_tipo_cambio_rechazado(self, db, empresa, proveedor, active_user) -> None:
+        """F5 — USD + estado aprobado → tipo_cambio rechazado con 422.
+
+        TC corrections on approved pedidos now go exclusively through
+        PUT /pedidos/{id}/tipo-cambio (in-place, append-only CC audit trail).
+        """
+        from fastapi import HTTPException
+
         p = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -369,14 +375,15 @@ class TestEditarPedido:
         p.estado = "aprobado"
         db.flush()
 
-        pedidos_service.editar_pedido(
-            db,
-            pedido_id=p.id,
-            user_id=active_user.id,
-            tipo_cambio=Decimal("1234.50"),
-        )
-        db.refresh(p)
-        assert p.tipo_cambio == Decimal("1234.50")
+        with pytest.raises(HTTPException) as exc_info:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                tipo_cambio=Decimal("1234.50"),
+            )
+        assert exc_info.value.status_code == 422
+        assert "tipo_cambio" in str(exc_info.value.detail).lower()
 
     def test_editar_pedido_aprobado_observaciones_ok(self, db, empresa, proveedor, active_user) -> None:
         """Estado aprobado → permite editar observaciones."""
@@ -444,8 +451,13 @@ class TestEditarPedido:
             )
         assert exc.value.status_code == 409
 
-    def test_editar_pedido_pagado_tipo_cambio_ok(self, db, empresa, proveedor, active_user) -> None:
-        """Estado pagado → permite editar TC (metadata, no toca CC ya fijada)."""
+    def test_editar_pedido_pagado_tipo_cambio_rechazado(self, db, empresa, proveedor, active_user) -> None:
+        """F5 — Estado pagado → tipo_cambio rechazado con 422.
+
+        TC corrections go through PUT /pedidos/{id}/tipo-cambio (F5), not editar_pedido.
+        """
+        from fastapi import HTTPException
+
         p = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -458,14 +470,14 @@ class TestEditarPedido:
         p.estado = "pagado"
         db.flush()
 
-        pedidos_service.editar_pedido(
-            db,
-            pedido_id=p.id,
-            user_id=active_user.id,
-            tipo_cambio=Decimal("1320.00"),
-        )
-        db.refresh(p)
-        assert p.tipo_cambio == Decimal("1320.00")
+        with pytest.raises(HTTPException) as exc_info:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                tipo_cambio=Decimal("1320.00"),
+            )
+        assert exc_info.value.status_code == 422
 
     def test_editar_pedido_pagado_observaciones_ok(self, db, empresa, proveedor, active_user) -> None:
         """Estado pagado → permite editar observaciones."""
