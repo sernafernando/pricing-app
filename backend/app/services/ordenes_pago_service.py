@@ -383,6 +383,7 @@ def crear(
     confirmar_duplicado: bool = False,
     tipo_cambio: Optional[Decimal] = None,
     fecha_pago_estimada: Optional[date] = None,
+    actualizar_tc_pedido: bool = False,
 ) -> OrdenPago:
     """
     Crea una OP en estado `pendiente` con validaciones completas.
@@ -484,6 +485,8 @@ def crear(
         tipo_cambio=Decimal(tipo_cambio) if tipo_cambio is not None else None,
         fecha_pago_estimada=fecha_pago_estimada,
         creado_por_id=creado_por_id,
+        # F1 — Caso A (TRUE) vs Caso B (FALSE). Immutable after 'pagado'.
+        actualizar_tc_pedido=actualizar_tc_pedido,
     )
     session.add(op)
     session.flush()
@@ -820,6 +823,18 @@ def ejecutar_pago(
             # Same-moneda (o destino != pedido_compra): sin conversión.
             monto_imp = monto_item_origen
             moneda_imp = str(op.moneda)
+            # W2 / T1.29 / AD-7 — DEFERRED INTENTIONALLY (not implemented in PR1).
+            # Design AD-7 proposes persisting a payment-date TC here for
+            # same-moneda Caso-A imputaciones (so they could feed the
+            # weighted-average resolver). It is deliberately NOT done:
+            # per Amendment A2 the business almost never pays in USD, so a
+            # same-moneda (USD OP → USD pedido) Caso-A payment is a
+            # near-nonexistent edge case. Keeping PR1 lean, same-moneda
+            # imputaciones keep `tipo_cambio = None`; the weighted-average
+            # helpers already filter `tipo_cambio IS NOT NULL`, so such an
+            # edge-case pedido simply falls back to `tipo_cambio_original`
+            # (resolver mode 3) — well-defined, never crashes. If USD-USD
+            # payments ever become common, revisit T1.29/AD-7.
             tc_imp = None
 
         imp = imputaciones_service.crear_imputacion(
@@ -909,6 +924,14 @@ def ejecutar_pago(
             monto_imputado=Decimal("0"),  # recalcula internamente
         )
 
+    # F1 — TC Re-valuation (AD-1 consistency invariant):
+    # After all imputaciones are created, re-derive the effective TC for every
+    # affected pedido and write it back to pedido.tipo_cambio. This runs for
+    # BOTH Caso A and Caso B — Caso B will return tipo_cambio_original (no
+    # Caso-A imputaciones → mode 3), so pedido.tipo_cambio stays correct.
+    # Runs after flush so the new Imputacion rows are visible to the SELECT.
+    _actualizar_tc_efectivo_pedidos_afectados(session, pedidos_afectados, user_id)
+
     logger.info(
         "op_pagada id=%s numero=%s caja_id=%s caja_mov_id=%s caja_doc_id=%s imp_count=%d",
         op.id,
@@ -919,6 +942,102 @@ def ejecutar_pago(
         len(imputaciones_creadas),
     )
     return op
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# F1 — TC Re-valuation helpers
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _actualizar_tc_efectivo_pedidos_afectados(
+    session: Session,
+    pedidos_afectados: set[int],
+    user_id: int,
+) -> None:
+    """
+    Re-derives and writes pedido.tipo_cambio for all affected pedidos.
+
+    Called after imputaciones are flushed (so the new rows are visible to
+    the resolver queries). Implements the AD-1 consistency invariant:
+    `pedido.tipo_cambio == resolver_tc_efectivo_pedido(session, pedido)` must
+    hold after every ejecutar_pago call (Caso A or Caso B).
+
+    Also emits an append-only CC `ajuste` movement if the effective TC
+    changed (Caso A: TC drifted; Caso B: TC unchanged, no adjustment).
+
+    W4 — money safety: the CC re-valuation adjustment and the
+    `pedido.tipo_cambio` cache write are ATOMIC. The adjustment is emitted
+    FIRST; only if it succeeds is the cache written. If the adjustment
+    fails, the error PROPAGATES (it is never swallowed) so the whole
+    `ejecutar_pago` transaction rolls back — the pedido cache and the CC
+    ledger can never silently diverge.
+
+    Does NOT modify `tipo_cambio_original` — that field is immutable.
+    """
+    # Deferred import to avoid circular dependency: cc_proveedor_service
+    # imports pedidos_service helpers which in turn import this module.
+    from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
+
+    from app.services import cc_proveedor_service  # noqa: PLC0415
+
+    if not pedidos_afectados:
+        return
+
+    for pedido_id in pedidos_afectados:
+        pedido = session.get(PedidoCompra, pedido_id)
+        if pedido is None:
+            logger.warning("_actualizar_tc_efectivo: pedido_id=%s not found", pedido_id)
+            continue
+
+        tc_anterior = Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None
+        tc_nuevo = pedidos_service.resolver_tc_efectivo_pedido(session, pedido)
+
+        if tc_nuevo is None:
+            # ARS pedido with no TC — nothing to update.
+            continue
+
+        if tc_anterior != tc_nuevo:
+            # W4 — emit the append-only CC adjustment FIRST. The pedido TC
+            # cache is written only after the adjustment succeeds, so the
+            # cache and the CC ledger stay consistent. If the adjustment
+            # fails, the error propagates and the whole tx rolls back.
+            if tc_anterior is not None:
+                try:
+                    cc_proveedor_service.registrar_ajuste_revaluacion_tc(
+                        session,
+                        pedido=pedido,
+                        tc_anterior=tc_anterior,
+                        tc_nuevo=tc_nuevo,
+                        user_id=user_id,
+                        motivo="revaluacion_pago_caso_a",
+                    )
+                except (HTTPException, SQLAlchemyError, ValueError):
+                    # Do NOT swallow: the CC adjustment and the pedido TC
+                    # cache must be atomic. Log for traceability, then
+                    # re-raise so ejecutar_pago's transaction rolls back —
+                    # never leave the cache and the CC ledger inconsistent.
+                    logger.exception(
+                        "❌ _actualizar_tc_efectivo: ajuste CC falló pedido_id=%s "
+                        "tc_anterior=%s tc_nuevo=%s — abortando pago para no dejar "
+                        "el cache del pedido y la CC inconsistentes",
+                        pedido_id,
+                        tc_anterior,
+                        tc_nuevo,
+                    )
+                    raise
+
+            # Write new effective TC to the materialized cache — only
+            # reached when the CC adjustment succeeded (or was not needed,
+            # i.e. tc_anterior is None).
+            pedido.tipo_cambio = tc_nuevo
+            session.flush()
+
+        logger.info(
+            "tc_efectivo_actualizado pedido_id=%s tc_anterior=%s tc_nuevo=%s",
+            pedido_id,
+            tc_anterior,
+            tc_nuevo,
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1290,6 +1409,11 @@ def anular(
             pedido_id=pedido_id,
             user_id=user_id,
         )
+
+    # F1 — T1.30: re-derive effective TC after reversal (AD-1 consistency invariant).
+    # After imputaciones are reverted, Caso-A contributions change so the
+    # weighted average may shift. Re-run the resolver and write the result back.
+    _actualizar_tc_efectivo_pedidos_afectados(session, pedidos_afectados, user_id)
 
     # Paso 6: estado anulado
     op.estado = "anulado"

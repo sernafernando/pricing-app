@@ -577,6 +577,10 @@ def transicionar(
         if fecha_pago_estimada is not None:
             pedido.fecha_pago_estimada = fecha_pago_estimada
             payload["fecha_pago_estimada"] = fecha_pago_estimada.isoformat()
+        # F1 — Capture tipo_cambio_original at approval time (immutable after this).
+        # Only set if not already populated (idempotent: won't overwrite on re-approval).
+        if pedido.tipo_cambio_original is None and pedido.tipo_cambio is not None:
+            pedido.tipo_cambio_original = pedido.tipo_cambio
         # Inserta DEBE en CC por el monto total del pedido
         cc_proveedor_service.insertar_mov(
             session,
@@ -882,6 +886,174 @@ def calcular_tc_ponderado_pedido_batch(
         num_dec = Decimal(num or 0)
         result[int(pid)] = (num_dec / den_dec).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     return result
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# F1 — TC ponderado Caso A (compras-op-rework PR #1)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def calcular_tc_ponderado_caso_a(session: Session, pedido_id: int) -> Optional[Decimal]:
+    """
+    TC ponderado de las imputaciones Caso A (actualizar_tc_pedido=TRUE) sobre
+    un pedido.
+
+    Caso A: OPs con `actualizar_tc_pedido=True`. Solo estas contribuyen al
+    promedio ponderado. Caso B (tilde OFF) es ignorado.
+
+    Fórmula (igual a `calcular_tc_ponderado_pedido`):
+        tc_caso_a = SUM(imp.tipo_cambio * imp.monto_imputado)
+                    / SUM(imp.monto_imputado)
+        WHERE imp.origen_tipo='orden_pago'
+          AND ordenes_pago.actualizar_tc_pedido = TRUE
+          AND imp.destino_tipo='pedido_compra'
+          AND imp.destino_id = pedido_id
+          AND imp.tipo_cambio IS NOT NULL
+          AND imp.es_reversal = FALSE
+
+    Per AD-6 (design): la distinción Caso A/B se deriva via JOIN a
+    `ordenes_pago`; no se almacena en `imputaciones`.
+
+    Args:
+        session: tx activa.
+        pedido_id: id del pedido.
+
+    Returns:
+        Decimal cuantizado a 4 decimales o None si no hay Caso-A imputaciones
+        (denominador = 0).
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    row = session.execute(
+        select(
+            sa_func.coalesce(
+                sa_func.sum(Imputacion.tipo_cambio * Imputacion.monto_imputado),
+                0,
+            ).label("numerador"),
+            sa_func.coalesce(sa_func.sum(Imputacion.monto_imputado), 0).label("denominador"),
+        )
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .join(PedidoCompra, PedidoCompra.id == Imputacion.destino_id)
+        .where(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id == pedido_id,
+            # W1 — solo imputaciones en la moneda del propio pedido alimentan
+            # el promedio ponderado (igual que calcular_tc_ponderado_pedido).
+            Imputacion.moneda_imputada == PedidoCompra.moneda,
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(False),
+            OrdenPago.actualizar_tc_pedido.is_(True),
+        )
+    ).one()
+
+    numerador = Decimal(row.numerador or 0)
+    denominador = Decimal(row.denominador or 0)
+    if denominador == 0:
+        return None
+    return (numerador / denominador).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def calcular_tc_ponderado_caso_a_batch(
+    session: Session,
+    pedido_ids: list[int],
+) -> dict[int, Optional[Decimal]]:
+    """
+    Batch variant of `calcular_tc_ponderado_caso_a` for N pedidos in one query.
+
+    Returns dict {pedido_id: Decimal | None}. All pedido_ids are present in
+    the result dict; missing ones (no Caso-A imputaciones) map to None.
+
+    Args:
+        session: tx activa.
+        pedido_ids: list of pedido PKs. Empty list → returns {}.
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    if not pedido_ids:
+        return {}
+
+    rows = session.execute(
+        select(
+            Imputacion.destino_id,
+            sa_func.sum(Imputacion.tipo_cambio * Imputacion.monto_imputado).label("num"),
+            sa_func.sum(Imputacion.monto_imputado).label("den"),
+        )
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .join(PedidoCompra, PedidoCompra.id == Imputacion.destino_id)
+        .where(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id.in_(pedido_ids),
+            # W1 — solo imputaciones en la moneda del propio pedido alimentan
+            # el promedio ponderado (igual que calcular_tc_ponderado_pedido).
+            Imputacion.moneda_imputada == PedidoCompra.moneda,
+            Imputacion.tipo_cambio.is_not(None),
+            Imputacion.es_reversal.is_(False),
+            OrdenPago.actualizar_tc_pedido.is_(True),
+        )
+        .group_by(Imputacion.destino_id)
+    ).all()
+
+    result: dict[int, Optional[Decimal]] = {pid: None for pid in pedido_ids}
+    for pid, num, den in rows:
+        if den is None:
+            continue
+        den_dec = Decimal(den)
+        if den_dec == 0:
+            continue
+        num_dec = Decimal(num or 0)
+        result[int(pid)] = (num_dec / den_dec).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return result
+
+
+def resolver_tc_efectivo_pedido(
+    session: Session,
+    pedido: PedidoCompra,
+) -> Optional[Decimal]:
+    """
+    Resolves the effective TC for a pedido following the AD-2 precedence ladder.
+
+    Precedence (top wins):
+      1. `tipo_cambio_manual` is not None → manual override is authoritative.
+      2. Caso-A payments exist → weighted average of Caso-A imputaciones.
+      3. Fallback → `tipo_cambio_original` (approval snapshot).
+
+    Called by every mutator that changes imputaciones or TC state (AD-1
+    consistency invariant). The result is written back to `pedido.tipo_cambio`
+    by the caller — this function is a PURE READER.
+
+    Args:
+        session: tx activa.
+        pedido: the PedidoCompra ORM instance (with `tipo_cambio_manual`,
+            `tipo_cambio_original` already loaded).
+
+    Returns:
+        Effective TC as Decimal, or None for ARS pedidos with no TC.
+    """
+    # Mode 1: manual override is authoritative (AD-4).
+    tipo_cambio_manual = getattr(pedido, "tipo_cambio_manual", None)
+    if tipo_cambio_manual is not None:
+        return Decimal(tipo_cambio_manual)
+
+    # Mode 2: weighted average of Caso-A imputaciones.
+    tc_caso_a = calcular_tc_ponderado_caso_a(session, pedido.id)
+    if tc_caso_a is not None:
+        return tc_caso_a
+
+    # Mode 3: approval snapshot.
+    if pedido.tipo_cambio_original is not None:
+        return Decimal(pedido.tipo_cambio_original)
+
+    return None
 
 
 def aplicar_imputacion_a_pedido(
@@ -2109,6 +2281,12 @@ __all__ = [
     "aplicar_imputacion_a_pedido",
     "calcular_saldo_pendiente_pedido",
     "calcular_saldos_pendientes_batch",
+    # F1 — TC re-valuation
+    "calcular_tc_ponderado_caso_a",
+    "calcular_tc_ponderado_caso_a_batch",
+    "calcular_tc_ponderado_pedido",
+    "calcular_tc_ponderado_pedido_batch",
+    "resolver_tc_efectivo_pedido",
     "corregir_pedido",
     "crear_pedido",
     "desvincular_factura",

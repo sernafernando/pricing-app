@@ -396,6 +396,29 @@
   line-height: var(--leading-tight, 1.2);
 }
 
+/* F1 — Checkbox "Actualizar TC del pedido" */
+.formGroupCheckbox {
+  margin-bottom: var(--spacing-md, 12px);
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  font-weight: 500;
+}
+
+.checkbox {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--cf-accent-blue);
+  flex-shrink: 0;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {

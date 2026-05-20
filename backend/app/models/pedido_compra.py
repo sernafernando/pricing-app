@@ -59,6 +59,12 @@ class PedidoCompra(Base):
     requiere_envio = Column(Boolean, nullable=False, default=False, server_default="false")
     numero_factura = Column(String(50), nullable=True)
     ct_transaction_id = Column(BigInteger, nullable=True)
+    # F1 — Immutable snapshot of tipo_cambio at approval time. Set once when the
+    # pedido transitions to 'aprobado' and never overwritten. NULL for ARS pedidos
+    # (no TC) or pre-F1 pedidos where TC was already NULL.
+    # Backfill migration: tipo_cambio_original = tipo_cambio for existing rows.
+    tipo_cambio_original = Column(Numeric(18, 6), nullable=True)
+
     # Notas libres del pedido. Editable en borrador y en aprobado/pagado_parcial/pagado
     # como metadata (no impacta CC ni imputaciones). Ver compras_026_pedido_observaciones.
     observaciones = Column(Text, nullable=True)

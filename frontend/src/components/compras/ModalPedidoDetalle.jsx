@@ -267,7 +267,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               )}
               {pedido.moneda === 'USD' && (
                 <div>
-                  <span className={styles.infoLabel}>Tipo de cambio</span>
+                  <span className={styles.infoLabel}>TC efectivo</span>
                   <strong className={styles.infoValue}>
                     {pedido.tipo_cambio
                       ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
@@ -276,6 +276,19 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                         })} / USD`
                       : '—'}
                   </strong>
+                  {/* F1 — Show TC original when it differs from effective TC */}
+                  {pedido.tipo_cambio_original &&
+                    pedido.tipo_cambio &&
+                    Number(pedido.tipo_cambio_original) !== Number(pedido.tipo_cambio) && (
+                      <div className={styles.infoSubvalue}>
+                        TC aprobación: $
+                        {Number(pedido.tipo_cambio_original).toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 4,
+                        })}{' '}
+                        / USD
+                      </div>
+                    )}
                 </div>
               )}
               <div>

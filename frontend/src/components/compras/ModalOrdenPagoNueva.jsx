@@ -146,6 +146,10 @@ export default function ModalOrdenPagoNueva({
       : [];
   });
 
+  // F1 — Actualizar TC del pedido (Caso A / Caso B).
+  // Default: false (Caso B: el pago NO actualiza el TC efectivo del pedido).
+  const [actualizarTcPedido, setActualizarTcPedido] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   // Error inline específico del campo TC (Batch 5 — cross-moneda).
@@ -345,6 +349,7 @@ export default function ModalOrdenPagoNueva({
       numero_factura: it.numero_factura || null,
     })),
     confirmar_duplicado: confirmarDuplicado,
+    actualizar_tc_pedido: actualizarTcPedido,
   });
 
   const buildEditPayload = () => ({
@@ -599,6 +604,26 @@ export default function ModalOrdenPagoNueva({
               rows={2}
             />
           </div>
+
+          {/* F1 — Actualizar TC del pedido al ejecutar */}
+          {!isEditMode && (
+            <div className={styles.formGroupCheckbox}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  className={styles.checkbox}
+                  checked={actualizarTcPedido}
+                  onChange={(e) => setActualizarTcPedido(e.target.checked)}
+                />
+                <span>Actualizar TC del pedido al ejecutar (Caso A)</span>
+              </label>
+              <div className={styles.fieldHint}>
+                Al ejecutar el pago, el TC efectivo del pedido se recalculará usando el
+                promedio ponderado de todos los pagos con esta opción activa.
+                Si no lo activás, el TC original del pedido se mantiene (Caso B).
+              </div>
+            </div>
+          )}
 
           {/* Tabla de items */}
           {requiereItems && (
