@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, AlertTriangle, Plus, Trash2, MinusCircle } from 'lucide-react';
+import { X, AlertTriangle, Plus, Trash2, MinusCircle, Zap } from 'lucide-react';
+import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
@@ -149,6 +150,36 @@ export default function ModalOrdenPagoNueva({
   // F1 — Actualizar TC del pedido (Caso A / Caso B).
   // Default: false (Caso B: el pago NO actualiza el TC efectivo del pedido).
   const [actualizarTcPedido, setActualizarTcPedido] = useState(false);
+
+  // F3 — "Pagar ahora" toggle: cuando activo, envía a /crear-y-pagar.
+  // Default: false → flujo original (solo crea la OP en estado pendiente).
+  const [pagarAhora, setPagarAhora] = useState(false);
+  const [cajas, setCajas] = useState([]);
+  const [loadingCajas, setLoadingCajas] = useState(false);
+  const today = new Date().toISOString().split('T')[0];
+  const [pagoForm, setPagoForm] = useState({ cajaId: '', fechaPagoReal: today, tipoCambioOverride: '' });
+
+  const fetchCajas = useCallback(async () => {
+    setLoadingCajas(true);
+    try {
+      const { data } = await api.get('/administracion-caja/cajas');
+      setCajas(Array.isArray(data) ? data : []);
+    } catch {
+      setCajas([]);
+    } finally {
+      setLoadingCajas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pagarAhora && cajas.length === 0) {
+      fetchCajas();
+    }
+  }, [pagarAhora, cajas.length, fetchCajas]);
+
+  const handlePagoFormChange = (campo, valor) => {
+    setPagoForm((prev) => ({ ...prev, [campo]: valor }));
+  };
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -334,23 +365,34 @@ export default function ModalOrdenPagoNueva({
   const requiereTc = form.moneda === 'USD' || tieneCrossMoneda;
   const tcEnviable = requiereTc && tcValido ? tcNumLive : null;
 
-  const buildPayload = (confirmarDuplicado = false) => ({
-    empresa_id: Number(form.empresa_id),
-    proveedor_id: Number(form.proveedor_id),
-    moneda: form.moneda,
-    monto_total: montoTotalNum,
-    tipo_cambio: tcEnviable,
-    modo_imputacion: form.modo_imputacion,
-    observaciones: form.observaciones || null,
-    items: items.map((it) => ({
-      tipo: it.tipo,
-      id: it.id ? Number(it.id) : null,
-      monto: parseFloat(it.monto),
-      numero_factura: it.numero_factura || null,
-    })),
-    confirmar_duplicado: confirmarDuplicado,
-    actualizar_tc_pedido: actualizarTcPedido,
-  });
+  const buildPayload = (confirmarDuplicado = false) => {
+    const base = {
+      empresa_id: Number(form.empresa_id),
+      proveedor_id: Number(form.proveedor_id),
+      moneda: form.moneda,
+      monto_total: montoTotalNum,
+      tipo_cambio: tcEnviable,
+      modo_imputacion: form.modo_imputacion,
+      observaciones: form.observaciones || null,
+      items: items.map((it) => ({
+        tipo: it.tipo,
+        id: it.id ? Number(it.id) : null,
+        monto: parseFloat(it.monto),
+        numero_factura: it.numero_factura || null,
+      })),
+      confirmar_duplicado: confirmarDuplicado,
+      actualizar_tc_pedido: actualizarTcPedido,
+    };
+    if (pagarAhora) {
+      base.caja_id = Number(pagoForm.cajaId);
+      base.fecha_pago_real = pagoForm.fechaPagoReal;
+      const tcOv = parseFloat(pagoForm.tipoCambioOverride);
+      if (Number.isFinite(tcOv) && tcOv > 0) {
+        base.tipo_cambio_override = tcOv;
+      }
+    }
+    return base;
+  };
 
   const buildEditPayload = () => ({
     monto_total: montoTotalNum,
@@ -385,6 +427,15 @@ export default function ModalOrdenPagoNueva({
       setError(v);
       return;
     }
+    // F3: validate payment fields when "Pagar ahora" is ON.
+    if (pagarAhora && !pagoForm.cajaId) {
+      setError('Seleccioná una caja para ejecutar el pago.');
+      return;
+    }
+    if (pagarAhora && !pagoForm.fechaPagoReal) {
+      setError('La fecha de pago es requerida.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -393,7 +444,13 @@ export default function ModalOrdenPagoNueva({
         onClose(true);
         return;
       }
-      await opApi.crear(buildPayload(false));
+      if (pagarAhora) {
+        // AC3.5: "Pagar ahora" ON → submit to /crear-y-pagar.
+        await opApi.crearYPagar(buildPayload(false));
+      } else {
+        // AC3.4: "Pagar ahora" OFF → original flow (crear OP pendiente).
+        await opApi.crear(buildPayload(false));
+      }
       onClose(true);
     } catch (err) {
       const res = err.response;
@@ -434,7 +491,11 @@ export default function ModalOrdenPagoNueva({
     setSubmittingConfirm(true);
     setError(null);
     try {
-      await opApi.crear(buildPayload(true));
+      if (pagarAhora) {
+        await opApi.crearYPagar(buildPayload(true));
+      } else {
+        await opApi.crear(buildPayload(true));
+      }
       onClose(true);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al crear la OP con confirmación.');
@@ -621,6 +682,85 @@ export default function ModalOrdenPagoNueva({
                 Al ejecutar el pago, el TC efectivo del pedido se recalculará usando el
                 promedio ponderado de todos los pagos con esta opción activa.
                 Si no lo activás, el TC original del pedido se mantiene (Caso B).
+              </div>
+            </div>
+          )}
+
+          {/* F3 — "Pagar ahora" toggle (solo en creación) */}
+          {!isEditMode && (
+            <div className={styles.formGroupCheckbox}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  className={styles.checkbox}
+                  checked={pagarAhora}
+                  onChange={(e) => setPagarAhora(e.target.checked)}
+                />
+                <Zap size={14} style={{ marginLeft: 4, marginRight: 4 }} />
+                <span>Pagar ahora (crear y pagar en un solo paso)</span>
+              </label>
+              <div className={styles.fieldHint}>
+                Al activar esta opción se ejecuta el pago en el mismo momento.
+                Si no, la OP queda en estado pendiente para pagar después.
+              </div>
+            </div>
+          )}
+
+          {/* F3 — inline payment fields (visible when "Pagar ahora" is ON) */}
+          {!isEditMode && pagarAhora && (
+            <div className={styles.pagarAhoraPanel}>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Caja *</label>
+                {loadingCajas ? (
+                  <div className={styles.fieldHint}>Cargando cajas...</div>
+                ) : (
+                  <select
+                    className={styles.select}
+                    value={pagoForm.cajaId}
+                    onChange={(e) => handlePagoFormChange('cajaId', e.target.value)}
+                    required
+                  >
+                    <option value="">Seleccionar caja...</option>
+                    {cajas
+                      .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nombre} — {c.moneda} — saldo:{' '}
+                          {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Fecha pago real *</label>
+                <input
+                  type="date"
+                  className={styles.input}
+                  value={pagoForm.fechaPagoReal}
+                  onChange={(e) => handlePagoFormChange('fechaPagoReal', e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  TC al momento del pago{' '}
+                  <span className={styles.labelHintInline}>(opcional — sobrescribe el TC de la OP)</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  className={styles.input}
+                  value={pagoForm.tipoCambioOverride}
+                  onChange={(e) => handlePagoFormChange('tipoCambioOverride', e.target.value)}
+                  placeholder="Dejar vacío para usar TC de la OP"
+                />
               </div>
             </div>
           )}
@@ -843,10 +983,14 @@ export default function ModalOrdenPagoNueva({
               {saving
                 ? isEditMode
                   ? 'Guardando...'
-                  : 'Creando...'
+                  : pagarAhora
+                    ? 'Creando y pagando...'
+                    : 'Creando...'
                 : isEditMode
                   ? 'Guardar cambios'
-                  : 'Crear OP'}
+                  : pagarAhora
+                    ? 'Crear y pagar'
+                    : 'Crear OP'}
             </button>
           </div>
         </form>

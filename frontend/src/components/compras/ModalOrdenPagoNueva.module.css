@@ -419,6 +419,25 @@
   flex-shrink: 0;
 }
 
+/* F3 — Panel "Pagar ahora" (inline payment fields) */
+.pagarAhoraPanel {
+  margin-top: var(--spacing-sm, 8px);
+  margin-bottom: var(--spacing-md, 12px);
+  padding: var(--spacing-md, 12px);
+  background: var(--cf-bg-hover, rgba(59, 130, 246, 0.05));
+  border: 1px solid var(--cf-border-default, #2a2a2a);
+  border-radius: var(--cf-card-radius, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm, 8px);
+}
+
+.labelHintInline {
+  font-size: var(--font-xs, 11px);
+  color: var(--cf-text-muted);
+  font-weight: 400;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {
