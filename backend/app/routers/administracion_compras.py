@@ -89,6 +89,7 @@ from app.schemas.orden_pago import (
     CajaMovimientoResumen,
     OrdenPagoCancelarPendiente,
     OrdenPagoCreate,
+    OrdenPagoCrearYPagar,
     OrdenPagoDetalle,
     OrdenPagoEditar,
     OrdenPagoEjecutarPago,
@@ -1181,6 +1182,74 @@ def obtener_orden_pago(
         )
 
     return detalle
+
+
+@router.post(
+    "/ordenes-pago/crear-y-pagar",
+    response_model=OrdenPagoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear y pagar OP en un solo paso (F3 — atómico)",
+    dependencies=[Depends(require_permiso("administracion.gestionar_ordenes_compra"))],
+)
+def crear_y_pagar_orden_pago(
+    data: OrdenPagoCrearYPagar,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ejecutar_pagos")),
+) -> OrdenPagoResponse:
+    """Crear y ejecutar el pago de una OP en una única transacción (F3, design AD-10).
+
+    Requiere AMBOS permisos — se verifica en el decorador vía `dependencies`:
+      - `administracion.gestionar_ordenes_compra` (creación de OP).
+      - `administracion.ejecutar_pagos` (ejecución del pago — `user` inyectado).
+
+    Si el paso de pago falla (caja inválida, moneda mismatch, etc.),
+    la OP creada también se revierte — cero registros escritos.
+
+    Puede levantar:
+      - 400: OP o pago con datos inválidos.
+      - 404: caja inexistente.
+      - 409 POSIBLE_DUPLICADO_OP_ERP: duplicado ERP sin confirmar.
+      - 422 OP_CAJA_MONEDA_MISMATCH: moneda caja != moneda OP sin TC.
+    """
+    items_norm = [
+        {
+            "tipo": it.tipo,
+            "id": it.id,
+            "monto": it.monto,
+            "numero_factura": it.numero_factura,
+        }
+        for it in data.items
+    ]
+    try:
+        op = ordenes_pago_service.crear_y_pagar(
+            db,
+            proveedor_id=data.proveedor_id,
+            empresa_id=data.empresa_id,
+            moneda=data.moneda,  # type: ignore[arg-type]
+            monto_total=data.monto_total,
+            modo_imputacion=data.modo_imputacion,  # type: ignore[arg-type]
+            items=items_norm,
+            observaciones=data.observaciones,
+            creado_por_id=user.id,
+            confirmar_duplicado=data.confirmar_duplicado,
+            tipo_cambio=data.tipo_cambio,
+            fecha_pago_estimada=data.fecha_pago_estimada,
+            actualizar_tc_pedido=data.actualizar_tc_pedido,
+            caja_id=data.caja_id,
+            fecha_pago_real=data.fecha_pago_real,
+            tipo_cambio_override=data.tipo_cambio_override,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("crear_y_pagar_orden_pago falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al crear y pagar la OP.") from exc
+
+    _commit_or_rollback(db, operacion="crear_y_pagar_orden_pago")
+    db.refresh(op)
+    return _op_response(op)
 
 
 @router.post(

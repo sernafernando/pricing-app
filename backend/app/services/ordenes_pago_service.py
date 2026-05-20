@@ -1459,6 +1459,74 @@ def registrar_evento_auditoria(
     return _registrar_evento(session, op_id=op_id, tipo=tipo, usuario_id=usuario_id, payload=payload)
 
 
+def crear_y_pagar(
+    session: Session,
+    *,
+    proveedor_id: int,
+    empresa_id: int,
+    moneda: Moneda,
+    monto_total: Decimal,
+    modo_imputacion: ModoImputacion,
+    items: list[dict],
+    caja_id: int,
+    fecha_pago_real: date,
+    observaciones: Optional[str] = None,
+    creado_por_id: int,
+    confirmar_duplicado: bool = False,
+    tipo_cambio: Optional[Decimal] = None,
+    fecha_pago_estimada: Optional[date] = None,
+    actualizar_tc_pedido: bool = False,
+    tipo_cambio_override: Optional[Decimal] = None,
+) -> OrdenPago:
+    """Crea y paga una OP en una única transacción atómica (F3, design §3.5, AD-10).
+
+    Thin orchestrator: llama a `crear()` + `ejecutar_pago()` dentro de la
+    MISMA sesión sin new business logic. El caller NO hace commit — si el
+    paso de pago falla, cualquier excepción propaga normalmente y el caller
+    debe hacer rollback para revertir TODA la operación (crear + pagar).
+
+    Args:
+        session: tx activa.
+        proveedor_id, empresa_id, moneda, monto_total, modo_imputacion, items:
+            mismos que `crear()`.
+        caja_id: caja donde se registra el egreso.
+        fecha_pago_real: fecha contable del pago.
+        observaciones, creado_por_id, confirmar_duplicado, tipo_cambio,
+            fecha_pago_estimada, actualizar_tc_pedido: mismos que `crear()`.
+        tipo_cambio_override: sobrescribe `op.tipo_cambio` al pagar (sub-batch 2.2).
+
+    Returns:
+        La OP en estado `pagado`.
+
+    Raises:
+        HTTPException 400/404/409/422: cualquier error de validación de
+            `crear()` o `ejecutar_pago()`. El caller debe hacer rollback.
+    """
+    op = crear(
+        session,
+        proveedor_id=proveedor_id,
+        empresa_id=empresa_id,
+        moneda=moneda,
+        monto_total=monto_total,
+        modo_imputacion=modo_imputacion,
+        items=items,
+        observaciones=observaciones,
+        creado_por_id=creado_por_id,
+        confirmar_duplicado=confirmar_duplicado,
+        tipo_cambio=tipo_cambio,
+        fecha_pago_estimada=fecha_pago_estimada,
+        actualizar_tc_pedido=actualizar_tc_pedido,
+    )
+    return ejecutar_pago(
+        session,
+        orden_pago_id=op.id,
+        caja_id=caja_id,
+        fecha_pago_real=fecha_pago_real,
+        user_id=creado_por_id,
+        tipo_cambio_override=tipo_cambio_override,
+    )
+
+
 __all__ = [
     "CODIGO_ERROR_CAJA_MONEDA",
     "CODIGO_ERROR_DUPLICADO_ERP",
@@ -1477,6 +1545,7 @@ __all__ = [
     "anular",
     "cancelar_pendiente",
     "crear",
+    "crear_y_pagar",
     "detectar_duplicado_erp",
     "editar",
     "ejecutar_pago",

@@ -79,6 +79,20 @@ class OrdenPagoEjecutarPago(BaseModel):
     tipo_cambio_override: Decimal | None = Field(None, gt=0)
 
 
+class OrdenPagoCrearYPagar(OrdenPagoCreate, OrdenPagoEjecutarPago):
+    """Body del POST /ordenes-pago/crear-y-pagar (F3).
+
+    Hereda todos los campos de creación (OrdenPagoCreate) y los del pago
+    (OrdenPagoEjecutarPago) para ejecutar ambas operaciones en una sola
+    transacción atómica. Si el paso de pago falla, la creación también
+    se revierte (rollback completo).
+
+    Permisos requeridos (ambos):
+      - `administracion.gestionar_ordenes_compra` (crear OP).
+      - `administracion.ejecutar_pagos` (ejecutar pago).
+    """
+
+
 class OrdenPagoEditar(BaseModel):
     """Body del PUT /ordenes-pago/{id} (sub-batch 1.1).
 

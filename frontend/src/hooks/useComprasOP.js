@@ -58,6 +58,19 @@ export default function useComprasOP() {
     }
   }, []);
 
+  // F3 — crear y pagar en un paso. NO usa wrap por el mismo motivo que
+  // `crear`: el modal necesita leer el 409 POSIBLE_DUPLICADO_OP_ERP raw.
+  const crearYPagar = useCallback(async (payload) => {
+    setLoading(true);
+    try {
+      const { data } = await api.post('/administracion/compras/ordenes-pago/crear-y-pagar', payload);
+      setError(null);
+      return data;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const pagar = useCallback(
     (id, cajaId, fechaPagoReal, tipoCambioOverride = null) =>
       wrap(async () => {
@@ -154,6 +167,7 @@ export default function useComprasOP() {
     listar,
     obtener,
     crear,
+    crearYPagar,
     editar,
     cancelarPendiente,
     pagar,
