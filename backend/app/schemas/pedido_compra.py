@@ -82,6 +82,11 @@ class PedidoCompraResponse(PedidoCompraBase):
     created_at: datetime
     updated_at: datetime
 
+    # F1 — TC Re-valuation fields.
+    # `tipo_cambio_original`: snapshot inmutable del TC al aprobar el pedido.
+    #   None para pedidos ARS (sin TC) o pedidos anteriores a F1 sin backfill.
+    tipo_cambio_original: Decimal | None = None
+
     # Feature D — círculo cerrado de correcciones. Solo populados cuando el
     # pedido forma parte de un par original↔clon (caso contrario: None).
     corregido_desde_id: int | None = None

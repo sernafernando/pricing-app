@@ -14,6 +14,7 @@ Restricciones v1:
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -71,6 +72,16 @@ class OrdenPago(Base):
         Integer,
         ForeignKey("caja_documentos.id", ondelete="RESTRICT"),
         nullable=True,
+    )
+    # F1 — TC Re-valuation: Caso A (TRUE) vs Caso B (FALSE). Set at creation,
+    # immutable after the OP reaches 'pagado'. When TRUE, this OP's TC
+    # contributes to the weighted average effective TC of the target pedido.
+    # server_default='false' → historical OPs default to Caso B (no TC update).
+    actualizar_tc_pedido = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
     )
     fecha_pago_estimada = Column(Date, nullable=True)
     fecha_pago_real = Column(Date, nullable=True)

@@ -398,9 +398,7 @@ class TestPedidosTransiciones:
 class TestPedidosCorregir:
     """Endpoint POST /pedidos/{id}/corregir — clonación append-only."""
 
-    def test_corregir_happy_path_cosmetico(
-        self, client, auth_headers, pedido_aprobado, con_todos_los_permisos
-    ):
+    def test_corregir_happy_path_cosmetico(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_aprobado.id}/corregir",
             headers=auth_headers,
@@ -418,9 +416,7 @@ class TestPedidosCorregir:
         assert body["corregido_desde_id"] == pedido_aprobado.id
         assert body["numero_factura"] == "FA-NUEVA-42"
 
-    def test_corregir_cambia_monto_clon_pendiente(
-        self, client, auth_headers, pedido_aprobado, con_todos_los_permisos
-    ):
+    def test_corregir_cambia_monto_clon_pendiente(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_aprobado.id}/corregir",
             headers=auth_headers,
@@ -434,9 +430,7 @@ class TestPedidosCorregir:
         assert body["estado"] == "pendiente_aprobacion"
         assert Decimal(body["monto"]) == Decimal("7500.00")
 
-    def test_corregir_cambia_moneda_400(
-        self, client, auth_headers, pedido_aprobado, con_todos_los_permisos
-    ):
+    def test_corregir_cambia_moneda_400(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_aprobado.id}/corregir",
             headers=auth_headers,
@@ -458,9 +452,7 @@ class TestPedidosCorregir:
         else:
             assert r.status_code == 400
 
-    def test_corregir_desde_borrador_409(
-        self, client, auth_headers, pedido_borrador, con_todos_los_permisos
-    ):
+    def test_corregir_desde_borrador_409(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_borrador.id}/corregir",
             headers=auth_headers,
@@ -474,9 +466,7 @@ class TestPedidosCorregir:
         msg = body.get("detail") or body.get("error", {}).get("message", "")
         assert "estado" in str(msg).lower()
 
-    def test_corregir_sin_permiso_403(
-        self, client, auth_headers, pedido_aprobado, sin_permisos
-    ):
+    def test_corregir_sin_permiso_403(self, client, auth_headers, pedido_aprobado, sin_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_aprobado.id}/corregir",
             headers=auth_headers,
@@ -487,9 +477,7 @@ class TestPedidosCorregir:
         )
         assert r.status_code == 403
 
-    def test_corregir_motivo_corto_422(
-        self, client, auth_headers, pedido_aprobado, con_todos_los_permisos
-    ):
+    def test_corregir_motivo_corto_422(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
         r = client.post(
             f"{BASE}/pedidos/{pedido_aprobado.id}/corregir",
             headers=auth_headers,

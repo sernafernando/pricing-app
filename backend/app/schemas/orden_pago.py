@@ -54,10 +54,16 @@ class OrdenPagoCreate(OrdenPagoBase):
     `confirmar_duplicado=True` suprime el HTTP 409 cuando el usuario
     decide grabar la OP aun existiendo un posible duplicado en el ERP
     (registra evento de auditoría). Ver design §11.
+
+    `actualizar_tc_pedido` (F1): cuando True (Caso A) el TC de esta OP
+    participa en el promedio ponderado del TC efectivo del pedido destino.
+    False (Caso B, default): el pago se registra normalmente sin modificar
+    el TC efectivo. Inmutable después de que la OP pasa a 'pagado'.
     """
 
     items: list[ImputacionItem] = Field(default_factory=list)
     confirmar_duplicado: bool = False
+    actualizar_tc_pedido: bool = False
 
 
 class OrdenPagoEjecutarPago(BaseModel):
@@ -103,6 +109,9 @@ class OrdenPagoResponse(OrdenPagoBase):
     id: int
     numero: str
     estado: str
+    # F1 — incluido en la respuesta para que el frontend pueda mostrar el
+    # badge "Caso A / Caso B" en el detalle de la OP.
+    actualizar_tc_pedido: bool = False
     caja_id: int | None = None
     caja_movimiento_id: int | None = None
     caja_documento_id: int | None = None

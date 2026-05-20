@@ -1160,6 +1160,8 @@ def crear_orden_pago(
             confirmar_duplicado=data.confirmar_duplicado,
             tipo_cambio=data.tipo_cambio,
             fecha_pago_estimada=data.fecha_pago_estimada,
+            # F1 — Caso A/B flag set at OP creation (FR1.1).
+            actualizar_tc_pedido=data.actualizar_tc_pedido,
         )
     except HTTPException:
         db.rollback()
