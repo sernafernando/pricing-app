@@ -6,11 +6,12 @@ import useComprasOP from '../../hooks/useComprasOP';
 import styles from './ModalEjecutarPago.module.css';
 
 /**
- * ModalEjecutarPago — selecciona caja + fecha y dispara POST /pagar.
+ * ModalEjecutarPago — selecciona fuente de fondos (caja O banco empresa) + fecha
+ * y dispara POST /pagar.
  *
- * Filtra las cajas por `moneda === op.moneda` para evitar 422
- * OP_CAJA_MONEDA_MISMATCH (design §3.2). Si aun así el backend devuelve
- * 422 (por empresa_id mismatch o edge case), mostramos el mensaje inline.
+ * Las cajas se filtran por empresa. Los bancos empresa activos de la empresa
+ * de la OP se agregan como grupo separado en el selector (AD-15). Si el backend
+ * devuelve 422, mostramos el mensaje inline.
  */
 export default function ModalEjecutarPago({ op, onClose }) {
   const opApi = useComprasOP();
@@ -18,9 +19,12 @@ export default function ModalEjecutarPago({ op, onClose }) {
   const today = () => new Date().toISOString().split('T')[0];
 
   const [cajas, setCajas] = useState([]);
-  const [cajaId, setCajaId] = useState('');
+  const [bancosEmpresa, setBancosEmpresa] = useState([]);
+  // fuenteKey: '' | 'caja:<id>' | 'banco:<id>'
+  const [fuenteKey, setFuenteKey] = useState('');
   const [fechaPagoReal, setFechaPagoReal] = useState(today());
   const [loadingCajas, setLoadingCajas] = useState(false);
+  const [loadingBancosEmpresa, setLoadingBancosEmpresa] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -47,6 +51,21 @@ export default function ModalEjecutarPago({ op, onClose }) {
     }
   }, []);
 
+  const fetchBancosEmpresa = useCallback(async () => {
+    if (!op?.empresa_id) return;
+    setLoadingBancosEmpresa(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/bancos?solo_activos=true&empresa_id=${op.empresa_id}`
+      );
+      setBancosEmpresa(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+    } catch {
+      setBancosEmpresa([]);
+    } finally {
+      setLoadingBancosEmpresa(false);
+    }
+  }, [op?.empresa_id]);
+
   const fetchBancosProveedor = useCallback(async () => {
     if (!op?.proveedor_id) return;
     setLoadingBancos(true);
@@ -67,6 +86,10 @@ export default function ModalEjecutarPago({ op, onClose }) {
   }, [fetchCajas]);
 
   useEffect(() => {
+    fetchBancosEmpresa();
+  }, [fetchBancosEmpresa]);
+
+  useEffect(() => {
     fetchBancosProveedor();
   }, [fetchBancosProveedor]);
 
@@ -83,39 +106,57 @@ export default function ModalEjecutarPago({ op, onClose }) {
     }
   };
 
-  // Cajas válidas: misma moneda que la OP, o cross-moneda (si el usuario
-  // proveerá TC override). Filtramos por empresa.
+  // Cajas válidas: filtradas por empresa.
   const cajasFiltradas = cajas.filter((c) => {
     if (c.empresa_id && op.empresa_id && c.empresa_id !== op.empresa_id) return false;
     return true;
   });
 
-  const cajaSeleccionada = cajasFiltradas.find((c) => String(c.id) === String(cajaId));
+  // Parsed fuente seleccionada: { tipo: 'caja'|'banco', id, moneda }
+  const fuenteSeleccionada = (() => {
+    if (!fuenteKey) return null;
+    const [tipo, idStr] = fuenteKey.split(':');
+    const id = Number(idStr);
+    if (tipo === 'caja') {
+      const c = cajasFiltradas.find((c) => c.id === id);
+      return c ? { tipo: 'caja', id, moneda: c.moneda, nombre: c.nombre } : null;
+    }
+    if (tipo === 'banco') {
+      const b = bancosEmpresa.find((b) => b.id === id);
+      return b ? { tipo: 'banco', id, moneda: b.moneda, nombre: b.banco } : null;
+    }
+    return null;
+  })();
+
   const esCrossMoneda =
-    cajaSeleccionada && cajaSeleccionada.moneda && cajaSeleccionada.moneda !== op.moneda;
+    fuenteSeleccionada?.tipo === 'caja' &&
+    fuenteSeleccionada.moneda &&
+    fuenteSeleccionada.moneda !== op.moneda;
   const requiereTC = op.moneda === 'USD' || esCrossMoneda;
   const tcNum = parseFloat(tipoCambioOverride);
   const tcValido = Number.isFinite(tcNum) && tcNum > 0;
 
   // Monto equivalente en moneda de la caja seleccionada (info display).
   const montoEnCaja = (() => {
-    if (!cajaSeleccionada) return null;
+    if (!fuenteSeleccionada || fuenteSeleccionada.tipo !== 'caja') return null;
     const monto = Number(op.monto_total) || 0;
-    if (cajaSeleccionada.moneda === op.moneda) return { valor: monto, moneda: op.moneda };
+    if (fuenteSeleccionada.moneda === op.moneda) return { valor: monto, moneda: op.moneda };
     if (!tcValido) return null;
-    if (op.moneda === 'USD' && cajaSeleccionada.moneda === 'ARS') {
+    if (op.moneda === 'USD' && fuenteSeleccionada.moneda === 'ARS') {
       return { valor: monto * tcNum, moneda: 'ARS' };
     }
-    if (op.moneda === 'ARS' && cajaSeleccionada.moneda === 'USD') {
+    if (op.moneda === 'ARS' && fuenteSeleccionada.moneda === 'USD') {
       return { valor: monto / tcNum, moneda: 'USD' };
     }
     return null;
   })();
 
+  const hayFuentes = cajasFiltradas.length > 0 || bancosEmpresa.length > 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!cajaId) {
-      setError('Seleccioná una caja.');
+    if (!fuenteKey) {
+      setError('Seleccioná una fuente de fondos (caja o banco).');
       return;
     }
     if (!fechaPagoReal) {
@@ -124,7 +165,7 @@ export default function ModalEjecutarPago({ op, onClose }) {
     }
     if (esCrossMoneda && !tcValido) {
       setError(
-        `Caja en ${cajaSeleccionada.moneda} ≠ OP en ${op.moneda}. Ingresá un tipo de cambio > 0 para convertir.`
+        `Caja en ${fuenteSeleccionada.moneda} ≠ OP en ${op.moneda}. Ingresá un tipo de cambio > 0 para convertir.`
       );
       return;
     }
@@ -132,16 +173,13 @@ export default function ModalEjecutarPago({ op, onClose }) {
     setError(null);
     try {
       const tcToSend = requiereTC && tcValido ? tcNum : null;
-      await opApi.pagar(op.id, Number(cajaId), fechaPagoReal, tcToSend);
+      await opApi.pagar(op.id, fuenteSeleccionada, fechaPagoReal, tcToSend);
       onClose(true);
     } catch (err) {
       const res = err.response;
       const detail = res?.data?.detail || '';
       const asText = typeof detail === 'string' ? detail : JSON.stringify(detail);
-      if (
-        res?.status === 422 &&
-        asText.includes('OP_CAJA_MONEDA_MISMATCH')
-      ) {
+      if (res?.status === 422 && asText.includes('OP_CAJA_MONEDA_MISMATCH')) {
         setError(
           `La caja elegida tiene moneda distinta a la OP (${op.moneda}) y no se pudo aplicar TC. Verificá el tipo de cambio.`
         );
@@ -276,33 +314,49 @@ export default function ModalEjecutarPago({ op, onClose }) {
 
         <form onSubmit={handleSubmit}>
           <div className={styles.formGroup}>
-            <label className={styles.formLabel}>Caja *</label>
-            {loadingCajas ? (
-              <div className={styles.loading}>Cargando cajas...</div>
-            ) : cajasFiltradas.length === 0 ? (
+            <label className={styles.formLabel}>Fuente de fondos *</label>
+            {loadingCajas || loadingBancosEmpresa ? (
+              <div className={styles.loading}>Cargando fuentes de fondos...</div>
+            ) : !hayFuentes ? (
               <div className={styles.warning}>
-                <AlertTriangle size={14} /> No hay cajas disponibles para la empresa{' '}
-                {op.empresa_nombre || `#${op.empresa_id}`} (id #{op.empresa_id}). Creá
-                una caja antes de pagar.
+                <AlertTriangle size={14} /> No hay cajas ni bancos disponibles para la empresa{' '}
+                {op.empresa_nombre || `#${op.empresa_id}`}. Creá una caja o banco antes de pagar.
               </div>
             ) : (
               <select
                 className={styles.select}
-                value={cajaId}
-                onChange={(e) => setCajaId(e.target.value)}
+                value={fuenteKey}
+                onChange={(e) => setFuenteKey(e.target.value)}
                 required
               >
                 <option value="">Seleccionar...</option>
-                {cajasFiltradas.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre} — {c.moneda} — saldo:{' '}
-                    {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                    {c.moneda && c.moneda !== op.moneda ? ' — cross-moneda' : ''}
-                  </option>
-                ))}
+                {cajasFiltradas.length > 0 && (
+                  <optgroup label="Cajas">
+                    {cajasFiltradas.map((c) => (
+                      <option key={`caja:${c.id}`} value={`caja:${c.id}`}>
+                        {c.nombre} — {c.moneda} — saldo:{' '}
+                        {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        {c.moneda && c.moneda !== op.moneda ? ' — cross-moneda' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {bancosEmpresa.length > 0 && (
+                  <optgroup label="Cuentas bancarias">
+                    {bancosEmpresa.map((b) => (
+                      <option key={`banco:${b.id}`} value={`banco:${b.id}`}>
+                        {b.banco} — {b.moneda} — saldo:{' '}
+                        {Number(b.saldo_actual || 0).toLocaleString('es-AR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             )}
           </div>
@@ -363,7 +417,7 @@ export default function ModalEjecutarPago({ op, onClose }) {
             <button
               type="submit"
               className={styles.btnSuccess}
-              disabled={saving || cajasFiltradas.length === 0}
+              disabled={saving || !hayFuentes}
             >
               {saving ? 'Procesando...' : 'Confirmar pago'}
             </button>

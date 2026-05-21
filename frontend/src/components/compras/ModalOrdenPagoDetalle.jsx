@@ -312,35 +312,62 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
             )}
 
             {/* ── Pago ejecutado ── */}
-            {estadoActual === 'pagado' && detalle.caja_movimiento_resumen && (
+            {estadoActual === 'pagado' && (detalle.caja_movimiento_resumen || detalle.banco_id) && (
               <>
                 <h3 className={styles.sectionTitle}>Pago ejecutado</h3>
                 <div className={styles.pagoCard}>
-                  <div className={styles.pagoRow}>
-                    <span className={styles.infoLabel}>Caja</span>
-                    <strong className={styles.infoValue}>
-                      {detalle.caja_movimiento_resumen.caja_nombre ||
-                        `#${detalle.caja_movimiento_resumen.caja_id}`}
-                    </strong>
-                  </div>
-                  <div className={styles.pagoRow}>
-                    <span className={styles.infoLabel}>Fecha pago</span>
-                    <strong className={styles.infoValue}>
-                      {formatDate(detalle.caja_movimiento_resumen.fecha)}
-                    </strong>
-                  </div>
-                  <div className={styles.pagoRow}>
-                    <span className={styles.infoLabel}>Monto</span>
-                    <strong className={styles.infoValue}>
-                      {formatCurrency(detalle.caja_movimiento_resumen.monto, detalle.moneda)}
-                    </strong>
-                  </div>
-                  <div className={styles.pagoRow}>
-                    <span className={styles.infoLabel}>Tipo</span>
-                    <strong className={styles.infoValue}>
-                      {detalle.caja_movimiento_resumen.tipo}
-                    </strong>
-                  </div>
+                  {detalle.caja_movimiento_resumen ? (
+                    <>
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Caja</span>
+                        <strong className={styles.infoValue}>
+                          {detalle.caja_movimiento_resumen.caja_nombre ||
+                            `#${detalle.caja_movimiento_resumen.caja_id}`}
+                        </strong>
+                      </div>
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Fecha pago</span>
+                        <strong className={styles.infoValue}>
+                          {formatDate(detalle.caja_movimiento_resumen.fecha)}
+                        </strong>
+                      </div>
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Monto</span>
+                        <strong className={styles.infoValue}>
+                          {formatCurrency(detalle.caja_movimiento_resumen.monto, detalle.moneda)}
+                        </strong>
+                      </div>
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Tipo</span>
+                        <strong className={styles.infoValue}>
+                          {detalle.caja_movimiento_resumen.tipo}
+                        </strong>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Banco</span>
+                        <strong className={styles.infoValue}>
+                          {`#${detalle.banco_id}`}
+                        </strong>
+                      </div>
+                      {detalle.fecha_pago_real && (
+                        <div className={styles.pagoRow}>
+                          <span className={styles.infoLabel}>Fecha pago</span>
+                          <strong className={styles.infoValue}>
+                            {formatDate(detalle.fecha_pago_real)}
+                          </strong>
+                        </div>
+                      )}
+                      <div className={styles.pagoRow}>
+                        <span className={styles.infoLabel}>Monto</span>
+                        <strong className={styles.infoValue}>
+                          {formatCurrency(detalle.monto_total, detalle.moneda)}
+                        </strong>
+                      </div>
+                    </>
+                  )}
                 </div>
               </>
             )}

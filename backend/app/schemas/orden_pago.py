@@ -13,7 +13,8 @@ Moneda OP debe coincidir con la caja al pagar (D7, HTTP 422 si no).
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing_extensions import Self
 
 
 MODOS_IMPUTACION: tuple[str, ...] = ("especifica", "a_cuenta", "mixta")
@@ -86,14 +87,29 @@ class OrdenPagoCreate(OrdenPagoBase):
 class OrdenPagoEjecutarPago(BaseModel):
     """Body del POST /ordenes-pago/{id}/pagar.
 
+    F7 (PR#2b): acepta `caja_id` O `banco_id` como fuente de fondos (mutuamente
+    excluyentes). Exactamente uno debe venir seteado al pagar.
+
     `tipo_cambio_override` permite sobrescribir el TC de la OP al momento
     del pago (sub-batch 2.2). Si viene, reemplaza `op.tipo_cambio` antes de
     registrar el egreso en caja ARS cross-moneda (design §3.2 extendido).
     """
 
-    caja_id: int
+    caja_id: int | None = None
+    banco_id: int | None = None
     fecha_pago_real: date
     tipo_cambio_override: Decimal | None = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def exactamente_una_fuente(self) -> Self:
+        """Exactamente una fuente de fondos: caja XOR banco (FR2.6 / AC-F2-7)."""
+        tiene_caja = self.caja_id is not None
+        tiene_banco = self.banco_id is not None
+        if tiene_caja and tiene_banco:
+            raise ValueError("Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.")
+        if not tiene_caja and not tiene_banco:
+            raise ValueError("Se requiere exactamente una fuente de fondos: caja_id o banco_id.")
+        return self
 
 
 class OrdenPagoCrearYPagar(OrdenPagoCreate, OrdenPagoEjecutarPago):
@@ -146,6 +162,9 @@ class OrdenPagoResponse(OrdenPagoBase):
     caja_id: int | None = None
     caja_movimiento_id: int | None = None
     caja_documento_id: int | None = None
+    # F7 — banco como fuente de fondos (PR#2b)
+    banco_id: int | None = None
+    banco_movimiento_id: int | None = None
     fecha_pago_real: date | None = None
     creado_por_id: int
     pagado_por_id: int | None = None
