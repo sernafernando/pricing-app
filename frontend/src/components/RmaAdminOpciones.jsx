@@ -62,6 +62,8 @@ export default function RmaAdminOpciones() {
 
   useEffect(() => {
     cargarCategorias();
+    // solo al montar — cargarCategorias estable para este ciclo de vida
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

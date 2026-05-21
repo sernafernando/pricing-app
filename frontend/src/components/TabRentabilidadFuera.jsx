@@ -31,10 +31,15 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
 
 
   // Convertir arrays a strings para evitar re-renders infinitos
-  const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
-  const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
-  const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
-  const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
+  // Expresiones extraídas a constantes para que el linter pueda chequearlas
+  const marcasJoined = marcasSeleccionadas.join(',');
+  const categoriasJoined = categoriasSeleccionadas.join(',');
+  const subcategoriasJoined = subcategoriasSeleccionadas.join(',');
+  const productosJoined = productosSeleccionados.join(',');
+  const marcasKey = useMemo(() => marcasJoined, [marcasJoined]);
+  const categoriasKey = useMemo(() => categoriasJoined, [categoriasJoined]);
+  const subcategoriasKey = useMemo(() => subcategoriasJoined, [subcategoriasJoined]);
+  const productosKey = useMemo(() => productosJoined, [productosJoined]);
 
   // Búsquedas en filtros
   const [busquedaMarca, setBusquedaMarca] = useState('');
@@ -62,12 +67,16 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
       cargarFiltros();
       cargarRentabilidad();
     }
+    // cargarFiltros/cargarRentabilidad se recrean cada render — recargar solo cuando cambian fechas/sucursal/vendedor
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaDesde, fechaHasta, sucursal, vendedor]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarRentabilidad();
     }
+    // recargar solo cuando cambian las selecciones de filtros — fechas cubiertas por el otro efecto
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
 
   const cargarFiltros = async () => {

@@ -410,6 +410,8 @@ export default function ModalOffset({
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
+    // handleClose se recrea cada render — solo depende de mostrar para enganchar el listener
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mostrar]);
 
   if (!mostrar) return null;

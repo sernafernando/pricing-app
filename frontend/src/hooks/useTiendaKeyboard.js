@@ -119,6 +119,8 @@ export function useTiendaKeyboard({
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    // se listan deps granulares de pricing/data a propósito — incluir los objetos enteros recrearía el listener cada render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pricing.editandoPrecio, pricing.editandoRebate, pricing.editandoWebTransf, pricing.editandoCuota, data.productos, celdaActiva, showToast]);
 
   // === MAIN KEYBOARD NAVIGATION ===
@@ -459,6 +461,8 @@ export function useTiendaKeyboard({
           return;
         }
       }
+      // se listan deps granulares a propósito — incluir los objetos enteros (data/pricing/ui/...) recrearía el callback cada render
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
       // Estado de edición
       pricing.editandoPrecio, pricing.editandoRebate, pricing.editandoWebTransf, pricing.editandoCuota,

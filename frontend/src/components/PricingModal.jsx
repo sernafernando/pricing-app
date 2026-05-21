@@ -107,6 +107,8 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
   useEffect(() => {
   cargarOfertas();
+  // solo al montar — cargarOfertas estable para este ciclo de vida del modal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const cargarOfertas = async () => {

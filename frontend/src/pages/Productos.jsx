@@ -331,7 +331,8 @@ export default function Productos() {
     loadFiltersFromURL();
     // Marcar que los filtros ya fueron inicializados
     setFiltrosInicializados(true);
-  }, []); // Solo al montar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo al montar — loadFiltersFromURL estable
 
   // useEffect para sincronizar filtros a URL cuando cambian
   useEffect(() => {
@@ -339,6 +340,8 @@ export default function Productos() {
     if (filtrosInicializados) {
       syncFiltersToURL();
     }
+    // syncFiltersToURL se recrea cada render — sincronizar solo cuando cambian los filtros listados
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     filtrosInicializados,
     searchInput,
@@ -368,11 +371,15 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
+    // cargarProductos se recrea cada render — recargar solo cuando cambian paginación/filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
 
   // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
     cargarStats();
+    // cargarStats se recrea cada render — recargar solo cuando cambian los filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
@@ -455,6 +462,8 @@ export default function Productos() {
     cargarTiposAccion();
     cargarPMs();
     cargarOffsetsVigentes();
+    // solo al montar — funciones de carga estables para este ciclo de vida
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cargar offsets vigentes sin límite de unidades/monto + tipo de cambio
@@ -496,11 +505,15 @@ export default function Productos() {
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
   useEffect(() => {
     cargarMarcas();
+    // cargarMarcas se recrea cada render — recargar solo cuando cambian los filtros listados
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria, pmsSeleccionados]);
 
   // Recargar subcategorías cuando cambien filtros (excepto subcategoriasSeleccionadas)
   useEffect(() => {
     cargarSubcategorias();
+    // cargarSubcategorias se recrea cada render — recargar solo cuando cambian los filtros listados
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria, pmsSeleccionados]);
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
@@ -2195,6 +2208,8 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    // funciones de acción (toggles/cargarStats/etc.) se recrean cada render — incluirlas re-engancharía el listener en cada render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, puedeCalcularPVPMasivo, mostrarFiltrosAvanzados, modoVista, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarCalcularPVPModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa

@@ -29,6 +29,8 @@ export default function PanelSubcategorias() {
 
   useEffect(() => {
     cargarDatos();
+    // cargarDatos se recrea cada render — recargar solo cuando cambia verOcultas
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verOcultas]);
 
   // Auto-limpiar mensajes

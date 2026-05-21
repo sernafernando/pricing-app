@@ -300,10 +300,14 @@ export default function SetupMarkups() {
     cargarStats();
     cargarProductosConMarkup();
     cargarConfig();
+    // solo al montar — funciones de carga estables para este ciclo de vida
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     cargarBrands();
+    // cargarBrands se recrea cada render — recargar solo cuando cambia búsqueda/filtro
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busquedaMarca, soloConMarkup]);
 
   return (

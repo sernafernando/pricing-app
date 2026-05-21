@@ -84,6 +84,8 @@ export default function ModalRma({ caso, onClose }) {
       cargarCasoCompleto();
       cargarHistorial();
     }
+    // solo al montar — funciones de carga estables para este ciclo de vida del modal
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cargar claims de ML cuando el caso tiene ml_id

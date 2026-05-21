@@ -38,6 +38,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
       cargarDetalle();
       setDatosMl(null); // Reset ML data when modal opens
     }
+    // cargarDetalle se recrea cada render — cargar solo al abrir o cambiar de item
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, itemId]);
 
   // Cargar datos de ML cuando se hace clic en la pestaña de ML o Ventas
@@ -45,6 +47,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     if ((tabActiva === 'ml' || tabActiva === 'ventas') && !datosMl && !cargandoMl && itemId) {
       cargarDatosMl();
     }
+    // cargarDatosMl se recrea cada render — cargar solo al activar la pestaña ML/ventas
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabActiva, datosMl, cargandoMl, itemId]);
 
   const cargarDetalle = async () => {
