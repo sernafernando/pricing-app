@@ -8,6 +8,7 @@ Cubre:
   - ambos None → 422 (se requiere al menos una fuente al pagar).
   - OrdenPagoResponse tiene banco_id y banco_movimiento_id.
   - OrdenPagoCrearYPagar acepta banco_id (hereda del validator).
+  - OrdenPagoDetalle expone banco_nombre (follow-up #3).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from pydantic import ValidationError
 
 from app.schemas.orden_pago import (
     OrdenPagoCrearYPagar,
+    OrdenPagoDetalle,
     OrdenPagoEjecutarPago,
     OrdenPagoResponse,
 )
@@ -126,3 +128,44 @@ class TestOrdenPagoCrearYPagarBanco:
         """Ambos set → ValidationError."""
         with pytest.raises(ValidationError):
             OrdenPagoCrearYPagar(**self._base(), caja_id=3, banco_id=5)
+
+
+class TestOrdenPagoDetalleBancoNombre:
+    """OrdenPagoDetalle expone banco_nombre (follow-up #3).
+
+    Verifica que el campo banco_nombre esté presente en el schema y que:
+    - Sea None por defecto (OP de caja o pendiente).
+    - Acepte el nombre del banco cuando la OP fue pagada con banco.
+    """
+
+    def _base(self) -> dict:
+        return {
+            "id": 1,
+            "numero": "OP-001",
+            "empresa_id": 1,
+            "proveedor_id": 2,
+            "moneda": "ARS",
+            "monto_total": Decimal("10000"),
+            "modo_imputacion": "a_cuenta",
+            "estado": "pendiente",
+            "creado_por_id": 1,
+            "created_at": "2026-05-21T00:00:00Z",
+            "updated_at": "2026-05-21T00:00:00Z",
+        }
+
+    def test_banco_nombre_defaults_none(self) -> None:
+        """banco_nombre es None cuando no se provee (OP de caja o pendiente)."""
+        detalle = OrdenPagoDetalle(**self._base())
+        assert detalle.banco_nombre is None
+
+    def test_banco_nombre_populated(self) -> None:
+        """banco_nombre acepta el nombre del banco cuando la OP fue pagada con banco."""
+        detalle = OrdenPagoDetalle(**self._base(), banco_id=5, banco_nombre="Banco Galicia")
+        assert detalle.banco_nombre == "Banco Galicia"
+        assert detalle.banco_id == 5
+
+    def test_banco_nombre_none_when_caja_payment(self) -> None:
+        """Pago por caja: banco_nombre es None, caja_movimiento_resumen llevará el detalle."""
+        detalle = OrdenPagoDetalle(**self._base(), caja_id=3, banco_nombre=None)
+        assert detalle.banco_nombre is None
+        assert detalle.caja_movimiento_resumen is None

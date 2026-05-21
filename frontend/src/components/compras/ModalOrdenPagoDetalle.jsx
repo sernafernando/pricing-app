@@ -349,7 +349,7 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
                       <div className={styles.pagoRow}>
                         <span className={styles.infoLabel}>Banco</span>
                         <strong className={styles.infoValue}>
-                          {`#${detalle.banco_id}`}
+                          {detalle.banco_nombre || `#${detalle.banco_id}`}
                         </strong>
                       </div>
                       {detalle.fecha_pago_real && (

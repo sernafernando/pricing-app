@@ -1170,14 +1170,15 @@ def obtener_orden_pago(
     para que tesorería vea el pago sin otro round-trip.
     """
     # joinedload para poblar empresa_nombre/proveedor_nombre + caja_movimiento.caja
-    # sin N+1. `caja_movimiento` y su `caja` solo son relevantes si la OP ya fue
-    # pagada, pero el joinedload es no-op cuando la FK es NULL.
+    # + banco (cuando la OP fue pagada con banco) sin N+1. Cada joinedload es
+    # no-op cuando la FK correspondiente es NULL.
     op = db.execute(
         select(OrdenPago)
         .options(
             joinedload(OrdenPago.empresa),
             joinedload(OrdenPago.proveedor),
             joinedload(OrdenPago.caja_movimiento).joinedload(CajaMovimiento.caja),
+            joinedload(OrdenPago.banco),
         )
         .where(OrdenPago.id == op_id)
     ).scalar_one_or_none()
@@ -1214,11 +1215,13 @@ def obtener_orden_pago(
 
     emp = getattr(op, "empresa", None)
     prov = getattr(op, "proveedor", None)
+    banco = getattr(op, "banco", None)
     detalle = OrdenPagoDetalle.model_validate(op)
     detalle = detalle.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
+            "banco_nombre": banco.banco if banco is not None else None,
         }
     )
     detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))
