@@ -358,3 +358,121 @@
   background: var(--cf-bg-hover);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
+
+/* T3.13 — movimientos panel + card selected state */
+
+.cardSelected {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.saldoActual {
+  color: var(--cf-accent-green, #22c55e);
+  font-weight: 600;
+}
+
+.movPanel {
+  margin-top: var(--spacing-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.movPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--cf-bg-hover);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.movPanelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: 600;
+  font-size: var(--font-sm);
+}
+
+.movPanelSaldo {
+  margin-left: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.movLoading,
+.movEmpty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.movTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.movTable th {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-hover);
+}
+
+.movTable td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle, var(--cf-border-default));
+  color: var(--cf-text-primary);
+}
+
+.rowEgreso td { background: rgba(239, 68, 68, 0.03); }
+.rowIngreso td { background: rgba(34, 197, 94, 0.03); }
+
+.movTipo { text-transform: capitalize; }
+
+.movMonto { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.rowEgreso .movMonto { color: var(--cf-accent-red, #ef4444); }
+.rowIngreso .movMonto { color: var(--cf-accent-green, #22c55e); }
+
+.movDetalle {
+  color: var(--cf-text-secondary);
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.movPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.btnSecondary {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+.btnSecondary:hover:not(:disabled) { background: var(--cf-bg-hover); }
+.btnSecondary:disabled { opacity: 0.5; cursor: not-allowed; }

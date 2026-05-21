@@ -71,13 +71,22 @@ export default function useComprasOP() {
     }
   }, []);
 
+  /**
+   * Ejecutar pago de OP (POST /ordenes-pago/{id}/pagar).
+   *
+   * `fuente` puede ser `{ tipo: 'caja', id: <number> }` o
+   * `{ tipo: 'banco', id: <number> }`. Exactamente una de `caja_id` /
+   * `banco_id` se envía al backend (FR2.6 / AC-F2-7).
+   */
   const pagar = useCallback(
-    (id, cajaId, fechaPagoReal, tipoCambioOverride = null) =>
+    (id, fuente, fechaPagoReal, tipoCambioOverride = null) =>
       wrap(async () => {
-        const body = {
-          caja_id: cajaId,
-          fecha_pago_real: fechaPagoReal,
-        };
+        const body = { fecha_pago_real: fechaPagoReal };
+        if (fuente?.tipo === 'banco') {
+          body.banco_id = fuente.id;
+        } else {
+          body.caja_id = fuente?.id ?? fuente; // backward-compat: fuente numérico legacy
+        }
         if (tipoCambioOverride !== null && tipoCambioOverride !== undefined && tipoCambioOverride !== '') {
           body.tipo_cambio_override = tipoCambioOverride;
         }

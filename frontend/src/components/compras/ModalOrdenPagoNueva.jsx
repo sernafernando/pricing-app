@@ -154,9 +154,12 @@ export default function ModalOrdenPagoNueva({
   // Default: false → flujo original (solo crea la OP en estado pendiente).
   const [pagarAhora, setPagarAhora] = useState(false);
   const [cajas, setCajas] = useState([]);
+  const [bancosEmpresa, setBancosEmpresa] = useState([]);
   const [loadingCajas, setLoadingCajas] = useState(false);
+  const [loadingBancosEmpresa, setLoadingBancosEmpresa] = useState(false);
   const today = new Date().toISOString().split('T')[0];
-  const [pagoForm, setPagoForm] = useState({ cajaId: '', fechaPagoReal: today, tipoCambioOverride: '' });
+  // fuenteKey: '' | 'caja:<id>' | 'banco:<id>'
+  const [pagoForm, setPagoForm] = useState({ fuenteKey: '', fechaPagoReal: today, tipoCambioOverride: '' });
 
   const fetchCajas = useCallback(async () => {
     setLoadingCajas(true);
@@ -170,11 +173,32 @@ export default function ModalOrdenPagoNueva({
     }
   }, []);
 
+  const fetchBancosEmpresaPago = useCallback(async (empresaId) => {
+    if (!empresaId) return;
+    setLoadingBancosEmpresa(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/bancos?solo_activos=true&empresa_id=${empresaId}`
+      );
+      setBancosEmpresa(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+    } catch {
+      setBancosEmpresa([]);
+    } finally {
+      setLoadingBancosEmpresa(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (pagarAhora && cajas.length === 0) {
       fetchCajas();
     }
   }, [pagarAhora, cajas.length, fetchCajas]);
+
+  useEffect(() => {
+    if (pagarAhora) {
+      fetchBancosEmpresaPago(form.empresa_id);
+    }
+  }, [pagarAhora, form.empresa_id, fetchBancosEmpresaPago]);
 
   const handlePagoFormChange = (campo, valor) => {
     setPagoForm((prev) => ({ ...prev, [campo]: valor }));
@@ -402,7 +426,13 @@ export default function ModalOrdenPagoNueva({
       ncs_aplicadas: isEditMode ? [] : ncsAplicadas,
     };
     if (pagarAhora) {
-      base.caja_id = Number(pagoForm.cajaId);
+      const [fuenteTipo, fuenteIdStr] = (pagoForm.fuenteKey || '').split(':');
+      const fuenteId = Number(fuenteIdStr);
+      if (fuenteTipo === 'banco') {
+        base.banco_id = fuenteId;
+      } else {
+        base.caja_id = fuenteId;
+      }
       base.fecha_pago_real = pagoForm.fechaPagoReal;
       const tcOv = parseFloat(pagoForm.tipoCambioOverride);
       if (Number.isFinite(tcOv) && tcOv > 0) {
@@ -446,8 +476,8 @@ export default function ModalOrdenPagoNueva({
       return;
     }
     // F3: validate payment fields when "Pagar ahora" is ON.
-    if (pagarAhora && !pagoForm.cajaId) {
-      setError('Seleccioná una caja para ejecutar el pago.');
+    if (pagarAhora && !pagoForm.fuenteKey) {
+      setError('Seleccioná una fuente de fondos (caja o banco) para ejecutar el pago.');
       return;
     }
     if (pagarAhora && !pagoForm.fechaPagoReal) {
@@ -716,28 +746,45 @@ export default function ModalOrdenPagoNueva({
           {!isEditMode && pagarAhora && (
             <div className={styles.pagarAhoraPanel}>
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Caja *</label>
-                {loadingCajas ? (
-                  <div className={styles.fieldHint}>Cargando cajas...</div>
+                <label className={styles.formLabel}>Fuente de fondos *</label>
+                {loadingCajas || loadingBancosEmpresa ? (
+                  <div className={styles.fieldHint}>Cargando fuentes de fondos...</div>
                 ) : (
                   <select
                     className={styles.select}
-                    value={pagoForm.cajaId}
-                    onChange={(e) => handlePagoFormChange('cajaId', e.target.value)}
+                    value={pagoForm.fuenteKey}
+                    onChange={(e) => handlePagoFormChange('fuenteKey', e.target.value)}
                     required
                   >
-                    <option value="">Seleccionar caja...</option>
-                    {cajas
-                      .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nombre} — {c.moneda} — saldo:{' '}
-                          {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </option>
-                      ))}
+                    <option value="">Seleccionar...</option>
+                    {cajas.filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)).length > 0 && (
+                      <optgroup label="Cajas">
+                        {cajas
+                          .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
+                          .map((c) => (
+                            <option key={`caja:${c.id}`} value={`caja:${c.id}`}>
+                              {c.nombre} — {c.moneda} — saldo:{' '}
+                              {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                    {bancosEmpresa.length > 0 && (
+                      <optgroup label="Cuentas bancarias">
+                        {bancosEmpresa.map((b) => (
+                          <option key={`banco:${b.id}`} value={`banco:${b.id}`}>
+                            {b.banco} — {b.moneda} — saldo:{' '}
+                            {Number(b.saldo_actual || 0).toLocaleString('es-AR', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 )}
               </div>

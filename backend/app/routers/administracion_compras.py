@@ -1258,14 +1258,16 @@ def crear_y_pagar_orden_pago(
       - `administracion.gestionar_ordenes_compra` (creación de OP).
       - `administracion.ejecutar_pagos` (ejecución del pago — `user` inyectado).
 
-    Si el paso de pago falla (caja inválida, moneda mismatch, etc.),
+    Si el paso de pago falla (fuente inválida, moneda mismatch, etc.),
     la OP creada también se revierte — cero registros escritos.
 
     Puede levantar:
       - 400: OP o pago con datos inválidos.
-      - 404: caja inexistente.
+      - 404: caja o banco inexistente.
       - 409 POSIBLE_DUPLICADO_OP_ERP: duplicado ERP sin confirmar.
-      - 422 OP_CAJA_MONEDA_MISMATCH: moneda caja != moneda OP sin TC.
+      - 422 OP_CAJA_MONEDA_MISMATCH: fuente.moneda != op.moneda sin TC.
+      - 409: fuente.empresa_id != op.empresa_id (caja o banco).
+      - 422: banco inactivo o sin empresa asignada.
     """
     items_norm = [
         {
@@ -1292,6 +1294,7 @@ def crear_y_pagar_orden_pago(
             fecha_pago_estimada=data.fecha_pago_estimada,
             actualizar_tc_pedido=data.actualizar_tc_pedido,
             caja_id=data.caja_id,
+            banco_id=data.banco_id,
             fecha_pago_real=data.fecha_pago_real,
             tipo_cambio_override=data.tipo_cambio_override,
             # F7 — NCs a imputar después del pago (AD-3 / FR1.4).
@@ -1538,18 +1541,22 @@ def pagar_orden_pago(
 ) -> OrdenPagoResponse:
     """Ejecutar pago — permiso crítico `ejecutar_pagos`.
 
-    El service `ordenes_pago_service.ejecutar_pago` hace flush pero NO
-    commit; orquestamos acá el commit/rollback explícito. Puede levantar:
+    Acepta caja_id O banco_id como fuente de fondos (mutuamente excluyentes).
+    El service hace flush pero NO commit; orquestamos acá el commit/rollback.
+
+    Puede levantar:
       - 400: OP en estado distinto a 'pendiente'.
-      - 404: OP o caja inexistente.
-      - 409: caja.empresa_id != op.empresa_id.
-      - 422 OP_CAJA_MONEDA_MISMATCH: caja.moneda != op.moneda.
+      - 404: OP, caja o banco inexistente.
+      - 409: fuente.empresa_id != op.empresa_id (caja o banco).
+      - 422 OP_CAJA_MONEDA_MISMATCH: fuente.moneda != op.moneda sin TC.
+      - 422: banco inactivo o sin empresa asignada.
     """
     try:
         op = ordenes_pago_service.ejecutar_pago(
             db,
             orden_pago_id=op_id,
             caja_id=data.caja_id,
+            banco_id=data.banco_id,
             fecha_pago_real=data.fecha_pago_real,
             user_id=user.id,
             tipo_cambio_override=data.tipo_cambio_override,

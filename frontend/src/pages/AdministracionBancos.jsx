@@ -31,6 +31,36 @@ export default function AdministracionBancos() {
   const [soloActivos, setSoloActivos] = useState(true);
   const [empresas, setEmpresas] = useState([]);
 
+  // T3.13 — movimientos panel
+  const [selectedBanco, setSelectedBanco] = useState(null);
+  const [movimientos, setMovimientos] = useState([]);
+  const [loadingMov, setLoadingMov] = useState(false);
+  const [movPage, setMovPage] = useState(1);
+  const [movTotal, setMovTotal] = useState(0);
+  const MOV_PAGE_SIZE = 20;
+
+  const fetchMovimientos = useCallback(async (bancoId, page = 1) => {
+    setLoadingMov(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/bancos/${bancoId}/movimientos?page=${page}&page_size=${MOV_PAGE_SIZE}`
+      );
+      setMovimientos(Array.isArray(data?.items) ? data.items : []);
+      setMovTotal(data?.total ?? 0);
+      setMovPage(page);
+    } catch {
+      setMovimientos([]);
+      setMovTotal(0);
+    } finally {
+      setLoadingMov(false);
+    }
+  }, []);
+
+  const handleSelectBanco = (banco) => {
+    setSelectedBanco(banco);
+    fetchMovimientos(banco.id, 1);
+  };
+
   // Modal
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -156,7 +186,85 @@ export default function AdministracionBancos() {
       ) : bancos.length === 0 ? (
         <div className={styles.emptyState}>No se encontraron cuentas bancarias</div>
       ) : (
-        <BancosGrouped bancos={bancos} canEdit={canEdit} onEdit={handleOpenEdit} onToggle={handleToggle} />
+        <BancosGrouped bancos={bancos} canEdit={canEdit} onEdit={handleOpenEdit} onToggle={handleToggle} onSelect={handleSelectBanco} selectedId={selectedBanco?.id} />
+      )}
+
+      {/* T3.13 — movimientos panel */}
+      {selectedBanco && (
+        <div className={styles.movPanel}>
+          <div className={styles.movPanelHeader}>
+            <div className={styles.movPanelTitle}>
+              <Landmark size={16} />
+              <span>Movimientos — {selectedBanco.banco}</span>
+              <span className={styles.movPanelSaldo}>
+                Saldo actual:{' '}
+                <strong>
+                  {selectedBanco.moneda === 'USD' ? 'USD ' : '$ '}
+                  {Number(selectedBanco.saldo_actual ?? selectedBanco.saldo_inicial).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </strong>
+              </span>
+            </div>
+            <button className={styles.btnIcon} onClick={() => setSelectedBanco(null)} title="Cerrar panel">
+              <X size={16} />
+            </button>
+          </div>
+          {loadingMov ? (
+            <div className={styles.movLoading}><Loader2 size={16} className={styles.spinning} /> Cargando...</div>
+          ) : movimientos.length === 0 ? (
+            <div className={styles.movEmpty}>Sin movimientos registrados.</div>
+          ) : (
+            <>
+              <table className={styles.movTable}>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Monto</th>
+                    <th>Saldo post</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movimientos.map((m) => (
+                    <tr key={m.id} className={m.tipo === 'egreso' ? styles.rowEgreso : styles.rowIngreso}>
+                      <td>{m.fecha}</td>
+                      <td className={styles.movTipo}>{m.tipo}</td>
+                      <td className={styles.movMonto}>
+                        {m.tipo === 'egreso' ? '−' : '+'}
+                        {selectedBanco.moneda === 'USD' ? 'USD ' : '$ '}
+                        {Number(m.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td>
+                        {selectedBanco.moneda === 'USD' ? 'USD ' : '$ '}
+                        {Number(m.saldo_posterior).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className={styles.movDetalle}>{m.detalle}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {movTotal > MOV_PAGE_SIZE && (
+                <div className={styles.movPager}>
+                  <button
+                    className={styles.btnSecondary}
+                    disabled={movPage === 1}
+                    onClick={() => fetchMovimientos(selectedBanco.id, movPage - 1)}
+                  >
+                    Anterior
+                  </button>
+                  <span>{movPage} / {Math.ceil(movTotal / MOV_PAGE_SIZE)}</span>
+                  <button
+                    className={styles.btnSecondary}
+                    disabled={movPage >= Math.ceil(movTotal / MOV_PAGE_SIZE)}
+                    onClick={() => fetchMovimientos(selectedBanco.id, movPage + 1)}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {/* Modal crear/editar */}
@@ -256,7 +364,7 @@ export default function AdministracionBancos() {
 
 // ── Bancos agrupados por titular/CUIT ────────────────────────────
 
-function BancosGrouped({ bancos, canEdit, onEdit, onToggle }) {
+function BancosGrouped({ bancos, canEdit, onEdit, onToggle, onSelect, selectedId }) {
   // Agrupar por cuit_titular (si no tiene, agrupar bajo "Sin titular")
   const groups = {};
   for (const b of bancos) {
@@ -285,7 +393,7 @@ function BancosGrouped({ bancos, canEdit, onEdit, onToggle }) {
             </div>
             <div className={styles.grid}>
               {group.bancos.map((b) => (
-                <BancoCard key={b.id} banco={b} canEdit={canEdit} onEdit={onEdit} onToggle={onToggle} />
+                <BancoCard key={b.id} banco={b} canEdit={canEdit} onEdit={onEdit} onToggle={onToggle} onSelect={onSelect} isSelected={b.id === selectedId} />
               ))}
             </div>
           </div>
@@ -295,19 +403,27 @@ function BancosGrouped({ bancos, canEdit, onEdit, onToggle }) {
   );
 }
 
-function BancoCard({ banco: b, canEdit, onEdit, onToggle }) {
+function BancoCard({ banco: b, canEdit, onEdit, onToggle, onSelect, isSelected }) {
+  const monedaPrefix = (b.moneda || b.tipo_cuenta || '').includes('USD') ? 'USD ' : '$ ';
   return (
-    <div className={`${styles.card} ${!b.activo ? styles.cardInactive : ''}`}>
+    <div
+      className={`${styles.card} ${!b.activo ? styles.cardInactive : ''} ${isSelected ? styles.cardSelected : ''}`}
+      onClick={() => onSelect && onSelect(b)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && onSelect && onSelect(b)}
+      style={{ cursor: 'pointer' }}
+    >
       <div className={styles.cardHeader}>
         <span className={styles.cardTitle}>{b.banco}</span>
         <div className={styles.cardActions}>
           {b.tipo_cuenta && <span className={styles.tag}>{b.tipo_cuenta}</span>}
           {canEdit && (
             <>
-              <button className={styles.btnIcon} onClick={() => onEdit(b)} title="Editar">
+              <button className={styles.btnIcon} onClick={(e) => { e.stopPropagation(); onEdit(b); }} title="Editar">
                 <Pencil size={14} />
               </button>
-              <button className={styles.btnIcon} onClick={() => onToggle(b)} title={b.activo ? 'Deshabilitar' : 'Habilitar'}>
+              <button className={styles.btnIcon} onClick={(e) => { e.stopPropagation(); onToggle(b); }} title={b.activo ? 'Deshabilitar' : 'Habilitar'}>
                 {b.activo ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </>
@@ -322,9 +438,17 @@ function BancoCard({ banco: b, canEdit, onEdit, onToggle }) {
         <div className={styles.fieldRow}>
           <span className={styles.fieldLabel}>Saldo inicial</span>
           <span className={styles.fieldValue}>
-            {(b.tipo_cuenta || '').includes('USD') ? 'USD ' : '$ '}{Number(b.saldo_inicial).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+            {monedaPrefix}{Number(b.saldo_inicial).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
           </span>
         </div>
+        {b.saldo_actual != null && (
+          <div className={styles.fieldRow}>
+            <span className={styles.fieldLabel}>Saldo actual</span>
+            <span className={`${styles.fieldValue} ${styles.saldoActual}`}>
+              {monedaPrefix}{Number(b.saldo_actual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
         {b.notas && <div className={styles.fieldRow}><span className={styles.fieldLabel}>Notas</span><span className={styles.fieldValue}>{b.notas}</span></div>}
       </div>
     </div>

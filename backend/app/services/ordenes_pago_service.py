@@ -37,7 +37,9 @@ from sqlalchemy.orm import Session
 
 from app.core.compras_erp_constants import ERP_SD_ID_ORDEN_PAGO
 from app.core.logging import get_logger
-from app.models.caja import Caja, CajaTipoDocumento
+from app.models.banco_empresa import BancoEmpresa
+from app.models.banco_movimiento import BancoMovimiento
+from app.models.caja import Caja, CajaMovimiento, CajaTipoDocumento
 from app.models.compra_evento import CompraEvento
 from app.models.imputacion import Imputacion
 from app.models.orden_pago import OrdenPago
@@ -48,6 +50,7 @@ from app.services import (
     numeracion_service,
     pedidos_service,
 )
+from app.services.banco_service import BancoService
 from app.services.caja_service import CajaService
 
 logger = get_logger("services.ordenes_pago_service")
@@ -79,8 +82,94 @@ TIPO_DOC_ORDEN_PAGO_ANULADA: Final[str] = "Orden de Pago Anulada"
 
 
 # Código HTTP custom del design §3.2
+# Nota: el nombre del constant y el wire value dicen "CAJA" por compatibilidad con
+# el frontend y diseño previo. F7 (PR#2b) lo reutiliza también para banco cross-moneda:
+# la semántica es "fuente de fondos cross-moneda sin TC válido". No renombrar el wire
+# value (OP_CAJA_MONEDA_MISMATCH) sin migrar el frontend.
 CODIGO_ERROR_CAJA_MONEDA: Final[str] = "OP_CAJA_MONEDA_MISMATCH"
 CODIGO_ERROR_DUPLICADO_ERP: Final[str] = "POSIBLE_DUPLICADO_OP_ERP"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# F7 — dispatcher de egreso (AD-10)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _registrar_egreso_en_fuente(
+    session: Session,
+    *,
+    op: OrdenPago,
+    caja_id: Optional[int],
+    banco_id: Optional[int],
+    fecha_pago_real: date,
+    user_id: int,
+    monto_en_fuente: Decimal,
+    detalle: str,
+    tc_efectivo: Optional[Decimal],
+    proveedor_nombre: str,
+) -> tuple[int, Optional[int]]:
+    """
+    Dispatcher de egreso de fondos (AD-10 / design §2.3 step 4-5).
+
+    Decide si el movimiento va a Caja o a Banco según qué fuente viene seteada.
+    Devuelve (movimiento_id, documento_id_o_none).
+
+    Caja branch:
+      - registrar_movimiento(tipo='egreso') en caja.
+      - crear_documento('Orden de Pago') vinculado al movimiento.
+      - retorna (caja_movimiento_id, caja_documento_id).
+
+    Banco branch (AD-8 / FR2.9):
+      - registrar_movimiento(tipo='egreso') en banco via BancoService.
+      - NO crea CajaDocumento (caja_documento_id = None en v1).
+      - retorna (banco_movimiento_id, None).
+
+    No hace commit — responsabilidad del caller.
+    """
+    detalle_cross = f" (TC {tc_efectivo})" if tc_efectivo is not None else ""
+    full_detalle = f"{detalle}{detalle_cross}"
+
+    if caja_id is not None:
+        # ── Caja branch (existente) ──
+        caja_svc = CajaService(session)
+        movimiento = caja_svc.registrar_movimiento(
+            caja_id=caja_id,
+            fecha=fecha_pago_real,
+            detalle=full_detalle,
+            tipo="egreso",
+            monto=monto_en_fuente,
+            user_id=user_id,
+            observaciones=op.observaciones,
+            origen="orden_pago",
+        )
+        tipo_doc_id = _lookup_tipo_documento_id(session, TIPO_DOC_ORDEN_PAGO)
+        documento = caja_svc.crear_documento(
+            tipo_documento_id=tipo_doc_id,
+            user_id=user_id,
+            numero=op.numero,
+            descripcion=f"OP {op.numero} pago a {proveedor_nombre}{detalle_cross}",
+            fecha_documento=fecha_pago_real,
+            monto_documento=monto_en_fuente,
+            movimiento_ids=[movimiento.id],
+            entidad_tipo="orden_pago",
+            entidad_id=op.id,
+        )
+        return int(movimiento.id), int(documento.id)
+
+    # ── Banco branch (F7 — AD-8 / FR2.9) ──
+    banco_svc = BancoService(session)
+    movimiento = banco_svc.registrar_movimiento(
+        banco_id=banco_id,  # type: ignore[arg-type]
+        fecha=fecha_pago_real,
+        detalle=full_detalle,
+        tipo="egreso",
+        monto=monto_en_fuente,
+        user_id=user_id,
+        observaciones=op.observaciones,
+        origen="orden_pago",
+    )
+    # No CajaDocumento for banco payments (FR2.9 / AD-8).
+    return int(movimiento.id), None
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -692,7 +781,8 @@ def ejecutar_pago(
     session: Session,
     *,
     orden_pago_id: int,
-    caja_id: int,
+    caja_id: Optional[int] = None,
+    banco_id: Optional[int] = None,
     fecha_pago_real: date,
     user_id: int,
     tipo_cambio_override: Optional[Decimal] = None,
@@ -700,68 +790,45 @@ def ejecutar_pago(
     """
     Ejecuta el pago de una OP en 9 pasos ATÓMICOS (design §2.3).
 
+    F7 (PR#2b): acepta `caja_id` O `banco_id` como fuente de fondos (mutuamente
+    excluyentes). Exactamente uno debe venir seteado al pagar (FR2.6 / AC-F2-7).
+
     1. SELECT FOR UPDATE sobre la OP + valida `estado='pendiente'`.
-    2. Valida `caja.moneda == op.moneda` O cross-moneda con TC disponible
-       (sub-batch 2.3). Si `op.moneda != caja.moneda` sin TC → 422
-       OP_CAJA_MONEDA_MISMATCH. Con TC (en `tipo_cambio_override` o en
-       `op.tipo_cambio`) → permitido, monto en caja = op.monto_total * TC.
-    3. Valida `caja.empresa_id == op.empresa_id`.
-    4. `caja_service.registrar_movimiento(tipo='egreso', origen='orden_pago', ...)`.
-    5. `caja_service.crear_documento(tipo='Orden de Pago', entidad='orden_pago', ...)`.
-    6. Por cada item de la OP → `imputaciones_service.crear_imputacion`
-       + `cc_proveedor_service.aplicar_imputacion`.
-
-       Cross-moneda OP↔pedido (compras-cross-moneda-y-ncs-cc, FR-002/003):
-       cuando `item.tipo == 'pedido_compra'` y `pedido.moneda != op.moneda`,
-       el `monto` del item (en moneda OP origen) se convierte a moneda
-       DESTINO (la del pedido) usando `op.tipo_cambio` y se persiste así:
-         - `moneda_imputada = pedido.moneda` (moneda destino).
-         - `tipo_cambio    = op.tipo_cambio` (TC declarado en la OP).
-         - `monto_imputado`:
-             - OP ARS → pedido USD:  USD = ARS_item / TC.
-             - OP USD → pedido ARS:  ARS = USD_item * TC.
-           En ambos casos cuantizado a 2 decimales con ROUND_HALF_UP
-           (límite de la columna `Numeric(18, 2)`).
-       Esto permite que `cc_proveedor_service.aplicar_imputacion` proyecte
-       el HABER del CC en moneda destino sin tocar nada (design §4.6).
-       Items NO `pedido_compra` (saldo / factura_erp) mantienen la moneda
-       de la OP origen.
-
-    7. Si `modo='mixta'` y sobra remanente → imputación (orden_pago, saldo)
-       en moneda OP origen. Si `modo='a_cuenta'` → toda la OP a saldo en
-       moneda OP origen.
-    8. Set `op.caja_movimiento_id`, `caja_documento_id`, `estado='pagado'`,
-       `fecha_pago_real`, `paid_at`, `pagado_por_id`. Si hubo
-       `tipo_cambio_override`, se persiste en `op.tipo_cambio`.
-    9. Evento `op_pagada` en compras_eventos.
+    2. Valida fuente de fondos (caja O banco):
+       - Caja: `caja.moneda == op.moneda` O cross-moneda con TC (sub-batch 2.3).
+       - Banco: activo, empresa_id seteado, empresa coincide con op.empresa_id.
+         Banco con empresa_id=None → 422 (AC-F2-9).
+    3. Calcula monto en la moneda de la fuente (cross-moneda idéntico para caja y banco).
+    4. `_registrar_egreso_en_fuente(...)` → (movimiento_id, documento_id_o_None).
+       - Caja: CajaMovimiento + CajaDocumento (existente).
+       - Banco: BancoMovimiento; NO CajaDocumento (FR2.9 / AD-8).
+    5-7. Imputaciones, CC, remanente — sin cambio.
+    8. Set FKs de la fuente usada: `op.caja_*` OR `op.banco_*`.
+       La FK no-usada permanece NULL (AC-F2-5 / AC-F2-6).
+    9. Evento `op_pagada`.
 
     Propaga transiciones automáticas en pedidos vía
     `pedidos_service.aplicar_imputacion_a_pedido`.
 
-    NO hace `session.commit()` — responsabilidad del caller. Si cualquier
-    paso levanta excepción, el caller debe `session.rollback()` para
-    deshacer TODO (caja, CC, imputaciones, OP).
+    NO hace `session.commit()` — responsabilidad del caller.
 
     Args:
         session: tx activa.
         orden_pago_id: PK de la OP.
-        caja_id: PK de la caja donde se registra el egreso.
+        caja_id: PK de la caja (mutuamente excluyente con banco_id).
+        banco_id: PK del banco (mutuamente excluyente con caja_id).
         fecha_pago_real: fecha contable del pago.
         user_id: usuario que ejecuta el pago.
-        tipo_cambio_override: TC al momento del pago (sub-batch 2.2). Si
-            viene, sobrescribe `op.tipo_cambio` antes de registrar en caja.
-            Requerido cuando la moneda de la OP difiere de la caja (y no
-            hay TC previo en la OP).
+        tipo_cambio_override: TC al momento del pago (sub-batch 2.2).
 
     Returns:
         La OP en estado `pagado` con todas las FKs seteadas.
 
     Raises:
         HTTPException 400: OP en estado distinto a `pendiente`.
-        HTTPException 404: OP inexistente.
-        HTTPException 422: caja.moneda != op.moneda y no hay TC disponible
-            (OP_CAJA_MONEDA_MISMATCH).
-        HTTPException 409: caja.empresa_id != op.empresa_id.
+        HTTPException 404: OP o fuente inexistente.
+        HTTPException 422: banco inactivo, sin empresa, fuente moneda mismatch sin TC, o sin fuente.
+        HTTPException 409: fuente.empresa_id != op.empresa_id (caja o banco).
     """
     # Paso 1: SELECT FOR UPDATE y validación de estado
     stmt = select(OrdenPago).where(OrdenPago.id == orden_pago_id).with_for_update()
@@ -777,17 +844,14 @@ def ejecutar_pago(
             detail=f"OP {op.numero} en estado '{op.estado}' — solo se pueden pagar OPs en 'pendiente'.",
         )
 
-    # Paso 2 y 3: validar caja moneda + empresa.
-    caja = session.get(Caja, caja_id)
-    if caja is None:
+    # Service-level XOR guard (duplica la validación del schema para callers directos).
+    if (caja_id is not None) and (banco_id is not None):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Caja id={caja_id} no encontrada.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.",
         )
 
-    # Aplicar tipo_cambio_override ANTES de validar cross-moneda, así el
-    # usuario puede pagar con una caja de moneda distinta siempre que
-    # provea TC explícito (sub-batch 2.2 + 2.3).
+    # Aplicar tipo_cambio_override ANTES de validar cross-moneda.
     if tipo_cambio_override is not None:
         if Decimal(tipo_cambio_override) <= 0:
             raise HTTPException(
@@ -798,73 +862,119 @@ def ejecutar_pago(
 
     tc_efectivo: Optional[Decimal] = op.tipo_cambio
 
-    if caja.moneda != op.moneda:
-        # Cross-moneda sólo se permite con TC disponible (override o op).
-        if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "codigo": CODIGO_ERROR_CAJA_MONEDA,
-                    "mensaje": (
-                        f"La caja seleccionada (id={caja.id}, moneda={caja.moneda}) no coincide "
-                        f"con la moneda de la OP ({op.moneda}). Para pagar cross-moneda, "
-                        f"la OP debe tener `tipo_cambio` o se debe enviar "
-                        f"`tipo_cambio_override` en el body."
-                    ),
-                },
-            )
-    if caja.empresa_id != op.empresa_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"La caja (empresa_id={caja.empresa_id}) no pertenece a la misma empresa "
-                f"que la OP (empresa_id={op.empresa_id})."
-            ),
-        )
-
     proveedor = session.get(Proveedor, op.proveedor_id)
     proveedor_nombre = proveedor.nombre if proveedor is not None else f"proveedor_id={op.proveedor_id}"
 
-    # Monto en moneda de la caja:
-    #   - mismo moneda  → op.monto_total.
-    #   - cross-moneda → op.monto_total * TC (si caja=ARS y op=USD).
-    #                    op.monto_total / TC (si caja=USD y op=ARS).
-    #   Asumimos TC siempre expresado como "ARS por 1 USD" (consistente
-    #   con el modelo de pedidos_compra y tipo_cambio.venta).
-    if caja.moneda == op.moneda:
-        monto_en_caja = Decimal(op.monto_total)
-    elif op.moneda == "USD" and caja.moneda == "ARS":
-        monto_en_caja = (Decimal(op.monto_total) * Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+    # ── Paso 2-3: cargar fuente y calcular monto ──────────────────────────
+    # fuente_moneda is the currency of the payment source (caja or banco).
+    fuente_moneda: str = str(op.moneda)  # default: same as OP
+
+    if caja_id is not None:
+        # ── Caja branch (existing) ──
+        caja = session.get(Caja, caja_id)
+        if caja is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Caja id={caja_id} no encontrada.",
+            )
+        fuente_moneda = str(caja.moneda)
+        if caja.moneda != op.moneda:
+            if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "codigo": CODIGO_ERROR_CAJA_MONEDA,
+                        "mensaje": (
+                            f"La caja seleccionada (id={caja.id}, moneda={caja.moneda}) no coincide "
+                            f"con la moneda de la OP ({op.moneda}). Para pagar cross-moneda, "
+                            f"la OP debe tener `tipo_cambio` o se debe enviar "
+                            f"`tipo_cambio_override` en el body."
+                        ),
+                    },
+                )
+        if caja.empresa_id != op.empresa_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"La caja (empresa_id={caja.empresa_id}) no pertenece a la misma empresa "
+                    f"que la OP (empresa_id={op.empresa_id})."
+                ),
+            )
+
+    elif banco_id is not None:
+        # ── Banco branch (F7) ──
+        banco = session.get(BancoEmpresa, banco_id)
+        if banco is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"BancoEmpresa id={banco_id} no encontrado.",
+            )
+        if not banco.activo:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"El banco id={banco_id} no está activo.",
+            )
+        if banco.empresa_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"El banco id={banco_id} no tiene empresa asignada y "
+                    f"no puede usarse como fuente de fondos (AC-F2-9)."
+                ),
+            )
+        if banco.empresa_id != op.empresa_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"El banco (empresa_id={banco.empresa_id}) no pertenece a la misma empresa "
+                    f"que la OP (empresa_id={op.empresa_id}) (AC-F2-10)."
+                ),
+            )
+        fuente_moneda = str(banco.moneda)
+        # Cross-moneda guard — idéntico al de la caja (AC-F2-7 extendido).
+        if fuente_moneda != str(op.moneda):
+            if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "codigo": CODIGO_ERROR_CAJA_MONEDA,
+                        "mensaje": (
+                            f"La moneda del banco (id={banco_id}, moneda={banco.moneda}) no coincide "
+                            f"con la de la OP ({op.moneda}). Para pagar cross-moneda, "
+                            f"debés ingresar un tipo de cambio > 0."
+                        ),
+                    },
+                )
+
     else:
-        # op ARS → caja USD: monto / TC. TC es ARS/USD, dividir para USD.
-        monto_en_caja = (Decimal(op.monto_total) / Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+        # No fund source provided — service-level guard (schema validator already blocks this).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Se requiere exactamente una fuente de fondos: caja_id o banco_id.",
+        )
 
-    # Paso 4: CajaMovimiento (egreso) — monto en la moneda de la caja.
-    caja_svc = CajaService(session)
-    detalle_cross = f" (TC {tc_efectivo})" if caja.moneda != op.moneda and tc_efectivo is not None else ""
-    movimiento = caja_svc.registrar_movimiento(
-        caja_id=caja.id,
-        fecha=fecha_pago_real,
-        detalle=f"OP {op.numero} - {proveedor_nombre}{detalle_cross}",
-        tipo="egreso",
-        monto=monto_en_caja,
-        user_id=user_id,
-        observaciones=op.observaciones,
-        origen="orden_pago",
-    )
+    # Monto en la moneda de la fuente (idéntica lógica para caja y banco):
+    if fuente_moneda == str(op.moneda):
+        monto_en_fuente = Decimal(op.monto_total)
+    elif op.moneda == "USD" and fuente_moneda == "ARS":
+        monto_en_fuente = (Decimal(op.monto_total) * Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+    else:
+        # op ARS → fuente USD: monto / TC.
+        monto_en_fuente = (Decimal(op.monto_total) / Decimal(tc_efectivo)).quantize(Decimal("0.01"))
 
-    # Paso 5: CajaDocumento — monto en moneda de la caja.
-    tipo_doc_id = _lookup_tipo_documento_id(session, TIPO_DOC_ORDEN_PAGO)
-    documento = caja_svc.crear_documento(
-        tipo_documento_id=tipo_doc_id,
+    # Paso 4-5: registrar egreso en la fuente elegida.
+    detalle_base = f"OP {op.numero} - {proveedor_nombre}"
+    movimiento_id, documento_id = _registrar_egreso_en_fuente(
+        session,
+        op=op,
+        caja_id=caja_id,
+        banco_id=banco_id,
+        fecha_pago_real=fecha_pago_real,
         user_id=user_id,
-        numero=op.numero,
-        descripcion=f"OP {op.numero} pago a {proveedor_nombre}{detalle_cross}",
-        fecha_documento=fecha_pago_real,
-        monto_documento=monto_en_caja,
-        movimiento_ids=[movimiento.id],
-        entidad_tipo="orden_pago",
-        entidad_id=op.id,
+        monto_en_fuente=monto_en_fuente,
+        detalle=detalle_base,
+        tc_efectivo=tc_efectivo if fuente_moneda != str(op.moneda) else None,
+        proveedor_nombre=proveedor_nombre,
     )
 
     # Paso 6 + 7: crear imputaciones según modo + items
@@ -998,10 +1108,19 @@ def ejecutar_pago(
         cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp_saldo.id)
         imputaciones_creadas.append(imp_saldo)
 
-    # Paso 8: actualizar OP
-    op.caja_id = caja.id
-    op.caja_movimiento_id = movimiento.id
-    op.caja_documento_id = documento.id
+    # Paso 8: actualizar OP — set la FK de la fuente usada; la otra queda NULL.
+    if caja_id is not None:
+        op.caja_id = caja_id
+        op.caja_movimiento_id = movimiento_id
+        op.caja_documento_id = documento_id
+        op.banco_id = None
+        op.banco_movimiento_id = None
+    else:
+        op.banco_id = banco_id
+        op.banco_movimiento_id = movimiento_id
+        op.caja_id = None
+        op.caja_movimiento_id = None
+        op.caja_documento_id = None  # FR2.9 / AD-8: no CajaDocumento for banco
     op.estado = "pagado"
     op.fecha_pago_real = fecha_pago_real
     op.paid_at = datetime.now(timezone.utc)
@@ -1015,15 +1134,18 @@ def ejecutar_pago(
         tipo=EVENTO_OP_PAGADA,
         usuario_id=user_id,
         payload={
-            "caja_id": caja.id,
-            "caja_movimiento_id": movimiento.id,
-            "caja_documento_id": documento.id,
+            "fuente": "caja" if caja_id is not None else "banco",
+            "caja_id": caja_id,
+            "caja_movimiento_id": movimiento_id if caja_id is not None else None,
+            "caja_documento_id": documento_id,
+            "banco_id": banco_id,
+            "banco_movimiento_id": movimiento_id if banco_id is not None else None,
             "fecha_pago_real": fecha_pago_real.isoformat(),
             "imputaciones_creadas": [imp.id for imp in imputaciones_creadas],
             "pedidos_afectados": sorted(pedidos_afectados),
             "tipo_cambio_efectivo": str(tc_efectivo) if tc_efectivo is not None else None,
             "tipo_cambio_override_aplicado": tipo_cambio_override is not None,
-            "monto_en_caja": str(monto_en_caja),
+            "monto_en_fuente": str(monto_en_fuente),
         },
     )
 
@@ -1036,20 +1158,16 @@ def ejecutar_pago(
         )
 
     # F1 — TC Re-valuation (AD-1 consistency invariant):
-    # After all imputaciones are created, re-derive the effective TC for every
-    # affected pedido and write it back to pedido.tipo_cambio. This runs for
-    # BOTH Caso A and Caso B — Caso B will return tipo_cambio_original (no
-    # Caso-A imputaciones → mode 3), so pedido.tipo_cambio stays correct.
-    # Runs after flush so the new Imputacion rows are visible to the SELECT.
     _actualizar_tc_efectivo_pedidos_afectados(session, pedidos_afectados, user_id)
 
     logger.info(
-        "op_pagada id=%s numero=%s caja_id=%s caja_mov_id=%s caja_doc_id=%s imp_count=%d",
+        "op_pagada id=%s numero=%s fuente=%s fuente_id=%s mov_id=%s doc_id=%s imp_count=%d",
         op.id,
         op.numero,
-        caja.id,
-        movimiento.id,
-        documento.id,
+        "caja" if caja_id is not None else "banco",
+        caja_id if caja_id is not None else banco_id,
+        movimiento_id,
+        documento_id,
         len(imputaciones_creadas),
     )
     return op
@@ -1455,32 +1573,62 @@ def anular(
             detail=f"OP {op.numero} en estado '{op.estado}' — solo se pueden anular OPs 'pagadas'.",
         )
 
-    # Paso 2: ingreso de compensación
-    caja_svc = CajaService(session)
-    movimiento_reverso = caja_svc.registrar_movimiento(
-        caja_id=op.caja_id,
-        fecha=date.today(),
-        detalle=f"Reverso OP {op.numero} - {motivo}",
-        tipo="ingreso",
-        monto=Decimal(op.monto_total),
-        user_id=user_id,
-        observaciones=f"Anulación OP {op.numero}: {motivo}",
-        origen="orden_pago",
-    )
+    # Paso 2: ingreso de compensación — caja o banco según la fuente original.
+    # F7 (PR#2b): si op.banco_id está seteado → reverso va al banco (Risk #9).
+    #             si op.caja_id está seteado → comportamiento existente.
+    if op.banco_id is not None:
+        # ── Banco reversal ──
+        # Recuperamos el monto original del egreso para neutralizar cross-moneda:
+        # ejecutar_pago pudo haber registrado monto_en_fuente != op.monto_total
+        # (ej. OP USD pagada desde banco ARS: egreso = monto * TC, en ARS).
+        # El ingreso de reverso DEBE usar el mismo monto que el egreso (invariante).
+        egreso_original = session.get(BancoMovimiento, op.banco_movimiento_id)
+        monto_reverso = Decimal(egreso_original.monto) if egreso_original is not None else Decimal(op.monto_total)
+        banco_svc = BancoService(session)
+        movimiento_reverso = banco_svc.registrar_movimiento(
+            banco_id=op.banco_id,
+            fecha=date.today(),
+            detalle=f"Reverso OP {op.numero} - {motivo}",
+            tipo="ingreso",
+            monto=monto_reverso,
+            user_id=user_id,
+            observaciones=f"Anulación OP {op.numero}: {motivo}",
+            origen="orden_pago",
+        )
+        # No CajaDocumento for banco reversals (FR2.9 / AD-8).
+    else:
+        # ── Caja reversal (existente) ──
+        # Recuperamos el monto original del egreso para neutralizar cross-moneda
+        # (idéntico al banco branch — invariante egreso=ingreso en la fuente).
+        egreso_caja_original = session.get(CajaMovimiento, op.caja_movimiento_id)
+        monto_reverso_caja = (
+            Decimal(egreso_caja_original.monto) if egreso_caja_original is not None else Decimal(op.monto_total)
+        )
+        caja_svc = CajaService(session)
+        movimiento_reverso = caja_svc.registrar_movimiento(
+            caja_id=op.caja_id,
+            fecha=date.today(),
+            detalle=f"Reverso OP {op.numero} - {motivo}",
+            tipo="ingreso",
+            monto=monto_reverso_caja,
+            user_id=user_id,
+            observaciones=f"Anulación OP {op.numero}: {motivo}",
+            origen="orden_pago",
+        )
 
-    # Paso 3: CajaDocumento tipo anulada
-    tipo_doc_anulada_id = _lookup_tipo_documento_id(session, TIPO_DOC_ORDEN_PAGO_ANULADA)
-    caja_svc.crear_documento(
-        tipo_documento_id=tipo_doc_anulada_id,
-        user_id=user_id,
-        numero=f"{op.numero}-ANUL",
-        descripcion=f"Anulación OP {op.numero}: {motivo}",
-        fecha_documento=date.today(),
-        monto_documento=Decimal(op.monto_total),
-        movimiento_ids=[movimiento_reverso.id],
-        entidad_tipo="orden_pago",
-        entidad_id=op.id,
-    )
+        # Paso 3: CajaDocumento tipo anulada (solo para pagos con caja)
+        tipo_doc_anulada_id = _lookup_tipo_documento_id(session, TIPO_DOC_ORDEN_PAGO_ANULADA)
+        caja_svc.crear_documento(
+            tipo_documento_id=tipo_doc_anulada_id,
+            user_id=user_id,
+            numero=f"{op.numero}-ANUL",
+            descripcion=f"Anulación OP {op.numero}: {motivo}",
+            fecha_documento=date.today(),
+            monto_documento=monto_reverso_caja,
+            movimiento_ids=[movimiento_reverso.id],
+            entidad_tipo="orden_pago",
+            entidad_id=op.id,
+        )
 
     # Paso 4: desimputar todas las imputaciones vivas de la OP.
     # Capturamos `pedidos_afectados` ANTES del reversal para luego recalcular
@@ -1579,7 +1727,8 @@ def crear_y_pagar(
     monto_total: Decimal,
     modo_imputacion: ModoImputacion,
     items: list[dict],
-    caja_id: int,
+    caja_id: Optional[int] = None,
+    banco_id: Optional[int] = None,
     fecha_pago_real: date,
     observaciones: Optional[str] = None,
     creado_por_id: int,
@@ -1606,7 +1755,8 @@ def crear_y_pagar(
         session: tx activa.
         proveedor_id, empresa_id, moneda, monto_total, modo_imputacion, items:
             mismos que `crear()`.
-        caja_id: caja donde se registra el egreso.
+        caja_id: caja donde se registra el egreso (mutuamente excluyente con banco_id).
+        banco_id: banco empresa donde se registra el egreso (mutuamente excluyente con caja_id).
         fecha_pago_real: fecha contable del pago.
         observaciones, creado_por_id, confirmar_duplicado, tipo_cambio,
             fecha_pago_estimada, actualizar_tc_pedido: mismos que `crear()`.
@@ -1640,11 +1790,12 @@ def crear_y_pagar(
         # crear → ejecutar_pago → aplicar NCs (AD-3 / FR1.4).
     )
 
-    # Paso 2: ejecutar el pago (crea imputaciones OP→pedido y mueve fondos de caja).
+    # Paso 2: ejecutar el pago (crea imputaciones OP→pedido y mueve fondos).
     op = ejecutar_pago(
         session,
         orden_pago_id=op.id,
         caja_id=caja_id,
+        banco_id=banco_id,
         fecha_pago_real=fecha_pago_real,
         user_id=creado_por_id,
         tipo_cambio_override=tipo_cambio_override,
