@@ -107,6 +107,7 @@ from app.schemas.pedido_compra import (
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
+    PedidoTipoCambioUpdate,
     VincularFacturaRequest,
 )
 from app.schemas.sale_document import SaleDocumentResponse, SaleDocumentsFaltantes
@@ -761,9 +762,10 @@ def corregir_pedido_endpoint(
     El clon nace en:
       - `aprobado` si los cambios son cosméticos (factura, fechas, envío,
         observaciones) → transferencia inmediata de imputaciones.
-      - `pendiente_aprobacion` si cambia `monto` o `tipo_cambio` →
-        imputaciones quedan congeladas en el original hasta que se apruebe
-        el clon (opción Z).
+      - `pendiente_aprobacion` si cambia `monto` → imputaciones quedan
+        congeladas en el original hasta que se apruebe el clon (opción Z).
+        Nota F5: `tipo_cambio` ya no es un campo corregible vía esta ruta
+        (usar PUT /pedidos/{id}/tipo-cambio para ajustes de TC con auditoría CC).
 
     La moneda es inmutable al corregir. Para cambiarla hay que cancelar y
     crear un pedido nuevo.
@@ -834,6 +836,58 @@ def resolver_varianza_tc_endpoint(
     _commit_or_rollback(db, operacion="resolver_varianza_tc")
     nc = db.get(NotaCreditoLocal, nc_id)
     return _nc_local_response(nc)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# F5 — Manual TC override on the pedido
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.put(
+    "/pedidos/{pedido_id}/tipo-cambio",
+    response_model=PedidoCompraResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Establecer o limpiar override manual de TC en un pedido (F5)",
+)
+def actualizar_tipo_cambio_manual_endpoint(
+    pedido_id: int,
+    data: PedidoTipoCambioUpdate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.ajustar_cc_proveedor_manual")),
+) -> PedidoCompraResponse:
+    """Aplica un override manual de tipo de cambio a un pedido USD.
+
+    - `tipo_cambio` no-nulo → fija el TC manual (autoritativo, AD-2).
+      Emite un movimiento CC de ajuste append-only por la diferencia ARS.
+    - `tipo_cambio: null` → limpia el override; el TC efectivo vuelve a
+      derivarse del promedio ponderado Caso-A o de tipo_cambio_original.
+
+    No cancela ni clona el pedido (in-place, AD-9).
+    Requiere permiso `administracion.ajustar_cc_proveedor_manual`.
+    """
+    try:
+        pedidos_service.actualizar_tipo_cambio_manual(
+            db,
+            pedido_id=pedido_id,
+            tipo_cambio=data.tipo_cambio,
+            motivo=data.motivo,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("actualizar_tipo_cambio_manual falló para pedido_id=%s: %s", pedido_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar el tipo de cambio. Reintentá o contactá soporte.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="actualizar_tipo_cambio_manual")
+    pedido = db.get(PedidoCompra, pedido_id)
+    varianza = pedidos_service.calcular_varianza_tc(db, pedido)
+    return _pedido_response(pedido, varianza_tc_neta=varianza)
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -64,6 +64,10 @@ class PedidoCompra(Base):
     # (no TC) or pre-F1 pedidos where TC was already NULL.
     # Backfill migration: tipo_cambio_original = tipo_cambio for existing rows.
     tipo_cambio_original = Column(Numeric(18, 6), nullable=True)
+    # F5 — Manual TC override. NULL = no override; non-NULL = authoritative effective TC.
+    # Set via PUT /pedidos/{id}/tipo-cambio. Cleared by passing null.
+    # AD-3: single nullable column encodes both flag and value.
+    tipo_cambio_manual = Column(Numeric(18, 6), nullable=True)
 
     # Notas libres del pedido. Editable en borrador y en aprobado/pagado_parcial/pagado
     # como metadata (no impacta CC ni imputaciones). Ver compras_026_pedido_observaciones.

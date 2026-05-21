@@ -19,6 +19,8 @@ import {
   Edit3,
   History,
   TrendingUp,
+  Sliders,
+  RotateCw,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
@@ -76,6 +78,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const { tienePermiso } = usePermisos();
 
   const canGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
+  const canAjustarTC = tienePermiso('administracion.ajustar_cc_proveedor_manual');
 
   const [pedido, setPedido] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -86,6 +89,12 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // F2 — ND/NC variance circuit.
   const [resolviendoVarianza, setResolviendoVarianza] = useState(false);
   const [errorVarianza, setErrorVarianza] = useState(null);
+
+  // F5 — Manual TC override editor.
+  const [showTCEditor, setShowTCEditor] = useState(false);
+  const [tcForm, setTCForm] = useState({ tipo_cambio: '', motivo: '' });
+  const [savingTC, setSavingTC] = useState(false);
+  const [errorTC, setErrorTC] = useState(null);
 
   const puedeCorregir =
     canGestionar && pedido && ESTADOS_CORREGIBLES.has(pedido.estado);
@@ -184,6 +193,59 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       setResolviendoVarianza(false);
     }
   }, [pedido, onClose]);
+
+  // F5 — Submit a manual TC override (or clear it when tipo_cambio is null).
+  const handleGuardarTC = useCallback(
+    async (tipoCambioValue) => {
+      if (!pedido) return;
+      const motivo = (tcForm.motivo || '').trim();
+      if (!motivo) {
+        setErrorTC('El motivo es obligatorio.');
+        return;
+      }
+      setSavingTC(true);
+      setErrorTC(null);
+      try {
+        const { data } = await api.put(
+          `/administracion/compras/pedidos/${pedido.id}/tipo-cambio`,
+          { tipo_cambio: tipoCambioValue ?? null, motivo }
+        );
+        setPedido(data);
+        setShowTCEditor(false);
+        setTCForm({ tipo_cambio: '', motivo: '' });
+      } catch (err) {
+        setErrorTC(
+          err?.response?.data?.detail || 'Error al actualizar el tipo de cambio.'
+        );
+      } finally {
+        setSavingTC(false);
+      }
+    },
+    [pedido, tcForm.motivo]
+  );
+
+  const handleSetTC = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const tc = parseFloat(tcForm.tipo_cambio);
+      if (!Number.isFinite(tc) || tc <= 0) {
+        setErrorTC('El tipo de cambio debe ser un número mayor a 0.');
+        return;
+      }
+      await handleGuardarTC(tc);
+    },
+    [tcForm.tipo_cambio, handleGuardarTC]
+  );
+
+  const handleLimpiarTC = useCallback(async () => {
+    if (!pedido) return;
+    const motivo = (tcForm.motivo || '').trim();
+    if (!motivo) {
+      setErrorTC('El motivo es obligatorio para limpiar el override.');
+      return;
+    }
+    await handleGuardarTC(null);
+  }, [pedido, tcForm.motivo, handleGuardarTC]);
 
   const handleNavegarAPedidoRelacionado = useCallback(
     (relacionadoId) => {
@@ -293,14 +355,41 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               {pedido.moneda === 'USD' && (
                 <div>
                   <span className={styles.infoLabel}>TC efectivo</span>
-                  <strong className={styles.infoValue}>
-                    {pedido.tipo_cambio
-                      ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 4,
-                        })} / USD`
-                      : '—'}
-                  </strong>
+                  <div className={styles.tcRow}>
+                    <strong className={styles.infoValue}>
+                      {pedido.tipo_cambio
+                        ? `$${Number(pedido.tipo_cambio).toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          })} / USD`
+                        : '—'}
+                    </strong>
+                    {/* F5 — Manual badge */}
+                    {pedido.tipo_cambio_es_manual && (
+                      <span className={styles.badgeManual}>Manual</span>
+                    )}
+                    {/* F5 — Edit TC button (permission-gated) */}
+                    {canAjustarTC && !showTCEditor && (
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        onClick={() => {
+                          setTCForm({
+                            tipo_cambio: pedido.tipo_cambio
+                              ? String(pedido.tipo_cambio)
+                              : '',
+                            motivo: '',
+                          });
+                          setErrorTC(null);
+                          setShowTCEditor(true);
+                        }}
+                        title="Editar tipo de cambio manual"
+                      >
+                        <Sliders size={12} />
+                        Editar TC
+                      </button>
+                    )}
+                  </div>
                   {/* F1 — Show TC original when it differs from effective TC */}
                   {pedido.tipo_cambio_original &&
                     pedido.tipo_cambio &&
@@ -314,6 +403,93 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                         / USD
                       </div>
                     )}
+                </div>
+              )}
+              {/* F5 — TC editor inline form (shown when editing) */}
+              {pedido.moneda === 'USD' && showTCEditor && canAjustarTC && (
+                <div className={styles.tcEditorBlock}>
+                  <form onSubmit={handleSetTC} className={styles.tcEditorForm}>
+                    <div className={styles.tcEditorRow}>
+                      <div className={styles.tcEditorField}>
+                        <label className={styles.tcEditorLabel}>
+                          Nuevo TC (ARS/USD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.0001"
+                          min="0.0001"
+                          className={styles.tcEditorInput}
+                          value={tcForm.tipo_cambio}
+                          onChange={(e) =>
+                            setTCForm((f) => ({ ...f, tipo_cambio: e.target.value }))
+                          }
+                          placeholder="Ej: 1430.00"
+                          disabled={savingTC}
+                        />
+                      </div>
+                      <div className={styles.tcEditorField}>
+                        <label className={styles.tcEditorLabel}>
+                          Motivo <span className={styles.tcAsterisk}>*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className={styles.tcEditorInput}
+                          value={tcForm.motivo}
+                          onChange={(e) =>
+                            setTCForm((f) => ({ ...f, motivo: e.target.value }))
+                          }
+                          placeholder="Motivo del ajuste..."
+                          maxLength={500}
+                          disabled={savingTC}
+                        />
+                      </div>
+                    </div>
+                    {errorTC && (
+                      <div className={styles.tcEditorError}>{errorTC}</div>
+                    )}
+                    <div className={styles.tcEditorActions}>
+                      <button
+                        type="submit"
+                        className={styles.btnPrimaryInline}
+                        disabled={savingTC}
+                      >
+                        {savingTC ? (
+                          <Loader2 size={12} className={styles.spin} />
+                        ) : (
+                          <Sliders size={12} />
+                        )}
+                        Fijar TC manual
+                      </button>
+                      {/* F5 — Clear override: revert to weighted/original */}
+                      {pedido.tipo_cambio_es_manual && (
+                        <button
+                          type="button"
+                          className={styles.btnGhost}
+                          onClick={handleLimpiarTC}
+                          disabled={savingTC}
+                          title="Limpia el override y vuelve al TC automático (ponderado Caso-A o de aprobación)"
+                        >
+                          {savingTC ? (
+                            <Loader2 size={12} className={styles.spin} />
+                          ) : (
+                            <RotateCw size={12} />
+                          )}
+                          Volver a TC automático
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        onClick={() => {
+                          setShowTCEditor(false);
+                          setErrorTC(null);
+                        }}
+                        disabled={savingTC}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
                 </div>
               )}
               <div>

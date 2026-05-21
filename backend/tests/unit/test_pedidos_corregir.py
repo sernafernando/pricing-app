@@ -7,7 +7,7 @@ Cubre:
     adjuntos (mismo path_archivo).
   - Determinación del estado del clon:
       * cosméticos (observaciones, factura, fechas, envío) → clon aprobado.
-      * monto o tipo_cambio → clon pendiente_aprobacion.
+      * monto → clon pendiente_aprobacion (tipo_cambio rejected via F5 — use PUT /tipo-cambio).
   - Transferencia de imputaciones (opción Z):
       * Cosméticos → reversal + nueva imputación inmediatos.
       * Financieros → imputaciones congeladas; reaplicación al aprobar el clon.
@@ -19,7 +19,6 @@ Cubre:
 
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -62,8 +61,16 @@ def proveedor(db) -> Proveedor:
 
 
 def _crear_pedido_aprobado(
-    db, empresa, proveedor, active_user, *, moneda="ARS", monto=Decimal("1000"),
-    tipo_cambio=None, numero_factura=None, observaciones=None,
+    db,
+    empresa,
+    proveedor,
+    active_user,
+    *,
+    moneda="ARS",
+    monto=Decimal("1000"),
+    tipo_cambio=None,
+    numero_factura=None,
+    observaciones=None,
 ):
     """Helper: crea un pedido y lo aprueba manualmente (transición normal)."""
     p = pedidos_service.crear_pedido(
@@ -79,12 +86,8 @@ def _crear_pedido_aprobado(
         p.numero_factura = numero_factura
     if observaciones:
         p.observaciones = observaciones
-    pedidos_service.transicionar(
-        db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id
-    )
-    pedidos_service.transicionar(
-        db, pedido_id=p.id, accion="aprobar", user_id=active_user.id
-    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
     db.refresh(p)
     return p
 
@@ -149,13 +152,9 @@ class TestCorregirPedido:
         assert exc.value.status_code == 400
         assert "moneda" in exc.value.detail.lower()
 
-    def test_corregir_cosmetico_observaciones_clon_queda_aprobado(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_corregir_cosmetico_observaciones_clon_queda_aprobado(self, db, empresa, proveedor, active_user) -> None:
         """Cambiar solo observaciones → clon nace aprobado."""
-        p = _crear_pedido_aprobado(
-            db, empresa, proveedor, active_user, observaciones="vieja"
-        )
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, observaciones="vieja")
         clon = pedidos_service.corregir_pedido(
             db,
             pedido_original_id=p.id,
@@ -169,9 +168,7 @@ class TestCorregirPedido:
         assert clon.observaciones == "nueva nota actualizada"
         assert p.estado == "cancelado"
 
-    def test_corregir_cambia_monto_clon_queda_pendiente_aprobacion(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_corregir_cambia_monto_clon_queda_pendiente_aprobacion(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
         clon = pedidos_service.corregir_pedido(
             db,
@@ -186,9 +183,13 @@ class TestCorregirPedido:
         assert clon.monto == Decimal("1200")
         assert p.estado == "cancelado"
 
-    def test_corregir_cambia_tipo_cambio_clon_queda_pendiente_aprobacion(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_corregir_rechaza_tipo_cambio_con_422(self, db, empresa, proveedor, active_user) -> None:
+        """F5 — corregir_pedido must reject tipo_cambio with HTTP 422.
+
+        TC corrections now go exclusively through PUT /pedidos/{id}/tipo-cambio
+        (in-place, append-only CC audit trail). Passing tipo_cambio here would create
+        a clone without the audit movement — an accounting hole.
+        """
         p = _crear_pedido_aprobado(
             db,
             empresa,
@@ -198,16 +199,16 @@ class TestCorregirPedido:
             monto=Decimal("100"),
             tipo_cambio=Decimal("1000"),
         )
-        clon = pedidos_service.corregir_pedido(
-            db,
-            pedido_original_id=p.id,
-            cambios={"tipo_cambio": Decimal("1250.00")},
-            motivo_correccion="corregir TC al día de factura real",
-            user_id=active_user.id,
-        )
-        db.refresh(clon)
-        assert clon.estado == "pendiente_aprobacion"
-        assert clon.tipo_cambio == Decimal("1250.00")
+        with pytest.raises(HTTPException) as exc_info:
+            pedidos_service.corregir_pedido(
+                db,
+                pedido_original_id=p.id,
+                cambios={"tipo_cambio": Decimal("1250.00")},
+                motivo_correccion="intento de cambio TC por correccion",
+                user_id=active_user.id,
+            )
+        assert exc_info.value.status_code == 422
+        assert "tipo_cambio" in str(exc_info.value.detail).lower()
 
     def test_original_queda_con_corregido_a_id_y_clon_con_corregido_desde_id(
         self, db, empresa, proveedor, active_user
@@ -227,9 +228,7 @@ class TestCorregirPedido:
         assert p.corregido_desde_id is None
         assert clon.corregido_a_id is None
 
-    def test_ct_transaction_id_se_transfiere_original_a_clon(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_ct_transaction_id_se_transfiere_original_a_clon(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
         p.ct_transaction_id = 99_888_777
         db.flush()
@@ -245,9 +244,7 @@ class TestCorregirPedido:
         assert p.ct_transaction_id is None
         assert clon.ct_transaction_id == 99_888_777
 
-    def test_clon_hereda_adjuntos_con_mismo_path(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_clon_hereda_adjuntos_con_mismo_path(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
         # Crear 2 adjuntos en el original
         adj1 = CompraAdjunto(
@@ -297,9 +294,7 @@ class TestCorregirPedido:
         paths_clon = {a.path_archivo for a in adjuntos_clon}
         assert paths_orig == paths_clon
 
-    def test_eventos_creado_y_cancelado_por_correccion_presentes(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_eventos_creado_y_cancelado_por_correccion_presentes(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
         clon = pedidos_service.corregir_pedido(
             db,
@@ -335,9 +330,7 @@ class TestCorregirPedido:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _crear_imputacion_directa(
-    db, *, pedido, monto, proveedor, active_user
-) -> Imputacion:
+def _crear_imputacion_directa(db, *, pedido, monto, proveedor, active_user) -> Imputacion:
     """Helper: inserta imputación destino pedido_compra para simular un pago."""
     # Usamos origen_tipo='orden_pago' con un ID dummy (no validamos existencia
     # del origen acá — es un test aislado del service de pedidos). En producción
@@ -357,9 +350,7 @@ def _crear_imputacion_directa(
 
 
 class TestCorregirPedidoConImputaciones:
-    def test_correccion_cosmetica_reaplica_imputaciones_inmediato(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_correccion_cosmetica_reaplica_imputaciones_inmediato(self, db, empresa, proveedor, active_user) -> None:
         """Pedido aprobado con 1 imputación. Corrección cosmética →
         clon nace aprobado, imputación original pasa a reversal, nueva
         imputación apunta al clon."""
@@ -461,9 +452,7 @@ class TestCorregirPedidoConImputaciones:
             user_id=active_user.id,
         )
         # Al aprobar el clon se dispara la transferencia
-        pedidos_service.transicionar(
-            db, pedido_id=clon.id, accion="aprobar", user_id=active_user.id
-        )
+        pedidos_service.transicionar(db, pedido_id=clon.id, accion="aprobar", user_id=active_user.id)
         db.flush()
         db.refresh(clon)
 
@@ -515,9 +504,7 @@ class TestCorregirPedidoConImputaciones:
         )
         assert imp.id in ev.payload["imputaciones_origen_transferidas"]
 
-    def test_rechazar_clon_financiero_no_toca_imputaciones_original(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_rechazar_clon_financiero_no_toca_imputaciones_original(self, db, empresa, proveedor, active_user) -> None:
         """Clon pendiente → rechazar → imputaciones en original quedan intactas
         (no se ejecuta transferencia). El original sigue cancelado (D.2)."""
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
