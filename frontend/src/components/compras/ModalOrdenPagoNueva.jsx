@@ -211,7 +211,6 @@ export default function ModalOrdenPagoNueva({
   };
 
   const modoImputacion = derivarModoImputacion(items, form.monto_total);
-  const requiereItems = modoImputacion === 'especifica' || modoImputacion === 'mixta';
 
   // Lookup de pedido por id. Combina pendientesDelProveedor (lista del
   // dropdown) + pedidoInicial (pre-cargado vía prop, puede no estar en
