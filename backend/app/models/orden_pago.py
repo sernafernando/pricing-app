@@ -73,6 +73,17 @@ class OrdenPago(Base):
         ForeignKey("caja_documentos.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    # F7 — Banco como fuente de fondos (PR#2a adds columns; PR#2b wires them)
+    banco_id = Column(
+        Integer,
+        ForeignKey("bancos_empresa.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    banco_movimiento_id = Column(
+        Integer,
+        ForeignKey("banco_movimientos.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     # F1 — TC Re-valuation: Caso A (TRUE) vs Caso B (FALSE). Set at creation,
     # immutable after the OP reaches 'pagado'. When TRUE, this OP's TC
     # contributes to the weighted average effective TC of the target pedido.
@@ -110,6 +121,8 @@ class OrdenPago(Base):
     caja = relationship("Caja")
     caja_movimiento = relationship("CajaMovimiento")
     caja_documento = relationship("CajaDocumento")
+    banco = relationship("BancoEmpresa")
+    banco_movimiento = relationship("BancoMovimiento")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     pagado_por = relationship("Usuario", foreign_keys=[pagado_por_id])
 
@@ -125,12 +138,22 @@ class OrdenPago(Base):
             "estado IN ('pendiente','pagado','anulado','cancelado')",
             name="ck_ordenes_pago_estado",
         ),
+        # F7 — at most one fund source (caja XOR banco; both NULL = pending OP)
+        CheckConstraint(
+            "NOT (caja_id IS NOT NULL AND banco_id IS NOT NULL)",
+            name="ck_ordenes_pago_fuente_unica",
+        ),
         Index("ix_ordenes_pago_proveedor_estado", "proveedor_id", "estado"),
         Index("ix_ordenes_pago_empresa_created", "empresa_id", "created_at"),
         Index(
             "ix_ordenes_pago_caja_mov",
             "caja_movimiento_id",
             postgresql_where="caja_movimiento_id IS NOT NULL",
+        ),
+        Index(
+            "ix_ordenes_pago_banco_mov",
+            "banco_movimiento_id",
+            postgresql_where="banco_movimiento_id IS NOT NULL",
         ),
     )
 
