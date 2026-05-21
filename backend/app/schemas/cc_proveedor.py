@@ -48,6 +48,13 @@ class CCMovimientoResponse(BaseModel):
     # Nombre derivado (batch-enriquecido por el router) — ver docstring.
     origen_descripcion: str | None = None
 
+    # F6 — ARS projection fields (§2.6, §7.2, AD-11).
+    # Computed on read by cc_proveedor_service; NOT stored in DB.
+    # ARS movements: monto_ars = monto, tc_aplicado = None.
+    # USD movements tied to a pedido: monto_ars = monto * tc_efectivo_pedido.
+    monto_ars: Decimal | None = None
+    tc_aplicado: Decimal | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -66,6 +73,9 @@ class CCProveedorDetalle(BaseModel):
     nombre_proveedor: str
     saldos: list[SaldoPorMoneda]
     movimientos: list[CCMovimientoResponse]
+    # F6 — cumulative ARS saldo across all movements (§7.3).
+    # Sum of monto_ars with CC sign convention (debe positive, haber negative).
+    saldo_ars: Decimal | None = None
 
 
 class CCAgrupadoPorPedido(BaseModel):

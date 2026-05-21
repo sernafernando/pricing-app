@@ -69,19 +69,25 @@ const getInitials = (nombre) => {
 };
 
 /**
- * Calcula running balance por moneda, descomponiendo cada movimiento en
- * Debe / Haber. Convención libro mayor:
+ * Calcula running balance en ARS usando monto_ars del backend (F6).
+ * Si monto_ars no está disponible (movimiento sin pedido vinculado),
+ * cae en el monto nativo como antes.
+ *
+ * Convención libro mayor:
  *  - tipo='debe'                          → suma a Debe (incrementa deuda)
  *  - tipo='haber'                         → suma a Haber (paga deuda)
  *  - tipo='ajuste' con signo_ajuste=+1    → suma a Debe
  *  - tipo='ajuste' con signo_ajuste=-1    → suma a Haber
  *
- * Devuelve cada movimiento enriquecido con { debe, haber, saldoCorriente }.
- * El saldo es por moneda — sumar ARS y USD juntos no tiene sentido.
+ * Devuelve cada movimiento enriquecido con:
+ *   { debeArs, haberArs, saldoArs }  — valores en ARS para display primario
+ *   { debe, haber, saldoCorriente }  — valores nativos (para compat. existente)
  */
 const enriquecerConDebeHaberYSaldo = (movimientos = []) => {
   const saldosPorMoneda = {};
+  let saldoArsAcum = 0;
   return movimientos.map((m) => {
+    // Native-currency amounts (fallback / secondary display).
     const monto = Number(m.monto) || 0;
     let debe = 0;
     let haber = 0;
@@ -96,7 +102,33 @@ const enriquecerConDebeHaberYSaldo = (movimientos = []) => {
     const prev = saldosPorMoneda[m.moneda] || 0;
     const saldoCorriente = prev + debe - haber;
     saldosPorMoneda[m.moneda] = saldoCorriente;
-    return { ...m, debe, haber, saldoCorriente };
+
+    // F6 — ARS primary amounts from backend projection.
+    // monto_ars is null for movements not linked to a pedido (rare).
+    const montoArs = m.monto_ars != null ? Number(m.monto_ars) : null;
+    let debeArs = null;
+    let haberArs = null;
+    if (montoArs != null) {
+      if (m.tipo === 'debe') {
+        debeArs = montoArs;
+      } else if (m.tipo === 'haber') {
+        haberArs = montoArs;
+      } else if (m.tipo === 'ajuste') {
+        if (m.signo_ajuste === 1) debeArs = montoArs;
+        else if (m.signo_ajuste === -1) haberArs = montoArs;
+      }
+      saldoArsAcum += (debeArs || 0) - (haberArs || 0);
+    }
+
+    return {
+      ...m,
+      debe,
+      haber,
+      saldoCorriente,
+      debeArs,
+      haberArs,
+      saldoArsAcum: montoArs != null ? saldoArsAcum : null,
+    };
   });
 };
 
@@ -269,6 +301,10 @@ export default function TabCCProveedores() {
   const saldos = detalle?.saldos || [];
   const saldoUsd = saldos.find((s) => s.moneda === 'USD')?.saldo || 0;
   const saldoArs = saldos.find((s) => s.moneda === 'ARS')?.saldo || 0;
+  // F6 — saldo_ars: backend-computed ARS projection of ALL movements (§7.3).
+  // Uses the effective TC of each pedido (manual > Caso-A weighted > original).
+  // Falls back to the native ARS saldo when not available (old backend).
+  const saldoArsProyectado = detalle?.saldo_ars != null ? Number(detalle.saldo_ars) : null;
   const consolidadoArs =
     tcEstimado && Number(saldoUsd) !== 0
       ? Number(saldoArs) + Number(saldoUsd) * tcEstimado
@@ -396,9 +432,23 @@ export default function TabCCProveedores() {
             <div className={styles.metrics}>
               <MetricTile
                 label="Saldo ARS"
-                value={formatMoneda(saldoArs, 'ARS')}
-                hint={`${movsArsCount} movimientos`}
-                tone={Number(saldoArs) > 0 ? 'debe' : Number(saldoArs) < 0 ? 'haber' : 'neutral'}
+                value={
+                  saldoArsProyectado !== null
+                    ? formatMoneda(saldoArsProyectado, 'ARS')
+                    : formatMoneda(saldoArs, 'ARS')
+                }
+                hint={
+                  saldoArsProyectado !== null
+                    ? `${movsArsCount + movsUsdCount} movimientos · TC efectivo por pedido`
+                    : `${movsArsCount} movimientos`
+                }
+                tone={
+                  (saldoArsProyectado ?? Number(saldoArs)) > 0
+                    ? 'debe'
+                    : (saldoArsProyectado ?? Number(saldoArs)) < 0
+                      ? 'haber'
+                      : 'neutral'
+                }
               />
               <MetricTile
                 label="Saldo USD"
@@ -842,9 +892,9 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
           <tr>
             <th className={styles.thLeft}>Fecha</th>
             <th className={styles.thLeft}>Origen / Descripción</th>
-            <th className={styles.thRight}>Debe</th>
-            <th className={styles.thRight}>Haber</th>
-            <th className={styles.thRight}>Saldo</th>
+            <th className={styles.thRight}>Debe (ARS)</th>
+            <th className={styles.thRight}>Haber (ARS)</th>
+            <th className={styles.thRight}>Saldo (ARS)</th>
             <th className={styles.thCenter}>Mon.</th>
             <th aria-hidden="true" />
           </tr>
@@ -889,38 +939,45 @@ function LedgerTable({ movimientos, onMovClick, emptyIcon, emptyText }) {
                     )}
                   </td>
                   <td className={styles.tdRightDebe}>
-                    {m.debe > 0 ? (
+                    {/* F6: primary display in ARS; native amount as muted secondary */}
+                    {(m.debeArs != null ? m.debeArs > 0 : m.debe > 0) ? (
                       <>
-                        {formatMoneda(m.debe, m.moneda)}
-                        {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                        {m.debeArs != null
+                          ? formatMoneda(m.debeArs, 'ARS')
+                          : formatMoneda(m.debe, m.moneda)}
+                        {m.moneda !== 'ARS' && m.debeArs != null && m.debe > 0 && (
                           <div className={styles.tdEquivalenteArs}>
-                            ≈ {formatMoneda(m.debe * Number(m.tipo_cambio_a_ars), 'ARS')}
+                            {formatMoneda(m.debe, m.moneda)}
                           </div>
                         )}
                       </>
                     ) : ''}
                   </td>
                   <td className={styles.tdRightHaber}>
-                    {m.haber > 0 ? (
+                    {(m.haberArs != null ? m.haberArs > 0 : m.haber > 0) ? (
                       <>
-                        {formatMoneda(m.haber, m.moneda)}
-                        {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                        {m.haberArs != null
+                          ? formatMoneda(m.haberArs, 'ARS')
+                          : formatMoneda(m.haber, m.moneda)}
+                        {m.moneda !== 'ARS' && m.haberArs != null && m.haber > 0 && (
                           <div className={styles.tdEquivalenteArs}>
-                            ≈ {formatMoneda(m.haber * Number(m.tipo_cambio_a_ars), 'ARS')}
+                            {formatMoneda(m.haber, m.moneda)}
                           </div>
                         )}
                       </>
                     ) : ''}
                   </td>
                   <td className={styles.tdRightSaldo}>
-                    {formatMoneda(m.saldoCorriente, m.moneda)}
-                    {m.moneda === 'USD' && m.tipo_cambio_a_ars && (
+                    {m.saldoArsAcum != null
+                      ? formatMoneda(m.saldoArsAcum, 'ARS')
+                      : formatMoneda(m.saldoCorriente, m.moneda)}
+                    {m.moneda !== 'ARS' && m.saldoArsAcum != null && (
                       <div className={styles.tdEquivalenteArs}>
-                        ≈ {formatMoneda(m.saldoCorriente * Number(m.tipo_cambio_a_ars), 'ARS')}
+                        {formatMoneda(m.saldoCorriente, m.moneda)}
                       </div>
                     )}
                   </td>
-                  <td className={styles.tdMoneda}>{m.moneda}</td>
+                  <td className={styles.tdMoneda}>{m.monto_ars != null ? 'ARS' : m.moneda}</td>
                   <td className={styles.tdAccion}>
                     {navegable && onMovClick && (
                       <button

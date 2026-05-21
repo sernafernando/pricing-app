@@ -27,7 +27,7 @@ subyacentes (especialmente `ejecutar_pago`) hacen `flush` pero NO
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -2114,7 +2114,44 @@ def reimputar_imputacion(
 # ==========================================================================
 
 
-def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimientoResponse]:
+# F6 — origin types that store origen_id = pedido_compra.id directly.
+# Module-level constant (immutable) — do not rebuild per call.
+_ORIGEN_DIRECTO_PEDIDO_F6: frozenset[str] = frozenset(
+    {
+        "pedido_compra",
+        "cancelacion_pedido",
+        "ajuste_pedido",
+        "cancelacion_pedido_por_correccion",
+        "revaluacion_tc",
+    }
+)
+
+
+def _resolver_pedido_id_para_mov(m: Any, imps_resueltos_destino: dict[int, int | None]) -> int | None:
+    """
+    F6 — Resolve the pedido_compra_id linked to a CC movement for ARS projection.
+
+    Returns the pedido_id if resolvable, else None.
+    Sources:
+      - origen_tipo in _ORIGEN_DIRECTO_PEDIDO_F6: origen_id IS the pedido directly.
+      - origen_tipo in ('imputacion','reimputacion'): lookup via imps_resueltos_destino.
+    """
+    otipo = getattr(m, "origen_tipo", None)
+    oid = getattr(m, "origen_id", None)
+    if oid is None:
+        return None
+    if otipo in _ORIGEN_DIRECTO_PEDIDO_F6:
+        return int(oid)
+    if otipo in ("imputacion", "reimputacion"):
+        return imps_resueltos_destino.get(int(oid))
+    return None
+
+
+def _enriquecer_movimientos_cc(
+    db: Session,
+    movs: list[Any],
+    tc_efectivo_externo: dict[int, Decimal | None] | None = None,
+) -> list[CCMovimientoResponse]:
     """Enriquece movimientos de CC proveedor con `origen_descripcion` legible.
 
     Batch (0 N+1): hace 4-5 queries agrupadas por origen_tipo y resuelve los
@@ -2169,9 +2206,17 @@ def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimient
     # Una imputacion puede tener origen orden_pago, nota_credito_local o
     # nota_credito_erp. Recolectamos esos IDs secundarios para batch fetch.
     imps_resueltos: dict[int, tuple[str, int]] = {}  # imp_id → (origen_tipo, origen_id)
+    # F6: also track the pedido_compra destino of each imputacion for ARS projection.
+    imps_destino_pedido: dict[int, int | None] = {}  # imp_id → pedido_id or None
     if imp_ids:
         rows = db.execute(
-            select(Imputacion.id, Imputacion.origen_tipo, Imputacion.origen_id).where(Imputacion.id.in_(imp_ids))
+            select(
+                Imputacion.id,
+                Imputacion.origen_tipo,
+                Imputacion.origen_id,
+                Imputacion.destino_tipo,
+                Imputacion.destino_id,
+            ).where(Imputacion.id.in_(imp_ids))
         ).all()
         for r in rows:
             imps_resueltos[int(r[0])] = (str(r[1]), int(r[2]))
@@ -2182,6 +2227,10 @@ def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimient
                 nc_local_ids.add(oid2)
             elif otipo2 == "nota_credito_erp":
                 ct_ids.add(oid2)
+            # F6: capture destino pedido_compra for ARS projection.
+            destino_tipo2 = str(r[3]) if r[3] is not None else None
+            destino_id2 = int(r[4]) if r[4] is not None else None
+            imps_destino_pedido[int(r[0])] = destino_id2 if destino_tipo2 == "pedido_compra" else None
 
     # ── Batch fetch: numeros por ID ──────────────────────────────────────
     ops_numeros: dict[int, str] = {}
@@ -2253,10 +2302,45 @@ def _enriquecer_movimientos_cc(db: Session, movs: list[Any]) -> list[CCMovimient
         # Fallback: tipo desconocido o sin origen_id
         return f"{otipo} #{oid}" if oid is not None else (otipo or "—")
 
+    # ── F6: ARS projection — batch TC resolution (§7.2, §7.4, AD-11) ──────
+    # Pre-resolve pedido_id per movement once (reused below for TC lookup).
+    # Avoids calling _resolver_pedido_id_para_mov twice per movement.
+    mov_pedido_ids: list[int | None] = [_resolver_pedido_id_para_mov(m, imps_destino_pedido) for m in movs]
+
+    # Use the caller-supplied TC map when available (avoids N+1 for grouped paths
+    # like obtener_cc_por_pedido that already resolved TC across all pedidos).
+    # Fall back to a local batch query for self-contained callers.
+    if tc_efectivo_externo is not None:
+        tc_efectivo_por_pedido: dict[int, Decimal | None] = tc_efectivo_externo
+    else:
+        f6_pedido_ids_set: set[int] = {pid for pid in mov_pedido_ids if pid is not None}
+        tc_efectivo_por_pedido = (
+            pedidos_service.resolver_tc_efectivo_pedido_batch(db, list(f6_pedido_ids_set)) if f6_pedido_ids_set else {}
+        )
+
     resultado: list[CCMovimientoResponse] = []
-    for m in movs:
+    for m, pid in zip(movs, mov_pedido_ids):
         resp = CCMovimientoResponse.model_validate(m)
         resp.origen_descripcion = _descripcion(m)
+
+        # F6 ARS fields.
+        moneda = getattr(m, "moneda", "ARS")
+        monto = Decimal(str(getattr(m, "monto", 0)))
+        if moneda == "ARS":
+            resp.monto_ars = monto
+            resp.tc_aplicado = None
+        elif pid is not None:
+            tc = tc_efectivo_por_pedido.get(pid)
+            if tc is not None:
+                resp.monto_ars = (monto * tc).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                resp.tc_aplicado = tc
+            else:
+                resp.monto_ars = None
+                resp.tc_aplicado = None
+        else:
+            resp.monto_ars = None
+            resp.tc_aplicado = None
+
         resultado.append(resp)
     return resultado
 
@@ -2307,11 +2391,29 @@ def obtener_cc_proveedor(
         getattr(proveedor, "nombre", None) or getattr(proveedor, "razon_social", None) or f"Proveedor #{proveedor_id}"
     )
 
+    movimientos_enriquecidos = _enriquecer_movimientos_cc(db, list(movimientos))
+
+    # F6 — compute saldo_ars: cumulative ARS sum of all movements (§7.3).
+    # Sign convention: debe positive, haber negative, ajuste per signo_ajuste.
+    # CCMovimientoResponse already exposes tipo and signo_ajuste — no need
+    # to zip with raw movimientos.
+    saldo_ars: Decimal = Decimal("0")
+    for mov_resp in movimientos_enriquecidos:
+        if mov_resp.monto_ars is None:
+            continue
+        if mov_resp.tipo == "debe":
+            saldo_ars += mov_resp.monto_ars
+        elif mov_resp.tipo == "haber":
+            saldo_ars -= mov_resp.monto_ars
+        elif mov_resp.tipo == "ajuste" and mov_resp.signo_ajuste is not None:
+            saldo_ars += int(mov_resp.signo_ajuste) * mov_resp.monto_ars
+
     return CCProveedorDetalle(
         proveedor_id=proveedor_id,
         nombre_proveedor=str(nombre_prov),
         saldos=saldos_list,
-        movimientos=_enriquecer_movimientos_cc(db, list(movimientos)),
+        movimientos=movimientos_enriquecidos,
+        saldo_ars=saldo_ars,
     )
 
 
@@ -2348,12 +2450,7 @@ def obtener_cc_por_pedido(
     )
 
     # origen_tipo cuyo origen_id apunta DIRECTAMENTE al pedido_compra.
-    ORIGEN_DIRECTO_PEDIDO = {
-        "pedido_compra",
-        "cancelacion_pedido",
-        "ajuste_pedido",
-        "cancelacion_pedido_por_correccion",
-    }
+    ORIGEN_DIRECTO_PEDIDO = _ORIGEN_DIRECTO_PEDIDO_F6
 
     # Resolver imputaciones referenciadas en un solo query (batch).
     imp_ids = {
@@ -2392,6 +2489,9 @@ def obtener_cc_por_pedido(
     saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
     # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
     tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
+    # F6 — effective TC for ARS projection: resolve once across all pedido groups
+    # (prevents N+1 when _enriquecer_movimientos_cc is called per group below).
+    tc_efectivo_map = pedidos_service.resolver_tc_efectivo_pedido_batch(db, pedido_ids)
 
     resultado: list[CCAgrupadoPorPedido] = []
     for pid, movs in grupos.items():
@@ -2409,7 +2509,7 @@ def obtener_cc_por_pedido(
                 pedido_tipo_cambio=Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None,
                 pedido_saldo_pendiente=saldo_pendiente,
                 tc_ponderado=tc_pond_map.get(pid),
-                movimientos=_enriquecer_movimientos_cc(db, list(movs)),
+                movimientos=_enriquecer_movimientos_cc(db, list(movs), tc_efectivo_externo=tc_efectivo_map),
             )
         )
     # Orden: por fecha desc del primer movimiento de cada grupo

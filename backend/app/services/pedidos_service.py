@@ -1072,6 +1072,78 @@ def resolver_tc_efectivo_pedido(
     return None
 
 
+def resolver_tc_efectivo_pedido_batch(
+    session: Session,
+    pedido_ids: list[int],
+) -> dict[int, Optional[Decimal]]:
+    """
+    F6 — Batch variant of resolver_tc_efectivo_pedido (§7.4, AD-11, AC6.4).
+
+    Resolves the effective TC for N pedidos in O(1) DB queries — no N+1.
+
+    Precedence per AD-2 (top wins, applied in memory after batch loads):
+      1. tipo_cambio_manual IS NOT NULL → authoritative override.
+      2. Caso-A payments exist → weighted average (via calcular_tc_ponderado_caso_a_batch).
+      3. Fallback → tipo_cambio_original (approval snapshot).
+
+    For ARS pedidos (no TC column) the result is None — the caller treats
+    None as "pass-through factor 1" (monto_ars = monto).
+
+    Args:
+        session: active DB session.
+        pedido_ids: list of PedidoCompra PKs. Empty list → returns {}.
+
+    Returns:
+        dict {pedido_id: Decimal | None}. All input ids are present in the result.
+    """
+    if not pedido_ids:
+        return {}
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    # Single query: load tipo_cambio_manual and tipo_cambio_original for all pedidos.
+    rows = session.execute(
+        select(
+            PedidoCompra.id,
+            PedidoCompra.tipo_cambio_manual,
+            PedidoCompra.tipo_cambio_original,
+        ).where(PedidoCompra.id.in_(pedido_ids))
+    ).all()
+
+    # Build lookup maps from the single query.
+    manual_map: dict[int, Optional[Decimal]] = {}
+    original_map: dict[int, Optional[Decimal]] = {}
+    for row in rows:
+        pid = int(row[0])
+        manual_map[pid] = Decimal(row[1]) if row[1] is not None else None
+        original_map[pid] = Decimal(row[2]) if row[2] is not None else None
+
+    # Identify pedidos that need Caso-A resolution (mode 2): no manual override.
+    needs_caso_a = [pid for pid in pedido_ids if manual_map.get(pid) is None]
+
+    # Single batch query for all Caso-A weighted TCs.
+    caso_a_map: dict[int, Optional[Decimal]] = {}
+    if needs_caso_a:
+        caso_a_map = calcular_tc_ponderado_caso_a_batch(session, needs_caso_a)
+
+    # Apply precedence in memory.
+    result: dict[int, Optional[Decimal]] = {}
+    for pid in pedido_ids:
+        # Mode 1: manual override is authoritative.
+        if manual_map.get(pid) is not None:
+            result[pid] = manual_map[pid]
+            continue
+        # Mode 2: weighted Caso-A average.
+        tc_caso_a = caso_a_map.get(pid)
+        if tc_caso_a is not None:
+            result[pid] = tc_caso_a
+            continue
+        # Mode 3: approval snapshot (may be None for ARS pedidos).
+        result[pid] = original_map.get(pid)
+
+    return result
+
+
 def calcular_varianza_tc(session: Session, pedido: PedidoCompra) -> Decimal:
     """
     F2 — Compute the ARS variance not yet compensated by ND/NC imputaciones.
@@ -2589,6 +2661,8 @@ __all__ = [
     "calcular_tc_ponderado_pedido",
     "calcular_tc_ponderado_pedido_batch",
     "resolver_tc_efectivo_pedido",
+    # F6 — CC ARS display batch resolver
+    "resolver_tc_efectivo_pedido_batch",
     "corregir_pedido",
     "crear_pedido",
     "desvincular_factura",
