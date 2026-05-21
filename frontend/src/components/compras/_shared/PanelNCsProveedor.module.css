@@ -1,0 +1,151 @@
+/* PanelNCsProveedor — colapsable NC panel shared between Detalle (aplicar) and Nueva (seleccionar). */
+
+.wrapper {
+  margin-bottom: var(--spacing-md);
+}
+
+.toggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  padding: var(--spacing-xs) 0;
+  margin-bottom: var(--spacing-xs);
+}
+
+.toggleBtn:hover {
+  color: var(--cf-text-primary);
+}
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--cf-text-tertiary);
+}
+
+.panel {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+}
+
+/* ── States ──────────────────────────────────────────────────────── */
+.centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  color: var(--cf-text-secondary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.errorBanner {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-bottom: var(--spacing-md);
+}
+
+.emptySection {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+/* ── Table ───────────────────────────────────────────────────────── */
+.tableWrapper {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdRight {
+  text-align: right;
+  font-weight: 500;
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+/* ── Inputs & buttons ────────────────────────────────────────────── */
+.montoInput {
+  width: 110px;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.montoInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.montoInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSmall {
+  composes: btn-tesla outline-subtle-primary sm from '../../../styles/buttons-tesla.css';
+  font-size: var(--font-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.rowError {
+  margin: 2px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+}
