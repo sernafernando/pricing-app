@@ -22,12 +22,14 @@ registrarPagina({
 
 export default function AdministracionBancos() {
   const { tienePermiso } = usePermisos();
-  const canEdit = tienePermiso('administracion.gestionar_proveedores');
+  // F7: permission fix — was *_proveedores by mistake (AC-F2-13)
+  const canEdit = tienePermiso('administracion.gestionar_caja');
 
   const [bancos, setBancos] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [soloActivos, setSoloActivos] = useState(true);
+  const [empresas, setEmpresas] = useState([]);
 
   // Modal
   const [showModal, setShowModal] = useState(false);
@@ -41,8 +43,13 @@ export default function AdministracionBancos() {
       banco: '', tipo_cuenta: '', cbu: '', alias: '',
       numero_cuenta: '', sucursal: '',
       titular: '', cuit_titular: '', saldo_inicial: 0, notas: '',
+      empresa_id: null,  // F7: empresa assignment (AD-13)
     };
   }
+
+  useEffect(() => {
+    api.get('/admin/empresas').then(({ data }) => setEmpresas(data)).catch(() => setEmpresas([]));
+  }, []);
 
   // Derivar moneda del tipo de cuenta
   const getMoneda = (tipoCuenta) => {
@@ -85,6 +92,7 @@ export default function AdministracionBancos() {
       cuit_titular: banco.cuit_titular || '',
       saldo_inicial: banco.saldo_inicial || 0,
       notas: banco.notas || '',
+      empresa_id: banco.empresa_id ?? null,  // F7: hydrate empresa
     });
     setFormError(null);
     setShowModal(true);
@@ -216,6 +224,19 @@ export default function AdministracionBancos() {
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>Saldo inicial</label>
                 <input className={styles.formInput} type="number" step="0.01" value={form.saldo_inicial} onChange={(e) => setForm({ ...form, saldo_inicial: parseFloat(e.target.value) || 0 })} />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Empresa</label>
+                <select
+                  className={styles.formInput}
+                  value={form.empresa_id ?? ''}
+                  onChange={(e) => setForm({ ...form, empresa_id: e.target.value ? parseInt(e.target.value, 10) : null })}
+                >
+                  <option value="">Sin asignar</option>
+                  {empresas.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                  ))}
+                </select>
               </div>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>Notas</label>
