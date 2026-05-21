@@ -17,10 +17,11 @@ import styles from './ModalOrdenPagoNueva.module.css';
  *    TTL natural: sessionStorage se limpia al cerrar tab. Reset diario
  *    porque la key incluye la fecha.
  *
- * 2. SELECTOR de modo imputación: `especifica | a_cuenta | mixta`.
- *    - especifica: suma de items DEBE ser === monto_total.
- *    - a_cuenta: sin items (todo al saldo).
- *    - mixta: suma de items < monto_total (el resto va al saldo).
+ * 2. MODO IMPUTACIÓN derivado automáticamente de los items (sin selector):
+ *    - a_cuenta:  0 items (todo al saldo).
+ *    - especifica: items presentes y suma === monto_total.
+ *    - mixta:     items presentes y suma < monto_total (el resto va al saldo).
+ *    - suma > monto_total: inválido — validar() bloquea el submit.
  *
  * 3. 409 POSIBLE_DUPLICADO_OP_ERP: si el backend responde 409, abrimos
  *    un modal HIJO con la lista de duplicados. "Confirmar, es distinto"
@@ -97,7 +98,6 @@ export default function ModalOrdenPagoNueva({
         moneda: op.moneda || 'ARS',
         monto_total: String(op.monto_total ?? ''),
         tipo_cambio: op.tipo_cambio ? String(op.tipo_cambio) : '',
-        modo_imputacion: op.modo_imputacion || 'a_cuenta',
         observaciones: op.observaciones || '',
       };
     }
@@ -119,7 +119,6 @@ export default function ModalOrdenPagoNueva({
       tipo_cambio: pedidoInicial?.tipo_cambio
         ? String(pedidoInicial.tipo_cambio)
         : '',
-      modo_imputacion: pedidoInicial ? 'especifica' : 'a_cuenta',
       observaciones: pedidoInicial
         ? `Pago imputado a pedido ${pedidoInicial.numero}`
         : '',
@@ -197,8 +196,22 @@ export default function ModalOrdenPagoNueva({
   // de moneda exigiría TC para imputar los items pre-cargados.
   const [confirmMoneda, setConfirmMoneda] = useState(null);
 
-  const requiereItems =
-    form.modo_imputacion === 'especifica' || form.modo_imputacion === 'mixta';
+  // ── Modo imputación derivado de los items ──
+  // 0 items         → a_cuenta
+  // items, suma === total → especifica
+  // items, suma < total  → mixta
+  // (suma > total es inválido — validar() lo bloquea)
+  const derivarModoImputacion = (currentItems, total) => {
+    if (currentItems.length === 0) return 'a_cuenta';
+    const suma = Math.round(
+      currentItems.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0) * 100
+    ) / 100;
+    const totalR = Math.round((parseFloat(total) || 0) * 100) / 100;
+    return suma >= totalR ? 'especifica' : 'mixta';
+  };
+
+  const modoImputacion = derivarModoImputacion(items, form.monto_total);
+  const requiereItems = modoImputacion === 'especifica' || modoImputacion === 'mixta';
 
   // Lookup de pedido por id. Combina pendientesDelProveedor (lista del
   // dropdown) + pedidoInicial (pre-cargado vía prop, puede no estar en
@@ -257,10 +270,6 @@ export default function ModalOrdenPagoNueva({
   const handleChange = (campo, valor) => {
     setForm((f) => {
       const next = { ...f, [campo]: valor };
-      // Si cambió a a_cuenta, limpiar items.
-      if (campo === 'modo_imputacion' && valor === 'a_cuenta') {
-        setItems([]);
-      }
       if (campo === 'moneda' && valor !== f.moneda) {
         // Cross-moneda OP↔pedido ahora se soporta con TC > 0 (Batch 3 BE).
         // Solo advertimos al user si TC NO es válido: el cambio de moneda
@@ -336,11 +345,8 @@ export default function ModalOrdenPagoNueva({
     if (!Number.isFinite(montoTotalNum) || montoTotalNum <= 0)
       return 'El monto total debe ser mayor a 0.';
     if (!['ARS', 'USD'].includes(form.moneda)) return 'Moneda inválida.';
-    if (!['especifica', 'a_cuenta', 'mixta'].includes(form.modo_imputacion))
-      return 'Modo de imputación inválido.';
 
-    if (requiereItems) {
-      if (items.length === 0) return 'Agregá al menos un item imputable.';
+    if (items.length > 0) {
       for (const [idx, it] of items.entries()) {
         if (!it.tipo || !['pedido_compra', 'factura_erp'].includes(it.tipo))
           return `Item #${idx + 1}: tipo inválido.`;
@@ -350,11 +356,9 @@ export default function ModalOrdenPagoNueva({
       }
       const sumaRedondeada = Math.round(sumaItems * 100) / 100;
       const totalRedondeado = Math.round(montoTotalNum * 100) / 100;
-      if (form.modo_imputacion === 'especifica' && sumaRedondeada !== totalRedondeado) {
-        return `En modo específica la suma de items (${sumaRedondeada}) debe ser igual al monto total (${totalRedondeado}).`;
-      }
-      if (form.modo_imputacion === 'mixta' && sumaRedondeada >= totalRedondeado) {
-        return `En modo mixta la suma de items (${sumaRedondeada}) debe ser MENOR al monto total (${totalRedondeado}). El resto va a saldo.`;
+      // suma > total es inválido — no hay modo que lo cubra.
+      if (sumaRedondeada > totalRedondeado) {
+        return `La suma de items (${sumaRedondeada}) supera el monto total (${totalRedondeado}). Revisá los montos.`;
       }
     }
     return null;
@@ -372,7 +376,7 @@ export default function ModalOrdenPagoNueva({
       moneda: form.moneda,
       monto_total: montoTotalNum,
       tipo_cambio: tcEnviable,
-      modo_imputacion: form.modo_imputacion,
+      modo_imputacion: modoImputacion,
       observaciones: form.observaciones || null,
       items: items.map((it) => ({
         tipo: it.tipo,
@@ -398,7 +402,7 @@ export default function ModalOrdenPagoNueva({
     monto_total: montoTotalNum,
     moneda: form.moneda,
     tipo_cambio: tcEnviable,
-    modo_imputacion: form.modo_imputacion,
+    modo_imputacion: modoImputacion,
     observaciones: form.observaciones || null,
     items: items.map((it) => ({
       tipo: it.tipo,
@@ -609,18 +613,6 @@ export default function ModalOrdenPagoNueva({
               />
             </div>
 
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Modo imputación *</label>
-              <select
-                className={styles.select}
-                value={form.modo_imputacion}
-                onChange={(e) => handleChange('modo_imputacion', e.target.value)}
-              >
-                <option value="a_cuenta">A cuenta</option>
-                <option value="especifica">Específica</option>
-                <option value="mixta">Mixta</option>
-              </select>
-            </div>
           </div>
 
           {(form.moneda === 'USD' || tieneCrossMoneda) && (
@@ -765,9 +757,8 @@ export default function ModalOrdenPagoNueva({
             </div>
           )}
 
-          {/* Tabla de items */}
-          {requiereItems && (
-            <div className={styles.itemsSection}>
+          {/* Tabla de items — siempre visible; modo_imputacion se deriva de los items */}
+          <div className={styles.itemsSection}>
               <div className={styles.itemsHeader}>
                 <h4 className={styles.itemsTitle}>Items imputados</h4>
                 <div className={styles.itemsSummary}>
@@ -954,7 +945,6 @@ export default function ModalOrdenPagoNueva({
                 </div>
               )}
             </div>
-          )}
 
           {form.proveedor_id && (
             <div className={styles.ncsHint}>
