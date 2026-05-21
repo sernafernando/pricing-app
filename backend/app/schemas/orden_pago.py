@@ -47,6 +47,19 @@ class OrdenPagoBase(BaseModel):
     observaciones: str | None = None
 
 
+class NCAplicadaItem(BaseModel):
+    """Ítem de NC a aplicar durante la creación de una OP (F7).
+
+    Incluido en `ncs_aplicadas` de `OrdenPagoCreate` / `OrdenPagoCrearYPagar`.
+    El `pedido_id` es opcional cuando la OP imputa un único pedido (se infiere);
+    es obligatorio para OPs `a_cuenta` y para OPs con múltiples pedidos.
+    """
+
+    nc_id: int = Field(..., ge=1)
+    monto: Decimal = Field(..., gt=0)
+    pedido_id: int | None = Field(None, ge=1)
+
+
 class OrdenPagoCreate(OrdenPagoBase):
     """Body del POST /ordenes-pago.
 
@@ -59,11 +72,15 @@ class OrdenPagoCreate(OrdenPagoBase):
     participa en el promedio ponderado del TC efectivo del pedido destino.
     False (Caso B, default): el pago se registra normalmente sin modificar
     el TC efectivo. Inmutable después de que la OP pasa a 'pagado'.
+
+    `ncs_aplicadas` (F7): lista de NCs a imputar en la misma transacción
+    que la creación. Lista vacía (default) = comportamiento existente sin cambio.
     """
 
     items: list[ImputacionItem] = Field(default_factory=list)
     confirmar_duplicado: bool = False
     actualizar_tc_pedido: bool = False
+    ncs_aplicadas: list[NCAplicadaItem] = Field(default_factory=list)
 
 
 class OrdenPagoEjecutarPago(BaseModel):

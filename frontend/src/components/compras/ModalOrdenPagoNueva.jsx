@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { X, AlertTriangle, Plus, Trash2, MinusCircle, Zap } from 'lucide-react';
+import { X, AlertTriangle, Plus, Trash2, Zap } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import PanelNCsProveedor from './_shared/PanelNCsProveedor';
 import styles from './ModalOrdenPagoNueva.module.css';
 
 /**
@@ -180,6 +180,10 @@ export default function ModalOrdenPagoNueva({
     setPagoForm((prev) => ({ ...prev, [campo]: valor }));
   };
 
+  // F7 — NCs seleccionadas para aplicar al crear la OP.
+  // Cada entrada: { nc_id, monto, pedido_id }.
+  const [ncsAplicadas, setNcsAplicadas] = useState([]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   // Error inline específico del campo TC (Batch 5 — cross-moneda).
@@ -267,6 +271,13 @@ export default function ModalOrdenPagoNueva({
   );
 
   const handleChange = (campo, valor) => {
+    // T1.14 — al cambiar proveedor, las NCs seleccionadas del proveedor
+    // anterior quedan huérfanas: el backend las rechazaría (403/422).
+    // Reseteamos siempre que cambia proveedor_id.
+    if (campo === 'proveedor_id') {
+      setNcsAplicadas([]);
+    }
+
     setForm((f) => {
       const next = { ...f, [campo]: valor };
       if (campo === 'moneda' && valor !== f.moneda) {
@@ -298,6 +309,8 @@ export default function ModalOrdenPagoNueva({
         // Cuando el user corrige la moneda, limpiamos cualquier error
         // previo del TC para no quedar con feedback obsoleto.
         setTcError(null);
+        // T1.14 — NCs son moneda-específicas; al cambiar moneda se limpian.
+        setNcsAplicadas([]);
       }
       // Cualquier edición del campo tipo_cambio limpia el error inline.
       if (campo === 'tipo_cambio') {
@@ -385,6 +398,8 @@ export default function ModalOrdenPagoNueva({
       })),
       confirmar_duplicado: confirmarDuplicado,
       actualizar_tc_pedido: actualizarTcPedido,
+      // F7 — NCs a aplicar en la misma transacción (solo en creación, no edición).
+      ncs_aplicadas: isEditMode ? [] : ncsAplicadas,
     };
     if (pagarAhora) {
       base.caja_id = Number(pagoForm.cajaId);
@@ -945,18 +960,16 @@ export default function ModalOrdenPagoNueva({
               )}
             </div>
 
-          {form.proveedor_id && (
-            <div className={styles.ncsHint}>
-              <MinusCircle size={14} />
-              <span>
-                ¿Tenés una NC del proveedor para aplicar?{' '}
-                <Link
-                  to={`/administracion/compras?tab=ncs-locales&proveedor_id=${form.proveedor_id}`}
-                >
-                  Gestionar NCs de este proveedor →
-                </Link>
-              </span>
-            </div>
+          {/* F7 — selección de NCs para aplicar al crear la OP */}
+          {!isEditMode && form.proveedor_id && (
+            <PanelNCsProveedor
+              key={`${form.proveedor_id}-${form.moneda}`}
+              proveedorId={Number(form.proveedor_id)}
+              moneda={form.moneda || undefined}
+              mode="seleccionar"
+              onChange={setNcsAplicadas}
+              disabled={saving}
+            />
           )}
 
           <div className={styles.formActions}>

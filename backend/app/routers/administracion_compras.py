@@ -1294,6 +1294,8 @@ def crear_y_pagar_orden_pago(
             caja_id=data.caja_id,
             fecha_pago_real=data.fecha_pago_real,
             tipo_cambio_override=data.tipo_cambio_override,
+            # F7 — NCs a imputar después del pago (AD-3 / FR1.4).
+            ncs_aplicadas=[nc.model_dump() for nc in data.ncs_aplicadas],
         )
     except HTTPException:
         db.rollback()
@@ -1406,6 +1408,8 @@ def crear_orden_pago(
             fecha_pago_estimada=data.fecha_pago_estimada,
             # F1 — Caso A/B flag set at OP creation (FR1.1).
             actualizar_tc_pedido=data.actualizar_tc_pedido,
+            # F7 — NCs a imputar en la misma transacción.
+            ncs_aplicadas=[nc.model_dump() for nc in data.ncs_aplicadas],
         )
     except HTTPException:
         db.rollback()

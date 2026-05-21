@@ -384,6 +384,7 @@ def crear(
     tipo_cambio: Optional[Decimal] = None,
     fecha_pago_estimada: Optional[date] = None,
     actualizar_tc_pedido: bool = False,
+    ncs_aplicadas: Optional[list[dict]] = None,
 ) -> OrdenPago:
     """
     Crea una OP en estado `pendiente` con validaciones completas.
@@ -537,7 +538,117 @@ def crear(
         modo_imputacion,
         bool(duplicados and confirmar_duplicado),
     )
+
+    # F7 — Aplicar NCs en la misma transacción que la creación de la OP.
+    _aplicar_ncs_lista(
+        session,
+        op=op,
+        ncs_aplicadas=ncs_aplicadas or [],
+        creado_por_id=creado_por_id,
+    )
+
     return op
+
+
+def _aplicar_ncs_lista(
+    session: Session,
+    *,
+    op: OrdenPago,
+    ncs_aplicadas: list[dict],
+    creado_por_id: int,
+) -> None:
+    """F7 — Aplica la lista de NCs al crear la OP.
+
+    Para cada entrada en `ncs_aplicadas`:
+      1. Carga la NC (404 si no existe).
+      2. Valida que pertenezca al mismo proveedor que la OP (implícito en imputar_nc_a_pedido).
+      3. Resuelve el pedido destino según la lógica AD-4:
+         - `pedido_id` explícito en el item → usa ese pedido (404 si no existe).
+         - `pedido_id` omitido + OP tiene un único pedido en sus items → infiere.
+         - `pedido_id` omitido + OP a_cuenta (sin items de pedido) → 422.
+         - `pedido_id` omitido + OP con múltiples pedidos → 422.
+      4. Delega a `imputar_nc_a_pedido` (validaciones + imputación + CC + pedido state).
+
+    NO hace commit — responsabilidad del caller.
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    if not ncs_aplicadas:
+        return
+
+    # Pre-compute pedido_ids from op items (for inference when pedido_id is absent).
+    # Items are stored in the op creation payload; use modo_imputacion to detect a_cuenta.
+    # For items-based OPs, get pedido_ids from items_norm stored in the evento.
+    items_norm = _leer_items_de_op(session, op.id)
+    pedido_ids_items: list[int] = [
+        item["id"] for item in items_norm if item.get("tipo") == "pedido_compra" and item.get("id") is not None
+    ]
+
+    for nc_item in ncs_aplicadas:
+        nc_id: int = nc_item["nc_id"]
+        monto: Decimal = Decimal(str(nc_item["monto"]))
+        pedido_id: int | None = nc_item.get("pedido_id")
+
+        # 1. Cargar NC.
+        nc = session.get(NotaCreditoLocal, nc_id)
+        if nc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"NotaCreditoLocal id={nc_id} no encontrada.",
+            )
+
+        # Validate NC belongs to same proveedor as OP (before resolving pedido).
+        if nc.proveedor_id != op.proveedor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"La NC id={nc_id} pertenece al proveedor id={nc.proveedor_id}, "
+                    f"pero la OP pertenece al proveedor id={op.proveedor_id}."
+                ),
+            )
+
+        # 3. Resolver pedido destino.
+        if pedido_id is not None:
+            # Explicit pedido_id — load it.
+            pedido = session.get(PedidoCompra, pedido_id)
+            if pedido is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Pedido id={pedido_id} no encontrado.",
+                )
+        else:
+            # Implicit resolution.
+            if not pedido_ids_items:
+                # OP a_cuenta or no pedido items.
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"pedido_id es requerido para NC id={nc_id}: la OP es a_cuenta o no tiene pedidos asociados."
+                    ),
+                )
+            if len(pedido_ids_items) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"pedido_id es requerido para NC id={nc_id}: "
+                        f"la OP imputa múltiples pedidos: {sorted(pedido_ids_items)}."
+                    ),
+                )
+            pedido = session.get(PedidoCompra, pedido_ids_items[0])
+            if pedido is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Pedido id={pedido_ids_items[0]} no encontrado.",
+                )
+
+        # 4. Imputar NC al pedido (shared helper).
+        imputar_nc_a_pedido(
+            session,
+            nc=nc,
+            pedido=pedido,
+            monto=monto,
+            creado_por_id=creado_por_id,
+        )
 
 
 def _serializar_item(item: dict) -> dict:
@@ -1477,6 +1588,7 @@ def crear_y_pagar(
     fecha_pago_estimada: Optional[date] = None,
     actualizar_tc_pedido: bool = False,
     tipo_cambio_override: Optional[Decimal] = None,
+    ncs_aplicadas: Optional[list[dict]] = None,
 ) -> OrdenPago:
     """Crea y paga una OP en una única transacción atómica (F3, design §3.5, AD-10).
 
@@ -1484,6 +1596,11 @@ def crear_y_pagar(
     MISMA sesión sin new business logic. El caller NO hace commit — si el
     paso de pago falla, cualquier excepción propaga normalmente y el caller
     debe hacer rollback para revertir TODA la operación (crear + pagar).
+
+    F7: `ncs_aplicadas` se aplican DESPUÉS de `ejecutar_pago` (AD-3 / FR1.4)
+    para garantizar que las imputaciones OP→pedido existen antes de que la NC
+    las referencie. Si la aplicación de NC falla, todo (OP + pago + NCs) se
+    revierte.
 
     Args:
         session: tx activa.
@@ -1494,14 +1611,17 @@ def crear_y_pagar(
         observaciones, creado_por_id, confirmar_duplicado, tipo_cambio,
             fecha_pago_estimada, actualizar_tc_pedido: mismos que `crear()`.
         tipo_cambio_override: sobrescribe `op.tipo_cambio` al pagar (sub-batch 2.2).
+        ncs_aplicadas: lista de NCs a imputar DESPUÉS del pago (F7).
 
     Returns:
         La OP en estado `pagado`.
 
     Raises:
         HTTPException 400/404/409/422: cualquier error de validación de
-            `crear()` o `ejecutar_pago()`. El caller debe hacer rollback.
+            `crear()`, `ejecutar_pago()`, o de la aplicación de NCs.
+            El caller debe hacer rollback.
     """
+    # Paso 1: crear la OP (sin NCs — se aplican después del pago).
     op = crear(
         session,
         proveedor_id=proveedor_id,
@@ -1516,8 +1636,12 @@ def crear_y_pagar(
         tipo_cambio=tipo_cambio,
         fecha_pago_estimada=fecha_pago_estimada,
         actualizar_tc_pedido=actualizar_tc_pedido,
+        # NOTE: ncs_aplicadas NO se pasa a crear() para mantener el orden correcto:
+        # crear → ejecutar_pago → aplicar NCs (AD-3 / FR1.4).
     )
-    return ejecutar_pago(
+
+    # Paso 2: ejecutar el pago (crea imputaciones OP→pedido y mueve fondos de caja).
+    op = ejecutar_pago(
         session,
         orden_pago_id=op.id,
         caja_id=caja_id,
@@ -1525,6 +1649,149 @@ def crear_y_pagar(
         user_id=creado_por_id,
         tipo_cambio_override=tipo_cambio_override,
     )
+
+    # Paso 3: aplicar NCs (DESPUÉS del pago, en la misma transacción).
+    _aplicar_ncs_lista(
+        session,
+        op=op,
+        ncs_aplicadas=ncs_aplicadas or [],
+        creado_por_id=creado_por_id,
+    )
+
+    return op
+
+
+def imputar_nc_a_pedido(
+    session: Session,
+    *,
+    nc: Any,
+    pedido: PedidoCompra,
+    monto: Decimal,
+    creado_por_id: int,
+) -> "Imputacion":
+    """Helper compartido F7: imputa una NC a un pedido de compra.
+
+    Contiene las reglas contables comunes usadas tanto al CREAR una OP
+    (ncs_aplicadas en crear/crear_y_pagar) como al APLICAR una NC desde
+    el detalle de una OP ya creada (aplicar_nc_desde_op).
+
+    Pasos (design §1.7 F7):
+      2. Valida que NC.proveedor_id == pedido.proveedor_id (403).
+      3. Valida estado NC en {'aprobado', 'aplicada_parcial'} (409 si
+         ya aplicada, 422 para estados no aplicables).
+      5. Valida estado pedido imputable; valida NC.moneda == pedido.moneda (422).
+      6. Valida saldo disponible NC >= monto (422).
+      7. Crea imputación NC→pedido_compra.
+      8. HABER en CC proveedor.
+      9. Recalcula estado del pedido.
+
+    NOTE: La resolución del pedido (paso 4 en aplicar_nc_desde_op) es
+    responsabilidad del caller, que ya resolvió qué pedido usar antes de
+    llamar a este helper.
+
+    Args:
+        session: tx activa — NO hace commit.
+        nc: instancia cargada de NotaCreditoLocal.
+        pedido: instancia cargada de PedidoCompra.
+        monto: monto a imputar (>0, validado por schema antes de llegar aquí).
+        creado_por_id: FK a usuarios.
+
+    Returns:
+        La `Imputacion` creada.
+
+    Raises:
+        HTTPException 403: NC pertenece a proveedor distinto al del pedido.
+        HTTPException 409: NC en estado `aplicada` (totalmente consumida).
+        HTTPException 422: NC en estado no aplicable, monto excede saldo,
+                           pedido en estado no imputable, cross-moneda NC↔pedido.
+    """
+    from app.services import cc_proveedor_service  # noqa: PLC0415
+    from app.services import ncs_locales_service  # noqa: PLC0415
+
+    # 2. Validar ownership proveedor.
+    if nc.proveedor_id != pedido.proveedor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"La NC id={nc.id} pertenece al proveedor id={nc.proveedor_id}, "
+                f"pero el pedido id={pedido.id} pertenece al proveedor id={pedido.proveedor_id}. "
+                f"No se puede imputar."
+            ),
+        )
+
+    # 3. Validar que la NC esté en estado aplicable.
+    if nc.estado == "aplicada":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"NC local id={nc.id} ya fue completamente aplicada (estado='aplicada').",
+        )
+    if nc.estado not in {"aprobado", "aplicada_parcial"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"NC local id={nc.id} en estado '{nc.estado}' no puede aplicarse. "
+                f"Estados válidos: 'aprobado', 'aplicada_parcial'."
+            ),
+        )
+
+    # 5. Validar estado pedido imputable.
+    if pedido.estado not in {"aprobado", "pagado_parcial"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Pedido id={pedido.id} en estado '{pedido.estado}' no admite imputación.",
+        )
+
+    # 5b. Validar coherencia de moneda NC↔pedido (cross-moneda prohibido en v1).
+    if nc.moneda != pedido.moneda:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cross-moneda no soportado en v1. NC moneda: {nc.moneda}, pedido moneda: {pedido.moneda}.",
+        )
+
+    # 6. Validar saldo disponible NC >= monto.
+    saldo_nc = ncs_locales_service.calcular_saldo_pendiente(session, nc.id)
+    if monto > saldo_nc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"monto={monto} excede el saldo disponible de la NC id={nc.id} ({saldo_nc}).",
+        )
+
+    # 7. Crear imputación NC→pedido_compra.
+    imp = imputaciones_service.crear_imputacion(
+        session,
+        origen_tipo="nota_credito_local",
+        origen_id=nc.id,
+        destino_tipo="pedido_compra",
+        destino_id=pedido.id,
+        monto_imputado=monto,
+        moneda_imputada=nc.moneda,  # type: ignore[arg-type]
+        proveedor_id=nc.proveedor_id,
+        creado_por_id=creado_por_id,
+    )
+
+    # 8. HABER en CC proveedor.
+    cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp.id)
+
+    # 9. Recalcular estado del pedido.
+    pedidos_service.aplicar_imputacion_a_pedido(
+        session,
+        pedido_id=pedido.id,
+        monto_imputado=Decimal("0"),
+    )
+
+    session.flush()
+    session.refresh(nc)
+
+    logger.info(
+        "imputar_nc_a_pedido nc_id=%s pedido_id=%s monto=%s imputacion_id=%s nc_estado=%s",
+        nc.id,
+        pedido.id,
+        monto,
+        imp.id,
+        nc.estado,
+    )
+
+    return imp
 
 
 def aplicar_nc_desde_op(
@@ -1545,11 +1812,8 @@ def aplicar_nc_desde_op(
          ya está totalmente aplicada, 422 para estados no aplicables).
       4. Resuelve pedido destino desde imputaciones activas OP→pedido_compra
          (AC4.5): un único pedido → infer; varios sin pedido_id → 422 con lista.
-      5. Valida estado pedido imputable; valida NC.moneda == pedido.moneda (D3).
-      6. Valida saldo disponible NC >= monto (AC4.2 → 422).
-      7. Crea imputación NC→pedido_compra (whitelist ya cubre este combo).
-      8. HABER en CC proveedor via `cc_proveedor_service.aplicar_imputacion`.
-      9. Recalcula estado del pedido via `pedidos_service.aplicar_imputacion_a_pedido`.
+      5–9. Delega a `imputar_nc_a_pedido` (validaciones + creación imputación
+           + HABER CC + recálculo pedido).
 
     Nota sobre concurrencia: esta función no toma FOR UPDATE sobre la NC ni el
     pedido, consistente con el patrón actual de `aplicar_nc_local` en el router.
@@ -1568,8 +1832,6 @@ def aplicar_nc_desde_op(
                           imputados, o múltiples pedidos sin pedido_id (AC4.5).
     """
     from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
-    from app.services import cc_proveedor_service  # noqa: PLC0415
-    from app.services import ncs_locales_service  # noqa: PLC0415
 
     # 1. Cargar OP y NC.
     op = session.get(OrdenPago, op_id)
@@ -1586,7 +1848,9 @@ def aplicar_nc_desde_op(
             detail=f"NotaCreditoLocal id={nc_id} no encontrada.",
         )
 
-    # 2. Validar ownership proveedor (AC4.3).
+    # 2. Validar ownership proveedor contra la OP (AC4.3).
+    #    El helper imputar_nc_a_pedido valida nc.proveedor_id == pedido.proveedor_id,
+    #    pero aquí además queremos el mensaje específico de "NC vs OP".
     if nc.proveedor_id != op.proveedor_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1594,21 +1858,6 @@ def aplicar_nc_desde_op(
                 f"La NC id={nc_id} pertenece al proveedor id={nc.proveedor_id}, "
                 f"pero la OP id={op_id} pertenece al proveedor id={op.proveedor_id}. "
                 f"No se puede aplicar."
-            ),
-        )
-
-    # 3. Validar que la NC esté en estado aplicable (AC4.4).
-    if nc.estado == "aplicada":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(f"NC local id={nc_id} ya fue completamente aplicada (estado='aplicada')."),
-        )
-    if nc.estado not in {"aprobado", "aplicada_parcial"}:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"NC local id={nc_id} en estado '{nc.estado}' no puede aplicarse. "
-                f"Estados válidos: 'aprobado', 'aplicada_parcial'."
             ),
         )
 
@@ -1654,74 +1903,22 @@ def aplicar_nc_desde_op(
             ),
         )
 
-    # 5. Cargar pedido y validar estado.
+    # Cargar pedido destino.
     pedido = session.get(PedidoCompra, target_pedido_id)
     if pedido is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pedido destino id={target_pedido_id} no encontrado.",
         )
-    if pedido.estado not in {"aprobado", "pagado_parcial"}:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(f"Pedido id={target_pedido_id} en estado '{pedido.estado}' no admite imputación."),
-        )
 
-    # 5b. Validar coherencia de moneda NC↔pedido (cross-moneda prohibido en v1, D3).
-    if nc.moneda != pedido.moneda:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(f"Cross-moneda no soportado en v1. NC moneda: {nc.moneda}, pedido moneda: {pedido.moneda}."),
-        )
-
-    # 6. Validar saldo de la NC antes de delegar (AC4.2).
-    #    imputaciones_service.crear_imputacion también lo valida, pero hacerlo
-    #    aquí da un 422 más claro antes de cualquier write.
-    #
-    # KNOWN GAP (pre-existente, no introducido por este SDD): esta validación
-    # comprueba el saldo disponible de la NC, pero NO valida si el monto a
-    # aplicar excede el saldo pendiente del PEDIDO destino. Lo mismo ocurre en
-    # `aplicar_nc_local`. Una NC podría sobre-imputar un pedido que ya fue
-    # pagado parcialmente via otras OPs sin que este código lo detecte. El
-    # efecto queda visible en el saldo calculado del pedido (quedaría negativo),
-    # pero no hay rechazo anticipado. Corrección diferida por no impactar el
-    # scope de compras-op-rework.
-    saldo_nc = ncs_locales_service.calcular_saldo_pendiente(session, nc_id)
-    if monto > saldo_nc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(f"monto={monto} excede el saldo disponible de la NC id={nc_id} ({saldo_nc})."),
-        )
-
-    # 7. Crear imputación NC→pedido_compra (whitelist ya cubre este combo).
-    imp = imputaciones_service.crear_imputacion(
+    # Delegar pasos 2/3/5-9 al helper compartido.
+    imp = imputar_nc_a_pedido(
         session,
-        origen_tipo="nota_credito_local",
-        origen_id=nc.id,
-        destino_tipo="pedido_compra",
-        destino_id=target_pedido_id,
-        monto_imputado=monto,
-        moneda_imputada=nc.moneda,  # type: ignore[arg-type]
-        proveedor_id=nc.proveedor_id,
+        nc=nc,
+        pedido=pedido,
+        monto=monto,
         creado_por_id=creado_por_id,
     )
-
-    # 8. HABER en CC proveedor.
-    cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp.id)
-
-    # 9. Recalcular estado del pedido.
-    # monto_imputado=Decimal("0") — el argumento es informativo (ARG001 en su
-    # firma): la función re-deriva el estado desde la tabla imputaciones.
-    # Consistente con el call site de ejecutar_pago en este módulo.
-    pedidos_service.aplicar_imputacion_a_pedido(
-        session,
-        pedido_id=target_pedido_id,
-        monto_imputado=Decimal("0"),
-    )
-
-    # Refresh NC para obtener estado actualizado.
-    session.flush()
-    session.refresh(nc)
 
     logger.info(
         "aplicar_nc_desde_op op_id=%s nc_id=%s pedido_id=%s monto=%s imputacion_id=%s nc_estado=%s",
@@ -1754,6 +1951,7 @@ __all__ = [
     "anular",
     "aplicar_nc_desde_op",
     "cancelar_pendiente",
+    "imputar_nc_a_pedido",
     "crear",
     "crear_y_pagar",
     "detectar_duplicado_erp",
