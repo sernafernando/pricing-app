@@ -202,7 +202,7 @@ export default function DashboardMetricasML() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, marcasSeleccionadas, categoriasSeleccionadas, tiendasOficialesSeleccionadas, pmsSeleccionados]);
+  }, [fechaDesde, fechaHasta, marcasSeleccionadas, categoriasSeleccionadas, tiendasOficialesSeleccionadas, pmsSeleccionados, showToast]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {

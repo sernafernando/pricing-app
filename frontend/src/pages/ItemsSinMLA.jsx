@@ -164,6 +164,8 @@ const ItemsSinMLA = () => {
     cargarItemsSinMLA();
     cargarAsignaciones();
     cargarUsuariosAsignables();
+    // solo al montar — funciones de carga estables para este ciclo de vida
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -176,6 +178,8 @@ const ItemsSinMLA = () => {
     } else if (activeTab === 'comparacion') {
       cargarComparacionListas();
     }
+    // funciones de carga se recrean cada render — recargar solo al cambiar de pestaña
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, banlistActiva]);
 
   // ========== FUNCIONES DE ASIGNACIONES ==========
@@ -811,6 +815,8 @@ const ItemsSinMLA = () => {
 
   useEffect(() => {
     cargarItemsSinMLA();
+    // cargarItemsSinMLA se recrea cada render — recargar solo cuando cambian los filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos, sinPublicaciones, tiendasSeleccionadas]);
 
   const handleSort = (columna, event) => {
@@ -1039,6 +1045,8 @@ const ItemsSinMLA = () => {
     if (itemsBaneadosOriginales.length > 0) {
       aplicarFiltrosBanlist();
     }
+    // aplicarFiltrosBanlist se recrea cada render — re-filtrar solo cuando cambian los filtros de banlist
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcasSeleccionadasBanlist, busquedaBanlist, soloNuevosBanlist]);
 
   // Auto-scroll del log de sincronización ML

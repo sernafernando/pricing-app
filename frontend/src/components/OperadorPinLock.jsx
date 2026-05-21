@@ -63,6 +63,8 @@ export default function OperadorPinLock({
     if (pin.length === 4) {
       handleSubmit();
     }
+    // handleSubmit se recrea cada render — auto-submit solo cuando cambia el pin
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
   const handleSubmit = async () => {

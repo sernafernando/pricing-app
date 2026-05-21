@@ -198,7 +198,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search, cargarEnviosFlex]);
+  }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search, cargarEnviosFlex, showToast]);
 
   const sincronizarPedidos = async () => {
     const confirmed = await pedirConfirmacion(

@@ -57,6 +57,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
         duracion_segundos: alerta.duracion_segundos ?? 5
       });
     }
+    // cargarRoles/cargarUsuarios se recrean cada render — ejecutar solo cuando cambian alerta/isEdit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alerta, isEdit]);
 
   // Cerrar modal con ESC

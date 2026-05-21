@@ -57,12 +57,19 @@ export default function TabRentabilidad({
   const [fechasActuales, setFechasActuales] = useState({ desde: null, hasta: null });
 
   // Convertir arrays a strings para evitar re-renders infinitos
-  const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
-  const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
-  const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
-  const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
-  const pmsKey = useMemo(() => pmsSeleccionados.join(','), [pmsSeleccionados.join(',')]);
-  const tiendasKey = useMemo(() => tiendasOficiales.join(','), [tiendasOficiales.join(',')]);
+  // Expresiones extraídas a constantes para que el linter pueda chequearlas
+  const marcasJoined = marcasSeleccionadas.join(',');
+  const categoriasJoined = categoriasSeleccionadas.join(',');
+  const subcategoriasJoined = subcategoriasSeleccionadas.join(',');
+  const productosJoined = productosSeleccionados.join(',');
+  const pmsJoined = pmsSeleccionados.join(',');
+  const tiendasJoined = tiendasOficiales.join(',');
+  const marcasKey = useMemo(() => marcasJoined, [marcasJoined]);
+  const categoriasKey = useMemo(() => categoriasJoined, [categoriasJoined]);
+  const subcategoriasKey = useMemo(() => subcategoriasJoined, [subcategoriasJoined]);
+  const productosKey = useMemo(() => productosJoined, [productosJoined]);
+  const pmsKey = useMemo(() => pmsJoined, [pmsJoined]);
+  const tiendasKey = useMemo(() => tiendasJoined, [tiendasJoined]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -71,6 +78,8 @@ export default function TabRentabilidad({
       cargarFiltros();
       cargarRentabilidad();
     }
+    // cargarFiltros/cargarRentabilidad se recrean cada render — recargar solo cuando cambian fechas/tiendas/PMs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaDesde, fechaHasta, tiendasKey, pmsKey]);
 
   useEffect(() => {
@@ -78,6 +87,8 @@ export default function TabRentabilidad({
       cargarRentabilidad();
       cargarFiltros(); // También recargar filtros disponibles cuando cambian las selecciones
     }
+    // recargar solo cuando cambian las selecciones de filtros — fechaDesde/Hasta cubiertas por el otro efecto
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcasKey, categoriasKey, subcategoriasKey, productosKey, pmsKey]);
 
   const cargarFiltros = async () => {

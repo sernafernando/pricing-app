@@ -178,6 +178,8 @@ export default function ModalEditarCosto({
     if (productosSeleccionados.length > 0) {
       recalcularCostoTotal(productosSeleccionados);
     }
+    // recalcularCostoTotal se recrea cada render — recalcular solo cuando cambia el TC
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipoCambio]);
 
   // Calcular costo en ARS para guardar

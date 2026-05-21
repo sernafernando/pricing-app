@@ -91,6 +91,8 @@ export default function Clientes() {
   // Cargar clientes cuando cambian los filtros
   useEffect(() => {
     cargarClientes();
+    // cargarClientes se recrea cada render — recargar solo cuando cambian paginación/filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroCustIdDesde, filtroCustIdHasta]);
 
   const cargarFiltros = async () => {

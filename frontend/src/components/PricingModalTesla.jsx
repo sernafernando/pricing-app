@@ -63,6 +63,8 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
       setParticipaRebate(false);
       setPorcentajeRebate(3.8);
     }
+    // resetear solo al abrir o cambiar de item — usar producto?.item_id evita reset por nueva referencia
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, producto?.item_id]);
 
   // Early return DESPUÉS de los hooks

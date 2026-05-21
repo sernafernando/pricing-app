@@ -25,6 +25,8 @@ export default function PreciosListas() {
 
   useEffect(() => {
     cargarProductos();
+    // cargarProductos se recrea cada render — recargar solo cuando cambian paginación/filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, debouncedSearch, filtroStock, pageSize]);
 
   const cargarProductos = async () => {

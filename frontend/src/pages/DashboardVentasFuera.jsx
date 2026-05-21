@@ -377,6 +377,8 @@ export default function DashboardVentasFuera() {
     if (!soloModificadas) return pagination.data;
     
     return pagination.data.filter(op => tieneOverride(op.id_operacion));
+    // tieneOverride se recrea cada render y solo lee overrides — recalcular cuando cambian datos o filtro
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.data, soloModificadas]);
 
   // Calcular ganancia para el resumen

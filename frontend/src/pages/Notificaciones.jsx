@@ -44,6 +44,8 @@ export default function Notificaciones() {
 
   useEffect(() => {
     fetchNotificaciones();
+    // fetchNotificaciones se recrea cada render — recargar solo cuando cambian los filtros
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soloNoLeidas, filtroTipo, vistaAgrupada]);
 
   // Resetear página cuando cambien los filtros u ordenamiento

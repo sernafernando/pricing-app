@@ -533,6 +533,8 @@ function TabTiposTicket() {
 
   useEffect(() => {
     fetchTipos();
+    // fetchTipos se recrea cada render — recargar solo cuando cambia el sector
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectorId]);
 
   const countFields = (schema) => {

@@ -24,6 +24,8 @@ export default function GestionAlertas() {
     if (puedeConfigurar) {
       cargarConfiguracion();
     }
+    // cargarAlertas/cargarConfiguracion se recrean cada render — recargar solo cuando cambian permisos/filtro
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puedeGestionar, puedeConfigurar, filtroActivo]);
 
   const cargarAlertas = async () => {

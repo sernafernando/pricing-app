@@ -137,6 +137,8 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     calcular();
+    // calcular se recrea cada render — recalcular solo cuando cambian los inputs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData, grupoSeleccionado, gruposComision]);
 
   // Calcular cuotas automáticamente cuando cambia el markup o el adicional
@@ -161,6 +163,8 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       console.log('❌ No se cumplen condiciones para calcular cuotas');
       setPreciosCuotas([]);
     }
+    // calcularCuotas se recrea cada render — recalcular solo cuando cambian markup/adicional/costo/precio/TC
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultados.markupPorcentaje, adicionalMarkup, formData.costo, formData.precioFinal, formData.tipoCambio]);
 
   const calcularCuotas = async () => {

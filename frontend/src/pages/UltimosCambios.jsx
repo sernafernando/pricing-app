@@ -9,6 +9,8 @@ export default function UltimosCambios() {
 
   useEffect(() => {
     cargarCambios();
+    // cargarCambios se recrea cada render — recargar solo cuando cambia el límite
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit]);
 
   const cargarCambios = async () => {
