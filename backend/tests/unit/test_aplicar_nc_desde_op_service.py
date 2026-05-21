@@ -18,6 +18,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 
+from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.empresa import Empresa
 from app.models.imputacion import Imputacion
 from app.models.nota_credito_local import NotaCreditoLocal
@@ -185,6 +186,46 @@ def nc_otro_proveedor(db, empresa, proveedor_otro, active_user) -> NotaCreditoLo
     db.add(nc)
     db.flush()
     return nc
+
+
+@pytest.fixture
+def nc_aplicada_parcial(db, empresa, proveedor, active_user) -> NotaCreditoLocal:
+    """NC en estado 'aplicada_parcial' — ya aplicada pero aún con saldo disponible."""
+    nc = NotaCreditoLocal(
+        id=13,
+        numero="NC-10-2026-00003",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=Decimal("8000"),
+        fecha_emision=date(2026, 1, 10),
+        motivo="Parcialmente aplicada",
+        estado="aplicada_parcial",
+        tipo="credito",
+        creado_por_id=active_user.id,
+    )
+    db.add(nc)
+    db.flush()
+    return nc
+
+
+@pytest.fixture
+def pedido_usd(db, empresa, proveedor, active_user) -> PedidoCompra:
+    """Pedido en USD del mismo proveedor — para test cross-moneda."""
+    p = PedidoCompra(
+        id=12,
+        numero="PC-10-2026-00003",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        monto=Decimal("500"),
+        tipo_cambio=Decimal("1400"),
+        estado="aprobado",
+        creado_por_id=active_user.id,
+    )
+    db.add(p)
+    db.flush()
+    return p
 
 
 @pytest.fixture
@@ -368,3 +409,134 @@ class TestAplicarNCDesdeOP:
         assert "imputacion_id" in result
         imp = db.get(Imputacion, result["imputacion_id"])
         assert imp.destino_id == pedido.id
+
+    # ── Nuevos tests de refuerzo (test reinforcement pass) ──────────────────
+
+    def test_haber_en_cc_proveedor(self, db, op, pedido, nc_aprobada, imputacion_op_pedido, active_user) -> None:
+        """Aplicar NC crea un movimiento HABER en la CC del proveedor con el monto correcto.
+
+        Éste es el efecto más crítico en términos financieros: si el HABER no
+        se registra, la deuda con el proveedor queda inflada silenciosamente.
+        """
+        monto_aplicar = Decimal("5000")
+
+        movimientos_antes = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.proveedor_id == op.proveedor_id,
+                CCProveedorMovimiento.tipo == "haber",
+            )
+            .count()
+        )
+
+        result = ordenes_pago_service.aplicar_nc_desde_op(
+            db,
+            op_id=op.id,
+            nc_id=nc_aprobada.id,
+            monto=monto_aplicar,
+            pedido_id=None,
+            creado_por_id=active_user.id,
+        )
+
+        movimientos_haber = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.proveedor_id == op.proveedor_id,
+                CCProveedorMovimiento.tipo == "haber",
+            )
+            .all()
+        )
+
+        # Al menos un HABER nuevo debe haberse creado
+        assert len(movimientos_haber) > movimientos_antes, "aplicar_nc_desde_op debe emitir un HABER en CC proveedor"
+
+        # El HABER más reciente debe corresponder a la imputación creada
+        imp = db.get(Imputacion, result["imputacion_id"])
+        mov_nc = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.origen_tipo == "imputacion",
+                CCProveedorMovimiento.origen_id == imp.id,
+            )
+            .one_or_none()
+        )
+        assert mov_nc is not None, "Debe existir un CCProveedorMovimiento originado en la imputación NC"
+        assert mov_nc.tipo == "haber", f"El movimiento debe ser HABER, pero es '{mov_nc.tipo}'"
+        assert mov_nc.monto == monto_aplicar, f"El monto del HABER debe ser {monto_aplicar}, pero es {mov_nc.monto}"
+
+    def test_cross_moneda_nc_vs_pedido_422(self, db, op, pedido_usd, nc_aprobada, active_user) -> None:
+        """NC ARS contra pedido USD → 422 (cross-moneda prohibido en v1, D3).
+
+        La OP debe tener una imputación al pedido_usd para que llegue a la
+        validación de moneda (AC4.5 se resuelve antes).
+        """
+        # Crear imputación OP→pedido_usd para que el pedido_usd esté "en la OP"
+        imp_op_usd = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido_usd.id,
+            monto_imputado=Decimal("700000"),  # 500 USD × 1400
+            moneda_imputada="ARS",
+            proveedor_id=op.proveedor_id,
+            es_reversal=False,
+            creado_por_id=active_user.id,
+        )
+        db.add(imp_op_usd)
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc_info:
+            ordenes_pago_service.aplicar_nc_desde_op(
+                db,
+                op_id=op.id,
+                nc_id=nc_aprobada.id,  # ARS
+                monto=Decimal("1000"),
+                pedido_id=pedido_usd.id,  # USD
+                creado_por_id=active_user.id,
+            )
+        assert exc_info.value.status_code == 422
+        assert "moneda" in exc_info.value.detail.lower() or "cross" in exc_info.value.detail.lower()
+
+    def test_pedido_id_no_en_op_422(
+        self, db, op, pedido, pedido2, nc_aprobada, imputacion_op_pedido, active_user
+    ) -> None:
+        """pedido_id apunta a un pedido que NO está en las imputaciones de la OP → 422.
+
+        pedido2 nunca fue imputado a esta OP, así que especificar pedido2 como
+        destino debe ser rechazado explícitamente.
+        """
+        with pytest.raises(HTTPException) as exc_info:
+            ordenes_pago_service.aplicar_nc_desde_op(
+                db,
+                op_id=op.id,
+                nc_id=nc_aprobada.id,
+                monto=Decimal("1000"),
+                pedido_id=pedido2.id,  # pedido2 no está imputado en esta OP
+                creado_por_id=active_user.id,
+            )
+        assert exc_info.value.status_code == 422
+        detail = exc_info.value.detail
+        assert str(pedido2.id) in str(detail) or "no está" in str(detail)
+
+    def test_nc_aplicada_parcial_es_aplicable(
+        self, db, op, pedido, nc_aplicada_parcial, imputacion_op_pedido, active_user
+    ) -> None:
+        """NC en estado 'aplicada_parcial' debe poder aplicarse (tiene saldo disponible).
+
+        El estado 'aplicada_parcial' significa que la NC fue usada antes pero
+        no por completo. Debe ser aceptada por el validador de estado (AC4.4
+        solo rechaza 'aplicada' con 409 y otros estados con 422).
+        """
+        result = ordenes_pago_service.aplicar_nc_desde_op(
+            db,
+            op_id=op.id,
+            nc_id=nc_aplicada_parcial.id,
+            monto=Decimal("3000"),  # menor que los 8000 de la NC parcial
+            pedido_id=None,
+            creado_por_id=active_user.id,
+        )
+        assert "imputacion_id" in result
+        imp = db.get(Imputacion, result["imputacion_id"])
+        assert imp is not None
+        assert imp.origen_id == nc_aplicada_parcial.id
+        assert imp.monto_imputado == Decimal("3000")

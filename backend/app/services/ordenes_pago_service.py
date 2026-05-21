@@ -1677,6 +1677,15 @@ def aplicar_nc_desde_op(
     # 6. Validar saldo de la NC antes de delegar (AC4.2).
     #    imputaciones_service.crear_imputacion también lo valida, pero hacerlo
     #    aquí da un 422 más claro antes de cualquier write.
+    #
+    # KNOWN GAP (pre-existente, no introducido por este SDD): esta validación
+    # comprueba el saldo disponible de la NC, pero NO valida si el monto a
+    # aplicar excede el saldo pendiente del PEDIDO destino. Lo mismo ocurre en
+    # `aplicar_nc_local`. Una NC podría sobre-imputar un pedido que ya fue
+    # pagado parcialmente via otras OPs sin que este código lo detecte. El
+    # efecto queda visible en el saldo calculado del pedido (quedaría negativo),
+    # pero no hay rechazo anticipado. Corrección diferida por no impactar el
+    # scope de compras-op-rework.
     saldo_nc = ncs_locales_service.calcular_saldo_pendiente(session, nc_id)
     if monto > saldo_nc:
         raise HTTPException(
