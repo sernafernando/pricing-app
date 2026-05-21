@@ -164,8 +164,81 @@ class TestCrearYPagarHappyPath:
 
         assert op.estado == "pagado"
         assert op.id is not None
-        # Imputación was created (the pedido_usd saldo is reduced)
-        db.refresh(pedido_usd)
+
+        # Cross-moneda assertion: the USD pedido must have a real imputación.
+        # In cross-moneda the service converts ARS → USD using the TC, so the
+        # imputación is stored in the pedido's native currency (USD).
+        # 1400 ARS ÷ TC 1400 = 1 USD imputado.
+        from app.models.imputacion import Imputacion as _Imp
+        from app.services.pedidos_service import calcular_saldo_pendiente_pedido
+
+        imp = (
+            db.query(_Imp)
+            .filter(
+                _Imp.origen_tipo == "orden_pago",
+                _Imp.origen_id == op.id,
+                _Imp.destino_tipo == "pedido_compra",
+                _Imp.destino_id == pedido_usd.id,
+                _Imp.es_reversal.is_(False),
+            )
+            .one()
+        )
+        # The imputación is stored in USD (the pedido's native moneda)
+        assert imp.monto_imputado == Decimal("1"), (
+            f"Se esperaba 1 USD imputado (1400 ARS ÷ TC 1400), pero se obtuvo {imp.monto_imputado}"
+        )
+
+        # Saldo del pedido USD debe haber disminuido en 1 USD (de 1000 a 999)
+        saldo = calcular_saldo_pendiente_pedido(db, pedido_usd.id)
+        assert saldo == Decimal("999"), f"Se esperaba saldo USD 999 (1000 - 1), pero se obtuvo {saldo}"
+
+    def test_numero_factura_ejercita_deteccion_duplicados(
+        self, db, empresa, proveedor, caja_ars, tipos_doc_caja, active_user
+    ) -> None:
+        """F3 — items con numero_factura: la detección de duplicados ERP es invocada.
+
+        Si `crear_y_pagar` omitiera pasar `numero_factura` a `crear()`, la
+        extracción de numeros_factura silenciaría la búsqueda anti-duplicado.
+        Este test verifica que el flujo completo funciona cuando los items
+        incluyen `numero_factura` (la tabla ERP no existe en tests, por eso
+        el detector devuelve vacío, pero el código ejecuta la ruta completa).
+        """
+        pedido_ars = PedidoCompra(
+            numero="PC-CYP-NF-0001",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("4000"),
+            estado="aprobado",
+            creado_por_id=active_user.id,
+        )
+        db.add(pedido_ars)
+        db.flush()
+
+        op = ordenes_pago_service.crear_y_pagar(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("4000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_ars.id,
+                    "monto": Decimal("4000"),
+                    "numero_factura": "FACT-TEST-0001",  # ejercita duplicado-detection
+                }
+            ],
+            creado_por_id=active_user.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date(2026, 1, 20),
+        )
+
+        # La OP se creó y pagó; el numero_factura no bloqueó el flujo
+        # (tabla ERP ausente → detector devuelve vacío).
+        assert op.estado == "pagado"
+        assert op.id is not None
 
     def test_returns_op_in_pagado_estado(self, db, empresa, proveedor, caja_ars, tipos_doc_caja, active_user) -> None:
         """T3.3 AC3.1: returns estado='pagado' in the returned object."""
