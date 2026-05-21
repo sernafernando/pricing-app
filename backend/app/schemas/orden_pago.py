@@ -208,6 +208,9 @@ class OrdenPagoDetalle(OrdenPagoResponse):
     imputaciones: list["ImputacionResponse"] = Field(default_factory=list)
     eventos: list["CompraEventoResponse"] = Field(default_factory=list)
     caja_movimiento_resumen: CajaMovimientoResumen | None = None
+    # F7 follow-up: nombre del banco cuando la OP fue pagada con banco (banco_id != NULL).
+    # None cuando la fuente fue caja o la OP está pendiente.
+    banco_nombre: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
