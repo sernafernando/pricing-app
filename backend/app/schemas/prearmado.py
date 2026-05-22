@@ -14,6 +14,7 @@ ValidationMotivo = Literal[
     "ItemMismatch",
     "AlreadyInSaleOrder",
     "AlreadyInvoiced",
+    "NoDisponible",
 ]
 
 
