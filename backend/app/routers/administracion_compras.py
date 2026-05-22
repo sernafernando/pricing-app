@@ -111,6 +111,7 @@ from app.schemas.pedido_compra import (
     VincularFacturaRequest,
 )
 from app.schemas.sale_document import SaleDocumentResponse, SaleDocumentsFaltantes
+from app.schemas.wipe_compras import WipeComprasRequest, WipeComprasResponse
 from app.services import (
     cc_proveedor_service,
     compras_adjuntos_service,
@@ -123,6 +124,7 @@ from app.services import (
 )
 from app.models.nota_credito_local import NotaCreditoLocal
 from app.services.sale_document_classifier import clasificar_documento_compra
+from app.services.wipe_compras_service import wipe_compras as _wipe_compras
 
 logger = get_logger("routers.administracion_compras")
 
@@ -2338,22 +2340,42 @@ def _enriquecer_movimientos_cc(
         resp.origen_descripcion = _descripcion(m)
 
         # F6 ARS fields.
+        # Priority for USD→ARS conversion (AD-9 fix, PR1 review):
+        #   1. Linked pedido TC (most accurate — reflects actual purchase rate).
+        #   2. Persisted tipo_cambio_a_ars on the movement itself (ajustes, NC habers,
+        #      pagos-a-cuenta with no linked pedido but a recorded TC at entry time).
+        #   3. No TC available → monto_ars = None. The saldo_ars accumulator will
+        #      skip this movement. This should be exceptional; if it occurs it is
+        #      logged so it can be investigated and corrected at the data level.
         moneda = getattr(m, "moneda", "ARS")
         monto = Decimal(str(getattr(m, "monto", 0)))
         if moneda == "ARS":
             resp.monto_ars = monto
             resp.tc_aplicado = None
-        elif pid is not None:
-            tc = tc_efectivo_por_pedido.get(pid)
+        else:
+            # USD movement: resolve TC via pedido first, then persisted column.
+            tc: Decimal | None = None
+            if pid is not None:
+                tc = tc_efectivo_por_pedido.get(pid)
+            if tc is None:
+                # Fall back to the persisted tipo_cambio_a_ars recorded at entry time.
+                raw_tc = getattr(m, "tipo_cambio_a_ars", None)
+                if raw_tc is not None:
+                    tc = Decimal(str(raw_tc))
             if tc is not None:
                 resp.monto_ars = (monto * tc).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 resp.tc_aplicado = tc
             else:
+                # No TC resolvable — movement will be excluded from saldo_ars.
+                # This is a data-quality issue; log for investigation.
+                logger.warning(
+                    "_enriquecer_movimientos_cc: movimiento USD id=%s sin TC resolvable "
+                    "(pid=%s, tipo_cambio_a_ars=None) → excluido de saldo_ars",
+                    getattr(m, "id", "?"),
+                    pid,
+                )
                 resp.monto_ars = None
                 resp.tc_aplicado = None
-        else:
-            resp.monto_ars = None
-            resp.tc_aplicado = None
 
         resultado.append(resp)
     return resultado
@@ -4329,6 +4351,56 @@ def listar_adjuntos_nc_local(
     _obtener_nc_o_404(db, nc_id)
     items = compras_adjuntos_service.listar_adjuntos(db, entidad_tipo="nota_credito_local", entidad_id=nc_id)
     return [_adjunto_response(a) for a in items]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# §testing — Wipe compras (herramienta de testing, permiso dedicado)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/testing/wipe-compras",
+    response_model=WipeComprasResponse,
+    summary="[TESTING] Limpiar todas las tablas del módulo compras",
+    tags=["Testing"],
+)
+def wipe_compras_endpoint(
+    body: WipeComprasRequest,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.wipe_compras_testing")),
+) -> WipeComprasResponse:
+    """
+    Elimina TODOS los datos del módulo compras.
+
+    PELIGRO: acción irreversible. Solo para entornos de prueba.
+    Requiere permiso `administracion.wipe_compras_testing` y confirmación textual.
+    Solo disponible en entornos de desarrollo/testing (`ENVIRONMENT != production`).
+
+    El campo `confirmacion` debe valer exactamente 'WIPE'.
+    """
+    env = getattr(settings, "ENVIRONMENT", "production")
+    if env == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta operación no está disponible en producción.",
+        )
+
+    try:
+        tablas = _wipe_compras(db, incluir_caja_banco=body.incluir_caja_banco)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("wipe_compras falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al limpiar las tablas de compras.",
+        ) from exc
+
+    return WipeComprasResponse(
+        confirmado=True,
+        tablas_limpiadas=tablas,
+        mensaje="Tablas del módulo compras limpiadas exitosamente.",
+    )
 
 
 __all__ = ["router"]

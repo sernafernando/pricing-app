@@ -450,12 +450,7 @@ export default function TabCCProveedores() {
                       : 'neutral'
                 }
               />
-              <MetricTile
-                label="Saldo USD"
-                value={formatMoneda(saldoUsd, 'USD')}
-                hint={`${movsUsdCount} movimientos`}
-                tone={Number(saldoUsd) > 0 ? 'debe' : Number(saldoUsd) < 0 ? 'haber' : 'neutral'}
-              />
+              {/* Tile USD eliminado — AC-1.3/AC-1.4: solo se muestra saldo ARS (saldo_ars proyectado). */}
               <MetricTile
                 label="Consolidado ARS"
                 value={consolidadoArs !== null ? formatMoneda(consolidadoArs, 'ARS') : '—'}

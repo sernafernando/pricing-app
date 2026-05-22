@@ -1,0 +1,178 @@
+/* WipeComprasButton — variante destructiva / danger */
+
+.triggerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--danger, #dc2626);
+  background: transparent;
+  color: var(--danger, #dc2626);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.triggerBtn:hover {
+  background: var(--danger, #dc2626);
+  color: #fff;
+}
+
+/* Modal overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--bg-primary, #fff);
+  border-radius: 10px;
+  padding: 28px 28px 24px;
+  width: 100%;
+  max-width: 420px;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.closeBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.closeBtn:hover {
+  color: var(--text-primary, #111);
+  background: var(--bg-secondary, #f3f3f3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.warningIcon {
+  color: var(--danger, #dc2626);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary, #111);
+  margin: 0;
+}
+
+.description {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #555);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-primary, #111);
+  margin-bottom: 18px;
+  cursor: pointer;
+}
+
+.confirmGroup {
+  margin-bottom: 16px;
+}
+
+.confirmLabel {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #555);
+  margin-bottom: 6px;
+}
+
+.confirmInput {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #111);
+  box-sizing: border-box;
+}
+
+.confirmInput:focus {
+  outline: none;
+  border-color: var(--danger, #dc2626);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.errorMsg {
+  font-size: 0.8125rem;
+  color: var(--danger, #dc2626);
+  margin: 0 0 12px;
+}
+
+.successMsg {
+  font-size: 0.8125rem;
+  color: var(--success, #16a34a);
+  margin: 0 0 12px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cancelBtn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d1d5db);
+  background: var(--bg-secondary, #f9fafb);
+  color: var(--text-primary, #111);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.cancelBtn:hover:not(:disabled) {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.wipeBtn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.wipeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wipeBtn:hover:not(:disabled) {
+  opacity: 0.88;
+}
