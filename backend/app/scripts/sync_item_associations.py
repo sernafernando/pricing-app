@@ -96,6 +96,54 @@ def parse_decimal(value):
         return None
 
 
+def reconciliar_asociaciones_combo(db: Session, item_id: int, itema_ids_vigentes: list[int]) -> int:
+    """
+    Elimina las asociaciones locales de un combo que ya no existen en el ERP.
+
+    Cuando en el ERP se modifica un combo (se cambia un componente por otro), la
+    fila vieja de la asociación se borra en el origen. El sync es upsert puro y
+    nunca reflejaba ese borrado: la fila quedaba para siempre en la tabla local
+    con `iasso_qty > 0`, y el prearmador la mostraba como un componente fantasma
+    que el combo "todavía tiene".
+
+    Esta función reconcilia un combo puntual: recibe la lista COMPLETA de
+    `itema_id` que el ERP devolvió para ese combo y borra localmente toda fila de
+    ese combo cuyo `itema_id` no esté en la lista.
+
+    Guard: si `itema_ids_vigentes` viene vacío no borra nada y retorna 0. Una
+    respuesta vacía del ERP puede ser un fetch fallido — borrar en ese caso se
+    llevaría puestas asociaciones válidas.
+
+    Args:
+        db: sesión SQLAlchemy ya abierta — no se commitea acá.
+        item_id: id del item combo (padre) en tb_item_association.
+        itema_ids_vigentes: itema_id de TODAS las asociaciones que el ERP
+            devolvió para este combo.
+
+    Returns:
+        Cantidad de filas locales eliminadas.
+    """
+    if not itema_ids_vigentes:
+        logger.warning(
+            f"⚠️ Reconciliación omitida para combo item_id={item_id}: "
+            f"el ERP no devolvió asociaciones (posible fetch fallido)"
+        )
+        return 0
+
+    eliminadas = (
+        db.query(TbItemAssociation)
+        .filter(
+            TbItemAssociation.item_id == item_id,
+            TbItemAssociation.itema_id.notin_(itema_ids_vigentes),
+        )
+        .delete(synchronize_session=False)
+    )
+
+    if eliminadas:
+        logger.info(f"🔄 Reconciliación combo item_id={item_id}: {eliminadas} asociación(es) fantasma eliminada(s)")
+    return eliminadas
+
+
 def sync_item_associations(
     itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
 ):
@@ -167,6 +215,23 @@ def sync_item_associations(
                 nuevo_registro = TbItemAssociation(**datos)
                 db_local.add(nuevo_registro)
                 total_nuevos += 1
+
+        # Reconciliación por combo: si la sincronización fue scopeada a un combo
+        # puntual (item_id, sin otros filtros), el ERP devolvió su BOM COMPLETA.
+        # Borramos las asociaciones locales de ese combo que ya no existen en el
+        # origen — los componentes fantasma de un combo que fue modificado.
+        if item_id and not itema_id and not itema_id_4update and not item1_id:
+            itema_ids_vigentes = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
+            # Si algún registro vino sin itema_id, la respuesta es parcial y la
+            # lista de "vigentes" quedaría incompleta — reconciliar borraría
+            # asociaciones válidas. Ante una respuesta parcial, no reconciliamos.
+            if len(itema_ids_vigentes) != len(registros_erp):
+                logger.warning(
+                    f"⚠️ Reconciliación omitida para combo item_id={item_id}: "
+                    f"el ERP devolvió registros sin itema_id (respuesta parcial)"
+                )
+            else:
+                reconciliar_asociaciones_combo(db_local, item_id, itema_ids_vigentes)
 
         # Commit final
         db_local.commit()
