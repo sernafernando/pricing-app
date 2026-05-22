@@ -939,10 +939,160 @@ def registrar_ajuste_revaluacion_tc(
     return mov
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# calcular_saldo_a_favor_breakdown (PR2 — AD-8)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def calcular_saldo_a_favor_breakdown(
+    session: Session,
+    *,
+    proveedor_id: int,
+    empresa_id: Optional[int] = None,
+) -> dict:
+    """
+    Calcula el breakdown del saldo a favor del CC en componentes (AD-8).
+
+    El saldo a favor total sigue siendo `calcular_saldo_por_moneda` (negativo
+    = a favor). El breakdown clasifica ese saldo en:
+      - `componente_dinero_a_cuenta`: real-money overpay disponible (DACs)
+      - `componente_nc`: crédito documental (NCs locales/ERP pendientes)
+
+    Todo derivado — sin columnas extra en cc_proveedor_movimientos (AD-8).
+
+    Returns:
+        dict con claves:
+          proveedor_id, saldo_a_favor_total_ars,
+          componente_dinero_a_cuenta_ars, componente_nc_ars, por_moneda.
+    """
+    from app.services.dinero_a_cuenta_service import calcular_componente_dinero_a_cuenta  # noqa: PLC0415
+
+    saldos_por_moneda = calcular_saldo_por_moneda(session, proveedor_id=proveedor_id, empresa_id=empresa_id)
+
+    # calcular_saldo_por_moneda devuelve negativo cuando el CC es a favor del
+    # proveedor (haber > debe). En el breakdown exponemos la MAGNITUD: valor
+    # positivo = cuánto le debemos al proveedor. Cero cuando el proveedor nos
+    # debe a nosotros (saldo_bruto >= 0).
+    saldo_bruto = saldos_por_moneda.get("ARS", Decimal("0"))
+    saldo_ars = max(Decimal("0"), -saldo_bruto)
+
+    # Compute componentes for all currencies that appear in CC movements.
+    # ARS is always computed (DACs and NCs can exist even without CC entries).
+    monedas_a_calcular = set(saldos_por_moneda.keys()) | {"ARS"}
+
+    por_moneda: dict = {}
+    for moneda_key in monedas_a_calcular:
+        saldo_moneda = saldos_por_moneda.get(moneda_key, Decimal("0"))
+        comp_dac_m = calcular_componente_dinero_a_cuenta(
+            session, proveedor_id=proveedor_id, moneda=moneda_key, empresa_id=empresa_id
+        )
+        comp_nc_m = _calcular_componente_nc(
+            session, proveedor_id=proveedor_id, moneda=moneda_key, empresa_id=empresa_id
+        )
+        por_moneda[moneda_key] = {
+            "moneda": moneda_key,
+            # Magnitud positiva; 0 cuando el proveedor tiene deuda con nosotros.
+            "saldo_a_favor_total": max(Decimal("0"), -saldo_moneda),
+            "componente_dinero_a_cuenta": comp_dac_m,
+            "componente_nc": comp_nc_m,
+        }
+
+    # ARS totals: reuse from por_moneda (always present after the loop above).
+    ars_entry = por_moneda["ARS"]
+    comp_dac_ars = ars_entry["componente_dinero_a_cuenta"]
+    comp_nc_ars = ars_entry["componente_nc"]
+
+    return {
+        "proveedor_id": proveedor_id,
+        "saldo_a_favor_total_ars": saldo_ars,
+        "componente_dinero_a_cuenta_ars": comp_dac_ars,
+        "componente_nc_ars": comp_nc_ars,
+        "por_moneda": por_moneda,
+    }
+
+
+def _calcular_componente_nc(
+    session: Session,
+    *,
+    proveedor_id: int,
+    moneda: str,
+    empresa_id: Optional[int] = None,
+) -> Decimal:
+    """
+    Suma saldos pendientes de NCs locales tipo='credito' en estados aplicables
+    para el proveedor y moneda dados.
+
+    Saldo pendiente de cada NC = monto - SUM(imputaciones origen=nc no-reversal)
+                                        + SUM(reversals).
+    Misma fórmula que _validar_origen_nc_local_disponible en imputaciones_service.
+
+    empresa_id: si se provee, filtra por empresa (coherencia con saldo CC).
+    NCs ERP no se calculan aquí (sin acceso a tabla ERP local en tests SQLite);
+    en producción se extiende con nota_credito_erp.
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    filters = [
+        NotaCreditoLocal.proveedor_id == proveedor_id,
+        NotaCreditoLocal.moneda == moneda,
+        NotaCreditoLocal.tipo == "credito",
+        NotaCreditoLocal.estado.in_(["aprobado", "aplicada_parcial"]),
+    ]
+    if empresa_id is not None:
+        filters.append(NotaCreditoLocal.empresa_id == empresa_id)
+
+    stmt = select(NotaCreditoLocal.id, NotaCreditoLocal.monto).where(*filters)
+    ncs = session.execute(stmt).all()
+
+    if not ncs:
+        return Decimal("0")
+
+    nc_ids = [nc_id for nc_id, _ in ncs]
+    nc_montos = {nc_id: Decimal(nc_monto) for nc_id, nc_monto in ncs}
+
+    # Batch: saldo neto de imputaciones por NC en 2 queries en lugar de 2N.
+    nc_origen_tipos = ["nota_credito_local", "nota_credito_erp"]
+    neto_no_reversal: dict[int, Decimal] = {
+        row.origen_id: Decimal(row.total)
+        for row in session.execute(
+            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            .where(
+                Imputacion.origen_tipo.in_(nc_origen_tipos),
+                Imputacion.origen_id.in_(nc_ids),
+                Imputacion.es_reversal.is_(False),
+            )
+            .group_by(Imputacion.origen_id)
+        ).all()
+    }
+    neto_reversal: dict[int, Decimal] = {
+        row.origen_id: Decimal(row.total)
+        for row in session.execute(
+            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            .where(
+                Imputacion.origen_tipo.in_(nc_origen_tipos),
+                Imputacion.origen_id.in_(nc_ids),
+                Imputacion.es_reversal.is_(True),
+            )
+            .group_by(Imputacion.origen_id)
+        ).all()
+    }
+
+    total = Decimal("0")
+    for nc_id in nc_ids:
+        consumido = neto_no_reversal.get(nc_id, Decimal("0"))
+        reversal = neto_reversal.get(nc_id, Decimal("0"))
+        saldo_nc = nc_montos[nc_id] - (consumido - reversal)
+        if saldo_nc > Decimal("0"):
+            total += saldo_nc
+
+    return total
+
+
 __all__ = [
     "Moneda",
     "TipoMovimiento",
     "aplicar_imputacion",
+    "calcular_saldo_a_favor_breakdown",
     "calcular_saldo_por_moneda",
     "insertar_mov",
     "listar_movimientos",

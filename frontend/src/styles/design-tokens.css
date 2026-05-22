@@ -234,6 +234,12 @@
   --cf-ml-not-delivered-bg: rgba(234, 179, 8, 0.18);
   --cf-ml-not-delivered-text: #78350f;
 
+  /* ── DAC estado badge colors ────────────────────────── */
+  --cf-dac-disponible-bg: rgba(34, 197, 94, 0.12);
+  --cf-dac-disponible-text: #15803d;
+  --cf-dac-parcial-bg: rgba(234, 179, 8, 0.15);
+  --cf-dac-parcial-text: #854d0e;
+
   /* ── Flag badge colors ───────────────────────────────── */
   --cf-flag-mal-pasado-bg: rgba(239, 68, 68, 0.12);
   --cf-flag-mal-pasado-text: var(--cf-accent-red);
@@ -385,6 +391,10 @@
 
   /* Flag badge text — brighter in dark mode */
   --cf-flag-cancelado-text: #fb923c;
+
+  /* DAC estado badge text — brighter in dark mode for contrast */
+  --cf-dac-disponible-text: #4ade80;
+  --cf-dac-parcial-text: #fbbf24;
 }
 
 /* ============================================

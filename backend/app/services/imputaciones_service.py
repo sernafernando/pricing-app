@@ -3,7 +3,7 @@ imputaciones_service — operaciones base sobre la tabla `imputaciones`.
 
 Esta tabla es **polimórfica** (design §1.4): `origen_tipo` y `destino_tipo`
 son VARCHAR abiertos, pero la whitelist v1 limita las combinaciones a los
-6 pares de `COMBOS_VALIDOS_V1`. Cross-moneda está prohibido (D3).
+10 pares de `COMBOS_VALIDOS_V1`. Cross-moneda está prohibido (D3).
 
 **Append-only** (D9): ni `desimputar` ni `reimputar` modifican filas
 existentes — insertan filas con `es_reversal=True` y `reimputada_desde_id`
@@ -42,7 +42,7 @@ logger = get_logger("services.imputaciones_service")
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Whitelist v1 — los 6 combos permitidos (design §1.4 + Cierre post-spec)
+# Whitelist v1 — los 10 combos permitidos (design §1.4 + Cierre post-spec)
 # ──────────────────────────────────────────────────────────────────────────
 
 COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
@@ -59,6 +59,9 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
         ("nota_credito_local", "pedido_compra"),
         ("nota_credito_local", "factura_erp"),
         ("nota_credito_local", "saldo"),
+        # PR2 — dinero a cuenta como destino de OP (pago_a_cuenta crea DAC).
+        # El HABER lo emite aplicar_imputacion (origen=orden_pago → CC haber).
+        ("orden_pago", "dinero_a_cuenta"),
     }
 )
 

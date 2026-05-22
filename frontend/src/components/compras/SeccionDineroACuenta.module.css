@@ -1,0 +1,114 @@
+/* SeccionDineroACuenta — PR2 — usa tokens --cf-* del módulo compras */
+
+.seccion {
+  margin-top: var(--spacing-md, 14px);
+  background: var(--cf-bg-card, #fff);
+  border: 1px solid var(--cf-border-default, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--cf-bg-hover, #f9fafb);
+  border-bottom: 1px solid var(--cf-border-default, #e5e7eb);
+}
+
+.headerIcon {
+  color: var(--cf-accent-green, #16a34a);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: var(--font-sm, 13px);
+  font-weight: 600;
+  color: var(--cf-text-primary, #111827);
+}
+
+.headerCount {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cf-text-secondary, #6b7280);
+  background: var(--cf-bg-card, #fff);
+  border: 1px solid var(--cf-border-default, #e5e7eb);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.headerHint {
+  color: var(--cf-text-tertiary, #9ca3af);
+  cursor: default;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm, 13px);
+}
+
+.th,
+.thRight {
+  padding: 7px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cf-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--cf-bg-hover, #f9fafb);
+  border-bottom: 1px solid var(--cf-border-default, #e5e7eb);
+}
+
+.thRight {
+  text-align: right;
+}
+
+.row:hover {
+  background: var(--cf-bg-hover, #f0f9ff);
+}
+
+.td {
+  padding: 8px 14px;
+  color: var(--cf-text-primary, #111827);
+  border-bottom: 1px solid var(--cf-border-default, #f3f4f6);
+  vertical-align: middle;
+}
+
+.right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.saldoDisponible {
+  font-weight: 600;
+  color: var(--cf-accent-green, #16a34a);
+}
+
+/* Estado badges */
+.estadoBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.estadoDisponible {
+  background: var(--cf-dac-disponible-bg, rgba(34, 197, 94, 0.12));
+  color: var(--cf-dac-disponible-text, #15803d);
+}
+
+.estadoParcial {
+  background: var(--cf-dac-parcial-bg, rgba(234, 179, 8, 0.15));
+  color: var(--cf-dac-parcial-text, #854d0e);
+}
+
+.estadoConsumido {
+  background: var(--cf-bg-hover, #f3f4f6);
+  color: var(--cf-text-secondary, #6b7280);
+}
