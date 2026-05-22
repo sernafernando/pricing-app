@@ -484,3 +484,56 @@ def test_enriquecer_usd_without_pedido_returns_none_monto_ars(db):
     assert len(resultado) == 1
     resp = resultado[0]
     assert resp.monto_ars is None, f"Expected monto_ars=None for USD movement without pedido link, got {resp.monto_ars}"
+
+
+def test_enriquecer_usd_without_pedido_uses_persisted_tipo_cambio(db):
+    """
+    CRITICAL 2 regression — PR1 review fix (AD-9 backend correction):
+
+    A USD movement with NO linked pedido but WITH a persisted `tipo_cambio_a_ars`
+    (e.g. manual ajuste, NC-origin haber, pago-a-cuenta recorded at entry time)
+    MUST be included in saldo_ars.
+
+    Before the fix, _enriquecer_movimientos_cc fell through to `monto_ars = None`
+    for pedido-less USD movements, silently dropping them from the saldo_ars total.
+    After the fix, the persisted tipo_cambio_a_ars column is used as fallback.
+    """
+    from datetime import datetime
+    from app.routers.administracion_compras import _enriquecer_movimientos_cc
+
+    TC_PERSISTIDO = Decimal("1500.000000")
+    MONTO_USD = Decimal("200")
+    MONTO_ARS_ESPERADO = (MONTO_USD * TC_PERSISTIDO).quantize(Decimal("0.01"))
+
+    class _OrmMovUsdConTC:
+        """USD movement: no pedido link, but tipo_cambio_a_ars persisted at entry time."""
+
+        id = 3
+        proveedor_id = 1
+        empresa_id = 1
+        fecha_movimiento = "2024-02-01"
+        tipo = "haber"
+        signo_ajuste = None
+        monto = MONTO_USD
+        moneda = "USD"
+        # Persisted at entry time (e.g. NC-origin haber, pago-a-cuenta)
+        tipo_cambio_a_ars = TC_PERSISTIDO
+        origen_tipo = "ajuste_manual"
+        origen_id = None
+        descripcion = None
+        creado_por_id = None
+        created_at = datetime(2024, 2, 1)
+
+    resultado = _enriquecer_movimientos_cc(db, [_OrmMovUsdConTC()])
+    assert len(resultado) == 1
+    resp = resultado[0]
+
+    # Must NOT be None — this was the regression
+    assert resp.monto_ars is not None, (
+        "REGRESSION: pedido-less USD movement with tipo_cambio_a_ars persisted "
+        "must NOT have monto_ars=None (it would be silently excluded from saldo_ars)"
+    )
+    assert resp.monto_ars == MONTO_ARS_ESPERADO, (
+        f"Expected monto_ars={MONTO_ARS_ESPERADO} (USD {MONTO_USD} × TC {TC_PERSISTIDO}), got {resp.monto_ars}"
+    )
+    assert resp.tc_aplicado == TC_PERSISTIDO, f"Expected tc_aplicado={TC_PERSISTIDO}, got {resp.tc_aplicado}"

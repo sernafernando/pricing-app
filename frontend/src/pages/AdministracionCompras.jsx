@@ -18,6 +18,7 @@ import TabCCProveedores from '../components/compras/TabCCProveedores';
 import TabReconciliacion from '../components/compras/TabReconciliacion';
 import TabSaleDocumentCatalog from '../components/compras/TabSaleDocumentCatalog';
 import TabPapelera from '../components/compras/TabPapelera';
+import WipeComprasButton from '../components/compras/WipeComprasButton';
 import styles from './AdministracionCompras.module.css';
 
 // ── Tabs metadata ───────────────────────────────────────────────
@@ -107,10 +108,13 @@ export default function AdministracionCompras() {
           <ShoppingCart size={24} />
           <h1 className={styles.title}>Administración — Compras</h1>
         </div>
-        <div className={styles.breadcrumbs}>
-          <span>Administración</span>
-          <span className={styles.breadcrumbSep}>/</span>
-          <span className={styles.breadcrumbActive}>Compras</span>
+        <div className={styles.headerRight}>
+          <WipeComprasButton />
+          <div className={styles.breadcrumbs}>
+            <span>Administración</span>
+            <span className={styles.breadcrumbSep}>/</span>
+            <span className={styles.breadcrumbActive}>Compras</span>
+          </div>
         </div>
       </div>
 
