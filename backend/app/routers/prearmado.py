@@ -13,9 +13,11 @@ Endpoints (todos protegidos por permiso `produccion.prearmar_combos`):
 - POST   /prearmado/rematch                        — corre matcher manualmente
 """
 
+import logging
 from datetime import datetime
 from typing import List, Optional, Set
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -47,9 +49,14 @@ from app.services.prearmado_helpers import generar_codigo_prearmado, parse_windo
 from app.services.prearmado_matcher import match_prearmados_with_sales_orders
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 PERMISO = "produccion.prearmar_combos"
+
+# gbp-parser local — misma URL que usan los scripts de sync del ERP.
+GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
 
 # State machine para transiciones manuales (consumido y anulado son terminales)
 _VALID_TRANSITIONS: dict[str, Set[str]] = {
@@ -64,6 +71,46 @@ _VALID_TRANSITIONS: dict[str, Set[str]] = {
 # --- Helpers internos ---
 
 
+def _refetch_serial_is_available(is_id: int) -> Optional[bool]:
+    """Reconsulta la disponibilidad de UN serial puntual contra el ERP.
+
+    El `is_available` local puede estar desactualizado: el sync incremental de
+    `tb_item_serials` trae seriales por fecha de creación y por `is_id`, así que
+    un serial ANTIGUO que se liberó (ej: una NC que revierte la venta) no se
+    vuelve a sincronizar hasta el próximo sync full. Cuando la validación ve el
+    serial como ocupado, esta función pide al ERP el estado actual de ese único
+    serial para no bloquear algo que en realidad está disponible.
+
+    Returns:
+        `True`/`False` según el ERP, o `None` si la consulta no se pudo resolver
+        (sin red, timeout, respuesta inesperada). `None` = "no se pudo confirmar".
+    """
+    try:
+        # Timeout corto: corre en un flujo interactivo de escaneo, una espera
+        # larga acá traba al armador. Una consulta de un serial es liviana.
+        resp = requests.get(
+            GBP_PARSER_URL,
+            params={"strScriptLabel": "scriptItemSerials", "isIDfrom": is_id, "isIDto": is_id},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logger.warning(f"⚠️ Refetch ERP del serial is_id={is_id} falló: {e}")
+        return None
+
+    if not isinstance(data, list) or not data:
+        return None
+    fila = data[0]
+    # Respuesta vacía de GBP: [{"Column1": ...}]
+    if "Column1" in fila:
+        return None
+    is_available = fila.get("is_available")
+    if is_available is None:
+        return None
+    return bool(is_available)
+
+
 def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> ValidateSerialResponse:
     """Lógica de validación reutilizable (endpoint + POST /seriales + PATCH).
 
@@ -71,10 +118,18 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
     1. SerialNotFound — no existe en tb_item_serials
     2. ItemMismatch — el is_serial existe pero pertenece a otro item_id
     3. AlreadyInSaleOrder — ya está asignado a un sales order pendiente (vendido)
-    4. AlreadyInvoiced — ya está en una factura emitida (ct_soh_id IS NOT NULL)
+    4. Disponibilidad — gate por `tb_item_serials.is_available`. El ERP pone ese
+       flag en true cuando el serial está libre; una NC o quitar el item de una
+       factura lo vuelven a poner en true. La tabla de traza
+       (tb_item_transaction_serials) es historial append-only: dice que el serial
+       ESTUVO en una factura, NO si lo está hoy — por eso no decide, solo informa.
+       Si local lo da ocupado, se reconsulta ese serial puntual al ERP antes de
+       bloquear (el is_available local puede estar viejo).
+    5. Si no está disponible: AlreadyInvoiced (se ubica la factura para rastrearlo)
+       o NoDisponible (ocupado sin rastro de factura).
 
-    Los casos 3 y 4 son flags de "ya fue vendido en otro pedido" — el armador no
-    debería usarlo, pero se permite `force=true` para guardar igual con `validado=false`.
+    Un serial bloqueado se puede guardar igual con `force=true` (queda con
+    `validado=false`).
     """
     if not serial or not serial.strip():
         return ValidateSerialResponse(valid=False, motivo="SerialNotFound")
@@ -115,32 +170,58 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
             usado_en_soh_id=sos_row.soh_id,
         )
 
-    # ¿Ya está en una factura emitida (transacción comercial con ct_soh_id)?
-    fact_row = db.execute(
-        text(
-            """
-            SELECT ct.ct_transaction, ct.ct_soh_id
-            FROM tb_item_transaction_serials its
-            INNER JOIN tb_commercial_transactions ct
-                ON ct.ct_transaction = its.ct_transaction
-            WHERE its.is_id = :is_id
-              AND ct.ct_soh_id IS NOT NULL
-            ORDER BY ct.ct_transaction DESC
-            LIMIT 1
-            """
-        ),
-        {"is_id": ts.is_id},
-    ).first()
-    if fact_row:
+    # Gate de disponibilidad. El ERP marca `is_available=true` cuando el serial
+    # está libre para usar; una NC o quitar el item de una factura lo vuelven a
+    # poner en true. No alcanza con preguntar si ESTUVO en una factura.
+    disponible = ts.is_available is True
+
+    # `is_available` local puede estar viejo: el sync incremental de
+    # tb_item_serials no re-trae seriales antiguos liberados por una NC. Si local
+    # lo da como ocupado, reconsultamos ese serial puntual al ERP antes de
+    # bloquearlo. Si el ERP no responde, caemos al estado local conocido.
+    if not disponible:
+        erp_disponible = _refetch_serial_is_available(ts.is_id)
+        if erp_disponible is not None:
+            disponible = erp_disponible
+
+    if not disponible:
+        # No disponible. Buscamos en qué factura quedó para que el armador pueda
+        # rastrearlo — la query solo informa el "dónde", ya no decide.
+        fact_row = db.execute(
+            text(
+                """
+                SELECT ct.ct_transaction, ct.ct_soh_id
+                FROM tb_item_transaction_serials its
+                INNER JOIN tb_commercial_transactions ct
+                    ON ct.ct_transaction = its.ct_transaction
+                WHERE its.is_id = :is_id
+                  AND ct.ct_soh_id IS NOT NULL
+                ORDER BY ct.ct_transaction DESC
+                LIMIT 1
+                """
+            ),
+            {"is_id": ts.is_id},
+        ).first()
+        if fact_row:
+            return ValidateSerialResponse(
+                valid=False,
+                motivo="AlreadyInvoiced",
+                is_id=ts.is_id,
+                item_id_real=ts.item_id,
+                item_code_real=item_code_real,
+                item_desc_real=item_desc_real,
+                usado_en_factura=fact_row.ct_transaction,
+                usado_en_factura_soh_id=fact_row.ct_soh_id,
+            )
+        # No disponible y sin rastro de factura: ocupado por otra causa (remito,
+        # transferencia, reserva). No tenemos el "dónde", pero no está libre.
         return ValidateSerialResponse(
             valid=False,
-            motivo="AlreadyInvoiced",
+            motivo="NoDisponible",
             is_id=ts.is_id,
             item_id_real=ts.item_id,
             item_code_real=item_code_real,
             item_desc_real=item_desc_real,
-            usado_en_factura=fact_row.ct_transaction,
-            usado_en_factura_soh_id=fact_row.ct_soh_id,
         )
 
     return ValidateSerialResponse(

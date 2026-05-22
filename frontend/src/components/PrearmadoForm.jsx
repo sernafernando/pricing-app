@@ -356,7 +356,9 @@ export default function PrearmadoForm({ onClose, onSaved }) {
                                         ? `ya asignado al pedido SOH ${validation.usado_en_soh_id}`
                                         : validation.motivo === 'AlreadyInvoiced'
                                           ? `ya facturado (pedido SOH ${validation.usado_en_factura_soh_id})`
-                                          : 'inválido'}
+                                          : validation.motivo === 'NoDisponible'
+                                            ? 'no disponible en el ERP'
+                                            : 'inválido'}
                                   )
                                 </label>
                               )}

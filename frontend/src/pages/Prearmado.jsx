@@ -911,7 +911,9 @@ export default function Prearmado() {
                                             ? `ya en pedido SOH ${editValidacion.usado_en_soh_id}`
                                             : editValidacion.motivo === 'AlreadyInvoiced'
                                               ? `ya facturado en SOH ${editValidacion.usado_en_factura_soh_id}`
-                                              : 'inválido'}
+                                              : editValidacion.motivo === 'NoDisponible'
+                                                ? 'no disponible en el ERP'
+                                                : 'inválido'}
                                       )
                                     </label>
                                   )}
