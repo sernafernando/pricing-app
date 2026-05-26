@@ -103,7 +103,12 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  const basePath = entidadTipo === 'pedido_compra' ? 'pedidos' : 'ordenes-pago';
+  const BASE_PATH_MAP = {
+    pedido_compra: 'pedidos',
+    orden_pago: 'ordenes-pago',
+    nota_credito_local: 'ncs-locales',
+  };
+  const basePath = BASE_PATH_MAP[entidadTipo] ?? 'pedidos';
 
   const fetchAdjuntos = useCallback(async () => {
     if (!entidadId) return;
