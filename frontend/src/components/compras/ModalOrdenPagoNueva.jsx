@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, Check, Plus, Trash2, Zap, Wallet } from 'lucide-react';
+import { X, AlertTriangle, Check, Plus, Trash2, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
@@ -254,6 +254,11 @@ export default function ModalOrdenPagoNueva({
   const [pagoACuenta, setPagoACuenta] = useState('');
   const pagoACuentaNum = parseFloat(pagoACuenta) || 0;
 
+  // PR5 — Warning shown when monto_total changes with 2+ items (FR-5.2).
+  // Note: auto-clear when diferencia reaches 0 is handled in the render
+  // (warning is gated on itemsSumWarning AND items.length > 1).
+  const [itemsSumWarning, setItemsSumWarning] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   // Error inline específico del campo TC (Batch 5 — cross-moneda).
@@ -355,6 +360,28 @@ export default function ModalOrdenPagoNueva({
       setDacMonto('');
     }
 
+    // PR5 / T5.3 — Single-item auto-sync on monto_total change (FR-5.1/FR-5.2).
+    // Must run BEFORE setForm so we have access to current items.
+    if (campo === 'monto_total') {
+      const nuevoTotal = parseFloat(valor) || 0;
+      if (items.length === 1) {
+        // FR-5.1: exactly 1 item → auto-sync its monto to the new total.
+        setItems((prev) =>
+          prev.map((it, i) =>
+            i === 0 ? { ...it, monto: nuevoTotal > 0 ? nuevoTotal.toFixed(2) : '' } : it
+          )
+        );
+        setItemsSumWarning(false);
+      } else if (items.length > 1) {
+        // FR-5.2: 2+ items → show warning, do NOT touch item amounts.
+        const sumaActual = Math.round(
+          items.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0) * 100
+        ) / 100;
+        const totalR = Math.round(nuevoTotal * 100) / 100;
+        setItemsSumWarning(Math.abs(sumaActual - totalR) > 0.001);
+      }
+    }
+
     setForm((f) => {
       const next = { ...f, [campo]: valor };
       if (campo === 'moneda' && valor !== f.moneda) {
@@ -372,7 +399,7 @@ export default function ModalOrdenPagoNueva({
           return f;
         }
         // OK: cross-moneda con TC válido OR sin items pedido_compra.
-        // Convertimos el monto si hay TC (mantiene UX previa).
+        // Convertimos monto_total si hay TC.
         const montoNum = parseFloat(f.monto_total);
         if (tcOk && Number.isFinite(montoNum) && montoNum > 0) {
           const nuevoMonto =
@@ -382,6 +409,24 @@ export default function ModalOrdenPagoNueva({
                 ? montoNum / tcNum
                 : montoNum;
           next.monto_total = nuevoMonto.toFixed(2);
+
+          // PR5 / T5.4 — Convert single item monto on moneda change (FR-5.3/FR-5.4).
+          if (items.length === 1) {
+            const montoItem = parseFloat(items[0].monto);
+            if (Number.isFinite(montoItem) && montoItem > 0) {
+              const nuevoMontoItem =
+                f.moneda === 'USD' && valor === 'ARS'
+                  ? montoItem * tcNum
+                  : f.moneda === 'ARS' && valor === 'USD'
+                    ? montoItem / tcNum
+                    : montoItem;
+              setItems((prev) =>
+                prev.map((it, i) =>
+                  i === 0 ? { ...it, monto: nuevoMontoItem.toFixed(2) } : it
+                )
+              );
+            }
+          }
         }
         // Cuando el user corrige la moneda, limpiamos cualquier error
         // previo del TC para no quedar con feedback obsoleto.
@@ -412,16 +457,27 @@ export default function ModalOrdenPagoNueva({
       ...prev,
       { tipo: 'pedido_compra', id: '', monto: '', numero_factura: '' },
     ]);
+    setItemsSumWarning(false);
   };
 
   const removeItem = (idx) => {
     setItems((prev) => prev.filter((_, i) => i !== idx));
+    setItemsSumWarning(false);
   };
 
   const updateItem = (idx, campo, valor) => {
-    setItems((prev) =>
-      prev.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it))
-    );
+    setItems((prev) => {
+      const next = prev.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it));
+      // Auto-dismiss warning when items are manually balanced.
+      if (next.length > 1) {
+        const sumaActual = next.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0);
+        const montoTotalNum = parseFloat(form.monto_total) || 0;
+        if (Math.abs(sumaActual - montoTotalNum) <= 0.005) {
+          setItemsSumWarning(false);
+        }
+      }
+      return next;
+    });
   };
 
   // ── Validación ──
@@ -901,18 +957,14 @@ export default function ModalOrdenPagoNueva({
             </div>
           )}
 
-          {/* Tabla de items — siempre visible; modo_imputacion se deriva de los items */}
+          {/* SECCIÓN A — Documentos a pagar (FR-5.7) */}
+          <h4 className={styles.seccionLabel}>
+            <FileText size={13} className={styles.seccionIcon} />
+            <span>Documentos a pagar</span>
+          </h4>
           <div className={styles.itemsSection}>
               <div className={styles.itemsHeader}>
                 <h4 className={styles.itemsTitle}>Items imputados</h4>
-                <div className={styles.itemsSummary}>
-                  <span>Imputado: {formatCurrency(sumaItems, form.moneda)}</span>
-                  <span> / Total: {formatCurrency(montoTotalNum, form.moneda)}</span>
-                  <span className={styles.itemsRemanente}>
-                    Remanente:{' '}
-                    {formatCurrency(Math.max(0, montoTotalNum - sumaItems), form.moneda)}
-                  </span>
-                </div>
                 <button
                   type="button"
                   className={styles.btnPrimary}
@@ -1088,15 +1140,45 @@ export default function ModalOrdenPagoNueva({
                   </table>
                 </div>
               )}
+
+              {/* T5.5 — Running sum: color-coded comparison vs monto_total (FR-5.5) */}
+              {items.length > 0 && (
+                <div
+                  className={
+                    Math.abs(sumaItems - montoTotalNum) < 0.005
+                      ? styles.itemsRunningOk
+                      : styles.itemsRunningMismatch
+                  }
+                >
+                  <span>Suma documentos:</span>
+                  <strong>{formatCurrency(sumaItems, form.moneda)}</strong>
+                  {Math.abs(sumaItems - montoTotalNum) >= 0.005 && (
+                    <span className={styles.itemsRunningDiff}>
+                      (diferencia con total: {formatCurrency(Math.abs(sumaItems - montoTotalNum), form.moneda)})
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* T5.3 / FR-5.2 — Multi-item warning when total changes */}
+              {itemsSumWarning && items.length > 1 && (
+                <div className={styles.itemsSumWarning} role="alert">
+                  <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                  <span>
+                    La suma de los items no coincide con el total. Ajustá los montos manualmente
+                    o usá pago a cuenta para cubrir la diferencia.
+                  </span>
+                </div>
+              )}
             </div>
 
-          {/* PR4 — Sección "Medios de pago" (NC + dinero a cuenta) */}
+          {/* SECCIÓN B — Medios de pago (NC + dinero a cuenta) (FR-5.7) */}
           {!isEditMode && form.proveedor_id && (
             <div className={styles.mediosPagoSection}>
-              <div className={styles.mediosPagoHeader}>
-                <Wallet size={14} className={styles.mediosPagoIcon} />
-                <span className={styles.mediosPagoTitle}>Medios de pago (cobertura adicional)</span>
-              </div>
+              <h4 className={styles.mediosPagoHeader}>
+                <CreditCard size={14} className={styles.mediosPagoIcon} />
+                <span className={styles.mediosPagoTitle}>Medios de pago</span>
+              </h4>
 
               {/* F7 — NC como medio de pago documental */}
               <PanelNCsProveedor
@@ -1172,15 +1254,15 @@ export default function ModalOrdenPagoNueva({
             </div>
           )}
 
-          {/* PR3 — Pago a cuenta + indicador de diferencia */}
+          {/* SECCIÓN C — Excedente / Pago a cuenta (FR-5.7) */}
           {!isEditMode && (
             <div className={styles.pagoACuentaSection}>
-              <label className={styles.label}>
-                Pago a cuenta{' '}
+              <h4 className={styles.seccionLabel}>
+                Excedente — Pago a cuenta{' '}
                 <span className={styles.labelHintInline}>
-                  (dinero disponible sin imputación a pedido específico)
+                  (monto que queda disponible para futuras imputaciones de este proveedor)
                 </span>
-              </label>
+              </h4>
               <input
                 type="number"
                 step="0.01"

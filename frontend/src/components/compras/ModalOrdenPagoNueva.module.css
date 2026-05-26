@@ -542,6 +542,73 @@
   gap: 4px;
 }
 
+/* ── PR5 — Sección labels (A/B/C visual structure, FR-5.7) ──────── */
+.seccionLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--cf-text-muted);
+}
+
+.seccionIcon {
+  flex-shrink: 0;
+  color: var(--cf-text-muted);
+}
+
+/* ── PR5 — Items running sum row (FR-5.5) ────────────────────── */
+.itemsRunningOk {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+  color: var(--color-success, #16a34a);
+  border: 1px solid color-mix(in srgb, var(--color-success, #16a34a) 25%, transparent);
+}
+
+.itemsRunningMismatch {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  background: color-mix(in srgb, var(--color-warning, #d97706) 10%, transparent);
+  color: var(--color-warning, #d97706);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 25%, transparent);
+}
+
+.itemsRunningDiff {
+  margin-left: auto;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* ── PR5 — Multi-item warning (FR-5.2) ───────────────────────── */
+.itemsSumWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  background: color-mix(in srgb, var(--color-warning, #d97706) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 25%, transparent);
+  color: var(--color-warning, #d97706);
+  line-height: var(--leading-normal, 1.5);
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {
