@@ -437,6 +437,41 @@ export default function ModalOrdenPagoNueva({
       // Cualquier edición del campo tipo_cambio limpia el error inline.
       if (campo === 'tipo_cambio') {
         setTcError(null);
+
+        // Recalcular monto_total cuando cambia el TC y hay cross-moneda activo.
+        // Ancla: pedidoInicial (moneda + saldo). Sin ancla (OP a_cuenta) no hay
+        // referencia para derivar el monto, así que lo dejamos como está.
+        const nuevoTc = parseFloat(valor);
+        const tcOkNuevo = Number.isFinite(nuevoTc) && nuevoTc > 0;
+        if (
+          tcOkNuevo &&
+          pedidoInicial &&
+          pedidoInicial.moneda &&
+          pedidoInicial.moneda !== f.moneda
+        ) {
+          const anclaMoneda = pedidoInicial.moneda;
+          const anclaMontoNum =
+            Number(pedidoInicial.saldo_pendiente ?? pedidoInicial.monto) || 0;
+          if (anclaMontoNum > 0) {
+            // Misma lógica de dirección que el branch de cambio de moneda.
+            const nuevoMonto =
+              anclaMoneda === 'USD' && f.moneda === 'ARS'
+                ? anclaMontoNum * nuevoTc
+                : anclaMoneda === 'ARS' && f.moneda === 'USD'
+                  ? anclaMontoNum / nuevoTc
+                  : anclaMontoNum;
+            next.monto_total = nuevoMonto.toFixed(2);
+
+            // Sincronizar el único item si corresponde (espejo de PR5/T5.4).
+            if (items.length === 1) {
+              setItems((prev) =>
+                prev.map((it, i) =>
+                  i === 0 ? { ...it, monto: nuevoMonto.toFixed(2) } : it
+                )
+              );
+            }
+          }
+        }
       }
       return next;
     });
