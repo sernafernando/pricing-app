@@ -68,6 +68,7 @@ from app.schemas.compras_papelera import (
     PapeleraItemResponse,
     PapeleraPaginated,
 )
+from app.schemas.dinero_a_cuenta import DineroACuentaResponse, SaldoAFavorBreakdown
 from app.schemas.imputacion import (
     ImputacionDesimputar,
     ImputacionPaginated,
@@ -4378,8 +4379,10 @@ def wipe_compras_endpoint(
 
     El campo `confirmacion` debe valer exactamente 'WIPE'.
     """
+    # Allowlist de entornos seguros (invertido del blocklist original — GGA violation #2).
+    # Cualquier env que NO sea explícitamente de desarrollo/testing rechaza.
     env = getattr(settings, "ENVIRONMENT", "production")
-    if env == "production":
+    if env not in ("development", "testing", "local"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Esta operación no está disponible en producción.",
@@ -4401,6 +4404,115 @@ def wipe_compras_endpoint(
         tablas_limpiadas=tablas,
         mensaje="Tablas del módulo compras limpiadas exitosamente.",
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# §dinero-a-cuenta — PR2 (design §2.1, §2.2)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/proveedores/{proveedor_id}/dinero-a-cuenta",
+    response_model=list[DineroACuentaResponse],
+    summary="Lista de dinero a cuenta disponible de un proveedor",
+    tags=["CC Proveedores"],
+)
+def listar_dinero_a_cuenta(
+    proveedor_id: int,
+    moneda: Optional[str] = Query(None, pattern="^(ARS|USD)$", description="Filtrar por moneda: ARS | USD"),
+    estado: Optional[str] = Query(
+        None,
+        pattern="^(disponible|consumido_parcial|consumido)$",
+        description="Filtrar por estado: disponible | consumido_parcial | consumido",
+    ),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_cuentas_corrientes")),
+) -> list[DineroACuentaResponse]:
+    """
+    Lista las filas de dinero a cuenta del proveedor (real-money overpay trackeable).
+
+    Permiso requerido: `administracion.ver_cuentas_corrientes`.
+    Filtros opcionales por moneda y estado.
+
+    Devuelve saldo_disponible derivado de imputaciones (AD-3) por cada fila.
+    """
+    from app.services import dinero_a_cuenta_service  # noqa: PLC0415
+
+    _obtener_proveedor_o_404(db, proveedor_id)
+
+    filas = dinero_a_cuenta_service.listar_por_proveedor(
+        db,
+        proveedor_id=proveedor_id,
+        moneda=moneda,
+        estado=estado,
+    )
+    if not filas:
+        return []
+
+    dac_ids = [f.id for f in filas]
+    dac_montos = {f.id: Decimal(f.monto) for f in filas}
+    op_ids = {f.origen_op_id for f in filas if f.origen_op_id}
+
+    # Delegate batch saldo computation to the service (single source of truth).
+    saldos = dinero_a_cuenta_service.calcular_saldos_disponibles_batch(db, dac_ids, dac_montos)
+
+    # Batch: numero de OP por origen_op_id en 1 query via ORM.
+    op_numeros: dict[int, Optional[str]] = {}
+    if op_ids:
+        for row in db.execute(select(OrdenPago.id, OrdenPago.numero).where(OrdenPago.id.in_(op_ids))).all():
+            op_numeros[row.id] = row.numero
+
+    resultado = []
+    for fila in filas:
+        saldo = saldos[fila.id]
+
+        resultado.append(
+            DineroACuentaResponse(
+                id=fila.id,
+                proveedor_id=fila.proveedor_id,
+                empresa_id=fila.empresa_id,
+                monto=fila.monto,
+                moneda=fila.moneda,
+                saldo_disponible=saldo,
+                estado=fila.estado,
+                origen_op_id=fila.origen_op_id,
+                origen_op_numero=op_numeros.get(fila.origen_op_id) if fila.origen_op_id else None,
+                created_at=fila.created_at,
+            )
+        )
+
+    return resultado
+
+
+@router.get(
+    "/proveedores/{proveedor_id}/saldo-a-favor-breakdown",
+    response_model=SaldoAFavorBreakdown,
+    summary="Breakdown del saldo a favor de un proveedor (DAC vs NC)",
+    tags=["CC Proveedores"],
+)
+def obtener_saldo_a_favor_breakdown(
+    proveedor_id: int,
+    empresa_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_cuentas_corrientes")),
+) -> SaldoAFavorBreakdown:
+    """
+    Devuelve el breakdown del saldo a favor del CC del proveedor (AD-8).
+
+    Clasifica el saldo a favor en:
+      - componente_dinero_a_cuenta: real-money overpay disponible.
+      - componente_nc: crédito documental (NCs pendientes).
+
+    Permiso requerido: `administracion.ver_cuentas_corrientes`.
+    """
+    _obtener_proveedor_o_404(db, proveedor_id)
+
+    data = cc_proveedor_service.calcular_saldo_a_favor_breakdown(
+        db,
+        proveedor_id=proveedor_id,
+        empresa_id=empresa_id,
+    )
+    return SaldoAFavorBreakdown(**data)
 
 
 __all__ = ["router"]

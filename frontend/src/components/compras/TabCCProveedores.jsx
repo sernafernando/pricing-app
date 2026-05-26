@@ -36,6 +36,7 @@ import EmptyState from './_shared/EmptyState';
 import LoadingBlock from './_shared/LoadingBlock';
 import MetricTile from './_shared/MetricTile';
 import DataTable from './_shared/DataTable';
+import SeccionDineroACuenta from './SeccionDineroACuenta';
 import styles from './TabCCProveedores.module.css';
 
 const formatMoneda = (value, moneda = 'ARS') => {
@@ -167,6 +168,9 @@ export default function TabCCProveedores() {
   // Backend endpoint /administracion/compras/ncs-locales/disponibles.
   const [ncsDisponibles, setNcsDisponibles] = useState([]);
 
+  // PR2 — breakdown del saldo a favor en componente real-money (DAC) vs documental (NC).
+  const [saldoBreakdown, setSaldoBreakdown] = useState(null);
+
   // Batch 6: state para los modales que se abren desde el footer de
   // GrupoPedidoCard ("Aplicar NC" / "Imputar pago"). Ambos contextos llevan
   // pedidoId pre-cargado para el modal correspondiente.
@@ -279,12 +283,27 @@ export default function TabCCProveedores() {
     }
   }, [proveedorIdActivo]);
 
+  // PR2 — T2.12: fetch breakdown del saldo a favor (componente DAC vs NC).
+  // No bloqueante: si falla, el CC sigue mostrando el saldo total.
+  const fetchSaldoBreakdown = useCallback(async () => {
+    if (!proveedorIdActivo) return;
+    try {
+      const { data } = await api.get(
+        `/administracion/compras/proveedores/${proveedorIdActivo}/saldo-a-favor-breakdown`
+      );
+      setSaldoBreakdown(data || null);
+    } catch {
+      setSaldoBreakdown(null);
+    }
+  }, [proveedorIdActivo]);
+
   useEffect(() => {
     if (proveedorIdActivo) {
       fetchDetalle();
       fetchPorPedido();
       fetchImputaciones();
       fetchNcsDisponibles();
+      fetchSaldoBreakdown();
     }
   }, [
     proveedorIdActivo,
@@ -292,6 +311,7 @@ export default function TabCCProveedores() {
     fetchPorPedido,
     fetchImputaciones,
     fetchNcsDisponibles,
+    fetchSaldoBreakdown,
   ]);
 
   useEffect(() => {
@@ -457,8 +477,32 @@ export default function TabCCProveedores() {
                 hint={consolidadoArs !== null ? 'Estimado · TC del día' : 'TC no disponible'}
                 tone="estimate"
               />
+              {/* PR2 — T2.12: breakdown saldo a favor (DAC vs NC). Solo cuando hay saldo a favor. */}
+              {saldoBreakdown &&
+                Number(saldoBreakdown.componente_dinero_a_cuenta_ars) > 0 && (
+                  <MetricTile
+                    label="Dinero a cuenta"
+                    value={formatMoneda(saldoBreakdown.componente_dinero_a_cuenta_ars, 'ARS')}
+                    hint="Real-money disponible como medio de pago"
+                    tone="haber"
+                  />
+                )}
+              {saldoBreakdown &&
+                Number(saldoBreakdown.componente_nc_ars) > 0 && (
+                  <MetricTile
+                    label="Crédito NC"
+                    value={formatMoneda(saldoBreakdown.componente_nc_ars, 'ARS')}
+                    hint="Crédito documental (NCs pendientes)"
+                    tone="haber"
+                  />
+                )}
             </div>
           </section>
+
+          {/* PR2 — T2.11: SeccionDineroACuenta — filas de dinero a cuenta disponibles */}
+          {proveedorIdActivo && (
+            <SeccionDineroACuenta proveedorId={proveedorIdActivo} />
+          )}
 
           {/* ── Batch 6 — T6.2 — NCs disponibles del proveedor ──
               Render condicional: solo si el proveedor tiene NCs aprobadas con
