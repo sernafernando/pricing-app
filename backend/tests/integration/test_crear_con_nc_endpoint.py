@@ -226,13 +226,14 @@ class TestCrearYPagarConNCEndpoint:
         con_todos_los_permisos,
     ) -> None:
         """crear-y-pagar + ncs_aplicadas → pagada, NC saldo reducido."""
+        # NC cubre 2000, pago_a_cuenta cubre los 8000 restantes (PR3: invariante no-diferencia)
         payload = {
             "empresa_id": empresa.id,
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
             "monto_total": "10000",
-            "modo_imputacion": "a_cuenta",
-            "items": [],
+            "modo_imputacion": "especifica",
+            "items": [{"tipo": "pago_a_cuenta", "id": None, "monto": "8000"}],
             "caja_id": caja.id,
             "fecha_pago_real": "2026-05-21",
             "ncs_aplicadas": [{"nc_id": nc_aprobada.id, "monto": "2000", "pedido_id": pedido.id}],

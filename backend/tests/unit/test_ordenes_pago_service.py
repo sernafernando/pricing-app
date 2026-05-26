@@ -129,21 +129,25 @@ class TestCrear:
         assert op.estado == "pendiente"
         assert op.numero.startswith("OP-01-")
 
-    def test_crear_especifica_suma_distinta_raise_400(
+    def test_crear_especifica_suma_distinta_ok_en_draft(
         self, db, empresa, proveedor, pedido_aprobado, active_user
     ) -> None:
-        with pytest.raises(HTTPException) as exc:
-            ordenes_pago_service.crear(
-                db,
-                proveedor_id=proveedor.id,
-                empresa_id=empresa.id,
-                moneda="ARS",
-                monto_total=Decimal("5000"),
-                modo_imputacion="especifica",
-                items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("3000")}],
-                creado_por_id=active_user.id,
-            )
-        assert exc.value.status_code == 400
+        """PR3: especifica con sum(items) != monto_total es válido en draft.
+
+        El invariante de balance se verifica en ejecutar_pago, no al crear.
+        Esto permite borradores donde NCs cubren la diferencia.
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("3000")}],
+            creado_por_id=active_user.id,
+        )
+        assert op.estado == "pendiente"
 
     def test_crear_a_cuenta_items_vacio_ok(self, db, empresa, proveedor, active_user) -> None:
         op = ordenes_pago_service.crear(
@@ -431,14 +435,15 @@ class TestEjecutarPago:
         tipos_doc_caja,
         active_user,
     ) -> None:
+        # PR3: a_cuenta con items=[] ya no es válido — usar pago_a_cuenta explícito.
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("500"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("500")}],
             creado_por_id=active_user.id,
         )
         ordenes_pago_service.ejecutar_pago(
@@ -458,7 +463,7 @@ class TestEjecutarPago:
             )
         assert exc.value.status_code == 400
 
-    def test_mixta_crea_imputacion_saldo_del_remanente(
+    def test_mixta_con_pago_a_cuenta_crea_dinero_a_cuenta(
         self,
         db,
         empresa,
@@ -468,6 +473,12 @@ class TestEjecutarPago:
         pedido_aprobado,
         active_user,
     ) -> None:
+        """PR3: mixta + pago_a_cuenta reemplaza el viejo remanente-a-saldo.
+        Pedido 5000 + pago_a_cuenta 3000 = 8000 = monto_total → Diferencia=0 → pagado.
+        El pago_a_cuenta crea DineroACuenta disponible (no imputacion destino='saldo').
+        """
+        from app.models.dinero_a_cuenta import DineroACuenta
+
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
@@ -475,7 +486,10 @@ class TestEjecutarPago:
             moneda="ARS",
             monto_total=Decimal("8000"),
             modo_imputacion="mixta",
-            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            items=[
+                {"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")},
+                {"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("3000")},
+            ],
             creado_por_id=active_user.id,
         )
         op = ordenes_pago_service.ejecutar_pago(
@@ -488,12 +502,17 @@ class TestEjecutarPago:
         assert op.estado == "pagado"
 
         imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id).order_by(Imputacion.id).all()
+        # 2 imputaciones: pedido_compra + dinero_a_cuenta (ya no 'saldo')
         assert len(imps) == 2
         assert imps[0].destino_tipo == "pedido_compra"
-        assert imps[1].destino_tipo == "saldo"
+        assert imps[1].destino_tipo == "dinero_a_cuenta"
         assert imps[1].monto_imputado == Decimal("3000")
 
-    def test_a_cuenta_imputa_todo_a_saldo(
+        dac = db.query(DineroACuenta).filter(DineroACuenta.origen_op_id == op.id).one()
+        assert dac.monto == Decimal("3000")
+        assert dac.estado == "disponible"
+
+    def test_pago_a_cuenta_todo_crea_dinero_a_cuenta(
         self,
         db,
         empresa,
@@ -502,14 +521,19 @@ class TestEjecutarPago:
         tipos_doc_caja,
         active_user,
     ) -> None:
+        """PR3: reemplaza test_a_cuenta_imputa_todo_a_saldo.
+        Todo el monto explícitamente como pago_a_cuenta → crea DineroACuenta.
+        """
+        from app.models.dinero_a_cuenta import DineroACuenta
+
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("1500"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("1500")}],
             creado_por_id=active_user.id,
         )
         ordenes_pago_service.ejecutar_pago(
@@ -521,8 +545,12 @@ class TestEjecutarPago:
         )
         imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id).all()
         assert len(imps) == 1
-        assert imps[0].destino_tipo == "saldo"
+        assert imps[0].destino_tipo == "dinero_a_cuenta"
         assert imps[0].monto_imputado == Decimal("1500")
+
+        dac = db.query(DineroACuenta).filter(DineroACuenta.origen_op_id == op.id).one()
+        assert dac.monto == Decimal("1500")
+        assert dac.estado == "disponible"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -613,14 +641,15 @@ class TestAnular:
         assert exc.value.status_code == 400
 
     def test_anular_sin_motivo_raise_400(self, db, empresa, proveedor, caja_ars, tipos_doc_caja, active_user) -> None:
+        # PR3: usar pago_a_cuenta explícito para balancear la OP.
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("100"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("100")}],
             creado_por_id=active_user.id,
         )
         ordenes_pago_service.ejecutar_pago(
@@ -737,15 +766,16 @@ class TestEditarOP:
         )
         assert pre == 1
 
+        # PR3: 'saldo' retirado → usar 'pago_a_cuenta' como tipo de excedente.
         nuevos_items = [
             {"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("4000")},
-            {"tipo": "saldo", "id": None, "monto": Decimal("1000")},
+            {"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("1001")},
         ]
         ordenes_pago_service.editar(
             db,
             op_id=op.id,
             modo_imputacion="mixta",
-            monto_total=Decimal("5001"),  # > 5000 = sum items => mixta válida (sum < total)
+            monto_total=Decimal("5001"),  # pedido(4000) + pago_a_cuenta(1001) = 5001
             items=nuevos_items,
             user_id=active_user.id,
         )
@@ -773,19 +803,22 @@ class TestEditarOP:
         assert len(editados) == 1
         assert len(editados[0].payload["items"]) == 2
 
-    def test_editar_op_validacion_suma_items_vs_modo(
-        self, db, empresa, proveedor, pedido_aprobado, active_user
-    ) -> None:
+    def test_editar_op_suma_distinta_ok_en_draft(self, db, empresa, proveedor, pedido_aprobado, active_user) -> None:
+        """PR3: editar con sum(items) != monto_total es válido en draft.
+
+        El invariante de balance se verifica en ejecutar_pago (no al editar).
+        Permite que el usuario ajuste ítems y deje diferencia que será cubierta
+        por NCs o un pago_a_cuenta posterior.
+        """
         op = self._crear_op_pendiente(db, empresa, proveedor, pedido_aprobado, active_user)
-        with pytest.raises(HTTPException) as exc:
-            ordenes_pago_service.editar(
-                db,
-                op_id=op.id,
-                monto_total=Decimal("9999"),  # no coincide con suma items
-                items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
-                user_id=active_user.id,
-            )
-        assert exc.value.status_code == 400
+        editada = ordenes_pago_service.editar(
+            db,
+            op_id=op.id,
+            monto_total=Decimal("9999"),  # no coincide con suma items — válido en draft
+            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("5000")}],
+            user_id=active_user.id,
+        )
+        assert editada.monto_total == Decimal("9999")
 
     def test_editar_op_ars_acepta_tc_para_cross_moneda(
         self, db, empresa, proveedor, pedido_aprobado, active_user
@@ -940,7 +973,11 @@ class TestEjecutarPagoLeeItemsEditados:
         pedido_aprobado,
         active_user,
     ) -> None:
-        """Si hay items_editados, ejecutar_pago debe usarlos, no los items_registrados."""
+        """Si hay items_editados, ejecutar_pago debe usarlos, no los items_registrados.
+        PR3: a_cuenta reemplazado — editar a pago_a_cuenta explícito.
+        """
+        from app.models.dinero_a_cuenta import DineroACuenta
+
         # OP original: 5000 al pedido
         op = ordenes_pago_service.crear(
             db,
@@ -953,16 +990,16 @@ class TestEjecutarPagoLeeItemsEditados:
             creado_por_id=active_user.id,
         )
 
-        # Editar items: mismo monto total pero ahora va todo a saldo.
+        # Editar items: mismo monto total pero ahora va todo como pago_a_cuenta.
         ordenes_pago_service.editar(
             db,
             op_id=op.id,
-            modo_imputacion="a_cuenta",
-            items=[],  # a_cuenta → sin items
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("5000")}],
             user_id=active_user.id,
         )
 
-        # Ejecutar pago con la nueva config
+        # Ejecutar pago con la nueva config (items_editados)
         ordenes_pago_service.ejecutar_pago(
             db,
             orden_pago_id=op.id,
@@ -971,11 +1008,14 @@ class TestEjecutarPagoLeeItemsEditados:
             user_id=active_user.id,
         )
 
-        # Debe haber creado imputación a saldo, NO a pedido
+        # Debe haber creado imputación a dinero_a_cuenta (NO a pedido ni a saldo)
         imps = db.query(Imputacion).filter(Imputacion.origen_id == op.id, Imputacion.es_reversal.is_(False)).all()
         assert len(imps) == 1
-        assert imps[0].destino_tipo == "saldo"
-        assert imps[0].destino_id is None
+        assert imps[0].destino_tipo == "dinero_a_cuenta"
+
+        # DineroACuenta creado
+        dac = db.query(DineroACuenta).filter(DineroACuenta.origen_op_id == op.id).one()
+        assert dac.monto == Decimal("5000")
 
     def test_ejecutar_pago_fallback_items_registrados_si_no_hay_editados(
         self,
@@ -1062,7 +1102,9 @@ class TestEjecutarPagoCrossMoneda:
         tipos_doc_caja,
         active_user,
     ) -> None:
-        """tipo_cambio_override debe persistirse en op.tipo_cambio."""
+        """tipo_cambio_override debe persistirse en op.tipo_cambio.
+        PR3: a_cuenta reemplazado por pago_a_cuenta explícito.
+        """
         # OP en ARS con caja ARS — mismo moneda, override solo persiste.
         op = ordenes_pago_service.crear(
             db,
@@ -1070,14 +1112,10 @@ class TestEjecutarPagoCrossMoneda:
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("1000"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("1000")}],
             creado_por_id=active_user.id,
         )
-        # Para ARS pura, el override no tiene semántica especial pero SÍ
-        # sobrescribe el campo si se manda (no va a haber conversión, igual).
-        # Test relevante: override SÍ pisa en el caso cross-moneda. Validamos
-        # el mecanismo con moneda USD + caja ARS en el siguiente test.
         ordenes_pago_service.ejecutar_pago(
             db,
             orden_pago_id=op.id,
@@ -1096,15 +1134,17 @@ class TestEjecutarPagoCrossMoneda:
         tipos_doc_caja,
         active_user,
     ) -> None:
-        """OP USD + caja ARS + tipo_cambio_override → movimiento ARS = monto*TC."""
+        """OP USD + caja ARS + tipo_cambio_override → movimiento ARS = monto*TC.
+        PR3: a_cuenta reemplazado — todo el monto como pago_a_cuenta USD.
+        """
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="USD",
             monto_total=Decimal("100"),  # 100 USD
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("100")}],
             creado_por_id=active_user.id,
         )
 
@@ -1133,15 +1173,17 @@ class TestEjecutarPagoCrossMoneda:
         tipos_doc_caja,
         active_user,
     ) -> None:
-        """OP USD con tipo_cambio pre-seteado + caja ARS → cross-moneda sin override."""
+        """OP USD con tipo_cambio pre-seteado + caja ARS → cross-moneda sin override.
+        PR3: a_cuenta reemplazado — todo el monto como pago_a_cuenta USD.
+        """
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="USD",
             monto_total=Decimal("50"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("50")}],
             creado_por_id=active_user.id,
         )
         # Editar OP para setear TC (pendiente editable — sub-batch 1.1).

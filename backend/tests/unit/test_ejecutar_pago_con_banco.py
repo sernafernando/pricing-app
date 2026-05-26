@@ -141,6 +141,7 @@ class TestEjecutarPagoConBanco:
         with (
             patch("app.services.ordenes_pago_service.BancoService") as MockBancoSvc,
             patch("app.services.ordenes_pago_service._leer_items_de_op", return_value=[]),
+            patch("app.services.ordenes_pago_service.validar_balance_op"),
             patch("app.services.ordenes_pago_service._validar_items_cross_moneda_con_tc"),
             patch("app.services.ordenes_pago_service.imputaciones_service"),
             patch("app.services.cc_proveedor_service"),
@@ -203,6 +204,7 @@ class TestEjecutarPagoConBanco:
         with (
             patch("app.services.ordenes_pago_service.CajaService") as MockCajaSvc,
             patch("app.services.ordenes_pago_service._leer_items_de_op", return_value=[]),
+            patch("app.services.ordenes_pago_service.validar_balance_op"),
             patch("app.services.ordenes_pago_service._validar_items_cross_moneda_con_tc"),
             patch("app.services.ordenes_pago_service.imputaciones_service"),
             patch("app.services.cc_proveedor_service"),
@@ -338,6 +340,7 @@ class TestEjecutarPagoConBanco:
         with (
             patch("app.services.ordenes_pago_service.BancoService") as MockBancoSvc,
             patch("app.services.ordenes_pago_service._leer_items_de_op", return_value=[]),
+            patch("app.services.ordenes_pago_service.validar_balance_op"),
             patch("app.services.ordenes_pago_service._validar_items_cross_moneda_con_tc"),
             patch("app.services.ordenes_pago_service.imputaciones_service"),
             patch("app.services.cc_proveedor_service"),

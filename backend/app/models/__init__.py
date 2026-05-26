@@ -160,6 +160,9 @@ from app.models.compra_adjunto import CompraAdjunto
 # Compras v2 — NCs locales
 from app.models.nota_credito_local import NotaCreditoLocal
 
+# Compras v2 — Dinero a cuenta (PR2 / PR3)
+from app.models.dinero_a_cuenta import DineroACuenta
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -332,4 +335,5 @@ __all__ = [
     "ComprasPapelera",
     "CompraAdjunto",
     "NotaCreditoLocal",
+    "DineroACuenta",
 ]

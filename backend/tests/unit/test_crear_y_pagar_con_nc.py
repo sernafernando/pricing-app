@@ -133,8 +133,8 @@ class TestCrearYPagarConNC:
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("10000"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("10000")}],
             caja_id=caja.id,
             fecha_pago_real=date(2026, 5, 21),
             creado_por_id=active_user.id,
@@ -147,15 +147,18 @@ class TestCrearYPagarConNC:
         assert len(nc_imps) == 0
 
     def test_happy_path_con_nc_a_cuenta(self, db, empresa, proveedor, caja, pedido, nc_aprobada, active_user) -> None:
-        """crear_y_pagar + NC con pedido_id → OP pagada + imputación NC creada."""
+        """crear_y_pagar + NC con pedido_id → OP pagada + imputación NC creada.
+
+        NC cubre 3000, pago_a_cuenta cubre los 7000 restantes para balancear.
+        """
         op = ordenes_pago_service.crear_y_pagar(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("10000"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("7000")}],
             caja_id=caja.id,
             fecha_pago_real=date(2026, 5, 21),
             creado_por_id=active_user.id,
@@ -184,6 +187,8 @@ class TestCrearYPagarConNC:
         hace rollback de la transacción completa (OP + caja + NC). Aquí verificamos
         que la excepción se levanta correctamente (AC-F1-8 / Scenario E).
         """
+        # NC covers 1000, pago_a_cuenta covers 9000 → balance OK so validar_balance_op passes.
+        # The exception is then from NC not found (404).
         with pytest.raises(HTTPException) as exc_info:
             ordenes_pago_service.crear_y_pagar(
                 db,
@@ -191,8 +196,8 @@ class TestCrearYPagarConNC:
                 empresa_id=empresa.id,
                 moneda="ARS",
                 monto_total=Decimal("10000"),
-                modo_imputacion="a_cuenta",
-                items=[],
+                modo_imputacion="especifica",
+                items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("9000")}],
                 caja_id=caja.id,
                 fecha_pago_real=date(2026, 5, 21),
                 creado_por_id=active_user.id,
@@ -216,8 +221,8 @@ class TestCrearYPagarConNC:
             empresa_id=empresa.id,
             moneda="ARS",
             monto_total=Decimal("10000"),
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("8000")}],
             caja_id=caja.id,
             fecha_pago_real=date(2026, 5, 21),
             creado_por_id=active_user.id,
