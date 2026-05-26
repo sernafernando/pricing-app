@@ -12,9 +12,14 @@ Las tablas se borran en orden FK-safe (hijos antes que padres):
     → hijos que no tienen FKs salientes a ordenes_pago, pedidos, etc.
   - ordenes_pago → debe ir antes de caja/banco porque tiene FK RESTRICT a esas tablas.
   - notas_credito_local → tabla de documentos; sin hijos en el módulo compras.
-  - etiquetas_envio → FK RESTRICT a pedidos_compra; debe ir antes de pedidos_compra.
   - pedidos_compra → tabla cabecera; va al final del bloque compras.
   - caja_documentos, caja_movimientos, banco_movimientos → últimas, ya sin hijos.
+
+NOTA: etiquetas_envio NO se incluye aquí. Es una tabla compartida entre módulos:
+rma_caso_items referencia etiquetas_envio via FK (fk_rma_item_shipping_id). Borrarla
+en el wipe de compras provoca IntegrityError cuando existen ítems RMA apuntando a esas
+etiquetas. pedidos_compra tiene FK hacia etiquetas_envio pero en dirección saliente,
+por lo que eliminar pedidos_compra no requiere tocar etiquetas_envio.
 """
 
 from __future__ import annotations
@@ -31,7 +36,11 @@ logger = get_logger("services.wipe_compras")
 #   sin FKs hacia tablas internas del módulo → van primero, sin restricción.
 # - ordenes_pago referencia caja_movimientos/caja_documentos/banco_movimientos con RESTRICT,
 #   por eso va ANTES de las tablas de caja/banco.
-# - etiquetas_envio tiene FK RESTRICT → pedidos_compra; va antes que pedidos_compra.
+# - etiquetas_envio fue removida: es tabla compartida con el módulo RMA
+#   (rma_caso_items → etiquetas_envio via FK RESTRICT). Incluirla aquí provoca
+#   IntegrityError cuando hay ítems RMA apuntando a esas etiquetas. La FK de
+#   pedidos_compra hacia etiquetas_envio es saliente, así que borrar pedidos_compra
+#   no requiere tocar etiquetas_envio.
 TABLAS_COMPRAS_SIEMPRE = [
     "compras_papelera",
     "compras_adjuntos",
@@ -41,7 +50,6 @@ TABLAS_COMPRAS_SIEMPRE = [
     "cc_proveedor_movimientos",
     "ordenes_pago",
     "notas_credito_local",
-    "etiquetas_envio",
     "pedidos_compra",
 ]
 
