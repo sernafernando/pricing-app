@@ -405,11 +405,12 @@ def validar_balance_op(
     monto_total = Decimal(str(op.monto_total))
     cobertura_total = Decimal("0")
 
-    # Cobertura de items (pedidos, facturas, pago_a_cuenta)
+    # Cobertura de items (pedidos, facturas, pago_a_cuenta, dinero_a_cuenta).
+    # PR4: dinero_a_cuenta items también cuentan como cobertura.
     for item in items:
         tipo = item.get("tipo", "")
         monto_item = Decimal(str(item.get("monto", "0")))
-        if tipo in ("pedido_compra", "factura_erp", "pago_a_cuenta"):
+        if tipo in ("pedido_compra", "factura_erp", "pago_a_cuenta", "dinero_a_cuenta"):
             cobertura_total += monto_item
 
     # Cobertura de NCs pendientes (se aplicarán después de este pago en la misma tx).
@@ -1099,7 +1100,9 @@ def ejecutar_pago(
     for item in items:
         # PR3: items 'pago_a_cuenta' se procesan por separado después del loop
         # (crean DineroACuenta + imputacion dinero_a_cuenta). Se saltan acá.
-        if item.get("tipo") == "pago_a_cuenta":
+        # PR4: items 'dinero_a_cuenta' se procesan por separado también
+        # (consumen un DAC existente sin emitir CC — AD-4).
+        if item.get("tipo") in ("pago_a_cuenta", "dinero_a_cuenta"):
             continue
 
         monto_item_origen = Decimal(str(item["monto"]))  # monto en moneda OP
@@ -1213,6 +1216,69 @@ def ejecutar_pago(
             dac.id,
             monto_pac,
             op.moneda,
+        )
+
+    # PR4 — Procesar items 'dinero_a_cuenta' (AD-4, T4.5, design §3.3).
+    # Cada item dinero_a_cuenta:
+    #   - id: PK del DineroACuenta a consumir.
+    #   - monto: monto a consumir.
+    #   - destino_tipo: 'pedido_compra' | 'factura_erp' (opcional, por defecto primer pedido).
+    #   - destino_id: PK del destino (opcional, por defecto el primer pedido del OP).
+    # consumir() crea imputacion (dinero_a_cuenta → destino) SIN emitir CC (AD-4).
+    for item in items:
+        if item.get("tipo") != "dinero_a_cuenta":
+            continue
+        dac_id = item.get("id")
+        if not dac_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Item dinero_a_cuenta sin 'id' de DineroACuenta.",
+            )
+        monto_dac = Decimal(str(item["monto"]))
+
+        # Resolver destino: usa el pedido/factura especificado en el item,
+        # o bien el primer pedido_compra del OP como destino por defecto.
+        destino_tipo_dac = item.get("destino_tipo") or "pedido_compra"
+        destino_id_dac = item.get("destino_id")
+        if destino_id_dac is None:
+            # Buscar el primer item pedido_compra/factura_erp del OP como destino.
+            destino_item = next(
+                (it for it in items if it.get("tipo") in ("pedido_compra", "factura_erp") and it.get("id")),
+                None,
+            )
+            if destino_item is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Item dinero_a_cuenta (dac_id={dac_id}) sin destino_id "
+                        f"y la OP no tiene items pedido_compra/factura_erp para inferirlo."
+                    ),
+                )
+            destino_tipo_dac = destino_item["tipo"]
+            destino_id_dac = int(destino_item["id"])
+        else:
+            destino_id_dac = int(destino_id_dac)
+
+        imp_dac_consumo = dinero_a_cuenta_service.consumir(
+            session,
+            dinero_a_cuenta_id=int(dac_id),
+            destino_tipo=destino_tipo_dac,
+            destino_id=destino_id_dac,
+            monto=monto_dac,
+            user_id=user_id,
+            op_proveedor_id=op.proveedor_id,
+            op_moneda=str(op.moneda),
+            op_tipo_cambio=op.tipo_cambio,
+        )
+        imputaciones_creadas.append(imp_dac_consumo)
+        logger.info(
+            "dinero_a_cuenta consumido op=%s dac_id=%s monto=%s %s → %s:%s",
+            op.id,
+            dac_id,
+            monto_dac,
+            op.moneda,
+            destino_tipo_dac,
+            destino_id_dac,
         )
 
     # Paso 8: actualizar OP — set la FK de la fuente usada; la otra queda NULL.

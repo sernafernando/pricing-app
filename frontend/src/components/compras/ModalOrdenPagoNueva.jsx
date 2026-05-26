@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, Check, Plus, Trash2, Zap } from 'lucide-react';
+import { X, AlertTriangle, Check, Plus, Trash2, Zap, Wallet } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
@@ -208,6 +208,46 @@ export default function ModalOrdenPagoNueva({
   // Cada entrada: { nc_id, monto, pedido_id }.
   const [ncsAplicadas, setNcsAplicadas] = useState([]);
 
+  // PR4 — Dinero a cuenta como medio de pago.
+  // dacsDisponibles: lista de { id, monto, moneda, saldo_disponible, estado, origen_op_numero }
+  // dacSeleccionado: id del DAC elegido (null = ninguno)
+  // dacMonto: string con el monto a usar del DAC elegido
+  const [dacsDisponibles, setDacsDisponibles] = useState([]);
+  const [loadingDacs, setLoadingDacs] = useState(false);
+  const [dacSeleccionado, setDacSeleccionado] = useState(null);
+  const [dacMonto, setDacMonto] = useState('');
+  const dacMontoNum = parseFloat(dacMonto) || 0;
+
+  const fetchDacsDisponibles = useCallback(async (proveedorId, moneda) => {
+    if (!proveedorId) {
+      setDacsDisponibles([]);
+      return;
+    }
+    setLoadingDacs(true);
+    try {
+      const { data } = await api.get(
+        `/administracion/compras/proveedores/${proveedorId}/dinero-a-cuenta?estado=disponible&moneda=${moneda || 'ARS'}`
+      );
+      setDacsDisponibles(Array.isArray(data) ? data : []);
+    } catch {
+      setDacsDisponibles([]);
+    } finally {
+      setLoadingDacs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (form.proveedor_id) {
+      fetchDacsDisponibles(form.proveedor_id, form.moneda);
+      setDacSeleccionado(null);
+      setDacMonto('');
+    } else {
+      setDacsDisponibles([]);
+      setDacSeleccionado(null);
+      setDacMonto('');
+    }
+  }, [form.proveedor_id, form.moneda, fetchDacsDisponibles]);
+
   // PR3 — Pago a cuenta explícito (excedente intencional).
   // El usuario ingresa el monto que quiere "apartar" como dinero a cuenta
   // del proveedor. Se incluye en el payload como item {tipo:'pago_a_cuenta'}.
@@ -311,6 +351,8 @@ export default function ModalOrdenPagoNueva({
     // Reseteamos siempre que cambia proveedor_id.
     if (campo === 'proveedor_id') {
       setNcsAplicadas([]);
+      setDacSeleccionado(null);
+      setDacMonto('');
     }
 
     setForm((f) => {
@@ -386,10 +428,10 @@ export default function ModalOrdenPagoNueva({
   const sumaItems = items.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
-  // PR3 — Cobertura total y diferencia en vivo.
-  // cobertura = sum(items documentos) + sum(NCs aplicadas) + pagoACuenta explícito.
+  // PR3/PR4 — Cobertura total y diferencia en vivo.
+  // cobertura = sum(items documentos) + sum(NCs aplicadas) + pagoACuenta + DAC.
   const sumaNCs = ncsAplicadas.reduce((acc, nc) => acc + (parseFloat(nc.monto) || 0), 0);
-  const coberturaTotal = sumaItems + sumaNCs + pagoACuentaNum;
+  const coberturaTotal = sumaItems + sumaNCs + pagoACuentaNum + dacMontoNum;
   const diferencia = Math.round((montoTotalNum - coberturaTotal) * 100) / 100;
 
   const validar = () => {
@@ -442,6 +484,23 @@ export default function ModalOrdenPagoNueva({
         // PR3: pago_a_cuenta como item explícito cuando el usuario lo indica
         ...(pagoACuentaNum > 0
           ? [{ tipo: 'pago_a_cuenta', id: null, monto: pagoACuentaNum }]
+          : []),
+        // PR4: dinero_a_cuenta como medio de pago cuando el usuario lo indica.
+        // destino_tipo/destino_id: el primer pedido/factura del OP (el backend
+        // infiere si no se envía, pero lo enviamos explícito para mayor claridad).
+        ...(dacSeleccionado && dacMontoNum > 0
+          ? (() => {
+              const primerDestino = items.find(
+                (it) => it.tipo === 'pedido_compra' || it.tipo === 'factura_erp'
+              );
+              return [{
+                tipo: 'dinero_a_cuenta',
+                id: dacSeleccionado,
+                monto: dacMontoNum,
+                destino_tipo: primerDestino ? primerDestino.tipo : 'pedido_compra',
+                destino_id: primerDestino && primerDestino.id ? Number(primerDestino.id) : null,
+              }];
+            })()
           : []),
       ],
       confirmar_duplicado: confirmarDuplicado,
@@ -1031,16 +1090,86 @@ export default function ModalOrdenPagoNueva({
               )}
             </div>
 
-          {/* F7 — selección de NCs para aplicar al crear la OP */}
+          {/* PR4 — Sección "Medios de pago" (NC + dinero a cuenta) */}
           {!isEditMode && form.proveedor_id && (
-            <PanelNCsProveedor
-              key={`${form.proveedor_id}-${form.moneda}`}
-              proveedorId={Number(form.proveedor_id)}
-              moneda={form.moneda || undefined}
-              mode="seleccionar"
-              onChange={setNcsAplicadas}
-              disabled={saving}
-            />
+            <div className={styles.mediosPagoSection}>
+              <div className={styles.mediosPagoHeader}>
+                <Wallet size={14} className={styles.mediosPagoIcon} />
+                <span className={styles.mediosPagoTitle}>Medios de pago (cobertura adicional)</span>
+              </div>
+
+              {/* F7 — NC como medio de pago documental */}
+              <PanelNCsProveedor
+                key={`${form.proveedor_id}-${form.moneda}`}
+                proveedorId={Number(form.proveedor_id)}
+                moneda={form.moneda || undefined}
+                mode="seleccionar"
+                onChange={setNcsAplicadas}
+                disabled={saving}
+              />
+
+              {/* PR4 — Dinero a cuenta como medio de pago (real money) */}
+              <div className={styles.dacSection}>
+                <label className={styles.dacLabel}>
+                  Dinero a cuenta{' '}
+                  <span className={styles.labelHintInline}>(saldo real disponible del proveedor)</span>
+                </label>
+                {loadingDacs ? (
+                  <div className={styles.fieldHint}>Cargando saldos disponibles...</div>
+                ) : dacsDisponibles.length === 0 ? (
+                  <div className={styles.dacSinSaldo}>
+                    Disponible: {formatCurrency(0, form.moneda)} — sin dinero a cuenta para aplicar.
+                  </div>
+                ) : (
+                  <div className={styles.dacControls}>
+                    <select
+                      className={styles.select}
+                      value={dacSeleccionado ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDacSeleccionado(val ? Number(val) : null);
+                        setDacMonto('');
+                      }}
+                      disabled={saving}
+                    >
+                      <option value="">Seleccionar dinero a cuenta...</option>
+                      {dacsDisponibles.map((dac) => (
+                        <option key={dac.id} value={dac.id}>
+                          {formatCurrency(dac.saldo_disponible ?? dac.monto, dac.moneda)}
+                          {dac.origen_op_numero ? ` — OP ${dac.origen_op_numero}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {dacSeleccionado && (() => {
+                      const dacItem = dacsDisponibles.find((d) => d.id === dacSeleccionado);
+                      const saldoMax = parseFloat(dacItem?.saldo_disponible ?? dacItem?.monto ?? 0);
+                      const limitado = Math.min(saldoMax, Math.max(0, diferencia + dacMontoNum));
+                      return (
+                        <div className={styles.dacMontoRow}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={saldoMax}
+                            className={styles.input}
+                            value={dacMonto}
+                            onChange={(e) => setDacMonto(e.target.value)}
+                            placeholder="0.00"
+                            disabled={saving}
+                          />
+                          <div className={styles.fieldHint}>
+                            Disponible: {formatCurrency(saldoMax, form.moneda)}.
+                            {limitado > 0 && limitado < saldoMax && (
+                              <> Sugerido: {formatCurrency(limitado, form.moneda)} (cubre la diferencia).</>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* PR3 — Pago a cuenta + indicador de diferencia */}

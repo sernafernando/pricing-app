@@ -63,7 +63,8 @@ class TestWhitelist:
         # Compras v1: 6 combos (orden_pago × 3 + nota_credito_erp × 3).
         # Compras v2: +3 combos para nota_credito_local × 3.
         # PR2: +1 combo (orden_pago, dinero_a_cuenta) para pago_a_cuenta.
-        assert len(COMBOS_VALIDOS_V1) == 10
+        # PR4: +2 combos (dinero_a_cuenta → pedido_compra, dinero_a_cuenta → factura_erp).
+        assert len(COMBOS_VALIDOS_V1) == 12
 
     def test_whitelist_contiene_los_combos_esperados(self) -> None:
         esperados = {
@@ -79,6 +80,9 @@ class TestWhitelist:
             ("nota_credito_local", "saldo"),
             # PR2 — dinero a cuenta como destino (pago_a_cuenta crea DAC)
             ("orden_pago", "dinero_a_cuenta"),
+            # PR4 — dinero a cuenta como ORIGEN (consumo como medio de pago)
+            ("dinero_a_cuenta", "pedido_compra"),
+            ("dinero_a_cuenta", "factura_erp"),
         }
         assert COMBOS_VALIDOS_V1 == frozenset(esperados)
 
