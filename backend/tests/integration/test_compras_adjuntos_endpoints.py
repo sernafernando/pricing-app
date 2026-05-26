@@ -6,6 +6,7 @@ Cubre:
   - POST /ordenes-pago/{id}/adjuntos
   - GET  /adjuntos/{id}/descargar
   - DELETE /adjuntos/{id}
+  - Regresión: NC adjuntos usa /ncs-locales/{id}/adjuntos, NO /ordenes-pago/{id}/adjuntos
 
 Los archivos se escriben a una carpeta temporal (monkeypatch sobre
 settings.COMPRAS_UPLOADS_DIR) para no contaminar el FS del proyecto.
@@ -13,6 +14,7 @@ settings.COMPRAS_UPLOADS_DIR) para no contaminar el FS del proyecto.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -22,7 +24,7 @@ import pytest
 from app.core.config import settings
 from app.models.empresa import Empresa
 from app.models.proveedor import Proveedor
-from app.services import pedidos_service
+from app.services import ncs_locales_service, pedidos_service
 
 BASE = "/api/administracion/compras"
 
@@ -300,3 +302,61 @@ class TestSubirAdjuntoOP:
             files={"file": ("x.pdf", PDF_HEADER, "application/pdf")},
         )
         assert r.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Regresión: NC adjuntos NO se sirven en /ordenes-pago/{id}/adjuntos
+# ──────────────────────────────────────────────────────────────────────────
+# Bug: AdjuntosPanel.jsx usaba un ternario binario (pedido_compra → 'pedidos',
+# cualquier-otra-cosa → 'ordenes-pago'). Para nota_credito_local el basePath
+# resultaba 'ordenes-pago' en vez de 'ncs-locales', enviando el request al
+# endpoint incorrecto. El endpoint correcto es /ncs-locales/{id}/adjuntos.
+
+
+class TestRuteadoAdjuntosNC:
+    """Garantiza que /ordenes-pago NO acepte IDs de NC (entidades distintas)."""
+
+    def test_nc_id_en_endpoint_op_retorna_404(self, client, auth_headers, con_todos_los_permisos):
+        """Un ID que pertenece a una NC no debe resolver como OP → 404."""
+        # ID 999998 no existe en ordenes_pago — el endpoint ordenes-pago/X/adjuntos
+        # valida la existencia de la OP antes de subir.
+        r = client.post(
+            f"{BASE}/ordenes-pago/999998/adjuntos",
+            headers=auth_headers,
+            files={"file": ("nc.pdf", PDF_HEADER, "application/pdf")},
+        )
+        assert r.status_code == 404
+
+    def test_nc_endpoint_existe_y_acepta_upload(
+        self, client, auth_headers, con_todos_los_permisos, db, active_user, _uploads_tmpdir
+    ):
+        """El endpoint /ncs-locales/{id}/adjuntos existe y acepta PDFs válidos."""
+        empresa = Empresa(nombre="EmpresaAdjNC", activo=True, orden=99)
+        db.add(empresa)
+        db.flush()
+        proveedor = Proveedor(nombre="ProvAdjNC", activo=True, origen="manual")
+        db.add(proveedor)
+        db.flush()
+
+        nc = ncs_locales_service.crear(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("500"),
+            fecha_emision=date.today(),
+            motivo="Test regresión adjuntos NC",
+            creado_por_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.post(
+            f"{BASE}/ncs-locales/{nc.id}/adjuntos",
+            headers=auth_headers,
+            files={"file": ("nc-factura.pdf", PDF_HEADER, "application/pdf")},
+            data={"tipo": "comprobante"},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["entidad_tipo"] == "nota_credito_local"
+        assert data["entidad_id"] == nc.id
