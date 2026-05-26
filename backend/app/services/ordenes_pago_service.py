@@ -223,30 +223,38 @@ def _validar_items_por_modo(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Modo 'especifica' requiere al menos 1 item.",
             )
-        suma = sum((Decimal(str(item["monto"])) for item in items), Decimal("0"))
-        if suma != monto_total:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(f"Modo 'especifica': sum(items.monto)={suma} debe ser igual a monto_total={monto_total}."),
-            )
+        # PR3: el balance final (items + ncs_aplicadas == monto_total) se valida en
+        # validar_balance_op al momento de ejecutar_pago, no al crear el borrador.
+        # Permitimos suma < monto_total en el borrador para habilitar el combo con NCs.
     elif modo == "a_cuenta":
         if items:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Modo 'a_cuenta' no acepta items (el total va a saldo).",
             )
+        # Nota PR3: modo 'a_cuenta' con items=[] es un draft válido, pero
+        # validar_balance_op lo rechazará al confirmar (cobertura=0 ≠ monto_total)
+        # salvo que las NCs pendientes cubran el total. Para pagos directos sin
+        # NCs, usar 'especifica' + item pago_a_cuenta cubriendo el total.
     elif modo == "mixta":
         if not items:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Modo 'mixta' requiere al menos 1 item (el resto va a saldo).",
+                detail="Modo 'mixta' requiere al menos 1 item (el resto va a saldo o pago_a_cuenta).",
             )
-        suma = sum((Decimal(str(item["monto"])) for item in items), Decimal("0"))
-        if suma >= monto_total:
+        # PR3: los items 'pago_a_cuenta' son cobertura explícita del excedente.
+        # La suma de documentos (no-pago_a_cuenta) debe ser < monto_total para
+        # que exista un excedente a cubrir con pago_a_cuenta o saldo.
+        # La suma TOTAL (incluyendo pago_a_cuenta) puede == monto_total — es válida.
+        suma_docs = sum(
+            (Decimal(str(item["monto"])) for item in items if item.get("tipo") != "pago_a_cuenta"),
+            Decimal("0"),
+        )
+        if suma_docs >= monto_total:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Modo 'mixta': sum(items.monto)={suma} debe ser < monto_total={monto_total}. "
+                    f"Modo 'mixta': sum(items_documento.monto)={suma_docs} debe ser < monto_total={monto_total}. "
                     f"Si sum == total, usá modo 'especifica'."
                 ),
             )
@@ -258,7 +266,13 @@ def _validar_items_por_modo(
 
 
 def _validar_items_whitelist(items: list[dict]) -> None:
-    """Cada item debe formar combo válido con origen='orden_pago'."""
+    """Cada item debe formar combo válido con origen='orden_pago'.
+
+    Tipos especiales:
+      - 'pago_a_cuenta': ítem virtual que se traduce a (orden_pago, dinero_a_cuenta)
+        al ejecutar_pago. No pasa por whitelist de imputaciones y no necesita id.
+        Se rechaza 'saldo' para OPs nuevas (reemplazado por 'pago_a_cuenta').
+    """
     for idx, item in enumerate(items):
         destino_tipo = item.get("tipo")
         if destino_tipo is None:
@@ -266,27 +280,32 @@ def _validar_items_whitelist(items: list[dict]) -> None:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"item[{idx}] sin 'tipo'. Requerido.",
             )
-        imputaciones_service._validar_whitelist("orden_pago", destino_tipo)
         monto = Decimal(str(item.get("monto", "0")))
         if monto <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"item[{idx}].monto debe ser > 0 (recibido: {monto}).",
             )
-        # destino_id obligatorio si destino_tipo != 'saldo'
-        destino_id = item.get("id")
+        # 'pago_a_cuenta' es un tipo virtual — no requiere id ni validación de whitelist.
+        if destino_tipo == "pago_a_cuenta":
+            continue
+        # 'saldo' está retirado para OPs nuevas (AD-5/AD-6): usar 'pago_a_cuenta'.
         if destino_tipo == "saldo":
-            if destino_id is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"item[{idx}]: destino='saldo' requiere id=None.",
-                )
-        else:
-            if destino_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"item[{idx}]: destino='{destino_tipo}' requiere id no nulo.",
-                )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"item[{idx}]: tipo='saldo' no está permitido en OPs nuevas. "
+                    f"Usá tipo='pago_a_cuenta' para asignar el excedente."
+                ),
+            )
+        imputaciones_service._validar_whitelist("orden_pago", destino_tipo)
+        # destino_id obligatorio para todos los tipos no-virtuales
+        destino_id = item.get("id")
+        if destino_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"item[{idx}]: destino='{destino_tipo}' requiere id no nulo.",
+            )
 
 
 def _validar_items_cross_moneda_con_tc(
@@ -345,6 +364,71 @@ def _resolver_supp_id(session: Session, proveedor_id: int) -> Optional[int]:
     if prov is None:
         return None
     return int(prov.supp_id) if prov.supp_id is not None else None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# validar_balance_op — invariante no-diferencia (PR3, design §3.4, AD-5)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def validar_balance_op(
+    session: Session,
+    op: OrdenPago,
+    items: list[dict],
+    ncs_pendientes: Optional[list[dict]] = None,
+) -> None:
+    """Valida el invariante no-diferencia ANTES de ejecutar el pago (AD-5).
+
+    cobertura_total = sum(items pedido_compra/factura_erp)
+                    + sum(items pago_a_cuenta)
+                    + sum(ncs_aplicadas ya imputadas sobre la OP)
+                    + sum(ncs_pendientes pasadas explícitamente)
+
+    diferencia = monto_total - cobertura_total
+
+    Si diferencia != 0 → HTTPException 422.
+
+    Solo se llama desde `ejecutar_pago` y `crear_y_pagar` — NUNCA desde `crear`
+    (los drafts pendiente siguen editables sin gate).
+
+    Args:
+        session: sesión activa.
+        op: instancia de OrdenPago ya cargada.
+        items: lista de items del payload (de `_leer_items_de_op`).
+        ncs_pendientes: NCs aún no imputadas que se aplicarán en este request
+                        (lista de dicts con clave 'monto'). Usada en crear_y_pagar
+                        donde las NCs se imputan DESPUÉS de ejecutar_pago.
+
+    Raises:
+        HTTPException 422: diferencia != 0.
+    """
+    monto_total = Decimal(str(op.monto_total))
+    cobertura_total = Decimal("0")
+
+    # Cobertura de items (pedidos, facturas, pago_a_cuenta)
+    for item in items:
+        tipo = item.get("tipo", "")
+        monto_item = Decimal(str(item.get("monto", "0")))
+        if tipo in ("pedido_compra", "factura_erp", "pago_a_cuenta"):
+            cobertura_total += monto_item
+
+    # Cobertura de NCs pendientes (se aplicarán después de este pago en la misma tx).
+    # En PR4, cuando haya FK nc→op, se podrán consultar NCs ya imputadas desde DB.
+    if ncs_pendientes:
+        for nc_item in ncs_pendientes:
+            cobertura_total += Decimal(str(nc_item.get("monto", "0")))
+
+    diferencia = monto_total - cobertura_total
+    if diferencia != Decimal("0"):
+        moneda = str(op.moneda)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"La OP no balancea: diferencia = {diferencia:+.2f} {moneda}. "
+                f"monto_total={monto_total:.2f}, cobertura={cobertura_total:.2f}. "
+                f"Asigná el excedente como pago_a_cuenta o ajustá los ítems."
+            ),
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -786,6 +870,7 @@ def ejecutar_pago(
     fecha_pago_real: date,
     user_id: int,
     tipo_cambio_override: Optional[Decimal] = None,
+    ncs_pendientes: Optional[list[dict]] = None,
 ) -> OrdenPago:
     """
     Ejecuta el pago de una OP en 9 pasos ATÓMICOS (design §2.3).
@@ -979,13 +1064,19 @@ def ejecutar_pago(
 
     # Paso 6 + 7: crear imputaciones según modo + items
     items = _leer_items_de_op(session, op.id)
+
+    # PR3 — Invariante no-diferencia (AD-5, design §3.4).
+    # Verificar ANTES de tocar caja/banco: cobertura total debe == monto_total.
+    validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+
     # Defensa en profundidad: validar cross-moneda antes de imputar.
     # Con compras-cross-moneda-y-ncs-cc (FR-004), una OP cross-moneda DEBE
     # tener `tipo_cambio` > 0; en caso contrario abortar antes de grabar
     # imputaciones inválidas que rompen el saldo del pedido.
+    # Excluir items pago_a_cuenta del chequeo cross-moneda (no tienen destino).
     _validar_items_cross_moneda_con_tc(
         session,
-        items=items,
+        items=[it for it in items if it.get("tipo") != "pago_a_cuenta"],
         op_moneda=str(op.moneda),
         op_tipo_cambio=op.tipo_cambio,
     )
@@ -1006,6 +1097,11 @@ def ejecutar_pago(
     QUANT_ARS = Decimal("0.01")
 
     for item in items:
+        # PR3: items 'pago_a_cuenta' se procesan por separado después del loop
+        # (crean DineroACuenta + imputacion dinero_a_cuenta). Se saltan acá.
+        if item.get("tipo") == "pago_a_cuenta":
+            continue
+
         monto_item_origen = Decimal(str(item["monto"]))  # monto en moneda OP
         pedido_destino: Optional[PedidoCompra] = None
         if item.get("tipo") == "pedido_compra" and item.get("id"):
@@ -1076,37 +1172,48 @@ def ejecutar_pago(
         if item["tipo"] == "pedido_compra" and item.get("id"):
             pedidos_afectados.add(int(item["id"]))
 
-    # Remanente según modo
-    remanente = Decimal(op.monto_total) - sum_items
-    if op.modo_imputacion == "mixta" and remanente > Decimal("0"):
-        imp_saldo = imputaciones_service.crear_imputacion(
+    # PR3 — Procesar items 'pago_a_cuenta' (AD-6, design §3.3).
+    # Cada item pago_a_cuenta:
+    #   1. Crea una fila DineroACuenta (monto, moneda OP, proveedor, disponible).
+    #   2. Crea imputacion (orden_pago → dinero_a_cuenta) — emite HABER en CC
+    #      vía aplicar_imputacion (el dinero real entra al CC del proveedor).
+    # Reemplaza el viejo bloque "remanente → destino='saldo'" (retirado en PR3).
+    from app.services import dinero_a_cuenta_service  # noqa: PLC0415
+
+    for item in items:
+        if item.get("tipo") != "pago_a_cuenta":
+            continue
+        monto_pac = Decimal(str(item["monto"]))
+        dac = dinero_a_cuenta_service.crear(
+            session,
+            proveedor_id=op.proveedor_id,
+            empresa_id=op.empresa_id,
+            monto=monto_pac,
+            moneda=str(op.moneda),
+            origen_op_id=op.id,
+            user_id=user_id,
+        )
+        imp_dac = imputaciones_service.crear_imputacion(
             session,
             origen_tipo="orden_pago",
             origen_id=op.id,
-            destino_tipo="saldo",
-            destino_id=None,
-            monto_imputado=remanente,
-            moneda_imputada=op.moneda,  # type: ignore[arg-type]
+            destino_tipo="dinero_a_cuenta",
+            destino_id=dac.id,
+            monto_imputado=monto_pac,
+            moneda_imputada=str(op.moneda),  # type: ignore[arg-type]
+            tipo_cambio=None,
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
         )
-        cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp_saldo.id)
-        imputaciones_creadas.append(imp_saldo)
-    elif op.modo_imputacion == "a_cuenta":
-        # Toda la OP a saldo (items vacío por validación de crear)
-        imp_saldo = imputaciones_service.crear_imputacion(
-            session,
-            origen_tipo="orden_pago",
-            origen_id=op.id,
-            destino_tipo="saldo",
-            destino_id=None,
-            monto_imputado=Decimal(op.monto_total),
-            moneda_imputada=op.moneda,  # type: ignore[arg-type]
-            proveedor_id=op.proveedor_id,
-            creado_por_id=user_id,
+        cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp_dac.id)
+        imputaciones_creadas.append(imp_dac)
+        logger.info(
+            "pago_a_cuenta procesado op=%s dac_id=%s monto=%s %s",
+            op.id,
+            dac.id,
+            monto_pac,
+            op.moneda,
         )
-        cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp_saldo.id)
-        imputaciones_creadas.append(imp_saldo)
 
     # Paso 8: actualizar OP — set la FK de la fuente usada; la otra queda NULL.
     if caja_id is not None:
@@ -1791,6 +1898,8 @@ def crear_y_pagar(
     )
 
     # Paso 2: ejecutar el pago (crea imputaciones OP→pedido y mueve fondos).
+    # PR3: pasar ncs_aplicadas como ncs_pendientes para que validar_balance_op
+    # las incluya en la cobertura (se aplicarán en el paso 3 de esta misma tx).
     op = ejecutar_pago(
         session,
         orden_pago_id=op.id,
@@ -1799,6 +1908,7 @@ def crear_y_pagar(
         fecha_pago_real=fecha_pago_real,
         user_id=creado_por_id,
         tipo_cambio_override=tipo_cambio_override,
+        ncs_pendientes=ncs_aplicadas or [],
     )
 
     # Paso 3: aplicar NCs (DESPUÉS del pago, en la misma transacción).

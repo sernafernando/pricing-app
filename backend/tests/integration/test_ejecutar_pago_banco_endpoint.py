@@ -146,7 +146,11 @@ def nc_aprobada(db, empresa, proveedor, active_user) -> NotaCreditoLocal:
 
 @pytest.fixture
 def op_pendiente(db, empresa, proveedor, active_user) -> OrdenPago:
-    """OP pendiente a_cuenta — lista para ser pagada."""
+    """OP pendiente especifica con pago_a_cuenta cubriendo el total — lista para ser pagada."""
+    import json  # noqa: PLC0415
+
+    from sqlalchemy import text  # noqa: PLC0415
+
     from app.services.numeracion_service import generar_siguiente_numero  # noqa: PLC0415
 
     numero, _ = generar_siguiente_numero(db, tipo="orden_pago", empresa_id=empresa.id)
@@ -156,11 +160,24 @@ def op_pendiente(db, empresa, proveedor, active_user) -> OrdenPago:
         proveedor_id=proveedor.id,
         moneda="ARS",
         monto_total=Decimal("20000"),
-        modo_imputacion="a_cuenta",
+        modo_imputacion="especifica",
         estado="pendiente",
         creado_por_id=active_user.id,
     )
     db.add(op)
+    db.flush()
+    # PR3: seed items event so validar_balance_op finds full coverage
+    db.execute(
+        text(
+            "INSERT INTO compras_eventos (tipo, entidad_tipo, entidad_id, payload, usuario_id)"
+            " VALUES ('items_registrados', 'orden_pago', :op_id, :payload, :uid)"
+        ),
+        {
+            "op_id": op.id,
+            "payload": json.dumps({"items": [{"tipo": "pago_a_cuenta", "id": None, "monto": "20000"}]}),
+            "uid": active_user.id,
+        },
+    )
     db.flush()
     return op
 
@@ -279,7 +296,8 @@ class TestCrearYPagarConBancoEndpoint:
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
             "monto_total": 15000,
-            "modo_imputacion": "a_cuenta",
+            "modo_imputacion": "especifica",
+            "items": [{"tipo": "pago_a_cuenta", "id": None, "monto": 15000}],
             "banco_id": banco.id,
             "fecha_pago_real": "2026-05-21",
         }
@@ -313,13 +331,14 @@ class TestCrearYPagarConBancoEndpoint:
         Scenario H: crear_y_pagar con banco_id + ncs_aplicadas → full combo.
         BancoMovimiento egreso + imputación NC→pedido in DB.
         """
+        # NC cubre 5000, pedido item cubre 5000 → balance 10000 == monto_total (PR3)
         payload = {
             "empresa_id": empresa.id,
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
             "monto_total": 10000,
             "modo_imputacion": "especifica",
-            "items": [{"tipo": "pedido_compra", "id": pedido.id, "monto": 10000}],
+            "items": [{"tipo": "pedido_compra", "id": pedido.id, "monto": 5000}],
             "banco_id": banco.id,
             "fecha_pago_real": "2026-05-21",
             "ncs_aplicadas": [{"nc_id": nc_aprobada.id, "monto": 5000, "pedido_id": pedido.id}],

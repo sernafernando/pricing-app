@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, Plus, Trash2, Zap } from 'lucide-react';
+import { X, AlertTriangle, Check, Plus, Trash2, Zap } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
@@ -208,6 +208,12 @@ export default function ModalOrdenPagoNueva({
   // Cada entrada: { nc_id, monto, pedido_id }.
   const [ncsAplicadas, setNcsAplicadas] = useState([]);
 
+  // PR3 — Pago a cuenta explícito (excedente intencional).
+  // El usuario ingresa el monto que quiere "apartar" como dinero a cuenta
+  // del proveedor. Se incluye en el payload como item {tipo:'pago_a_cuenta'}.
+  const [pagoACuenta, setPagoACuenta] = useState('');
+  const pagoACuentaNum = parseFloat(pagoACuenta) || 0;
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   // Error inline específico del campo TC (Batch 5 — cross-moneda).
@@ -229,16 +235,21 @@ export default function ModalOrdenPagoNueva({
   // items, suma === total → especifica
   // items, suma < total  → mixta
   // (suma > total es inválido — validar() lo bloquea)
-  const derivarModoImputacion = (currentItems, total) => {
-    if (currentItems.length === 0) return 'a_cuenta';
-    const suma = Math.round(
+  // PR3: pago_a_cuenta se trata como item de cobertura para derivar el modo.
+  const derivarModoImputacion = (currentItems, total, pacNum = 0) => {
+    const hasPac = pacNum > 0;
+    if (currentItems.length === 0 && !hasPac) return 'a_cuenta';
+    const sumaDoc = Math.round(
       currentItems.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0) * 100
     ) / 100;
+    const sumaTotal = Math.round((sumaDoc + pacNum) * 100) / 100;
     const totalR = Math.round((parseFloat(total) || 0) * 100) / 100;
-    return suma >= totalR ? 'especifica' : 'mixta';
+    // Si hay items de documento y también pago_a_cuenta → mixta (hay mezcla de destinos)
+    if (currentItems.length > 0 && hasPac) return 'mixta';
+    return sumaTotal >= totalR ? 'especifica' : 'mixta';
   };
 
-  const modoImputacion = derivarModoImputacion(items, form.monto_total);
+  const modoImputacion = derivarModoImputacion(items, form.monto_total, pagoACuentaNum);
 
   // Lookup de pedido por id. Combina pendientesDelProveedor (lista del
   // dropdown) + pedidoInicial (pre-cargado vía prop, puede no estar en
@@ -375,6 +386,12 @@ export default function ModalOrdenPagoNueva({
   const sumaItems = items.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
+  // PR3 — Cobertura total y diferencia en vivo.
+  // cobertura = sum(items documentos) + sum(NCs aplicadas) + pagoACuenta explícito.
+  const sumaNCs = ncsAplicadas.reduce((acc, nc) => acc + (parseFloat(nc.monto) || 0), 0);
+  const coberturaTotal = sumaItems + sumaNCs + pagoACuentaNum;
+  const diferencia = Math.round((montoTotalNum - coberturaTotal) * 100) / 100;
+
   const validar = () => {
     if (!form.empresa_id) return 'Empresa requerida.';
     if (!form.proveedor_id) return 'Proveedor requerido.';
@@ -390,12 +407,13 @@ export default function ModalOrdenPagoNueva({
         const m = parseFloat(it.monto);
         if (!Number.isFinite(m) || m <= 0) return `Item #${idx + 1}: monto > 0 requerido.`;
       }
-      const sumaRedondeada = Math.round(sumaItems * 100) / 100;
-      const totalRedondeado = Math.round(montoTotalNum * 100) / 100;
-      // suma > total es inválido — no hay modo que lo cubra.
-      if (sumaRedondeada > totalRedondeado) {
-        return `La suma de items (${sumaRedondeada}) supera el monto total (${totalRedondeado}). Revisá los montos.`;
-      }
+    }
+    // PR3: pago_a_cuenta no puede ser negativo.
+    if (pagoACuentaNum < 0) return 'El pago a cuenta no puede ser negativo.';
+    // PR3: al confirmar (crear y pagar), la diferencia debe ser 0.
+    // Al solo crear (draft), se permite diferencia != 0.
+    if (pagarAhora && diferencia !== 0) {
+      return `Diferencia de ${formatCurrency(Math.abs(diferencia), form.moneda)} — la cobertura debe ser igual al total para confirmar el pago.`;
     }
     return null;
   };
@@ -414,12 +432,18 @@ export default function ModalOrdenPagoNueva({
       tipo_cambio: tcEnviable,
       modo_imputacion: modoImputacion,
       observaciones: form.observaciones || null,
-      items: items.map((it) => ({
-        tipo: it.tipo,
-        id: it.id ? Number(it.id) : null,
-        monto: parseFloat(it.monto),
-        numero_factura: it.numero_factura || null,
-      })),
+      items: [
+        ...items.map((it) => ({
+          tipo: it.tipo,
+          id: it.id ? Number(it.id) : null,
+          monto: parseFloat(it.monto),
+          numero_factura: it.numero_factura || null,
+        })),
+        // PR3: pago_a_cuenta como item explícito cuando el usuario lo indica
+        ...(pagoACuentaNum > 0
+          ? [{ tipo: 'pago_a_cuenta', id: null, monto: pagoACuentaNum }]
+          : []),
+      ],
       confirmar_duplicado: confirmarDuplicado,
       actualizar_tc_pedido: actualizarTcPedido,
       // F7 — NCs a aplicar en la misma transacción (solo en creación, no edición).
@@ -1019,6 +1043,43 @@ export default function ModalOrdenPagoNueva({
             />
           )}
 
+          {/* PR3 — Pago a cuenta + indicador de diferencia */}
+          {!isEditMode && (
+            <div className={styles.pagoACuentaSection}>
+              <label className={styles.label}>
+                Pago a cuenta{' '}
+                <span className={styles.labelHintInline}>
+                  (dinero disponible sin imputación a pedido específico)
+                </span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className={styles.input}
+                value={pagoACuenta}
+                onChange={(e) => setPagoACuenta(e.target.value)}
+                placeholder="0.00"
+                disabled={saving}
+              />
+              {diferencia !== 0 && (
+                <div
+                  className={
+                    diferencia > 0 ? styles.diferenciaPositiva : styles.diferenciaNegativa
+                  }
+                >
+                  <AlertTriangle size={14} style={{ marginRight: 4, flexShrink: 0 }} />
+                  {diferencia > 0
+                    ? `Faltan cubrir ${formatCurrency(diferencia, form.moneda)} — sumá items o asigná pago a cuenta.`
+                    : `Exceso de ${formatCurrency(Math.abs(diferencia), form.moneda)} — la cobertura supera el total.`}
+                </div>
+              )}
+              {diferencia === 0 && coberturaTotal > 0 && (
+                <div className={styles.diferenciaOk}><Check size={14} /> Cobertura completa</div>
+              )}
+            </div>
+          )}
+
           <div className={styles.formActions}>
             <button
               type="button"
@@ -1028,7 +1089,11 @@ export default function ModalOrdenPagoNueva({
             >
               Cancelar
             </button>
-            <button type="submit" className={styles.btnSuccess} disabled={saving}>
+            <button
+              type="submit"
+              className={styles.btnSuccess}
+              disabled={saving || (pagarAhora && diferencia !== 0)}
+            >
               {saving
                 ? isEditMode
                   ? 'Guardando...'

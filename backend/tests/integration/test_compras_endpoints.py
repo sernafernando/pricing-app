@@ -1024,7 +1024,10 @@ class TestImputaciones:
             moneda="ARS",
             monto_total=Decimal("2000"),
             modo_imputacion="mixta",
-            items=[{"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("1000")}],
+            items=[
+                {"tipo": "pedido_compra", "id": pedido_aprobado.id, "monto": Decimal("1000")},
+                {"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("1000")},
+            ],
             creado_por_id=active_user.id,
         )
         ordenes_pago_service.ejecutar_pago(
@@ -1446,7 +1449,7 @@ class TestCCProveedor:
         assert r.status_code == 201, r.text
         body = r.json()
         assert body["estado"] == "pagado"
-        assert body["modo_imputacion"] == "a_cuenta"
+        assert body["modo_imputacion"] == "especifica"  # PR3: pago-rapido usa especifica + pago_a_cuenta
         assert Decimal(body["monto_total"]) == Decimal("2500")
 
 

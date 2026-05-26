@@ -1993,6 +1993,8 @@ def _enriquecer_imputaciones(db: Session, imps: list[Imputacion]) -> list[Imputa
             if ct_tuple is not None and ct_tuple[0]:
                 return f"Factura {ct_tuple[0]}"
             return f"Factura {imp.destino_id}"
+        if imp.destino_tipo == "dinero_a_cuenta":
+            return f"Dinero a cuenta #{imp.destino_id}"
         return f"{imp.destino_tipo} #{imp.destino_id}"
 
     resultado: list[ImputacionResponse] = []
@@ -2715,15 +2717,16 @@ def pago_rapido_cc_proveedor(
     _obtener_proveedor_o_404(db, proveedor_id)
 
     try:
-        # Step 1: crear OP a_cuenta
+        # Step 1: crear OP especifica con pago_a_cuenta cubriendo el total
+        # (PR3 — invariante no-diferencia: items deben cubrir monto_total al confirmar)
         op = ordenes_pago_service.crear(
             db,
             proveedor_id=proveedor_id,
             empresa_id=data.empresa_id,
             moneda=data.moneda,  # type: ignore[arg-type]
             monto_total=data.monto,
-            modo_imputacion="a_cuenta",
-            items=[],
+            modo_imputacion="especifica",
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": str(data.monto)}],
             observaciones=(f"[PAGO RÁPIDO user_id={user.id}] {data.observaciones or ''}".strip()),
             creado_por_id=user.id,
             confirmar_duplicado=True,  # flow rápido, no bloqueamos por ERP duplicate check
