@@ -4376,21 +4376,11 @@ def wipe_compras_endpoint(
     """
     Elimina TODOS los datos del módulo compras.
 
-    PELIGRO: acción irreversible. Solo para entornos de prueba.
+    PELIGRO: acción irreversible.
     Requiere permiso `administracion.wipe_compras_testing` y confirmación textual.
-    Solo disponible en entornos de desarrollo/testing (`ENVIRONMENT != production`).
 
     El campo `confirmacion` debe valer exactamente 'WIPE'.
     """
-    # Allowlist de entornos seguros (invertido del blocklist original — GGA violation #2).
-    # Cualquier env que NO sea explícitamente de desarrollo/testing rechaza.
-    env = getattr(settings, "ENVIRONMENT", "production")
-    if env not in ("development", "testing", "local"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Esta operación no está disponible en producción.",
-        )
-
     try:
         tablas = _wipe_compras(db, incluir_caja_banco=body.incluir_caja_banco)
         db.commit()
