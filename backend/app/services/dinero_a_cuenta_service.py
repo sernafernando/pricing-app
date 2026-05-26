@@ -350,6 +350,144 @@ def calcular_saldos_disponibles_batch(
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# consumir — PR4 (T4.3, AD-4)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def consumir(
+    session: Session,
+    *,
+    dinero_a_cuenta_id: int,
+    destino_tipo: str,
+    destino_id: int,
+    monto: Decimal,
+    user_id: int,
+    op_proveedor_id: Optional[int] = None,
+    op_moneda: Optional[str] = None,
+    op_tipo_cambio: Optional[Decimal] = None,
+) -> "Imputacion":
+    """
+    Consume parcial o totalmente un DineroACuenta como medio de pago de una OP.
+
+    Crea una imputación (dinero_a_cuenta → pedido_compra|factura_erp) y
+    recalcula el estado del DAC. NO emite movimiento CC (AD-4): el haber
+    ya entró al libro mayor cuando se creó el DAC vía pago_a_cuenta en
+    ejecutar_pago (PR3). Emitir otro haber aquí sería doble conteo.
+
+    La cobertura de deuda en el pedido/factura sí se registra — el pedido
+    verá la imputación y su saldo_pendiente se reducirá.
+
+    Args:
+        session: tx activa del caller.
+        dinero_a_cuenta_id: PK del DineroACuenta a consumir.
+        destino_tipo: 'pedido_compra' | 'factura_erp'.
+        destino_id: PK del pedido o factura destino.
+        monto: monto a consumir (debe ser <= saldo_disponible del DAC).
+        user_id: FK usuario que ejecuta el consumo.
+        op_proveedor_id: (defensa en profundidad) proveedor de la OP que consume.
+            Si se provee, se verifica que coincida con dac.proveedor_id (WARNING 3).
+        op_moneda: (defensa en profundidad) moneda de la OP.
+            Si se provee junto con op_tipo_cambio, se verifica que cross-moneda
+            DAC↔OP tenga TC disponible (WARNING 1, FR-4.9).
+        op_tipo_cambio: tipo de cambio efectivo de la OP (puede ser None si same-moneda).
+
+    Returns:
+        Imputacion creada (origen=dinero_a_cuenta, destino=destino_tipo).
+
+    Raises:
+        HTTPException 400: si el DAC no existe o el monto supera el saldo.
+        HTTPException 422: si dac.proveedor_id != op_proveedor_id (guard WARNING 3).
+        HTTPException 422: si cross-moneda DAC↔OP sin TC disponible (guard WARNING 1).
+        La validación de COMBOS_VALIDOS_V1 se realiza transitivamente en
+            imputaciones_service.crear_imputacion → _validar_whitelist.
+    """
+    from app.services import imputaciones_service  # noqa: PLC0415
+
+    # WARNING 2 fix: SELECT FOR UPDATE para serializar consumos concurrentes del
+    # mismo DAC desde distintas OPs. ejecutar_pago ya tiene FOR UPDATE sobre la OP,
+    # pero dos OPs distintas pueden competir sobre el mismo DAC sin este lock.
+    dac = session.execute(
+        select(DineroACuenta).where(DineroACuenta.id == dinero_a_cuenta_id).with_for_update()
+    ).scalar_one_or_none()
+    if dac is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"DineroACuenta id={dinero_a_cuenta_id} no encontrado.",
+        )
+
+    # WARNING 3 guard: el DAC debe pertenecer al mismo proveedor que la OP.
+    # Defensa en profundidad — el frontend filtra DACs por proveedor, pero una
+    # llamada directa a la API podría cruzar proveedores.
+    if op_proveedor_id is not None and dac.proveedor_id != op_proveedor_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"DineroACuenta id={dinero_a_cuenta_id} pertenece al proveedor "
+                f"id={dac.proveedor_id}, pero la OP pertenece al proveedor "
+                f"id={op_proveedor_id}. No se puede cruzar proveedores."
+            ),
+        )
+
+    # WARNING 1 guard: cross-moneda DAC↔OP requiere TC (FR-4.9).
+    # Simétrico al guard ya existente para NCs (_validar_items_cross_moneda_con_tc).
+    if op_moneda is not None and str(dac.moneda) != op_moneda:
+        if op_tipo_cambio is None or Decimal(op_tipo_cambio) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"DineroACuenta id={dinero_a_cuenta_id} (moneda {dac.moneda}) "
+                    f"cross-moneda con OP ({op_moneda}) requiere tipo_cambio > 0 en la OP. "
+                    f"Recibido: {op_tipo_cambio}."
+                ),
+            )
+
+    saldo_disp = calcular_saldo_disponible(session, dinero_a_cuenta_id)
+    if monto > saldo_disp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"DineroACuenta id={dinero_a_cuenta_id}: monto a consumir "
+                f"({monto}) supera el saldo disponible ({saldo_disp})."
+            ),
+        )
+
+    # Crear imputación (dinero_a_cuenta → pedido_compra|factura_erp).
+    # Luego llamamos cc_proveedor_service.aplicar_imputacion — que para
+    # origen='dinero_a_cuenta' retorna [] SIN emitir movimiento CC (AD-4).
+    from app.services import cc_proveedor_service  # noqa: PLC0415
+
+    imputacion = imputaciones_service.crear_imputacion(
+        session,
+        origen_tipo="dinero_a_cuenta",
+        origen_id=dinero_a_cuenta_id,
+        destino_tipo=destino_tipo,
+        destino_id=destino_id,
+        monto_imputado=monto,
+        moneda_imputada=dac.moneda,  # type: ignore[arg-type]
+        proveedor_id=dac.proveedor_id,
+        creado_por_id=user_id,
+    )
+
+    # AD-4: este llamado retorna [] — sin movimiento CC nuevo.
+    # El haber ya entró al CC cuando se creó el DAC (pago_a_cuenta, PR3).
+    cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imputacion.id)
+
+    # Actualizar el estado cache del DAC (único UPDATE permitido en esta fila).
+    recalcular_estado(session, dinero_a_cuenta_id)
+
+    logger.info(
+        "✅ DAC consumido id=%s monto=%s %s → %s:%s (imputacion_id=%s)",
+        dinero_a_cuenta_id,
+        monto,
+        dac.moneda,
+        destino_tipo,
+        destino_id,
+        imputacion.id,
+    )
+    return imputacion
+
+
 __all__ = [
     "crear",
     "calcular_saldo_disponible",
@@ -357,4 +495,5 @@ __all__ = [
     "recalcular_estado",
     "listar_por_proveedor",
     "calcular_componente_dinero_a_cuenta",
+    "consumir",
 ]

@@ -62,6 +62,11 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
         # PR2 — dinero a cuenta como destino de OP (pago_a_cuenta crea DAC).
         # El HABER lo emite aplicar_imputacion (origen=orden_pago → CC haber).
         ("orden_pago", "dinero_a_cuenta"),
+        # PR4 — dinero a cuenta como ORIGEN (consumo como medio de pago).
+        # AD-4: aplicar_imputacion retorna [] para este origen (sin CC nuevo —
+        # el haber ya entró al CC cuando se creó el DAC).
+        ("dinero_a_cuenta", "pedido_compra"),
+        ("dinero_a_cuenta", "factura_erp"),
     }
 )
 

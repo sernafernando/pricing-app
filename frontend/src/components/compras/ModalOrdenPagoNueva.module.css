@@ -480,6 +480,68 @@
   font-weight: 500;
 }
 
+/* ── PR4 — Medios de pago section ────────────────────────────── */
+.mediosPagoSection {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--spacing-sm, 12px);
+  margin-bottom: var(--spacing-md, 16px);
+  background: color-mix(in srgb, var(--cf-bg-hover) 40%, transparent);
+}
+
+.mediosPagoHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--spacing-sm, 12px);
+}
+
+.mediosPagoIcon {
+  color: var(--cf-text-secondary);
+  flex-shrink: 0;
+}
+
+.mediosPagoTitle {
+  font-size: var(--font-sm, 13px);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dacSection {
+  margin-top: var(--spacing-sm, 12px);
+  padding-top: var(--spacing-sm, 12px);
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+.dacLabel {
+  display: block;
+  font-size: var(--font-sm, 13px);
+  font-weight: 500;
+  color: var(--cf-text-primary);
+  margin-bottom: var(--spacing-xs, 6px);
+}
+
+.dacSinSaldo {
+  font-size: var(--font-sm, 13px);
+  color: var(--cf-text-tertiary);
+  font-style: italic;
+  padding: var(--spacing-xs, 6px) 0;
+}
+
+.dacControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 6px);
+}
+
+.dacMontoRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .formRow {

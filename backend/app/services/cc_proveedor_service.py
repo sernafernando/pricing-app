@@ -339,6 +339,19 @@ def aplicar_imputacion(
     # Convención:
     #   - haber → pago/reducción de deuda al proveedor.
     #   - debe  → aumento de deuda o reversal de un haber previo.
+    # AD-4 (PR4) — consumo de dinero a cuenta como medio de pago.
+    # El origen='dinero_a_cuenta' NO emite movimiento CC en ninguna dirección:
+    # el haber ya entró al libro mayor cuando se creó el DAC (pago_a_cuenta
+    # en ejecutar_pago, PR3). Emitir otro haber aquí sería doble conteo.
+    # Idéntica lógica para reversales de este origen.
+    # Ver design §3.5 y AD-4.
+    if imp.origen_tipo == "dinero_a_cuenta":
+        logger.debug(
+            "aplicar_imputacion imp_id=%s origen=dinero_a_cuenta → sin CC (AD-4)",
+            imp.id,
+        )
+        return []
+
     if imp.es_reversal:
         # Reversal inverts the original movement's direction.
         # Normal NC credito emits HABER → its reversal is DEBE.
