@@ -865,12 +865,20 @@ def setear_precio_rapido(
     # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
 
     if lista_tipo == "web" and pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
-        from app.services.pricing_calculator import calcular_precio_web_transferencia
+        from app.services.pricing_calculator import (
+            calcular_precio_web_transferencia,
+            obtener_constantes_pricing,
+        )
 
         markup_base = markup
         markup_objetivo = markup_base + (float(pricing.porcentaje_markup_web) / 100)
+        constantes_web = obtener_constantes_pricing(db)
         resultado_web = calcular_precio_web_transferencia(
-            costo_ars=costo_ars, iva=producto.iva, markup_objetivo=markup_objetivo
+            costo_ars=costo_ars,
+            iva=producto.iva,
+            markup_objetivo=markup_objetivo,
+            comision_web=constantes_web["comision_tienda_nube"],
+            iibb=constantes_web["varios"],
         )
         pricing.precio_web_transferencia = resultado_web["precio"]
         pricing.markup_web_real = resultado_web["markup_real"]

@@ -151,6 +151,7 @@ def actualizar_web_transferencia(
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar web transferencia")
     from app.services.pricing_calculator import (
         calcular_precio_web_transferencia,
+        obtener_constantes_pricing,
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
     )
@@ -206,8 +207,13 @@ def actualizar_web_transferencia(
 
         markup_objetivo = markup_clasica + (porcentaje_markup / 100)
 
+        constantes = obtener_constantes_pricing(db)
         resultado = calcular_precio_web_transferencia(
-            costo_ars=costo_ars, iva=producto_erp.iva, markup_objetivo=markup_objetivo
+            costo_ars=costo_ars,
+            iva=producto_erp.iva,
+            markup_objetivo=markup_objetivo,
+            comision_web=constantes["comision_tienda_nube"],
+            iibb=constantes["varios"],
         )
 
         precio_web = resultado["precio"]
@@ -260,9 +266,12 @@ def calcular_web_masivo(
     """Calcula precio web transferencia masivamente"""
     from app.services.pricing_calculator import (
         calcular_precio_web_transferencia,
+        obtener_constantes_pricing,
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
     )
+
+    constantes = obtener_constantes_pricing(db)
 
     # Obtener productos base
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -533,7 +542,11 @@ def calcular_web_masivo(
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
 
         resultado = calcular_precio_web_transferencia(
-            costo_ars=costo_ars, iva=producto_erp.iva, markup_objetivo=markup_objetivo
+            costo_ars=costo_ars,
+            iva=producto_erp.iva,
+            markup_objetivo=markup_objetivo,
+            comision_web=constantes["comision_tienda_nube"],
+            iibb=constantes["varios"],
         )
 
         # Crear o actualizar pricing
