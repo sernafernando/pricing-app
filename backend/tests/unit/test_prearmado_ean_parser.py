@@ -7,7 +7,6 @@ Run with:
 All 11 spec §2 behavior-table rows are covered, plus edge cases.
 """
 
-import logging
 import pytest
 
 # --- will fail until the module is created ---
@@ -72,11 +71,17 @@ class TestSpecBehaviorTable:
         assert result == ParsedEan(raw="LENOVO-16WP", ean_base="LENOVO", memoria="16", disco=None, windows="pro")
 
     def test_disco_t_suffix(self):
-        """'LENOVO-16T' → memoria=None (not memoria=16), disco='16T'.
+        """'LENOVO-16T' → disco='16T', memoria=None.
 
-        Disambiguation rule: digits followed by T/G → disco, not memoria.
-        The spec row says: 'LENOVO-16T' → disco='T' but design spec says
-        any disco token parsed as-is. Here '16T' → disco='16T'.
+        When the suffix is purely digits + T/G (no preceding standalone digits),
+        the entire token is treated as the disco field. This aligns with the design
+        behavior (XXXX-1TWH → disco='1T') and the note 'any disco token parsed
+        as-is'. The spec §2 table shows disco='T' but the implementation chooses
+        the more consistent rule: digits+G/T as a single disco token.
+
+        TDD deviation note: the spec behavior table says disco='T' for 'LENOVO-16T',
+        but this contradicts the design regex and the 1T example. We follow the
+        design implementation choice here (design is the HOW).
         """
         result = parse_combo_ean("LENOVO-16T")
         assert result == ParsedEan(raw="LENOVO-16T", ean_base="LENOVO", memoria=None, disco="16T", windows=None)
@@ -100,12 +105,17 @@ class TestEdgeCases:
         """'-WP' (empty base) → None."""
         assert parse_combo_ean("-WP") is None
 
-    def test_junk_suffix_returns_none_and_logs_warning(self, caplog):
-        """'XXXX-FOO' — suffix doesn't match → returns None AND logs WARNING."""
-        with caplog.at_level(logging.WARNING, logger="app.services.prearmado_ean_parser"):
+    def test_junk_suffix_returns_none_and_logs_warning(self):
+        """'XXXX-FOO' — suffix doesn't match → returns None AND calls logger.warning."""
+        from unittest.mock import patch
+
+        with patch("app.services.prearmado_ean_parser.logger") as mock_log:
             result = parse_combo_ean("XXXX-FOO")
         assert result is None
-        assert any("XXXX-FOO" in m or "EAN parse" in m for m in caplog.messages)
+        mock_log.warning.assert_called_once()
+        # The warning should reference the original item_code
+        call_args = mock_log.warning.call_args
+        assert "XXXX-FOO" in str(call_args)
 
     def test_whitespace_only_after_strip(self):
         """'   ' → None."""
@@ -130,8 +140,24 @@ class TestEdgeCases:
         with pytest.raises((AttributeError, TypeError)):
             result.memoria = "999"  # type: ignore[misc]
 
-    def test_large_memoria(self):
-        """'HP-32512GWH' → memoria='32', disco='512G', windows='home'."""
+    def test_large_memoria_standalone(self):
+        """'HP-32WH' → memoria='32', disco=None, windows='home'.
+
+        '32' is followed by 'W' (not G/T/digit), so the lookahead passes
+        and memoria='32' is captured.
+        """
+        result = parse_combo_ean("HP-32WH")
+        assert result is not None
+        assert result.memoria == "32"
+        assert result.disco is None
+        assert result.windows == "home"
+
+    def test_large_prefix_before_disco(self):
+        """'HP-32512GWH' → memoria='32', disco='512G', windows='home'.
+
+        The parser strips the last 1-3 digits + G/T as disco, leaving leading
+        digits as memoria. So '32512G' → disco='512G', memoria='32'.
+        """
         result = parse_combo_ean("HP-32512GWH")
         assert result is not None
         assert result.memoria == "32"
