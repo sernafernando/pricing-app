@@ -44,6 +44,7 @@ def obtener_constantes_pricing(db: Session) -> Dict[str, float]:
             "varios": float(constants.varios_porcentaje),
             "grupo_default": constants.grupo_comision_default,
             "markup_adicional_cuotas": float(constants.markup_adicional_cuotas),
+            "comision_tienda_nube": float(constants.comision_tienda_nube),
         }
 
     # Valores por defecto si no hay constantes en BD
@@ -57,6 +58,7 @@ def obtener_constantes_pricing(db: Session) -> Dict[str, float]:
         "varios": VARIOS_DEFAULT,
         "grupo_default": GRUPO_DEFAULT,
         "markup_adicional_cuotas": 4.0,
+        "comision_tienda_nube": 1.0,
     }
 
 
@@ -468,46 +470,34 @@ def calcular_precio_producto(
 
 
 def calcular_precio_web_transferencia(
-    costo_ars: float, iva: float, markup_objetivo: float, max_iter: int = 100
+    costo_ars: float,
+    iva: float,
+    markup_objetivo: float,
+    comision_web: float,
+    iibb: float,
+    max_iter: int = 100,
 ) -> dict:
-    COMISION_WEB = 0.0073
-    IIBB = 0.05
     TOLERANCIA = 0.0001
 
-    # Convertir IVA de porcentaje a decimal si viene como 10.5, 21, etc
     iva_decimal = iva / 100 if iva > 1 else iva
+    comision_web_decimal = comision_web / 100 if comision_web > 1 else comision_web
+    iibb_decimal = iibb / 100 if iibb > 1 else iibb
 
-    # Precio inicial
     precio = costo_ars * (1 + iva_decimal) * (1 + markup_objetivo) * 1.1
 
     for i in range(max_iter):
-        # 1. Comisión sobre precio con IVA
-        comision = precio * COMISION_WEB
-
-        # 2. Precio sin IVA
+        comision = precio * comision_web_decimal
         precio_sin_iva = precio / (1 + iva_decimal)
-
-        # 3. IIBB sobre precio sin IVA
-        iibb = precio_sin_iva * IIBB
-
-        # 4. Limpio con IVA
-        limpio_con_iva = precio - comision - iibb
-
-        # 5. Limpio sin IVA
+        iibb_monto = precio_sin_iva * iibb_decimal
+        limpio_con_iva = precio - comision - iibb_monto
         limpio_sin_iva = limpio_con_iva / (1 + iva_decimal)
-
-        # 6. Markup real
         markup_real = (limpio_sin_iva - costo_ars) / costo_ars if costo_ars > 0 else 0
 
-        # Verificar convergencia
         if abs(markup_real - markup_objetivo) < TOLERANCIA:
-            # Redondear a múltiplo de 10
             precio_redondeado = round(precio / 10) * 10
-
-            # Recalcular markup real con el precio redondeado
-            comision_final = precio_redondeado * COMISION_WEB
+            comision_final = precio_redondeado * comision_web_decimal
             precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
-            iibb_final = precio_sin_iva_final * IIBB
+            iibb_final = precio_sin_iva_final * iibb_decimal
             limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
             limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
             markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
@@ -519,17 +509,13 @@ def calcular_precio_web_transferencia(
                 "convergio": True,
             }
 
-        # Ajustar
         factor = (1 + markup_objetivo) / (1 + markup_real) if markup_real > 0 else 1.1
         precio = precio * factor
 
-    # Si no converge, también redondear
     precio_redondeado = round(precio / 10) * 10
-
-    # Recalcular markup real con el precio redondeado
-    comision_final = precio_redondeado * COMISION_WEB
+    comision_final = precio_redondeado * comision_web_decimal
     precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
-    iibb_final = precio_sin_iva_final * IIBB
+    iibb_final = precio_sin_iva_final * iibb_decimal
     limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
     limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
     markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
