@@ -11,6 +11,8 @@ import TabPistoleado from '../components/TabPistoleado';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
+import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
+import PrearmadaBadge from '../components/PrearmadaBadge';
 import { registrarPagina } from '../registry/tabRegistry';
 
 registrarPagina({
@@ -155,6 +157,10 @@ export default function PedidosPreparacion() {
   const puedeVerEnviosFlex = tienePermiso('envios_flex.ver');
   const puedeVerCheckeoColecta = tienePermiso('envios_flex.ver');
   const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
+
+  // Prearmadas stats for visible items in the current pedido
+  const prearmadasItemIds = resumen.map((r) => r.item_id).filter(Boolean);
+  const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Seleccionar primera tab disponible según permisos
   useEffect(() => {
@@ -692,6 +698,7 @@ export default function PedidosPreparacion() {
                         <td>
                           <div className={styles.producto}>
                             <strong>{r.item_code || '-'}</strong>
+                            <PrearmadaBadge stats={prearmadasStats[r.item_id]} />
                             <span className={styles.descripcion}>{r.item_desc || '-'}</span>
                             {r.esta_prearmado && (
                               <span className={styles.badgePrearmado} title={`Pre-armando: ${r.cantidad_prearmada} unidades`}>
