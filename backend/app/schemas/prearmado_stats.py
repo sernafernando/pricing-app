@@ -43,7 +43,7 @@ class BatchStatsResponse(BaseModel):
 
     stats: Dict[str, ItemStats]
     generated_at: datetime
-    cache: Literal["hit", "miss", "partial", "disabled"]
+    cache: Literal["hit", "miss", "partial"]
 
 
 # ---------------------------------------------------------------------------

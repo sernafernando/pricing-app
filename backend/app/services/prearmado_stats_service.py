@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # Windows ordinal for upgrade comparison.  None = no windows, 0; home = 1; pro = 2.
 _WIN_RANK: dict[Optional[str], int] = {None: 0, "home": 1, "pro": 2}
 
-CacheStatus = Literal["hit", "miss", "partial", "disabled"]
+CacheStatus = Literal["hit", "miss", "partial"]
 
 
 def classify(req_windows: Optional[str], have_windows: Optional[str]) -> Literal["exact", "upgrade", "none"]:
@@ -144,7 +144,8 @@ async def compute_batch_stats(
 
     Two SQL queries total (regardless of batch size).  Uses ``await`` on the
     async Redis client (``redis.asyncio.Redis``).  Graceful degradation when
-    Redis is ``None`` (disabled at startup because connection failed).
+    Redis is ``None`` (down or not configured): computes from DB every call
+    and reports ``cache_status="miss"`` (transparent to clients).
 
     Parameters
     ----------
@@ -164,7 +165,7 @@ async def compute_batch_stats(
     -------
     (stats_dict, cache_status)
     stats_dict : dict[str(item_id), {"exact": int, "upgrade": int}]
-    cache_status : "hit" | "miss" | "partial" | "disabled"
+    cache_status : "hit" | "miss" | "partial"
     """
     if not item_ids:
         return {}, "hit"
@@ -263,7 +264,8 @@ async def compute_batch_stats(
             stats[str(iid)] = computed_map.get(iid, {"exact": 0, "upgrade": 0})
 
     if redis is None:
-        cache_status: CacheStatus = "disabled"
+        # Transparent to clients: report "miss" so the spec contract stays clean.
+        cache_status: CacheStatus = "miss"
     elif not cached_map:
         cache_status = "miss"
     elif not computed_map:
