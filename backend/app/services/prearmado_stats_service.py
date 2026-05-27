@@ -7,10 +7,13 @@ Two public entry points:
 1. ``compute_batch_stats(item_ids, comp_id, db, redis, force_refresh)``
    Returns counts of armado-state prearmados that cover each requested item_id.
    Two SQL queries (no N+1), Redis MGET/SETEX caching, graceful when Redis is down.
+   This is an async function because the Redis client (``redis.asyncio.Redis``)
+   requires ``await``.
 
 2. ``get_armadas_list(comp_id, db, ean_base_filter, page, page_size)``
    Returns paginated list of armado prearmados enriched with covers[].
    Two SQL queries (prearmados + all combo items), classification in Python.
+   Synchronous — no cache layer.
 
 Classification (ADR-1)
 ----------------------
@@ -129,7 +132,7 @@ def _count_coverage(
 # ---------------------------------------------------------------------------
 
 
-def compute_batch_stats(
+async def compute_batch_stats(
     item_ids: list[int],
     comp_id: int,
     db: Session,
@@ -139,8 +142,9 @@ def compute_batch_stats(
 ) -> tuple[dict[str, dict[str, int]], CacheStatus]:
     """Compute exact/upgrade counts for a batch of item_ids.
 
-    Two SQL queries total (regardless of batch size).  Redis MGET/SETEX for
-    caching.  Graceful degradation when Redis is None (disabled).
+    Two SQL queries total (regardless of batch size).  Uses ``await`` on the
+    async Redis client (``redis.asyncio.Redis``).  Graceful degradation when
+    Redis is ``None`` (disabled at startup because connection failed).
 
     Parameters
     ----------
@@ -151,7 +155,8 @@ def compute_batch_stats(
     db:
         SQLAlchemy session.
     redis:
-        Redis client (``redis.asyncio.Redis``) or ``None`` if Redis is down.
+        Async Redis client (``redis.asyncio.Redis``) from ``app.state.redis``,
+        or ``None`` if Redis is down / not configured.
     force_refresh:
         When True, skip cache read and recompute from DB; still updates cache.
 
@@ -161,6 +166,9 @@ def compute_batch_stats(
     stats_dict : dict[str(item_id), {"exact": int, "upgrade": int}]
     cache_status : "hit" | "miss" | "partial" | "disabled"
     """
+    if not item_ids:
+        return {}, "hit"
+
     if redis is None:
         logger.info("Redis unavailable — computing prearmadas stats without cache (comp_id=%s)", comp_id)
 
@@ -176,7 +184,7 @@ def compute_batch_stats(
 
     if redis is not None and not force_refresh:
         try:
-            raw_values = redis.mget(*keys)
+            raw_values = await redis.mget(*keys)
             miss_ids = []
             for iid, raw in zip(item_ids, raw_values):
                 if raw is not None:
@@ -187,7 +195,7 @@ def compute_batch_stats(
                 else:
                     miss_ids.append(iid)
         except Exception as exc:
-            logger.warning("Redis MGET failed — bypassing cache: %s", exc)
+            logger.warning("Redis MGET failed — bypassing cache for comp_id=%s: %s", comp_id, exc)
             miss_ids = list(item_ids)
             cached_map = {}
 
@@ -242,7 +250,7 @@ def compute_batch_stats(
         ttl = settings.PREARMADAS_STATS_CACHE_TTL_SECONDS
         for iid, counts in computed_map.items():
             try:
-                redis.setex(_cache_key(iid), ttl, json.dumps(counts))
+                await redis.setex(_cache_key(iid), ttl, json.dumps(counts))
             except Exception as exc:
                 logger.warning("Redis SETEX failed for item_id=%s: %s", iid, exc)
 
@@ -274,7 +282,7 @@ def get_armadas_list(
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Retrieve paginated armado prearmadas enriched with covers[].
+    """Retrieve paginated armado prearmados enriched with covers[].
 
     Two SQL queries total per request (no N+1).
 
@@ -319,9 +327,9 @@ def get_armadas_list(
         .all()
     )
 
-    if len(combo_items) > 20000:
+    if len(combo_items) > settings.PREARMADAS_STATS_VOLUME_WARN:
         logger.warning(
-            "Query B returned %s combo items for comp_id=%s — consider scoped query fallback",
+            "Query B returned %s combo items for comp_id=%s — consider scoped query fallback (design §1.2)",
             len(combo_items),
             comp_id,
         )
@@ -351,7 +359,7 @@ def get_armadas_list(
                 p.id,
                 p.combo_item_code,
             )
-            p_parsed_dict = {"ean_base": None, "memoria": None, "disco": None, "windows": None}
+            p_parsed_dict: dict[str, Any] = {"ean_base": None, "memoria": None, "disco": None, "windows": None}
             covers: list[dict[str, Any]] = []
         else:
             p_parsed_dict = {
@@ -365,9 +373,7 @@ def get_armadas_list(
             covers = []
             for item_info in candidates_in_base:
                 item_parsed: ParsedEan = item_info["parsed"]
-                # Check base + memoria + disco match
-                if item_parsed.ean_base != p_parsed.ean_base:
-                    continue
+                # Check base + memoria + disco match (windows classified separately)
                 if item_parsed.memoria != p_parsed.memoria:
                     continue
                 if item_parsed.disco != p_parsed.disco:
