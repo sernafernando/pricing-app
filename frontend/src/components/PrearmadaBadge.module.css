@@ -22,7 +22,7 @@
 /* Yellow/amber — upgrade only */
 .upgrade {
   background-color: var(--warning);
-  color: #000;
+  color: var(--warning-text);
 }
 
 .label {
