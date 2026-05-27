@@ -480,8 +480,11 @@ def calcular_precio_web_transferencia(
     TOLERANCIA = 0.0001
 
     iva_decimal = iva / 100 if iva > 1 else iva
-    comision_web_decimal = comision_web / 100 if comision_web > 1 else comision_web
-    iibb_decimal = iibb / 100 if iibb > 1 else iibb
+    # comision_web e iibb vienen siempre como porcentaje (1.0 = 1%, 6.5 = 6.5%)
+    # desde pricing_constants. No usar "> 1" porque comision_tienda_nube == 1.0
+    # exacto y la condición sería False, interpretándolo como 100% (precio se rompe).
+    comision_web_decimal = comision_web / 100
+    iibb_decimal = iibb / 100
 
     precio = costo_ars * (1 + iva_decimal) * (1 + markup_objetivo) * 1.1
 
