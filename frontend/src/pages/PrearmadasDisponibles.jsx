@@ -58,17 +58,17 @@ export default function PrearmadasDisponibles() {
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState({});
 
-  const debouncedEanBase = useDebounce(searchInput, 300);
+  const debouncedSearch = useDebounce(searchInput, 300);
 
   const { items, total, loading, error, refetch } = usePrearmadasArmadas({
-    eanBase: debouncedEanBase,
+    search: debouncedSearch,
     page,
     pageSize: PAGE_SIZE,
   });
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedEanBase]);
+  }, [debouncedSearch]);
 
   // Client-side Windows filter (applied before grouping)
   const filteredItems = useMemo(() => {
@@ -143,10 +143,10 @@ export default function PrearmadasDisponibles() {
         <input
           type="text"
           className={styles.searchInput}
-          placeholder="Buscar por EAN base (ej: LENOVO)..."
+          placeholder="Buscar por SKU, marca o descripción..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          aria-label="Filtrar por EAN base"
+          aria-label="Filtrar por SKU, marca o descripción"
         />
         <select
           className={styles.filterSelect}

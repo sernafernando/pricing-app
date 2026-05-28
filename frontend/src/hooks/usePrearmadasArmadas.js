@@ -9,12 +9,12 @@ const PERM = 'produccion.ver_prearmadas_stats';
  * GET /prearmados/stats/armadas.
  *
  * @param {Object} params
- * @param {string}  params.eanBase   - Optional ean_base substring filter.
+ * @param {string}  params.search    - Optional case-insensitive substring matched on SKU or description.
  * @param {number}  params.page      - Current page (1-based).
  * @param {number}  params.pageSize  - Page size.
  * @returns {{ items, total, loading, error, refetch }}
  */
-export function usePrearmadasArmadas({ eanBase = '', page = 1, pageSize = 50 } = {}) {
+export function usePrearmadasArmadas({ search = '', page = 1, pageSize = 50 } = {}) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -40,8 +40,8 @@ export function usePrearmadasArmadas({ eanBase = '', page = 1, pageSize = 50 } =
     setError(null);
 
     const queryParams = { page, page_size: pageSize };
-    if (eanBase && eanBase.trim()) {
-      queryParams.ean_base = eanBase.trim();
+    if (search && search.trim()) {
+      queryParams.search = search.trim();
     }
 
     api
@@ -61,7 +61,7 @@ export function usePrearmadasArmadas({ eanBase = '', page = 1, pageSize = 50 } =
       .finally(() => {
         setLoading(false);
       });
-  }, [eanBase, page, pageSize, tienePermiso]);
+  }, [search, page, pageSize, tienePermiso]);
 
   useEffect(() => {
     fetchData();
