@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, Check, Plus, Trash2, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
+import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
@@ -48,10 +48,6 @@ const formatCurrency = (value, moneda = 'ARS') => {
   return `${prefix}${num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const TIPOS_ITEM = [
-  { value: 'pedido_compra', label: 'Pedido de compra' },
-  { value: 'factura_erp', label: 'Factura ERP' },
-];
 
 export default function ModalOrdenPagoNueva({
   empresas,
@@ -358,6 +354,8 @@ export default function ModalOrdenPagoNueva({
       setNcsAplicadas([]);
       setDacSeleccionado(null);
       setDacMonto('');
+      setItems([]);
+      setItemsSumWarning(false);
     }
 
     // PR5 / T5.3 — Single-item auto-sync on monto_total change (FR-5.1/FR-5.2).
@@ -487,27 +485,38 @@ export default function ModalOrdenPagoNueva({
     setConfirmMoneda(null);
   };
 
-  const addItem = () => {
-    setItems((prev) => [
-      ...prev,
-      { tipo: 'pedido_compra', id: '', monto: '', numero_factura: '' },
-    ]);
+  // ── Checkbox-list handlers (nueva UX de selección de pedidos) ──
+
+  // Toggle check/uncheck de un pedido en la lista.
+  const handlePedidoToggle = (pedido, checked) => {
+    if (checked) {
+      const monto = String(pedido.saldo_pendiente ?? pedido.monto ?? '');
+      setItems((prev) => [
+        ...prev,
+        {
+          tipo: 'pedido_compra',
+          id: String(pedido.id),
+          monto,
+          numero_factura: pedido.numero_factura || '',
+        },
+      ]);
+    } else {
+      setItems((prev) => prev.filter((it) => String(it.id) !== String(pedido.id)));
+    }
     setItemsSumWarning(false);
   };
 
-  const removeItem = (idx) => {
-    setItems((prev) => prev.filter((_, i) => i !== idx));
-    setItemsSumWarning(false);
-  };
-
-  const updateItem = (idx, campo, valor) => {
+  // Editar el monto de un pedido ya chequeado.
+  const handlePedidoMonto = (pedidoId, valor) => {
     setItems((prev) => {
-      const next = prev.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it));
-      // Auto-dismiss warning when items are manually balanced.
+      const next = prev.map((it) =>
+        String(it.id) === String(pedidoId) ? { ...it, monto: valor } : it
+      );
+      // Auto-dismiss warning when sum matches total.
       if (next.length > 1) {
         const sumaActual = next.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0);
-        const montoTotalNum = parseFloat(form.monto_total) || 0;
-        if (Math.abs(sumaActual - montoTotalNum) <= 0.005) {
+        const totalNum = parseFloat(form.monto_total) || 0;
+        if (Math.abs(sumaActual - totalNum) <= 0.005) {
           setItemsSumWarning(false);
         }
       }
@@ -999,180 +1008,92 @@ export default function ModalOrdenPagoNueva({
           </h4>
           <div className={styles.itemsSection}>
               <div className={styles.itemsHeader}>
-                <h4 className={styles.itemsTitle}>Items imputados</h4>
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  onClick={addItem}
-                >
-                  <Plus size={14} /> Agregar
-                </button>
+                <h4 className={styles.itemsTitle}>Pedidos a pagar</h4>
               </div>
-              {items.length === 0 ? (
+              {pedidosDisponibles.length === 0 ? (
                 <div className={styles.emptyItems}>
-                  Agregá items para imputar el pago a pedidos/facturas específicas.
+                  Este proveedor no tiene pedidos pendientes.
                 </div>
               ) : (
-                <div className={styles.itemsTableWrapper}>
-                  <table className={styles.itemsTable}>
-                    <thead>
-                      <tr>
-                        <th>Tipo</th>
-                        <th>ID</th>
-                        <th className={styles.thRight}>Monto</th>
-                        <th>N° Factura</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((it, idx) => {
-                        // Auto-sugerir monto al elegir pedido del dropdown.
-                        const handleSelectPedido = (valorId) => {
-                          if (!valorId) {
-                            updateItem(idx, 'id', '');
-                            return;
-                          }
-                          const pedido = pendientesDelProveedor.find(
-                            (p) => String(p.id) === String(valorId)
-                          );
-                          setItems((prev) =>
-                            prev.map((row, i) =>
-                              i === idx
-                                ? {
-                                    ...row,
-                                    id: valorId,
-                                    monto: pedido
-                                      ? String(pedido.saldo_pendiente ?? pedido.monto)
-                                      : row.monto,
-                                    numero_factura:
-                                      pedido?.numero_factura || row.numero_factura,
-                                  }
-                                : row
-                            )
-                          );
-                        };
-                        return (
-                          <tr key={idx}>
-                            <td>
-                              <select
-                                className={styles.selectSmall}
-                                value={it.tipo}
-                                onChange={(e) => updateItem(idx, 'tipo', e.target.value)}
-                              >
-                                {TIPOS_ITEM.map((t) => (
-                                  <option key={t.value} value={t.value}>
-                                    {t.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td>
-                              {it.tipo === 'pedido_compra' ? (
-                                <select
-                                  className={styles.selectSmall}
-                                  value={it.id}
-                                  onChange={(e) => handleSelectPedido(e.target.value)}
-                                >
-                                  <option value="">Seleccionar pedido...</option>
-                                  {pedidosDisponibles
-                                    .filter(
-                                      (p) =>
-                                        String(p.id) === String(it.id) ||
-                                        !idsPedidosYaAgregados.has(String(p.id))
-                                    )
-                                    .map((p) => (
-                                      <option key={p.id} value={p.id}>
-                                        {p.numero} — {formatCurrency(
-                                          p.saldo_pendiente ?? p.monto,
-                                          p.moneda
-                                        )}
-                                      </option>
-                                    ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="number"
-                                  className={styles.inputSmall}
-                                  value={it.id}
-                                  onChange={(e) => updateItem(idx, 'id', e.target.value)}
-                                  placeholder="ct_transaction_id"
-                                />
-                              )}
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                className={styles.inputSmallRight}
-                                value={it.monto}
-                                onChange={(e) => updateItem(idx, 'monto', e.target.value)}
-                                placeholder="0.00"
-                              />
-                              {(() => {
-                                // Preview de conversión cross-moneda por item.
-                                // Solo si: el item es pedido_compra, su moneda
-                                // difiere de la OP, hay TC válido y monto > 0.
-                                if (it.tipo !== 'pedido_compra' || !it.id) return null;
-                                const pedidoItem = pedidoDe(it.id);
-                                if (!pedidoItem || pedidoItem.moneda === form.moneda) {
-                                  return null;
-                                }
-                                if (!tcValido) return null;
-                                const montoItem = parseFloat(it.monto);
-                                if (!Number.isFinite(montoItem) || montoItem <= 0) {
-                                  return null;
-                                }
-                                // OP ARS pagando pedido USD → monto_item / TC = USD destino.
-                                // OP USD pagando pedido ARS → monto_item * TC = ARS destino.
-                                const convertido =
-                                  form.moneda === 'ARS' && pedidoItem.moneda === 'USD'
-                                    ? montoItem / tcNumLive
-                                    : form.moneda === 'USD' && pedidoItem.moneda === 'ARS'
-                                      ? montoItem * tcNumLive
-                                      : null;
-                                if (convertido === null) return null;
-                                const op = formatCurrency(montoItem, form.moneda);
-                                const dest = formatCurrency(convertido, pedidoItem.moneda);
-                                // Símbolo de operación según dirección.
-                                const opSign =
-                                  form.moneda === 'ARS' && pedidoItem.moneda === 'USD'
-                                    ? '÷'
-                                    : '×';
-                                return (
-                                  <div className={styles.previewConversion}>
-                                    {op} {opSign} TC {tcNumLive} = {dest}
-                                  </div>
-                                );
-                              })()}
-                            </td>
-                            <td>
-                              <input
-                                type="text"
-                                className={styles.inputSmall}
-                                value={it.numero_factura}
-                                onChange={(e) =>
-                                  updateItem(idx, 'numero_factura', e.target.value)
-                                }
-                                placeholder="FA-..."
-                                maxLength={50}
-                              />
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                className={styles.iconBtnDanger}
-                                onClick={() => removeItem(idx)}
-                                aria-label="Quitar item"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className={styles.pedidosCheckboxList}>
+                  {pedidosDisponibles.map((pedido) => {
+                    const pedidoId = String(pedido.id);
+                    const isChecked = idsPedidosYaAgregados.has(pedidoId);
+                    const itemActual = items.find((it) => String(it.id) === pedidoId);
+                    const montoActual = itemActual ? itemActual.monto : '';
+
+                    // Cross-moneda preview (same logic as the old table row).
+                    const pedidoItemData = pedidoDe(pedidoId);
+                    const showCrossPreview =
+                      isChecked &&
+                      pedidoItemData &&
+                      pedidoItemData.moneda !== form.moneda &&
+                      tcValido;
+                    let crossPreview = null;
+                    if (showCrossPreview) {
+                      const montoNum = parseFloat(montoActual);
+                      if (Number.isFinite(montoNum) && montoNum > 0) {
+                        const convertido =
+                          form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
+                            ? montoNum / tcNumLive
+                            : form.moneda === 'USD' && pedidoItemData.moneda === 'ARS'
+                              ? montoNum * tcNumLive
+                              : null;
+                        if (convertido !== null) {
+                          const opStr = formatCurrency(montoNum, form.moneda);
+                          const destStr = formatCurrency(convertido, pedidoItemData.moneda);
+                          const opSign =
+                            form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
+                              ? '÷'
+                              : '×';
+                          crossPreview = `${opStr} ${opSign} TC ${tcNumLive} = ${destStr}`;
+                        }
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={pedidoId}
+                        className={`${styles.pedidoCheckboxRow} ${isChecked ? styles.pedidoCheckboxRowChecked : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          id={`pedido-check-${pedidoId}`}
+                          className={styles.pedidoCheckbox}
+                          checked={isChecked}
+                          onChange={(e) => handlePedidoToggle(pedido, e.target.checked)}
+                          disabled={saving}
+                        />
+                        <label
+                          htmlFor={`pedido-check-${pedidoId}`}
+                          className={styles.pedidoCheckboxLabel}
+                        >
+                          <span className={styles.pedidoNumero}>{pedido.numero}</span>
+                          <span className={styles.pedidoSaldo}>
+                            {formatCurrency(pedido.saldo_pendiente ?? pedido.monto, pedido.moneda)}
+                          </span>
+                        </label>
+                        {isChecked && (
+                          <div className={styles.pedidoMontoWrapper}>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              className={styles.pedidoMontoInput}
+                              value={montoActual}
+                              onChange={(e) => handlePedidoMonto(pedidoId, e.target.value)}
+                              placeholder="0.00"
+                              disabled={saving}
+                              aria-label={`Monto a imputar para pedido ${pedido.numero}`}
+                            />
+                            {crossPreview && (
+                              <div className={styles.previewConversion}>{crossPreview}</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
