@@ -66,6 +66,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Precios por Lista', path: '/precios-listas', permiso: 'productos.ver' },
         { label: 'Banlist MLAs', path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
         { label: 'Items sin MLA', path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
+        { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },
       ],
     },
     {

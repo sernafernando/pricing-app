@@ -1,0 +1,318 @@
+.page {
+  padding: var(--spacing-lg, 24px);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--spacing-md, 16px);
+}
+
+.header h1 {
+  font-size: 1.35rem;
+  font-weight: var(--font-semibold, 600);
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+/* ── Filter bar ─────────────────────────────── */
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--spacing-md, 16px);
+  padding: 12px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--cf-card-radius, 8px);
+}
+
+.searchInput {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 7px 12px;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 6px;
+  color: var(--cf-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.searchInput:focus {
+  border-color: var(--cf-accent-blue);
+}
+
+.searchInput::placeholder {
+  color: var(--cf-text-muted);
+}
+
+.filterSelect {
+  padding: 7px 10px;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 6px;
+  color: var(--cf-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.filterSelect:focus {
+  border-color: var(--cf-accent-blue);
+}
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupToggle input[type='checkbox'] {
+  cursor: pointer;
+  accent-color: var(--cf-accent-blue);
+  width: 15px;
+  height: 15px;
+}
+
+/* ── Pagination ─────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: var(--spacing-md, 16px);
+  font-size: 0.82rem;
+  color: var(--cf-text-secondary);
+}
+
+.pageBtn {
+  padding: 5px 12px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 5px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pageBtn:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.pageBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Table extras ───────────────────────────── */
+.tableWrapper {
+  overflow-x: auto;
+  border-radius: var(--cf-card-radius, 8px);
+  border: 1px solid var(--cf-border-default);
+}
+
+.tableWrapper table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.tableWrapper thead th {
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  font-weight: var(--font-semibold, 600);
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cf-border-default);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tableWrapper tbody tr {
+  border-bottom: 1px solid var(--cf-border-subtle);
+  transition: background 0.1s;
+}
+
+.tableWrapper tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.tableWrapper tbody td {
+  padding: 9px 14px;
+  color: var(--cf-text-primary);
+  vertical-align: top;
+}
+
+/* ── Windows badge ──────────────────────────── */
+.winBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: var(--font-medium, 500);
+}
+
+.winHome {
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+}
+
+.winPro {
+  background: var(--cf-accent-purple-light);
+  color: var(--cf-accent-purple);
+}
+
+.winNone {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-muted);
+}
+
+/* ── Cover chips ────────────────────────────── */
+.covers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.coverChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.coverExact {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.coverUpgrade {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+/* ── Group header row ───────────────────────── */
+.groupRow td {
+  background: var(--cf-bg-card);
+  font-weight: var(--font-semibold, 600);
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.groupRow:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.groupRowLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── States ─────────────────────────────────── */
+.stateBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 60px 20px;
+  color: var(--cf-text-muted);
+  font-size: 0.9rem;
+}
+
+.stateBox svg {
+  opacity: 0.4;
+}
+
+.retryBtn {
+  margin-top: 4px;
+  padding: 6px 16px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cf-accent-blue);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.retryBtn:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* ── Skeleton ───────────────────────────────── */
+.skeletonRow td {
+  padding: 10px 14px;
+}
+
+.skeletonCell {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--cf-bg-hover);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ── ItemRow cell helpers ───────────────────── */
+.itemCode {
+  font-weight: var(--font-medium, 500);
+}
+
+.itemDesc {
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+  margin-top: 2px;
+}
+
+.nullValue {
+  color: var(--cf-text-muted);
+}
+
+.noCoverage {
+  color: var(--cf-text-muted);
+  font-size: 0.78rem;
+}
+
+.dateCell {
+  color: var(--cf-text-secondary);
+  font-size: 0.8rem;
+}
+
+/* ── No-permission banner ───────────────────── */
+.noPerm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 80px 20px;
+  color: var(--cf-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}

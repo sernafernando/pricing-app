@@ -25,6 +25,7 @@ import Notificaciones from './pages/Notificaciones';
 import PedidosPreparacion from './pages/PedidosPreparacion';
 import Produccion from './pages/Produccion';
 import Prearmado from './pages/Prearmado';
+import PrearmadasDisponibles from './pages/PrearmadasDisponibles';
 import Clientes from './pages/Clientes';
 import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
@@ -205,6 +206,11 @@ function App() {
                 <Route path="/prearmado" element={
                   <ProtectedRoute permiso="produccion.prearmar_combos">
                     <Prearmado />
+                  </ProtectedRoute>
+                } />
+                <Route path="/prearmadas-disponibles" element={
+                  <ProtectedRoute permiso="produccion.ver_prearmadas_stats">
+                    <PrearmadasDisponibles />
                   </ProtectedRoute>
                 } />
                 <Route path="/clientes" element={

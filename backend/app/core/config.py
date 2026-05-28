@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     AFIP_CERT: Optional[str] = None
     AFIP_KEY: Optional[str] = None
 
+    # Prearmados stats cache
+    PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
+    PREARMADAS_STATS_VOLUME_WARN: int = 5000
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 

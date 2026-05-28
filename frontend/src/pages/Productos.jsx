@@ -14,6 +14,8 @@ import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
+import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
+import PrearmadaBadge from '../components/PrearmadaBadge';
 import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
@@ -167,6 +169,9 @@ export default function Productos() {
 
   // Legacy: puedeEditar es true si tiene al menos un permiso de edición
   const puedeEditar = puedeEditarPrecioClasica || puedeEditarCuotas || puedeToggleRebate || puedeToggleWebTransf;
+
+  const prearmadasItemIds = productos.slice(0, 100).map((p) => p.item_id);
+  const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Columnas navegables según la vista activa
   const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
@@ -3634,6 +3639,7 @@ export default function Productos() {
                     <td>{p.codigo}</td>
                     <td>
                       {p.descripcion}
+                      <PrearmadaBadge stats={prearmadasStats[p.item_id]} />
                       {p.has_catalog && p.catalog_status && (
                         <span
                           style={{
