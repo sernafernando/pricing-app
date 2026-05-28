@@ -36,6 +36,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Optional
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -683,7 +684,167 @@ def match_ncs_backward(
             continue
 
     session.flush()
+
+    # ── Propagación de cancelaciones ERP → NC local ──────────────────────
+    # Para cada ct que fue ACTUALIZADO (puede estar en cts_synced), verificar
+    # si pasó a ct_iscancelled=TRUE y si hay una NC local vinculada a ella.
+    # Si la NC local está en un estado activo (aprobado, aplicada_parcial,
+    # borrador, pendiente_aprobacion), se cancela automáticamente.
+    #
+    # Importante: esta operación corre DESPUÉS del matching principal para
+    # evitar interferir con el flujo de vinculación.
+    if cts_synced:
+        _cancelar_ncs_locales_por_erp_cancelado(session, cts_synced=cts_synced, resumen=resumen)
+
     return resumen
+
+
+def _cancelar_ncs_locales_por_erp_cancelado(
+    session: Session,
+    *,
+    cts_synced: list[int],
+    resumen: dict[str, int],
+) -> None:
+    """
+    Para cada ct_transaction en cts_synced que sea una NC ERP cancelada,
+    cancela la NC local vinculada (si existe y está en estado activo).
+
+    Estado terminales que NO se tocan: 'cancelado', 'aplicada', 'rechazado'.
+    Estados que sí se cancelan: 'borrador', 'pendiente_aprobacion', 'aprobado',
+    'aplicada_parcial'.
+
+    Para 'aprobado' y 'aplicada_parcial' se usa la acción 'cancelar_aprobado'
+    (que revierte imputaciones activas). Para los demás, 'cancelar'.
+
+    NO commitea. Errores individuales se cuentan en resumen['errores'].
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+    from app.models.proveedor import Proveedor  # noqa: PLC0415
+    from app.services import ncs_locales_service  # noqa: PLC0415
+    from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
+
+    # Mapa estado_origen → acción de cancelación válida según TRANSICIONES_VALIDAS.
+    # Estados terminales (cancelado, aplicada, rechazado) se omiten antes de llegar aquí.
+    _ACCION_CANCELAR: dict[str, str] = {
+        "borrador": "cancelar",
+        "pendiente_aprobacion": "rechazar_cancelar",
+        "aprobado": "cancelar_aprobado",
+        "aplicada_parcial": "cancelar_aprobado",
+        "rechazado": "cancelar_definitivo",
+    }
+
+    # Buscar NCs ERP canceladas que estén en el batch de sync.
+    # Construir IN clause con placeholders posicionales (compatible con
+    # PostgreSQL y SQLite — evita el operador ANY que no existe en SQLite).
+    placeholders = ", ".join(f":ct{i}" for i in range(len(cts_synced)))
+    params = {f"ct{i}": ct for i, ct in enumerate(cts_synced)}
+    stmt_canceladas = text(
+        f"""
+        SELECT ct.ct_transaction, ct.supp_id, ct.ct_docnumber
+        FROM tb_commercial_transactions ct
+        JOIN tb_sale_document sd ON sd.sd_id = ct.sd_id
+        WHERE ct.ct_transaction IN ({placeholders})
+          AND sd.sd_iscreditnote = TRUE
+          AND sd.sd_ispurchase = TRUE
+          AND COALESCE(ct.ct_iscancelled, FALSE) = TRUE
+        """
+    )
+    try:
+        filas_canceladas = session.execute(stmt_canceladas, params).all()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "match_ncs_backward._cancelar: error buscando NCs ERP canceladas: %s",
+            exc,
+        )
+        return
+
+    if not filas_canceladas:
+        return
+
+    for fila in filas_canceladas:
+        ct_id, supp_id_erp, ct_docnumber = fila[0], fila[1], fila[2]
+        try:
+            # Buscar NC local vinculada por ct_transaction_id (path normal).
+            nc_local: Optional[NotaCreditoLocal] = (
+                session.query(NotaCreditoLocal).filter(NotaCreditoLocal.ct_transaction_id == int(ct_id)).first()
+            )
+
+            # C2: Si no hay match por ct_transaction_id (NC nunca fue vinculada
+            # porque la CT ya era cancelada desde el primer sync), intentar por
+            # (proveedor.supp_id, numero_nc_proveedor) — la misma llave que usa
+            # el matcher forward — siempre que tengamos los datos necesarios.
+            if nc_local is None and supp_id_erp is not None and ct_docnumber:
+                nc_local = (
+                    session.query(NotaCreditoLocal)
+                    .join(Proveedor, Proveedor.id == NotaCreditoLocal.proveedor_id)
+                    .filter(
+                        NotaCreditoLocal.numero_nc_proveedor == ct_docnumber,
+                        NotaCreditoLocal.ct_transaction_id.is_(None),
+                        Proveedor.supp_id == int(supp_id_erp),
+                    )
+                    .first()
+                )
+                if nc_local is not None:
+                    # Vincular antes de cancelar para dejar trazabilidad.
+                    nc_local.ct_transaction_id = int(ct_id)
+
+            if nc_local is None:
+                continue
+
+            # Estados terminales que ya no requieren acción.
+            if nc_local.estado in {"cancelado", "aplicada"}:
+                continue
+
+            # C1: Seleccionar acción según la matriz TRANSICIONES_VALIDAS.
+            accion: Optional[str] = _ACCION_CANCELAR.get(nc_local.estado)
+            if accion is None:
+                logger.warning(
+                    "match_ncs_backward._cancelar: nc_local_id=%s estado=%s no tiene "
+                    "ruta de cancelación definida — se omite (ct=%s).",
+                    nc_local.id,
+                    nc_local.estado,
+                    ct_id,
+                )
+                continue
+
+            ncs_locales_service.transicionar(
+                session,
+                nc_id=nc_local.id,
+                accion=accion,
+                user_id=nc_local.creado_por_id,
+                motivo=f"Cancelación automática: NC ERP ct={ct_id} fue cancelada en el ERP.",
+            )
+            resumen["ncs_canceladas_por_erp"] = resumen.get("ncs_canceladas_por_erp", 0) + 1
+
+            logger.info(
+                "match_ncs_backward: nc_local_id=%s cancelada (accion=%s) porque ct=%s fue cancelada en ERP",
+                nc_local.id,
+                accion,
+                ct_id,
+            )
+
+        except HTTPException as exc:
+            # W1: La máquina de estados levanta HTTPException para transiciones inválidas.
+            # Es un error de datos (estado inesperado), no un error de infraestructura.
+            resumen["errores"] += 1
+            logger.error(
+                "match_ncs_backward._cancelar: transición inválida para ct=%s nc_local estado=%s — %s",
+                ct_id,
+                nc_local.estado if nc_local else "desconocido",
+                exc.detail,
+            )
+        except SQLAlchemyError as exc:
+            resumen["errores"] += 1
+            logger.exception(
+                "match_ncs_backward._cancelar: error de base de datos procesando ct=%s: %s",
+                ct_id,
+                exc,
+            )
+        except Exception:
+            # Re-raise para que errores inesperados NO queden silenciados.
+            raise
+
+    session.flush()
 
 
 __all__ = [
