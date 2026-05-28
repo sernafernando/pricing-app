@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
@@ -170,7 +170,10 @@ export default function Productos() {
   // Legacy: puedeEditar es true si tiene al menos un permiso de edición
   const puedeEditar = puedeEditarPrecioClasica || puedeEditarCuotas || puedeToggleRebate || puedeToggleWebTransf;
 
-  const prearmadasItemIds = productos.slice(0, 100).map((p) => p.item_id);
+  const prearmadasItemIds = useMemo(
+    () => productos.slice(0, 100).map((p) => p.item_id),
+    [productos],
+  );
   const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Columnas navegables según la vista activa

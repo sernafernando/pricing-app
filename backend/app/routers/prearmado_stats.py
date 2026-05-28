@@ -59,7 +59,7 @@ async def stats_batch(
 
     stats_raw, cache_status = await compute_batch_stats(
         item_ids=item_ids,
-        comp_id=current_user.comp_id,
+        comp_id=getattr(current_user, "comp_id", 1) or 1,
         db=db,
         redis=redis,
         force_refresh=force_refresh,
@@ -98,10 +98,10 @@ async def stats_armadas(
       page      : 1-based page number
       page_size : items per page (max 200)
 
-    Multi-tenant: queries are scoped to current_user.comp_id.
+    Multi-tenant: queries are scoped to current_user.comp_id (defaults to 1 — Usuario does not expose comp_id today).
     """
     items_raw, total = get_armadas_list(
-        comp_id=current_user.comp_id,
+        comp_id=getattr(current_user, "comp_id", 1) or 1,
         db=db,
         ean_base_filter=ean_base,
         page=page,

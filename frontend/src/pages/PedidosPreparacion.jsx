@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from '../components/SearchInput';
@@ -159,7 +159,10 @@ export default function PedidosPreparacion() {
   const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
 
   // Prearmadas stats for visible items in the current pedido
-  const prearmadasItemIds = resumen.map((r) => r.item_id).filter(Boolean).slice(0, 100);
+  const prearmadasItemIds = useMemo(
+    () => resumen.map((r) => r.item_id).filter(Boolean).slice(0, 100),
+    [resumen],
+  );
   const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Seleccionar primera tab disponible según permisos
