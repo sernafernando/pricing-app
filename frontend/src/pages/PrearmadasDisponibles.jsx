@@ -6,7 +6,10 @@ import { useDebounce } from '../hooks/useDebounce';
 import styles from './PrearmadasDisponibles.module.css';
 
 const PERM = 'produccion.ver_prearmadas_stats';
-const PAGE_SIZE = 50;
+// Max permitido por el endpoint. Como agrupamos por SKU client-side,
+// pedimos el max para evitar que un solo SKU con muchas unidades
+// llene una página entera y deje 0 cards visibles.
+const PAGE_SIZE = 200;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,16 +29,23 @@ function CoverChip({ cover }) {
   );
 }
 
-function SkeletonRows({ count = 8, cols = 7 }) {
+function SkeletonCards({ count = 6 }) {
   return Array.from({ length: count }).map((_, i) => (
-    <tr key={i} className={styles.skeletonRow}>
-      {Array.from({ length: cols }).map((__, j) => (
-        <td key={j}>
-          <div className={styles.skeletonCell} style={{ width: j === 1 ? '80%' : '60%' }} />
-        </td>
-      ))}
-    </tr>
+    <div key={i} className={styles.skeletonCard}>
+      <div className={styles.skeletonLine} style={{ width: '70%' }} />
+      <div className={styles.skeletonLine} style={{ width: '40%' }} />
+      <div className={styles.skeletonLine} style={{ width: '90%' }} />
+    </div>
   ));
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -45,11 +55,9 @@ export default function PrearmadasDisponibles() {
 
   const [searchInput, setSearchInput] = useState('');
   const [winFilter, setWinFilter] = useState('all');
-  const [groupByBase, setGroupByBase] = useState(false);
   const [page, setPage] = useState(1);
-  const [collapsedGroups, setCollapsedGroups] = useState({});
+  const [expanded, setExpanded] = useState({});
 
-  // Debounce the ean_base query param (server-side filter)
   const debouncedEanBase = useDebounce(searchInput, 300);
 
   const { items, total, loading, error, refetch } = usePrearmadasArmadas({
@@ -58,34 +66,48 @@ export default function PrearmadasDisponibles() {
     pageSize: PAGE_SIZE,
   });
 
-  // Reset page when search changes
   useEffect(() => {
     setPage(1);
   }, [debouncedEanBase]);
 
-  // Client-side Windows filter
+  // Client-side Windows filter (applied before grouping)
   const filteredItems = useMemo(() => {
     if (winFilter === 'all') return items;
     if (winFilter === 'none') return items.filter((it) => !it.incluye_windows);
     return items.filter((it) => it.incluye_windows === winFilter);
   }, [items, winFilter]);
 
-  // Client-side grouping by ean_base
-  const groupedData = useMemo(() => {
-    if (!groupByBase) return null;
+  // Group by combo_item_code (SKU). Each group = 1 card.
+  const groupedBySKU = useMemo(() => {
     const map = new Map();
     for (const item of filteredItems) {
-      const base = item.parsed?.ean_base || '(sin base)';
-      if (!map.has(base)) map.set(base, []);
-      map.get(base).push(item);
+      const key = item.combo_item_code;
+      if (!map.has(key)) {
+        map.set(key, {
+          sku: item.combo_item_code,
+          descripcion: item.combo_item_desc,
+          parsed: item.parsed || {},
+          incluye_windows: item.incluye_windows,
+          covers: item.covers || [],
+          units: [],
+        });
+      }
+      map.get(key).units.push({
+        prearmado_id: item.prearmado_id,
+        codigo: item.codigo,
+        created_at: item.created_at,
+      });
     }
-    return map;
-  }, [filteredItems, groupByBase]);
+    // Sort by count desc, then by SKU
+    return Array.from(map.values()).sort(
+      (a, b) => b.units.length - a.units.length || a.sku.localeCompare(b.sku),
+    );
+  }, [filteredItems]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const toggleGroup = (base) => {
-    setCollapsedGroups((prev) => ({ ...prev, [base]: !prev[base] }));
+  const toggleCard = (sku) => {
+    setExpanded((prev) => ({ ...prev, [sku]: !prev[sku] }));
   };
 
   // ── No permission ──
@@ -94,64 +116,11 @@ export default function PrearmadasDisponibles() {
       <div className={styles.noPerm}>
         <PackageOpen size={48} />
         <p>No tenés permiso para ver esta sección.</p>
-        <small>Solicitá el permiso <code>{PERM}</code> a un administrador.</small>
+        <small>
+          Solicitá el permiso <code>{PERM}</code> a un administrador.
+        </small>
       </div>
     );
-  }
-
-  // ── Table rows (flat) ──
-  function renderFlatRows() {
-    if (loading) return <SkeletonRows />;
-    if (filteredItems.length === 0) {
-      return (
-        <tr>
-          <td colSpan={7}>
-            <div className={styles.stateBox}>
-              <PackageOpen size={36} />
-              <span>No hay prearmadas armadas con los filtros actuales.</span>
-            </div>
-          </td>
-        </tr>
-      );
-    }
-    return filteredItems.map((it) => <ItemRow key={it.prearmado_id} item={it} />);
-  }
-
-  // ── Table rows (grouped) ──
-  function renderGroupedRows() {
-    if (loading) return <SkeletonRows />;
-    if (!groupedData || groupedData.size === 0) {
-      return (
-        <tr>
-          <td colSpan={7}>
-            <div className={styles.stateBox}>
-              <PackageOpen size={36} />
-              <span>No hay prearmadas armadas con los filtros actuales.</span>
-            </div>
-          </td>
-        </tr>
-      );
-    }
-    const rows = [];
-    for (const [base, groupItems] of groupedData) {
-      const isCollapsed = collapsedGroups[base];
-      rows.push(
-        <tr key={`grp-${base}`} className={styles.groupRow} onClick={() => toggleGroup(base)}>
-          <td colSpan={7}>
-            <span className={styles.groupRowLabel}>
-              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-              <Package size={14} />
-              <strong>{base}</strong>
-              <span style={{ fontWeight: 400, marginLeft: 4 }}>({groupItems.length})</span>
-            </span>
-          </td>
-        </tr>,
-      );
-      if (!isCollapsed) {
-        groupItems.forEach((it) => rows.push(<ItemRow key={it.prearmado_id} item={it} />));
-      }
-    }
-    return rows;
   }
 
   return (
@@ -160,11 +129,17 @@ export default function PrearmadasDisponibles() {
       <div className={styles.header}>
         <Package size={22} />
         <h1>Prearmadas disponibles</h1>
+        {!loading && !error && (
+          <span className={styles.totalsHint}>
+            {total} unidad{total === 1 ? '' : 'es'} en {groupedBySKU.length} modelo
+            {groupedBySKU.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
 
       {/* Filter bar */}
       <div className={styles.filterBar}>
-        <Filter size={15} style={{ color: 'var(--cf-text-muted)' }} />
+        <Filter size={15} className={styles.filterIcon} />
         <input
           type="text"
           className={styles.searchInput}
@@ -184,14 +159,6 @@ export default function PrearmadasDisponibles() {
           <option value="pro">Windows Pro</option>
           <option value="none">Sin Windows</option>
         </select>
-        <label className={styles.groupToggle}>
-          <input
-            type="checkbox"
-            checked={groupByBase}
-            onChange={(e) => setGroupByBase(e.target.checked)}
-          />
-          Agrupar por EAN base
-        </label>
       </div>
 
       {/* Error state */}
@@ -205,30 +172,30 @@ export default function PrearmadasDisponibles() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Cards grid */}
       {!error && (
-        <div className={styles.tableWrapper}>
-          <table className="table-tesla">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Combo</th>
-                <th>Win11</th>
-                <th>Memoria</th>
-                <th>Disco</th>
-                <th>Cubre SKUs</th>
-                <th>Creado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupByBase ? renderGroupedRows() : renderFlatRows()}
-            </tbody>
-          </table>
+        <div className={styles.cardsGrid}>
+          {loading && <SkeletonCards />}
+          {!loading && groupedBySKU.length === 0 && (
+            <div className={styles.stateBox}>
+              <PackageOpen size={36} />
+              <span>No hay prearmadas armadas con los filtros actuales.</span>
+            </div>
+          )}
+          {!loading &&
+            groupedBySKU.map((group) => (
+              <SKUCard
+                key={group.sku}
+                group={group}
+                isExpanded={!!expanded[group.sku]}
+                onToggle={() => toggleCard(group.sku)}
+              />
+            ))}
         </div>
       )}
 
       {/* Pagination */}
-      {!error && !loading && total > 0 && (
+      {!error && !loading && total > PAGE_SIZE && (
         <div className={styles.pagination}>
           <button
             className={styles.pageBtn}
@@ -238,7 +205,7 @@ export default function PrearmadasDisponibles() {
             ← Anterior
           </button>
           <span>
-            Página {page} de {totalPages} &nbsp;·&nbsp; {total} resultados
+            Página {page} de {totalPages} &nbsp;·&nbsp; {total} unidades en total
           </span>
           <button
             className={styles.pageBtn}
@@ -253,44 +220,68 @@ export default function PrearmadasDisponibles() {
   );
 }
 
-// ── Row sub-component ─────────────────────────────────────────────────────────
+// ── Card sub-component ────────────────────────────────────────────────────────
 
-function ItemRow({ item }) {
-  const parsed = item.parsed || {};
-  const createdAt = item.created_at
-    ? new Date(item.created_at).toLocaleDateString('es-AR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      })
-    : '-';
+function SKUCard({ group, isExpanded, onToggle }) {
+  const { sku, descripcion, parsed, incluye_windows, covers, units } = group;
+  const count = units.length;
+  const hasUpgradeCovers = covers.some((c) => c.classification === 'upgrade');
 
   return (
-    <tr>
-      <td>{item.codigo}</td>
-      <td>
-        <div className={styles.itemCode}>{item.combo_item_code}</div>
-        {item.combo_item_desc && (
-          <div className={styles.itemDesc}>{item.combo_item_desc}</div>
-        )}
-      </td>
-      <td>
-        <WindowsBadge value={item.incluye_windows} />
-      </td>
-      <td>{parsed.memoria ?? <span className={styles.nullValue}>—</span>}</td>
-      <td>{parsed.disco ?? <span className={styles.nullValue}>—</span>}</td>
-      <td>
-        {item.covers && item.covers.length > 0 ? (
+    <div className={styles.card}>
+      <header className={styles.cardHeader}>
+        <div className={styles.cardTitleBlock}>
+          <div className={styles.cardSku}>{sku}</div>
+          {descripcion && <div className={styles.cardDesc}>{descripcion}</div>}
+        </div>
+        <div className={styles.cardCount} aria-label={`${count} unidades listas`}>
+          <span className={styles.cardCountNum}>{count}</span>
+          <span className={styles.cardCountLabel}>
+            {count === 1 ? 'unidad' : 'unidades'}
+          </span>
+        </div>
+      </header>
+
+      <div className={styles.cardMeta}>
+        <WindowsBadge value={incluye_windows} />
+        {parsed.memoria && <span className={styles.metaPill}>{parsed.memoria} GB RAM</span>}
+        {parsed.disco && <span className={styles.metaPill}>{parsed.disco}</span>}
+      </div>
+
+      {covers.length > 0 && (
+        <div className={styles.cardCovers}>
+          <span className={styles.cardCoversLabel}>
+            Cubre {covers.length === 1 ? 'el SKU' : `${covers.length} SKUs`}
+            {hasUpgradeCovers && ' (algunos con upgrade)'}:
+          </span>
           <div className={styles.covers}>
-            {item.covers.map((c) => (
+            {covers.map((c) => (
               <CoverChip key={c.item_id} cover={c} />
             ))}
           </div>
-        ) : (
-          <span className={styles.noCoverage}>Sin cobertura</span>
-        )}
-      </td>
-      <td className={styles.dateCell}>{createdAt}</td>
-    </tr>
+        </div>
+      )}
+
+      <button
+        type="button"
+        className={styles.cardExpandBtn}
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {isExpanded ? 'Ocultar unidades individuales' : `Ver las ${count} unidades`}
+      </button>
+
+      {isExpanded && (
+        <ul className={styles.unitsList}>
+          {units.map((u) => (
+            <li key={u.prearmado_id} className={styles.unitRow}>
+              <span className={styles.unitCodigo}>{u.codigo}</span>
+              <span className={styles.unitFecha}>{formatDate(u.created_at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
