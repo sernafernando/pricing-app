@@ -223,6 +223,10 @@ def crear_envio_desde_pedido(
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
+    # Liberar la conexión del pool antes de encolar el BG task.
+    # FastAPI no llama al finally de get_db hasta que todos los BG tasks terminan.
+    db.close()
+
     # Geocodificar en background (no bloquea la respuesta)
     background_tasks.add_task(
         _geocode_envio_manual,
@@ -383,6 +387,10 @@ def crear_envio_manual(
             db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
         )
         cordon_val = cordon_row.cordon if cordon_row else None
+
+    # Liberar la conexión del pool antes de encolar el BG task.
+    # FastAPI no llama al finally de get_db hasta que todos los BG tasks terminan.
+    db.close()
 
     # Geocodificar en background (no bloquea la respuesta)
     background_tasks.add_task(
@@ -554,6 +562,22 @@ def editar_envio_manual(
         db.rollback()
         raise HTTPException(500, f"Error guardando cambios: {str(e)}")
 
+    # Resolver cordón: si hay transporte con CP, usar ese CP; sino, CP del cliente.
+    cp_for_cordon = payload.zip_code
+    if payload.transporte_id is not None and transporte_obj and transporte_obj.cp:
+        cp_for_cordon = transporte_obj.cp
+
+    cordon_val = None
+    if cp_for_cordon:
+        cordon_row = (
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
+        )
+        cordon_val = cordon_row.cordon if cordon_row else None
+
+    # Liberar la conexión del pool antes de encolar el BG task.
+    # FastAPI no llama al finally de get_db hasta que todos los BG tasks terminan.
+    db.close()
+
     # Si la dirección cambió, re-geocodificar en background
     if direccion_cambio:
         background_tasks.add_task(
@@ -569,18 +593,6 @@ def editar_envio_manual(
             "Dirección cambió para %s → re-geocodificando en background",
             shipping_id,
         )
-
-    # Resolver cordón: si hay transporte con CP, usar ese CP; sino, CP del cliente.
-    cp_for_cordon = payload.zip_code
-    if payload.transporte_id is not None and transporte_obj and transporte_obj.cp:
-        cp_for_cordon = transporte_obj.cp
-
-    cordon_val = None
-    if cp_for_cordon:
-        cordon_row = (
-            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
-        )
-        cordon_val = cordon_row.cordon if cordon_row else None
 
     # SSE: notify clients that etiquetas changed
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
