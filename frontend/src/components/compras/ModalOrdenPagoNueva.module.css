@@ -231,6 +231,87 @@
   font-style: italic;
 }
 
+/* ── Checkbox-list de pedidos a pagar ── */
+.pedidosCheckboxList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pedidoCheckboxRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+  flex-wrap: wrap;
+}
+
+.pedidoCheckboxRow:hover {
+  background: var(--cf-bg-hover);
+}
+
+.pedidoCheckboxRowChecked {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-border-default);
+}
+
+.pedidoCheckbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--cf-accent-blue);
+}
+
+.pedidoCheckboxLabel {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.pedidoNumero {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pedidoSaldo {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.pedidoMontoWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.pedidoMontoInput {
+  width: 110px;
+  padding: 3px var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  text-align: right;
+}
+
+.pedidoMontoInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── (keep existing table classes below for legacy reference) ── */
 .itemsTableWrapper {
   background: var(--cf-bg-card);
   border: 1px solid var(--cf-border-default);
