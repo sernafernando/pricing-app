@@ -134,6 +134,11 @@ def upload_etiquetas(
         db.rollback()
         raise HTTPException(500, f"Error guardando en base de datos: {str(e)}")
 
+    # Liberar la conexión del pool antes de encolar el BG task.
+    # FastAPI no llama al finally de get_db hasta que todos los BG tasks terminan,
+    # por lo que sin este close() la conexión quedaría pinneada durante el enrichment.
+    db.close()
+
     # Enriquecer etiquetas nuevas en background (coords, dirección, comentario)
     if nuevos_shipping_ids:
         background_tasks.add_task(enriquecer_etiquetas_sync, nuevos_shipping_ids)
@@ -189,6 +194,10 @@ def registrar_manual(
         raise HTTPException(500, f"Error guardando: {str(e)}")
 
     shipping_id = parsed["shipping_id"]
+
+    # Liberar la conexión del pool antes de encolar el BG task.
+    # FastAPI no llama al finally de get_db hasta que todos los BG tasks terminan.
+    db.close()
 
     if es_nueva:
         # Enriquecer en background (coords, dirección, comentario)
