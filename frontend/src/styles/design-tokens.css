@@ -315,7 +315,8 @@
   
   /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
-  
+  --cf-accent-purple-light: rgba(168, 85, 247, 0.1);
+
   /* Hover overlay for light mode */
   --cf-hover-overlay: rgba(0, 0, 0, 0.05);
   
@@ -363,7 +364,8 @@
   
   /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
-  
+  --cf-accent-purple-light: rgba(168, 85, 247, 0.1);
+
   /* Hover overlay for dark mode */
   --cf-hover-overlay: rgba(255, 255, 255, 0.05);
   

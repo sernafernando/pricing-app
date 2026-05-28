@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Filter, Package, PackageOpen } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import usePrearmadasArmadas from '../hooks/usePrearmadasArmadas';
@@ -59,9 +59,8 @@ export default function PrearmadasDisponibles() {
   });
 
   // Reset page when search changes
-  useMemo(() => {
+  useEffect(() => {
     setPage(1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedEanBase]);
 
   // Client-side Windows filter
@@ -209,7 +208,7 @@ export default function PrearmadasDisponibles() {
       {/* Table */}
       {!error && (
         <div className={styles.tableWrapper}>
-          <table>
+          <table className="table-tesla">
             <thead>
               <tr>
                 <th>Código</th>
@@ -270,18 +269,16 @@ function ItemRow({ item }) {
     <tr>
       <td>{item.codigo}</td>
       <td>
-        <div style={{ fontWeight: 500 }}>{item.combo_item_code}</div>
+        <div className={styles.itemCode}>{item.combo_item_code}</div>
         {item.combo_item_desc && (
-          <div style={{ fontSize: '0.78rem', color: 'var(--cf-text-secondary)', marginTop: 2 }}>
-            {item.combo_item_desc}
-          </div>
+          <div className={styles.itemDesc}>{item.combo_item_desc}</div>
         )}
       </td>
       <td>
         <WindowsBadge value={item.incluye_windows} />
       </td>
-      <td>{parsed.memoria ?? <span style={{ color: 'var(--cf-text-muted)' }}>—</span>}</td>
-      <td>{parsed.disco ?? <span style={{ color: 'var(--cf-text-muted)' }}>—</span>}</td>
+      <td>{parsed.memoria ?? <span className={styles.nullValue}>—</span>}</td>
+      <td>{parsed.disco ?? <span className={styles.nullValue}>—</span>}</td>
       <td>
         {item.covers && item.covers.length > 0 ? (
           <div className={styles.covers}>
@@ -290,10 +287,10 @@ function ItemRow({ item }) {
             ))}
           </div>
         ) : (
-          <span style={{ color: 'var(--cf-text-muted)', fontSize: '0.78rem' }}>Sin cobertura</span>
+          <span className={styles.noCoverage}>Sin cobertura</span>
         )}
       </td>
-      <td style={{ color: 'var(--cf-text-secondary)', fontSize: '0.8rem' }}>{createdAt}</td>
+      <td className={styles.dateCell}>{createdAt}</td>
     </tr>
   );
 }
