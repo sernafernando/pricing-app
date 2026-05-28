@@ -39,7 +39,7 @@ def _crear_sale_order(db, is_id: int, soh_id: int = 888) -> None:
 
 
 def _refetch_no_llamar(is_id):
-    raise AssertionError(f"_refetch_serial_is_available no debería llamarse (is_id={is_id})")
+    raise AssertionError(f"refetch no debería llamarse (is_id={is_id})")
 
 
 def test_serial_disponible_es_valido(db, monkeypatch):
@@ -128,8 +128,10 @@ def test_is_available_none_se_verifica_contra_erp(db, monkeypatch):
 
 def test_sale_order_pendiente_bloquea_aunque_este_disponible(db, monkeypatch):
     """El check de sale order pendiente sigue siendo un gate duro, antes del
-    gate de disponibilidad — un serial en un pedido pendiente se bloquea."""
+    gate de disponibilidad — un serial en un pedido pendiente se bloquea cuando
+    el ERP confirma que sigue asignado."""
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", _refetch_no_llamar)
+    monkeypatch.setattr(prearmado, "_refetch_serial_sale_order", lambda is_id: (True, 888))
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_sale_order(db, is_id=1, soh_id=888)
 
@@ -138,6 +140,50 @@ def test_sale_order_pendiente_bloquea_aunque_este_disponible(db, monkeypatch):
     assert resp.valid is False
     assert resp.motivo == "AlreadyInSaleOrder"
     assert resp.usado_en_soh_id == 888
+
+
+def test_sale_order_local_pero_erp_dice_no_es_valido(db, monkeypatch):
+    """Regresión: si la fila local de sale_order_serials es un fantasma (el ERP
+    ya no la tiene), no se bloquea. Es el bug del sync upsert-only para pedidos.
+    Se mockea también el refetch de is_available para asegurar que el happy path
+    no toca el ERP — si lo hace, la lógica cambió y este test debe revisarse."""
+    monkeypatch.setattr(prearmado, "_refetch_serial_sale_order", lambda is_id: (False, None))
+    monkeypatch.setattr(prearmado, "_refetch_serial_is_available", _refetch_no_llamar)
+    _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
+    _crear_sale_order(db, is_id=1, soh_id=888)  # fila local fantasma
+
+    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+
+    assert resp.valid is True
+    assert resp.motivo is None
+
+
+def test_sale_order_refetch_falla_cae_a_local(db, monkeypatch):
+    """Si el refetch del sale order falla (None), se respeta el bloqueo local
+    con el soh_id que tenemos guardado."""
+    monkeypatch.setattr(prearmado, "_refetch_serial_sale_order", lambda is_id: (None, None))
+    _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
+    _crear_sale_order(db, is_id=1, soh_id=888)
+
+    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+
+    assert resp.valid is False
+    assert resp.motivo == "AlreadyInSaleOrder"
+    assert resp.usado_en_soh_id == 888
+
+
+def test_sale_order_erp_devuelve_soh_id_fresco(db, monkeypatch):
+    """Si el ERP confirma el bloqueo y devuelve un soh_id distinto al local
+    (serial movido entre pedidos), reportamos el fresco del ERP."""
+    monkeypatch.setattr(prearmado, "_refetch_serial_sale_order", lambda is_id: (True, 999))
+    _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
+    _crear_sale_order(db, is_id=1, soh_id=888)  # local desactualizado
+
+    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+
+    assert resp.valid is False
+    assert resp.motivo == "AlreadyInSaleOrder"
+    assert resp.usado_en_soh_id == 999
 
 
 def test_serial_inexistente(db, monkeypatch):

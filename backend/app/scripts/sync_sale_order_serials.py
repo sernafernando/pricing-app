@@ -93,6 +93,61 @@ def upsert_batch(db: Session, rows: list[dict]) -> None:
     db.commit()
 
 
+def reconciliar_sale_order_serials(
+    db: Session, filter_name: str, filter_value: int, sose_ids_vigentes: list[int]
+) -> int:
+    """Borra las filas locales de tb_sale_order_serials que ya no existen en el ERP.
+
+    Cuando un serial se quita de un pedido en el ERP, la fila de tb_sale_order_serials
+    se borra allá. El sync es upsert puro y nunca reflejaba ese borrado: la fila
+    quedaba para siempre, y la validación del prearmador la usaba como evidencia
+    de "ya asignado", bloqueando seriales que en realidad están libres.
+
+    Esta función reconcilia un scope puntual contra la respuesta del ERP:
+    - filter_name='sohID': borra filas con soh_id=filter_value cuyo sose_id no
+      esté en la respuesta vigente.
+    - filter_name='isID': borra filas con is_id=filter_value cuyo sose_id no esté
+      en la respuesta vigente.
+
+    Guard: si `sose_ids_vigentes` viene vacío, no borra nada. Una respuesta vacía
+    del ERP puede ser un fetch fallido o un error encubierto — borrar en ese caso
+    se llevaría datos válidos. La fuente de verdad sigue siendo el live refetch
+    de la validación, esto es la limpieza del cache local.
+
+    Args:
+        db: sesión SQLAlchemy ya abierta — el caller hace commit.
+        filter_name: 'sohID' o 'isID'.
+        filter_value: id del scope (soh_id o is_id).
+        sose_ids_vigentes: sose_id de TODAS las filas que el ERP devolvió para
+            este scope.
+
+    Returns:
+        Cantidad de filas locales eliminadas.
+    """
+    if not sose_ids_vigentes:
+        print(
+            f"⚠️ Reconciliación omitida para {filter_name}={filter_value}: "
+            f"respuesta vacía del ERP (posible fetch fallido)"
+        )
+        return 0
+
+    if filter_name == "sohID":
+        scope_filter = TbSaleOrderSerial.soh_id == filter_value
+    elif filter_name == "isID":
+        scope_filter = TbSaleOrderSerial.is_id == filter_value
+    else:
+        return 0
+
+    eliminadas = (
+        db.query(TbSaleOrderSerial)
+        .filter(scope_filter, TbSaleOrderSerial.sose_id.notin_(sose_ids_vigentes))
+        .delete(synchronize_session=False)
+    )
+    if eliminadas:
+        print(f"🔄 Reconciliación {filter_name}={filter_value}: {eliminadas} fila(s) fantasma eliminada(s)")
+    return eliminadas
+
+
 def get_max_sose_id(db: Session) -> int:
     """Obtiene el máximo sose_id en la DB local."""
     result = db.query(func.max(TbSaleOrderSerial.sose_id)).scalar()
@@ -288,6 +343,21 @@ def sync_by_filter(db: Session, filter_name: str, filter_value: int) -> None:
         return
 
     upsert_batch(db, normalized_data)
+
+    # Reconciliación per-scope: el ERP devolvió el set vigente para este filtro,
+    # borramos las filas locales del scope cuyo sose_id no vino — fantasmas que
+    # quedan del upsert-only sync original. Solo si la respuesta fue completa
+    # (todos los rows del ERP se normalizaron bien); ante respuesta parcial no
+    # reconciliamos para no tocar datos válidos.
+    if filter_name in ("sohID", "isID") and len(normalized_data) == len(data):
+        sose_ids_vigentes = [r["sose_id"] for r in normalized_data]
+        reconciliar_sale_order_serials(db, filter_name, filter_value, sose_ids_vigentes)
+        db.commit()
+    elif filter_name in ("sohID", "isID"):
+        print(
+            f"⚠️  Reconciliación omitida: {len(data) - len(normalized_data)} "
+            f"fila(s) del ERP sin PK válida (respuesta parcial)"
+        )
 
     print(f"\n✅ Sincronización por {label} finalizada")
     print(f"   Total actualizado: {len(normalized_data)} registros")
