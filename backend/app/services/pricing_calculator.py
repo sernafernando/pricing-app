@@ -489,11 +489,15 @@ def calcular_precio_web_transferencia(
     precio = costo_ars * (1 + iva_decimal) * (1 + markup_objetivo) * 1.1
 
     for i in range(max_iter):
+        # comision sobre precio CON IVA; iibb sobre precio SIN IVA.
+        # El limpio se calcula sobre precio_sin_iva y se restan comision e
+        # iibb a valor NOMINAL (son pesos reales que se van). No dividir el
+        # limpio por (1+iva) porque eso deflactaria tambien las fees e infla
+        # el markup. Mismo criterio que el resto del pricing.
         comision = precio * comision_web_decimal
         precio_sin_iva = precio / (1 + iva_decimal)
         iibb_monto = precio_sin_iva * iibb_decimal
-        limpio_con_iva = precio - comision - iibb_monto
-        limpio_sin_iva = limpio_con_iva / (1 + iva_decimal)
+        limpio_sin_iva = precio_sin_iva - comision - iibb_monto
         markup_real = (limpio_sin_iva - costo_ars) / costo_ars if costo_ars > 0 else 0
 
         if abs(markup_real - markup_objetivo) < TOLERANCIA:
@@ -501,8 +505,7 @@ def calcular_precio_web_transferencia(
             comision_final = precio_redondeado * comision_web_decimal
             precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
             iibb_final = precio_sin_iva_final * iibb_decimal
-            limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
-            limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
+            limpio_sin_iva_final = precio_sin_iva_final - comision_final - iibb_final
             markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
 
             return {
@@ -519,8 +522,7 @@ def calcular_precio_web_transferencia(
     comision_final = precio_redondeado * comision_web_decimal
     precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
     iibb_final = precio_sin_iva_final * iibb_decimal
-    limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
-    limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
+    limpio_sin_iva_final = precio_sin_iva_final - comision_final - iibb_final
     markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
 
     return {
