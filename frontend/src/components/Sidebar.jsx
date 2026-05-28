@@ -66,6 +66,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Precios por Lista', path: '/precios-listas', permiso: 'productos.ver' },
         { label: 'Banlist MLAs', path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
         { label: 'Items sin MLA', path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
+        { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },
       ],
     },
     {
@@ -77,7 +78,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Preparación', path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
         { label: 'Producción', path: '/produccion', permiso: 'produccion.ver_combos' },
         { label: 'Prearmado', path: '/prearmado', permiso: 'produccion.prearmar_combos' },
-        { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },
         { label: 'Turbo', path: '/turbo-routing', permiso: 'ordenes.gestionar_turbo_routing' },
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
         { label: 'Configuración', path: '/config-operaciones', permiso: 'envios_flex.config' },
