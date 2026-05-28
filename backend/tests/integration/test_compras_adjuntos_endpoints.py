@@ -237,6 +237,42 @@ class TestDescargarAdjunto:
         assert r.status_code == 200
         assert r.content.startswith(b"%PDF")
 
+    def test_content_disposition_attachment_por_defecto(
+        self, client, auth_headers, pedido_borrador, con_todos_los_permisos
+    ):
+        """Sin ?inline, el header debe ser attachment para forzar descarga."""
+        r_up = client.post(
+            f"{BASE}/pedidos/{pedido_borrador.id}/adjuntos",
+            headers=auth_headers,
+            files={"file": ("factura.pdf", PDF_HEADER, "application/pdf")},
+        )
+        adj_id = r_up.json()["id"]
+
+        r = client.get(f"{BASE}/adjuntos/{adj_id}/descargar", headers=auth_headers)
+        assert r.status_code == 200
+        cd = r.headers.get("content-disposition", "")
+        assert cd.startswith("attachment")
+        assert "factura.pdf" in cd
+
+    def test_content_disposition_inline_con_param(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
+        """Con ?inline=true, el header debe ser inline para vista previa."""
+        r_up = client.post(
+            f"{BASE}/pedidos/{pedido_borrador.id}/adjuntos",
+            headers=auth_headers,
+            files={"file": ("preview.pdf", PDF_HEADER, "application/pdf")},
+        )
+        adj_id = r_up.json()["id"]
+
+        r = client.get(
+            f"{BASE}/adjuntos/{adj_id}/descargar",
+            params={"inline": "true"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        cd = r.headers.get("content-disposition", "")
+        assert cd.startswith("inline")
+        assert "preview.pdf" in cd
+
     def test_404_si_adjunto_no_existe(self, client, auth_headers, con_todos_los_permisos):
         r = client.get(f"{BASE}/adjuntos/999999/descargar", headers=auth_headers)
         assert r.status_code == 404
