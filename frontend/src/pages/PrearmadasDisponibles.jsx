@@ -205,7 +205,7 @@ export default function PrearmadasDisponibles() {
             ← Anterior
           </button>
           <span>
-            Página {page} de {totalPages} &nbsp;·&nbsp; {total} unidades en total
+            Página {page} de {totalPages} &nbsp;·&nbsp; {total} unidad{total === 1 ? '' : 'es'} en total
           </span>
           <button
             className={styles.pageBtn}
@@ -234,7 +234,7 @@ function SKUCard({ group, isExpanded, onToggle }) {
           <div className={styles.cardSku}>{sku}</div>
           {descripcion && <div className={styles.cardDesc}>{descripcion}</div>}
         </div>
-        <div className={styles.cardCount} aria-label={`${count} unidades listas`}>
+        <div className={styles.cardCount} aria-label={`${count} ${count === 1 ? 'unidad lista' : 'unidades listas'}`}>
           <span className={styles.cardCountNum}>{count}</span>
           <span className={styles.cardCountLabel}>
             {count === 1 ? 'unidad' : 'unidades'}
@@ -269,7 +269,13 @@ function SKUCard({ group, isExpanded, onToggle }) {
         aria-expanded={isExpanded}
       >
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        {isExpanded ? 'Ocultar unidades individuales' : `Ver las ${count} unidades`}
+        {isExpanded
+          ? count === 1
+            ? 'Ocultar unidad'
+            : 'Ocultar unidades individuales'
+          : count === 1
+            ? 'Ver la unidad'
+            : `Ver las ${count} unidades`}
       </button>
 
       {isExpanded && (
