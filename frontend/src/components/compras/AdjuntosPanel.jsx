@@ -6,6 +6,7 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  Eye,
   Check,
   X,
 } from 'lucide-react';
@@ -237,8 +238,47 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     setUploads((prev) => prev.filter((u) => u.status !== 'ok'));
   };
 
-  const downloadUrl = (adjuntoId) =>
-    `${import.meta.env.VITE_API_URL}/administracion/compras/adjuntos/${adjuntoId}/descargar`;
+  /**
+   * Descarga el adjunto como blob (con token de auth en header via axios).
+   * Crea un object URL temporal y lo revoca después de disparar el click.
+   */
+  const handleDescargar = async (adjunto) => {
+    try {
+      const response = await api.get(
+        `/administracion/compras/adjuntos/${adjunto.id}/descargar`,
+        { responseType: 'blob' },
+      );
+      const blobUrl = URL.createObjectURL(response.data);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = adjunto.nombre_archivo;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al descargar el archivo.');
+    }
+  };
+
+  /**
+   * Vista previa inline: obtiene el blob con auth y lo abre en una pestaña
+   * nueva como object URL. El navegador renderiza PDFs e imágenes directamente.
+   */
+  const handleVerInline = async (adjunto) => {
+    try {
+      const response = await api.get(
+        `/administracion/compras/adjuntos/${adjunto.id}/descargar?inline=true`,
+        { responseType: 'blob' },
+      );
+      const blobUrl = URL.createObjectURL(response.data);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      // No revocamos inmediatamente: el navegador necesita el URL mientras
+      // carga la pestaña. Se libera cuando el documento se descarga.
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al previsualizar el archivo.');
+    }
+  };
 
   const uploadsEnProgreso = uploads.some((u) => u.status === 'uploading' || u.status === 'pending');
   const hayCompletos = uploads.some((u) => u.status === 'ok');
@@ -357,14 +397,14 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
             <li key={a.id} className={styles.adjuntoRow}>
               <FileText size={16} className={styles.fileIcon} />
               <div className={styles.adjuntoInfo}>
-                <a
-                  href={downloadUrl(a.id)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.adjuntoNombre}
+                <button
+                  type="button"
+                  className={styles.adjuntoNombreBtn}
+                  onClick={() => handleVerInline(a)}
+                  title="Ver archivo"
                 >
                   {a.nombre_archivo}
-                </a>
+                </button>
                 <span className={styles.adjuntoMeta}>
                   {formatBytes(a.tamano_bytes)} · {formatDate(a.created_at)}
                   {a.subido_por_nombre ? ` · ${a.subido_por_nombre}` : ''}
@@ -372,16 +412,24 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
                 </span>
               </div>
               <div className={styles.adjuntoActions}>
-                <a
-                  href={downloadUrl(a.id)}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
                   className={styles.btnIcon}
-                  aria-label="Descargar"
+                  onClick={() => handleVerInline(a)}
+                  aria-label="Ver archivo"
+                  title="Ver"
+                >
+                  <Eye size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnIcon}
+                  onClick={() => handleDescargar(a)}
+                  aria-label="Descargar archivo"
                   title="Descargar"
                 >
                   <Download size={14} />
-                </a>
+                </button>
                 {canManage && (
                   <button
                     type="button"

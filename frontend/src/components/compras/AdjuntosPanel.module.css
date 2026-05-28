@@ -255,6 +255,26 @@
   text-decoration: underline;
 }
 
+/* Variante botón del nombre de adjunto (reemplaza <a href> directo) */
+.adjuntoNombreBtn {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.adjuntoNombreBtn:hover {
+  color: var(--cf-accent-blue);
+  text-decoration: underline;
+}
+
 .adjuntoMeta {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);

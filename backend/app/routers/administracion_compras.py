@@ -3237,14 +3237,21 @@ def listar_adjuntos_op(
 
 @router.get(
     "/adjuntos/{adjunto_id}/descargar",
-    summary="Descargar un archivo adjunto (auth-gated, no StaticFiles)",
+    summary="Descargar (o previsualizar inline) un archivo adjunto (auth-gated, no StaticFiles)",
 )
 def descargar_adjunto(
     adjunto_id: int,
+    inline: bool = Query(
+        default=False, description="Si true, usa Content-Disposition: inline para vista previa en navegador"
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> FileResponse:
-    """Devuelve el archivo físico via FileResponse. Batch H."""
+    """Devuelve el archivo físico via FileResponse.
+
+    Con ``inline=false`` (default) fuerza descarga (attachment).
+    Con ``inline=true`` el navegador puede renderizar el PDF en una pestaña.
+    """
     adj = compras_adjuntos_service.obtener_adjunto(db, adjunto_id)
     import os as _os  # noqa: PLC0415
 
@@ -3259,10 +3266,14 @@ def descargar_adjunto(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Archivo no encontrado en disco.",
         )
+    disposition = "inline" if inline else "attachment"
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{adj.nombre_archivo}"',
+    }
     return FileResponse(
         path=full_path,
-        filename=adj.nombre_archivo,
         media_type=adj.mime_type or "application/octet-stream",
+        headers=headers,
     )
 
 
