@@ -10,7 +10,7 @@ Two public entry points:
    This is an async function because the Redis client (``redis.asyncio.Redis``)
    requires ``await``.
 
-2. ``get_armadas_list(comp_id, db, ean_base_filter, page, page_size)``
+2. ``get_armadas_list(comp_id, db, search, page, page_size)``
    Returns paginated list of armado prearmados enriched with covers[].
    Two SQL queries (prearmados + all combo items), classification in Python.
    Synchronous — no cache layer.
@@ -29,6 +29,7 @@ import json
 import logging
 from typing import Any, Literal, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -280,7 +281,7 @@ def get_armadas_list(
     comp_id: int,
     db: Session,
     *,
-    ean_base_filter: Optional[str] = None,
+    search: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -294,8 +295,10 @@ def get_armadas_list(
         Tenant identifier.
     db:
         SQLAlchemy session.
-    ean_base_filter:
-        Optional substring to filter on combo_item_code prefix (e.g. "LENOVO").
+    search:
+        Optional case-insensitive substring matched against either
+        ``combo_item_code`` or ``combo_item_desc``. Lets sellers filter by SKU,
+        brand, or any word in the model description.
     page:
         1-based page number.
     page_size:
@@ -314,8 +317,14 @@ def get_armadas_list(
         Prearmado.combo_item_code.like("%-%"),
     )
 
-    if ean_base_filter:
-        query = query.filter(Prearmado.combo_item_code.like(f"{ean_base_filter.upper()}-%"))
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                Prearmado.combo_item_code.ilike(like),
+                Prearmado.combo_item_desc.ilike(like),
+            )
+        )
 
     total: int = query.count()
 

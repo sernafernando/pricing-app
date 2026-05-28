@@ -81,7 +81,10 @@ async def stats_batch(
 )
 async def stats_armadas(
     request: Request,
-    ean_base: Optional[str] = Query(default=None, description="Filter by EAN base prefix (e.g. 'LENOVO')"),
+    search: Optional[str] = Query(
+        default=None,
+        description="Case-insensitive substring matched against combo_item_code OR combo_item_desc.",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     current_user: Usuario = Depends(get_current_user),
@@ -94,7 +97,7 @@ async def stats_armadas(
     sellers need fresh data and call cadence is low.
 
     Query params:
-      ean_base  : filter by combo_item_code prefix (server-side)
+      search    : substring filter on combo_item_code OR combo_item_desc (server-side)
       page      : 1-based page number
       page_size : items per page (max 200)
 
@@ -103,7 +106,7 @@ async def stats_armadas(
     items_raw, total = get_armadas_list(
         comp_id=getattr(current_user, "comp_id", 1) or 1,
         db=db,
-        ean_base_filter=ean_base,
+        search=search,
         page=page,
         page_size=page_size,
     )
