@@ -124,10 +124,14 @@ class NotaCreditoLocal(Base):
         ),
         Index("ix_ncs_local_empresa_estado", "empresa_id", "estado"),
         Index("ix_ncs_local_proveedor_estado", "proveedor_id", "estado"),
+        # Unique constraint parcial: un mismo número de NC de proveedor no puede
+        # aparecer más de una vez por proveedor. WHERE IS NOT NULL porque muchas
+        # NCs locales no tienen número de proveedor (no corresponde a ERP aún).
         Index(
-            "ix_ncs_local_numero_nc_prov",
+            "uq_ncs_local_proveedor_numero_nc_prov",
             "proveedor_id",
             "numero_nc_proveedor",
+            unique=True,
             postgresql_where="numero_nc_proveedor IS NOT NULL",
         ),
         Index(
