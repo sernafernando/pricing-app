@@ -111,13 +111,55 @@ def _refetch_serial_is_available(is_id: int) -> Optional[bool]:
     return bool(is_available)
 
 
+def _refetch_serial_sale_order(is_id: int) -> tuple[Optional[bool], Optional[int]]:
+    """Reconsulta al ERP si el serial está actualmente asignado a algún sale order.
+
+    El sync de `tb_sale_order_serials` es upsert puro y no refleja borrados: si en
+    el ERP se quita un serial de un pedido, la fila vieja queda para siempre en la
+    tabla local. Esta función verifica el estado real para evitar bloquear seriales
+    que en realidad ya están libres.
+
+    Returns:
+        `(True, soh_id)` — el serial está en el pedido `soh_id` según el ERP.
+        `(False, None)` — el ERP confirma que no está en ningún pedido.
+        `(None, None)` — no se pudo confirmar (sin red, timeout, error del ERP).
+    """
+    try:
+        resp = requests.get(
+            GBP_PARSER_URL,
+            params={"strScriptLabel": "scriptSaleOrderSerials", "isID": is_id},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logger.warning(f"⚠️ Refetch ERP del sale order para is_id={is_id} falló: {e}")
+        return (None, None)
+
+    if not isinstance(data, list):
+        return (None, None)
+    if not data:
+        # Lista vacía: el ERP confirma que el serial no está en ningún pedido.
+        return (False, None)
+    fila = data[0]
+    # Sentinela de error del ERP (ej: [{"Column1": "-9"}]) — tratamos como "no sé".
+    if "Column1" in fila:
+        return (None, None)
+    soh_id = fila.get("soh_id")
+    if soh_id is None:
+        return (None, None)
+    return (True, int(soh_id))
+
+
 def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> ValidateSerialResponse:
     """Lógica de validación reutilizable (endpoint + POST /seriales + PATCH).
 
     Orden de checks (corta al primer fallo):
     1. SerialNotFound — no existe en tb_item_serials
     2. ItemMismatch — el is_serial existe pero pertenece a otro item_id
-    3. AlreadyInSaleOrder — ya está asignado a un sales order pendiente (vendido)
+    3. AlreadyInSaleOrder — asignado a un sale order pendiente. Si la fila local
+       existe, se verifica contra el ERP en vivo antes de bloquear, porque la
+       tabla local puede tener fantasmas (el sync no refleja borrados).
     4. Disponibilidad — gate por `tb_item_serials.is_available`. El ERP pone ese
        flag en true cuando el serial está libre; una NC o quitar el item de una
        factura lo vuelven a poner en true. La tabla de traza
@@ -160,15 +202,28 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
         {"is_id": ts.is_id},
     ).first()
     if sos_row:
-        return ValidateSerialResponse(
-            valid=False,
-            motivo="AlreadyInSaleOrder",
-            is_id=ts.is_id,
-            item_id_real=ts.item_id,
-            item_code_real=item_code_real,
-            item_desc_real=item_desc_real,
-            usado_en_soh_id=sos_row.soh_id,
-        )
+        # La fila local puede ser fantasma: el sync de tb_sale_order_serials es
+        # upsert puro y no refleja borrados (cuando se quita un serial de un pedido
+        # en el ERP, la fila queda local). Verificamos contra el ERP antes de
+        # bloquear para no rechazar seriales que ya están libres.
+        en_so_erp, soh_id_erp = _refetch_serial_sale_order(ts.is_id)
+        if en_so_erp is False:
+            # ERP confirma que el serial ya no está en ningún pedido — la fila
+            # local es fantasma, seguimos con los checks de disponibilidad.
+            pass
+        else:
+            # en_so_erp is True → reportamos el soh_id fresco del ERP.
+            # en_so_erp is None (refetch falló) → caemos al soh_id local.
+            soh_id_a_reportar = soh_id_erp if en_so_erp is True else sos_row.soh_id
+            return ValidateSerialResponse(
+                valid=False,
+                motivo="AlreadyInSaleOrder",
+                is_id=ts.is_id,
+                item_id_real=ts.item_id,
+                item_code_real=item_code_real,
+                item_desc_real=item_desc_real,
+                usado_en_soh_id=soh_id_a_reportar,
+            )
 
     # Gate de disponibilidad. El ERP marca `is_available=true` cuando el serial
     # está libre para usar; una NC o quitar el item de una factura lo vuelven a
