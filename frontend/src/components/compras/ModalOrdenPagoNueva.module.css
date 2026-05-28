@@ -477,6 +477,14 @@
   line-height: var(--leading-tight, 1.2);
 }
 
+.overSaldoHint {
+  margin-top: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-warning, #d97706);
+  text-align: right;
+  line-height: var(--leading-tight, 1.2);
+}
+
 /* F1 — Checkbox "Actualizar TC del pedido" */
 .formGroupCheckbox {
   margin-bottom: var(--spacing-md, 12px);

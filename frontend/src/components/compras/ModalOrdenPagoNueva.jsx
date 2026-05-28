@@ -1079,6 +1079,11 @@ export default function ModalOrdenPagoNueva({
                               type="number"
                               step="0.01"
                               min="0.01"
+                              max={
+                                pedido.moneda === form.moneda
+                                  ? (pedido.saldo_pendiente ?? pedido.monto)
+                                  : undefined
+                              }
                               className={styles.pedidoMontoInput}
                               value={montoActual}
                               onChange={(e) => handlePedidoMonto(pedidoId, e.target.value)}
@@ -1088,6 +1093,13 @@ export default function ModalOrdenPagoNueva({
                             />
                             {crossPreview && (
                               <div className={styles.previewConversion}>{crossPreview}</div>
+                            )}
+                            {pedido.moneda === form.moneda &&
+                              parseFloat(montoActual) >
+                                (pedido.saldo_pendiente ?? pedido.monto) && (
+                              <div className={styles.overSaldoHint}>
+                                El monto excede el saldo pendiente. Usá &ldquo;Pago a cuenta&rdquo; para el excedente.
+                              </div>
                             )}
                           </div>
                         )}

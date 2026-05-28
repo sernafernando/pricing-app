@@ -367,6 +367,80 @@ def _resolver_supp_id(session: Session, proveedor_id: int) -> Optional[int]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# _validar_items_saldo_pendiente — anti-over-imputación por pedido
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _validar_items_saldo_pendiente(
+    session: Session,
+    items: list[dict],
+    op_moneda: str,
+) -> None:
+    """Rechaza items cuyo monto excede el saldo_pendiente del pedido destino.
+
+    Para cada item con tipo='pedido_compra' cuya moneda coincide con la del
+    pedido (same-moneda) verifica:
+        item.monto <= pedido.monto - sum(imputaciones_vigentes_al_pedido)
+
+    Si el item excede el saldo lanza HTTPException 422 con mensaje claro que
+    indica el número de pedido, el monto del item y el saldo disponible.
+
+    Política (PR5 / fix over-imputación silenciosa):
+      - El sistema NUNCA debe aceptar un pago same-moneda mayor al saldo del
+        pedido. El usuario debe asignar el excedente como 'pago_a_cuenta'.
+      - Esto previene que el CC emita un haber mayor al saldo real del pedido
+        y que el saldo del pedido quede negativo.
+
+    Cross-moneda: se salta items donde pedido.moneda != op_moneda. En esos
+    casos el monto del item está en moneda OP y el saldo del pedido en moneda
+    pedido — no son comparables directamente. La conversión ocurre en
+    ejecutar_pago vía tipo_cambio; la validación de TC la hace
+    _validar_items_cross_moneda_con_tc.
+
+    Solo aplica a items tipo 'pedido_compra'. Los items 'factura_erp',
+    'pago_a_cuenta' y 'dinero_a_cuenta' no tienen esta restricción acá
+    (factura_erp no expone saldo en v1; pago_a_cuenta y dinero_a_cuenta no
+    tienen destino pedido en este validador).
+
+    Args:
+        session: sesión activa.
+        items: lista de items del payload (de `_leer_items_de_op`).
+        op_moneda: moneda de la OP ('ARS' o 'USD').
+
+    Raises:
+        HTTPException 422: item.monto > saldo_pendiente del pedido (same-moneda).
+    """
+    for idx, item in enumerate(items):
+        if item.get("tipo") != "pedido_compra":
+            continue
+        pedido_id = item.get("id")
+        if pedido_id is None:
+            continue
+        pedido = session.get(PedidoCompra, int(pedido_id))
+        if pedido is None:
+            continue  # la validación de existencia la maneja otro validador
+
+        # Cross-moneda: skip — el monto del item está en moneda OP,
+        # el saldo del pedido está en moneda pedido. No son comparables.
+        if str(pedido.moneda) != str(op_moneda):
+            continue
+
+        monto_item = Decimal(str(item.get("monto", "0")))
+        saldo_pendiente = pedidos_service.calcular_saldo_pendiente_pedido(session, int(pedido_id))
+
+        if monto_item > saldo_pendiente:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"item[{idx}] (pedido #{pedido.numero}, id={pedido_id}): "
+                    f"el monto del ítem ({monto_item:.2f} {pedido.moneda}) excede "
+                    f"el saldo pendiente ({saldo_pendiente:.2f} {pedido.moneda}). "
+                    f"Reducí el monto del ítem o asigná el excedente como 'pago_a_cuenta'."
+                ),
+            )
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # validar_balance_op — invariante no-diferencia (PR3, design §3.4, AD-5)
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -400,8 +474,13 @@ def validar_balance_op(
                         donde las NCs se imputan DESPUÉS de ejecutar_pago.
 
     Raises:
-        HTTPException 422: diferencia != 0.
+        HTTPException 422: diferencia != 0 o item.monto > saldo_pendiente pedido.
     """
+    # PR5 — Validar que ningún item excede el saldo_pendiente de su pedido.
+    # Esto previene over-imputaciones silenciosas que dejan saldo negativo en
+    # el pedido y habers incorrectos en la CC.
+    _validar_items_saldo_pendiente(session, items, op_moneda=str(op.moneda))
+
     monto_total = Decimal(str(op.monto_total))
     cobertura_total = Decimal("0")
 
