@@ -290,11 +290,13 @@ async def get_ranking(
             CASE
                 WHEN :tc_venta IS NOT NULL AND pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
                 THEN ROUND(
-                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) *
-                    CASE pe.moneda_costo
-                        WHEN 'USD' THEN pe.costo * CAST(:tc_venta AS NUMERIC)
-                        ELSE pe.costo
-                    END,
+                    CAST(
+                        CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) *
+                        CASE pe.moneda_costo
+                            WHEN 'USD' THEN pe.costo * CAST(:tc_venta AS NUMERIC)
+                            ELSE pe.costo
+                        END
+                    AS NUMERIC),
                     2
                 )
                 ELSE NULL
@@ -303,7 +305,7 @@ async def get_ranking(
             CASE
                 WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
                 THEN ROUND(
-                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) * prli.prli_price,
+                    CAST(CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) * prli.prli_price AS NUMERIC),
                     2
                 )
                 ELSE NULL
