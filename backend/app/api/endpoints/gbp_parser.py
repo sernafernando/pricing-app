@@ -30,7 +30,7 @@ SCRIPT_CONFIG = {
     "scriptVentasML": ["fromDate", "toDate", "itemID"],
     "serialToSheets": ["itemSerial"],
     "mlidToSheets": ["mlID"],
-    "scriptAgeing": ["item_id"],
+    "scriptAgeing": ["fromDate", "toDate"],
     "scriptMLTitle": ["item_id"],
     "scriptTpLink": ["fromDate", "toDate"],
     "scriptCommercial": ["fromDate", "toDate", "ctTransaction", "fromCtTransaction", "toCtTransaction"],
