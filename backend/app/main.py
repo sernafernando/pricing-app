@@ -59,6 +59,7 @@ from app.api.endpoints import (
     colectas,
 )
 from app.routers import (
+    consultas,
     administracion_bancos,
     administracion_caja,
     administracion_compras,
@@ -297,6 +298,9 @@ app.include_router(rrhh_fichaje_mobile.router, prefix="/api", tags=["rrhh-fichaj
 app.include_router(rrhh_cumpleanos.router, prefix="/api", tags=["rrhh-cumpleanos"])
 app.include_router(rrhh_reportes.router, prefix="/api", tags=["rrhh-reportes"])
 app.include_router(sse.router, prefix="/api", tags=["SSE"])
+
+# ── Módulo Consultas ───────────────────────────────────────────────
+app.include_router(consultas.router, prefix="/api")
 
 # ── Módulo Administración (sector empresa) ────────────────────────
 app.include_router(empresas.router, prefix="/api", tags=["admin-empresas"])
