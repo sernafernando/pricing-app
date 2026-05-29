@@ -103,3 +103,34 @@ class RankingResponse(BaseModel):
     page_size: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# Facets schemas
+# ---------------------------------------------------------------------------
+
+
+class DepositoFacet(BaseModel):
+    """Single depósito option for the facets dropdown."""
+
+    id: int
+    label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RankingFacetsResponse(BaseModel):
+    """Facets response for ranking filter dropdowns.
+
+    All lists are sorted ascending. marcas and categorias are filtered to
+    activo=TRUE products only. pms correspond to the exact display name
+    produced by the ranking endpoint (usuarios.nombre). depositos include
+    only stor_ids present in tb_item_storage.
+    """
+
+    marcas: list[str]
+    categorias: list[str]
+    pms: list[str]
+    depositos: list[DepositoFacet]
+
+    model_config = ConfigDict(from_attributes=True)

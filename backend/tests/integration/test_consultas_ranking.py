@@ -258,6 +258,134 @@ class TestRankingValidation:
         assert response.status_code == 422
 
 
+def _make_facets_mock_db_session() -> MagicMock:
+    """Return a MagicMock DB session for the facets endpoint.
+
+    The facets endpoint executes four queries (marcas, categorias, pms,
+    depositos) via db.execute().  Each call returns a distinct MagicMock
+    result whose fetchall() returns a plausible row list.
+    """
+    marcas_result = MagicMock()
+    marcas_result.fetchall.return_value = [("Marca A",), ("Marca B",)]
+
+    categorias_result = MagicMock()
+    categorias_result.fetchall.return_value = [("Cat 1",), ("Cat 2",)]
+
+    pms_result = MagicMock()
+    pms_result.fetchall.return_value = [("Juan Pérez",), ("María García",)]
+
+    depositos_result = MagicMock()
+    depositos_result.fetchall.return_value = [(1,), (14,), (15,)]
+
+    _results = [marcas_result, categorias_result, pms_result, depositos_result]
+    call_count = {"n": 0}
+
+    def _execute(stmt, params=None):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        if idx < len(_results):
+            return _results[idx]
+        return MagicMock()
+
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = _execute
+    return mock_db
+
+
+@pytest.fixture()
+def client_with_mock_db_facets(user_con_permiso):
+    """TestClient with a mock DB session for the facets endpoint."""
+    from app.core.database import get_async_db, get_db
+    from app.main import app
+
+    mock_db = _make_facets_mock_db_session()
+
+    def _override_get_db():
+        yield mock_db
+
+    async def _override_get_async_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_async_db] = _override_get_async_db
+
+    from starlette.testclient import TestClient
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c, user_con_permiso
+
+    app.dependency_overrides.clear()
+
+
+class TestFacetsAuth:
+    """Authentication and permission gate tests for /ranking/facets."""
+
+    def test_no_jwt_returns_401_or_403(self, client) -> None:
+        """No Authorization header → 401 or 403."""
+        response = client.get("/api/consultas/ranking/facets")
+        assert response.status_code in (401, 403)
+
+    def test_user_sin_permiso_returns_403(self, client, user_sin_permiso) -> None:
+        """Valid JWT but without consultas.ver_ranking → 403."""
+        with _PATCH_TIENE_PERMISO_FALSE, _PATCH_OBTENER_PERMISOS_EMPTY:
+            response = client.get(
+                "/api/consultas/ranking/facets",
+                headers=_auth(user_sin_permiso),
+            )
+        assert response.status_code == 403
+
+
+class TestFacets200:
+    """Shape tests for /ranking/facets 200 response."""
+
+    def test_facets_returns_200_with_expected_shape(self, client_with_mock_db_facets) -> None:
+        """Valid JWT with consultas.ver_ranking → 200 with facets envelope."""
+        client, user = client_with_mock_db_facets
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking/facets",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert "marcas" in body
+        assert "categorias" in body
+        assert "pms" in body
+        assert "depositos" in body
+        assert isinstance(body["marcas"], list)
+        assert isinstance(body["categorias"], list)
+        assert isinstance(body["pms"], list)
+        assert isinstance(body["depositos"], list)
+
+    def test_facets_marcas_are_strings(self, client_with_mock_db_facets) -> None:
+        """marcas items are strings."""
+        client, user = client_with_mock_db_facets
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking/facets",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert all(isinstance(m, str) for m in body["marcas"])
+
+    def test_facets_depositos_have_id_and_label(self, client_with_mock_db_facets) -> None:
+        """depositos items have 'id' (int) and 'label' (str)."""
+        client, user = client_with_mock_db_facets
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking/facets",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        for dep in body["depositos"]:
+            assert "id" in dep
+            assert "label" in dep
+            assert isinstance(dep["id"], int)
+            assert dep["label"] == f"Depósito {dep['id']}"
+
+
 class TestRankingCurrencyFallback:
     """No TipoCambio row → valor_costo/valor_venta gracefully null."""
 

@@ -39,6 +39,8 @@ from app.models.usuario import Usuario
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
     VENTANA_DIAS_PERMITIDAS,
+    DepositoFacet,
+    RankingFacetsResponse,
     RankingItemRow,
     RankingResponse,
 )
@@ -106,6 +108,8 @@ ITEMS_EXCLUIDOS: list[int] = [16, 460]
 PUCO_COMPRAS: int = 10
 # prli_id for price list "clasica"
 PRLI_CLASICA: int = 4
+# comp_id of the main company (price list / cost list rows are keyed by comp_id)
+COMP_ID: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +334,9 @@ async def get_ranking(
               AND tit.item_id NOT IN ({items_excl_str})
         ) ls ON TRUE
         -- LATERAL: last purchase
+        -- Filter puco_id on tb_item_transactions (tit2) so the composite index
+        -- ix_tit_item_puco_cd (item_id, puco_id, it_cd DESC) drives the lookup.
+        -- The tct2 join only resolves ct_date for the single resulting row.
         LEFT JOIN LATERAL (
             SELECT
                 tct2.ct_date::date                            AS last_purchase_date,
@@ -338,7 +345,7 @@ async def get_ranking(
             JOIN tb_commercial_transactions tct2
               ON tct2.ct_transaction = tit2.ct_transaction
             WHERE tit2.item_id = pe.item_id
-              AND tct2.puco_id = {PUCO_COMPRAS}
+              AND tit2.puco_id = {PUCO_COMPRAS}
             ORDER BY tit2.it_cd DESC
             LIMIT 1
         ) lp ON TRUE
@@ -349,10 +356,12 @@ async def get_ranking(
             WHERE item_id = pe.item_id
               AND stor_id = ANY(:stor_ids)
         ) stk ON TRUE
-        -- Price list clasica (prli_id=4)
+        -- Price list clasica (prli_id=4). comp_id is part of the PK
+        -- (comp_id, prli_id, item_id) — without it the LEFT JOIN can multiply rows.
         LEFT JOIN tb_price_list_items prli
           ON prli.item_id = pe.item_id
          AND prli.prli_id = {PRLI_CLASICA}
+         AND prli.comp_id = {COMP_ID}
         -- PM assignment via marcas_pm
         LEFT JOIN marcas_pm mp
           ON mp.marca = pe.marca
@@ -405,7 +414,7 @@ async def get_ranking(
             dias_sin_venta=row.dias_sin_venta,
             erp_ageing_dias=row.erp_ageing_dias,
             last_purchase_date=row.last_purchase_date,
-            last_purchase_qty=row.last_purchase_qty,
+            last_purchase_qty=int(row.last_purchase_qty) if row.last_purchase_qty is not None else None,
             total_stock=int(row.total_stock) if row.total_stock is not None else 0,
             valor_costo=float(row.valor_costo) if row.valor_costo is not None else None,
             valor_venta=float(row.valor_venta) if row.valor_venta is not None else None,
@@ -421,4 +430,101 @@ async def get_ranking(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Facets endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/ranking/facets",
+    response_model=RankingFacetsResponse,
+    summary="Facets for ranking filter dropdowns",
+    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+)
+async def get_ranking_facets(
+    db: Session = Depends(get_db),
+) -> RankingFacetsResponse:
+    """Return distinct filter values for the ranking page dropdowns.
+
+    Returns:
+    - marcas: DISTINCT productos_erp.marca WHERE activo IS TRUE, non-null, sorted asc.
+    - categorias: DISTINCT productos_erp.categoria WHERE activo IS TRUE, non-null, sorted asc.
+    - pms: DISTINCT usuarios.nombre via marcas_pm JOIN, non-null, sorted asc.
+      Matches the PM display name produced by the ranking endpoint
+      (expression: u_pm.nombre — the same column used in the pm filter).
+    - depositos: DISTINCT tb_item_storage.stor_id as DepositoFacet{id, label}, sorted asc.
+
+    Permission required: consultas.ver_ranking
+    """
+    try:
+        marcas_rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT marca
+                FROM productos_erp
+                WHERE activo IS TRUE
+                  AND marca IS NOT NULL
+                  AND marca <> ''
+                ORDER BY marca ASC
+                """
+            )
+        ).fetchall()
+
+        categorias_rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT categoria
+                FROM productos_erp
+                WHERE activo IS TRUE
+                  AND categoria IS NOT NULL
+                  AND categoria <> ''
+                ORDER BY categoria ASC
+                """
+            )
+        ).fetchall()
+
+        pms_rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT u.nombre
+                FROM marcas_pm mp
+                JOIN usuarios u ON u.id = mp.usuario_id
+                WHERE u.nombre IS NOT NULL
+                  AND u.nombre <> ''
+                ORDER BY u.nombre ASC
+                """
+            )
+        ).fetchall()
+
+        depositos_rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT stor_id
+                FROM tb_item_storage
+                WHERE stor_id IS NOT NULL
+                ORDER BY stor_id ASC
+                """
+            )
+        ).fetchall()
+
+    except Exception as exc:
+        logger.error("Error in consultas ranking/facets query: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener los facets de ranking",
+        ) from exc
+
+    marcas: list[str] = [row[0] for row in marcas_rows]
+    categorias: list[str] = [row[0] for row in categorias_rows]
+    pms: list[str] = [row[0] for row in pms_rows]
+    depositos: list[DepositoFacet] = [DepositoFacet(id=row[0], label=f"Depósito {row[0]}") for row in depositos_rows]
+
+    return RankingFacetsResponse(
+        marcas=marcas,
+        categorias=categorias,
+        pms=pms,
+        depositos=depositos,
     )
