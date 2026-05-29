@@ -89,7 +89,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       icon: Search,
       defaultOpen: false,
       items: [
-        { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking' },
         { label: 'Traza', path: '/traza', permiso: 'traza.ver' },
         { label: 'Seguimiento Envíos', path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
         { label: 'Cumpleaños', path: '/cumpleanos' },
@@ -112,6 +111,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       icon: BarChart3,
       defaultOpen: false,
       items: [
+        { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking' },
         { label: 'Métricas ML', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
