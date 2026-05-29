@@ -27,6 +27,60 @@
   flex-shrink: 0;
 }
 
+/* Multi-sort: container for badge + arrow */
+.sortIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Priority badge (1, 2, 3…) for multi-sort columns */
+.sortBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  font-size: 9px;
+  font-weight: var(--font-semibold, 600);
+  background: var(--brand-primary);
+  color: var(--text-inverse);
+  line-height: 1;
+}
+
+/* Dual-currency cost cell */
+.numericCost {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.costCell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  position: relative;
+}
+
+.costRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs, 11px);
+  white-space: nowrap;
+}
+
+.costCurrency {
+  font-size: 9px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-tertiary);
+  min-width: 24px;
+  text-align: right;
+}
+
 /* Numeric cells */
 .numeric {
   text-align: right;

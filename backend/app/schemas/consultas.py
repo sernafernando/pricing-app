@@ -4,12 +4,14 @@ Pydantic v2 schemas for the Consultas module — ranking endpoint.
 REQ-01: Ranking rows contain item_id, codigo, descripcion, marca, categoria,
 pm (nullable), calculated_ageing_days (nullable), erp_ageing (nullable),
 last_purchase_date (nullable), last_purchase_qty (nullable),
-stock_valuation_ars (nullable), potential_revenue_ars (nullable), total_stock.
+valor_costo_ars (nullable), valor_costo_usd (nullable),
+valor_venta (nullable), total_stock.
 
-REQ-04: Dynamic sort via sort_by / sort_dir; unknown sort_by → 422.
+REQ-04: Dynamic multi-column sort via `sort` list; unknown campo → 422.
 REQ-05: Pagination page / page_size (1-200).
-REQ-03: Filters: marca, categoria, pm, stor_ids.
+REQ-03: Filters: marca, categoria, pm, stor_ids, incluir_sin_stock, incluir_combos.
 ADR-4: ventana_dias in {30, 60, 90, 180}.
+ADR-5: Dual-currency cost fields (ARS + USD).
 """
 
 from __future__ import annotations
@@ -31,7 +33,8 @@ SORT_COLUMNS_PERMITIDAS: frozenset[str] = frozenset(
         "dias_sin_venta",
         "unidades_vendidas_ventana",
         "total_stock",
-        "valor_costo",
+        "valor_costo_ars",
+        "valor_costo_usd",
         "valor_venta",
         "last_purchase_date",
         "codigo",
@@ -73,13 +76,25 @@ class RankingItemRow(BaseModel):
 
     # Stock and valuation
     total_stock: int = Field(default=0)
-    valor_costo: Optional[float] = Field(
+    valor_costo_ars: Optional[float] = Field(
         default=None,
-        description="total_stock × costo convertido a ARS. Null si no hay TC disponible.",
+        description=(
+            "total_stock × costo en ARS. "
+            "Si moneda_costo=USD se aplica tc_venta; si ARS se usa costo directo. "
+            "Null si no hay TC disponible y el origen es USD, o si no hay costo."
+        ),
+    )
+    valor_costo_usd: Optional[float] = Field(
+        default=None,
+        description=(
+            "total_stock × costo en USD. "
+            "Si moneda_costo=USD se usa costo directo; si ARS se divide por tc_venta. "
+            "Null si no hay TC disponible y el origen es ARS, o si no hay costo."
+        ),
     )
     valor_venta: Optional[float] = Field(
         default=None,
-        description="total_stock × precio lista clasica (prli_id=4). Null si no hay precio.",
+        description="total_stock × precio lista clasica (prli_id=4) en ARS. Null si no hay precio.",
     )
 
     # Sales velocity
@@ -88,8 +103,8 @@ class RankingItemRow(BaseModel):
         description="Unidades vendidas en la ventana seleccionada.",
     )
 
-    # Currency metadata (badge/tooltip — never used for arithmetic)
-    moneda_costo: Optional[str] = Field(default=None, description="ARS o USD")
+    # Currency metadata (badge/tooltip — origin currency tag)
+    moneda_costo: Optional[str] = Field(default=None, description="ARS o USD — moneda origen del costo")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,7 +140,8 @@ class RankingFacetsResponse(BaseModel):
     All lists are sorted ascending. marcas and categorias are filtered to
     activo=TRUE products only. pms correspond to the exact display name
     produced by the ranking endpoint (usuarios.nombre). depositos include
-    only stor_ids present in tb_item_storage.
+    only stor_ids present in tb_item_storage, with real depot names where
+    available (stor_desc from tb_storage), falling back to 'Depósito {id}'.
     """
 
     marcas: list[str]
