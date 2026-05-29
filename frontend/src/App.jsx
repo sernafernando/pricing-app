@@ -54,6 +54,7 @@ import AdministracionBancos from './pages/AdministracionBancos';
 import AdministracionImpuestos from './pages/AdministracionImpuestos';
 import AdministracionCaja from './pages/AdministracionCaja';
 import AdministracionCompras from './pages/AdministracionCompras';
+import ConsultasRanking from './pages/ConsultasRanking';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
@@ -246,6 +247,11 @@ function App() {
             <Route path="/claims" element={
               <ProtectedRoute permiso="rma.ver">
                 <ClaimsDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/consultas/ranking" element={
+              <ProtectedRoute permiso="consultas.ver_ranking">
+                <ConsultasRanking />
               </ProtectedRoute>
             } />
             <Route path="/traza" element={

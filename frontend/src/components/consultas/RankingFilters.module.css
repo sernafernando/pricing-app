@@ -1,0 +1,112 @@
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.filterIcon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  padding-bottom: 2px;
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 120px;
+}
+
+.label {
+  font-size: var(--font-xs, 11px);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.input,
+.select {
+  height: 32px;
+  padding: 0 var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm, 13px);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 2px rgba(var(--brand-primary-rgb), 0.15);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.select {
+  cursor: pointer;
+  min-width: 110px;
+}
+
+/* Depot multi-select buttons */
+.depotGroup {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.depotBtn,
+.depotBtnActive {
+  height: 32px;
+  min-width: 36px;
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm, 13px);
+  font-family: inherit;
+  font-weight: var(--font-medium, 500);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.depotBtn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.depotBtn:hover {
+  border-color: var(--brand-primary);
+  color: var(--text-primary);
+}
+
+.depotBtnActive {
+  background: var(--brand-primary);
+  border: 1px solid var(--brand-primary);
+  color: var(--text-inverse);
+}
+
+.depotBtnActive:hover {
+  background: var(--brand-primary-hover);
+  border-color: var(--brand-primary-hover);
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
+  }
+  .filterGroup {
+    min-width: 100px;
+  }
+}

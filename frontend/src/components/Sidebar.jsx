@@ -89,6 +89,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       icon: Search,
       defaultOpen: false,
       items: [
+        { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking' },
         { label: 'Traza', path: '/traza', permiso: 'traza.ver' },
         { label: 'Seguimiento Envíos', path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
         { label: 'Cumpleaños', path: '/cumpleanos' },
