@@ -32,10 +32,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permiso
+from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.usuario import Usuario
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
     VENTANA_DIAS_PERMITIDAS,
@@ -189,8 +188,7 @@ async def get_ranking(
     ),
     stor_ids: list[int] = Query(default=[1], description="IDs de depósito"),
     ventana_dias: int = Query(default=90, description="Ventana de ventas en días {30,60,90,180}"),
-    # Auth injected by require_permiso dependency but we also need the user object
-    current_user: Usuario = Depends(get_current_user),
+    # Auth + permission are enforced by the require_permiso(...) route dependency above.
     db: Session = Depends(get_db),
 ) -> RankingResponse:
     """Product ranking ordered by sales ageing and configurable metrics.
@@ -362,7 +360,10 @@ async def get_ranking(
           ON prli.item_id = pe.item_id
          AND prli.prli_id = {PRLI_CLASICA}
          AND prli.comp_id = {COMP_ID}
-        -- PM assignment via marcas_pm
+        -- PM assignment via marcas_pm. Cannot multiply rows: marcas_pm has a
+        -- UNIQUE constraint (marcas_pm_marca_categoria_key) on (marca, categoria),
+        -- so at most one PM matches a given product — the COUNT(*) and the row
+        -- set stay correct.
         LEFT JOIN marcas_pm mp
           ON mp.marca = pe.marca
          AND mp.categoria = pe.categoria

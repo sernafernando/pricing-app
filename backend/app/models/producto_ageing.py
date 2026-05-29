@@ -10,9 +10,8 @@ Table created by migration: 20260529_01_consultas_ageing_table_permiso.py
 
 from datetime import datetime, UTC
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, DateTime, Integer
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -28,17 +27,17 @@ class ProductoAgeing(Base):
 
     __tablename__ = "productos_ageing"
 
-    item_id = Column(
-        Integer,
-        ForeignKey("productos_erp.item_id", ondelete="CASCADE"),
-        primary_key=True,
-        nullable=False,
-    )
+    # Logical FK to productos_erp.item_id (NOT a DB-level constraint — see ADR-3
+    # and migration 20260529_01: independent sync cadence, tolerates orphans via
+    # LEFT JOIN). Keep this a plain PK so the model matches the actual schema and
+    # does not drift on `alembic revision --autogenerate`.
+    item_id = Column(Integer, primary_key=True)
     ageing_dias = Column(Integer, nullable=True)
     ageing_payload = Column(JSONB, nullable=True)
+    # Nullable to match the migration (a row may predate its first sync).
     fecha_sync = Column(
         DateTime(timezone=True),
-        nullable=False,
+        nullable=True,
         default=lambda: datetime.now(UTC),
     )
     created_at = Column(
@@ -51,11 +50,4 @@ class ProductoAgeing(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
-    )
-
-    # Relationship back to ProductoERP (optional — useful for eager loading)
-    producto = relationship(
-        "ProductoERP",
-        backref="ageing",
-        foreign_keys=[item_id],
     )
