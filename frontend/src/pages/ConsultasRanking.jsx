@@ -53,8 +53,11 @@ function ConsultasRankingContent() {
     setStorIds,
     ventanaDias,
     setVentanaDias,
-    sortBy,
-    sortDir,
+    incluirSinStock,
+    setIncluirSinStock,
+    incluirCombos,
+    setIncluirCombos,
+    sort,
     toggleSort,
     page,
     pageSize,
@@ -84,6 +87,10 @@ function ConsultasRankingContent() {
         onStorIdsChange={setStorIds}
         ventanaDias={ventanaDias}
         onVentanaDiasChange={setVentanaDias}
+        incluirSinStock={incluirSinStock}
+        onIncluirSinStockChange={setIncluirSinStock}
+        incluirCombos={incluirCombos}
+        onIncluirCombosChange={setIncluirCombos}
         facets={facets}
         facetsLoading={facetsLoading}
       />
@@ -92,8 +99,7 @@ function ConsultasRankingContent() {
         items={items}
         loading={loading}
         error={error}
-        sortBy={sortBy}
-        sortDir={sortDir}
+        sort={sort}
         onSort={toggleSort}
         page={page}
         totalPages={totalPages}

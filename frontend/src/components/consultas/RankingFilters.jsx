@@ -23,6 +23,10 @@ export default function RankingFilters({
   onStorIdsChange,
   ventanaDias,
   onVentanaDiasChange,
+  incluirSinStock,
+  onIncluirSinStockChange,
+  incluirCombos,
+  onIncluirCombosChange,
   facets,
   facetsLoading,
 }) {
@@ -45,7 +49,7 @@ export default function RankingFilters({
         <Filter size={16} />
       </div>
 
-      {/* Marca — searchable via native datalist (191 options) */}
+      {/* Marca — searchable via native datalist */}
       <div className={styles.filterGroup}>
         <label className={styles.label} htmlFor="filter-marca">
           Marca
@@ -130,7 +134,9 @@ export default function RankingFilters({
         </select>
       </div>
 
-      {/* Depósitos — from facets; falls back to FALLBACK_DEPOSITOS if facets fail or return empty */}
+      {/* Depósitos — multi-select buttons showing real depot names from facets.
+          Each button displays the full label (stor_desc or fallback 'Depósito {id}').
+          aria-label and title are the same label for accessibility. */}
       <div className={styles.filterGroup}>
         <span className={styles.label}>Depósitos</span>
         <div className={styles.depotGroup}>
@@ -146,10 +152,35 @@ export default function RankingFilters({
                 aria-label={depot.label}
                 title={depot.label}
               >
-                {depot.id}
+                {depot.label}
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Boolean filters — hidden by default, shown as checkboxes */}
+      <div className={styles.filterGroup}>
+        <span className={styles.label}>Mostrar</span>
+        <div className={styles.checkGroup}>
+          <label className={styles.checkLabel}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={incluirSinStock}
+              onChange={(e) => onIncluirSinStockChange(e.target.checked)}
+            />
+            Sin stock
+          </label>
+          <label className={styles.checkLabel}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={incluirCombos}
+              onChange={(e) => onIncluirCombosChange(e.target.checked)}
+            />
+            Combos/Producción
+          </label>
         </div>
       </div>
     </div>

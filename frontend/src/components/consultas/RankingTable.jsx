@@ -2,6 +2,7 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Chev
 import styles from './RankingTable.module.css';
 
 // Columns and their sort keys (matches backend SORT_COLUMNS whitelist)
+// valor_costo_ars / valor_costo_usd replace old valor_costo
 const COLUMNS = [
   { key: 'codigo', label: 'Código', sortable: true, align: 'left' },
   { key: 'descripcion', label: 'Descripción', sortable: true, align: 'left' },
@@ -11,37 +12,53 @@ const COLUMNS = [
   { key: 'dias_sin_venta', label: 'Días sin venta', sortable: true, align: 'right' },
   { key: 'unidades_vendidas_ventana', label: 'Uds. vendidas', sortable: true, align: 'right' },
   { key: 'total_stock', label: 'Stock total', sortable: true, align: 'right' },
-  { key: 'valor_costo', label: 'Costo (ARS)', sortable: true, align: 'right' },
+  { key: 'valor_costo_ars', label: 'Valor costo', sortable: true, align: 'right' },
   { key: 'valor_venta', label: 'Venta (ARS)', sortable: true, align: 'right' },
   { key: 'last_purchase_date', label: 'Última compra', sortable: true, align: 'left' },
   { key: null, label: 'Días ageing ERP', sortable: false, align: 'right' },
 ];
 
-function SortIcon({ column, sortBy, sortDir }) {
-  if (!column) return null;
-  if (column !== sortBy) return <ChevronsUpDown size={13} className={styles.sortIcon} />;
-  return sortDir === 'asc'
-    ? <ChevronUp size={13} className={styles.sortIconActive} />
-    : <ChevronDown size={13} className={styles.sortIconActive} />;
+/**
+ * Sort icon for a column header.
+ * Shows a badge number (1, 2, 3…) when the column is part of a multi-sort.
+ * Shows the asc/desc chevron for active sort columns.
+ */
+function SortIcon({ colKey, sort }) {
+  if (!colKey) return null;
+  const idx = sort.findIndex((s) => s.campo === colKey);
+  if (idx === -1) return <ChevronsUpDown size={13} className={styles.sortIcon} />;
+  const entry = sort[idx];
+  const badge = sort.length > 1 ? <span className={styles.sortBadge}>{idx + 1}</span> : null;
+  const arrow =
+    entry.dir === 'asc' ? (
+      <ChevronUp size={13} className={styles.sortIconActive} />
+    ) : (
+      <ChevronDown size={13} className={styles.sortIconActive} />
+    );
+  return (
+    <span className={styles.sortIndicator}>
+      {badge}
+      {arrow}
+    </span>
+  );
 }
 
-function formatARS(value, moneda) {
+function formatARS(value) {
   if (value == null) return '—';
-  const formatted = new Intl.NumberFormat('es-AR', {
+  return new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
     maximumFractionDigits: 0,
   }).format(value);
+}
 
-  if (moneda && moneda !== 'ARS') {
-    return (
-      <span className={styles.valueWithBadge}>
-        {formatted}
-        <span className={styles.monedaBadge}>{moneda}</span>
-      </span>
-    );
-  }
-  return formatted;
+function formatUSD(value) {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function formatDate(dateStr) {
@@ -57,12 +74,38 @@ function formatDate(dateStr) {
   }
 }
 
+/**
+ * Dual-currency cost cell: shows both USD and ARS stacked.
+ * Uses the moneda_costo field as an origin tag (shown as a small badge).
+ */
+function CostCell({ valorCostoArs, valorCostoUsd, monedaCosto }) {
+  const arsStr = formatARS(valorCostoArs);
+  const usdStr = formatUSD(valorCostoUsd);
+  if (valorCostoArs == null && valorCostoUsd == null) return <span>—</span>;
+  return (
+    <span className={styles.costCell}>
+      <span className={styles.costRow}>
+        <span className={styles.costCurrency}>ARS</span>
+        <span>{arsStr}</span>
+      </span>
+      <span className={styles.costRow}>
+        <span className={styles.costCurrency}>USD</span>
+        <span>{usdStr}</span>
+      </span>
+      {monedaCosto && (
+        <span className={styles.monedaBadge} title={`Costo origen: ${monedaCosto}`}>
+          {monedaCosto}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function RankingTable({
   items,
   loading,
   error,
-  sortBy,
-  sortDir,
+  sort,
   onSort,
   page,
   totalPages,
@@ -70,50 +113,60 @@ export default function RankingTable({
   pageSize,
   onGoToPage,
 }) {
-  function handleHeaderClick(col) {
+  /**
+   * Handle header click.
+   * Passes shiftKey so the hook can decide single vs. multi-sort.
+   */
+  function handleHeaderClick(col, event) {
     if (col.sortable && col.key) {
-      onSort(col.key);
+      onSort(col.key, event.shiftKey);
     }
   }
 
   const startRow = (page - 1) * pageSize + 1;
   const endRow = Math.min(page * pageSize, total);
 
+  // Determine the primary sort column key for aria-sort
+  const primarySort = sort[0] ?? null;
+
   return (
     <div className={styles.wrapper}>
-      {/* Table scroll container */}
       <div className="table-container-tesla">
         <table className="table-tesla">
           <thead className="table-tesla-head">
             <tr>
-              {COLUMNS.map((col, idx) => (
-                <th
-                  key={col.key ?? `col-${idx}`}
-                  className={[
-                    col.sortable ? 'sortable' : '',
-                    col.key === sortBy ? 'sorted' : '',
-                    col.align === 'right' ? styles.alignRight : '',
-                  ].join(' ')}
-                  onClick={() => handleHeaderClick(col)}
-                  aria-sort={
-                    col.key === sortBy
-                      ? sortDir === 'asc'
-                        ? 'ascending'
-                        : 'descending'
-                      : undefined
-                  }
-                >
-                  <span className={styles.thInner}>
-                    {col.label}
-                    <SortIcon column={col.key} sortBy={sortBy} sortDir={sortDir} />
-                  </span>
-                </th>
-              ))}
+              {COLUMNS.map((col, idx) => {
+                const isActive = col.key && sort.some((s) => s.campo === col.key);
+                const isPrimary = col.key && primarySort?.campo === col.key;
+                return (
+                  <th
+                    key={col.key ?? `col-${idx}`}
+                    className={[
+                      col.sortable ? 'sortable' : '',
+                      isActive ? 'sorted' : '',
+                      col.align === 'right' ? styles.alignRight : '',
+                    ].join(' ')}
+                    onClick={(e) => handleHeaderClick(col, e)}
+                    title={col.sortable && col.key ? 'Click: ordenar. Shift+Click: orden secundario.' : undefined}
+                    aria-sort={
+                      isPrimary
+                        ? primarySort.dir === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : undefined
+                    }
+                  >
+                    <span className={styles.thInner}>
+                      {col.label}
+                      <SortIcon colKey={col.key} sort={sort} />
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
           <tbody className="table-tesla-body">
-            {/* Loading overlay rows */}
             {loading && items.length === 0 && (
               <tr>
                 <td colSpan={COLUMNS.length} className={styles.stateCell}>
@@ -125,7 +178,6 @@ export default function RankingTable({
               </tr>
             )}
 
-            {/* Error state */}
             {error && !loading && (
               <tr>
                 <td colSpan={COLUMNS.length} className={styles.stateCell}>
@@ -137,7 +189,6 @@ export default function RankingTable({
               </tr>
             )}
 
-            {/* Empty state */}
             {!loading && !error && items.length === 0 && (
               <tr>
                 <td colSpan={COLUMNS.length} className={styles.stateCell}>
@@ -149,7 +200,6 @@ export default function RankingTable({
               </tr>
             )}
 
-            {/* Data rows */}
             {items.map((item) => (
               <tr key={item.item_id} className={loading ? styles.rowLoading : ''}>
                 <td>{item.codigo ?? '—'}</td>
@@ -162,10 +212,14 @@ export default function RankingTable({
                 </td>
                 <td className={styles.numeric}>{item.unidades_vendidas_ventana ?? 0}</td>
                 <td className={styles.numeric}>{item.total_stock ?? 0}</td>
-                <td className={styles.numeric}>
-                  {formatARS(item.valor_costo, item.moneda_costo)}
+                <td className={styles.numericCost}>
+                  <CostCell
+                    valorCostoArs={item.valor_costo_ars}
+                    valorCostoUsd={item.valor_costo_usd}
+                    monedaCosto={item.moneda_costo}
+                  />
                 </td>
-                <td className={styles.numeric}>{formatARS(item.valor_venta, null)}</td>
+                <td className={styles.numeric}>{formatARS(item.valor_venta)}</td>
                 <td>{formatDate(item.last_purchase_date)}</td>
                 <td className={styles.numeric}>
                   {item.erp_ageing_dias != null ? item.erp_ageing_dias : '—'}
@@ -176,7 +230,6 @@ export default function RankingTable({
         </table>
       </div>
 
-      {/* Pagination footer */}
       {total > 0 && (
         <div className={styles.pagination}>
           <span className={styles.paginationInfo}>

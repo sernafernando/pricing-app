@@ -206,15 +206,46 @@ def client_with_mock_db(user_con_permiso):
 class TestRankingValidation:
     """Input validation — 422 on bad params."""
 
-    def test_unknown_sort_by_returns_422(self, client, user_con_permiso) -> None:
-        """Unknown sort_by value → 422."""
+    def test_unknown_sort_field_returns_422(self, client, user_con_permiso) -> None:
+        """Unknown sort field in multi-sort param → 422."""
         with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
             response = client.get(
                 "/api/consultas/ranking",
-                params={"sort_by": "campo_inventado"},
+                params={"sort": "campo_inventado:desc"},
                 headers=_auth(user_con_permiso),
             )
         assert response.status_code == 422
+
+    def test_unknown_sort_direction_returns_422(self, client, user_con_permiso) -> None:
+        """Unknown direction in multi-sort param → 422."""
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"sort": "codigo:sideways"},
+                headers=_auth(user_con_permiso),
+            )
+        assert response.status_code == 422
+
+    def test_malformed_sort_missing_colon_returns_422(self, client, user_con_permiso) -> None:
+        """Sort entry without colon → 422."""
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"sort": "codigo"},
+                headers=_auth(user_con_permiso),
+            )
+        assert response.status_code == 422
+
+    def test_valid_multisort_returns_200(self, client_with_mock_db) -> None:
+        """Valid multi-sort list (multiple sort entries) → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params=[("sort", "dias_sin_venta:desc"), ("sort", "total_stock:asc")],
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
 
     def test_page_size_above_200_returns_422(self, client, user_con_permiso) -> None:
         """page_size > 200 → 422."""
@@ -275,7 +306,7 @@ def _make_facets_mock_db_session() -> MagicMock:
     pms_result.fetchall.return_value = [("Juan Pérez",), ("María García",)]
 
     depositos_result = MagicMock()
-    depositos_result.fetchall.return_value = [(1,), (14,), (15,)]
+    depositos_result.fetchall.return_value = [(1, "01-Depósito principal"), (14, None), (15, "15-Sucursal Norte")]
 
     _results = [marcas_result, categorias_result, pms_result, depositos_result]
     call_count = {"n": 0}
@@ -370,7 +401,12 @@ class TestFacets200:
         assert all(isinstance(m, str) for m in body["marcas"])
 
     def test_facets_depositos_have_id_and_label(self, client_with_mock_db_facets) -> None:
-        """depositos items have 'id' (int) and 'label' (str)."""
+        """depositos items have 'id' (int) and 'label' (str).
+
+        When stor_desc is available it is used as the label; when null it falls
+        back to 'Depósito {id}'.  The mock returns:
+          (1, '01-Depósito principal'), (14, None), (15, '15-Sucursal Norte')
+        """
         client, user = client_with_mock_db_facets
         with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
             response = client.get(
@@ -379,22 +415,30 @@ class TestFacets200:
             )
         assert response.status_code == 200
         body = response.json()
+        assert len(body["depositos"]) == 3
+        labels_by_id = {dep["id"]: dep["label"] for dep in body["depositos"]}
+        # stor_desc present → use it
+        assert labels_by_id[1] == "01-Depósito principal"
+        # stor_desc None → fallback
+        assert labels_by_id[14] == "Depósito 14"
+        # stor_desc present → use it
+        assert labels_by_id[15] == "15-Sucursal Norte"
         for dep in body["depositos"]:
             assert "id" in dep
             assert "label" in dep
             assert isinstance(dep["id"], int)
-            assert dep["label"] == f"Depósito {dep['id']}"
+            assert isinstance(dep["label"], str)
 
 
 class TestRankingCurrencyFallback:
-    """No TipoCambio row → valor_costo/valor_venta gracefully null."""
+    """No TipoCambio row → valor_costo_ars/valor_costo_usd/valor_venta gracefully null."""
 
     def test_no_tipo_cambio_returns_200_with_null_valores(self, client_with_mock_db) -> None:
         """When no TipoCambio row exists the endpoint returns 200, not 500.
 
         _get_tc_venta is patched to return None, simulating an empty
         tipo_cambio table. The endpoint should return 200 with null
-        valor_costo/valor_venta, not a 500 error.
+        valor_costo_ars/valor_costo_usd/valor_venta, not a 500 error.
         """
         client, user = client_with_mock_db
         with (
@@ -411,3 +455,136 @@ class TestRankingCurrencyFallback:
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body["items"], list)
+
+
+class TestRankingNewFilterParams:
+    """incluir_sin_stock and incluir_combos params are accepted without error."""
+
+    def test_incluir_sin_stock_false_returns_200(self, client_with_mock_db) -> None:
+        """incluir_sin_stock=false (default) → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"incluir_sin_stock": "false"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+    def test_incluir_sin_stock_true_returns_200(self, client_with_mock_db) -> None:
+        """incluir_sin_stock=true → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"incluir_sin_stock": "true"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+    def test_incluir_combos_false_returns_200(self, client_with_mock_db) -> None:
+        """incluir_combos=false (default) → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"incluir_combos": "false"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+    def test_incluir_combos_true_returns_200(self, client_with_mock_db) -> None:
+        """incluir_combos=true → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"incluir_combos": "true"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+
+class TestRankingDualCurrencyShape:
+    """Response rows expose valor_costo_ars and valor_costo_usd (not valor_costo)."""
+
+    def _make_mock_db_with_rows(self) -> MagicMock:
+        """Mock DB that returns one item row with both cost fields populated."""
+        row = MagicMock()
+        row.item_id = 1
+        row.codigo = "TEST001"
+        row.descripcion = "Test Product"
+        row.marca = "TestBrand"
+        row.categoria = "TestCat"
+        row.moneda_costo = "USD"
+        row.pm = None
+        row.dias_sin_venta = 10
+        row.erp_ageing_dias = None
+        row.last_purchase_date = None
+        row.last_purchase_qty = None
+        row.total_stock = 5
+        row.valor_costo_ars = 500000.0
+        row.valor_costo_usd = 500.0
+        row.valor_venta = 700000.0
+        row.unidades_vendidas_ventana = 3
+
+        rows_result = MagicMock()
+        rows_result.fetchall.return_value = [row]
+        count_result = MagicMock()
+        count_result.fetchone.return_value = (1,)
+
+        call_count = {"n": 0}
+
+        def _execute(stmt, params=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return rows_result
+            return count_result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = _execute
+        return mock_db
+
+    def test_response_has_valor_costo_ars_and_usd(self, user_con_permiso) -> None:
+        """Each item row exposes valor_costo_ars and valor_costo_usd, not valor_costo."""
+        from app.core.database import get_async_db, get_db
+        from app.main import app
+        from starlette.testclient import TestClient
+
+        mock_db = self._make_mock_db_with_rows()
+
+        def _override_get_db():
+            yield mock_db
+
+        async def _override_get_async_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_async_db] = _override_get_async_db
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            with (
+                _PATCH_TIENE_PERMISO_TRUE,
+                _PATCH_OBTENER_PERMISOS,
+                patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+            ):
+                response = client.get(
+                    "/api/consultas/ranking",
+                    headers=_auth(user_con_permiso),
+                )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 1
+        item = body["items"][0]
+        # New dual-currency fields must be present
+        assert "valor_costo_ars" in item
+        assert "valor_costo_usd" in item
+        # Old field must NOT be present
+        assert "valor_costo" not in item
+        # Values populated by mock
+        assert item["valor_costo_ars"] == 500000.0
+        assert item["valor_costo_usd"] == 500.0
+        assert item["moneda_costo"] == "USD"
