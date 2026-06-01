@@ -81,3 +81,7 @@ gmaps
 
 # Sound assets (generated/managed separately)
 frontend/public/sounds/
+
+# Agent tooling caches / local settings
+.atl/
+.pi/

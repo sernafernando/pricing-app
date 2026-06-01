@@ -167,3 +167,35 @@ class RankingFacetsResponse(BaseModel):
     depositos: list[DepositoFacet]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class KpisResponse(BaseModel):
+    """KPI summary aggregated over all products matching the active filters.
+
+    All monetary values are in ARS unless noted. Null when no data is available
+    (e.g. tc_venta not loaded, no products in selection).
+    """
+
+    total_productos: int = Field(description="COUNT(DISTINCT item_id) for the current filter set")
+    stock_total: int = Field(default=0, description="SUM of total_stock across matching products")
+    capital_costo_ars: Optional[float] = Field(
+        default=None, description="SUM(valor_costo_ars) — total holded capital in ARS"
+    )
+    capital_costo_usd: Optional[float] = Field(
+        default=None, description="SUM(valor_costo_usd) — total holded capital in USD"
+    )
+    capital_venta_ars: Optional[float] = Field(
+        default=None, description="SUM(valor_venta) — total potential sell value in ARS"
+    )
+    capital_muerto_ars: Optional[float] = Field(
+        default=None,
+        description=(
+            "SUM(valor_costo_ars) for products with dias_sin_venta > 365 or never sold. 'Dead stock' capital in ARS."
+        ),
+    )
+    pct_capital_muerto: Optional[float] = Field(
+        default=None,
+        description="capital_muerto_ars / capital_costo_ars * 100. Null if capital_costo_ars is 0 or null.",
+    )
+
+    model_config = ConfigDict(from_attributes=True)
