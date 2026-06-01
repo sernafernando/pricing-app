@@ -3,8 +3,13 @@ Sincroniza productos_ageing desde el ERP via scriptAgeing.
 
 scriptAgeing retorna el catálogo completo (~14 768 filas, ~5 MB) sin importar
 la ventana de fechas — fromDate/toDate son requeridos por el endpoint pero no
-filtran. El llamado tarda ~360s, por lo que se usa un httpx.AsyncClient propio
-con timeout=600s (el timeout estándar de gbp_parser.py es 300s y siempre falla).
+filtran. El llamado tarda ~360s.
+
+Este script delega la llamada SOAP al endpoint interno gbp-parser
+(settings.GBP_PARSER_URL), que corre siempre junto a la app y maneja la
+autenticación + retry de token. El endpoint tiene timeout=600s para scriptAgeing
+(ver SCRIPT_TIMEOUTS en gbp_parser.py). El cliente HTTP de este script usa
+GBP_PARSER_HTTP_TIMEOUT=620s para dar margen al server-side timeout.
 
 Modos de uso:
     # Sync completo (ventana por defecto: desde 2000-01-01 hasta hoy)
@@ -23,9 +28,7 @@ Registro en el scheduler del proyecto:
 """
 
 import asyncio
-import json
 import logging
-import re
 import sys
 from datetime import datetime, UTC
 from pathlib import Path
@@ -40,18 +43,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from fastapi import HTTPException
-
-from app.api.endpoints.gbp_parser import (
-    OPERATION_CONFIG,
-    P_COMPANY,
-    P_PASSWORD,
-    P_USERNAME,
-    P_WEBWS,
-    SOAP_URL,
-    authenticate_user,
-    parse_soap_response,
-)
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.producto_ageing import ProductoAgeing
 
@@ -61,109 +53,54 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Timeout en segundos — scriptAgeing tarda ~360s; 600s da margen holgado
-SOAP_TIMEOUT_SECONDS = 600.0
+# Timeout del cliente HTTP hacia el endpoint gbp-parser.
+# Debe exceder el server-side timeout de scriptAgeing (600s en SCRIPT_TIMEOUTS).
+GBP_PARSER_HTTP_TIMEOUT = 620.0
 
 # Batch size para el upsert bulk (reduce memoria y presión en el pool)
 UPSERT_BATCH_SIZE = 500
 
 
 # ---------------------------------------------------------------------------
-# ERP call
+# ERP call via gbp-parser endpoint
 # ---------------------------------------------------------------------------
 
 
-async def _call_ageing_soap(from_date: str, to_date: str) -> str:
-    """Llama a wsGBPScriptExecute4Dataset para scriptAgeing con timeout largo.
+async def _fetch_ageing(from_date: str, to_date: str) -> list[dict]:
+    """Llama al endpoint interno gbp-parser para obtener las filas de scriptAgeing.
 
-    No reutiliza call_soap_service() de gbp_parser porque ese usa timeout=300s,
-    que siempre falla para scriptAgeing (~360s). En su lugar construimos el
-    envelope directamente con nuestro propio AsyncClient.
+    Usa GET con query params porque el endpoint lee request.query_params en GET
+    (y await request.json() en POST — que requeriría JSON body, no params).
+
+    El endpoint ya maneja: autenticación ERP, token-expiry retry, SOAP envelope,
+    y parsing XML → JSON. Devuelve list[dict] con las filas del catálogo.
+
+    Args:
+        from_date: Fecha inicio en formato "YYYY-MM-DD HH:MM:SS".
+        to_date:   Fecha fin en formato "YYYY-MM-DD HH:MM:SS".
+
+    Returns:
+        Lista de dicts con las filas de scriptAgeing (puede ser vacía).
+
+    Raises:
+        RuntimeError: Si la respuesta HTTP no es 2xx o si el formato es inesperado.
     """
-    try:
-        token = await authenticate_user()
-    except HTTPException as exc:
-        raise RuntimeError(f"ERP auth failed: {exc.detail}") from exc
+    params = {
+        "strScriptLabel": "scriptAgeing",
+        "fromDate": from_date,
+        "toDate": to_date,
+    }
+    logger.info("🔄 Llamando a gbp-parser para scriptAgeing (timeout=%ss)…", GBP_PARSER_HTTP_TIMEOUT)
+    async with httpx.AsyncClient(timeout=GBP_PARSER_HTTP_TIMEOUT) as client:
+        resp = await client.get(settings.GBP_PARSER_URL, params=params)
 
-    op = OPERATION_CONFIG["wsGBPScriptExecute4Dataset"]
-    soap_action: str = op["soapAction"]
+    resp.raise_for_status()
+    data = resp.json()
 
-    json_params = json.dumps({"fromDate": from_date, "toDate": to_date})
-    soap_body = op["template"].format(
-        strScriptLabel="scriptAgeing",
-        strJSonParameters=json_params.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"),
-    )
+    if not isinstance(data, list):
+        raise RuntimeError(f"Respuesta inesperada del gbp-parser: {data!r}")
 
-    xml_payload = f"""<?xml version="1.0" encoding="utf-8"?>
-    <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-      <soap:Header>
-        <wsBasicQueryHeader xmlns="http://microsoft.com/webservices/">
-          <pUsername>{P_USERNAME}</pUsername>
-          <pPassword>{P_PASSWORD}</pPassword>
-          <pCompany>{P_COMPANY}</pCompany>
-          <pWebWervice>{P_WEBWS}</pWebWervice>
-          <pAuthenticatedToken>{token}</pAuthenticatedToken>
-        </wsBasicQueryHeader>
-      </soap:Header>
-      <soap:Body>
-        {soap_body}
-      </soap:Body>
-    </soap:Envelope>"""
-
-    logger.info("🔄 Llamando a scriptAgeing (timeout=%ss)…", SOAP_TIMEOUT_SECONDS)
-    async with httpx.AsyncClient(timeout=SOAP_TIMEOUT_SECONDS) as client:
-        response = await client.post(
-            SOAP_URL,
-            content=xml_payload,
-            headers={
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": soap_action,
-            },
-        )
-
-    xml_text: str = response.text
-
-    # Token-expiry retry: re-authenticate once and re-POST with the same client
-    if "TOKEN Expired" in xml_text:
-        logger.warning("⚠️ Token expirado tras el POST — renovando y reintentando…")
-        try:
-            token = await authenticate_user()
-        except HTTPException as exc:
-            raise RuntimeError(f"ERP auth failed during token refresh: {exc.detail}") from exc
-
-        # Rebuild envelope with fresh token
-        xml_payload = f"""<?xml version="1.0" encoding="utf-8"?>
-    <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-      <soap:Header>
-        <wsBasicQueryHeader xmlns="http://microsoft.com/webservices/">
-          <pUsername>{P_USERNAME}</pUsername>
-          <pPassword>{P_PASSWORD}</pPassword>
-          <pCompany>{P_COMPANY}</pCompany>
-          <pWebWervice>{P_WEBWS}</pWebWervice>
-          <pAuthenticatedToken>{token}</pAuthenticatedToken>
-        </wsBasicQueryHeader>
-      </soap:Header>
-      <soap:Body>
-        {soap_body}
-      </soap:Body>
-    </soap:Envelope>"""
-
-        async with httpx.AsyncClient(timeout=SOAP_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                SOAP_URL,
-                content=xml_payload,
-                headers={
-                    "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": soap_action,
-                },
-            )
-        xml_text = response.text
-
-    return xml_text
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -309,10 +246,8 @@ def sync_ageing(from_date: str, to_date: str) -> tuple[int, int, int]:
         logger.info("🔄 === Iniciando sincronización de productos_ageing ===")
         logger.info("🔄 Ventana ERP: %s → %s", from_date, to_date)
 
-        # 1. Llamar al ERP (SOAP con timeout largo)
-        xml_text = asyncio.run(_call_ageing_soap(from_date, to_date))
-        raw = parse_soap_response(xml_text)
-        rows = parse_ageing_response(raw)
+        # 1. Obtener filas del ERP via endpoint gbp-parser (ya parseadas)
+        rows = asyncio.run(_fetch_ageing(from_date, to_date))
 
         total_erp = len(rows)
         logger.info("✅ Recibidas %d filas del ERP", total_erp)
