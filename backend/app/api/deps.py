@@ -149,6 +149,47 @@ def require_permiso(codigo: str):
     return _check
 
 
+def require_algun_permiso(codigos: list[str]):
+    """FastAPI dependency that requires at least one of the given permission codes.
+
+    Mirrors ``require_permiso`` but accepts a list and uses
+    ``PermisosService.tiene_algun_permiso``.  Raises HTTP 403 with
+    ``INSUFFICIENT_PERMISSIONS`` if the user has none of the codes.
+
+    Usage::
+
+        @router.get(
+            "/ranking",
+            dependencies=[Depends(require_algun_permiso(["a.ver", "a.ver_propio"]))],
+        )
+
+    Args:
+        codigos: List of permission codes; the user must have at least one.
+
+    Returns:
+        Callable async that FastAPI will inject as a dependency.
+    """
+    from sqlalchemy.orm import Session
+
+    from app.core.database import get_async_db
+    from app.services.permisos_service import PermisosService
+
+    async def _check(
+        current_user: Usuario = Depends(get_current_user),
+        db: Session = Depends(get_async_db),
+    ) -> Usuario:
+        svc = PermisosService(db)
+        if not svc.tiene_algun_permiso(current_user, codigos):
+            raise api_error(
+                403,
+                ErrorCode.INSUFFICIENT_PERMISSIONS,
+                f"Requiere alguno de: {codigos}",
+            )
+        return current_user
+
+    return _check
+
+
 # Dependencias específicas por rol
 async def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:

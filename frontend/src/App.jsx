@@ -250,7 +250,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/consultas/ranking" element={
-              <ProtectedRoute permiso="consultas.ver_ranking">
+              <ProtectedRoute permisos={['consultas.ver_ranking', 'consultas.ver_mi_ranking']}>
                 <ConsultasRanking />
               </ProtectedRoute>
             } />
