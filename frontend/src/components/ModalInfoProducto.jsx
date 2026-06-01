@@ -694,7 +694,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                     <div className="info-item">
                       <span className="info-label">Fecha:</span>
                       <span className="info-value">
-                        {new Date(detalle.pricing.fecha_modificacion).toLocaleString('es-AR')}
+                        {new Date(detalle.pricing.fecha_modificacion).toLocaleString('es-AR', { hour12: false })}
                       </span>
                     </div>
                   </div>

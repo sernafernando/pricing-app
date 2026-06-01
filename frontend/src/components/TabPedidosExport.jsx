@@ -1326,7 +1326,7 @@ export default function TabPedidosExport() {
                                 <div className={styles.flexEnvioDetail}>
                                   <strong>Pistoleado:</strong>
                                   <span className={styles.flexPistoleadoOk}>
-                                    <ScanBarcode size={13} /> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}
+                                    <ScanBarcode size={13} /> {new Date(envio.pistoleado_at).toLocaleString('es-AR', { hour12: false })}
                                     {envio.pistoleado_caja && ` — Caja: ${envio.pistoleado_caja}`}
                                   </span>
                                 </div>
@@ -1337,7 +1337,7 @@ export default function TabPedidosExport() {
                               )}
                               {envio.created_at && (
                                 <div className={styles.flexEnvioDetail}>
-                                  <strong>Creado:</strong> {new Date(envio.created_at).toLocaleString('es-AR')}
+                                  <strong>Creado:</strong> {new Date(envio.created_at).toLocaleString('es-AR', { hour12: false })}
                                 </div>
                               )}
                             </div>

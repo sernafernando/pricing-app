@@ -501,7 +501,7 @@ export default function TabCheckeoColecta() {
 
   const formatLoteLabel = (l) => {
     const ts = new Date(l.primer_carga_at);
-    const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
     return `${hora} · ${l.total} etiqueta${l.total !== 1 ? 's' : ''} · #${l.colecta_numero}`;
   };
 

@@ -619,7 +619,7 @@ export default function TabPistoleado({ operador = null }) {
                 </span>
                 <span className={styles.logMessage}>{item.message}</span>
                 <span className={styles.logTime}>
-                  {item.time.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {item.time.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                 </span>
               </div>
             ))

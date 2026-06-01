@@ -725,7 +725,7 @@ function TabEnvios({
                   <td className={styles.direccion} title={envio.direccion_completa}>
                     {envio.direccion_completa || '-'}
                   </td>
-                  <td>{envio.mlestimated_delivery_limit ? new Date(envio.mlestimated_delivery_limit).toLocaleString('es-AR') : '-'}</td>
+                  <td>{envio.mlestimated_delivery_limit ? new Date(envio.mlestimated_delivery_limit).toLocaleString('es-AR', { hour12: false }) : '-'}</td>
                   <td>{envio.mlo_id || '-'}</td>
                 </tr>
               ))
@@ -873,7 +873,7 @@ function TabEstadisticas({ estadisticas, resumen }) {
                 <tr key={r.motoquero_id}>
                   <td><strong>{r.nombre}</strong></td>
                   <td>{r.total_envios}</td>
-                  <td>{r.ultima_asignacion ? new Date(r.ultima_asignacion).toLocaleString('es-AR') : '-'}</td>
+                  <td>{r.ultima_asignacion ? new Date(r.ultima_asignacion).toLocaleString('es-AR', { hour12: false }) : '-'}</td>
                 </tr>
               ))
             )}

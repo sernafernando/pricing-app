@@ -2109,7 +2109,7 @@ export default function TabEnviosFlex({ operador = null }) {
             </option>
             {lotes.map((l) => {
               const ts = new Date(l.primer_carga_at);
-              const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+              const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
               const fecha = new Date(`${l.fecha_envio}T00:00:00`).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
               return (
                 <option key={l.upload_batch_id} value={l.upload_batch_id}>
@@ -2340,7 +2340,7 @@ export default function TabEnviosFlex({ operador = null }) {
             Filtrando por lote{' '}
             <span className={styles.loteFiltroBadge}>
               {lote
-                ? `${new Date(lote.primer_carga_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} · ${lote.total} etiqueta${lote.total !== 1 ? 's' : ''}`
+                ? `${new Date(lote.primer_carga_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} · ${lote.total} etiqueta${lote.total !== 1 ? 's' : ''}`
                 : 'cargado recién'}
             </span>
             <button
@@ -2786,7 +2786,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     )}
                     <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>
                       {e.pistoleado_at
-                        ? `${new Date(e.pistoleado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} — ${e.pistoleado_operador_nombre || ''}`
+                        ? `${new Date(e.pistoleado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} — ${e.pistoleado_operador_nombre || ''}`
                         : '—'}
                     </td>
                     <td className={e.pistoleado_caja ? '' : styles.cellMuted}>
