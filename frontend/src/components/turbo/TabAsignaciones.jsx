@@ -287,17 +287,11 @@ export default function TabAsignaciones() {
                                         </td>
                                         <td>
                                           <div className={styles.timeAssigned}>
-                                            Asignado: {new Date(e.asignado_at).toLocaleTimeString('es-AR', { 
-                                              hour: '2-digit', 
-                                              minute: '2-digit' 
-                                            })}
+                                            Asignado: {new Date(e.asignado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                                           </div>
                                           {e.entregado_at && (
                                             <div className={styles.timeDelivered}>
-                                              Entregado: {new Date(e.entregado_at).toLocaleTimeString('es-AR', { 
-                                                hour: '2-digit', 
-                                                minute: '2-digit' 
-                                              })}
+                                              Entregado: {new Date(e.entregado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                                             </div>
                                           )}
                                         </td>

@@ -192,7 +192,7 @@ const EnvioMarker = ({
             {ML_STATUS_LABELS[envio.mlstatus] || envio.mlstatus}
           </p>
           {envio.pistoleado_at && (
-            <p><strong>Pistoleado:</strong> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}</p>
+            <p><strong>Pistoleado:</strong> {new Date(envio.pistoleado_at).toLocaleString('es-AR', { hour12: false })}</p>
           )}
 
           <div className={styles.popupActions}>

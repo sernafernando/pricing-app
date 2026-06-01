@@ -417,7 +417,7 @@ export default function ModalRma({ caso, onClose }) {
     if (!fecha) return null;
     return (
       <div className={styles.meta}>
-        <User size={12} /> Usuario #{userId} <Clock size={12} /> {new Date(fecha).toLocaleString('es-AR')}
+        <User size={12} /> Usuario #{userId} <Clock size={12} /> {new Date(fecha).toLocaleString('es-AR', { hour12: false })}
       </div>
     );
   };
@@ -1088,7 +1088,7 @@ export default function ModalRma({ caso, onClose }) {
                     <div key={h.id} className={styles.historialRow}>
                       <Clock size={12} className={styles.historialIcon} />
                       <span className={styles.historialFecha}>
-                        {h.created_at ? new Date(h.created_at).toLocaleString('es-AR') : '—'}
+                        {h.created_at ? new Date(h.created_at).toLocaleString('es-AR', { hour12: false }) : '—'}
                       </span>
                       <strong className={styles.historialUsuario}>{h.usuario_nombre || `#${h.usuario_id}`}</strong>
                       <span className={styles.historialCampo}>{h.campo}:</span>

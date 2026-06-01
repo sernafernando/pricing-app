@@ -554,7 +554,7 @@ function DatosFiscalesView({ datos }) {
         <Field
           label="Última Consulta"
           value={datos.ultima_consulta_afip
-            ? new Date(datos.ultima_consulta_afip).toLocaleString('es-AR')
+            ? new Date(datos.ultima_consulta_afip).toLocaleString('es-AR', { hour12: false })
             : null}
         />
       </div>

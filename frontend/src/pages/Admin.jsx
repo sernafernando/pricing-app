@@ -50,7 +50,7 @@ export default function Admin() {
   };
 
   const agregarLog = (msg) => {
-    setLogSync(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    setLogSync(prev => [...prev, `[${new Date().toLocaleTimeString('es-AR', { hour12: false })}] ${msg}`]);
   };
 
   const sincronizarTodo = async () => {

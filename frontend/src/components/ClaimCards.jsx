@@ -287,7 +287,7 @@ export default function ClaimCards({ claims }) {
                         <span className={styles.claimMsgDate}>
                           {new Date(msg.date_created).toLocaleString('es-AR', {
                             day: '2-digit', month: '2-digit', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit',
+                            hour: '2-digit', minute: '2-digit', hour12: false,
                           })}
                         </span>
                       )}
@@ -361,7 +361,7 @@ export default function ClaimCards({ claims }) {
                           <span className={styles.claimMsgDate}>
                             {new Date(msg.ml_date_created).toLocaleString('es-AR', {
                               day: '2-digit', month: '2-digit', year: 'numeric',
-                              hour: '2-digit', minute: '2-digit',
+                              hour: '2-digit', minute: '2-digit', hour12: false,
                             })}
                           </span>
                         )}
