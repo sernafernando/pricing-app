@@ -2,21 +2,24 @@
 Unit tests for sync_ageing.py (Slice 4 — ERP Ageing Sync).
 
 Covers:
+- _fetch_ageing: delegates to gbp-parser endpoint via GET, validates response shape
 - Código → item_id mapping (resolved via productos_erp.codigo)
 - Upsert payload: ageing_dias, ageing_payload, explicit updated_at
 - Unmatched Códigos are skipped (no crash)
 - Empty ERP response handled gracefully
 
-All DB and SOAP calls are mocked — no real network or DB access.
+All DB and HTTP calls are mocked — no real network or DB access.
 """
 
+import pytest
 from datetime import datetime, UTC
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.dialects import postgresql as pg_dialect
 
 from app.scripts.sync_ageing import (
     _build_upsert_rows,
+    _fetch_ageing,
     _resolve_codigo_map,
     _upsert_batch,
     parse_ageing_response,
@@ -77,6 +80,77 @@ UNMATCHED_ROW = {
     "Comisión_ML": 0.0,
     "Activa": "0",
 }
+
+
+# ---------------------------------------------------------------------------
+# Tests: _fetch_ageing — HTTP call to gbp-parser endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fetch_ageing_returns_rows_on_success() -> None:
+    """_fetch_ageing returns the list of dicts from the gbp-parser endpoint."""
+    sample_rows = [SAMPLE_AGEING_ROW, SAMPLE_AGEING_ROW_2]
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = sample_rows
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
+        result = await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+
+    assert result == sample_rows
+    mock_client.get.assert_called_once()
+    call_kwargs = mock_client.get.call_args
+    # Verify GET is called with strScriptLabel and date params
+    params = (
+        call_kwargs.kwargs.get("params") or call_kwargs.args[1]
+        if len(call_kwargs.args) > 1
+        else call_kwargs.kwargs["params"]
+    )
+    assert params["strScriptLabel"] == "scriptAgeing"
+    assert params["fromDate"] == "2000-01-01 00:00:00"
+    assert params["toDate"] == "2026-12-31 23:59:59"
+
+
+@pytest.mark.asyncio
+async def test_fetch_ageing_raises_on_non_list_response() -> None:
+    """_fetch_ageing raises RuntimeError when the endpoint returns a non-list."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"error": "something went wrong"}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
+        with pytest.raises(RuntimeError, match="Respuesta inesperada del gbp-parser"):
+            await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+
+
+@pytest.mark.asyncio
+async def test_fetch_ageing_returns_empty_list() -> None:
+    """_fetch_ageing returns [] when the endpoint returns an empty list."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = []
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
+        result = await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+
+    assert result == []
 
 
 # ---------------------------------------------------------------------------

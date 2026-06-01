@@ -22,6 +22,11 @@ SOAP_URL = "http://ws.globalbluepoint.com/pastoriza/app_webservices/wsBasicQuery
 # Cache en memoria para el token (simple, sin Redis)
 _token_cache = {"token": None}
 
+# Timeouts por script (segundos). Scripts pesados que superan el default de 300s.
+SCRIPT_TIMEOUTS: dict[str, float] = {
+    "scriptAgeing": 600.0,  # catálogo completo ~14k filas, tarda ~360s
+}
+
 # Configuración de scripts permitidos
 SCRIPT_CONFIG = {
     "scriptDashboard": ["fromDate", "toDate"],
@@ -252,8 +257,16 @@ async def authenticate_user() -> str:
     return token
 
 
-async def call_soap_service(soap_body: str, soap_action: str, token: str) -> str:
-    """Llama al servicio SOAP del ERP"""
+async def call_soap_service(soap_body: str, soap_action: str, token: str, timeout: float = 300.0) -> str:
+    """Llama al servicio SOAP del ERP.
+
+    Args:
+        soap_body: Cuerpo XML del mensaje SOAP (sin el envelope).
+        soap_action: Valor del header SOAPAction.
+        token: Token de autenticación del ERP.
+        timeout: Timeout en segundos para la llamada HTTP (default 300s).
+                 Scripts pesados como scriptAgeing necesitan valores mayores.
+    """
     xml_payload = f"""<?xml version="1.0" encoding="utf-8"?>
     <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -272,7 +285,7 @@ async def call_soap_service(soap_body: str, soap_action: str, token: str) -> str
       </soap:Body>
     </soap:Envelope>"""
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
             SOAP_URL,
             content=xml_payload,
@@ -377,6 +390,7 @@ async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
 
         soap_body = ""
         soap_action = None
+        soap_timeout: float = 300.0
 
         # Construir SOAP body según tipo de operación
         if intExpgr_id:
@@ -392,6 +406,7 @@ async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
             conf = OPERATION_CONFIG["wsGBPScriptExecute4Dataset"]
             soap_action = conf["soapAction"]
             soap_body = conf["template"].format(strScriptLabel=strScriptLabel, strJSonParameters=json_params)
+            soap_timeout = SCRIPT_TIMEOUTS.get(strScriptLabel, 300.0)
 
         elif opName:
             conf = OPERATION_CONFIG.get(opName)
@@ -420,12 +435,12 @@ async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
             token = await authenticate_user()
 
         # Llamar al SOAP
-        xml_content = await call_soap_service(soap_body, soap_action, token)
+        xml_content = await call_soap_service(soap_body, soap_action, token, timeout=soap_timeout)
 
         # Si el token expiró, renovar y reintentar
         if "TOKEN Expired" in xml_content:
             token = await authenticate_user()
-            xml_content = await call_soap_service(soap_body, soap_action, token)
+            xml_content = await call_soap_service(soap_body, soap_action, token, timeout=soap_timeout)
 
         # Parsear respuesta
         data = parse_soap_response(xml_content)
