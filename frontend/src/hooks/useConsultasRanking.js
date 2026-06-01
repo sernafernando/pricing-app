@@ -2,26 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDebounce } from './useDebounce';
 import { getRanking } from '../services/consultasService';
 
-const DEFAULT_SORT = [{ campo: 'dias_sin_venta', dir: 'desc' }];
+// Default sort: { columna, direccion } — matches Productos.jsx ordenColumnas shape.
+const DEFAULT_SORT = [{ columna: 'dias_sin_venta', direccion: 'desc' }];
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_STOR_IDS = [1];
-const DEFAULT_VENTANA_DIAS = 90;
 
 /**
  * Hook for the Consultas > Ranking page.
  * Manages filter state, multi-column sort state, and server-side pagination.
  *
- * Sort model: `sort` is an ordered array of { campo, dir } entries.
- * - Plain click on a header column: set that column as the sole primary sort,
- *   toggling dir if it was already the sole sort; otherwise set to desc.
- * - Shift+click: add/toggle a column in the sort list as a secondary/tertiary
- *   sort key. If the column is already in the list, toggle its dir; if not,
- *   append it with 'desc'. Clicking without shift always resets to that column alone.
+ * Sort model: `ordenColumnas` is an ordered array of { columna, direccion } entries
+ * — same shape as Productos.jsx, forwarded to consultasService as orden_campos/orden_direcciones.
  *
- * Fetch strategy: a single effect watches (fetchData, page). fetchData is
- * memoised on filter/sort values. When a filter changes, filter setters also
- * reset page to 1 via the `pageRef` trick so that the next render has both
- * the new fetchData AND page=1 simultaneously — exactly one request fires.
+ * handleOrdenar(columna, event) — pass the raw click event; shift OR ctrl OR meta
+ * activates multi-sort mode (add/cycle/remove). Plain click = single sort cycling.
  */
 export function useConsultasRanking() {
   // Filter state
@@ -29,20 +23,20 @@ export function useConsultasRanking() {
   const [categoria, setCategoriaRaw] = useState('');
   const [pm, setPmRaw] = useState('');
   const [storIds, setStorIdsRaw] = useState(DEFAULT_STOR_IDS);
-  const [ventanaDias, setVentanaDiasRaw] = useState(DEFAULT_VENTANA_DIAS);
   const [incluirSinStock, setIncluirSinStockRaw] = useState(false);
   const [incluirCombos, setIncluirCombosRaw] = useState(false);
+  // Free-text search (código / descripción)
+  const [q, setQRaw] = useState('');
 
-  // Debounce text filters
-  const debouncedMarca = useDebounce(marca, 400);
-  const debouncedCategoria = useDebounce(categoria, 400);
+  // Debounce free-text search only (marca is a dropdown — no debounce needed)
+  const debouncedQ = useDebounce(q, 400);
 
-  // Multi-column sort state: ordered array of { campo, dir }
-  const [sort, setSortRaw] = useState(DEFAULT_SORT);
+  // Multi-column sort state: ordered array of { columna, direccion }
+  const [ordenColumnas, setOrdenColumnas] = useState(DEFAULT_SORT);
 
   // Pagination state
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSizeRaw] = useState(DEFAULT_PAGE_SIZE);
 
   // Data state
   const [items, setItems] = useState([]);
@@ -55,14 +49,15 @@ export function useConsultasRanking() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // Filter/sort setters that also reset page to 1 in the same render batch.
+  // Filter setters that also reset page to 1 in the same render batch.
   const setMarca = useCallback((v) => { setMarcaRaw(v); setPage(1); }, []);
   const setCategoria = useCallback((v) => { setCategoriaRaw(v); setPage(1); }, []);
   const setPm = useCallback((v) => { setPmRaw(v); setPage(1); }, []);
+  const setQ = useCallback((v) => { setQRaw(v); setPage(1); }, []);
   const setStorIds = useCallback((v) => { setStorIdsRaw(v); setPage(1); }, []);
-  const setVentanaDias = useCallback((v) => { setVentanaDiasRaw(v); setPage(1); }, []);
   const setIncluirSinStock = useCallback((v) => { setIncluirSinStockRaw(v); setPage(1); }, []);
   const setIncluirCombos = useCallback((v) => { setIncluirCombosRaw(v); setPage(1); }, []);
+  const setPageSize = useCallback((v) => { setPageSizeRaw(v); setPage(1); }, []);
 
   const fetchData = useCallback(async (fetchPage) => {
     if (abortRef.current) {
@@ -78,14 +73,14 @@ export function useConsultasRanking() {
       const result = await getRanking({
         page: fetchPage,
         page_size: pageSize,
-        sort,
-        marca: debouncedMarca || null,
-        categoria: debouncedCategoria || null,
+        sort: ordenColumnas,
+        marca: marca || null,
+        categoria: categoria || null,
         pm: pm || null,
         stor_ids: storIds,
-        ventana_dias: ventanaDias,
         incluir_sin_stock: incluirSinStock,
         incluir_combos: incluirCombos,
+        q: debouncedQ || null,
       });
 
       if (token.cancelled) return;
@@ -102,38 +97,72 @@ export function useConsultasRanking() {
         setLoading(false);
       }
     }
-  }, [pageSize, sort, debouncedMarca, debouncedCategoria, pm, storIds, ventanaDias, incluirSinStock, incluirCombos]);
+  }, [pageSize, ordenColumnas, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, debouncedQ]);
 
   useEffect(() => {
     fetchData(page);
   }, [fetchData, page]);
 
   /**
-   * Toggle sort for a column.
-   * - shiftKey=false: set as sole sort, toggling dir if already sole; otherwise desc.
-   * - shiftKey=true: add/toggle column in the multi-sort list.
-   *   If already present, toggle its dir. If not present, append with 'desc'.
+   * handleOrdenar(columna, event) — mirrors Productos.jsx handleOrdenar exactly,
+   * but accepts shift OR ctrl OR meta as the multi-sort modifier.
+   *
+   * Plain click: single sort, cycling asc→desc→off
+   * Multi-modifier+click: add/cycle/remove in the multi-sort array
    */
-  const toggleSort = useCallback((campo, shiftKey = false) => {
-    setSortRaw((prev) => {
-      if (shiftKey) {
-        const idx = prev.findIndex((s) => s.campo === campo);
-        if (idx === -1) {
-          return [...prev, { campo, dir: 'desc' }];
+  const handleOrdenar = useCallback((columna, event) => {
+    const multiPressed = event?.shiftKey || event?.ctrlKey || event?.metaKey;
+
+    if (!multiPressed) {
+      // Plain click: single sort cycling
+      setOrdenColumnas((prev) => {
+        const existente = prev.find((o) => o.columna === columna);
+        if (existente) {
+          if (existente.direccion === 'asc') {
+            return [{ columna, direccion: 'desc' }];
+          } else {
+            return [];
+          }
+        } else {
+          return [{ columna, direccion: 'asc' }];
         }
-        return prev.map((s, i) =>
-          i === idx ? { campo, dir: s.dir === 'desc' ? 'asc' : 'desc' } : s
-        );
-      }
-      // Plain click: reset to single sort
-      const existing = prev.find((s) => s.campo === campo);
-      if (prev.length === 1 && existing) {
-        return [{ campo, dir: existing.dir === 'desc' ? 'asc' : 'desc' }];
-      }
-      return [{ campo, dir: 'desc' }];
-    });
+      });
+    } else {
+      // Multi-modifier: add/cycle/remove
+      setOrdenColumnas((prev) => {
+        const existente = prev.find((o) => o.columna === columna);
+        if (existente) {
+          if (existente.direccion === 'asc') {
+            return prev.map((o) =>
+              o.columna === columna ? { ...o, direccion: 'desc' } : o
+            );
+          } else {
+            return prev.filter((o) => o.columna !== columna);
+          }
+        } else {
+          return [...prev, { columna, direccion: 'asc' }];
+        }
+      });
+    }
     setPage(1);
   }, []);
+
+  /**
+   * getIconoOrden(columna) — returns '↕' / '▲' / '▼' exactly like Productos.jsx.
+   */
+  const getIconoOrden = useCallback((columna) => {
+    const orden = ordenColumnas.find((o) => o.columna === columna);
+    if (!orden) return '↕';
+    return orden.direccion === 'asc' ? '▲' : '▼';
+  }, [ordenColumnas]);
+
+  /**
+   * getNumeroOrden(columna) — returns 1-based priority or null.
+   */
+  const getNumeroOrden = useCallback((columna) => {
+    const index = ordenColumnas.findIndex((o) => o.columna === columna);
+    return index >= 0 ? index + 1 : null;
+  }, [ordenColumnas]);
 
   const goToPage = useCallback((p) => {
     const clamped = Math.max(1, Math.min(p, totalPages));
@@ -158,22 +187,25 @@ export function useConsultasRanking() {
     setCategoria,
     pm,
     setPm,
+    q,
+    setQ,
     storIds,
     setStorIds,
-    ventanaDias,
-    setVentanaDias,
     incluirSinStock,
     setIncluirSinStock,
     incluirCombos,
     setIncluirCombos,
 
-    // Sort (multi-column)
-    sort,
-    toggleSort,
+    // Sort (multi-column — Productos.jsx shape)
+    ordenColumnas,
+    handleOrdenar,
+    getIconoOrden,
+    getNumeroOrden,
 
     // Pagination
     page,
     pageSize,
+    setPageSize,
     totalPages,
     goToPage,
 

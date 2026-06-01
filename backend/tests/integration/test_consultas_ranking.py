@@ -5,10 +5,12 @@ Covers:
   - No JWT → 401
   - Valid JWT without consultas.ver_ranking → 403
   - Valid JWT with consultas.ver_ranking → 200
-  - Unknown sort_by → 422
+  - Unknown orden_campos / orden_direcciones → 422
   - page_size > 200 → 422
   - page_size = 0 → 422
-  - No TipoCambio row → valor_costo and valor_venta null/handled (no 500)
+  - No TipoCambio row → valor_costo_ars/usd and valor_venta null/handled (no 500)
+  - incluir_sin_stock / incluir_combos filters
+  - dual-currency cost columns present
 
 Permission is mocked via PermisosService to avoid DB seed dependency.
 """
@@ -207,42 +209,49 @@ class TestRankingValidation:
     """Input validation — 422 on bad params."""
 
     def test_unknown_sort_field_returns_422(self, client, user_con_permiso) -> None:
-        """Unknown sort field in multi-sort param → 422."""
+        """Unknown orden_campos value → 422."""
         with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
             response = client.get(
                 "/api/consultas/ranking",
-                params={"sort": "campo_inventado:desc"},
+                params={"orden_campos": "campo_inventado", "orden_direcciones": "desc"},
                 headers=_auth(user_con_permiso),
             )
         assert response.status_code == 422
 
     def test_unknown_sort_direction_returns_422(self, client, user_con_permiso) -> None:
-        """Unknown direction in multi-sort param → 422."""
+        """Unknown direction in orden_direcciones → 422."""
         with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
             response = client.get(
                 "/api/consultas/ranking",
-                params={"sort": "codigo:sideways"},
-                headers=_auth(user_con_permiso),
-            )
-        assert response.status_code == 422
-
-    def test_malformed_sort_missing_colon_returns_422(self, client, user_con_permiso) -> None:
-        """Sort entry without colon → 422."""
-        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
-            response = client.get(
-                "/api/consultas/ranking",
-                params={"sort": "codigo"},
+                params={"orden_campos": "codigo", "orden_direcciones": "sideways"},
                 headers=_auth(user_con_permiso),
             )
         assert response.status_code == 422
 
     def test_valid_multisort_returns_200(self, client_with_mock_db) -> None:
-        """Valid multi-sort list (multiple sort entries) → 200."""
+        """Valid multi-sort via orden_campos + orden_direcciones → 200."""
         client, user = client_with_mock_db
         with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
             response = client.get(
                 "/api/consultas/ranking",
-                params=[("sort", "dias_sin_venta:desc"), ("sort", "total_stock:asc")],
+                params={
+                    "orden_campos": "dias_sin_venta,total_stock",
+                    "orden_direcciones": "desc,asc",
+                },
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+    def test_mismatched_lengths_pads_with_desc(self, client_with_mock_db) -> None:
+        """More campos than direcciones → missing dirs padded with 'desc' → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={
+                    "orden_campos": "dias_sin_venta,total_stock",
+                    "orden_direcciones": "desc",  # only one dir for two campos
+                },
                 headers=_auth(user),
             )
         assert response.status_code == 200
@@ -277,16 +286,6 @@ class TestRankingValidation:
                 headers=_auth(user),
             )
         assert response.status_code == 200
-
-    def test_invalid_ventana_dias_returns_422(self, client, user_con_permiso) -> None:
-        """ventana_dias not in {30, 60, 90, 180} → 422."""
-        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
-            response = client.get(
-                "/api/consultas/ranking",
-                params={"ventana_dias": 45},
-                headers=_auth(user_con_permiso),
-            )
-        assert response.status_code == 422
 
 
 def _make_facets_mock_db_session() -> MagicMock:
@@ -505,6 +504,218 @@ class TestRankingNewFilterParams:
         assert response.status_code == 200
 
 
+def _make_resumen_mock_db_session() -> MagicMock:
+    """Return a MagicMock DB session for the resumen endpoint.
+
+    The resumen endpoint executes two queries (groups + totals).
+    First call → group rows; second call → totals row.
+    Also needs a tc_venta call (handled by patching _get_tc_venta).
+    """
+    group_row = MagicMock()
+    group_row.grupo = "TestBrand"
+    group_row.pm = "Juan PM"
+    group_row.num_productos = 3
+    group_row.stock_total = 15
+    group_row.valor_costo_ars = 300000.0
+    group_row.valor_costo_usd = 250.0
+    group_row.valor_venta = 450000.0
+
+    groups_result = MagicMock()
+    groups_result.fetchall.return_value = [group_row]
+
+    total_row = MagicMock()
+    total_row.grupo = "TOTAL"
+    total_row.pm = None
+    total_row.num_productos = 3
+    total_row.stock_total = 15
+    total_row.valor_costo_ars = 300000.0
+    total_row.valor_costo_usd = 250.0
+    total_row.valor_venta = 450000.0
+
+    totals_result = MagicMock()
+    totals_result.fetchone.return_value = total_row
+
+    call_count = {"n": 0}
+
+    def _execute(stmt, params=None):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return groups_result
+        return totals_result
+
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = _execute
+    return mock_db
+
+
+@pytest.fixture()
+def client_with_mock_db_resumen(user_con_permiso):
+    """TestClient with a mock DB session for the resumen endpoint."""
+    from app.core.database import get_async_db, get_db
+    from app.main import app
+
+    mock_db = _make_resumen_mock_db_session()
+
+    def _override_get_db():
+        yield mock_db
+
+    async def _override_get_async_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_async_db] = _override_get_async_db
+
+    from starlette.testclient import TestClient
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c, user_con_permiso
+
+    app.dependency_overrides.clear()
+
+
+class TestResumenAuth:
+    """Authentication and permission gate tests for /ranking/resumen."""
+
+    def test_no_jwt_returns_401_or_403(self, client) -> None:
+        """No Authorization header → 401 or 403."""
+        response = client.get("/api/consultas/ranking/resumen")
+        assert response.status_code in (401, 403)
+
+    def test_user_sin_permiso_returns_403(self, client, user_sin_permiso) -> None:
+        """Valid JWT without consultas.ver_ranking → 403."""
+        with _PATCH_TIENE_PERMISO_FALSE, _PATCH_OBTENER_PERMISOS_EMPTY:
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                headers=_auth(user_sin_permiso),
+            )
+        assert response.status_code == 403
+
+
+class TestResumen200:
+    """Shape tests for /ranking/resumen 200 response."""
+
+    def test_resumen_returns_200_with_expected_shape(self, client_with_mock_db_resumen) -> None:
+        """Valid JWT with consultas.ver_ranking → 200 with resumen envelope."""
+        client, user = client_with_mock_db_resumen
+        with (
+            _PATCH_TIENE_PERMISO_TRUE,
+            _PATCH_OBTENER_PERMISOS,
+            patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+        ):
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert "items" in body
+        assert "totales" in body
+        assert isinstance(body["items"], list)
+        assert isinstance(body["totales"], dict)
+
+    def test_resumen_row_has_expected_fields(self, client_with_mock_db_resumen) -> None:
+        """Each resumen item row exposes the required fields."""
+        client, user = client_with_mock_db_resumen
+        with (
+            _PATCH_TIENE_PERMISO_TRUE,
+            _PATCH_OBTENER_PERMISOS,
+            patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+        ):
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 1
+        row = body["items"][0]
+        assert row["grupo"] == "TestBrand"
+        assert row["pm"] == "Juan PM"
+        assert row["num_productos"] == 3
+        assert row["stock_total"] == 15
+        assert row["valor_costo_ars"] == 300000.0
+        assert row["valor_costo_usd"] == 250.0
+        assert row["valor_venta"] == 450000.0
+
+    def test_resumen_totales_has_expected_fields(self, client_with_mock_db_resumen) -> None:
+        """The totales object exposes the required fields."""
+        client, user = client_with_mock_db_resumen
+        with (
+            _PATCH_TIENE_PERMISO_TRUE,
+            _PATCH_OBTENER_PERMISOS,
+            patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+        ):
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        totales = body["totales"]
+        assert totales["grupo"] == "TOTAL"
+        assert totales["pm"] is None
+        assert totales["num_productos"] == 3
+        assert totales["stock_total"] == 15
+
+
+class TestResumenValidation:
+    """Input validation for /ranking/resumen."""
+
+    def test_invalid_group_by_returns_422(self, client, user_con_permiso) -> None:
+        """Unknown group_by value → 422."""
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                params={"group_by": "categoria"},
+                headers=_auth(user_con_permiso),
+            )
+        assert response.status_code == 422
+
+    def test_group_by_pm_returns_200(self, client_with_mock_db_resumen) -> None:
+        """group_by=pm is valid and returns 200."""
+        client, user = client_with_mock_db_resumen
+        with (
+            _PATCH_TIENE_PERMISO_TRUE,
+            _PATCH_OBTENER_PERMISOS,
+            patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+        ):
+            response = client.get(
+                "/api/consultas/ranking/resumen",
+                params={"group_by": "pm"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+
+class TestRankingSearchParam:
+    """q param (free-text search by código/descripción) is accepted without error."""
+
+    def test_q_param_returns_200(self, client_with_mock_db) -> None:
+        """q provided → 200 (mock DB)."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"q": "notebook"},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert "items" in body
+        assert "total" in body
+
+    def test_q_empty_string_returns_200(self, client_with_mock_db) -> None:
+        """q='' (empty) → treated as no filter → 200."""
+        client, user = client_with_mock_db
+        with _PATCH_TIENE_PERMISO_TRUE, _PATCH_OBTENER_PERMISOS:
+            response = client.get(
+                "/api/consultas/ranking",
+                params={"q": ""},
+                headers=_auth(user),
+            )
+        assert response.status_code == 200
+
+
 class TestRankingDualCurrencyShape:
     """Response rows expose valor_costo_ars and valor_costo_usd (not valor_costo)."""
 
@@ -526,7 +737,6 @@ class TestRankingDualCurrencyShape:
         row.valor_costo_ars = 500000.0
         row.valor_costo_usd = 500.0
         row.valor_venta = 700000.0
-        row.unidades_vendidas_ventana = 3
 
         rows_result = MagicMock()
         rows_result.fetchall.return_value = [row]

@@ -9,7 +9,6 @@ Each row contains:
     tb_commercial_transactions with the canonical sale definition confirmed
     in ADR-1: sd_id IN SD_VENTAS, df_id IN DF_VENTA_TODOS).
   - Last purchase data (puco_id=10, latest it_cd).
-  - Sales velocity over ventana_dias.
   - Stock total across selected depots (itst_cant).
   - Monetary valuations in BOTH ARS and USD (valor_costo_ars, valor_costo_usd).
   - valor_venta in ARS (price list clasica prli_id=4).
@@ -20,7 +19,6 @@ No JWT → 401 | Wrong permission → 403.
 
 ADR references:
   ADR-1: Canonical sale definition.
-  ADR-4: ventana_dias parameter.
   ADR-5: Dual-currency cost columns (ARS + USD); FX via TipoCambio.venta.
   ADR-7: Dynamic multi-column sort via SORT_COLUMNS whitelist.
   ADR-8: incluir_sin_stock / incluir_combos filter params.
@@ -39,11 +37,12 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
-    VENTANA_DIAS_PERMITIDAS,
     DepositoFacet,
     RankingFacetsResponse,
     RankingItemRow,
     RankingResponse,
+    ResumenResponse,
+    ResumenRow,
 )
 
 logger = get_logger(__name__)
@@ -121,7 +120,6 @@ COMP_ID: int = 1
 # All expressions reference aliases defined in the CTE / subquery below.
 _SORT_EXPR_MAP: dict[str, str] = {
     "dias_sin_venta": "dias_sin_venta",
-    "unidades_vendidas_ventana": "unidades_vendidas_ventana",
     "total_stock": "total_stock",
     "valor_costo_ars": "valor_costo_ars",
     "valor_costo_usd": "valor_costo_usd",
@@ -156,22 +154,33 @@ def _build_nulls_clause(sort_key: str, sort_dir: str) -> str:
     return "NULLS LAST" if sort_dir == "desc" else "NULLS FIRST"
 
 
-def _parse_sort_params(sort_params: list[str]) -> list[tuple[str, str, str]]:
-    """Parse and validate multi-sort params of the form 'campo:asc|desc'.
+def _parse_sort_params(
+    orden_campos: Optional[str],
+    orden_direcciones: Optional[str],
+) -> list[tuple[str, str, str]]:
+    """Parse and validate multi-sort params from parallel comma-separated lists.
 
+    orden_campos: comma-separated list of sort field names (e.g. "dias_sin_venta,total_stock")
+    orden_direcciones: comma-separated list of directions (e.g. "desc,asc")
+
+    If lengths mismatch (more campos than direcciones), missing directions default to 'desc'.
     Returns a deduped, ordered list of (campo, sql_expr, direction) tuples.
     Raises HTTPException 422 on invalid field or direction.
     """
+    campos_str = (orden_campos or "dias_sin_venta").strip()
+    dirs_str = (orden_direcciones or "desc").strip()
+
+    campos = [c.strip() for c in campos_str.split(",") if c.strip()]
+    dirs = [d.strip().lower() for d in dirs_str.split(",") if d.strip()]
+
+    # Pad missing directions with 'desc'
+    while len(dirs) < len(campos):
+        dirs.append("desc")
+
     result: list[tuple[str, str, str]] = []
     seen_fields: set[str] = set()
-    for entry in sort_params:
-        parts = entry.split(":", 1)
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Formato de sort inválido: '{entry}'. Use 'campo:asc' o 'campo:desc'.",
-            )
-        campo, direccion = parts[0].strip(), parts[1].strip().lower()
+
+    for campo, direccion in zip(campos, dirs):
         if campo not in SORT_COLUMNS_PERMITIDAS:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -185,6 +194,11 @@ def _parse_sort_params(sort_params: list[str]) -> list[tuple[str, str, str]]:
         if campo not in seen_fields:
             result.append((campo, _SORT_EXPR_MAP[campo], direccion))
             seen_fields.add(campo)
+
+    if not result:
+        # Fallback: default sort
+        result.append(("dias_sin_venta", _SORT_EXPR_MAP["dias_sin_venta"], "desc"))
+
     return result
 
 
@@ -228,10 +242,15 @@ async def get_ranking(
     # Pagination
     page: int = Query(default=1, ge=1, description="Página (1-based)"),
     page_size: int = Query(default=50, ge=1, le=200, description="Filas por página (max 200)"),
-    # Multi-column sort: repeated param, each 'campo:asc|desc' (ADR-7)
-    sort: list[str] = Query(
-        default=["dias_sin_venta:desc"],
-        description="Orden multi-columna. Cada valor: 'campo:asc|desc'. Se aplican en orden.",
+    # Multi-column sort: parallel comma-separated lists (ADR-7)
+    # Example: orden_campos=dias_sin_venta,total_stock&orden_direcciones=desc,asc
+    orden_campos: Optional[str] = Query(
+        default="dias_sin_venta",
+        description="Campos de sort separados por coma (e.g. 'dias_sin_venta,total_stock').",
+    ),
+    orden_direcciones: Optional[str] = Query(
+        default="desc",
+        description="Direcciones de sort separadas por coma, en paralelo con orden_campos (e.g. 'desc,asc'). Si hay menos que campos, los faltantes usan 'desc'.",
     ),
     # Filters
     marca: Optional[str] = Query(default=None, max_length=100),
@@ -241,7 +260,6 @@ async def get_ranking(
         description="Nombre del PM asignado, o 'sin_pm' para productos sin PM",
     ),
     stor_ids: list[int] = Query(default=[1], description="IDs de depósito"),
-    ventana_dias: int = Query(default=90, description="Ventana de ventas en días {30,60,90,180}"),
     # Boolean filters (ADR-8)
     incluir_sin_stock: bool = Query(
         default=False,
@@ -251,36 +269,33 @@ async def get_ranking(
         default=False,
         description="Si True, incluye combos/producción (productos padre en tb_item_association).",
     ),
+    # Full-text search filter
+    q: Optional[str] = Query(
+        default=None,
+        description="Búsqueda por código o descripción (ILIKE).",
+    ),
     # Auth + permission are enforced by the require_permiso(...) route dependency above.
     db: Session = Depends(get_db),
 ) -> RankingResponse:
     """Product ranking ordered by sales ageing and configurable metrics.
 
     Aggregates ERP transaction data to compute:
-    - dias_sin_venta: days since last sale across all channels.
-    - unidades_vendidas_ventana: units sold in the configured window.
+    - dias_sin_venta: days since last sale across all channels (unbounded).
     - total_stock: sum of itst_cant for selected depots.
     - valor_costo_ars: stock × costo in ARS (FX applied when origin is USD).
     - valor_costo_usd: stock × costo in USD (FX applied when origin is ARS).
     - valor_venta: total_stock × precio from tb_price_list_items (prli_id=4) in ARS.
     - erp_ageing_dias: ERP-computed ageing from productos_ageing (null at launch).
 
-    Multi-sort: `sort` param accepts repeated 'campo:asc|desc' entries applied in order.
+    Multi-sort: orden_campos + orden_direcciones (parallel comma-separated lists) applied in order.
     Boolean filters: incluir_sin_stock (default False), incluir_combos (default False).
 
     Permission required: consultas.ver_ranking
     """
-    # Validate ventana_dias
-    if ventana_dias not in VENTANA_DIAS_PERMITIDAS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"ventana_dias {ventana_dias} no es válido. Opciones: {sorted(VENTANA_DIAS_PERMITIDAS)}",
-        )
-
     # Parse and validate multi-sort params (raises 422 on bad input).
     # Each tuple carries (campo, sql_expr, direction) so the NULLS clause never
     # misaligns even if duplicate fields are sent.
-    sort_tuples = _parse_sort_params(sort)
+    sort_tuples = _parse_sort_params(orden_campos, orden_direcciones)
 
     # Resolve FX rate once per request (ADR-5); null → costo columns may be null
     tc_venta: Optional[float] = _get_tc_venta(db)
@@ -297,7 +312,6 @@ async def get_ranking(
     filter_clauses: list[str] = ["pe.activo = TRUE"]
     params: dict = {
         "stor_ids": stor_ids,
-        "ventana_dias_interval": f"{ventana_dias} days",
         "tc_venta": tc_venta,
         "offset": (page - 1) * page_size,
         "limit": page_size,
@@ -317,6 +331,10 @@ async def get_ranking(
         filter_clauses.append("u_pm.nombre = :pm_nombre")
         params["pm_nombre"] = pm
 
+    if q and q.strip():
+        filter_clauses.append("(pe.codigo ILIKE :q OR pe.descripcion ILIKE :q)")
+        params["q"] = f"%{q.strip()}%"
+
     # incluir_sin_stock=False → only rows with stock > 0 in selected depots (ADR-8)
     if not incluir_sin_stock:
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
@@ -331,7 +349,7 @@ async def get_ranking(
 
     # ---- Main query ----
     # Two LATERALs:
-    #   ls — last_sale: MAX(ct_date) over all channels, SUM(it_qty) FILTER window
+    #   ls — last_sale: MAX(ct_date) over all channels (unbounded)
     #   lp — last_purchase: most recent purchase row (puco_id=10)
     # Stock: SUM(itst_cant) WHERE stor_id = ANY(:stor_ids)
     # Monetary: dual-currency cost (ARS + USD) via :tc_venta; precio from tb_price_list_items prli_id=4
@@ -416,21 +434,12 @@ async def get_ranking(
                     2
                 )
                 ELSE NULL
-            END                                                AS valor_venta,
-            -- units sold in window
-            COALESCE(ls.unidades_ventana, 0)                  AS unidades_vendidas_ventana
+            END                                                AS valor_venta
         FROM productos_erp pe
-        -- LATERAL: last sale + units in window
+        -- LATERAL: last sale date (unbounded — dias_sin_venta = NOW()::date - last_sale_date::date)
         LEFT JOIN LATERAL (
             SELECT
-                MAX(tct.ct_date)                              AS last_sale_date,
-                SUM(
-                    CASE
-                        WHEN tct.ct_date >= NOW() - CAST(:ventana_dias_interval AS INTERVAL)
-                        THEN ABS(tit.it_qty)
-                        ELSE 0
-                    END
-                )                                             AS unidades_ventana
+                MAX(tct.ct_date)                              AS last_sale_date
             FROM tb_item_transactions tit
             JOIN tb_commercial_transactions tct
               ON tct.ct_transaction = tit.ct_transaction
@@ -536,9 +545,6 @@ async def get_ranking(
             valor_costo_ars=float(row.valor_costo_ars) if row.valor_costo_ars is not None else None,
             valor_costo_usd=float(row.valor_costo_usd) if row.valor_costo_usd is not None else None,
             valor_venta=float(row.valor_venta) if row.valor_venta is not None else None,
-            unidades_vendidas_ventana=int(row.unidades_vendidas_ventana)
-            if row.unidades_vendidas_ventana is not None
-            else 0,
         )
         for row in rows
     ]
@@ -549,6 +555,269 @@ async def get_ranking(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Resumen endpoint
+# ---------------------------------------------------------------------------
+
+_VALID_GROUP_BY: frozenset[str] = frozenset({"marca", "pm"})
+
+
+@router.get(
+    "/ranking/resumen",
+    response_model=ResumenResponse,
+    summary="Brand/PM grouped totals for product ranking",
+    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+)
+async def get_ranking_resumen(
+    # Filters — same semantics as /ranking
+    marca: Optional[str] = Query(default=None, max_length=100),
+    categoria: Optional[str] = Query(default=None, max_length=100),
+    pm: Optional[str] = Query(
+        default=None,
+        description="Nombre del PM asignado, o 'sin_pm' para productos sin PM",
+    ),
+    stor_ids: list[int] = Query(default=[1], description="IDs de depósito"),
+    incluir_sin_stock: bool = Query(
+        default=False,
+        description="Si True, incluye productos sin stock en los depósitos seleccionados.",
+    ),
+    incluir_combos: bool = Query(
+        default=False,
+        description="Si True, incluye combos/producción (productos padre en tb_item_association).",
+    ),
+    group_by: str = Query(
+        default="marca",
+        description="Agrupar por 'marca' o 'pm'.",
+    ),
+    db: Session = Depends(get_db),
+) -> ResumenResponse:
+    """Grouped totals (brand or PM) for the product ranking view.
+
+    Builds the same per-product computed values as /ranking (total_stock,
+    valor_costo_ars, valor_costo_usd, valor_venta) honouring ALL the same
+    filters, then aggregates them by marca or PM.
+
+    group_by='marca': rows are one per distinct marca; pm column shows the PM
+      assigned to that marca (via marcas_pm; NULL → None).
+    group_by='pm': rows are one per distinct PM name; grupo shows the PM name
+      or 'Sin PM' when no PM is assigned.
+
+    Also returns a totales row with sums across all groups.
+
+    Permission required: consultas.ver_ranking
+    """
+    if group_by not in _VALID_GROUP_BY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"group_by '{group_by}' no es válido. Opciones: {sorted(_VALID_GROUP_BY)}",
+        )
+
+    tc_venta: Optional[float] = _get_tc_venta(db)
+
+    # NOTE: the resumen aggregates stock/cost/value only — no sale predicate
+    # (no dias_sin_venta here), so the SD_VENTAS/DF_VENTA_TODOS lists are not used.
+
+    # ---- WHERE clauses (same as /ranking, minus the pagination columns) ----
+    filter_clauses: list[str] = ["pe.activo = TRUE"]
+    params: dict = {
+        "stor_ids": stor_ids,
+        "tc_venta": tc_venta,
+    }
+
+    if marca:
+        filter_clauses.append("pe.marca = :marca")
+        params["marca"] = marca
+
+    if categoria:
+        filter_clauses.append("pe.categoria = :categoria")
+        params["categoria"] = categoria
+
+    if pm == "sin_pm":
+        filter_clauses.append("mp.usuario_id IS NULL")
+    elif pm is not None:
+        filter_clauses.append("u_pm.nombre = :pm_nombre")
+        params["pm_nombre"] = pm
+
+    if not incluir_sin_stock:
+        filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
+
+    if not incluir_combos:
+        filter_clauses.append(
+            "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
+        )
+
+    where_sql = " AND ".join(filter_clauses)
+
+    # ---- Per-product CTE (same expressions as /ranking) ----
+    # CRITICAL: all ROUND() calls must cast to NUMERIC (PostgreSQL ADR-5).
+    per_product_cte = f"""
+        WITH per_product AS (
+            SELECT
+                pe.item_id,
+                pe.marca,
+                u_pm.nombre                                             AS pm_nombre,
+                -- stock
+                COALESCE(stk.total_stock, 0)                           AS total_stock,
+                -- valor_costo_ars
+                CASE
+                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN CASE pe.moneda_costo
+                        WHEN 'USD' THEN
+                            CASE WHEN :tc_venta IS NOT NULL
+                            THEN ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                    * CAST(:tc_venta AS NUMERIC)
+                                AS NUMERIC), 2)
+                            ELSE NULL
+                            END
+                        ELSE
+                            ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                AS NUMERIC), 2)
+                        END
+                    ELSE NULL
+                END                                                     AS valor_costo_ars,
+                -- valor_costo_usd
+                CASE
+                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN CASE pe.moneda_costo
+                        WHEN 'USD' THEN
+                            ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                AS NUMERIC), 2)
+                        ELSE
+                            CASE WHEN :tc_venta IS NOT NULL AND CAST(:tc_venta AS NUMERIC) > 0
+                            THEN ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                    / CAST(:tc_venta AS NUMERIC)
+                                AS NUMERIC), 2)
+                            ELSE NULL
+                            END
+                        END
+                    ELSE NULL
+                END                                                     AS valor_costo_usd,
+                -- valor_venta
+                CASE
+                    WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN ROUND(
+                        CAST(CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) * prli.prli_price AS NUMERIC),
+                        2
+                    )
+                    ELSE NULL
+                END                                                     AS valor_venta
+            FROM productos_erp pe
+            LEFT JOIN LATERAL (
+                SELECT SUM(itst_cant) AS total_stock
+                FROM tb_item_storage
+                WHERE item_id = pe.item_id
+                  AND stor_id = ANY(:stor_ids)
+            ) stk ON TRUE
+            LEFT JOIN tb_price_list_items prli
+              ON prli.item_id = pe.item_id
+             AND prli.prli_id = {PRLI_CLASICA}
+             AND prli.comp_id = {COMP_ID}
+            LEFT JOIN marcas_pm mp
+              ON mp.marca = pe.marca
+             AND mp.categoria = pe.categoria
+            LEFT JOIN usuarios u_pm
+              ON u_pm.id = mp.usuario_id
+            WHERE {where_sql}
+        )
+    """
+
+    # ---- GROUP BY expression depends on group_by param ----
+    if group_by == "marca":
+        group_expr = "marca"
+        grupo_expr = "COALESCE(marca, 'Sin marca')"
+        pm_expr = (
+            "CASE"
+            " WHEN COUNT(DISTINCT pm_nombre) > 1 THEN 'Varios'"
+            " WHEN COUNT(DISTINCT pm_nombre) = 1 THEN MAX(pm_nombre)"
+            " ELSE NULL"
+            " END"
+        )
+    else:
+        # group_by == "pm"
+        group_expr = "pm_nombre"
+        grupo_expr = "COALESCE(pm_nombre, 'Sin PM')"
+        pm_expr = "COALESCE(pm_nombre, 'Sin PM')"
+
+    resumen_sql = f"""
+        {per_product_cte}
+        SELECT
+            {grupo_expr}                                AS grupo,
+            {pm_expr}                                   AS pm,
+            COUNT(DISTINCT item_id)::INTEGER            AS num_productos,
+            COALESCE(SUM(total_stock), 0)::INTEGER      AS stock_total,
+            SUM(valor_costo_ars)                        AS valor_costo_ars,
+            SUM(valor_costo_usd)                        AS valor_costo_usd,
+            SUM(valor_venta)                            AS valor_venta
+        FROM per_product
+        GROUP BY {group_expr}
+        ORDER BY SUM(valor_costo_ars) DESC NULLS LAST
+    """
+
+    totales_sql = f"""
+        {per_product_cte}
+        SELECT
+            'TOTAL'                                     AS grupo,
+            NULL::TEXT                                  AS pm,
+            COUNT(DISTINCT item_id)::INTEGER            AS num_productos,
+            COALESCE(SUM(total_stock), 0)::INTEGER      AS stock_total,
+            SUM(valor_costo_ars)                        AS valor_costo_ars,
+            SUM(valor_costo_usd)                        AS valor_costo_usd,
+            SUM(valor_venta)                            AS valor_venta
+        FROM per_product
+    """
+
+    try:
+        rows = db.execute(text(resumen_sql), params).fetchall()
+        totales_row = db.execute(text(totales_sql), params).fetchone()
+    except Exception as exc:
+        logger.error("Error in consultas ranking/resumen query: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al ejecutar la consulta de resumen",
+        ) from exc
+
+    items: list[ResumenRow] = [
+        ResumenRow(
+            grupo=row.grupo or "",
+            pm=row.pm,
+            num_productos=int(row.num_productos),
+            stock_total=int(row.stock_total) if row.stock_total is not None else 0,
+            valor_costo_ars=float(row.valor_costo_ars) if row.valor_costo_ars is not None else None,
+            valor_costo_usd=float(row.valor_costo_usd) if row.valor_costo_usd is not None else None,
+            valor_venta=float(row.valor_venta) if row.valor_venta is not None else None,
+        )
+        for row in rows
+    ]
+
+    totales = ResumenRow(
+        grupo="TOTAL",
+        pm=None,
+        num_productos=int(totales_row.num_productos) if totales_row and totales_row.num_productos else 0,
+        stock_total=int(totales_row.stock_total) if totales_row and totales_row.stock_total is not None else 0,
+        valor_costo_ars=(
+            float(totales_row.valor_costo_ars) if totales_row and totales_row.valor_costo_ars is not None else None
+        ),
+        valor_costo_usd=(
+            float(totales_row.valor_costo_usd) if totales_row and totales_row.valor_costo_usd is not None else None
+        ),
+        valor_venta=(float(totales_row.valor_venta) if totales_row and totales_row.valor_venta is not None else None),
+    )
+
+    return ResumenResponse(items=items, totales=totales)
 
 
 # ---------------------------------------------------------------------------
