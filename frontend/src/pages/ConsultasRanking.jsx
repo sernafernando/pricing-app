@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search,
   ChevronDown,
@@ -11,10 +11,11 @@ import {
   AlertCircle,
   PackageSearch,
   Warehouse,
+  RefreshCw,
 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import { useConsultasRanking } from '../hooks/useConsultasRanking';
-import { getRankingFacets, getRankingKpis, getRankingResumen } from '../services/consultasService';
+import { getRankingFacets, getRankingKpis, getRankingResumen, getStockStatus, refreshStock } from '../services/consultasService';
 import styles from './ConsultasRanking.module.css';
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,99 @@ function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos
 }
 
 // ---------------------------------------------------------------------------
+// Stock sync hook
+// ---------------------------------------------------------------------------
+
+const POLL_INTERVAL_MS = 8000;
+const POLL_MAX_TRIES = 40; // ~5 min cap
+
+function useStockSync({ onSyncComplete }) {
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null);
+  const pollRef = useRef(null);
+  const baselineRef = useRef(null);
+  const triesRef = useRef(0);
+
+  // Fetch current status on mount
+  useEffect(() => {
+    getStockStatus()
+      .then((data) => {
+        setLastUpdated(data.last_updated ?? null);
+        if (data.syncing) {
+          // A sync was already in progress — enter polling mode
+          baselineRef.current = data.last_updated;
+          setSyncing(true);
+          _startPolling();
+        }
+      })
+      .catch(() => { /* non-fatal */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function _stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    triesRef.current = 0;
+  }
+
+  function _startPolling() {
+    _stopPolling();
+    triesRef.current = 0;
+    pollRef.current = setInterval(() => {
+      triesRef.current += 1;
+
+      getStockStatus()
+        .then((data) => {
+          const baseline = baselineRef.current;
+          const isNewer = data.last_updated && (
+            !baseline || new Date(data.last_updated) > new Date(baseline)
+          );
+          const done = isNewer || (!data.syncing && triesRef.current > 1);
+
+          if (done) {
+            _stopPolling();
+            setSyncing(false);
+            setSyncMessage(null);
+            setLastUpdated(data.last_updated ?? null);
+            onSyncComplete();
+          } else if (triesRef.current >= POLL_MAX_TRIES) {
+            _stopPolling();
+            setSyncing(false);
+            setSyncMessage('La sincronización tardó más de lo esperado. Reintentá en unos minutos.');
+          }
+        })
+        .catch(() => { /* poll failure is silent */ });
+    }, POLL_INTERVAL_MS);
+  }
+
+  const triggerRefresh = useCallback(async () => {
+    if (syncing) return;
+
+    // Capture baseline before launch
+    baselineRef.current = lastUpdated;
+    setSyncing(true);
+    setSyncMessage(null);
+
+    try {
+      await refreshStock();
+      _startPolling();
+    } catch {
+      setSyncing(false);
+      setSyncMessage('Error al iniciar la sincronización.');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing, lastUpdated]);
+
+  // Cleanup on unmount
+  useEffect(() => () => _stopPolling(), []);
+
+  return { lastUpdated, syncing, syncMessage, triggerRefresh };
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -144,6 +238,52 @@ function formatDate(dateStr) {
   } catch {
     return dateStr;
   }
+}
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return null;
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      + ' '
+      + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return isoStr;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stock refresh bar
+// ---------------------------------------------------------------------------
+
+function StockRefreshBar({ lastUpdated, syncing, syncMessage, onRefresh }) {
+  const label = lastUpdated
+    ? `Stock actualizado: ${formatDateTime(lastUpdated)}`
+    : 'Stock: sin sincronizar';
+
+  return (
+    <div className={styles.stockBar} role="region" aria-label="Estado de stock">
+      <span className={styles.stockLabel}>{label}</span>
+      {syncMessage && (
+        <span className={styles.stockMessage} role="alert">{syncMessage}</span>
+      )}
+      <button
+        type="button"
+        className={`${styles.stockRefreshBtn} ${syncing ? styles.stockRefreshBtnSyncing : ''}`}
+        onClick={onRefresh}
+        disabled={syncing}
+        aria-label={syncing ? 'Actualizando stock…' : 'Actualizar stock'}
+        title={syncing ? 'Sincronización en curso…' : 'Actualizar stock desde ERP'}
+      >
+        <RefreshCw
+          size={14}
+          className={syncing ? styles.spinIcon : ''}
+          aria-hidden="true"
+        />
+        <span>{syncing ? 'Actualizando…' : 'Actualizar stock'}</span>
+      </button>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -863,6 +1003,7 @@ export default function ConsultasRanking() {
     setPageSize,
     totalPages,
     goToPage,
+    refresh: refreshRanking,
   } = useConsultasRanking();
 
   const resumen = useResumen({
@@ -871,6 +1012,13 @@ export default function ConsultasRanking() {
   });
 
   const kpis = useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q });
+
+  // Stock sync — refetches ranking + KPIs after a successful sync
+  const handleSyncComplete = useCallback(() => {
+    refreshRanking();
+  }, [refreshRanking]);
+
+  const stockSync = useStockSync({ onSyncComplete: handleSyncComplete });
 
   const toolbarProps = {
     facets, facetsLoading,
@@ -906,6 +1054,14 @@ export default function ConsultasRanking() {
 
       {/* Toolbar */}
       <Toolbar {...toolbarProps} />
+
+      {/* Stock freshness + refresh button */}
+      <StockRefreshBar
+        lastUpdated={stockSync.lastUpdated}
+        syncing={stockSync.syncing}
+        syncMessage={stockSync.syncMessage}
+        onRefresh={stockSync.triggerRefresh}
+      />
 
       {/* KPI cards row — visible in both Detalle and Resumen views */}
       <KpiCards data={kpis.data} loading={kpis.loading} />

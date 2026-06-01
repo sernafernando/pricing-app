@@ -163,6 +163,37 @@ export async function getRankingKpis(params = {}) {
   return response.data;
 }
 
+/**
+ * Fetches the freshness status of the stock_por_deposito snapshot.
+ *
+ * @returns {Promise<{ last_updated: string|null, syncing: boolean }>}
+ */
+export async function getStockStatus() {
+  const response = await api.get('/consultas/ranking/stock-status');
+  return response.data;
+}
+
+/**
+ * Triggers a background refresh of stock_por_deposito from the ERP.
+ * Returns { status: 'started' } on 202.
+ * If a sync is already in progress the backend returns 409 — this function
+ * treats that as a non-fatal "already running" condition and returns
+ * { status: 'already_running' } so callers can enter polling mode.
+ *
+ * @returns {Promise<{ status: 'started'|'already_running' }>}
+ */
+export async function refreshStock() {
+  try {
+    const response = await api.post('/consultas/ranking/stock-refresh');
+    return response.data;
+  } catch (err) {
+    if (err?.response?.status === 409) {
+      return { status: 'already_running' };
+    }
+    throw err;
+  }
+}
+
 export async function getRankingResumen(params = {}) {
   const {
     marca = null,

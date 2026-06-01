@@ -15,7 +15,7 @@ ADR-5: Dual-currency cost fields (ARS + USD).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -95,6 +95,33 @@ class RankingItemRow(BaseModel):
 
     # Currency metadata (badge/tooltip — origin currency tag)
     moneda_costo: Optional[str] = Field(default=None, description="ARS o USD — moneda origen del costo")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StockStatusResponse(BaseModel):
+    """Response for GET /consultas/ranking/stock-status.
+
+    Reports freshness of the stock_por_deposito snapshot and whether a
+    background refresh is currently running.
+    """
+
+    last_updated: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp of the most recent stock_por_deposito row (MAX updated_at). Null if table is empty.",
+    )
+    syncing: bool = Field(
+        default=False,
+        description="True while a background stock refresh is in progress.",
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StockRefreshResponse(BaseModel):
+    """Response for POST /consultas/ranking/stock-refresh."""
+
+    status: str = Field(description="'started' when a new sync was launched.")
 
     model_config = ConfigDict(from_attributes=True)
 

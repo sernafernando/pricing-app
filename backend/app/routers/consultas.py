@@ -26,6 +26,7 @@ ADR references:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -44,11 +45,109 @@ from app.schemas.consultas import (
     RankingResponse,
     ResumenResponse,
     ResumenRow,
+    StockRefreshResponse,
+    StockStatusResponse,
 )
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/consultas", tags=["consultas"])
+
+# ---------------------------------------------------------------------------
+# Stock sync concurrency guard
+# ---------------------------------------------------------------------------
+
+# Module-level flag — protects against concurrent API-triggered refreshes.
+# The cron may overlap: that is acceptable because the upsert is idempotent.
+_stock_sync_running: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Stock status + refresh endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/ranking/stock-status",
+    response_model=StockStatusResponse,
+    summary="Stock freshness status for stock_por_deposito",
+    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+)
+async def get_stock_status(
+    db: Session = Depends(get_db),
+) -> StockStatusResponse:
+    """Return the freshness timestamp of the stock_por_deposito snapshot.
+
+    Queries MAX(updated_at) from stock_por_deposito to indicate when the last
+    sync completed. Also returns whether a background refresh is currently in
+    progress (syncing=True).
+
+    Permission required: consultas.ver_ranking
+    """
+    try:
+        row = db.execute(text("SELECT MAX(updated_at) AS last_updated FROM stock_por_deposito")).fetchone()
+    except Exception as exc:
+        logger.error("Error querying stock_por_deposito freshness: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al consultar el estado del stock",
+        ) from exc
+
+    last_updated = row[0] if row and row[0] is not None else None
+    return StockStatusResponse(last_updated=last_updated, syncing=_stock_sync_running)
+
+
+@router.post(
+    "/ranking/stock-refresh",
+    response_model=StockRefreshResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger a background stock sync from the ERP",
+    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+)
+async def post_stock_refresh() -> StockRefreshResponse:
+    """Launch a background refresh of stock_por_deposito from the ERP.
+
+    The sync is run asynchronously via asyncio.create_task so the request
+    returns immediately (202). The sync can take several minutes as it hits
+    the ERP API for each depot.
+
+    Concurrency guard: if a refresh is already running (whether triggered by
+    this endpoint or another concurrent request), returns 409 immediately. The
+    cron may still overlap — that is acceptable because the upsert is idempotent.
+
+    CRITICAL: run_sync() opens its own DB session (SessionLocal) and must NOT
+    receive the request's db session — that would pin the connection for the
+    entire sync duration, exhausting the pool.
+
+    Permission required: consultas.ver_ranking
+    """
+    global _stock_sync_running
+
+    if _stock_sync_running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sincronización de stock ya en curso",
+        )
+
+    _stock_sync_running = True
+
+    async def _run_and_reset() -> None:
+        global _stock_sync_running
+        # Lazy import avoids circular dependency risk at module load time.
+        from app.scripts.sync_stock_por_deposito import run_sync  # noqa: PLC0415
+
+        try:
+            await run_sync()
+            logger.info("✅ Stock refresh completado (API trigger)")
+        except Exception as exc:
+            logger.error("❌ Error durante stock refresh (API trigger): %s", exc, exc_info=True)
+        finally:
+            _stock_sync_running = False
+
+    asyncio.create_task(_run_and_reset())
+
+    return StockRefreshResponse(status="started")
+
 
 # ---------------------------------------------------------------------------
 # Sale definition constants (ADR-1)
