@@ -111,7 +111,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       icon: BarChart3,
       defaultOpen: false,
       items: [
-        { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking' },
+        { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking,consultas.ver_mi_ranking', multiple: true },
         { label: 'Métricas ML', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },

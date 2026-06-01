@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { usePermisos } from '../contexts/PermisosContext';
 import {
   Search,
   ChevronDown,
@@ -403,6 +404,7 @@ function Toolbar({
   incluirSinStock, setIncluirSinStock,
   incluirCombos, setIncluirCombos,
   busqueda, setBusqueda,
+  esScoped,
 }) {
   const depositos = facets.depositos?.length > 0 ? facets.depositos : FALLBACK_DEPOSITOS;
   const [depotOpen, setDepotOpen] = useState(false);
@@ -494,29 +496,31 @@ function Toolbar({
         </button>
       </div>
 
-      {/* PM */}
-      <div className={styles.filterGroup}>
-        <span className={styles.filterGroupLabel}>PM</span>
-        <button
-          type="button"
-          className={`${styles.dropBtn} ${pm ? styles.dropBtnActive : ''}`}
-          title="Filtrar por PM"
-        >
-          <span className={styles.dropBtnValue}>{pm || 'Todos'}</span>
-          <ChevronDown size={13} aria-hidden="true" />
-          <select
-            className={styles.dropBtnSelect}
-            value={pm}
-            onChange={(e) => setPm(e.target.value)}
-            disabled={facetsLoading}
-            aria-label="Filtrar por PM"
+      {/* PM — hidden for scoped users (backend already restricts to their own assignments) */}
+      {!esScoped && (
+        <div className={styles.filterGroup}>
+          <span className={styles.filterGroupLabel}>PM</span>
+          <button
+            type="button"
+            className={`${styles.dropBtn} ${pm ? styles.dropBtnActive : ''}`}
+            title="Filtrar por PM"
           >
-            <option value="">Todos</option>
-            {facets.pms.map((p) => <option key={p} value={p}>{p}</option>)}
-            <option value="sin_pm">Sin PM</option>
-          </select>
-        </button>
-      </div>
+            <span className={styles.dropBtnValue}>{pm || 'Todos'}</span>
+            <ChevronDown size={13} aria-hidden="true" />
+            <select
+              className={styles.dropBtnSelect}
+              value={pm}
+              onChange={(e) => setPm(e.target.value)}
+              disabled={facetsLoading}
+              aria-label="Filtrar por PM"
+            >
+              <option value="">Todos</option>
+              {facets.pms.map((p) => <option key={p} value={p}>{p}</option>)}
+              <option value="sin_pm">Sin PM</option>
+            </select>
+          </button>
+        </div>
+      )}
 
       {/* Depósitos */}
       <div className={styles.filterGroup} style={{ position: 'relative' }}>
@@ -830,6 +834,11 @@ function ResumenTable({ groupBy, onGroupByChange, data, loading, error }) {
 // ---------------------------------------------------------------------------
 
 export default function ConsultasRanking() {
+  const { tienePermiso } = usePermisos();
+  // Scoped users have ver_mi_ranking but NOT ver_ranking — backend scopes their data
+  // automatically; the PM filter is irrelevant (they only see their own assignments).
+  const esScoped = !tienePermiso('consultas.ver_ranking');
+
   const { facets, facetsLoading } = useFacets();
 
   const [view, setView] = useState('detalle'); // 'detalle' | 'resumen'
@@ -881,6 +890,7 @@ export default function ConsultasRanking() {
     incluirSinStock, setIncluirSinStock,
     incluirCombos, setIncluirCombos,
     busqueda: q, setBusqueda: setQ,
+    esScoped,
   };
 
   return (
