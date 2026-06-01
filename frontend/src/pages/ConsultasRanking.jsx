@@ -12,6 +12,7 @@ import {
   PackageSearch,
   Warehouse,
 } from 'lucide-react';
+import SearchInput from '../components/SearchInput';
 import { useConsultasRanking } from '../hooks/useConsultasRanking';
 import { getRankingFacets, getRankingKpis, getRankingResumen } from '../services/consultasService';
 import styles from './ConsultasRanking.module.css';
@@ -436,18 +437,14 @@ function Toolbar({
 
   return (
     <div className={styles.toolbar}>
-      {/* Search */}
-      <div className={styles.searchWrap}>
-        <Search size={15} className={styles.searchIcon} aria-hidden="true" />
-        <input
-          type="text"
-          className={styles.searchInput}
-          placeholder="Buscar producto…"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          aria-label="Buscar producto"
-        />
-      </div>
+      {/* Search — reuse shared SearchInput (icon + clear handled internally) */}
+      <SearchInput
+        value={busqueda}
+        onChange={setBusqueda}
+        placeholder="Buscar producto…"
+        size="sm"
+        className={styles.searchWrap}
+      />
 
       <div className={styles.toolbarDivider} />
 
