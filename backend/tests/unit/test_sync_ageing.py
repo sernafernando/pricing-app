@@ -11,6 +11,8 @@ Covers:
 All DB and HTTP calls are mocked — no real network or DB access.
 """
 
+import asyncio
+
 import pytest
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -87,8 +89,7 @@ UNMATCHED_ROW = {
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fetch_ageing_returns_rows_on_success() -> None:
+def test_fetch_ageing_returns_rows_on_success() -> None:
     """_fetch_ageing returns the list of dicts from the gbp-parser endpoint."""
     sample_rows = [SAMPLE_AGEING_ROW, SAMPLE_AGEING_ROW_2]
 
@@ -102,7 +103,7 @@ async def test_fetch_ageing_returns_rows_on_success() -> None:
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
-        result = await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+        result = asyncio.run(_fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59"))
 
     assert result == sample_rows
     mock_client.get.assert_called_once()
@@ -118,8 +119,7 @@ async def test_fetch_ageing_returns_rows_on_success() -> None:
     assert params["toDate"] == "2026-12-31 23:59:59"
 
 
-@pytest.mark.asyncio
-async def test_fetch_ageing_raises_on_non_list_response() -> None:
+def test_fetch_ageing_raises_on_non_list_response() -> None:
     """_fetch_ageing raises RuntimeError when the endpoint returns a non-list."""
     mock_response = MagicMock()
     mock_response.json.return_value = {"error": "something went wrong"}
@@ -132,11 +132,10 @@ async def test_fetch_ageing_raises_on_non_list_response() -> None:
 
     with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
         with pytest.raises(RuntimeError, match="Respuesta inesperada del gbp-parser"):
-            await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+            asyncio.run(_fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59"))
 
 
-@pytest.mark.asyncio
-async def test_fetch_ageing_returns_empty_list() -> None:
+def test_fetch_ageing_returns_empty_list() -> None:
     """_fetch_ageing returns [] when the endpoint returns an empty list."""
     mock_response = MagicMock()
     mock_response.json.return_value = []
@@ -148,7 +147,7 @@ async def test_fetch_ageing_returns_empty_list() -> None:
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with patch("app.scripts.sync_ageing.httpx.AsyncClient", return_value=mock_client):
-        result = await _fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59")
+        result = asyncio.run(_fetch_ageing("2000-01-01 00:00:00", "2026-12-31 23:59:59"))
 
     assert result == []
 
