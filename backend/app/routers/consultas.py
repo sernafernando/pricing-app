@@ -38,6 +38,7 @@ from app.core.logging import get_logger
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
     DepositoFacet,
+    KpisResponse,
     RankingFacetsResponse,
     RankingItemRow,
     RankingResponse,
@@ -818,6 +819,260 @@ async def get_ranking_resumen(
     )
 
     return ResumenResponse(items=items, totales=totales)
+
+
+# ---------------------------------------------------------------------------
+# KPIs endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/ranking/kpis",
+    response_model=KpisResponse,
+    summary="Aggregate KPIs for the product ranking filter set",
+    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+)
+async def get_ranking_kpis(
+    # Filters — same semantics as /ranking (no pagination, no sort)
+    marca: Optional[str] = Query(default=None, max_length=100),
+    categoria: Optional[str] = Query(default=None, max_length=100),
+    pm: Optional[str] = Query(
+        default=None,
+        description="Nombre del PM asignado, o 'sin_pm' para productos sin PM",
+    ),
+    stor_ids: list[int] = Query(default=[1], description="IDs de depósito"),
+    incluir_sin_stock: bool = Query(
+        default=False,
+        description="Si True, incluye productos sin stock en los depósitos seleccionados.",
+    ),
+    incluir_combos: bool = Query(
+        default=False,
+        description="Si True, incluye combos/producción (productos padre en tb_item_association).",
+    ),
+    q: Optional[str] = Query(
+        default=None,
+        description="Búsqueda por código o descripción (ILIKE).",
+    ),
+    db: Session = Depends(get_db),
+) -> KpisResponse:
+    """Aggregate KPI metrics over all products matching the active filter set.
+
+    Reuses the exact same per-product computed expressions and filters as /ranking
+    (total_stock, valor_costo_ars, valor_costo_usd, valor_venta, dias_sin_venta via
+    last-sale LATERAL — sd_id IN SD_VENTAS, df_id IN DF_VENTA_TODOS) to guarantee
+    consistency between the KPI cards and the ranked table.
+
+    Returned aggregates:
+    - total_productos: COUNT(DISTINCT item_id)
+    - stock_total: SUM(total_stock)
+    - capital_costo_ars: SUM(valor_costo_ars)
+    - capital_costo_usd: SUM(valor_costo_usd)
+    - capital_venta_ars: SUM(valor_venta)
+    - capital_muerto_ars: SUM(valor_costo_ars) WHERE dias_sin_venta > 365 OR last_sale_date IS NULL
+    - pct_capital_muerto: capital_muerto_ars / capital_costo_ars * 100 (null-safe)
+
+    ALL ROUND() calls cast to NUMERIC (ADR-5 — PostgreSQL has no round(double precision, int)).
+
+    Permission required: consultas.ver_ranking
+    """
+    tc_venta: Optional[float] = _get_tc_venta(db)
+
+    sd_ventas_str = ",".join(str(x) for x in SD_VENTAS)
+    df_venta_str = ",".join(str(x) for x in DF_VENTA_TODOS)
+    items_excl_str = ",".join(str(x) for x in ITEMS_EXCLUIDOS)
+
+    # ---- WHERE clauses (identical to /ranking) ----
+    filter_clauses: list[str] = ["pe.activo = TRUE"]
+    params: dict = {
+        "stor_ids": stor_ids,
+        "tc_venta": tc_venta,
+    }
+
+    if marca:
+        filter_clauses.append("pe.marca = :marca")
+        params["marca"] = marca
+
+    if categoria:
+        filter_clauses.append("pe.categoria = :categoria")
+        params["categoria"] = categoria
+
+    if pm == "sin_pm":
+        filter_clauses.append("mp.usuario_id IS NULL")
+    elif pm is not None:
+        filter_clauses.append("u_pm.nombre = :pm_nombre")
+        params["pm_nombre"] = pm
+
+    if q and q.strip():
+        filter_clauses.append("(pe.codigo ILIKE :q OR pe.descripcion ILIKE :q)")
+        params["q"] = f"%{q.strip()}%"
+
+    if not incluir_sin_stock:
+        filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
+
+    if not incluir_combos:
+        filter_clauses.append(
+            "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
+        )
+
+    where_sql = " AND ".join(filter_clauses)
+
+    # ---- Per-product CTE — exact same expressions as /ranking ----
+    # Includes dias_sin_venta (last-sale LATERAL) so we can bucket "dead stock".
+    # CRITICAL: all ROUND() must CAST to NUMERIC (ADR-5).
+    kpis_sql = f"""
+        WITH per_product AS (
+            SELECT
+                pe.item_id,
+                -- last sale date (for dias_sin_venta + dead-stock bucket)
+                ls.last_sale_date,
+                CASE
+                    WHEN ls.last_sale_date IS NOT NULL
+                    THEN CAST(NOW()::date - ls.last_sale_date::date AS INTEGER)
+                    ELSE NULL
+                END                                                     AS dias_sin_venta,
+                -- stock
+                COALESCE(stk.total_stock, 0)                           AS total_stock,
+                -- valor_costo_ars (ADR-5)
+                CASE
+                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN CASE pe.moneda_costo
+                        WHEN 'USD' THEN
+                            CASE WHEN :tc_venta IS NOT NULL
+                            THEN ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                    * CAST(:tc_venta AS NUMERIC)
+                                AS NUMERIC), 2)
+                            ELSE NULL
+                            END
+                        ELSE
+                            ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                AS NUMERIC), 2)
+                        END
+                    ELSE NULL
+                END                                                     AS valor_costo_ars,
+                -- valor_costo_usd (ADR-5)
+                CASE
+                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN CASE pe.moneda_costo
+                        WHEN 'USD' THEN
+                            ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                AS NUMERIC), 2)
+                        ELSE
+                            CASE WHEN :tc_venta IS NOT NULL AND CAST(:tc_venta AS NUMERIC) > 0
+                            THEN ROUND(
+                                CAST(
+                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
+                                    * CAST(pe.costo AS NUMERIC)
+                                    / CAST(:tc_venta AS NUMERIC)
+                                AS NUMERIC), 2)
+                            ELSE NULL
+                            END
+                        END
+                    ELSE NULL
+                END                                                     AS valor_costo_usd,
+                -- valor_venta
+                CASE
+                    WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
+                    THEN ROUND(
+                        CAST(CAST(COALESCE(stk.total_stock, 0) AS NUMERIC) * prli.prli_price AS NUMERIC),
+                        2
+                    )
+                    ELSE NULL
+                END                                                     AS valor_venta
+            FROM productos_erp pe
+            -- last sale LATERAL (ADR-1: sd_id IN SD_VENTAS, df_id IN DF_VENTA_TODOS)
+            LEFT JOIN LATERAL (
+                SELECT MAX(tct.ct_date) AS last_sale_date
+                FROM tb_item_transactions tit
+                JOIN tb_commercial_transactions tct
+                  ON tct.ct_transaction = tit.ct_transaction
+                WHERE tit.item_id = pe.item_id
+                  AND tct.sd_id IN ({sd_ventas_str})
+                  AND tct.df_id IN ({df_venta_str})
+                  AND tit.it_qty <> 0
+                  AND tit.item_id NOT IN ({items_excl_str})
+            ) ls ON TRUE
+            -- stock across selected depots
+            LEFT JOIN LATERAL (
+                SELECT SUM(itst_cant) AS total_stock
+                FROM tb_item_storage
+                WHERE item_id = pe.item_id
+                  AND stor_id = ANY(:stor_ids)
+            ) stk ON TRUE
+            -- price list clasica
+            LEFT JOIN tb_price_list_items prli
+              ON prli.item_id = pe.item_id
+             AND prli.prli_id = {PRLI_CLASICA}
+             AND prli.comp_id = {COMP_ID}
+            LEFT JOIN marcas_pm mp
+              ON mp.marca = pe.marca
+             AND mp.categoria = pe.categoria
+            LEFT JOIN usuarios u_pm
+              ON u_pm.id = mp.usuario_id
+            WHERE {where_sql}
+        )
+        SELECT
+            COUNT(DISTINCT item_id)::INTEGER                            AS total_productos,
+            COALESCE(SUM(total_stock), 0)::INTEGER                     AS stock_total,
+            SUM(valor_costo_ars)                                        AS capital_costo_ars,
+            SUM(valor_costo_usd)                                        AS capital_costo_usd,
+            SUM(valor_venta)                                            AS capital_venta_ars,
+            COALESCE(
+                SUM(valor_costo_ars)
+                    FILTER (WHERE dias_sin_venta > 365 OR last_sale_date IS NULL),
+                0)                                                      AS capital_muerto_ars,
+            CASE
+                WHEN SUM(valor_costo_ars) IS NOT NULL
+                     AND SUM(valor_costo_ars) > 0
+                THEN ROUND(
+                    CAST(
+                        COALESCE(SUM(valor_costo_ars)
+                            FILTER (WHERE dias_sin_venta > 365 OR last_sale_date IS NULL), 0)
+                        / NULLIF(SUM(valor_costo_ars), 0)
+                        * 100
+                    AS NUMERIC), 2)
+                ELSE NULL
+            END                                                         AS pct_capital_muerto
+        FROM per_product
+    """
+
+    try:
+        row = db.execute(text(kpis_sql), params).fetchone()
+    except Exception as exc:
+        logger.error("Error in consultas ranking/kpis query: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al ejecutar la consulta de KPIs",
+        ) from exc
+
+    if row is None:
+        return KpisResponse(
+            total_productos=0,
+            stock_total=0,
+            capital_costo_ars=None,
+            capital_costo_usd=None,
+            capital_venta_ars=None,
+            capital_muerto_ars=None,
+            pct_capital_muerto=None,
+        )
+
+    return KpisResponse(
+        total_productos=int(row.total_productos) if row.total_productos is not None else 0,
+        stock_total=int(row.stock_total) if row.stock_total is not None else 0,
+        capital_costo_ars=float(row.capital_costo_ars) if row.capital_costo_ars is not None else None,
+        capital_costo_usd=float(row.capital_costo_usd) if row.capital_costo_usd is not None else None,
+        capital_venta_ars=float(row.capital_venta_ars) if row.capital_venta_ars is not None else None,
+        capital_muerto_ars=float(row.capital_muerto_ars) if row.capital_muerto_ars is not None else None,
+        pct_capital_muerto=float(row.pct_capital_muerto) if row.pct_capital_muerto is not None else None,
+    )
 
 
 # ---------------------------------------------------------------------------

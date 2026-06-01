@@ -13,7 +13,7 @@ import {
   Warehouse,
 } from 'lucide-react';
 import { useConsultasRanking } from '../hooks/useConsultasRanking';
-import { getRankingFacets, getRankingResumen } from '../services/consultasService';
+import { getRankingFacets, getRankingKpis, getRankingResumen } from '../services/consultasService';
 import styles from './ConsultasRanking.module.css';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +93,36 @@ function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, i
 }
 
 // ---------------------------------------------------------------------------
+// KPIs hook
+// ---------------------------------------------------------------------------
+
+function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    if (abortRef.current) abortRef.current.cancelled = true;
+    const token = { cancelled: false };
+    abortRef.current = token;
+
+    setLoading(true);
+
+    getRankingKpis({ marca, categoria, pm, stor_ids: storIds, incluir_sin_stock: incluirSinStock, incluir_combos: incluirCombos, q: q || null })
+      .then((result) => { if (!token.cancelled) { setData(result); setLoading(false); } })
+      .catch(() => {
+        if (token.cancelled) return;
+        // Non-fatal: KPI cards silently fail — table still works
+        setLoading(false);
+      });
+
+    return () => { token.cancelled = true; };
+  }, [marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q]);
+
+  return { data, loading };
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -116,6 +146,58 @@ function formatDate(dateStr) {
 }
 
 // ---------------------------------------------------------------------------
+// KPI cards row
+// ---------------------------------------------------------------------------
+
+function KpiCards({ data, loading }) {
+  if (loading && !data) {
+    return <div className={styles.kpiRow} aria-busy="true" />;
+  }
+  if (!data) return null;
+
+  const pct = data.pct_capital_muerto;
+  const isHighMuerto = pct != null && pct >= 30;
+
+  return (
+    <div className={styles.kpiRow} role="region" aria-label="KPIs de capital">
+      {/* Card 1: Capital holdeado */}
+      <div className={styles.kpiCard}>
+        <span className={styles.kpiLabel}>Capital holdeado</span>
+        <span className={styles.kpiValue}>{formatARS(data.capital_costo_ars)}</span>
+        <span className={styles.kpiSub}>{formatUSD(data.capital_costo_usd)}</span>
+      </div>
+
+      {/* Card 2: Stock muerto */}
+      <div className={styles.kpiCard}>
+        <span className={styles.kpiLabel}>Stock muerto</span>
+        <span className={`${styles.kpiValue} ${isHighMuerto ? styles.kpiValueDanger : ''}`}>
+          {formatARS(data.capital_muerto_ars)}
+        </span>
+        <span className={`${styles.kpiSub} ${isHighMuerto ? styles.kpiSubDanger : ''}`}>
+          {pct != null ? `${pct.toFixed(1)}% del capital` : '—'}
+        </span>
+      </div>
+
+      {/* Card 3: SKUs */}
+      <div className={styles.kpiCard}>
+        <span className={styles.kpiLabel}>SKUs</span>
+        <span className={styles.kpiValue}>
+          {data.total_productos != null ? data.total_productos.toLocaleString('es-AR') : '—'}
+        </span>
+        <span className={styles.kpiSub}>con stock</span>
+      </div>
+
+      {/* Card 4: Valor potencial venta */}
+      <div className={styles.kpiCard}>
+        <span className={styles.kpiLabel}>Valor potencial venta</span>
+        <span className={styles.kpiValue}>{formatARS(data.capital_venta_ars)}</span>
+        <span className={styles.kpiSub}>&nbsp;</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Días sin venta color class
 // ---------------------------------------------------------------------------
 
@@ -124,6 +206,37 @@ function diasClass(dias) {
   if (dias < 90) return styles.diasGreen;
   if (dias <= 365) return styles.diasAmber;
   return styles.diasRed;
+}
+
+// ---------------------------------------------------------------------------
+// Días sin venta gauge bar
+// ---------------------------------------------------------------------------
+
+const GAUGE_MAX = 730; // ~2 years fills the bar
+
+function diasFillClass(dias) {
+  if (dias < 90) return styles.gaugeFillGreen;
+  if (dias <= 365) return styles.gaugeFillAmber;
+  return styles.gaugeFillRed;
+}
+
+function DiasGauge({ dias }) {
+  if (dias == null) return <span>—</span>;
+  const pct = Math.min(Math.max(dias / GAUGE_MAX, 0), 1) * 100;
+  return (
+    <span
+      className={`${styles.diasGaugeWrap} ${diasClass(dias)}`}
+      aria-label={`${dias} días sin venta`}
+    >
+      <span className={styles.gaugeTrack} aria-hidden="true">
+        <span
+          className={`${styles.gaugeFill} ${diasFillClass(dias)}`}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <span className={`${styles.diasMono}`}>{dias}</span>
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -550,13 +663,8 @@ function DetalleTable({ items, total, loading, error, ordenColumnas, handleOrden
                 <td className={styles.td}>
                   {item.pm ?? <span className={styles.sinPm}>Sin PM</span>}
                 </td>
-                <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>
-                  {item.dias_sin_venta != null ? (
-                    <span className={`${styles.diasBadge} ${diasClass(item.dias_sin_venta)}`}>
-                      <span className={styles.diasDot} aria-hidden="true" />
-                      {item.dias_sin_venta}
-                    </span>
-                  ) : '—'}
+                <td className={`${styles.td} ${styles.tdRight}`}>
+                  <DiasGauge dias={item.dias_sin_venta} />
                 </td>
                 <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>
                   {item.erp_ageing_dias != null ? item.erp_ageing_dias : '—'}
@@ -765,6 +873,8 @@ export default function ConsultasRanking() {
     marca, categoria, pm, storIds, incluirSinStock, incluirCombos, groupBy,
   });
 
+  const kpis = useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q });
+
   const toolbarProps = {
     facets, facetsLoading,
     marca, setMarca,
@@ -799,6 +909,9 @@ export default function ConsultasRanking() {
 
       {/* Toolbar */}
       <Toolbar {...toolbarProps} />
+
+      {/* KPI cards row — visible in both Detalle and Resumen views */}
+      <KpiCards data={kpis.data} loading={kpis.loading} />
 
       {/* Content */}
       <div className={styles.content}>
