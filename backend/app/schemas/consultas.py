@@ -10,7 +10,6 @@ valor_venta (nullable), total_stock.
 REQ-04: Dynamic multi-column sort via `sort` list; unknown campo → 422.
 REQ-05: Pagination page / page_size (1-200).
 REQ-03: Filters: marca, categoria, pm, stor_ids, incluir_sin_stock, incluir_combos.
-ADR-4: ventana_dias in {30, 60, 90, 180}.
 ADR-5: Dual-currency cost fields (ARS + USD).
 """
 
@@ -26,12 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field
 # Allowed values
 # ---------------------------------------------------------------------------
 
-VENTANA_DIAS_PERMITIDAS: frozenset[int] = frozenset({30, 60, 90, 180})
-
 SORT_COLUMNS_PERMITIDAS: frozenset[str] = frozenset(
     {
         "dias_sin_venta",
-        "unidades_vendidas_ventana",
         "total_stock",
         "valor_costo_ars",
         "valor_costo_usd",
@@ -97,12 +93,6 @@ class RankingItemRow(BaseModel):
         description="total_stock × precio lista clasica (prli_id=4) en ARS. Null si no hay precio.",
     )
 
-    # Sales velocity
-    unidades_vendidas_ventana: int = Field(
-        default=0,
-        description="Unidades vendidas en la ventana seleccionada.",
-    )
-
     # Currency metadata (badge/tooltip — origin currency tag)
     moneda_costo: Optional[str] = Field(default=None, description="ARS o USD — moneda origen del costo")
 
@@ -130,6 +120,33 @@ class DepositoFacet(BaseModel):
 
     id: int
     label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumenRow(BaseModel):
+    """Single row in the resumen (brand/PM totals) response.
+
+    When used as a group row: grupo is the marca or PM name.
+    When used as totales: grupo is 'TOTAL' and pm may be None.
+    """
+
+    grupo: str = Field(description="Nombre del grupo: marca o PM según group_by")
+    pm: Optional[str] = Field(default=None, description="PM display name (nullable)")
+    num_productos: int = Field(description="Cantidad de productos distintos en el grupo")
+    stock_total: int = Field(default=0, description="Suma de stock en depósitos seleccionados")
+    valor_costo_ars: Optional[float] = Field(default=None, description="Suma de valor_costo_ars del grupo")
+    valor_costo_usd: Optional[float] = Field(default=None, description="Suma de valor_costo_usd del grupo")
+    valor_venta: Optional[float] = Field(default=None, description="Suma de valor_venta del grupo")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumenResponse(BaseModel):
+    """Resumen (grouped totals) response envelope."""
+
+    items: list[ResumenRow]
+    totales: ResumenRow
 
     model_config = ConfigDict(from_attributes=True)
 
