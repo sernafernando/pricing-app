@@ -58,8 +58,19 @@ router = APIRouter(prefix="/consultas", tags=["consultas"])
 # ---------------------------------------------------------------------------
 
 # Module-level flag — protects against concurrent API-triggered refreshes.
-# The cron may overlap: that is acceptable because the upsert is idempotent.
+# NOTE: this guard is PER-PROCESS (best-effort). Under uvicorn/gunicorn with
+# multiple workers each worker has its own flag, so two workers could each
+# launch a sync. That is acceptable because the underlying upsert is idempotent
+# and the cron (flock) already overlaps safely; the flag only de-dupes within a
+# single worker. The cron may also overlap for the same reason.
 _stock_sync_running: bool = False
+
+# Strong references to in-flight background tasks. asyncio only keeps a WEAK
+# reference to a task, so a fire-and-forget create_task() can be garbage
+# collected mid-run — which would skip its finally block and leave
+# _stock_sync_running stuck at True forever (permanent 409). Holding the task
+# here until it completes prevents that.
+_background_tasks: set[asyncio.Task] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +155,10 @@ async def post_stock_refresh() -> StockRefreshResponse:
         finally:
             _stock_sync_running = False
 
-    asyncio.create_task(_run_and_reset())
+    # Retain a strong reference until the task finishes (see _background_tasks).
+    task = asyncio.create_task(_run_and_reset())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return StockRefreshResponse(status="started")
 
