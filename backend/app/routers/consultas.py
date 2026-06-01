@@ -111,6 +111,11 @@ PUCO_COMPRAS: int = 10
 PRLI_CLASICA: int = 4
 # comp_id of the main company (price list / cost list rows are keyed by comp_id)
 COMP_ID: int = 1
+# ERP sentinel for "item does not control stock" (virtual/unlimited items).
+# The ERP stores 99999999 as available stock for these; it is NOT a real quantity.
+# Real stock tops out well below this (no legitimate values between max real stock
+# and the sentinel), so it is excluded from valuation to avoid inflating capital.
+STOCK_SENTINEL: int = 99999999
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +477,7 @@ async def get_ranking(
             FROM stock_por_deposito
             WHERE item_id = pe.item_id
               AND stor_id = ANY(:stor_ids)
+              AND stock < {STOCK_SENTINEL}
         ) stk ON TRUE
         -- Price list clasica (prli_id=4). comp_id is part of the PK
         -- (comp_id, prli_id, item_id) — without it the LEFT JOIN can multiply rows.
@@ -505,6 +511,7 @@ async def get_ranking(
             FROM stock_por_deposito
             WHERE item_id = pe.item_id
               AND stor_id = ANY(:stor_ids)
+              AND stock < {STOCK_SENTINEL}
         ) stk ON TRUE
         LEFT JOIN marcas_pm mp
           ON mp.marca = pe.marca
@@ -722,6 +729,7 @@ async def get_ranking_resumen(
                 FROM stock_por_deposito
                 WHERE item_id = pe.item_id
                   AND stor_id = ANY(:stor_ids)
+                  AND stock < {STOCK_SENTINEL}
             ) stk ON TRUE
             LEFT JOIN tb_price_list_items prli
               ON prli.item_id = pe.item_id
@@ -1006,6 +1014,7 @@ async def get_ranking_kpis(
                 FROM stock_por_deposito
                 WHERE item_id = pe.item_id
                   AND stor_id = ANY(:stor_ids)
+                  AND stock < {STOCK_SENTINEL}
             ) stk ON TRUE
             -- price list clasica
             LEFT JOIN tb_price_list_items prli
