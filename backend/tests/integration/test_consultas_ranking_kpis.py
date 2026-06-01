@@ -238,6 +238,48 @@ class TestKpis200:
         assert body["capital_muerto_ars"] == 3_000_000.0
         assert body["pct_capital_muerto"] == 25.0
 
+    def test_kpis_sql_excludes_stock_sentinel(self, user_con_permiso_kpis) -> None:
+        """Regression: the capital query MUST exclude the ERP "no controla stock"
+        sentinel (99999999). Without this, those virtual items inflate capital to
+        ~$28B USD (prod incident 2026-06-01). Inspect the executed SQL directly,
+        since the mock DB does not run LATERAL/ANY."""
+        from app.core.database import get_async_db, get_db
+        from app.main import app
+        from app.routers.consultas import STOCK_SENTINEL
+        from starlette.testclient import TestClient
+
+        mock_db = _make_kpis_mock_db_session()
+
+        def _override_get_db():
+            yield mock_db
+
+        async def _override_get_async_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_async_db] = _override_get_async_db
+
+        with TestClient(app, raise_server_exceptions=False) as c:
+            with (
+                _PATCH_TIENE_PERMISO_TRUE,
+                _PATCH_OBTENER_PERMISOS,
+                patch("app.routers.consultas._get_tc_venta", return_value=1200.0),
+            ):
+                response = c.get("/api/consultas/ranking/kpis", headers=_auth(user_con_permiso_kpis))
+
+        app.dependency_overrides.clear()
+        assert response.status_code == 200
+
+        executed_sql = [
+            str(call.args[0])
+            for call in mock_db.execute.call_args_list
+            if call.args and "stock_por_deposito" in str(call.args[0])
+        ]
+        assert executed_sql, "No query against stock_por_deposito was executed"
+        assert all(f"stock < {STOCK_SENTINEL}" in sql for sql in executed_sql), (
+            "Capital query does not exclude the stock sentinel — capital will be inflated"
+        )
+
     def test_kpis_nullable_fields_accept_none(self, user_con_permiso_kpis) -> None:
         """Nullable KPI fields (capital_*) can be null when no monetary data exists."""
         from app.core.database import get_async_db, get_db
