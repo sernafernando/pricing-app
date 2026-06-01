@@ -27,6 +27,7 @@ from app.models.tb_state import TBState
 from app.models.tb_item_association import TbItemAssociation
 from app.models.tb_price_list_items import TbPriceListItems
 from app.models.tb_item_storage import TbItemStorage
+from app.models.stock_por_deposito import StockPorDeposito
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -197,6 +198,7 @@ __all__ = [
     "TbItemAssociation",
     "TbPriceListItems",
     "TbItemStorage",
+    "StockPorDeposito",
     "OffsetGanancia",
     "OffsetGrupo",
     "OffsetGrupoFiltro",

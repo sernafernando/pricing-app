@@ -9,7 +9,7 @@ Each row contains:
     tb_commercial_transactions with the canonical sale definition confirmed
     in ADR-1: sd_id IN SD_VENTAS, df_id IN DF_VENTA_TODOS).
   - Last purchase data (puco_id=10, latest it_cd).
-  - Stock total across selected depots (itst_cant).
+  - Stock total across selected depots (stock_por_deposito.stock — ERP real-time available stock).
   - Monetary valuations in BOTH ARS and USD (valor_costo_ars, valor_costo_usd).
   - valor_venta in ARS (price list clasica prli_id=4).
   - ERP-sourced ageing from productos_ageing (LEFT JOIN — null at launch).
@@ -282,7 +282,7 @@ async def get_ranking(
 
     Aggregates ERP transaction data to compute:
     - dias_sin_venta: days since last sale across all channels (unbounded).
-    - total_stock: sum of itst_cant for selected depots.
+    - total_stock: sum of stock_por_deposito.stock for selected depots (ERP real-time available stock).
     - valor_costo_ars: stock × costo in ARS (FX applied when origin is USD).
     - valor_costo_usd: stock × costo in USD (FX applied when origin is ARS).
     - valor_venta: total_stock × precio from tb_price_list_items (prli_id=4) in ARS.
@@ -352,7 +352,7 @@ async def get_ranking(
     # Two LATERALs:
     #   ls — last_sale: MAX(ct_date) over all channels (unbounded)
     #   lp — last_purchase: most recent purchase row (puco_id=10)
-    # Stock: SUM(itst_cant) WHERE stor_id = ANY(:stor_ids)
+    # Stock: SUM(stock) FROM stock_por_deposito WHERE stor_id = ANY(:stor_ids)
     # Monetary: dual-currency cost (ARS + USD) via :tc_venta; precio from tb_price_list_items prli_id=4
     # LEFT JOIN productos_ageing for erp_ageing_dias
     # NOTE: stk LATERAL is referenced in WHERE when incluir_sin_stock=False,
@@ -468,8 +468,8 @@ async def get_ranking(
         ) lp ON TRUE
         -- Stock across selected depots (also drives incluir_sin_stock filter via WHERE)
         LEFT JOIN LATERAL (
-            SELECT SUM(itst_cant) AS total_stock
-            FROM tb_item_storage
+            SELECT SUM(stock) AS total_stock
+            FROM stock_por_deposito
             WHERE item_id = pe.item_id
               AND stor_id = ANY(:stor_ids)
         ) stk ON TRUE
@@ -501,8 +501,8 @@ async def get_ranking(
         FROM productos_erp pe
         -- Stock LATERAL needed for incluir_sin_stock filter consistency
         LEFT JOIN LATERAL (
-            SELECT SUM(itst_cant) AS total_stock
-            FROM tb_item_storage
+            SELECT SUM(stock) AS total_stock
+            FROM stock_por_deposito
             WHERE item_id = pe.item_id
               AND stor_id = ANY(:stor_ids)
         ) stk ON TRUE
@@ -718,8 +718,8 @@ async def get_ranking_resumen(
                 END                                                     AS valor_venta
             FROM productos_erp pe
             LEFT JOIN LATERAL (
-                SELECT SUM(itst_cant) AS total_stock
-                FROM tb_item_storage
+                SELECT SUM(stock) AS total_stock
+                FROM stock_por_deposito
                 WHERE item_id = pe.item_id
                   AND stor_id = ANY(:stor_ids)
             ) stk ON TRUE
@@ -1002,8 +1002,8 @@ async def get_ranking_kpis(
             ) ls ON TRUE
             -- stock across selected depots
             LEFT JOIN LATERAL (
-                SELECT SUM(itst_cant) AS total_stock
-                FROM tb_item_storage
+                SELECT SUM(stock) AS total_stock
+                FROM stock_por_deposito
                 WHERE item_id = pe.item_id
                   AND stor_id = ANY(:stor_ids)
             ) stk ON TRUE
