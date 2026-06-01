@@ -86,12 +86,12 @@
 
 /* ===== TEMA OSCURO - ESTILO TESLA ===== */
 :root[data-theme="dark"] {
-  /* Backgrounds - Negros profundos Tesla */
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-tertiary: #141414;
-  --bg-hover: #1a1a1a;
-  --bg-active: #222222;
+  /* Backgrounds - Escala tonal estilo Stitch (no negro puro) */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #131313;
+  --bg-tertiary: #1c1b1b;
+  --bg-hover: #232323;
+  --bg-active: #2a2a2a;
 
   /* Text colors - Grises y blancos puros */
   --text-primary: #f4f4f4;
@@ -99,18 +99,18 @@
   --text-tertiary: #7c7c7c;
   --text-inverse: #ffffff;
 
-  /* Borders - Sutiles en negro */
-  --border-primary: #1f1f1f;
-  --border-secondary: #2a2a2a;
+  /* Borders - Tonales estilo Stitch */
+  --border-primary: #2a2a2a;
+  --border-secondary: #353534;
   --border-focus: #3e6ae1;
-  --border-color: #1f1f1f;
+  --border-color: #2a2a2a;
 
-  /* Brand colors - Azul eléctrico brillante */
-  --brand-primary: #5c8cff;
-  --brand-primary-rgb: 92, 140, 255;
-  --brand-primary-hover: #3e6ae1;
+  /* Brand colors - Azul Stitch (#3e6ae1) */
+  --brand-primary: #3e6ae1;
+  --brand-primary-rgb: 62, 106, 225;
+  --brand-primary-hover: #5c8cff;
   --brand-primary-light: #1a2847;
-  --primary: #5c8cff;
+  --primary: #3e6ae1;
   --primary-light: #1a2847;
   --danger: #ff3b5c;
   --purple: #a78bfa;
