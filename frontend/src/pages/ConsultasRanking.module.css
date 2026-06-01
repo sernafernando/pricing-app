@@ -1128,3 +1128,74 @@
     text-align: left;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Stock refresh bar
+   --------------------------------------------------------------------------- */
+
+.stockBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.stockLabel {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.stockMessage {
+  font-size: var(--font-xs);
+  color: var(--warning, #e07b00);
+  flex: 1;
+}
+
+.stockRefreshBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background var(--duration-150) var(--ease-in-out),
+              color var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+  font-family: inherit;
+  margin-left: auto;
+}
+
+.stockRefreshBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+.stockRefreshBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.stockRefreshBtnSyncing {
+  color: var(--brand-primary);
+}
+
+/* Spin keyframe for the RefreshCw icon while syncing */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.spinIcon {
+  animation: spin 1s linear infinite;
+}
