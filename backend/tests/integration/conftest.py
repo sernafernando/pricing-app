@@ -86,4 +86,17 @@ def erp_stub_tables(engine) -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS stock_por_deposito (
+                    item_id    INTEGER NOT NULL,
+                    stor_id    INTEGER NOT NULL,
+                    stock      INTEGER NOT NULL DEFAULT 0,
+                    updated_at DATETIME,
+                    PRIMARY KEY (item_id, stor_id)
+                )
+                """
+            )
+        )
         conn.commit()
