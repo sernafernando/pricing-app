@@ -10,7 +10,7 @@ import { usePermisos } from '../contexts/PermisosContext';
  * ya es un estado VÁLIDO (rol FICHAJE) y se redirige a /fichaje.
  */
 export default function SmartRedirect() {
-  const { tienePermiso, tieneAlgunPermiso, loading, initialized } = usePermisos();
+  const { tienePermiso, loading, initialized } = usePermisos();
 
   // Esperar hasta que los permisos estén completamente cargados
   if (loading || !initialized) {
@@ -52,14 +52,8 @@ export default function SmartRedirect() {
 
   // Buscar la primera ruta a la que tenga acceso
   for (const ruta of rutas) {
-    if (ruta.permisos) {
-      if (tieneAlgunPermiso(ruta.permisos)) {
-        return <Navigate to={ruta.path} replace />;
-      }
-    } else if (ruta.permiso) {
-      if (tienePermiso(ruta.permiso)) {
-        return <Navigate to={ruta.path} replace />;
-      }
+    if (tienePermiso(ruta.permiso)) {
+      return <Navigate to={ruta.path} replace />;
     }
   }
 
