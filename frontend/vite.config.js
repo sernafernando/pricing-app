@@ -30,8 +30,13 @@ export default defineConfig({
           // The previous NetworkFirst rule cached `/api/permisos/mis-permisos`,
           // which made sidebar items intermittently disappear on refresh because
           // a stale-but-complete permission set was served from cache.
+          //
+          // The negative lookahead EXCLUDES `/api/sse/` so SSE streams are not
+          // matched by any route and bypass the SW entirely — a service worker
+          // proxying a long-lived EventSource stream breaks it (the connection
+          // failed 3x and degraded to polling on every page).
           {
-            urlPattern: /^https?:\/\/.*\/api\//,
+            urlPattern: /^https?:\/\/.*\/api\/(?!sse\/)/,
             handler: 'NetworkOnly',
           },
           // Build assets are content-hashed (immutable). Lazy chunks excluded
