@@ -54,6 +54,7 @@ export function SSEProvider({ children }) {
   const lastEventIdRef = useRef(null);
   const connectedAtRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const connectDebounceRef = useRef(null);
   const isConnectingRef = useRef(false);
 
   const getToken = useCallback(() => localStorage.getItem('token'), []);
@@ -238,6 +239,10 @@ export function SSEProvider({ children }) {
   }, [getToken, getActiveChannels]);
 
   const disconnect = useCallback(() => {
+    if (connectDebounceRef.current) {
+      clearTimeout(connectDebounceRef.current);
+      connectDebounceRef.current = null;
+    }
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -248,6 +253,21 @@ export function SSEProvider({ children }) {
     }
     isConnectingRef.current = false;
   }, []);
+
+  // Coalesce multiple subscribe() calls (one per channel) into a SINGLE
+  // connection. Without this, the 4 navbar badge channels each triggered their
+  // own connect() on mount, and each connect() aborts the previous one — so 3
+  // of every 4 connections were aborted instantly (~4ms) and showed up as
+  // failed requests in the network tab on every page.
+  const scheduleConnect = useCallback(() => {
+    if (connectDebounceRef.current) {
+      clearTimeout(connectDebounceRef.current);
+    }
+    connectDebounceRef.current = setTimeout(() => {
+      connectDebounceRef.current = null;
+      connect();
+    }, 50);
+  }, [connect]);
 
   // Tab visibility management
   useEffect(() => {
@@ -304,9 +324,9 @@ export function SSEProvider({ children }) {
       debugLog('Subscribe:', channel, `(${channelCount} channels total, new=${isNewChannel})`);
 
       // Reconnect to include new channel in SSE connection.
-      // Debounce with setTimeout(0) to batch multiple subscribe calls on mount.
+      // Debounced so multiple subscribe calls on mount open ONE connection.
       if (isNewChannel) {
-        setTimeout(() => connect(), 0);
+        scheduleConnect();
       }
 
       return () => {
@@ -325,7 +345,7 @@ export function SSEProvider({ children }) {
         }
       };
     },
-    [connect, disconnect]
+    [scheduleConnect, disconnect]
   );
 
   const isDegraded = useCallback(() => {
