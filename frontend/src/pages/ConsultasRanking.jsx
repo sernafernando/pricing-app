@@ -44,19 +44,19 @@ const COLUMNS = [
 // Facets hook
 // ---------------------------------------------------------------------------
 
-function useFacets() {
+function useFacets({ marca = null, categoria = null, pm = null } = {}) {
   const [facets, setFacets] = useState({ marcas: [], categorias: [], pms: [], depositos: [] });
   const [facetsLoading, setFacetsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setFacetsLoading(true);
-    getRankingFacets()
+    getRankingFacets({ marca, categoria, pm })
       .then((data) => { if (!cancelled) setFacets(data); })
       .catch(() => { /* non-fatal */ })
       .finally(() => { if (!cancelled) setFacetsLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [marca, categoria, pm]);
 
   return { facets, facetsLoading };
 }
@@ -65,7 +65,7 @@ function useFacets() {
 // Resumen hook
 // ---------------------------------------------------------------------------
 
-function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, groupBy }) {
+function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, groupBy }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -81,7 +81,7 @@ function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, i
     setLoading(true);
     setError(null);
 
-    getRankingResumen({ marca, categoria, pm, stor_ids: storIds, incluir_sin_stock: incluirSinStock, incluir_combos: incluirCombos, group_by: groupBy })
+    getRankingResumen({ marca, categoria, pm, stor_ids: storIds, incluir_sin_stock: incluirSinStock, incluir_combos: incluirCombos, solo_muerto: soloMuerto, group_by: groupBy })
       .then((result) => { if (!token.cancelled) { setData(result); setLoading(false); } })
       .catch((err) => {
         if (token.cancelled) return;
@@ -90,7 +90,7 @@ function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, i
       });
 
     return () => { token.cancelled = true; };
-  }, [enabled, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, groupBy]);
+  }, [enabled, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, groupBy]);
 
   return { data, loading, error };
 }
@@ -99,7 +99,7 @@ function useResumen({ enabled, marca, categoria, pm, storIds, incluirSinStock, i
 // KPIs hook
 // ---------------------------------------------------------------------------
 
-function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q }) {
+function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, q }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef(null);
@@ -111,7 +111,7 @@ function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos
 
     setLoading(true);
 
-    getRankingKpis({ marca, categoria, pm, stor_ids: storIds, incluir_sin_stock: incluirSinStock, incluir_combos: incluirCombos, q: q || null })
+    getRankingKpis({ marca, categoria, pm, stor_ids: storIds, incluir_sin_stock: incluirSinStock, incluir_combos: incluirCombos, solo_muerto: soloMuerto, q: q || null })
       .then((result) => { if (!token.cancelled) { setData(result); setLoading(false); } })
       .catch(() => {
         if (token.cancelled) return;
@@ -120,7 +120,7 @@ function useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos
       });
 
     return () => { token.cancelled = true; };
-  }, [marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q]);
+  }, [marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, q]);
 
   return { data, loading };
 }
@@ -363,7 +363,23 @@ function diasFillClass(dias) {
 }
 
 function DiasGauge({ dias }) {
-  if (dias == null) return <span>—</span>;
+  if (dias == null) {
+    // Never sold → treat as infinitely aged: full red bar
+    return (
+      <span
+        className={`${styles.diasGaugeWrap} ${styles.diasRed}`}
+        aria-label="Sin ventas registradas"
+      >
+        <span className={styles.gaugeTrack} aria-hidden="true">
+          <span
+            className={`${styles.gaugeFill} ${styles.gaugeFillRed}`}
+            style={{ width: '100%' }}
+          />
+        </span>
+        <span className={`${styles.diasMono}`}>Sin venta</span>
+      </span>
+    );
+  }
   const pct = Math.min(Math.max(dias / GAUGE_MAX, 0), 1) * 100;
   return (
     <span
@@ -543,6 +559,7 @@ function Toolbar({
   storIds, setStorIds,
   incluirSinStock, setIncluirSinStock,
   incluirCombos, setIncluirCombos,
+  soloMuerto, setSoloMuerto,
   busqueda, setBusqueda,
   esScoped,
 }) {
@@ -706,6 +723,14 @@ function Toolbar({
         checked={incluirCombos}
         onChange={setIncluirCombos}
         label="Combos"
+      />
+
+      {/* Solo stock muerto toggle */}
+      <ToggleSwitch
+        id="toggle-solo-muerto"
+        checked={soloMuerto}
+        onChange={setSoloMuerto}
+        label="Solo stock muerto"
       />
     </div>
   );
@@ -979,7 +1004,8 @@ export default function ConsultasRanking() {
   // automatically; the PM filter is irrelevant (they only see their own assignments).
   const esScoped = !tienePermiso('consultas.ver_ranking');
 
-  const { facets, facetsLoading } = useFacets();
+  // facets are re-fetched when marca/categoria/pm change to cascade filters
+  // (each dimension's list is narrowed by the other two, not by itself)
 
   const [view, setView] = useState('detalle'); // 'detalle' | 'resumen'
   const [groupBy, setGroupBy] = useState('marca');
@@ -1003,6 +1029,8 @@ export default function ConsultasRanking() {
     setIncluirSinStock,
     incluirCombos,
     setIncluirCombos,
+    soloMuerto,
+    setSoloMuerto,
     ordenColumnas,
     handleOrdenar,
     getIconoOrden,
@@ -1015,12 +1043,15 @@ export default function ConsultasRanking() {
     refresh: refreshRanking,
   } = useConsultasRanking();
 
+  // Re-fetch facets whenever the active filters change so dropdowns cascade
+  const { facets, facetsLoading } = useFacets({ marca, categoria, pm });
+
   const resumen = useResumen({
     enabled: view === 'resumen',
-    marca, categoria, pm, storIds, incluirSinStock, incluirCombos, groupBy,
+    marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, groupBy,
   });
 
-  const kpis = useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, q });
+  const kpis = useKpis({ marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, q });
 
   // Stock sync — refetches ranking + KPIs after a successful sync
   const handleSyncComplete = useCallback(() => {
@@ -1037,6 +1068,7 @@ export default function ConsultasRanking() {
     storIds, setStorIds,
     incluirSinStock, setIncluirSinStock,
     incluirCombos, setIncluirCombos,
+    soloMuerto, setSoloMuerto,
     busqueda: q, setBusqueda: setQ,
     esScoped,
   };

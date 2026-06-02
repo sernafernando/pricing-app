@@ -26,6 +26,7 @@ export async function getRanking(params = {}) {
     stor_ids = [1],
     incluir_sin_stock = false,
     incluir_combos = false,
+    solo_muerto = false,
     q = null,
   } = params;
 
@@ -35,6 +36,7 @@ export async function getRanking(params = {}) {
     stor_ids,
     incluir_sin_stock,
     incluir_combos,
+    solo_muerto,
   };
 
   if (marca) queryParams.marca = marca;
@@ -72,8 +74,13 @@ export async function getRanking(params = {}) {
 
 /**
  * Fetches the ranking filter facets (marcas, categorias, pms, depositos).
- * Used to populate dropdowns in RankingFilters.
+ * Supports cascading cross-filtering: each dimension is filtered by the
+ * OTHER selected dimensions (backend excludes each facet from filtering itself).
  *
+ * @param {Object} [params]
+ * @param {string|null} [params.marca] - Cross-filter: narrow categorias/pms to this marca
+ * @param {string|null} [params.categoria] - Cross-filter: narrow marcas/pms to this categoria
+ * @param {string|null} [params.pm] - Cross-filter: narrow marcas/categorias to this PM (or 'sin_pm')
  * @returns {Promise<{
  *   marcas: string[],
  *   categorias: string[],
@@ -81,8 +88,12 @@ export async function getRanking(params = {}) {
  *   depositos: Array<{id: number, label: string}>
  * }>}
  */
-export async function getRankingFacets() {
-  const response = await api.get('/consultas/ranking/facets');
+export async function getRankingFacets({ marca = null, categoria = null, pm = null } = {}) {
+  const queryParams = {};
+  if (marca) queryParams.marca = marca;
+  if (categoria) queryParams.categoria = categoria;
+  if (pm) queryParams.pm = pm;
+  const response = await api.get('/consultas/ranking/facets', { params: queryParams });
   return response.data;
 }
 
@@ -131,6 +142,7 @@ export async function getRankingKpis(params = {}) {
     stor_ids = [1],
     incluir_sin_stock = false,
     incluir_combos = false,
+    solo_muerto = false,
     q = null,
   } = params;
 
@@ -138,6 +150,7 @@ export async function getRankingKpis(params = {}) {
     stor_ids,
     incluir_sin_stock,
     incluir_combos,
+    solo_muerto,
   };
 
   if (marca) queryParams.marca = marca;
@@ -202,6 +215,7 @@ export async function getRankingResumen(params = {}) {
     stor_ids = [1],
     incluir_sin_stock = false,
     incluir_combos = false,
+    solo_muerto = false,
     group_by = 'marca',
   } = params;
 
@@ -209,6 +223,7 @@ export async function getRankingResumen(params = {}) {
     stor_ids,
     incluir_sin_stock,
     incluir_combos,
+    solo_muerto,
     group_by,
   };
 

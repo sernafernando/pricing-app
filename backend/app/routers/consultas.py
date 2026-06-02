@@ -226,6 +226,9 @@ PUCO_COMPRAS: int = 10
 PRLI_CLASICA: int = 4
 # comp_id of the main company (price list / cost list rows are keyed by comp_id)
 COMP_ID: int = 1
+# Dead stock threshold: no sale in the last N days (matches capital_muerto KPI).
+DIAS_MUERTO_UMBRAL: int = 365
+
 # ERP sentinel for "item does not control stock" (virtual/unlimited items).
 # The ERP stores 99999999 as available stock for these; it is NOT a real quantity.
 # Real stock tops out well below this (no legitimate values between max real stock
@@ -261,8 +264,14 @@ _SORT_EXPR_MAP: dict[str, str] = {
 
 # Columns where NULLs should sort LAST regardless of direction (ADR-7).
 _NULLS_LAST_COLS: frozenset[str] = frozenset(
-    {"dias_sin_venta", "last_purchase_date", "valor_costo_ars", "valor_costo_usd", "valor_venta"}
+    {"last_purchase_date", "valor_costo_ars", "valor_costo_usd", "valor_venta"}
 )
+
+# Columns where NULL means "infinite" / "never happened" and should sort as the
+# maximum value: NULLS FIRST on DESC (most-aged first), NULLS LAST on ASC.
+# dias_sin_venta: NULL = product never sold = infinitely aged = sorts at the top
+# when ranking by most stagnant stock (desc).
+_NULLS_AS_MAX_COLS: frozenset[str] = frozenset({"dias_sin_venta"})
 
 
 # ---------------------------------------------------------------------------
@@ -273,9 +282,17 @@ _NULLS_LAST_COLS: frozenset[str] = frozenset(
 def _build_nulls_clause(sort_key: str, sort_dir: str) -> str:
     """Return 'NULLS LAST' or 'NULLS FIRST' depending on column and direction.
 
-    Per ADR-7: nullable ranking columns always sort NULLS LAST so that products
-    with data appear before products without data, regardless of sort direction.
+    Per ADR-7: most nullable ranking columns sort NULLS LAST so products with
+    data appear before products without data, regardless of sort direction.
+
+    Exception (_NULLS_AS_MAX_COLS): dias_sin_venta NULL means the product has
+    NEVER been sold — conceptually infinite age. It should behave like the
+    largest possible value: NULLS FIRST on DESC (most-aged at top), NULLS LAST
+    on ASC (most-aged at bottom).
     """
+    if sort_key in _NULLS_AS_MAX_COLS:
+        # NULL = max value: sorts first on DESC, last on ASC
+        return "NULLS FIRST" if sort_dir == "desc" else "NULLS LAST"
     if sort_key in _NULLS_LAST_COLS:
         return "NULLS LAST"
     # Non-nullable computed columns: standard PostgreSQL behaviour
@@ -419,6 +436,10 @@ async def get_ranking(
         default=False,
         description="Si True, incluye combos/producción (productos padre en tb_item_association).",
     ),
+    solo_muerto: bool = Query(
+        default=False,
+        description="Solo productos sin ventas en los últimos N días (stock muerto).",
+    ),
     # Full-text search filter
     q: Optional[str] = Query(
         default=None,
@@ -494,6 +515,22 @@ async def get_ranking(
     if not incluir_combos:
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
+        )
+
+    # solo_muerto=True → restrict to dead stock: no sale in the last DIAS_MUERTO_UMBRAL days.
+    # NOT EXISTS is self-contained (references pe.item_id only) — works in both data and count queries.
+    # NO user input is interpolated; DIAS_MUERTO_UMBRAL is an int constant.
+    if solo_muerto:
+        filter_clauses.append(
+            f"NOT EXISTS ("
+            f"SELECT 1 FROM tb_item_transactions tit_m"
+            f" JOIN tb_commercial_transactions tct_m ON tct_m.ct_transaction = tit_m.ct_transaction"
+            f" WHERE tit_m.item_id = pe.item_id"
+            f" AND tct_m.sd_id IN ({sd_ventas_str})"
+            f" AND tct_m.df_id IN ({df_venta_str})"
+            f" AND tit_m.it_qty <> 0"
+            f" AND tct_m.ct_date >= NOW()::date - INTERVAL '{DIAS_MUERTO_UMBRAL} days'"
+            f")"
         )
 
     # ADR-9: scoped ranking — restrict to user's own PM assignments when they lack FULL access
@@ -753,6 +790,10 @@ async def get_ranking_resumen(
         default=False,
         description="Si True, incluye combos/producción (productos padre en tb_item_association).",
     ),
+    solo_muerto: bool = Query(
+        default=False,
+        description="Solo productos sin ventas en los últimos N días (stock muerto).",
+    ),
     group_by: str = Query(
         default="marca",
         description="Agrupar por 'marca' o 'pm'.",
@@ -783,8 +824,14 @@ async def get_ranking_resumen(
 
     tc_venta: Optional[float] = _get_tc_venta(db)
 
+    # Build IN-list strings for the solo_muerto NOT EXISTS clause (ADR-1).
+    # Only used when solo_muerto=True, but built unconditionally (cheap string join).
+    sd_ventas_str = ",".join(str(x) for x in SD_VENTAS)
+    df_venta_str = ",".join(str(x) for x in DF_VENTA_TODOS)
+
     # NOTE: the resumen aggregates stock/cost/value only — no sale predicate
-    # (no dias_sin_venta here), so the SD_VENTAS/DF_VENTA_TODOS lists are not used.
+    # (no dias_sin_venta here), so the SD_VENTAS/DF_VENTA_TODOS lists are not used
+    # for the main aggregation — only for the optional solo_muerto filter below.
 
     # ---- WHERE clauses (same as /ranking, minus the pagination columns) ----
     filter_clauses: list[str] = ["pe.activo = TRUE"]
@@ -813,6 +860,19 @@ async def get_ranking_resumen(
     if not incluir_combos:
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
+        )
+
+    if solo_muerto:
+        filter_clauses.append(
+            f"NOT EXISTS ("
+            f"SELECT 1 FROM tb_item_transactions tit_m"
+            f" JOIN tb_commercial_transactions tct_m ON tct_m.ct_transaction = tit_m.ct_transaction"
+            f" WHERE tit_m.item_id = pe.item_id"
+            f" AND tct_m.sd_id IN ({sd_ventas_str})"
+            f" AND tct_m.df_id IN ({df_venta_str})"
+            f" AND tit_m.it_qty <> 0"
+            f" AND tct_m.ct_date >= NOW()::date - INTERVAL '{DIAS_MUERTO_UMBRAL} days'"
+            f")"
         )
 
     # ADR-9: scoped ranking
@@ -1029,6 +1089,10 @@ async def get_ranking_kpis(
         default=False,
         description="Si True, incluye combos/producción (productos padre en tb_item_association).",
     ),
+    solo_muerto: bool = Query(
+        default=False,
+        description="Solo productos sin ventas en los últimos N días (stock muerto).",
+    ),
     q: Optional[str] = Query(
         default=None,
         description="Búsqueda por código o descripción (ILIKE).",
@@ -1093,6 +1157,19 @@ async def get_ranking_kpis(
     if not incluir_combos:
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
+        )
+
+    if solo_muerto:
+        filter_clauses.append(
+            f"NOT EXISTS ("
+            f"SELECT 1 FROM tb_item_transactions tit_m"
+            f" JOIN tb_commercial_transactions tct_m ON tct_m.ct_transaction = tit_m.ct_transaction"
+            f" WHERE tit_m.item_id = pe.item_id"
+            f" AND tct_m.sd_id IN ({sd_ventas_str})"
+            f" AND tct_m.df_id IN ({df_venta_str})"
+            f" AND tit_m.it_qty <> 0"
+            f" AND tct_m.ct_date >= NOW()::date - INTERVAL '{DIAS_MUERTO_UMBRAL} days'"
+            f")"
         )
 
     # ADR-9: scoped ranking
@@ -1282,98 +1359,159 @@ async def get_ranking_kpis(
     dependencies=[Depends(require_algun_permiso([PERMISO_RANKING_FULL, PERMISO_RANKING_PROPIO]))],
 )
 async def get_ranking_facets(
+    marca: Optional[str] = Query(None, description="Cross-filter: narrow categorias/pms to this marca"),
+    categoria: Optional[str] = Query(None, description="Cross-filter: narrow marcas/pms to this categoria"),
+    pm: Optional[str] = Query(None, description="Cross-filter: narrow marcas/categorias to this PM (or 'sin_pm')"),
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> RankingFacetsResponse:
     """Return distinct filter values for the ranking page dropdowns.
 
+    Supports cascading/cross-filtering: each facet dimension is filtered by the
+    OTHER selected dimensions (excluding itself), so selecting a PM narrows
+    the available marcas+categorias, and vice versa.
+
     Returns:
-    - marcas: DISTINCT productos_erp.marca WHERE activo IS TRUE, non-null, sorted asc.
-    - categorias: DISTINCT productos_erp.categoria WHERE activo IS TRUE, non-null, sorted asc.
-    - pms: DISTINCT usuarios.nombre via marcas_pm JOIN, non-null, sorted asc.
-      Matches the PM display name produced by the ranking endpoint
-      (expression: u_pm.nombre — the same column used in the pm filter).
-    - depositos: DISTINCT tb_item_storage.stor_id + stor_desc as DepositoFacet{id, label}, sorted asc.
-      label = stor_desc if available, else "Depósito {id}".
+    - marcas: filtered by categoria + pm (NOT marca itself).
+    - categorias: filtered by marca + pm (NOT categoria itself).
+    - pms: filtered by marca + categoria (NOT pm itself).
+    - depositos: unchanged — no cross-filter applied.
 
     Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     # ADR-9: compute scope for this user (None = full access)
     scope_uid = _scope_user_id(current_user, db)
 
-    # Build scope JOIN/WHERE fragment for marcas + categorias queries
+    # ---------------------------------------------------------------------------
+    # Helper: build the pm JOIN clause for productos_erp queries.
+    # Returns (join_fragment, where_clause, params_to_add).
+    # Only needed when pm filter is present in marcas/categorias queries.
+    # ---------------------------------------------------------------------------
+    def _pm_join_for_pe() -> tuple[str, str, dict]:
+        """Return (JOIN fragment, WHERE clause, extra params) for pm cross-filter on pe queries."""
+        join = (
+            "LEFT JOIN marcas_pm mp_cf ON mp_cf.marca = pe.marca AND mp_cf.categoria = pe.categoria "
+            "LEFT JOIN usuarios u_cf ON u_cf.id = mp_cf.usuario_id"
+        )
+        if pm == "sin_pm":
+            return join, "mp_cf.usuario_id IS NULL", {}
+        return join, "u_cf.nombre = :pm_nombre", {"pm_nombre": pm}
+
+    # ---------------------------------------------------------------------------
+    # Build marcas query: filter by categoria + pm (NOT by marca itself)
+    # ---------------------------------------------------------------------------
+    marcas_where: list[str] = [
+        "pe.activo IS TRUE",
+        "pe.marca IS NOT NULL",
+        "pe.marca <> ''",
+    ]
+    marcas_joins: list[str] = []
+    marcas_params: dict = {}
+
     if scope_uid is not None:
-        scope_marcas_sql = """
-                SELECT DISTINCT pe.marca
-                FROM productos_erp pe
-                WHERE pe.activo IS TRUE
-                  AND pe.marca IS NOT NULL
-                  AND pe.marca <> ''
-                  AND EXISTS (
-                      SELECT 1 FROM marcas_pm mp_scope
-                      WHERE mp_scope.marca = pe.marca
-                        AND mp_scope.categoria = pe.categoria
-                        AND mp_scope.usuario_id = :scope_user_id
-                  )
-                ORDER BY pe.marca ASC
-                """
-        scope_categorias_sql = """
-                SELECT DISTINCT pe.categoria
-                FROM productos_erp pe
-                WHERE pe.activo IS TRUE
-                  AND pe.categoria IS NOT NULL
-                  AND pe.categoria <> ''
-                  AND EXISTS (
-                      SELECT 1 FROM marcas_pm mp_scope
-                      WHERE mp_scope.marca = pe.marca
-                        AND mp_scope.categoria = pe.categoria
-                        AND mp_scope.usuario_id = :scope_user_id
-                  )
-                ORDER BY pe.categoria ASC
-                """
-        scope_pms_sql = """
-                SELECT DISTINCT u.nombre
-                FROM marcas_pm mp
-                JOIN usuarios u ON u.id = mp.usuario_id
-                WHERE u.nombre IS NOT NULL
-                  AND u.nombre <> ''
-                  AND mp.usuario_id = :scope_user_id
-                ORDER BY u.nombre ASC
-                """
-        scope_params: dict = {"scope_user_id": scope_uid}
-    else:
-        scope_marcas_sql = """
-                SELECT DISTINCT marca
-                FROM productos_erp
-                WHERE activo IS TRUE
-                  AND marca IS NOT NULL
-                  AND marca <> ''
-                ORDER BY marca ASC
-                """
-        scope_categorias_sql = """
-                SELECT DISTINCT categoria
-                FROM productos_erp
-                WHERE activo IS TRUE
-                  AND categoria IS NOT NULL
-                  AND categoria <> ''
-                ORDER BY categoria ASC
-                """
-        scope_pms_sql = """
-                SELECT DISTINCT u.nombre
-                FROM marcas_pm mp
-                JOIN usuarios u ON u.id = mp.usuario_id
-                WHERE u.nombre IS NOT NULL
-                  AND u.nombre <> ''
-                ORDER BY u.nombre ASC
-                """
-        scope_params = {}
+        marcas_where.append(
+            "EXISTS (SELECT 1 FROM marcas_pm mp_scope"
+            " WHERE mp_scope.marca = pe.marca"
+            " AND mp_scope.categoria = pe.categoria"
+            " AND mp_scope.usuario_id = :scope_user_id)"
+        )
+        marcas_params["scope_user_id"] = scope_uid
+
+    if categoria:
+        marcas_where.append("pe.categoria = :categoria")
+        marcas_params["categoria"] = categoria
+
+    if pm:
+        join_frag, pm_clause, pm_params = _pm_join_for_pe()
+        marcas_joins.append(join_frag)
+        marcas_where.append(pm_clause)
+        marcas_params.update(pm_params)
+
+    marcas_join_sql = ("\n            " + "\n            ".join(marcas_joins)) if marcas_joins else ""
+    marcas_where_sql = "\n              AND ".join(marcas_where)
+    marcas_sql = f"""
+            SELECT DISTINCT pe.marca
+            FROM productos_erp pe{marcas_join_sql}
+            WHERE {marcas_where_sql}
+            ORDER BY pe.marca ASC
+            """
+
+    # ---------------------------------------------------------------------------
+    # Build categorias query: filter by marca + pm (NOT by categoria itself)
+    # ---------------------------------------------------------------------------
+    cats_where: list[str] = [
+        "pe.activo IS TRUE",
+        "pe.categoria IS NOT NULL",
+        "pe.categoria <> ''",
+    ]
+    cats_joins: list[str] = []
+    cats_params: dict = {}
+
+    if scope_uid is not None:
+        cats_where.append(
+            "EXISTS (SELECT 1 FROM marcas_pm mp_scope"
+            " WHERE mp_scope.marca = pe.marca"
+            " AND mp_scope.categoria = pe.categoria"
+            " AND mp_scope.usuario_id = :scope_user_id)"
+        )
+        cats_params["scope_user_id"] = scope_uid
+
+    if marca:
+        cats_where.append("pe.marca = :marca")
+        cats_params["marca"] = marca
+
+    if pm:
+        join_frag, pm_clause, pm_params = _pm_join_for_pe()
+        cats_joins.append(join_frag)
+        cats_where.append(pm_clause)
+        cats_params.update(pm_params)
+
+    cats_join_sql = ("\n            " + "\n            ".join(cats_joins)) if cats_joins else ""
+    cats_where_sql = "\n              AND ".join(cats_where)
+    cats_sql = f"""
+            SELECT DISTINCT pe.categoria
+            FROM productos_erp pe{cats_join_sql}
+            WHERE {cats_where_sql}
+            ORDER BY pe.categoria ASC
+            """
+
+    # ---------------------------------------------------------------------------
+    # Build pms query: filter by marca + categoria (NOT by pm itself)
+    # marcas_pm is keyed by (marca, categoria) so we filter via mp.marca / mp.categoria.
+    # ---------------------------------------------------------------------------
+    pms_where: list[str] = [
+        "u.nombre IS NOT NULL",
+        "u.nombre <> ''",
+    ]
+    pms_params: dict = {}
+
+    if scope_uid is not None:
+        pms_where.append("mp.usuario_id = :scope_user_id")
+        pms_params["scope_user_id"] = scope_uid
+
+    if marca:
+        pms_where.append("mp.marca = :marca")
+        pms_params["marca"] = marca
+
+    if categoria:
+        pms_where.append("mp.categoria = :categoria")
+        pms_params["categoria"] = categoria
+
+    pms_where_sql = "\n              AND ".join(pms_where)
+    pms_sql = f"""
+            SELECT DISTINCT u.nombre
+            FROM marcas_pm mp
+            JOIN usuarios u ON u.id = mp.usuario_id
+            WHERE {pms_where_sql}
+            ORDER BY u.nombre ASC
+            """
 
     try:
-        marcas_rows = db.execute(text(scope_marcas_sql), scope_params).fetchall()
+        marcas_rows = db.execute(text(marcas_sql), marcas_params).fetchall()
 
-        categorias_rows = db.execute(text(scope_categorias_sql), scope_params).fetchall()
+        categorias_rows = db.execute(text(cats_sql), cats_params).fetchall()
 
-        pms_rows = db.execute(text(scope_pms_sql), scope_params).fetchall()
+        pms_rows = db.execute(text(pms_sql), pms_params).fetchall()
 
         depositos_rows = db.execute(
             text(
