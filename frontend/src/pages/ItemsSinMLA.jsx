@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
-import { usePermisos } from '../hooks/usePermisos';
+import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import Toast from '../components/Toast';

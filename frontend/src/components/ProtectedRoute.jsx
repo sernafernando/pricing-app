@@ -22,7 +22,7 @@ export default function ProtectedRoute({
 }) {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const { tienePermiso, tieneAlgunPermiso, tieneTodosPermisos, loading, initialized, rol } = usePermisos();
+  const { tienePermiso, tieneAlgunPermiso, tieneTodosPermisos, loading, initialized, error, recargar, rol } = usePermisos();
 
   // Si no hay token, redirigir a login
   if (!token) {
@@ -30,7 +30,41 @@ export default function ProtectedRoute({
   }
 
   // Mientras carga permisos, mostrar loader
-  if (loading || !initialized) {
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        color: 'var(--text-color, #fff)'
+      }}>
+        <div>Cargando permisos...</div>
+      </div>
+    );
+  }
+
+  // Si la carga de permisos falló, NO renderizar la app con permisos vacíos
+  // (ocultaría secciones y bloquearía páginas). Ofrecer reintentar.
+  if (error && !initialized) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        color: 'var(--text-color, #fff)'
+      }}>
+        <div>No pudimos cargar tus permisos.</div>
+        <button onClick={recargar}>Reintentar</button>
+      </div>
+    );
+  }
+
+  // Safety net: aún sin inicializar y sin error → seguir mostrando loader
+  if (!initialized) {
     return (
       <div style={{
         display: 'flex',

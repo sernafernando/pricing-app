@@ -21,60 +21,53 @@ export const PermisosProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   const cargarPermisos = useCallback(async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setPermisos(new Set());
-        setRol(null);
-        setUsuarioId(null);
-        setLoading(false);
-        return;
-      }
+    setLoading(true);
 
-      const res = await api.get('/permisos/mis-permisos');
-
-      setPermisos(new Set(res.data.permisos));
-      setRol(res.data.rol);
-      setUsuarioId(res.data.usuario_id);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      // Sin token no es un error: ProtectedRoute redirige a /login.
+      setPermisos(new Set());
+      setRol(null);
+      setUsuarioId(null);
       setError(null);
       setInitialized(true);
-    } catch (err) {
-      console.error('Error cargando permisos:', err);
-      setError(err.message);
-
-      // En caso de error, intentar obtener el rol del usuario del authStore
-      // para mantener compatibilidad temporal
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          // Decodificar el token para obtener info básica
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          if (payload.rol) {
-            console.warn('Usando rol del token por error en API de permisos');
-            setRol(payload.rol);
-            setUsuarioId(payload.usuario_id);
-            // SUPERADMIN siempre tiene acceso
-            if (payload.rol === 'SUPERADMIN') {
-              setPermisos(new Set(['*'])); // Wildcard para indicar todos los permisos
-            } else {
-              // Para otros roles, dejar permisos vacíos si la API falló
-              setPermisos(new Set());
-            }
-          } else {
-            setPermisos(new Set());
-          }
-        } catch (tokenErr) {
-          console.error('Error decodificando token:', tokenErr);
-          setPermisos(new Set());
-        }
-      } else {
-        setPermisos(new Set());
-      }
-    } finally {
       setLoading(false);
-      setInitialized(true);
+      return;
     }
+
+    // Reintentos con backoff. Un fallo transitorio de red NO debe dejar la app
+    // con permisos vacíos: eso ocultaría secciones de la sidebar y bloquearía
+    // páginas a un usuario que sí tiene acceso.
+    const delays = [0, 400, 1200];
+    let lastErr = null;
+
+    for (const delay of delays) {
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      try {
+        const res = await api.get('/permisos/mis-permisos');
+        // Éxito: una lista vacía es un estado VÁLIDO (ej: rol FICHAJE),
+        // no un error. Se distingue de un fallo justamente por llegar acá.
+        setPermisos(new Set(res.data.permisos));
+        setRol(res.data.rol);
+        setUsuarioId(res.data.usuario_id);
+        setError(null);
+        setInitialized(true);
+        setLoading(false);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    // Todos los reintentos fallaron. NO fabricamos permisos ni marcamos
+    // initialized: dejamos un estado de error explícito para que la UI
+    // ofrezca reintentar en vez de renderizar la app a medias.
+    console.error('Error cargando permisos tras reintentos:', lastErr);
+    setError(lastErr?.message || 'No se pudieron cargar los permisos');
+    setInitialized(false);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
