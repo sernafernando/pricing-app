@@ -1,28 +1,19 @@
 import { Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 
 /**
  * Redirige al usuario a la primera página que tenga acceso
  * Evita loops infinitos cuando el usuario no tiene acceso a /productos
+ *
+ * Nota: la resiliencia ante fallos de carga de permisos (retry + estado de
+ * error) vive en PermisosContext/ProtectedRoute. Acá un set de permisos vacío
+ * ya es un estado VÁLIDO (rol FICHAJE) y se redirige a /fichaje.
  */
 export default function SmartRedirect() {
-  const { tienePermiso, tieneAlgunPermiso, loading, initialized, permisos, recargar } = usePermisos();
-  const [retryCount, setRetryCount] = useState(0);
-
-  // Si initialized pero permisos vacío, intentar recargar (máximo 2 veces)
-  useEffect(() => {
-    if (initialized && !loading && permisos?.length === 0 && retryCount < 2) {
-      const timer = setTimeout(() => {
-        setRetryCount(r => r + 1);
-        recargar();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [initialized, loading, permisos, retryCount, recargar]);
+  const { tienePermiso, tieneAlgunPermiso, loading, initialized } = usePermisos();
 
   // Esperar hasta que los permisos estén completamente cargados
-  if (loading || !initialized || (permisos?.length === 0 && retryCount < 2)) {
+  if (loading || !initialized) {
     return (
       <div style={{
         display: 'flex',

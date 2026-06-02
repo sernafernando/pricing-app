@@ -10,14 +10,18 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB — app bundles exceed default 2 MiB
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        cleanupOutdatedCaches: true,
+        // API responses are NEVER cached by the service worker.
+        // This is a business app with live data (pricing, sales, permissions):
+        // serving a stale cached response silently is a correctness bug.
+        // The previous NetworkFirst rule cached `/api/permisos/mis-permisos`,
+        // which made sidebar items intermittently disappear on refresh because
+        // a stale-but-complete permission set was served from cache.
+        // Only the static app shell (globPatterns above) is precached.
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/api\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-            },
+            handler: 'NetworkOnly',
           },
         ],
       },
