@@ -193,10 +193,11 @@ def client_stock_status_empty(user_con_permiso):
 
 
 def _reset_sync_guard() -> None:
-    """Force _stock_sync_running = False so tests start clean."""
+    """Force _stock_sync_running = False and clear background tasks so tests start clean."""
     import app.routers.consultas as mod
 
     mod._stock_sync_running = False
+    mod._background_tasks.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +302,36 @@ class TestStockRefresh:
         assert response.status_code == 202
         body = response.json()
         assert body["status"] == "started"
+
+    def test_background_task_resets_guard(self) -> None:
+        """The background task must hold a strong reference and reset the guard.
+
+        Drives _run_and_reset to completion (not mocking create_task) and asserts
+        the guard flips back to False, so a GC'd/finished task can never leave the
+        endpoint stuck at 409. Regression for the dropped-task footgun.
+        """
+        import asyncio
+
+        import app.routers.consultas as mod
+        from app.routers.consultas import post_stock_refresh
+
+        mod._stock_sync_running = False
+        mod._background_tasks.clear()
+        noop = AsyncMock(return_value=None)
+
+        async def _drive():
+            with patch("app.scripts.sync_stock_por_deposito.run_sync", noop):
+                response = await post_stock_refresh()
+                # The task is scheduled on this loop; await it to completion.
+                await asyncio.gather(*list(mod._background_tasks))
+            return response
+
+        response = asyncio.run(_drive())
+
+        assert response.status == "started"
+        assert noop.await_count == 1
+        assert mod._stock_sync_running is False
+        assert mod._background_tasks == set()
 
     def test_concurrent_call_returns_409(self, client, user_con_permiso) -> None:
         """While a sync is in progress a second call → 409."""

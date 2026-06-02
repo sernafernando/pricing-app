@@ -33,8 +33,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
+from app.models.usuario import Usuario
+from app.services.permisos_service import PermisosService
 from app.core.logging import get_logger
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
@@ -58,8 +60,19 @@ router = APIRouter(prefix="/consultas", tags=["consultas"])
 # ---------------------------------------------------------------------------
 
 # Module-level flag — protects against concurrent API-triggered refreshes.
-# The cron may overlap: that is acceptable because the upsert is idempotent.
+# NOTE: this guard is PER-PROCESS (best-effort). Under uvicorn/gunicorn with
+# multiple workers each worker has its own flag, so two workers could each
+# launch a sync. That is acceptable because the underlying upsert is idempotent
+# and the cron (flock) already overlaps safely; the flag only de-dupes within a
+# single worker. The cron may also overlap for the same reason.
 _stock_sync_running: bool = False
+
+# Strong references to in-flight background tasks. asyncio only keeps a WEAK
+# reference to a task, so a fire-and-forget create_task() can be garbage
+# collected mid-run — which would skip its finally block and leave
+# _stock_sync_running stuck at True forever (permanent 409). Holding the task
+# here until it completes prevents that.
+_background_tasks: set[asyncio.Task] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +84,7 @@ _stock_sync_running: bool = False
     "/ranking/stock-status",
     response_model=StockStatusResponse,
     summary="Stock freshness status for stock_por_deposito",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso(["consultas.ver_ranking", "consultas.ver_mi_ranking"]))],
 )
 async def get_stock_status(
     db: Session = Depends(get_db),
@@ -82,7 +95,7 @@ async def get_stock_status(
     sync completed. Also returns whether a background refresh is currently in
     progress (syncing=True).
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     try:
         row = db.execute(text("SELECT MAX(updated_at) AS last_updated FROM stock_por_deposito")).fetchone()
@@ -102,7 +115,7 @@ async def get_stock_status(
     response_model=StockRefreshResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger a background stock sync from the ERP",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso(["consultas.ver_ranking", "consultas.ver_mi_ranking"]))],
 )
 async def post_stock_refresh() -> StockRefreshResponse:
     """Launch a background refresh of stock_por_deposito from the ERP.
@@ -119,7 +132,7 @@ async def post_stock_refresh() -> StockRefreshResponse:
     receive the request's db session — that would pin the connection for the
     entire sync duration, exhausting the pool.
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     global _stock_sync_running
 
@@ -144,7 +157,10 @@ async def post_stock_refresh() -> StockRefreshResponse:
         finally:
             _stock_sync_running = False
 
-    asyncio.create_task(_run_and_reset())
+    # Retain a strong reference until the task finishes (see _background_tasks).
+    task = asyncio.create_task(_run_and_reset())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return StockRefreshResponse(status="started")
 
@@ -216,6 +232,13 @@ COMP_ID: int = 1
 # and the sentinel), so it is excluded from valuation to avoid inflating capital.
 STOCK_SENTINEL: int = 99999999
 
+
+# ---------------------------------------------------------------------------
+# Permission constants (ADR-9: scoped ranking access)
+# ---------------------------------------------------------------------------
+
+PERMISO_RANKING_FULL = "consultas.ver_ranking"
+PERMISO_RANKING_PROPIO = "consultas.ver_mi_ranking"
 
 # ---------------------------------------------------------------------------
 # Dynamic sort column map (ADR-7)
@@ -322,6 +345,28 @@ def _build_order_clause(sort_tuples: list[tuple[str, str, str]]) -> str:
     return ", ".join(parts)
 
 
+def _scope_user_id(current_user: Usuario, db: Session) -> Optional[int]:
+    """Return the user's id when their access is scoped to their own PM assignments.
+
+    Returns ``None`` when the user has FULL ranking access (``consultas.ver_ranking``
+    or SUPERADMIN), meaning no extra WHERE filter is needed.
+
+    Returns ``current_user.id`` when the user has only ``consultas.ver_mi_ranking``,
+    so callers can append the EXISTS scope filter to each query.
+
+    Args:
+        current_user: The authenticated user.
+        db: Active SQLAlchemy session (same one used by the endpoint).
+
+    Returns:
+        ``None`` → full access; int → scoped to this user_id.
+    """
+    svc = PermisosService(db)
+    if svc.tiene_permiso(current_user, PERMISO_RANKING_FULL):
+        return None
+    return current_user.id
+
+
 def _get_tc_venta(db: Session) -> Optional[float]:
     """Return the latest USD→ARS venta rate from tipo_cambio, or None."""
     row = db.execute(
@@ -341,7 +386,7 @@ def _get_tc_venta(db: Session) -> Optional[float]:
     "/ranking",
     response_model=RankingResponse,
     summary="Product ranking by sales ageing",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso([PERMISO_RANKING_FULL, PERMISO_RANKING_PROPIO]))],
 )
 async def get_ranking(
     # Pagination
@@ -379,7 +424,8 @@ async def get_ranking(
         default=None,
         description="Búsqueda por código o descripción (ILIKE).",
     ),
-    # Auth + permission are enforced by the require_permiso(...) route dependency above.
+    # Auth resolved by FastAPI dep-dedup — same session as require_algun_permiso.
+    current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> RankingResponse:
     """Product ranking ordered by sales ageing and configurable metrics.
@@ -395,7 +441,7 @@ async def get_ranking(
     Multi-sort: orden_campos + orden_direcciones (parallel comma-separated lists) applied in order.
     Boolean filters: incluir_sin_stock (default False), incluir_combos (default False).
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     # Parse and validate multi-sort params (raises 422 on bad input).
     # Each tuple carries (campo, sql_expr, direction) so the NULLS clause never
@@ -449,6 +495,19 @@ async def get_ranking(
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
         )
+
+    # ADR-9: scoped ranking — restrict to user's own PM assignments when they lack FULL access
+    scope_uid = _scope_user_id(current_user, db)
+    if scope_uid is not None:
+        filter_clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM marcas_pm mp_scope"
+            " WHERE mp_scope.marca = pe.marca"
+            " AND mp_scope.categoria = pe.categoria"
+            " AND mp_scope.usuario_id = :scope_user_id"
+            ")"
+        )
+        params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
 
@@ -675,7 +734,7 @@ _VALID_GROUP_BY: frozenset[str] = frozenset({"marca", "pm"})
     "/ranking/resumen",
     response_model=ResumenResponse,
     summary="Brand/PM grouped totals for product ranking",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso([PERMISO_RANKING_FULL, PERMISO_RANKING_PROPIO]))],
 )
 async def get_ranking_resumen(
     # Filters — same semantics as /ranking
@@ -698,6 +757,7 @@ async def get_ranking_resumen(
         default="marca",
         description="Agrupar por 'marca' o 'pm'.",
     ),
+    current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ResumenResponse:
     """Grouped totals (brand or PM) for the product ranking view.
@@ -713,7 +773,7 @@ async def get_ranking_resumen(
 
     Also returns a totales row with sums across all groups.
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     if group_by not in _VALID_GROUP_BY:
         raise HTTPException(
@@ -754,6 +814,19 @@ async def get_ranking_resumen(
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
         )
+
+    # ADR-9: scoped ranking
+    scope_uid = _scope_user_id(current_user, db)
+    if scope_uid is not None:
+        filter_clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM marcas_pm mp_scope"
+            " WHERE mp_scope.marca = pe.marca"
+            " AND mp_scope.categoria = pe.categoria"
+            " AND mp_scope.usuario_id = :scope_user_id"
+            ")"
+        )
+        params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
 
@@ -937,7 +1010,7 @@ async def get_ranking_resumen(
     "/ranking/kpis",
     response_model=KpisResponse,
     summary="Aggregate KPIs for the product ranking filter set",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso([PERMISO_RANKING_FULL, PERMISO_RANKING_PROPIO]))],
 )
 async def get_ranking_kpis(
     # Filters — same semantics as /ranking (no pagination, no sort)
@@ -960,6 +1033,7 @@ async def get_ranking_kpis(
         default=None,
         description="Búsqueda por código o descripción (ILIKE).",
     ),
+    current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> KpisResponse:
     """Aggregate KPI metrics over all products matching the active filter set.
@@ -980,7 +1054,7 @@ async def get_ranking_kpis(
 
     ALL ROUND() calls cast to NUMERIC (ADR-5 — PostgreSQL has no round(double precision, int)).
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
     tc_venta: Optional[float] = _get_tc_venta(db)
 
@@ -1020,6 +1094,19 @@ async def get_ranking_kpis(
         filter_clauses.append(
             "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
         )
+
+    # ADR-9: scoped ranking
+    scope_uid = _scope_user_id(current_user, db)
+    if scope_uid is not None:
+        filter_clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM marcas_pm mp_scope"
+            " WHERE mp_scope.marca = pe.marca"
+            " AND mp_scope.categoria = pe.categoria"
+            " AND mp_scope.usuario_id = :scope_user_id"
+            ")"
+        )
+        params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
 
@@ -1192,9 +1279,10 @@ async def get_ranking_kpis(
     "/ranking/facets",
     response_model=RankingFacetsResponse,
     summary="Facets for ranking filter dropdowns",
-    dependencies=[Depends(require_permiso("consultas.ver_ranking"))],
+    dependencies=[Depends(require_algun_permiso([PERMISO_RANKING_FULL, PERMISO_RANKING_PROPIO]))],
 )
 async def get_ranking_facets(
+    current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> RankingFacetsResponse:
     """Return distinct filter values for the ranking page dropdowns.
@@ -1208,12 +1296,53 @@ async def get_ranking_facets(
     - depositos: DISTINCT tb_item_storage.stor_id + stor_desc as DepositoFacet{id, label}, sorted asc.
       label = stor_desc if available, else "Depósito {id}".
 
-    Permission required: consultas.ver_ranking
+    Permission required: consultas.ver_ranking o consultas.ver_mi_ranking
     """
-    try:
-        marcas_rows = db.execute(
-            text(
+    # ADR-9: compute scope for this user (None = full access)
+    scope_uid = _scope_user_id(current_user, db)
+
+    # Build scope JOIN/WHERE fragment for marcas + categorias queries
+    if scope_uid is not None:
+        scope_marcas_sql = """
+                SELECT DISTINCT pe.marca
+                FROM productos_erp pe
+                WHERE pe.activo IS TRUE
+                  AND pe.marca IS NOT NULL
+                  AND pe.marca <> ''
+                  AND EXISTS (
+                      SELECT 1 FROM marcas_pm mp_scope
+                      WHERE mp_scope.marca = pe.marca
+                        AND mp_scope.categoria = pe.categoria
+                        AND mp_scope.usuario_id = :scope_user_id
+                  )
+                ORDER BY pe.marca ASC
                 """
+        scope_categorias_sql = """
+                SELECT DISTINCT pe.categoria
+                FROM productos_erp pe
+                WHERE pe.activo IS TRUE
+                  AND pe.categoria IS NOT NULL
+                  AND pe.categoria <> ''
+                  AND EXISTS (
+                      SELECT 1 FROM marcas_pm mp_scope
+                      WHERE mp_scope.marca = pe.marca
+                        AND mp_scope.categoria = pe.categoria
+                        AND mp_scope.usuario_id = :scope_user_id
+                  )
+                ORDER BY pe.categoria ASC
+                """
+        scope_pms_sql = """
+                SELECT DISTINCT u.nombre
+                FROM marcas_pm mp
+                JOIN usuarios u ON u.id = mp.usuario_id
+                WHERE u.nombre IS NOT NULL
+                  AND u.nombre <> ''
+                  AND mp.usuario_id = :scope_user_id
+                ORDER BY u.nombre ASC
+                """
+        scope_params: dict = {"scope_user_id": scope_uid}
+    else:
+        scope_marcas_sql = """
                 SELECT DISTINCT marca
                 FROM productos_erp
                 WHERE activo IS TRUE
@@ -1221,12 +1350,7 @@ async def get_ranking_facets(
                   AND marca <> ''
                 ORDER BY marca ASC
                 """
-            )
-        ).fetchall()
-
-        categorias_rows = db.execute(
-            text(
-                """
+        scope_categorias_sql = """
                 SELECT DISTINCT categoria
                 FROM productos_erp
                 WHERE activo IS TRUE
@@ -1234,12 +1358,7 @@ async def get_ranking_facets(
                   AND categoria <> ''
                 ORDER BY categoria ASC
                 """
-            )
-        ).fetchall()
-
-        pms_rows = db.execute(
-            text(
-                """
+        scope_pms_sql = """
                 SELECT DISTINCT u.nombre
                 FROM marcas_pm mp
                 JOIN usuarios u ON u.id = mp.usuario_id
@@ -1247,8 +1366,14 @@ async def get_ranking_facets(
                   AND u.nombre <> ''
                 ORDER BY u.nombre ASC
                 """
-            )
-        ).fetchall()
+        scope_params = {}
+
+    try:
+        marcas_rows = db.execute(text(scope_marcas_sql), scope_params).fetchall()
+
+        categorias_rows = db.execute(text(scope_categorias_sql), scope_params).fetchall()
+
+        pms_rows = db.execute(text(scope_pms_sql), scope_params).fetchall()
 
         depositos_rows = db.execute(
             text(
