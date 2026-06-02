@@ -25,6 +25,7 @@ export function useConsultasRanking() {
   const [storIds, setStorIdsRaw] = useState(DEFAULT_STOR_IDS);
   const [incluirSinStock, setIncluirSinStockRaw] = useState(false);
   const [incluirCombos, setIncluirCombosRaw] = useState(false);
+  const [soloMuerto, setSoloMuertoRaw] = useState(false);
   // Free-text search (código / descripción)
   const [q, setQRaw] = useState('');
 
@@ -57,6 +58,7 @@ export function useConsultasRanking() {
   const setStorIds = useCallback((v) => { setStorIdsRaw(v); setPage(1); }, []);
   const setIncluirSinStock = useCallback((v) => { setIncluirSinStockRaw(v); setPage(1); }, []);
   const setIncluirCombos = useCallback((v) => { setIncluirCombosRaw(v); setPage(1); }, []);
+  const setSoloMuerto = useCallback((v) => { setSoloMuertoRaw(v); setPage(1); }, []);
   const setPageSize = useCallback((v) => { setPageSizeRaw(v); setPage(1); }, []);
 
   const fetchData = useCallback(async (fetchPage) => {
@@ -80,6 +82,7 @@ export function useConsultasRanking() {
         stor_ids: storIds,
         incluir_sin_stock: incluirSinStock,
         incluir_combos: incluirCombos,
+        solo_muerto: soloMuerto,
         q: debouncedQ || null,
       });
 
@@ -97,7 +100,7 @@ export function useConsultasRanking() {
         setLoading(false);
       }
     }
-  }, [pageSize, ordenColumnas, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, debouncedQ]);
+  }, [pageSize, ordenColumnas, marca, categoria, pm, storIds, incluirSinStock, incluirCombos, soloMuerto, debouncedQ]);
 
   useEffect(() => {
     fetchData(page);
@@ -195,6 +198,8 @@ export function useConsultasRanking() {
     setIncluirSinStock,
     incluirCombos,
     setIncluirCombos,
+    soloMuerto,
+    setSoloMuerto,
 
     // Sort (multi-column — Productos.jsx shape)
     ordenColumnas,
