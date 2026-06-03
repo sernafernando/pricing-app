@@ -28,7 +28,7 @@ Referencias:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
@@ -52,6 +52,7 @@ from app.services import (
 )
 from app.services.banco_service import BancoService
 from app.services.caja_service import CajaService
+from app.services.fx_service import q_ars, q_usd
 
 logger = get_logger("services.ordenes_pago_service")
 
@@ -1122,10 +1123,10 @@ def ejecutar_pago(
     if fuente_moneda == str(op.moneda):
         monto_en_fuente = Decimal(op.monto_total)
     elif op.moneda == "USD" and fuente_moneda == "ARS":
-        monto_en_fuente = (Decimal(op.monto_total) * Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+        monto_en_fuente = q_ars(Decimal(op.monto_total) * Decimal(tc_efectivo))
     else:
         # op ARS → fuente USD: monto / TC.
-        monto_en_fuente = (Decimal(op.monto_total) / Decimal(tc_efectivo)).quantize(Decimal("0.01"))
+        monto_en_fuente = q_usd(Decimal(op.monto_total) / Decimal(tc_efectivo))
 
     # Paso 4-5: registrar egreso en la fuente elegida.
     detalle_base = f"OP {op.numero} - {proveedor_nombre}"
@@ -1167,15 +1168,6 @@ def ejecutar_pago(
     # Import acá para evitar ciclo con pedidos_service
     from app.services import cc_proveedor_service  # noqa: PLC0415
 
-    # Cuantización por moneda destino de la imputación.
-    # Columna `imputaciones.monto_imputado` es Numeric(18, 2) → la BD trunca
-    # a 2 decimales tanto en USD como en ARS. Cuantizamos en aplicación con
-    # ROUND_HALF_UP para tener control explícito (sin depender del HALF_EVEN
-    # default de Decimal o del redondeo implícito del cast a Numeric).
-    # Política contable explícita del SDD: ROUND_HALF_UP.
-    QUANT_USD = Decimal("0.01")
-    QUANT_ARS = Decimal("0.01")
-
     for item in items:
         # PR3: items 'pago_a_cuenta' se procesan por separado después del loop
         # (crean DineroACuenta + imputacion dinero_a_cuenta). Se saltan acá.
@@ -1206,10 +1198,10 @@ def ejecutar_pago(
                 )
             if op.moneda == "ARS" and pedido_destino.moneda == "USD":
                 # OP ARS paga pedido USD: USD_imp = ARS_item / TC.
-                monto_imp = (monto_item_origen / tc_op).quantize(QUANT_USD, rounding=ROUND_HALF_UP)
+                monto_imp = q_usd(monto_item_origen / tc_op)
             elif op.moneda == "USD" and pedido_destino.moneda == "ARS":
                 # OP USD paga pedido ARS: ARS_imp = USD_item * TC.
-                monto_imp = (monto_item_origen * tc_op).quantize(QUANT_ARS, rounding=ROUND_HALF_UP)
+                monto_imp = q_ars(monto_item_origen * tc_op)
             else:
                 # Combinación de monedas no soportada (whitelist ARS/USD).
                 raise HTTPException(
@@ -1222,19 +1214,32 @@ def ejecutar_pago(
             # Same-moneda (o destino != pedido_compra): sin conversión.
             monto_imp = monto_item_origen
             moneda_imp = str(op.moneda)
-            # W2 / T1.29 / AD-7 — DEFERRED INTENTIONALLY (not implemented in PR1).
-            # Design AD-7 proposes persisting a payment-date TC here for
-            # same-moneda Caso-A imputaciones (so they could feed the
-            # weighted-average resolver). It is deliberately NOT done:
-            # per Amendment A2 the business almost never pays in USD, so a
-            # same-moneda (USD OP → USD pedido) Caso-A payment is a
-            # near-nonexistent edge case. Keeping PR1 lean, same-moneda
-            # imputaciones keep `tipo_cambio = None`; the weighted-average
-            # helpers already filter `tipo_cambio IS NOT NULL`, so such an
-            # edge-case pedido simply falls back to `tipo_cambio_original`
-            # (resolver mode 3) — well-defined, never crashes. If USD-USD
-            # payments ever become common, revisit T1.29/AD-7.
-            tc_imp = None
+            # AD-7 — persist the OP's explicit TC on same-moneda Caso-A
+            # imputaciones so that calcular_tc_ponderado_caso_a (which filters
+            # `tipo_cambio IS NOT NULL`) can include them in the weighted
+            # average. Without this, the ARS projection of a USD pedido paid
+            # by a USD OP at a different TC would stay pinned to
+            # tipo_cambio_original (resolver mode 3 fallback) — wrong.
+            #
+            # Conditions for storing TC:
+            #   • destination is a pedido_compra (pedido_destino is not None but
+            #     same-moneda, so we reach this branch only when monedas match
+            #     OR destination is not a pedido_compra).
+            #   • OP has actualizar_tc_pedido = True (Caso A) AND op.tipo_cambio
+            #     is not None — i.e., the OP carries an explicit exchange rate.
+            #
+            # Caso B (actualizar_tc_pedido=False): we could store tc_op here
+            # harmlessly, but calcular_tc_ponderado_caso_a already filters by
+            # `actualizar_tc_pedido=True` via JOIN, so it would never be used.
+            # Storing it anyway for auditability; the filter is the guard.
+            #
+            # ARS–ARS payments: op.tipo_cambio is typically None for pure-ARS
+            # flows; the `if` below evaluates False → tc_imp stays None, no
+            # change in behavior.
+            if pedido_destino is not None and op.tipo_cambio is not None:
+                tc_imp = Decimal(op.tipo_cambio)
+            else:
+                tc_imp = None
 
         imp = imputaciones_service.crear_imputacion(
             session,

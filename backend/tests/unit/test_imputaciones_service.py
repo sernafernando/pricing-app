@@ -134,6 +134,35 @@ class TestMonedaConsistente:
         _validar_moneda_consistente("ARS", "USD", tipo_cambio=Decimal("1500"))
         _validar_moneda_consistente("USD", "ARS", tipo_cambio=Decimal("0.000667"))
 
+    # ── B.1 — REQ-MM-004 / design §2: cross-moneda unblock ────────────────
+
+    def test_cross_moneda_con_tc_procede(self) -> None:
+        """B.1 — cross-moneda con TC válido (OP ARS + pedido USD + TC) → OK.
+        El bloqueo duro de v1 fue removido; ahora cross-moneda con TC procede.
+        Spec: REQ-MM-004, design §2.
+        """
+        # Should not raise — cross-moneda is allowed when TC > 0.
+        _validar_moneda_consistente("ARS", "USD", tipo_cambio=Decimal("1410"))
+        _validar_moneda_consistente("USD", "ARS", tipo_cambio=Decimal("1450"))
+
+    def test_cross_moneda_sin_tc_devuelve_422(self) -> None:
+        """B.1 — cross-moneda sin tipo_cambio → HTTP 400 (guard correcto: TC requerido).
+        Spec: REQ-MM-004, design §2.
+        """
+        with pytest.raises(HTTPException) as exc:
+            _validar_moneda_consistente("ARS", "USD")
+        assert exc.value.status_code == 400
+        assert "Cross-moneda" in exc.value.detail
+        assert "tipo_cambio > 0" in exc.value.detail
+
+    def test_same_moneda_ars_sin_tc_procede(self) -> None:
+        """B.1 — same-moneda ARS sin tipo_cambio → OK (no requiere TC).
+        Spec: REQ-MM-004, design §2.
+        """
+        # No raise expected — same-moneda ignores TC.
+        _validar_moneda_consistente("ARS", "ARS")
+        _validar_moneda_consistente("ARS", "ARS", tipo_cambio=None)
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # crear_imputacion

@@ -27,7 +27,7 @@ subyacentes (especialmente `ejecutar_pago`) hacen `flush` pero NO
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -2227,6 +2227,8 @@ def _enriquecer_movimientos_cc(
     imps_resueltos: dict[int, tuple[str, int]] = {}  # imp_id → (origen_tipo, origen_id)
     # F6: also track the pedido_compra destino of each imputacion for ARS projection.
     imps_destino_pedido: dict[int, int | None] = {}  # imp_id → pedido_id or None
+    # ADR-2 fix: also track imp.tipo_cambio per imp_id (liquidation TC — priority 1).
+    imps_tc_map: dict[int, Decimal | None] = {}  # imp_id → tipo_cambio of the imputacion
     if imp_ids:
         rows = db.execute(
             select(
@@ -2235,6 +2237,7 @@ def _enriquecer_movimientos_cc(
                 Imputacion.origen_id,
                 Imputacion.destino_tipo,
                 Imputacion.destino_id,
+                Imputacion.tipo_cambio,  # ADR-2: liquidation TC per imputacion
             ).where(Imputacion.id.in_(imp_ids))
         ).all()
         for r in rows:
@@ -2250,6 +2253,19 @@ def _enriquecer_movimientos_cc(
             destino_tipo2 = str(r[3]) if r[3] is not None else None
             destino_id2 = int(r[4]) if r[4] is not None else None
             imps_destino_pedido[int(r[0])] = destino_id2 if destino_tipo2 == "pedido_compra" else None
+            # ADR-2: capture tipo_cambio of the imputacion itself.
+            imps_tc_map[int(r[0])] = Decimal(str(r[5])) if r[5] is not None else None
+
+    # ADR-2: batch-load tc_snapshot (tipo_cambio_original) for pedidos linked via imputaciones.
+    # Needed to compute varianza_tc_ars = (tc_op - tc_snapshot) * usd_imputado.
+    pedido_tc_snapshot_map: dict[int, Decimal | None] = {}  # pedido_id → tc_snapshot
+    pedidos_para_varianza = {pid for pid in imps_destino_pedido.values() if pid is not None}
+    if pedidos_para_varianza:
+        snap_rows = db.execute(
+            select(PedidoCompra.id, PedidoCompra.tipo_cambio_original).where(PedidoCompra.id.in_(pedidos_para_varianza))
+        ).all()
+        for sr in snap_rows:
+            pedido_tc_snapshot_map[int(sr[0])] = Decimal(str(sr[1])) if sr[1] is not None else None
 
     # ── Batch fetch: numeros por ID ──────────────────────────────────────
     ops_numeros: dict[int, str] = {}
@@ -2337,40 +2353,72 @@ def _enriquecer_movimientos_cc(
             pedidos_service.resolver_tc_efectivo_pedido_batch(db, list(f6_pedido_ids_set)) if f6_pedido_ids_set else {}
         )
 
+    from app.services.fx_service import derivar_varianza_visible, q_ars  # noqa: PLC0415
+
     resultado: list[CCMovimientoResponse] = []
     for m, pid in zip(movs, mov_pedido_ids):
         resp = CCMovimientoResponse.model_validate(m)
         resp.origen_descripcion = _descripcion(m)
+        resp.varianza_tc_ars = None  # default; set below for settled USD movements
 
         # F6 ARS fields.
-        # Priority for USD→ARS conversion (AD-9 fix, PR1 review):
-        #   1. Linked pedido TC (most accurate — reflects actual purchase rate).
+        # Priority for USD→ARS conversion (ADR-2 / design §6.2):
+        #   0. imp.tipo_cambio when the movement originates from an imputacion
+        #      (HABER of payment) — this is the liquidation TC of that specific
+        #      payment leg. Most accurate: it reflects exactly which TC was used
+        #      to settle that portion of the debt. This was the bug #1 fix: the
+        #      previous code used tc_efectivo_pedido (weighted avg), which mixes
+        #      TCs from different OPs and incorrectly projects the HABER.
+        #   1. Linked pedido TC (tc_efectivo_pedido — weighted avg or manual).
+        #      Used for DEBE movements (unpaid debt) or imputacion without TC.
         #   2. Persisted tipo_cambio_a_ars on the movement itself (ajustes, NC habers,
         #      pagos-a-cuenta with no linked pedido but a recorded TC at entry time).
         #   3. No TC available → monto_ars = None. The saldo_ars accumulator will
-        #      skip this movement. This should be exceptional; if it occurs it is
-        #      logged so it can be investigated and corrected at the data level.
+        #      skip this movement.
         moneda = getattr(m, "moneda", "ARS")
         monto = Decimal(str(getattr(m, "monto", 0)))
         if moneda == "ARS":
             resp.monto_ars = monto
             resp.tc_aplicado = None
         else:
-            # USD movement: resolve TC via pedido first, then persisted column.
+            # USD movement: resolve TC per ADR-2 priority chain.
             tc: Decimal | None = None
-            if pid is not None:
+            imp_tc: Decimal | None = None
+
+            # Priority 0: imputacion-sourced HABER → use the imputacion's own TC.
+            oid = getattr(m, "origen_id", None)
+            otipo = getattr(m, "origen_tipo", None)
+            if otipo in ("imputacion", "reimputacion") and oid is not None:
+                imp_tc = imps_tc_map.get(int(oid))
+                if imp_tc is not None:
+                    tc = imp_tc
+
+            # Priority 1: pedido TC (weighted or original) — fallback for DEBE or
+            # imputaciones without explicit TC (e.g. pre-AD-7 data).
+            if tc is None and pid is not None:
                 tc = tc_efectivo_por_pedido.get(pid)
+
+            # Priority 2: persisted tipo_cambio_a_ars.
             if tc is None:
-                # Fall back to the persisted tipo_cambio_a_ars recorded at entry time.
                 raw_tc = getattr(m, "tipo_cambio_a_ars", None)
                 if raw_tc is not None:
                     tc = Decimal(str(raw_tc))
+
             if tc is not None:
-                resp.monto_ars = (monto * tc).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                resp.monto_ars = q_ars(monto * tc)
                 resp.tc_aplicado = tc
+
+                # Compute varianza_tc_ars for settled movements (priority 0 path).
+                # Formula: (tc_op - tc_pedido_snapshot) * usd_imputado  (design §4.1).
+                if imp_tc is not None and pid is not None:
+                    tc_snapshot = pedido_tc_snapshot_map.get(pid)
+                    resp.varianza_tc_ars = derivar_varianza_visible(
+                        tc_op=imp_tc,
+                        tc_snapshot=tc_snapshot,
+                        usd_imputado=monto,
+                    )
             else:
                 # No TC resolvable — movement will be excluded from saldo_ars.
-                # This is a data-quality issue; log for investigation.
                 logger.warning(
                     "_enriquecer_movimientos_cc: movimiento USD id=%s sin TC resolvable "
                     "(pid=%s, tipo_cambio_a_ars=None) → excluido de saldo_ars",
