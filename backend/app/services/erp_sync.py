@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import get_system_user_id
 from app.models.producto import ProductoERP, ProductoPricing
+from app.utils.text import decode_html_entities
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,11 @@ async def sincronizar_erp(db: Session) -> Dict:
 
                     stock = stock_dict.get(item_id, 0)
                     producto_data["Stock"] = stock
+                    # El espejo del ERP guarda la descripción HTML-encodeada
+                    # (p. ej. "BLACK &AMP; DECKER"). Decodificamos antes de
+                    # calcular el hash para que el valor limpio sea el que se
+                    # persiste y compara, sin churn de re-sync.
+                    producto_data["Descripción"] = decode_html_entities(producto_data.get("Descripción"))
                     hash_nuevo = calcular_hash(producto_data)
 
                     producto_existente = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()

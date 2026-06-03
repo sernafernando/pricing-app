@@ -10,6 +10,7 @@ from app.core.database import get_async_db
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.utils.text import decode_html_entities
 
 router = APIRouter()
 
@@ -49,7 +50,7 @@ async def force_sync_producto(
 
         # 4. Extraer datos
         codigo = str(producto_data.get("Código", "")).replace('"', "")
-        descripcion = producto_data.get("Descripción")
+        descripcion = decode_html_entities(producto_data.get("Descripción"))
         marca = producto_data.get("Marca")
         categoria = producto_data.get("Categoría")
         subcategoria_id = int(producto_data.get("subcat_id")) if producto_data.get("subcat_id") else None
