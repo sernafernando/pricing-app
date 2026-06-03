@@ -1497,3 +1497,80 @@ class TestOPCrossMonedaImputacion:
         assert imp.moneda_imputada == "ARS"
         assert Decimal(imp.monto_imputado) == Decimal("5000")
         assert imp.tipo_cambio is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# B.3 — TC requerido en OP ARS para deuda USD  (REQ-MM-003)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestOPArsPagandoDeudaUSD:
+    """
+    B.3 — Valida que una OP ARS que intenta pagar un pedido USD requiere
+    tipo_cambio en la OP (cross-moneda guard). Si same-moneda ARS, no requiere.
+    Spec: REQ-MM-003, design §2.
+    """
+
+    def test_pagar_op_ars_deuda_usd_sin_tc_devuelve_422(
+        self,
+        db,
+        empresa,
+        proveedor,
+        active_user,
+        pedido_usd_aprobado,
+    ) -> None:
+        """OP ARS imputa a pedido USD sin tipo_cambio → HTTP 400 (cross-moneda guard).
+        La validación ocurre en `crear` antes de persistir.
+        Spec: REQ-MM-003.
+        """
+        with pytest.raises(HTTPException) as exc:
+            ordenes_pago_service.crear(
+                db,
+                proveedor_id=proveedor.id,
+                empresa_id=empresa.id,
+                moneda="ARS",
+                monto_total=Decimal("1410000"),
+                modo_imputacion="especifica",
+                items=[
+                    {
+                        "tipo": "pedido_compra",
+                        "id": pedido_usd_aprobado.id,
+                        "monto": Decimal("1410000"),
+                    }
+                ],
+                creado_por_id=active_user.id,
+                # tipo_cambio omitido → cross-moneda sin TC debe rechazar.
+            )
+        assert exc.value.status_code == 400
+        assert "cross-moneda" in exc.value.detail.lower()
+
+    def test_pagar_op_ars_deuda_ars_sin_tc_procede(
+        self,
+        db,
+        empresa,
+        proveedor,
+        active_user,
+        pedido_aprobado,  # pedido ARS
+    ) -> None:
+        """OP ARS imputa a pedido ARS sin tipo_cambio → OK (same-moneda no requiere TC).
+        Spec: REQ-MM-003.
+        """
+        # Must not raise — same-moneda ARS op to ARS pedido needs no TC.
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_aprobado.id,
+                    "monto": Decimal("1000"),
+                }
+            ],
+            creado_por_id=active_user.id,
+            # No tipo_cambio — same-moneda should be accepted.
+        )
+        assert op.id is not None

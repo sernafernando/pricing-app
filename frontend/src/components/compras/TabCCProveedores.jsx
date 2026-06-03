@@ -1181,6 +1181,19 @@ function GrupoPedidoCard({
                   <span className={styles.impInlineMonto}>
                     {formatMoneda(imp.monto_imputado, imp.moneda_imputada)}
                   </span>
+                  {imp.varianza_tc_ars != null && (
+                    <span
+                      className={
+                        Number(imp.varianza_tc_ars) >= 0
+                          ? styles.varianzaPositiva
+                          : styles.varianzaNegativa
+                      }
+                      title="Varianza de TC (diferencia ARS entre TC de registración y TC de pago)"
+                    >
+                      {Number(imp.varianza_tc_ars) >= 0 ? '+' : ''}
+                      {formatMoneda(imp.varianza_tc_ars, 'ARS')}
+                    </span>
+                  )}
                   {onDesimputar && !imp.es_reversal && (
                     <button
                       type="button"

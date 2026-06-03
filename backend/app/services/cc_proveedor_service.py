@@ -27,7 +27,7 @@ Referencias:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal, Optional
 
 from fastapi import HTTPException, status
@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
+from app.services.fx_service import q_ars
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.imputacion import Imputacion
 from app.models.tipo_cambio import TipoCambio
@@ -920,7 +921,7 @@ def registrar_ajuste_revaluacion_tc(
 
     # ARS delta = |tc_diff| * monto_usd. `pedido.monto` is always the
     # USD face-value of the pedido (stored as Numeric(18,2)).
-    monto_ajuste = (abs(delta_tc) * Decimal(pedido.monto)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    monto_ajuste = q_ars(abs(delta_tc) * Decimal(pedido.monto))
     signo = 1 if delta_tc > 0 else -1
 
     fecha_mov = date.today()

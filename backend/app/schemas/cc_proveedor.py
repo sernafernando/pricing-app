@@ -54,6 +54,10 @@ class CCMovimientoResponse(BaseModel):
     # USD movements tied to a pedido: monto_ars = monto * tc_efectivo_pedido.
     monto_ars: Decimal | None = None
     tc_aplicado: Decimal | None = None
+    # varianza_tc_ars — display-only (design §4.1, REQ-MM-007).
+    # = (tc_op - tc_pedido_snapshot) * usd_imputado for settled USD movements.
+    # None for ARS movements, DEBE movements, or when TC data is missing.
+    varianza_tc_ars: Decimal | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

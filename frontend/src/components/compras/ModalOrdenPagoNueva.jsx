@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
@@ -249,6 +249,12 @@ export default function ModalOrdenPagoNueva({
   // del proveedor. Se incluye en el payload como item {tipo:'pago_a_cuenta'}.
   const [pagoACuenta, setPagoACuenta] = useState('');
   const pagoACuentaNum = parseFloat(pagoACuenta) || 0;
+  // Refinement A — "touched" flag for pagoACuenta auto-fill.
+  // Starts false on mount (fresh form). Becomes true on ANY user interaction
+  // with the field (typing OR clearing). Once touched, auto-fill stops for
+  // the lifetime of the modal so the user's opt-out is respected.
+  // Auto-fill resumes only on a fresh modal open (useState resets to false).
+  const [pagoACuentaTouched, setPagoACuentaTouched] = useState(false);
 
   // PR5 — Warning shown when monto_total changes with 2+ items (FR-5.2).
   // Note: auto-clear when diferencia reaches 0 is handled in the render
@@ -339,6 +345,37 @@ export default function ModalOrdenPagoNueva({
   const tcNumLive = parseFloat(form.tipo_cambio);
   const tcValido = Number.isFinite(tcNumLive) && tcNumLive > 0;
 
+  // ADR-6 — derive-at-edge: convierte el monto NATIVO del item a moneda OP en render.
+  // items[].monto es siempre la moneda propia del pedido (inmutable).
+  // Fórmulas: OP=ARS, pedido=USD → ARS = USD × TC; OP=USD, pedido=ARS → USD = ARS / TC.
+  // Devuelve null si TC no es válido (NaN/0/vacío) para que la UI no muestre un número
+  // incorrecto y el submit no mande basura.
+  const montoEnMonedaOP = (item) => {
+    const monto = parseFloat(item.monto);
+    if (!Number.isFinite(monto) || monto <= 0) return null;
+    if (item.tipo !== 'pedido_compra' || !item.id) {
+      // Items sin pedido asociado (e.g. factura_erp sin datos de moneda) se asumen
+      // en moneda OP — se devuelven tal cual.
+      return monto;
+    }
+    const pedido = pedidoDe(item.id);
+    if (!pedido) return monto; // pedido no encontrado — tratamos como same-moneda
+    if (pedido.moneda === form.moneda) return monto; // same-moneda: nativo === OP
+    // Cross-moneda: requiere TC válido para derivar
+    if (!tcValido) return null;
+    if (form.moneda === 'ARS' && pedido.moneda === 'USD') return monto * tcNumLive;
+    if (form.moneda === 'USD' && pedido.moneda === 'ARS') return monto / tcNumLive;
+    return monto; // misma moneda por otro camino
+  };
+
+  // itemsDerivados: items[] con montoDerivado calculado en render.
+  // Recomputa automáticamente cada vez que cambia items, form.moneda o form.tipo_cambio.
+  const itemsDerivados = useMemo(
+    () => items.map((it) => ({ ...it, montoDerivado: montoEnMonedaOP(it) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, form.moneda, form.tipo_cambio]
+  );
+
   // IDs de pedidos ya agregados como items (para evitar duplicar al elegir del dropdown).
   const idsPedidosYaAgregados = new Set(
     items
@@ -364,16 +401,26 @@ export default function ModalOrdenPagoNueva({
       const nuevoTotal = parseFloat(valor) || 0;
       if (items.length === 1) {
         // FR-5.1: exactly 1 item → auto-sync its monto to the new total.
-        setItems((prev) =>
-          prev.map((it, i) =>
-            i === 0 ? { ...it, monto: nuevoTotal > 0 ? nuevoTotal.toFixed(2) : '' } : it
-          )
-        );
+        // ADR-6: solo sincronizamos si el item es same-moneda (nativo === OP).
+        // Si es cross-moneda, items[].monto es nativo del pedido — no lo pisamos.
+        const primerItem = items[0];
+        const primerPedido =
+          primerItem.tipo === 'pedido_compra' && primerItem.id
+            ? pedidoDe(primerItem.id)
+            : null;
+        const esSameMoneda = !primerPedido || primerPedido.moneda === form.moneda;
+        if (esSameMoneda) {
+          setItems((prev) =>
+            prev.map((it, i) =>
+              i === 0 ? { ...it, monto: nuevoTotal > 0 ? nuevoTotal.toFixed(2) : '' } : it
+            )
+          );
+        }
         setItemsSumWarning(false);
       } else if (items.length > 1) {
         // FR-5.2: 2+ items → show warning, do NOT touch item amounts.
         const sumaActual = Math.round(
-          items.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0) * 100
+          itemsDerivados.reduce((acc, it) => acc + (it.montoDerivado ?? 0), 0) * 100
         ) / 100;
         const totalR = Math.round(nuevoTotal * 100) / 100;
         setItemsSumWarning(Math.abs(sumaActual - totalR) > 0.001);
@@ -397,7 +444,8 @@ export default function ModalOrdenPagoNueva({
           return f;
         }
         // OK: cross-moneda con TC válido OR sin items pedido_compra.
-        // Convertimos monto_total si hay TC.
+        // ADR-6: items[].monto es NATIVO — nunca lo reconvertimos al cambiar moneda.
+        // El monto_total de la OP sí se convierte (es el total en moneda OP).
         const montoNum = parseFloat(f.monto_total);
         if (tcOk && Number.isFinite(montoNum) && montoNum > 0) {
           const nuevoMonto =
@@ -407,24 +455,6 @@ export default function ModalOrdenPagoNueva({
                 ? montoNum / tcNum
                 : montoNum;
           next.monto_total = nuevoMonto.toFixed(2);
-
-          // PR5 / T5.4 — Convert single item monto on moneda change (FR-5.3/FR-5.4).
-          if (items.length === 1) {
-            const montoItem = parseFloat(items[0].monto);
-            if (Number.isFinite(montoItem) && montoItem > 0) {
-              const nuevoMontoItem =
-                f.moneda === 'USD' && valor === 'ARS'
-                  ? montoItem * tcNum
-                  : f.moneda === 'ARS' && valor === 'USD'
-                    ? montoItem / tcNum
-                    : montoItem;
-              setItems((prev) =>
-                prev.map((it, i) =>
-                  i === 0 ? { ...it, monto: nuevoMontoItem.toFixed(2) } : it
-                )
-              );
-            }
-          }
         }
         // Cuando el user corrige la moneda, limpiamos cualquier error
         // previo del TC para no quedar con feedback obsoleto.
@@ -435,41 +465,8 @@ export default function ModalOrdenPagoNueva({
       // Cualquier edición del campo tipo_cambio limpia el error inline.
       if (campo === 'tipo_cambio') {
         setTcError(null);
-
-        // Recalcular monto_total cuando cambia el TC y hay cross-moneda activo.
-        // Ancla: pedidoInicial (moneda + saldo). Sin ancla (OP a_cuenta) no hay
-        // referencia para derivar el monto, así que lo dejamos como está.
-        const nuevoTc = parseFloat(valor);
-        const tcOkNuevo = Number.isFinite(nuevoTc) && nuevoTc > 0;
-        if (
-          tcOkNuevo &&
-          pedidoInicial &&
-          pedidoInicial.moneda &&
-          pedidoInicial.moneda !== f.moneda
-        ) {
-          const anclaMoneda = pedidoInicial.moneda;
-          const anclaMontoNum =
-            Number(pedidoInicial.saldo_pendiente ?? pedidoInicial.monto) || 0;
-          if (anclaMontoNum > 0) {
-            // Misma lógica de dirección que el branch de cambio de moneda.
-            const nuevoMonto =
-              anclaMoneda === 'USD' && f.moneda === 'ARS'
-                ? anclaMontoNum * nuevoTc
-                : anclaMoneda === 'ARS' && f.moneda === 'USD'
-                  ? anclaMontoNum / nuevoTc
-                  : anclaMontoNum;
-            next.monto_total = nuevoMonto.toFixed(2);
-
-            // Sincronizar el único item si corresponde (espejo de PR5/T5.4).
-            if (items.length === 1) {
-              setItems((prev) =>
-                prev.map((it, i) =>
-                  i === 0 ? { ...it, monto: nuevoMonto.toFixed(2) } : it
-                )
-              );
-            }
-          }
-        }
+        // ADR-6: items[].monto es NATIVO — el TC no lo toca.
+        // itemsDerivados (useMemo abajo) recomputa montoDerivado al vuelo.
       }
       return next;
     });
@@ -490,7 +487,10 @@ export default function ModalOrdenPagoNueva({
   // Toggle check/uncheck de un pedido en la lista.
   const handlePedidoToggle = (pedido, checked) => {
     if (checked) {
-      const monto = String(pedido.saldo_pendiente ?? pedido.monto ?? '');
+      // ADR-6: items[].monto siempre en moneda NATIVA del pedido (INMUTABLE).
+      // La conversión a moneda OP se hace en montoDerivado (useMemo) al render.
+      const nativeMonto = Number(pedido.saldo_pendiente ?? pedido.monto ?? 0);
+      const monto = nativeMonto > 0 ? nativeMonto.toFixed(2) : '';
       setItems((prev) => [
         ...prev,
         {
@@ -525,7 +525,10 @@ export default function ModalOrdenPagoNueva({
   };
 
   // ── Validación ──
-  const sumaItems = items.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0);
+  // sumaItems suma montoDerivado (en moneda OP) de todos los items.
+  // Items sin TC válido (montoDerivado === null) contribuyen 0 — el validar()
+  // los bloquea antes del submit si hay cross-moneda sin TC.
+  const sumaItems = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivado ?? 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
   // PR3/PR4 — Cobertura total y diferencia en vivo.
@@ -533,6 +536,30 @@ export default function ModalOrdenPagoNueva({
   const sumaNCs = ncsAplicadas.reduce((acc, nc) => acc + (parseFloat(nc.monto) || 0), 0);
   const coberturaTotal = sumaItems + sumaNCs + pagoACuentaNum + dacMontoNum;
   const diferencia = Math.round((montoTotalNum - coberturaTotal) * 100) / 100;
+
+  // Refinement A — auto-fill pagoACuenta with the surplus when:
+  //   - not in edit mode (edit mode doesn't show the pagoACuenta field)
+  //   - the user has NOT touched the field yet (pagoACuentaTouched === false)
+  //   - diferencia > 0, meaning the user is paying MORE than covered
+  // Once the user touches the field (even to clear it), auto-fill stops for
+  // the lifetime of this modal instance. This prevents the re-fill loop that
+  // occurred when clearing set the old flag to false and re-triggered the fill.
+  //
+  // Convergence: setPagoACuenta does NOT set pagoACuentaTouched, so no loop.
+  // pagoACuentaTouched is set only by onChange (user gesture). Effect deps
+  // include pagoACuentaTouched; when it becomes true the effect early-returns
+  // and never calls setPagoACuenta again.
+  useEffect(() => {
+    if (isEditMode || pagoACuentaTouched) return;
+    if (diferencia > 0) {
+      const surplus = Math.round(diferencia * 100) / 100;
+      setPagoACuenta(String(surplus));
+    } else {
+      // diferencia <= 0: no surplus — keep the field clear (or clear stale value).
+      setPagoACuenta('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [montoTotalNum, sumaItems, sumaNCs, dacMontoNum, isEditMode, pagoACuentaTouched]);
 
   const validar = () => {
     if (!form.empresa_id) return 'Empresa requerida.';
@@ -575,10 +602,12 @@ export default function ModalOrdenPagoNueva({
       modo_imputacion: modoImputacion,
       observaciones: form.observaciones || null,
       items: [
-        ...items.map((it) => ({
+        // ADR-6: el backend espera monto en moneda OP. Derivamos en el momento
+        // del submit desde el monto nativo + TC actual (nunca desde el nativo mutado).
+        ...itemsDerivados.map((it) => ({
           tipo: it.tipo,
           id: it.id ? Number(it.id) : null,
-          monto: parseFloat(it.monto),
+          monto: it.montoDerivado ?? parseFloat(it.monto),
           numero_factura: it.numero_factura || null,
         })),
         // PR3: pago_a_cuenta como item explícito cuando el usuario lo indica
@@ -631,10 +660,10 @@ export default function ModalOrdenPagoNueva({
     tipo_cambio: tcEnviable,
     modo_imputacion: modoImputacion,
     observaciones: form.observaciones || null,
-    items: items.map((it) => ({
+    items: itemsDerivados.map((it) => ({
       tipo: it.tipo,
       id: it.id ? Number(it.id) : null,
-      monto: parseFloat(it.monto),
+      monto: it.montoDerivado ?? parseFloat(it.monto),
       numero_factura: it.numero_factura || null,
     })),
   });
@@ -1020,9 +1049,10 @@ export default function ModalOrdenPagoNueva({
                     const pedidoId = String(pedido.id);
                     const isChecked = idsPedidosYaAgregados.has(pedidoId);
                     const itemActual = items.find((it) => String(it.id) === pedidoId);
-                    const montoActual = itemActual ? itemActual.monto : '';
+                    const montoActual = itemActual ? itemActual.monto : ''; // nativo del pedido
 
-                    // Cross-moneda preview (same logic as the old table row).
+                    // ADR-6 cross-moneda preview: muestra nativo × TC = OP.
+                    // montoActual es NATIVO del pedido; montoDerivado es en moneda OP.
                     const pedidoItemData = pedidoDe(pedidoId);
                     const showCrossPreview =
                       isChecked &&
@@ -1031,23 +1061,17 @@ export default function ModalOrdenPagoNueva({
                       tcValido;
                     let crossPreview = null;
                     if (showCrossPreview) {
-                      const montoNum = parseFloat(montoActual);
-                      if (Number.isFinite(montoNum) && montoNum > 0) {
-                        const convertido =
+                      const nativoNum = parseFloat(montoActual);
+                      const itemDerivado = itemsDerivados.find((it) => String(it.id) === pedidoId);
+                      const opNum = itemDerivado?.montoDerivado;
+                      if (Number.isFinite(nativoNum) && nativoNum > 0 && opNum != null) {
+                        const nativoStr = formatCurrency(nativoNum, pedidoItemData.moneda);
+                        const opStr = formatCurrency(opNum, form.moneda);
+                        const opSign =
                           form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
-                            ? montoNum / tcNumLive
-                            : form.moneda === 'USD' && pedidoItemData.moneda === 'ARS'
-                              ? montoNum * tcNumLive
-                              : null;
-                        if (convertido !== null) {
-                          const opStr = formatCurrency(montoNum, form.moneda);
-                          const destStr = formatCurrency(convertido, pedidoItemData.moneda);
-                          const opSign =
-                            form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
-                              ? '÷'
-                              : '×';
-                          crossPreview = `${opStr} ${opSign} TC ${tcNumLive} = ${destStr}`;
-                        }
+                            ? '×'
+                            : '÷';
+                        crossPreview = `${nativoStr} ${opSign} TC ${tcNumLive} = ${opStr}`;
                       }
                     }
 
@@ -1237,7 +1261,13 @@ export default function ModalOrdenPagoNueva({
                 min="0"
                 className={styles.input}
                 value={pagoACuenta}
-                onChange={(e) => setPagoACuenta(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPagoACuenta(val);
+                  // Refinement A: any user gesture (type OR clear) marks as touched.
+                  // Auto-fill will no longer override the user's intent.
+                  setPagoACuentaTouched(true);
+                }}
                 placeholder="0.00"
                 disabled={saving}
               />

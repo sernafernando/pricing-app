@@ -813,6 +813,23 @@
   white-space: nowrap;
 }
 
+/* D.4 — varianza_tc_ars display (positiva = favorable, negativa = desfavorable) */
+.varianzaPositiva,
+.varianzaNegativa {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.varianzaPositiva {
+  color: #22c55e; /* green-500 — ganancia de TC */
+}
+
+.varianzaNegativa {
+  color: #ef4444; /* red-500 — pérdida de TC */
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    States — empty / loading / error
    ══════════════════════════════════════════════════════════════════════ */

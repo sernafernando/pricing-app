@@ -373,3 +373,183 @@ class TestResolverTcEfectivoPedido:
 
         tc = pedidos_service.resolver_tc_efectivo_pedido(db, pedido)
         assert tc is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# T1.29 — same-moneda USD→USD Caso-A payment (AD-7 fix)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _make_op_usd(db, empresa, proveedor, user_id: int, actualizar_tc: bool, tc: Decimal) -> OrdenPago:
+    """Create a USD OP with the given actualizar_tc_pedido flag and explicit TC."""
+    n = db.query(OrdenPago).count() + 1
+    op = OrdenPago(
+        numero=f"OP-{n:04d}",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        monto_total=Decimal("1000"),
+        tipo_cambio=tc,
+        modo_imputacion="especifica",
+        estado="pagado",
+        actualizar_tc_pedido=actualizar_tc,
+        creado_por_id=user_id,
+    )
+    db.add(op)
+    db.flush()
+    return op
+
+
+class TestSameMonedaUsdCasoAPreFixBug:
+    """Regression: documents the pre-fix (buggy) behavior where same-moneda
+    imputaciones had tipo_cambio=None, causing the resolver to fall back to
+    tipo_cambio_original even when the OP had an explicit (different) TC.
+    These tests verify the bug condition so that the fix can be confirmed GREEN.
+    """
+
+    def test_null_tc_on_imputacion_skips_caso_a(self, db, empresa, proveedor, active_user) -> None:
+        """Pre-fix: imputacion with tipo_cambio=None is skipped by calcular_tc_ponderado_caso_a
+        because the query filters `tipo_cambio IS NOT NULL`. Result is None → resolver
+        falls back to tipo_cambio_original (stale rate). This is the bug."""
+        uid = active_user.id
+        tc_original = Decimal("1400")
+        tc_op = Decimal("1500")
+        pedido = _make_pedido_usd(db, empresa, proveedor, uid, tc_original=tc_original)
+        op = _make_op_usd(db, empresa, proveedor, uid, actualizar_tc=True, tc=tc_op)
+
+        # Buggy state: same-moneda imputacion with tipo_cambio=None (pre-fix behavior)
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("1000"),
+            moneda_imputada="USD",
+            tipo_cambio=None,  # This is the bug — gets skipped by IS NOT NULL filter
+            proveedor_id=pedido.proveedor_id,
+            es_reversal=False,
+            creado_por_id=uid,
+        )
+        db.add(imp)
+        db.flush()
+
+        tc_caso_a = pedidos_service.calcular_tc_ponderado_caso_a(db, pedido.id)
+        assert tc_caso_a is None, "null tipo_cambio must be skipped → Caso-A returns None"
+
+        tc_effective = pedidos_service.resolver_tc_efectivo_pedido(db, pedido)
+        assert tc_effective == tc_original, "Bug: resolver falls back to tipo_cambio_original because Caso-A is empty"
+
+
+class TestSameMonedaUsdCasoA:
+    """T1.29 — USD OP paying USD pedido with explicit TC (AD-7 fix).
+
+    The bug: same-moneda imputaciones were created with tipo_cambio=None,
+    so calcular_tc_ponderado_caso_a skipped them and the pedido's effective TC
+    stayed at tipo_cambio_original (the approval-day snapshot).
+
+    After the fix, tipo_cambio on same-moneda Caso-A imputaciones must be
+    set to the OP's tipo_cambio so the weighted average picks it up.
+    """
+
+    def test_same_moneda_usd_caso_a_uses_op_tc_not_original(self, db, empresa, proveedor, active_user) -> None:
+        """T1.29 — USD pedido (TC_original=1400) paid by USD OP (TC_op=1500,
+        actualizar_tc_pedido=True). After fix, resolver returns 1500, not 1400."""
+        uid = active_user.id
+        tc_original = Decimal("1400")
+        tc_op = Decimal("1500")
+        pedido = _make_pedido_usd(db, empresa, proveedor, uid, tc_original=tc_original)
+        op = _make_op_usd(db, empresa, proveedor, uid, actualizar_tc=True, tc=tc_op)
+
+        # Simulate what ejecutar_pago creates for a same-moneda USD→USD payment
+        # AFTER the AD-7 fix: tipo_cambio must be tc_op, NOT None.
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("1000"),
+            moneda_imputada="USD",  # same-moneda
+            tipo_cambio=tc_op,  # AD-7: must be set, not None
+            proveedor_id=pedido.proveedor_id,
+            es_reversal=False,
+            creado_por_id=uid,
+        )
+        db.add(imp)
+        db.flush()
+
+        tc_caso_a = pedidos_service.calcular_tc_ponderado_caso_a(db, pedido.id)
+        assert tc_caso_a is not None, (
+            "Expected Caso-A weighted average to be 1500 but got None — "
+            "imputacion.tipo_cambio was likely None (pre-fix behavior)"
+        )
+        assert tc_caso_a == tc_op.quantize(Decimal("0.0001")), (
+            f"Expected {tc_op.quantize(Decimal('0.0001'))} got {tc_caso_a}"
+        )
+
+        tc_effective = pedidos_service.resolver_tc_efectivo_pedido(db, pedido)
+        assert tc_effective == tc_op.quantize(Decimal("0.0001")), (
+            f"resolver should return op TC {tc_op}, got {tc_effective} (tipo_cambio_original fallback = bug)"
+        )
+
+    def test_same_moneda_usd_caso_b_not_affected(self, db, empresa, proveedor, active_user) -> None:
+        """T1.29b — Caso B (actualizar_tc_pedido=False): even with tipo_cambio set on
+        the imputacion, the resolver must fall back to tipo_cambio_original because
+        calcular_tc_ponderado_caso_a filters by actualizar_tc_pedido=True."""
+        uid = active_user.id
+        tc_original = Decimal("1400")
+        tc_op = Decimal("1500")
+        pedido = _make_pedido_usd(db, empresa, proveedor, uid, tc_original=tc_original)
+        op = _make_op_usd(db, empresa, proveedor, uid, actualizar_tc=False, tc=tc_op)
+
+        imp = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido.id,
+            monto_imputado=Decimal("1000"),
+            moneda_imputada="USD",
+            tipo_cambio=tc_op,  # storing TC even for Caso B is harmless
+            proveedor_id=pedido.proveedor_id,
+            es_reversal=False,
+            creado_por_id=uid,
+        )
+        db.add(imp)
+        db.flush()
+
+        tc_caso_a = pedidos_service.calcular_tc_ponderado_caso_a(db, pedido.id)
+        assert tc_caso_a is None, "Caso B imputaciones must not feed calcular_tc_ponderado_caso_a"
+
+        tc_effective = pedidos_service.resolver_tc_efectivo_pedido(db, pedido)
+        assert tc_effective == tc_original, "Caso B → resolver must return tipo_cambio_original"
+
+    def test_two_same_moneda_usd_ops_weighted_average(self, db, empresa, proveedor, active_user) -> None:
+        """T1.29c — multiple USD OPs (Caso A) against same USD pedido produce
+        a correct weighted-average TC, not a last-write-wins result."""
+        uid = active_user.id
+        pedido = _make_pedido_usd(db, empresa, proveedor, uid, tc_original=Decimal("1400"))
+        op1 = _make_op_usd(db, empresa, proveedor, uid, actualizar_tc=True, tc=Decimal("1500"))
+        op2 = _make_op_usd(db, empresa, proveedor, uid, actualizar_tc=True, tc=Decimal("1300"))
+
+        for op, monto, tc in [
+            (op1, Decimal("600"), Decimal("1500")),
+            (op2, Decimal("400"), Decimal("1300")),
+        ]:
+            db.add(
+                Imputacion(
+                    origen_tipo="orden_pago",
+                    origen_id=op.id,
+                    destino_tipo="pedido_compra",
+                    destino_id=pedido.id,
+                    monto_imputado=monto,
+                    moneda_imputada="USD",
+                    tipo_cambio=tc,
+                    proveedor_id=pedido.proveedor_id,
+                    es_reversal=False,
+                    creado_por_id=uid,
+                )
+            )
+        db.flush()
+
+        # (600*1500 + 400*1300) / 1000 = (900000 + 520000) / 1000 = 1420
+        tc_caso_a = pedidos_service.calcular_tc_ponderado_caso_a(db, pedido.id)
+        assert tc_caso_a == Decimal("1420.0000")
