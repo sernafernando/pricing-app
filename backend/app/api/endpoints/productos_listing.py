@@ -7,6 +7,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
+from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -714,8 +715,16 @@ def listar_productos(
             if oferta.mla not in ofertas_by_mla:
                 ofertas_by_mla[oferta.mla] = oferta
 
-    def _resolve_envio(producto_envio: float, grupo_id: int, precio: float) -> float:
-        """Resolve costo_envio, using grupo average when product has none and price >= MONTOT3."""
+    # ── Batch-resolve real shipping costs (one cross-DB query per page) ──────
+    envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, all_item_ids_page, pubs_by_item=pubs_by_item)
+
+    def _resolve_envio(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
+        """Resolve costo_envio: real mlwebhook cost first, then grupo average fallback."""
+        # Real cost from mlwebhook DB (already resolved as batch)
+        real_cost = envio_real_by_item.get(item_id)
+        if real_cost is not None:
+            return real_cost
+        # ERP + grupo-average fallback (existing logic)
         costo_envio = producto_envio or 0
         montot3 = constantes["monto_tier3"] if constantes else 33000
         if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
@@ -774,8 +783,10 @@ def listar_productos(
                     comisiones = calcular_comision_ml_total(
                         mejor_oferta_pvp, comision_base, producto_erp.iva, constantes=constantes
                     )
-                    # T-6: Resolve envio with prefetched data
-                    costo_envio = _resolve_envio(producto_erp.envio or 0, grupo_id, mejor_oferta_pvp)
+                    # T-6/T-12: Resolve envio (real cost first, then grupo fallback)
+                    costo_envio = _resolve_envio(
+                        producto_erp.item_id, producto_erp.envio or 0, grupo_id, mejor_oferta_pvp
+                    )
                     limpio = calcular_limpio(
                         mejor_oferta_pvp,
                         producto_erp.iva,
@@ -804,7 +815,9 @@ def listar_productos(
                 comisiones_rebate = calcular_comision_ml_total(
                     precio_rebate, comision_base_rebate, producto_erp.iva, constantes=constantes
                 )
-                costo_envio_rebate = _resolve_envio(producto_erp.envio or 0, grupo_id, precio_rebate)
+                costo_envio_rebate = _resolve_envio(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, precio_rebate
+                )
                 limpio_rebate = calcular_limpio(
                     precio_rebate,
                     producto_erp.iva,
@@ -855,7 +868,9 @@ def listar_productos(
                             comisiones_cuota = calcular_comision_ml_total(
                                 float(precio_cuota), comision_base_cuota, producto_erp.iva, constantes=constantes
                             )
-                            costo_envio_cuota = _resolve_envio(producto_erp.envio or 0, grupo_id, float(precio_cuota))
+                            costo_envio_cuota = _resolve_envio(
+                                producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(precio_cuota)
+                            )
                             limpio_cuota = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
@@ -896,7 +911,9 @@ def listar_productos(
                         comisiones_pvp = calcular_comision_ml_total(
                             pvp_precio, comision_base_pvp, producto_erp.iva, constantes=constantes
                         )
-                        costo_envio_pvp = _resolve_envio(producto_erp.envio or 0, grupo_id, pvp_precio)
+                        costo_envio_pvp = _resolve_envio(
+                            producto_erp.item_id, producto_erp.envio or 0, grupo_id, pvp_precio
+                        )
                         limpio_pvp = calcular_limpio(
                             pvp_precio,
                             producto_erp.iva,
@@ -929,7 +946,9 @@ def listar_productos(
                             comisiones_cuota_pvp = calcular_comision_ml_total(
                                 pvp_cuota_val, comision_base_cuota_pvp, producto_erp.iva, constantes=constantes
                             )
-                            costo_envio_pvp_c = _resolve_envio(producto_erp.envio or 0, grupo_id, pvp_cuota_val)
+                            costo_envio_pvp_c = _resolve_envio(
+                                producto_erp.item_id, producto_erp.envio or 0, grupo_id, pvp_cuota_val
+                            )
                             limpio_cuota_pvp = calcular_limpio(
                                 pvp_cuota_val,
                                 producto_erp.iva,
@@ -1182,7 +1201,9 @@ def listar_productos(
                                     comisiones_pvp = calcular_comision_ml_total(
                                         precio_pvp, comision_base_pvp, producto_erp.iva, constantes=constantes
                                     )
-                                    costo_envio_pvp = _resolve_envio(producto_erp.envio or 0, grupo_id_pvp, precio_pvp)
+                                    costo_envio_pvp = _resolve_envio(
+                                        producto_erp.item_id, producto_erp.envio or 0, grupo_id_pvp, precio_pvp
+                                    )
                                     limpio_pvp = calcular_limpio(
                                         precio_pvp,
                                         producto_erp.iva,
@@ -1869,7 +1890,17 @@ def listar_productos_tienda(
             if oferta.mla not in ofertas_by_mla_t:
                 ofertas_by_mla_t[oferta.mla] = oferta
 
-    def _resolve_envio_t(producto_envio: float, grupo_id: int, precio: float) -> float:
+    # ── Batch-resolve real shipping costs (one cross-DB query per page) ──────
+    envio_real_by_item_t: dict[int, float] = resolver_costos_envio_batch(
+        db, item_ids_results, pubs_by_item=pubs_by_item_t
+    )
+
+    def _resolve_envio_t(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
+        # Real cost from mlwebhook DB (already resolved as batch)
+        real_cost = envio_real_by_item_t.get(item_id)
+        if real_cost is not None:
+            return real_cost
+        # ERP + grupo-average fallback (existing logic)
         costo_envio = producto_envio or 0
         montot3 = constantes_t["monto_tier3"] if constantes_t else 33000
         if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
@@ -1915,7 +1946,9 @@ def listar_productos_tienda(
                     comisiones = calcular_comision_ml_total(
                         mejor_oferta_pvp, comision_base, producto_erp.iva, constantes=constantes_t
                     )
-                    costo_envio_of = _resolve_envio_t(producto_erp.envio or 0, grupo_id, mejor_oferta_pvp)
+                    costo_envio_of = _resolve_envio_t(
+                        producto_erp.item_id, producto_erp.envio or 0, grupo_id, mejor_oferta_pvp
+                    )
                     limpio = calcular_limpio(
                         mejor_oferta_pvp,
                         producto_erp.iva,
@@ -1939,7 +1972,9 @@ def listar_productos_tienda(
                 comisiones_rebate = calcular_comision_ml_total(
                     precio_rebate, comision_base_rebate, producto_erp.iva, constantes=constantes_t
                 )
-                costo_envio_reb = _resolve_envio_t(producto_erp.envio or 0, grupo_id, precio_rebate)
+                costo_envio_reb = _resolve_envio_t(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, precio_rebate
+                )
                 limpio_rebate = calcular_limpio(
                     precio_rebate,
                     producto_erp.iva,
@@ -2023,7 +2058,9 @@ def listar_productos_tienda(
                             com = calcular_comision_ml_total(
                                 float(precio_cuota), cb, producto_erp.iva, constantes=constantes_t
                             )
-                            ce = _resolve_envio_t(producto_erp.envio or 0, grupo_id, float(precio_cuota))
+                            ce = _resolve_envio_t(
+                                producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(precio_cuota)
+                            )
                             lim = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
@@ -2207,6 +2244,9 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
         calcular_markup,
     )
 
+    # Resolve shipping cost once via central resolver (mlwebhook first, ERP fallback)
+    costo_envio_producto = resolver_costo_envio(db, producto_erp)
+
     # Calcular markups PVP
     markup_pvp = None
     markup_pvp_3_cuotas = None
@@ -2233,7 +2273,7 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
                     limpio_pvp = calcular_limpio(
                         float(producto_pricing.precio_pvp),
                         producto_erp.iva,
-                        producto_erp.envio or 0,
+                        costo_envio_producto,
                         comisiones_pvp["comision_total"],
                         db=db,
                         grupo_id=grupo_id_pvp,
@@ -2270,7 +2310,7 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
                         limpio_cuota_pvp = calcular_limpio(
                             float(precio_cuota_pvp),
                             producto_erp.iva,
-                            producto_erp.envio or 0,
+                            costo_envio_producto,
                             comisiones_cuota_pvp["comision_total"],
                             db=db,
                             grupo_id=grupo_id_cuota_pvp,

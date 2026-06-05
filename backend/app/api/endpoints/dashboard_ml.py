@@ -145,6 +145,9 @@ def aplicar_filtros_comunes(
 
     query = aplicar_filtro_tienda_oficial(query, tiendas_oficiales, db)
 
+    # Excluir ventas canceladas (reconciliadas cross-DB contra mlwebhook.ml_cancelled_orders)
+    query = query.filter(MLVentaMetrica.is_cancelled.is_(False))
+
     return query
 
 

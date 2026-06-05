@@ -7,6 +7,7 @@ from typing import Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.services.envio_real_service import resolver_costo_envio
 
 logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
@@ -28,9 +29,20 @@ router = APIRouter()
 
 
 def calcular_markup_rebate(
-    db: Session, producto: ProductoERP, pricing: ProductoPricing, tipo_cambio=None
+    db: Session,
+    producto: ProductoERP,
+    pricing: ProductoPricing,
+    tipo_cambio=None,
+    *,
+    costo_envio: Optional[float] = None,
 ) -> Optional[float]:
-    """Calcula el markup de rebate para un producto"""
+    """Calcula el markup de rebate para un producto.
+
+    Args:
+        costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
+                     instead of calling resolver_costo_envio again, avoiding a
+                     redundant cross-DB query.
+    """
     if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml or not producto.costo:
         return None
 
@@ -44,10 +56,11 @@ def calcular_markup_rebate(
 
         if comision_base_rebate and precio_rebate > 0:
             comisiones_rebate = calcular_comision_ml_total(precio_rebate, comision_base_rebate, producto.iva, db=db)
+            _envio = costo_envio if costo_envio is not None else float(producto.envio or 0)
             limpio_rebate = calcular_limpio(
                 precio_rebate,
                 producto.iva,
-                producto.envio or 0,
+                _envio,
                 comisiones_rebate["comision_total"],
                 db=db,
                 grupo_id=grupo_id_rebate,
@@ -60,8 +73,19 @@ def calcular_markup_rebate(
     return None
 
 
-def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None) -> Optional[float]:
-    """Calcula el markup de oferta vigente para un producto"""
+def calcular_markup_oferta(
+    db: Session,
+    producto: ProductoERP,
+    tipo_cambio=None,
+    *,
+    costo_envio: Optional[float] = None,
+) -> Optional[float]:
+    """Calcula el markup de oferta vigente para un producto.
+
+    Args:
+        costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
+                     instead of calling resolver_costo_envio again.
+    """
     if not producto.costo:
         return None
 
@@ -108,10 +132,11 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
                     comisiones_oferta = calcular_comision_ml_total(
                         mejor_oferta_pvp, comision_base_oferta, producto.iva, db=db
                     )
+                    _envio_oferta = costo_envio if costo_envio is not None else float(producto.envio or 0)
                     limpio_oferta = calcular_limpio(
                         mejor_oferta_pvp,
                         producto.iva,
-                        producto.envio or 0,
+                        _envio_oferta,
                         comisiones_oferta["comision_total"],
                         db=db,
                         grupo_id=grupo_id_oferta,
@@ -162,12 +187,14 @@ def calcular_por_markup(
         if not tipo_cambio:
             raise HTTPException(400, "No hay tipo de cambio disponible")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     resultado = calcular_precio_producto(
         db=db,
         costo=producto.costo,
         moneda_costo=producto.moneda_costo,
         iva=producto.iva,
-        envio=producto.envio or 0,
+        envio=costo_envio,
         subcategoria_id=producto.subcategoria_id,
         pricelist_id=request.pricelist_id,
         markup_objetivo=request.markup_objetivo,
@@ -225,10 +252,10 @@ def calcular_markup_get(
     if comision_base is None:
         raise HTTPException(400, f"No hay comisión configurada para lista {pricelist_id}")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(
-        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
-    )
+    limpio = calcular_limpio(precio, producto.iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup_resultante = calcular_markup(limpio, costo_ars)
 
     return {
@@ -274,10 +301,12 @@ def calcular_por_precio(
         raise HTTPException(400, f"No hay comisión configurada para lista {request.pricelist_id} y grupo {grupo_id}")
 
     # Calcular comisiones y markup con el precio dado
+    costo_envio = resolver_costo_envio(db, producto)
+
     comisiones = calcular_comision_ml_total(request.precio_manual, comision_base, producto.iva, db=db)
 
     limpio = calcular_limpio(
-        request.precio_manual, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+        request.precio_manual, producto.iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id
     )
 
     markup_resultante = calcular_markup(limpio, costo_ars)
@@ -332,6 +361,7 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_base = obtener_comision_base(db, 4, grupo_id)
+    costo_envio = resolver_costo_envio(db, producto)
 
     markup_calculado = None
     if comision_base:
@@ -339,7 +369,7 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         limpio = calcular_limpio(
             request.precio_lista_ml,
             producto.iva,
-            producto.envio or 0,
+            costo_envio,
             comisiones["comision_total"],
             db=db,
             grupo_id=grupo_id,
@@ -383,7 +413,7 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
                         costo=producto.costo,
                         moneda_costo=producto.moneda_costo,
                         iva=producto.iva,
-                        envio=producto.envio or 0,
+                        envio=costo_envio,
                         subcategoria_id=producto.subcategoria_id,
                         pricelist_id=pricelist_id,
                         markup_objetivo=markup_calculado,
@@ -439,8 +469,8 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         pricing.precio_12_cuotas = precios_cuotas_calculados["precio_12_cuotas"]
 
         # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
     else:
         pricing = ProductoPricing(
             item_id=request.item_id,
@@ -459,8 +489,8 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         db.flush()  # Para obtener el ID antes de calcular markups
 
         # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
 
     db.commit()
     db.refresh(pricing)
@@ -539,6 +569,8 @@ def calcular_precios_completos(
         if not tipo_cambio:
             raise HTTPException(400, "No hay tipo de cambio disponible")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     resultado = {
         "item_id": request.item_id,
         "producto": {
@@ -558,7 +590,7 @@ def calcular_precios_completos(
         costo=producto.costo,
         moneda_costo=producto.moneda_costo,
         iva=producto.iva,
-        envio=producto.envio or 0,
+        envio=costo_envio,
         subcategoria_id=producto.subcategoria_id,
         pricelist_id=request.pricelist_clasica,
         markup_objetivo=request.markup_objetivo,
@@ -587,7 +619,7 @@ def calcular_precios_completos(
             costo=producto.costo,
             moneda_costo=producto.moneda_costo,
             iva=producto.iva,
-            envio=producto.envio or 0,
+            envio=costo_envio,
             subcategoria_id=producto.subcategoria_id,
             pricelist_id=pricelist_id,
             markup_objetivo=request.markup_objetivo,
@@ -679,10 +711,10 @@ def setear_precio_rapido(
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(
-        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
-    )
+    limpio = calcular_limpio(precio, producto.iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup = calcular_markup(limpio, costo_ars)
 
     # Calcular precios de cuotas si recalcular_cuotas es True
@@ -746,7 +778,7 @@ def setear_precio_rapido(
                     costo=producto.costo,
                     moneda_costo=producto.moneda_costo,
                     iva=producto.iva,
-                    envio=producto.envio or 0,
+                    envio=costo_envio,
                     subcategoria_id=producto.subcategoria_id,
                     pricelist_id=pricelist_id,
                     markup_objetivo=markup_porcentaje,
@@ -826,8 +858,8 @@ def setear_precio_rapido(
 
         # Calcular y actualizar markup_rebate y markup_oferta (solo para web)
         if lista_tipo == "web":
-            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
     else:
         # Crear nuevo registro según lista_tipo
         if lista_tipo == "pvp":
@@ -858,8 +890,8 @@ def setear_precio_rapido(
 
         # Calcular y actualizar markup_rebate y markup_oferta (solo para web)
         if lista_tipo == "web":
-            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
 
     # Recalcular web transferencia si está activo (solo para web)
     # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
@@ -961,7 +993,7 @@ def setear_precio_rapido(
                         limpio_cuota = calcular_limpio(
                             float(precio_cuota),
                             producto.iva,
-                            producto.envio or 0,
+                            costo_envio,
                             comisiones_cuota["comision_total"],
                             db=db,
                             grupo_id=grupo_id_cuota,
@@ -1023,9 +1055,11 @@ def recalcular_cuotas_desde_clasica(
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     comisiones = calcular_comision_ml_total(precio_base, comision_base, producto.iva, db=db)
     limpio = calcular_limpio(
-        precio_base, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+        precio_base, producto.iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id
     )
     markup = calcular_markup(limpio, costo_ars)
     markup_porcentaje = round(markup * 100, 2)
@@ -1062,7 +1096,7 @@ def recalcular_cuotas_desde_clasica(
                 costo=producto.costo,
                 moneda_costo=producto.moneda_costo,
                 iva=producto.iva,
-                envio=producto.envio or 0,
+                envio=costo_envio,
                 subcategoria_id=producto.subcategoria_id,
                 pricelist_id=pricelist_id,
                 markup_objetivo=markup_porcentaje,
@@ -1109,7 +1143,7 @@ def recalcular_cuotas_desde_clasica(
                     limpio_cuota = calcular_limpio(
                         float(precio_cuota),
                         producto.iva,
-                        producto.envio or 0,
+                        costo_envio,
                         comisiones_cuota["comision_total"],
                         db=db,
                         grupo_id=grupo_id,
@@ -1223,10 +1257,10 @@ def setear_precio_cuota(
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
 
+    costo_envio = resolver_costo_envio(db, producto)
+
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(
-        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
-    )
+    limpio = calcular_limpio(precio, producto.iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup = calcular_markup(limpio, costo_ars)
     markup_porcentaje = round(markup * 100, 2)
 
@@ -1240,8 +1274,8 @@ def setear_precio_cuota(
         pricing.fecha_modificacion = datetime.now(UTC)
 
         # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
     else:
         # Crear nuevo registro
         pricing = ProductoPricing(
@@ -1252,8 +1286,8 @@ def setear_precio_cuota(
         db.flush()
 
         # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
 
     db.commit()
     db.refresh(pricing)
