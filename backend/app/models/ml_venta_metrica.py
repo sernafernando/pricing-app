@@ -4,7 +4,7 @@ Contiene todos los cálculos de markup, costos, comisiones, etc.
 Se actualiza mediante un script de agregación que lee de ml_orders + commercial_transactions
 """
 
-from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Date, Text
+from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Date, Text, Boolean
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -81,6 +81,10 @@ class MLVentaMetrica(Base):
     prli_id = Column(Integer)  # ID de lista de precios del ERP
     mla_id = Column(String(50))  # MLA ID de la publicación
     mlp_official_store_id = Column(Integer, index=True)  # ID de tienda oficial ML (57997=Gauss, 2645=TP-Link, etc.)
+
+    # Estado de cancelación (reconciliado contra mlwebhook.ml_cancelled_orders)
+    is_cancelled = Column(Boolean, nullable=False, server_default="false", index=True)  # True = orden ML cancelada
+    fecha_cancelacion = Column(DateTime(timezone=True))  # cancelled_at/date_closed de ml_cancelled_orders
 
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())
