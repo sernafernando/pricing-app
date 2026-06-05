@@ -12,6 +12,8 @@ from app.core.database import get_db, get_async_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.envio_real_service import resolver_costo_envio
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,8 +52,8 @@ def obtener_detalle_producto(
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
 
-    # Costo de envío
-    costo_envio = float(producto.envio) if producto.envio else 0.0
+    # Costo de envío — resolved from mlwebhook DB (falls back to ERP on any error)
+    costo_envio = resolver_costo_envio(db, producto)
 
     # ML data ahora se carga de forma lazy en el endpoint separado /mercadolibre
     # Esto mejora significativamente el tiempo de carga del modal
