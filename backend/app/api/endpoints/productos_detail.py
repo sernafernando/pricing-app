@@ -318,6 +318,9 @@ def obtener_ofertas_vigentes(
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
 
+    # Resolve shipping cost once via central resolver (mlwebhook first, ERP fallback)
+    costo_envio_oferta = resolver_costo_envio(db, producto)
+
     publicaciones = db.query(PublicacionML).filter(PublicacionML.item_id == item_id).all()
     if not publicaciones:
         return {"item_id": item_id, "publicaciones": []}
@@ -342,7 +345,7 @@ def obtener_ofertas_vigentes(
                 limpio = calcular_limpio(
                     oferta.pvp_seller,
                     producto.iva,
-                    producto.envio or 0,
+                    costo_envio_oferta,
                     comisiones["comision_total"],
                     db=db,
                     grupo_id=grupo_id,

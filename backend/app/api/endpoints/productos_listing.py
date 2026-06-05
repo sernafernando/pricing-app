@@ -7,7 +7,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
-from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -2244,6 +2244,9 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
         calcular_markup,
     )
 
+    # Resolve shipping cost once via central resolver (mlwebhook first, ERP fallback)
+    costo_envio_producto = resolver_costo_envio(db, producto_erp)
+
     # Calcular markups PVP
     markup_pvp = None
     markup_pvp_3_cuotas = None
@@ -2270,7 +2273,7 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
                     limpio_pvp = calcular_limpio(
                         float(producto_pricing.precio_pvp),
                         producto_erp.iva,
-                        producto_erp.envio or 0,
+                        costo_envio_producto,
                         comisiones_pvp["comision_total"],
                         db=db,
                         grupo_id=grupo_id_pvp,
@@ -2307,7 +2310,7 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
                         limpio_cuota_pvp = calcular_limpio(
                             float(precio_cuota_pvp),
                             producto_erp.iva,
-                            producto_erp.envio or 0,
+                            costo_envio_producto,
                             comisiones_cuota_pvp["comision_total"],
                             db=db,
                             grupo_id=grupo_id_cuota_pvp,
