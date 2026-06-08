@@ -441,6 +441,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Cross-moneda OP-currency input wrapper (symbol + input side by side) */
+.pedidoMontoInputWrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pedidoMontoSymbol {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Small muted line showing the native amount being cancelled */
+.nativeRefLine {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .overSaldoHint {
   font-size: var(--font-xs);
   color: var(--warning);

@@ -503,6 +503,13 @@ export default function ModalOrdenPagoNueva({
 
   // ── Checkbox-list handlers (nueva UX de selección de pedidos) ──
 
+  // Per-item edit buffer for cross-moneda inputs.
+  // Stores the raw OP-currency string the user is typing so the input
+  // doesn't reformat on every keystroke. Keyed by pedidoId (string).
+  // When NOT focused, the input derives its display value from native×TC.
+  const [pedidoOpBuffers, setPedidoOpBuffers] = useState({});
+  const [pedidoFocused, setPedidoFocused] = useState({});
+
   // Toggle check/uncheck de un pedido en la lista.
   const handlePedidoToggle = (pedido, checked) => {
     if (checked) {
@@ -519,14 +526,83 @@ export default function ModalOrdenPagoNueva({
           numero_factura: pedido.numero_factura || '',
         },
       ]);
+      // Clear any stale buffer when (re-)checking a pedido.
+      setPedidoOpBuffers((prev) => {
+        const next = { ...prev };
+        delete next[String(pedido.id)];
+        return next;
+      });
     } else {
       setItems((prev) => prev.filter((it) => String(it.id) !== String(pedido.id)));
+      setPedidoOpBuffers((prev) => {
+        const next = { ...prev };
+        delete next[String(pedido.id)];
+        return next;
+      });
+      setPedidoFocused((prev) => {
+        const next = { ...prev };
+        delete next[String(pedido.id)];
+        return next;
+      });
     }
     setItemsSumWarning(false);
   };
 
   // Editar el monto de un pedido ya chequeado.
-  const handlePedidoMonto = (pedidoId, valor) => {
+  // Para items same-moneda: valor es el monto nativo directo (comportamiento anterior).
+  // Para items cross-moneda: valor es en moneda OP; back-computamos el nativo antes
+  // de guardar en items[].monto (ADR-6: source of truth stays native).
+  const handlePedidoMonto = (pedidoId, valor, isCross = false) => {
+    if (isCross) {
+      // valor is the OP-currency string typed by the user.
+      // Update the display buffer immediately (no flicker).
+      setPedidoOpBuffers((prev) => ({ ...prev, [String(pedidoId)]: valor }));
+      // Back-compute native from OP value.
+      const opNum = parseFloat(valor);
+      if (Number.isFinite(opNum) && opNum > 0 && tcValido) {
+        const item = items.find((it) => String(it.id) === String(pedidoId));
+        const ped = item?.tipo === 'pedido_compra' && item.id ? pedidoDe(item.id) : null;
+        if (ped) {
+          let nativo;
+          if (form.moneda === 'ARS' && ped.moneda === 'USD') {
+            nativo = opNum / tcNumLive; // peso / TC = USD
+          } else if (form.moneda === 'USD' && ped.moneda === 'ARS') {
+            nativo = opNum * tcNumLive; // USD × TC = ARS
+          } else {
+            nativo = opNum;
+          }
+          const nativoStr = nativo.toFixed(2);
+          setItems((prev) => {
+            const next = prev.map((it) =>
+              String(it.id) === String(pedidoId) ? { ...it, monto: nativoStr } : it
+            );
+            if (next.length > 1) {
+              // For cross-moneda items use derived OP value for warning check.
+              const sumaActual = next.reduce((acc, it) => {
+                const itPed = it.tipo === 'pedido_compra' && it.id ? pedidoDe(it.id) : null;
+                const itNativo = parseFloat(it.monto) || 0;
+                if (!itPed || itPed.moneda === form.moneda) return acc + itNativo;
+                if (!tcValido) return acc;
+                return acc + (form.moneda === 'ARS' ? itNativo * tcNumLive : itNativo / tcNumLive);
+              }, 0);
+              const totalNum = parseFloat(form.monto_total) || 0;
+              if (Math.abs(sumaActual - totalNum) <= 0.005) setItemsSumWarning(false);
+            }
+            return next;
+          });
+        }
+      } else if (valor === '' || valor === '0') {
+        // Clear: store empty native.
+        setItems((prev) =>
+          prev.map((it) =>
+            String(it.id) === String(pedidoId) ? { ...it, monto: '' } : it
+          )
+        );
+      }
+      return;
+    }
+
+    // Same-moneda path (unchanged).
     setItems((prev) => {
       const next = prev.map((it) =>
         String(it.id) === String(pedidoId) ? { ...it, monto: valor } : it
@@ -1009,27 +1085,40 @@ export default function ModalOrdenPagoNueva({
                       const itemActual = items.find((it) => String(it.id) === pedidoId);
                       const montoActual = itemActual ? itemActual.monto : ''; // nativo del pedido
 
-                      // ADR-6 cross-moneda preview: muestra nativo × TC = OP.
-                      // montoActual es NATIVO del pedido; montoDerivado es en moneda OP.
                       const pedidoItemData = pedidoDe(pedidoId);
-                      const showCrossPreview =
-                        isChecked &&
-                        pedidoItemData &&
-                        pedidoItemData.moneda !== form.moneda &&
-                        tcValido;
-                      let crossPreview = null;
-                      if (showCrossPreview) {
+                      const isCross =
+                        !!pedidoItemData && pedidoItemData.moneda !== form.moneda;
+
+                      // For cross-moneda: derive the OP-currency display value.
+                      // While focused, show the raw buffer; otherwise show formatted derived.
+                      const itemDerivado = itemsDerivados.find((it) => String(it.id) === pedidoId);
+                      const opDerived = itemDerivado?.montoDerivado; // null if TC invalid
+
+                      const isFocused = !!pedidoFocused[pedidoId];
+                      let inputValue;
+                      let inputSymbol;
+                      if (isCross) {
+                        inputSymbol = form.moneda === 'USD' ? 'US$' : '$';
+                        if (isFocused) {
+                          // Show raw buffer while typing (no reformatting mid-keystroke).
+                          inputValue = pedidoOpBuffers[pedidoId] ?? (opDerived != null ? opDerived.toFixed(2) : '');
+                        } else {
+                          // Not focused: show formatted derived value (updates on TC change).
+                          inputValue = opDerived != null ? opDerived.toFixed(2) : (pedidoOpBuffers[pedidoId] ?? '');
+                        }
+                      } else {
+                        inputSymbol = null;
+                        inputValue = montoActual;
+                      }
+
+                      // Small native reference line shown below the OP-currency input.
+                      let nativeRefLine = null;
+                      if (isCross && isChecked) {
                         const nativoNum = parseFloat(montoActual);
-                        const itemDerivado = itemsDerivados.find((it) => String(it.id) === pedidoId);
-                        const opNum = itemDerivado?.montoDerivado;
-                        if (Number.isFinite(nativoNum) && nativoNum > 0 && opNum != null) {
-                          const nativoStr = formatCurrency(nativoNum, pedidoItemData.moneda);
-                          const opStr = formatCurrency(opNum, form.moneda);
-                          const opSign =
-                            form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
-                              ? '×'
-                              : '÷';
-                          crossPreview = `${nativoStr} ${opSign} TC ${tcNumLive} = ${opStr}`;
+                        if (Number.isFinite(nativoNum) && nativoNum > 0) {
+                          nativeRefLine = `Cancelás ${formatCurrency(nativoNum, pedidoItemData.moneda)}`;
+                        } else if (!tcValido) {
+                          nativeRefLine = 'Ingresá TC para ver equivalente nativo';
                         }
                       }
 
@@ -1063,28 +1152,54 @@ export default function ModalOrdenPagoNueva({
                           {isChecked && (
                             <div className={styles.pedidoExpanded}>
                               <div className={styles.pedidoMontoGroup}>
-                                <label className={styles.formLabel}>Monto a cancelar</label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0.01"
-                                  max={
-                                    pedido.moneda === form.moneda
-                                      ? (pedido.saldo_pendiente ?? pedido.monto)
-                                      : undefined
-                                  }
-                                  className={styles.inputMonoRight}
-                                  value={montoActual}
-                                  onChange={(e) => handlePedidoMonto(pedidoId, e.target.value)}
-                                  placeholder="0.00"
-                                  disabled={saving}
-                                  aria-label={`Monto a imputar para pedido ${pedido.numero}`}
-                                />
+                                <label className={styles.formLabel}>
+                                  Monto a cancelar{isCross ? ` (${form.moneda})` : ''}
+                                </label>
+                                <div className={isCross ? styles.pedidoMontoInputWrapper : undefined}>
+                                  {isCross && (
+                                    <span className={styles.pedidoMontoSymbol}>{inputSymbol}</span>
+                                  )}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    max={
+                                      !isCross
+                                        ? (pedido.saldo_pendiente ?? pedido.monto)
+                                        : undefined
+                                    }
+                                    className={styles.inputMonoRight}
+                                    value={inputValue}
+                                    onChange={(e) =>
+                                      isCross
+                                        ? handlePedidoMonto(pedidoId, e.target.value, true)
+                                        : handlePedidoMonto(pedidoId, e.target.value)
+                                    }
+                                    onFocus={() =>
+                                      isCross &&
+                                      setPedidoFocused((prev) => ({ ...prev, [pedidoId]: true }))
+                                    }
+                                    onBlur={() => {
+                                      if (!isCross) return;
+                                      setPedidoFocused((prev) => ({ ...prev, [pedidoId]: false }));
+                                      // On blur, clear the buffer so display snaps to
+                                      // the computed derived value (formatted).
+                                      setPedidoOpBuffers((prev) => {
+                                        const next = { ...prev };
+                                        delete next[pedidoId];
+                                        return next;
+                                      });
+                                    }}
+                                    placeholder="0.00"
+                                    disabled={saving}
+                                    aria-label={`Monto a imputar para pedido ${pedido.numero}${isCross ? ` en ${form.moneda}` : ''}`}
+                                  />
+                                </div>
+                                {nativeRefLine && (
+                                  <div className={styles.nativeRefLine}>{nativeRefLine}</div>
+                                )}
                               </div>
-                              {crossPreview && (
-                                <div className={styles.previewConversion}>{crossPreview}</div>
-                              )}
-                              {pedido.moneda === form.moneda &&
+                              {!isCross && pedido.moneda === form.moneda &&
                                 parseFloat(montoActual) >
                                   (pedido.saldo_pendiente ?? pedido.monto) && (
                                 <div className={styles.overSaldoHint}>
