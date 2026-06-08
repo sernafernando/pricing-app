@@ -749,6 +749,43 @@
   vertical-align: middle;
 }
 
+/* Fila cancelada - grisada; visible pero no computa en metricas */
+.rowCancelada {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+.rowCancelada td {
+  color: var(--text-tertiary) !important;
+}
+
+.rowCancelada:hover {
+  background-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+:global([data-theme="dark"]) .rowCancelada {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+:global([data-theme="dark"]) .rowCancelada:hover {
+  background-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+/* Chip "Cancelada" dentro de la fila */
+.badgeCancelada {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  background-color: rgba(148, 163, 184, 0.25);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+
 /* KPIs Principales */
 .kpisContainer {
   display: grid;

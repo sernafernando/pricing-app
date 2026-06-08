@@ -319,7 +319,10 @@
 
   /* Hover overlay for light mode */
   --cf-hover-overlay: rgba(0, 0, 0, 0.05);
-  
+
+  /* Modal backdrop overlay */
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
   /* Avatar background for light mode */
   --cf-avatar-bg: #e5e7eb;
   --cf-avatar-text: #111827;
@@ -368,7 +371,10 @@
 
   /* Hover overlay for dark mode */
   --cf-hover-overlay: rgba(255, 255, 255, 0.05);
-  
+
+  /* Modal backdrop overlay */
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
   /* Avatar background for dark mode */
   --cf-avatar-bg: rgba(255, 255, 255, 0.12);
   --cf-avatar-text: #ffffff;

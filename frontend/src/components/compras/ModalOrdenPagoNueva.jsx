@@ -561,6 +561,7 @@ export default function ModalOrdenPagoNueva({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [montoTotalNum, sumaItems, sumaNCs, dacMontoNum, isEditMode, pagoACuentaTouched]);
 
+
   const validar = () => {
     if (!form.empresa_id) return 'Empresa requerida.';
     if (!form.proveedor_id) return 'Proveedor requerido.';
@@ -765,13 +766,36 @@ export default function ModalOrdenPagoNueva({
     }
   };
 
+  // ── Derived display helpers ──
+  const proveedorNombre = pedidoInicial?.proveedor_nombre ?? proveedorInicial?.nombre ?? null;
+  const empresaNombre = pedidoInicial?.empresa_nombre ?? empresas.find((e) => String(e.id) === String(form.empresa_id))?.nombre ?? null;
+  const isPreFilled = !!(proveedorNombre && empresaNombre);
+
+  const diferenciaStatus = diferencia === 0
+    ? 'ok'
+    : diferencia > 0
+      ? 'falta'
+      : 'exceso';
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modalContent}>
-        <div className={styles.modalHeader}>
-          <span className={styles.modalTitle}>
-            {isEditMode ? `Editar OP ${op.numero}` : 'Nueva Orden de Pago'}
-          </span>
+
+        {/* ── Header ── */}
+        <header className={styles.modalHeader}>
+          <div className={styles.headerTitles}>
+            <h1 className={styles.modalTitle}>
+              {isEditMode ? `Editar OP ${op.numero}` : 'Nueva Orden de Pago'}
+            </h1>
+            {isPreFilled && (
+              <p className={styles.headerSubtitle}>
+                Proveedor: <strong>{proveedorNombre}</strong>
+                {empresaNombre && (
+                  <> · Empresa: <strong>{empresaNombre}</strong></>
+                )}
+              </p>
+            )}
+          </div>
           <button
             className={styles.modalCloseBtn}
             onClick={() => onClose(false)}
@@ -780,9 +804,9 @@ export default function ModalOrdenPagoNueva({
           >
             <X size={18} />
           </button>
-        </div>
+        </header>
 
-        {/* Banner anti-doble-contabilización */}
+        {/* ── Banner anti-doble-contabilización ── */}
         {!bannerDismissed && (
           <div className={styles.banner} role="alert">
             <AlertTriangle size={20} className={styles.bannerIcon} />
@@ -802,494 +826,582 @@ export default function ModalOrdenPagoNueva({
 
         {error && <div className={styles.errorBanner}>{error}</div>}
 
+        {/* ── Two-column body ── */}
         <form onSubmit={handleSubmit}>
-          <div className={styles.formRow}>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Empresa *</label>
-              <select
-                className={styles.select}
-                value={form.empresa_id}
-                onChange={(e) => handleChange('empresa_id', e.target.value)}
-                required
-                disabled={!!pedidoInicial || isEditMode}
-                title={
-                  pedidoInicial
-                    ? 'Empresa heredada del pedido (no editable para evitar inconsistencias)'
-                    : undefined
-                }
-              >
-                <option value="">Seleccionar...</option>
-                {empresas.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.nombre}
-                  </option>
-                ))}
-              </select>
-              {pedidoInicial && (
-                <div className={styles.fieldHint}>
-                  Heredada del pedido {pedidoInicial.numero}
-                </div>
-              )}
-            </div>
+          <div className={styles.bodyGrid}>
 
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Proveedor *</label>
-              <ProveedorComprasAutocomplete
-                value={form.proveedor_id ? Number(form.proveedor_id) : null}
-                onChange={(id) => handleChange('proveedor_id', id ? String(id) : '')}
-                disabled={saving}
-              />
-            </div>
-          </div>
+            {/* ══════════════════ LEFT COLUMN ══════════════════ */}
+            <main className={styles.leftCol}>
 
-          <div className={styles.formRow}>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Moneda *</label>
-              <select
-                className={styles.select}
-                value={form.moneda}
-                onChange={(e) => handleChange('moneda', e.target.value)}
-              >
-                <option value="ARS">ARS</option>
-                <option value="USD">USD</option>
-              </select>
-            </div>
-
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Monto total *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                className={styles.input}
-                value={form.monto_total}
-                onChange={(e) => handleChange('monto_total', e.target.value)}
-                placeholder="0.00"
-                required
-              />
-            </div>
-
-          </div>
-
-          {(form.moneda === 'USD' || tieneCrossMoneda) && (
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                {tieneCrossMoneda && otraMonedaCross
-                  ? `TC ${form.moneda} ↔ ${otraMonedaCross} *`
-                  : 'Tipo de cambio (ARS por 1 USD) *'}
-              </label>
-              <input
-                type="number"
-                step="0.0001"
-                min="0"
-                className={`${styles.input}${tcError ? ` ${styles.inputError}` : ''}`}
-                value={form.tipo_cambio}
-                onChange={(e) => handleChange('tipo_cambio', e.target.value)}
-                placeholder="Ej: 1500"
-                aria-invalid={tcError ? 'true' : 'false'}
-                aria-describedby={tcError ? 'tc-error' : undefined}
-              />
-              {tcError ? (
-                <div id="tc-error" className={styles.errorInline} role="alert">
-                  {tcError}
-                </div>
-              ) : (
-                <div className={styles.fieldHint}>
-                  {tieneCrossMoneda
-                    ? `Necesario para imputar items en ${otraMonedaCross}. Backend rechaza sin TC > 0.`
-                    : 'Si cambiás de moneda con TC válido, los montos se convierten automáticamente.'}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className={styles.formGroup}>
-            <label className={styles.formLabel}>Observaciones</label>
-            <textarea
-              className={styles.textarea}
-              value={form.observaciones}
-              onChange={(e) => handleChange('observaciones', e.target.value)}
-              placeholder="Notas internas..."
-              rows={2}
-            />
-          </div>
-
-          {/* F1 — Actualizar TC del pedido al ejecutar */}
-          {!isEditMode && (
-            <div className={styles.formGroupCheckbox}>
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={actualizarTcPedido}
-                  onChange={(e) => setActualizarTcPedido(e.target.checked)}
-                />
-                <span>Actualizar TC del pedido al ejecutar (Caso A)</span>
-              </label>
-              <div className={styles.fieldHint}>
-                Al ejecutar el pago, el TC efectivo del pedido se recalculará usando el
-                promedio ponderado de todos los pagos con esta opción activa.
-                Si no lo activás, el TC original del pedido se mantiene (Caso B).
-              </div>
-            </div>
-          )}
-
-          {/* F3 — "Pagar ahora" toggle (solo en creación) */}
-          {!isEditMode && (
-            <div className={styles.formGroupCheckbox}>
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={pagarAhora}
-                  onChange={(e) => setPagarAhora(e.target.checked)}
-                />
-                <Zap size={14} style={{ marginLeft: 4, marginRight: 4 }} />
-                <span>Pagar ahora (crear y pagar en un solo paso)</span>
-              </label>
-              <div className={styles.fieldHint}>
-                Al activar esta opción se ejecuta el pago en el mismo momento.
-                Si no, la OP queda en estado pendiente para pagar después.
-              </div>
-            </div>
-          )}
-
-          {/* F3 — inline payment fields (visible when "Pagar ahora" is ON) */}
-          {!isEditMode && pagarAhora && (
-            <div className={styles.pagarAhoraPanel}>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Fuente de fondos *</label>
-                {loadingCajas || loadingBancosEmpresa ? (
-                  <div className={styles.fieldHint}>Cargando fuentes de fondos...</div>
-                ) : (
-                  <select
-                    className={styles.select}
-                    value={pagoForm.fuenteKey}
-                    onChange={(e) => handlePagoFormChange('fuenteKey', e.target.value)}
-                    required
-                  >
-                    <option value="">Seleccionar...</option>
-                    {cajas.filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)).length > 0 && (
-                      <optgroup label="Cajas">
-                        {cajas
-                          .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
-                          .map((c) => (
-                            <option key={`caja:${c.id}`} value={`caja:${c.id}`}>
-                              {c.nombre} — {c.moneda} — saldo:{' '}
-                              {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-                    {bancosEmpresa.length > 0 && (
-                      <optgroup label="Cuentas bancarias">
-                        {bancosEmpresa.map((b) => (
-                          <option key={`banco:${b.id}`} value={`banco:${b.id}`}>
-                            {b.banco} — {b.moneda} — saldo:{' '}
-                            {Number(b.saldo_actual || 0).toLocaleString('es-AR', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
+              {/* ── Selectors (empresa/proveedor) when not pre-filled ── */}
+              {!isPreFilled && (
+                <section className={styles.formSection}>
+                  <div className={styles.formRow2}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Empresa *</label>
+                      <select
+                        className={styles.select}
+                        value={form.empresa_id}
+                        onChange={(e) => handleChange('empresa_id', e.target.value)}
+                        required
+                        disabled={!!pedidoInicial || isEditMode}
+                        title={
+                          pedidoInicial
+                            ? 'Empresa heredada del pedido (no editable para evitar inconsistencias)'
+                            : undefined
+                        }
+                      >
+                        <option value="">Seleccionar...</option>
+                        {empresas.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.nombre}
                           </option>
                         ))}
-                      </optgroup>
-                    )}
-                  </select>
-                )}
-              </div>
+                      </select>
+                      {pedidoInicial && (
+                        <div className={styles.fieldHint}>
+                          Heredada del pedido {pedidoInicial.numero}
+                        </div>
+                      )}
+                    </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Fecha pago real *</label>
-                <input
-                  type="date"
-                  className={styles.input}
-                  value={pagoForm.fechaPagoReal}
-                  onChange={(e) => handlePagoFormChange('fechaPagoReal', e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  TC al momento del pago{' '}
-                  <span className={styles.labelHintInline}>(opcional — sobrescribe el TC de la OP)</span>
-                </label>
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  className={styles.input}
-                  value={pagoForm.tipoCambioOverride}
-                  onChange={(e) => handlePagoFormChange('tipoCambioOverride', e.target.value)}
-                  placeholder="Dejar vacío para usar TC de la OP"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* SECCIÓN A — Documentos a pagar (FR-5.7) */}
-          <h4 className={styles.seccionLabel}>
-            <FileText size={13} className={styles.seccionIcon} />
-            <span>Documentos a pagar</span>
-          </h4>
-          <div className={styles.itemsSection}>
-              <div className={styles.itemsHeader}>
-                <h4 className={styles.itemsTitle}>Pedidos a pagar</h4>
-              </div>
-              {pedidosDisponibles.length === 0 ? (
-                <div className={styles.emptyItems}>
-                  Este proveedor no tiene pedidos pendientes.
-                </div>
-              ) : (
-                <div className={styles.pedidosCheckboxList}>
-                  {pedidosDisponibles.map((pedido) => {
-                    const pedidoId = String(pedido.id);
-                    const isChecked = idsPedidosYaAgregados.has(pedidoId);
-                    const itemActual = items.find((it) => String(it.id) === pedidoId);
-                    const montoActual = itemActual ? itemActual.monto : ''; // nativo del pedido
-
-                    // ADR-6 cross-moneda preview: muestra nativo × TC = OP.
-                    // montoActual es NATIVO del pedido; montoDerivado es en moneda OP.
-                    const pedidoItemData = pedidoDe(pedidoId);
-                    const showCrossPreview =
-                      isChecked &&
-                      pedidoItemData &&
-                      pedidoItemData.moneda !== form.moneda &&
-                      tcValido;
-                    let crossPreview = null;
-                    if (showCrossPreview) {
-                      const nativoNum = parseFloat(montoActual);
-                      const itemDerivado = itemsDerivados.find((it) => String(it.id) === pedidoId);
-                      const opNum = itemDerivado?.montoDerivado;
-                      if (Number.isFinite(nativoNum) && nativoNum > 0 && opNum != null) {
-                        const nativoStr = formatCurrency(nativoNum, pedidoItemData.moneda);
-                        const opStr = formatCurrency(opNum, form.moneda);
-                        const opSign =
-                          form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
-                            ? '×'
-                            : '÷';
-                        crossPreview = `${nativoStr} ${opSign} TC ${tcNumLive} = ${opStr}`;
-                      }
-                    }
-
-                    return (
-                      <div
-                        key={pedidoId}
-                        className={`${styles.pedidoCheckboxRow} ${isChecked ? styles.pedidoCheckboxRowChecked : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          id={`pedido-check-${pedidoId}`}
-                          className={styles.pedidoCheckbox}
-                          checked={isChecked}
-                          onChange={(e) => handlePedidoToggle(pedido, e.target.checked)}
-                          disabled={saving}
-                        />
-                        <label
-                          htmlFor={`pedido-check-${pedidoId}`}
-                          className={styles.pedidoCheckboxLabel}
-                        >
-                          <span className={styles.pedidoNumero}>{pedido.numero}</span>
-                          <span className={styles.pedidoSaldo}>
-                            {formatCurrency(pedido.saldo_pendiente ?? pedido.monto, pedido.moneda)}
-                          </span>
-                        </label>
-                        {isChecked && (
-                          <div className={styles.pedidoMontoWrapper}>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              max={
-                                pedido.moneda === form.moneda
-                                  ? (pedido.saldo_pendiente ?? pedido.monto)
-                                  : undefined
-                              }
-                              className={styles.pedidoMontoInput}
-                              value={montoActual}
-                              onChange={(e) => handlePedidoMonto(pedidoId, e.target.value)}
-                              placeholder="0.00"
-                              disabled={saving}
-                              aria-label={`Monto a imputar para pedido ${pedido.numero}`}
-                            />
-                            {crossPreview && (
-                              <div className={styles.previewConversion}>{crossPreview}</div>
-                            )}
-                            {pedido.moneda === form.moneda &&
-                              parseFloat(montoActual) >
-                                (pedido.saldo_pendiente ?? pedido.monto) && (
-                              <div className={styles.overSaldoHint}>
-                                El monto excede el saldo pendiente. Usá &ldquo;Pago a cuenta&rdquo; para el excedente.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* T5.5 — Running sum: color-coded comparison vs monto_total (FR-5.5) */}
-              {items.length > 0 && (
-                <div
-                  className={
-                    Math.abs(sumaItems - montoTotalNum) < 0.005
-                      ? styles.itemsRunningOk
-                      : styles.itemsRunningMismatch
-                  }
-                >
-                  <span>Suma documentos:</span>
-                  <strong>{formatCurrency(sumaItems, form.moneda)}</strong>
-                  {Math.abs(sumaItems - montoTotalNum) >= 0.005 && (
-                    <span className={styles.itemsRunningDiff}>
-                      (diferencia con total: {formatCurrency(Math.abs(sumaItems - montoTotalNum), form.moneda)})
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* T5.3 / FR-5.2 — Multi-item warning when total changes */}
-              {itemsSumWarning && items.length > 1 && (
-                <div className={styles.itemsSumWarning} role="alert">
-                  <AlertTriangle size={13} style={{ flexShrink: 0 }} />
-                  <span>
-                    La suma de los items no coincide con el total. Ajustá los montos manualmente
-                    o usá pago a cuenta para cubrir la diferencia.
-                  </span>
-                </div>
-              )}
-            </div>
-
-          {/* SECCIÓN B — Medios de pago (NC + dinero a cuenta) (FR-5.7) */}
-          {!isEditMode && form.proveedor_id && (
-            <div className={styles.mediosPagoSection}>
-              <h4 className={styles.mediosPagoHeader}>
-                <CreditCard size={14} className={styles.mediosPagoIcon} />
-                <span className={styles.mediosPagoTitle}>Medios de pago</span>
-              </h4>
-
-              {/* F7 — NC como medio de pago documental */}
-              <PanelNCsProveedor
-                key={`${form.proveedor_id}-${form.moneda}`}
-                proveedorId={Number(form.proveedor_id)}
-                moneda={form.moneda || undefined}
-                mode="seleccionar"
-                onChange={setNcsAplicadas}
-                disabled={saving}
-              />
-
-              {/* PR4 — Dinero a cuenta como medio de pago (real money) */}
-              <div className={styles.dacSection}>
-                <label className={styles.dacLabel}>
-                  Dinero a cuenta{' '}
-                  <span className={styles.labelHintInline}>(saldo real disponible del proveedor)</span>
-                </label>
-                {loadingDacs ? (
-                  <div className={styles.fieldHint}>Cargando saldos disponibles...</div>
-                ) : dacsDisponibles.length === 0 ? (
-                  <div className={styles.dacSinSaldo}>
-                    Disponible: {formatCurrency(0, form.moneda)} — sin dinero a cuenta para aplicar.
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Proveedor *</label>
+                      <ProveedorComprasAutocomplete
+                        value={form.proveedor_id ? Number(form.proveedor_id) : null}
+                        onChange={(id) => handleChange('proveedor_id', id ? String(id) : '')}
+                        disabled={saving}
+                      />
+                    </div>
                   </div>
-                ) : (
-                  <div className={styles.dacControls}>
+                </section>
+              )}
+
+              {/* ── Moneda / Monto total / TC ── */}
+              <section className={styles.formSection}>
+                <div className={styles.formRow2}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Moneda *</label>
                     <select
                       className={styles.select}
-                      value={dacSeleccionado ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setDacSeleccionado(val ? Number(val) : null);
-                        setDacMonto('');
-                      }}
-                      disabled={saving}
+                      value={form.moneda}
+                      onChange={(e) => handleChange('moneda', e.target.value)}
                     >
-                      <option value="">Seleccionar dinero a cuenta...</option>
-                      {dacsDisponibles.map((dac) => (
-                        <option key={dac.id} value={dac.id}>
-                          {formatCurrency(dac.saldo_disponible ?? dac.monto, dac.moneda)}
-                          {dac.origen_op_numero ? ` — OP ${dac.origen_op_numero}` : ''}
-                        </option>
-                      ))}
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
                     </select>
-                    {dacSeleccionado && (() => {
-                      const dacItem = dacsDisponibles.find((d) => d.id === dacSeleccionado);
-                      const saldoMax = parseFloat(dacItem?.saldo_disponible ?? dacItem?.monto ?? 0);
-                      const limitado = Math.min(saldoMax, Math.max(0, diferencia + dacMontoNum));
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Monto total *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className={styles.inputMono}
+                      value={form.monto_total}
+                      onChange={(e) => handleChange('monto_total', e.target.value)}
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {(form.moneda === 'USD' || tieneCrossMoneda) && (
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>
+                      {tieneCrossMoneda && otraMonedaCross
+                        ? `TC ${form.moneda} ↔ ${otraMonedaCross} *`
+                        : 'Tipo de cambio (ARS por 1 USD) *'}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      className={`${styles.inputMono}${tcError ? ` ${styles.inputError}` : ''}`}
+                      value={form.tipo_cambio}
+                      onChange={(e) => handleChange('tipo_cambio', e.target.value)}
+                      placeholder="Ej: 1500"
+                      aria-invalid={tcError ? 'true' : 'false'}
+                      aria-describedby={tcError ? 'tc-error' : undefined}
+                    />
+                    {tcError ? (
+                      <div id="tc-error" className={styles.errorInline} role="alert">
+                        {tcError}
+                      </div>
+                    ) : (
+                      <div className={styles.fieldHint}>
+                        {tieneCrossMoneda
+                          ? `Necesario para imputar items en ${otraMonedaCross}. Backend rechaza sin TC > 0.`
+                          : 'Si cambiás de moneda con TC válido, los montos se convierten automáticamente.'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Observaciones</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={form.observaciones}
+                    onChange={(e) => handleChange('observaciones', e.target.value)}
+                    placeholder="Notas internas..."
+                    rows={2}
+                  />
+                </div>
+
+                {/* F1 — Actualizar TC del pedido al ejecutar */}
+                {!isEditMode && (
+                  <div className={styles.formGroupCheckbox}>
+                    <label className={styles.checkboxLabel}>
+                      <input
+                        type="checkbox"
+                        className={styles.checkbox}
+                        checked={actualizarTcPedido}
+                        onChange={(e) => setActualizarTcPedido(e.target.checked)}
+                      />
+                      <span>Actualizar TC del pedido al ejecutar (Caso A)</span>
+                    </label>
+                    <div className={styles.fieldHint}>
+                      Al ejecutar el pago, el TC efectivo del pedido se recalculará usando el
+                      promedio ponderado de todos los pagos con esta opción activa.
+                      Si no lo activás, el TC original del pedido se mantiene (Caso B).
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* ── DOCUMENTOS A PAGAR ── */}
+              <section className={styles.formSection}>
+                <h2 className={styles.sectionHeading}>
+                  <FileText size={13} className={styles.sectionHeadingIcon} />
+                  Documentos a pagar
+                </h2>
+
+                {pedidosDisponibles.length === 0 ? (
+                  <div className={styles.emptyItems}>
+                    Este proveedor no tiene pedidos pendientes.
+                  </div>
+                ) : (
+                  <div className={styles.pedidosCheckboxList}>
+                    {pedidosDisponibles.map((pedido) => {
+                      const pedidoId = String(pedido.id);
+                      const isChecked = idsPedidosYaAgregados.has(pedidoId);
+                      const itemActual = items.find((it) => String(it.id) === pedidoId);
+                      const montoActual = itemActual ? itemActual.monto : ''; // nativo del pedido
+
+                      // ADR-6 cross-moneda preview: muestra nativo × TC = OP.
+                      // montoActual es NATIVO del pedido; montoDerivado es en moneda OP.
+                      const pedidoItemData = pedidoDe(pedidoId);
+                      const showCrossPreview =
+                        isChecked &&
+                        pedidoItemData &&
+                        pedidoItemData.moneda !== form.moneda &&
+                        tcValido;
+                      let crossPreview = null;
+                      if (showCrossPreview) {
+                        const nativoNum = parseFloat(montoActual);
+                        const itemDerivado = itemsDerivados.find((it) => String(it.id) === pedidoId);
+                        const opNum = itemDerivado?.montoDerivado;
+                        if (Number.isFinite(nativoNum) && nativoNum > 0 && opNum != null) {
+                          const nativoStr = formatCurrency(nativoNum, pedidoItemData.moneda);
+                          const opStr = formatCurrency(opNum, form.moneda);
+                          const opSign =
+                            form.moneda === 'ARS' && pedidoItemData.moneda === 'USD'
+                              ? '×'
+                              : '÷';
+                          crossPreview = `${nativoStr} ${opSign} TC ${tcNumLive} = ${opStr}`;
+                        }
+                      }
+
                       return (
-                        <div className={styles.dacMontoRow}>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max={saldoMax}
-                            className={styles.input}
-                            value={dacMonto}
-                            onChange={(e) => setDacMonto(e.target.value)}
-                            placeholder="0.00"
-                            disabled={saving}
-                          />
-                          <div className={styles.fieldHint}>
-                            Disponible: {formatCurrency(saldoMax, form.moneda)}.
-                            {limitado > 0 && limitado < saldoMax && (
-                              <> Sugerido: {formatCurrency(limitado, form.moneda)} (cubre la diferencia).</>
-                            )}
+                        <div
+                          key={pedidoId}
+                          className={`${styles.pedidoRow} ${isChecked ? styles.pedidoRowChecked : ''}`}
+                        >
+                          <div className={styles.pedidoRowHeader}>
+                            <div className={styles.pedidoRowLeft}>
+                              <input
+                                type="checkbox"
+                                id={`pedido-check-${pedidoId}`}
+                                className={styles.pedidoCheckbox}
+                                checked={isChecked}
+                                onChange={(e) => handlePedidoToggle(pedido, e.target.checked)}
+                                disabled={saving}
+                              />
+                              <label
+                                htmlFor={`pedido-check-${pedidoId}`}
+                                className={styles.pedidoLabel}
+                              >
+                                Pedido #{pedido.numero}
+                              </label>
+                            </div>
+                            <span className={styles.pedidoSaldo}>
+                              {formatCurrency(pedido.saldo_pendiente ?? pedido.monto, pedido.moneda)}
+                            </span>
                           </div>
+
+                          {isChecked && (
+                            <div className={styles.pedidoExpanded}>
+                              <div className={styles.pedidoMontoGroup}>
+                                <label className={styles.formLabel}>Monto a cancelar</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  max={
+                                    pedido.moneda === form.moneda
+                                      ? (pedido.saldo_pendiente ?? pedido.monto)
+                                      : undefined
+                                  }
+                                  className={styles.inputMonoRight}
+                                  value={montoActual}
+                                  onChange={(e) => handlePedidoMonto(pedidoId, e.target.value)}
+                                  placeholder="0.00"
+                                  disabled={saving}
+                                  aria-label={`Monto a imputar para pedido ${pedido.numero}`}
+                                />
+                              </div>
+                              {crossPreview && (
+                                <div className={styles.previewConversion}>{crossPreview}</div>
+                              )}
+                              {pedido.moneda === form.moneda &&
+                                parseFloat(montoActual) >
+                                  (pedido.saldo_pendiente ?? pedido.monto) && (
+                                <div className={styles.overSaldoHint}>
+                                  El monto excede el saldo pendiente. Usá &ldquo;Pago a cuenta&rdquo; para el excedente.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
-                    })()}
+                    })}
+                  </div>
+                )}
+
+                {/* T5.5 — Running sum */}
+                {items.length > 0 && (
+                  <div
+                    className={
+                      Math.abs(sumaItems - montoTotalNum) < 0.005
+                        ? styles.itemsRunningOk
+                        : styles.itemsRunningMismatch
+                    }
+                  >
+                    <span>Suma documentos:</span>
+                    <strong>{formatCurrency(sumaItems, form.moneda)}</strong>
+                    {Math.abs(sumaItems - montoTotalNum) >= 0.005 && (
+                      <span className={styles.itemsRunningDiff}>
+                        (diferencia con total: {formatCurrency(Math.abs(sumaItems - montoTotalNum), form.moneda)})
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* T5.3 / FR-5.2 — Multi-item warning */}
+                {itemsSumWarning && items.length > 1 && (
+                  <div className={styles.itemsSumWarning} role="alert">
+                    <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                    <span>
+                      La suma de los items no coincide con el total. Ajustá los montos manualmente
+                      o usá pago a cuenta para cubrir la diferencia.
+                    </span>
+                  </div>
+                )}
+              </section>
+
+              {/* ── MEDIOS DE PAGO ── */}
+              {!isEditMode && form.proveedor_id && (
+                <section className={styles.formSection}>
+                  <h2 className={styles.sectionHeading}>
+                    <CreditCard size={13} className={styles.sectionHeadingIcon} />
+                    Medios de pago
+                  </h2>
+
+                  {/* F7 — NC como medio de pago */}
+                  <PanelNCsProveedor
+                    key={`${form.proveedor_id}-${form.moneda}`}
+                    proveedorId={Number(form.proveedor_id)}
+                    moneda={form.moneda || undefined}
+                    mode="seleccionar"
+                    onChange={setNcsAplicadas}
+                    disabled={saving}
+                  />
+
+                  {/* PR4 — Dinero a cuenta */}
+                  <div className={styles.dacCard}>
+                    <div className={styles.dacCardHeader}>
+                      <Wallet size={15} className={styles.dacIcon} />
+                      <span className={styles.dacCardTitle}>Dinero a cuenta</span>
+                    </div>
+
+                    {loadingDacs ? (
+                      <div className={styles.fieldHint}>Cargando saldos disponibles...</div>
+                    ) : dacsDisponibles.length === 0 ? (
+                      <div className={styles.dacSinSaldo}>
+                        Disponible: {formatCurrency(0, form.moneda)} — sin dinero a cuenta para aplicar.
+                      </div>
+                    ) : (
+                      <div className={styles.dacGrid}>
+                        <div className={styles.formGroup}>
+                          <label className={styles.formLabel}>Saldo disponible</label>
+                          <select
+                            className={styles.select}
+                            value={dacSeleccionado ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDacSeleccionado(val ? Number(val) : null);
+                              setDacMonto('');
+                            }}
+                            disabled={saving}
+                          >
+                            <option value="">Elegí un saldo a cuenta</option>
+                            {dacsDisponibles.map((dac) => (
+                              <option key={dac.id} value={dac.id}>
+                                {formatCurrency(dac.saldo_disponible ?? dac.monto, dac.moneda)}
+                                {dac.origen_op_numero ? ` — OP ${dac.origen_op_numero}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {dacSeleccionado && (() => {
+                          const dacItem = dacsDisponibles.find((d) => d.id === dacSeleccionado);
+                          const saldoMax = parseFloat(dacItem?.saldo_disponible ?? dacItem?.monto ?? 0);
+                          const limitado = Math.min(saldoMax, Math.max(0, diferencia + dacMontoNum));
+                          return (
+                            <div className={styles.formGroup}>
+                              <label className={styles.formLabel}>Monto a usar</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={saldoMax}
+                                className={styles.inputMonoRight}
+                                value={dacMonto}
+                                onChange={(e) => {
+                                  setDacMonto(e.target.value);
+                                }}
+                                placeholder="0.00"
+                                disabled={saving}
+                              />
+                              <div className={styles.fieldHint}>
+                                Disponible: {formatCurrency(saldoMax, form.moneda)}.
+                                {limitado > 0 && limitado < saldoMax && (
+                                  <> Sugerido: {formatCurrency(limitado, form.moneda)} (cubre la diferencia).</>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* ── EXCEDENTE / PAGO A CUENTA ── */}
+              {!isEditMode && (
+                <section className={styles.formSection}>
+                  <h2 className={styles.sectionHeadingSmall}>
+                    Excedente — Pago a cuenta{' '}
+                    <span className={styles.labelHintInline}>
+                      (monto que queda disponible para futuras imputaciones de este proveedor)
+                    </span>
+                  </h2>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className={styles.inputMono}
+                    value={pagoACuenta}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPagoACuenta(val);
+                      // Refinement A: any user gesture (type OR clear) marks as touched.
+                      // Auto-fill will no longer override the user's intent.
+                      setPagoACuentaTouched(true);
+                    }}
+                    placeholder="0.00"
+                    disabled={saving}
+                  />
+                </section>
+              )}
+            </main>
+
+            {/* ══════════════════ RIGHT COLUMN ══════════════════ */}
+            <aside className={styles.rightCol}>
+              <div className={styles.stickyPanel}>
+
+                {/* ── Resumen de pago card ── */}
+                <div className={styles.summaryCard}>
+                  <h2 className={styles.summaryHeading}>Resumen de pago</h2>
+
+                  <div className={styles.summaryTotal}>
+                    <p className={styles.summaryTotalLabel}>Total a pagar</p>
+                    <span className={styles.summaryTotalAmount}>
+                      {formatCurrency(montoTotalNum, form.moneda)}
+                    </span>
+                    {(form.moneda === 'USD' || tieneCrossMoneda) && tcValido && (
+                      <span className={styles.summaryTcLine}>
+                        TC {form.tipo_cambio} · BNA
+                      </span>
+                    )}
+                  </div>
+
+                  <hr className={styles.summaryDivider} />
+
+                  <div className={styles.summaryRows}>
+                    <div className={styles.summaryRow}>
+                      <span className={styles.summaryRowLabel}>Pedidos</span>
+                      <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
+                    </div>
+                    {sumaNCs > 0 && (
+                      <div className={styles.summaryRow}>
+                        <span className={styles.summaryRowLabel}>Notas de crédito</span>
+                        <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
+                          -{formatCurrency(sumaNCs, form.moneda)}
+                        </span>
+                      </div>
+                    )}
+                    {dacMontoNum > 0 && (
+                      <div className={styles.summaryRow}>
+                        <span className={styles.summaryRowLabel}>Dinero a cuenta</span>
+                        <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
+                          -{formatCurrency(dacMontoNum, form.moneda)}
+                        </span>
+                      </div>
+                    )}
+                    <div className={styles.summaryRow}>
+                      <span className={styles.summaryRowLabel}>Excedente a cuenta</span>
+                      <span className={styles.summaryRowAmount}>{formatCurrency(pagoACuentaNum, form.moneda)}</span>
+                    </div>
+                  </div>
+
+                  <hr className={styles.summaryDivider} />
+
+                  <div className={styles.summaryDiferencia}>
+                    <div>
+                      <span className={styles.summaryDiferenciaLabel}>Diferencia</span>
+                      <span className={styles.summaryDiferenciaAmount}>
+                        {formatCurrency(Math.abs(diferencia), form.moneda)}
+                      </span>
+                    </div>
+                    <span className={`${styles.statusPill} ${styles[`statusPill_${diferenciaStatus}`]}`}>
+                      {diferenciaStatus === 'ok' && <><Check size={10} /> BALANCEADO</>}
+                      {diferenciaStatus === 'falta' && <><AlertTriangle size={10} /> FALTA CUBRIR</>}
+                      {diferenciaStatus === 'exceso' && <><AlertTriangle size={10} /> EXCEDENTE</>}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── Pagar ahora card ── */}
+                {!isEditMode && (
+                  <div className={styles.pagarAhoraCard}>
+                    <div className={styles.pagarAhoraToggleRow}>
+                      <span className={styles.pagarAhoraTitle}>
+                        <Zap size={14} className={styles.zapIcon} />
+                        Pagar ahora
+                      </span>
+                      <label className={styles.toggleSwitch} aria-label="Pagar ahora">
+                        <input
+                          type="checkbox"
+                          className={styles.toggleInput}
+                          checked={pagarAhora}
+                          onChange={(e) => setPagarAhora(e.target.checked)}
+                        />
+                        <span className={styles.toggleTrack} />
+                      </label>
+                    </div>
+                    <p className={styles.pagarAhoraHint}>
+                      Al activar, el pago se ejecuta en el mismo momento.
+                    </p>
+
+                    {pagarAhora && (
+                      <div className={styles.pagarAhoraFields}>
+                        <div className={styles.formGroup}>
+                          <label className={styles.formLabel}>Fuente de fondos *</label>
+                          {loadingCajas || loadingBancosEmpresa ? (
+                            <div className={styles.fieldHint}>Cargando fuentes de fondos...</div>
+                          ) : (
+                            <select
+                              className={styles.select}
+                              value={pagoForm.fuenteKey}
+                              onChange={(e) => handlePagoFormChange('fuenteKey', e.target.value)}
+                              required
+                            >
+                              <option value="">Seleccionar...</option>
+                              {cajas.filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)).length > 0 && (
+                                <optgroup label="Cajas">
+                                  {cajas
+                                    .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
+                                    .map((c) => (
+                                      <option key={`caja:${c.id}`} value={`caja:${c.id}`}>
+                                        {c.nombre} — {c.moneda} — saldo:{' '}
+                                        {Number(c.saldo_actual || 0).toLocaleString('es-AR', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                              )}
+                              {bancosEmpresa.length > 0 && (
+                                <optgroup label="Cuentas bancarias">
+                                  {bancosEmpresa.map((b) => (
+                                    <option key={`banco:${b.id}`} value={`banco:${b.id}`}>
+                                      {b.banco} — {b.moneda} — saldo:{' '}
+                                      {Number(b.saldo_actual || 0).toLocaleString('es-AR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      })}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+                          )}
+                        </div>
+
+                        <div className={styles.pagoFormGrid}>
+                          <div className={styles.formGroup}>
+                            <label className={styles.formLabel}>Fecha de pago *</label>
+                            <input
+                              type="date"
+                              className={styles.select}
+                              value={pagoForm.fechaPagoReal}
+                              onChange={(e) => handlePagoFormChange('fechaPagoReal', e.target.value)}
+                              required
+                            />
+                          </div>
+
+                          <div className={styles.formGroup}>
+                            <label className={styles.formLabel}>
+                              TC del pago{' '}
+                              <span className={styles.labelHintInline}>(opcional)</span>
+                            </label>
+                            <input
+                              type="number"
+                              step="0.0001"
+                              min="0"
+                              className={styles.inputMonoRight}
+                              value={pagoForm.tipoCambioOverride}
+                              onChange={(e) => handlePagoFormChange('tipoCambioOverride', e.target.value)}
+                              placeholder="Usar TC de la OP"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            </aside>
+          </div>
 
-          {/* SECCIÓN C — Excedente / Pago a cuenta (FR-5.7) */}
-          {!isEditMode && (
-            <div className={styles.pagoACuentaSection}>
-              <h4 className={styles.seccionLabel}>
-                Excedente — Pago a cuenta{' '}
-                <span className={styles.labelHintInline}>
-                  (monto que queda disponible para futuras imputaciones de este proveedor)
-                </span>
-              </h4>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className={styles.input}
-                value={pagoACuenta}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setPagoACuenta(val);
-                  // Refinement A: any user gesture (type OR clear) marks as touched.
-                  // Auto-fill will no longer override the user's intent.
-                  setPagoACuentaTouched(true);
-                }}
-                placeholder="0.00"
-                disabled={saving}
-              />
-              {diferencia !== 0 && (
-                <div
-                  className={
-                    diferencia > 0 ? styles.diferenciaPositiva : styles.diferenciaNegativa
-                  }
-                >
-                  <AlertTriangle size={14} style={{ marginRight: 4, flexShrink: 0 }} />
-                  {diferencia > 0
-                    ? `Faltan cubrir ${formatCurrency(diferencia, form.moneda)} — sumá items o asigná pago a cuenta.`
-                    : `Exceso de ${formatCurrency(Math.abs(diferencia), form.moneda)} — la cobertura supera el total.`}
-                </div>
-              )}
-              {diferencia === 0 && coberturaTotal > 0 && (
-                <div className={styles.diferenciaOk}><Check size={14} /> Cobertura completa</div>
-              )}
-            </div>
-          )}
-
-          <div className={styles.formActions}>
+          {/* ── Footer ── */}
+          <footer className={styles.modalFooter}>
             <button
               type="button"
               className={styles.btnSecondary}
@@ -1315,21 +1427,19 @@ export default function ModalOrdenPagoNueva({
                     ? 'Crear y pagar'
                     : 'Crear OP'}
             </button>
-          </div>
+          </footer>
         </form>
 
-        {/* Modal de confirmación de duplicado (hijo) */}
+        {/* ── Modal de confirmación de duplicado (hijo) ── */}
         {duplicadoInfo && (
           <div className={styles.modalOverlay}>
             <div className={styles.modalContentDup}>
               <div className={styles.modalHeader}>
-                <span className={styles.modalTitle}>
-                  <AlertTriangle
-                    size={18}
-                    style={{ verticalAlign: 'middle', marginRight: 6 }}
-                  />
-                  Posible duplicado detectado
-                </span>
+                <div className={styles.headerTitles}>
+                  <span className={styles.modalTitle}>
+                    Posible duplicado detectado
+                  </span>
+                </div>
                 <button
                   className={styles.modalCloseBtn}
                   onClick={() => setDuplicadoInfo(null)}
@@ -1397,18 +1507,16 @@ export default function ModalOrdenPagoNueva({
           </div>
         )}
 
-        {/* Modal confirmación cambio de moneda destructivo */}
+        {/* ── Modal confirmación cambio de moneda ── */}
         {confirmMoneda && (
           <div className={styles.modalOverlay}>
             <div className={styles.modalContentDup}>
               <div className={styles.modalHeader}>
-                <span className={styles.modalTitle}>
-                  <AlertTriangle
-                    size={18}
-                    style={{ verticalAlign: 'middle', marginRight: 6 }}
-                  />
-                  Cross-moneda requiere TC
-                </span>
+                <div className={styles.headerTitles}>
+                  <span className={styles.modalTitle}>
+                    Cross-moneda requiere TC
+                  </span>
+                </div>
                 <button
                   className={styles.modalCloseBtn}
                   onClick={() => setConfirmMoneda(null)}
