@@ -465,8 +465,27 @@ export default function ModalOrdenPagoNueva({
       // Cualquier edición del campo tipo_cambio limpia el error inline.
       if (campo === 'tipo_cambio') {
         setTcError(null);
-        // ADR-6: items[].monto es NATIVO — el TC no lo toca.
-        // itemsDerivados (useMemo abajo) recomputa montoDerivado al vuelo.
+        // ADR-6: items[].monto es NATIVO — el TC no lo toca; itemsDerivados recomputa solo.
+        // Pero el monto_total (en moneda OP) SÍ debe seguir al TC: si hay exactamente
+        // 1 item cross-moneda, el total se re-sincroniza al derivado con el TC nuevo
+        // (simétrico al auto-sync de monto_total). Así pagar un pedido USD en pesos no
+        // genera excedente/faltante espurio al mover el tipo de cambio.
+        const nuevoTc = parseFloat(valor);
+        if (Number.isFinite(nuevoTc) && nuevoTc > 0 && items.length === 1) {
+          const it = items[0];
+          const ped =
+            it.tipo === 'pedido_compra' && it.id ? pedidoDe(it.id) : null;
+          const nativo = parseFloat(it.monto);
+          if (ped && ped.moneda !== f.moneda && Number.isFinite(nativo) && nativo > 0) {
+            const derivado =
+              f.moneda === 'ARS' && ped.moneda === 'USD'
+                ? nativo * nuevoTc
+                : f.moneda === 'USD' && ped.moneda === 'ARS'
+                  ? nativo / nuevoTc
+                  : null;
+            if (derivado != null) next.monto_total = derivado.toFixed(2);
+          }
+        }
       }
       return next;
     });
