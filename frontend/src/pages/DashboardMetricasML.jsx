@@ -820,9 +820,12 @@ export default function DashboardMetricasML() {
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op) => (
-                   <tr key={op.id_operacion} className={op.pack_id ? styles.rowPack : ''}>
+                   <tr key={op.id_operacion} className={`${op.pack_id ? styles.rowPack : ''} ${op.is_cancelled ? styles.rowCancelada : ''}`}>
                     <td>{formatearFecha(op.fecha_venta)}</td>
-                    <td>{op.ml_id || '-'}</td>
+                    <td>
+                      {op.ml_id || '-'}
+                      {op.is_cancelled && <span className={styles.badgeCancelada}>Cancelada</span>}
+                    </td>
                     <td>{op.codigo || '-'}</td>
                     <td className={styles.descripcion}>{op.descripcion || '-'}</td>
                     <td>{op.marca || '-'}</td>
