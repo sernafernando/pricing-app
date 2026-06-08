@@ -76,6 +76,24 @@
   line-height: 1.4;
 }
 
+.action {
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  margin-left: 4px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+
+.action:hover {
+  opacity: 0.8;
+}
+
 .close {
   background: none;
   border: none;
