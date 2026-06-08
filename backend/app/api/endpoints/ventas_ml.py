@@ -531,6 +531,9 @@ class OperacionConMetricasResponse(BaseModel):
     markup_porcentaje: Decimal
     offset_flex: Decimal = Decimal("0")
 
+    # Estado: True = orden cancelada (se muestra grisada, no computa en métricas)
+    is_cancelled: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -643,6 +646,9 @@ def get_operaciones_con_metricas(
 
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
+
+            -- Estado de cancelación (para mostrar grisado; no computa en métricas)
+            (tmloh.mlo_status = 'cancelled' OR COALESCE(tmloh.mlo_iscancelled, FALSE)) as is_cancelled,
 
             -- Costo de envío del producto (viene con IVA)
             pe.envio as envio_producto,
@@ -764,7 +770,9 @@ def get_operaciones_con_metricas(
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
-          AND tmloh.mlo_status <> 'cancelled'
+          -- Las canceladas NO se excluyen: se devuelven marcadas (is_cancelled) para
+          -- mostrarlas grisadas en pantalla. No computan en los KPIs agregados, que
+          -- salen de ml_ventas_metricas (filtrado por is_cancelled en dashboard_ml).
           {tienda_oficial_filter}
           {ml_id_filter}
           {codigo_filter}
@@ -943,6 +951,7 @@ def get_operaciones_con_metricas(
                 "monto_limpio": Decimal(str(metricas["monto_limpio"])),
                 "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
+                "is_cancelled": bool(row.is_cancelled),
             }
         )
 
