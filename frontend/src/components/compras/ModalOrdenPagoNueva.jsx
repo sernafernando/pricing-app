@@ -176,7 +176,17 @@ export default function ModalOrdenPagoNueva({
       const { data } = await api.get(
         `/administracion/bancos?solo_activos=true&empresa_id=${empresaId}`
       );
-      setBancosEmpresa(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+      // El endpoint /administracion/bancos devuelve { bancos: [...], total }.
+      // (Antes se leía data.items, que no existe → los bancos nunca aparecían.)
+      setBancosEmpresa(
+        Array.isArray(data?.bancos)
+          ? data.bancos
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data)
+              ? data
+              : []
+      );
     } catch {
       setBancosEmpresa([]);
     } finally {
@@ -195,6 +205,20 @@ export default function ModalOrdenPagoNueva({
       fetchBancosEmpresaPago(form.empresa_id);
     }
   }, [pagarAhora, form.empresa_id, fetchBancosEmpresaPago]);
+
+  // La fuente (caja/banco) DEBE coincidir con la moneda de la OP. Si cambia la
+  // moneda de la OP y la fuente elegida ya no coincide, se limpia la selección.
+  useEffect(() => {
+    if (!pagoForm.fuenteKey) return;
+    const [tipo, idStr] = pagoForm.fuenteKey.split(':');
+    const fuente =
+      tipo === 'caja'
+        ? cajas.find((c) => String(c.id) === idStr)
+        : bancosEmpresa.find((b) => String(b.id) === idStr);
+    if (fuente && String(fuente.moneda) !== String(form.moneda)) {
+      setPagoForm((prev) => ({ ...prev, fuenteKey: '' }));
+    }
+  }, [form.moneda, pagoForm.fuenteKey, cajas, bancosEmpresa]);
 
   const handlePagoFormChange = (campo, valor) => {
     setPagoForm((prev) => ({ ...prev, [campo]: valor }));
@@ -1466,10 +1490,10 @@ export default function ModalOrdenPagoNueva({
                               required
                             >
                               <option value="">Seleccionar...</option>
-                              {cajas.filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)).length > 0 && (
+                              {cajas.filter((c) => (!form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)) && String(c.moneda) === String(form.moneda)).length > 0 && (
                                 <optgroup label="Cajas">
                                   {cajas
-                                    .filter((c) => !form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id))
+                                    .filter((c) => (!form.empresa_id || !c.empresa_id || String(c.empresa_id) === String(form.empresa_id)) && String(c.moneda) === String(form.moneda))
                                     .map((c) => (
                                       <option key={`caja:${c.id}`} value={`caja:${c.id}`}>
                                         {c.nombre} — {c.moneda} — saldo:{' '}
@@ -1481,9 +1505,11 @@ export default function ModalOrdenPagoNueva({
                                     ))}
                                 </optgroup>
                               )}
-                              {bancosEmpresa.length > 0 && (
+                              {bancosEmpresa.filter((b) => String(b.moneda) === String(form.moneda)).length > 0 && (
                                 <optgroup label="Cuentas bancarias">
-                                  {bancosEmpresa.map((b) => (
+                                  {bancosEmpresa
+                                    .filter((b) => String(b.moneda) === String(form.moneda))
+                                    .map((b) => (
                                     <option key={`banco:${b.id}`} value={`banco:${b.id}`}>
                                       {b.banco} — {b.moneda} — saldo:{' '}
                                       {Number(b.saldo_actual || 0).toLocaleString('es-AR', {
