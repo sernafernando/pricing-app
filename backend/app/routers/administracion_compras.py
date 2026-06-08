@@ -3724,6 +3724,7 @@ def listar_ncs_disponibles(
                 fecha=nc.created_at.date() if nc.created_at is not None else nc.fecha_emision,
                 importe=Decimal(nc.monto),
                 moneda=nc.moneda,
+                tipo_cambio=nc.tipo_cambio,
                 saldo_pendiente=saldo,
                 estado=nc.estado,
             )

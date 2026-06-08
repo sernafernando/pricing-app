@@ -508,10 +508,10 @@ def test_consumo_full_marca_consumido(db, empresa, proveedor, user) -> None:
 
 def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja) -> None:
     """
-    AC-4.1: una NC local aplicada en ncs_aplicadas cuenta en cobertura_total.
-    OP monto_total=10.000, items pedido=7.000, NC=3.000 → diferencia=0 → se confirma.
+    AC-4.1 (AD-NC-01): NC applied as credit reduces the cash to pay (subtractive model).
+    items_pedido=7.000, NC=3.000 ARS → monto_total = 7.000 - 3.000 = 4.000 → diferencia=0.
 
-    Verifica que validar_balance_op acepta la cobertura NC y que la OP
+    Verifica que validar_balance_op acepta el nuevo invariante subtractive y que la OP
     llega a estado 'pagado'.
     """
     from app.services import ordenes_pago_service
@@ -522,7 +522,7 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto=10_000,
+        monto=7_000,
         numero="PED-NC-001",
     )
 
@@ -545,13 +545,13 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
     db.flush()
     nc_id = nc.id
 
-    # Crear OP de 10.000 ARS
+    # Crear OP de 4.000 ARS (net cash: items - NC)
     op_id = _insert_op(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto_total=10_000,
+        monto_total=4_000,
         numero="OP-NC-001",
     )
 
@@ -563,7 +563,7 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
         user_id=user.id,
     )
 
-    # Ejecutar pago con NC de 3.000 → diferencia = 0
+    # Ejecutar pago con NC de 3.000 → diferencia = 7000 - 3000 - 4000 = 0
     op = ordenes_pago_service.ejecutar_pago(
         db,
         orden_pago_id=op_id,

@@ -148,6 +148,10 @@ class NCDisponibleSummary(BaseModel):
     fecha: date
     importe: Decimal
     moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    # Cotización ARS/USD al momento de cargar la NC. None cuando moneda='ARS'
+    # o cuando la NC fue cargada sin TC explícito. El frontend usa este valor
+    # para mostrar el equivalente en la moneda de la OP al preparar el balance.
+    tipo_cambio: Decimal | None = None
     saldo_pendiente: Decimal
     estado: str
 

@@ -335,21 +335,23 @@ def test_payload_multi_item_cobertura_exacta(db, empresa, proveedor, user, caja)
 
 def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
     """
-    NC applied as medio de pago reduces diferencia.
-    PR5 UX: NC listed in Medios de pago section — backend invariante still holds.
+    NC reduces the cash to pay (AD-NC-01 subtractive model).
+    PR5 UX: NC listed in Medios de pago section — backend invariante holds.
 
-    Model: monto_total = 10.000 (full OP amount debited from caja).
-           items pedido = 7.000, NC = 3.000. Cobertura = 7.000 + 3.000 = 10.000.
+    New model: monto_total = items_pedido - NC
+               items_pedido = 7.000, NC = 3.000 → monto_total = 4.000 (cash debited from caja).
+    The OP only debits 4.000 from caja because 3.000 is covered by the NC credit.
     """
-    monto_total = 10_000.0
     monto_item_pedido = 7_000.0
     monto_nc = 3_000.0
+    # Under the new model monto_total is the NET cash: pedido - NC
+    monto_total = monto_item_pedido - monto_nc  # 4_000.0
     pedido_id = _insert_pedido(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto=monto_total,
+        monto=monto_item_pedido,
         numero="PED-S-004",
     )
     nc = NotaCreditoLocal(
@@ -401,20 +403,22 @@ def test_payload_dac_como_cobertura(db, empresa, proveedor, user, caja):
     Dinero a cuenta used as medio de pago — consumir path still works post-PR5.
     PR5 UX: DAC listed in Medios de pago section alongside NC/efectivo.
 
-    Model: monto_total = 20.000 (full OP, debited from caja).
-           items: pedido_compra monto=12.000 (cash portion) + DAC monto=8.000.
-           cobertura = 12.000 + 8.000 = 20.000 == monto_total. Invariante OK.
+    New model (AD-NC-01): DAC is subtractive — it reduces the cash to pay.
+    monto_total = pedido_items - dac = 12.000 - 8.000 = 4.000 (cash debited from caja).
+    The caja only pays 4.000; the rest (8.000) was already deposited as DAC.
     """
-    monto_total = 20_000.0
     monto_dac = 8_000.0
     monto_efectivo_pedido = 12_000.0
+    # Under the new model monto_total is the NET cash: pedido - DAC
+    monto_total = monto_efectivo_pedido - monto_dac  # 4_000.0
 
+    # Pedido total = cash_item + dac (the full obligation, partially covered by DAC credit)
     pedido_id = _insert_pedido(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto=monto_total,
+        monto=monto_efectivo_pedido,
         numero="PED-S-005",
     )
 
@@ -440,7 +444,7 @@ def test_payload_dac_como_cobertura(db, empresa, proveedor, user, caja):
     db.add(dac)
     db.flush()
 
-    # monto_total = 20.000 (caja debits 20.000); items: cash portion + DAC
+    # monto_total = 4.000 (caja debits net cash: pedido - DAC); items: cash portion + DAC
     op_id = _insert_op(
         db,
         empresa_id=empresa.id,
