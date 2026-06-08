@@ -225,13 +225,18 @@ class TestCrearYPagarConNCEndpoint:
         active_user,
         con_todos_los_permisos,
     ) -> None:
-        """crear-y-pagar + ncs_aplicadas → pagada, NC saldo reducido."""
-        # NC cubre 2000, pago_a_cuenta cubre los 8000 restantes (PR3: invariante no-diferencia)
+        """crear-y-pagar + ncs_aplicadas → pagada, NC saldo reducido.
+
+        New model (AD-NC-01): NC is subtractive from the OP cash.
+        pago_a_cuenta=8000, NC=2000 → monto_total = 8000 - 2000 = 6000.
+        Only 6000 is debited from caja; 2000 is covered by the NC credit.
+        """
+        # NC cubre 2000; pago_a_cuenta 8000: net cash = 8000 - 2000 = 6000
         payload = {
             "empresa_id": empresa.id,
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
-            "monto_total": "10000",
+            "monto_total": "6000",
             "modo_imputacion": "especifica",
             "items": [{"tipo": "pago_a_cuenta", "id": None, "monto": "8000"}],
             "caja_id": caja.id,

@@ -446,22 +446,106 @@ def _validar_items_saldo_pendiente(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _nc_to_op_currency(
+    session: Session,
+    nc_item: dict,
+    op_moneda: str,
+) -> Decimal:
+    """Convierte el monto de una NC pendiente a moneda de la OP (AD-NC-01).
+
+    Reglas:
+      - Si nc.moneda == op.moneda → usa nc.monto directamente (sin conversión).
+      - Si nc.moneda != op.moneda:
+          * OP=ARS & NC=USD → nc.monto * tc  (tc en ARS por USD)
+          * OP=USD & NC=ARS → nc.monto / tc
+      - TC usado: nc_item['tipo_cambio_override'] si > 0, sino nc.tipo_cambio.
+      - Si la NC no tiene tipo_cambio Y la conversión es necesaria → 422.
+
+    Args:
+        session: sesión activa.
+        nc_item: dict con 'nc_id', 'monto', y opcionalmente 'tipo_cambio_override'.
+        op_moneda: moneda de la OP (ARS o USD).
+
+    Returns:
+        Monto de la NC en moneda de la OP, redondeado con q_ars/q_usd.
+
+    Raises:
+        HTTPException 422 si conversión cross-moneda no tiene TC.
+        HTTPException 404 si la NC no existe en DB.
+    """
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+    nc_id: int = int(nc_item["nc_id"])
+    nc_monto = Decimal(str(nc_item.get("monto", "0")))
+
+    nc = session.get(NotaCreditoLocal, nc_id)
+    if nc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"NotaCreditoLocal id={nc_id} no encontrada al validar balance.",
+        )
+
+    nc_moneda: str = str(nc.moneda)
+
+    if nc_moneda == op_moneda:
+        # Same currency: direct.
+        return nc_monto
+
+    # Cross-currency: resolve tipo_cambio.
+    override_raw = nc_item.get("tipo_cambio_override")
+    if override_raw is not None:
+        override_tc = Decimal(str(override_raw))
+        tc: Decimal | None = override_tc if override_tc > Decimal("0") else None
+    else:
+        tc = Decimal(str(nc.tipo_cambio)) if nc.tipo_cambio is not None else None
+
+    if tc is None or tc <= Decimal("0"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"NC id={nc_id} es {nc_moneda} pero la OP es {op_moneda}. "
+                f"Se requiere tipo_cambio para convertir. "
+                f"La NC no tiene tipo_cambio y no se proporcionó tipo_cambio_override."
+            ),
+        )
+
+    if op_moneda == "ARS" and nc_moneda == "USD":
+        # ARS needed: USD NC * tc (tc = ARS per USD)
+        return q_ars(nc_monto * tc)
+    if op_moneda == "USD" and nc_moneda == "ARS":
+        # USD needed: ARS NC / tc
+        return q_usd(nc_monto / tc)
+
+    # Unsupported pair — should not happen given ARS/USD constraint.
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(f"Conversión de moneda no soportada: NC={nc_moneda} → OP={op_moneda}."),
+    )
+
+
 def validar_balance_op(
     session: Session,
     op: OrdenPago,
     items: list[dict],
     ncs_pendientes: Optional[list[dict]] = None,
 ) -> None:
-    """Valida el invariante no-diferencia ANTES de ejecutar el pago (AD-5).
+    """Valida el invariante no-diferencia ANTES de ejecutar el pago (AD-5, AD-NC-01).
 
-    cobertura_total = sum(items pedido_compra/factura_erp)
-                    + sum(items pago_a_cuenta)
-                    + sum(ncs_aplicadas ya imputadas sobre la OP)
-                    + sum(ncs_pendientes pasadas explícitamente)
+    Nuevo modelo (AD-NC-01):
+      monto_total = sum(pedido_compra/factura_erp items)
+                  + sum(pago_a_cuenta items)        ← ADITIVO (excedente real en cash)
+                  - sum(NC en moneda OP)            ← SUBSTRACTIVO (crédito)
+                  - sum(dinero_a_cuenta items)       ← SUBSTRACTIVO (crédito ya pagado)
 
-    diferencia = monto_total - cobertura_total
+    diferencia = sum(pedido/factura) + sum(pago_a_cuenta) - sum(NC_opcurrency)
+               - sum(DAC_opcurrency) - monto_total
 
     Si diferencia != 0 → HTTPException 422.
+
+    Conversión NC→OP currency usa el tipo_cambio PROPIO de la NC (no el de la OP).
+    Soporta override por NC via 'tipo_cambio_override' en el nc_item dict.
+
+    DAC no tiene tipo_cambio (same-moneda only — INV-4 del modelo DineroACuenta).
 
     Solo se llama desde `ejecutar_pago` y `crear_y_pagar` — NUNCA desde `crear`
     (los drafts pendiente siguen editables sin gate).
@@ -471,11 +555,14 @@ def validar_balance_op(
         op: instancia de OrdenPago ya cargada.
         items: lista de items del payload (de `_leer_items_de_op`).
         ncs_pendientes: NCs aún no imputadas que se aplicarán en este request
-                        (lista de dicts con clave 'monto'). Usada en crear_y_pagar
+                        (lista de dicts con 'nc_id', 'monto', y opcionalmente
+                        'tipo_cambio_override'). Usada en crear_y_pagar
                         donde las NCs se imputan DESPUÉS de ejecutar_pago.
 
     Raises:
-        HTTPException 422: diferencia != 0 o item.monto > saldo_pendiente pedido.
+        HTTPException 422: diferencia != 0, item.monto > saldo_pendiente pedido,
+                           o NC sin TC para conversión cross-moneda.
+        HTTPException 404: NC no encontrada al convertir.
     """
     # PR5 — Validar que ningún item excede el saldo_pendiente de su pedido.
     # Esto previene over-imputaciones silenciosas que dejan saldo negativo en
@@ -483,31 +570,49 @@ def validar_balance_op(
     _validar_items_saldo_pendiente(session, items, op_moneda=str(op.moneda))
 
     monto_total = Decimal(str(op.monto_total))
-    cobertura_total = Decimal("0")
+    op_moneda = str(op.moneda)
 
-    # Cobertura de items (pedidos, facturas, pago_a_cuenta, dinero_a_cuenta).
-    # PR4: dinero_a_cuenta items también cuentan como cobertura.
+    # Base coverage: sum of pedido/factura items (obligaciones a pagar).
+    base_items = Decimal("0")
+    # Additive credits: pago_a_cuenta (surplus real cash, in OP currency).
+    pago_a_cuenta_total = Decimal("0")
+    # Subtractive credits: dinero_a_cuenta (already-paid credit, same moneda — INV-4).
+    dac_total = Decimal("0")
+
     for item in items:
         tipo = item.get("tipo", "")
         monto_item = Decimal(str(item.get("monto", "0")))
-        if tipo in ("pedido_compra", "factura_erp", "pago_a_cuenta", "dinero_a_cuenta"):
-            cobertura_total += monto_item
+        if tipo in ("pedido_compra", "factura_erp"):
+            base_items += monto_item
+        elif tipo == "pago_a_cuenta":
+            pago_a_cuenta_total += monto_item
+        elif tipo == "dinero_a_cuenta":
+            # DAC has no tipo_cambio (same-moneda only per model INV-4).
+            # It is subtractive: reduces the cash the OP must carry.
+            dac_total += monto_item
 
-    # Cobertura de NCs pendientes (se aplicarán después de este pago en la misma tx).
-    # En PR4, cuando haya FK nc→op, se podrán consultar NCs ya imputadas desde DB.
+    # Subtractive credits: NCs (pending — will be imputated after ejecutar_pago).
+    # Convert each NC to OP currency using the NC's own tipo_cambio.
+    nc_total_op_currency = Decimal("0")
     if ncs_pendientes:
         for nc_item in ncs_pendientes:
-            cobertura_total += Decimal(str(nc_item.get("monto", "0")))
+            nc_total_op_currency += _nc_to_op_currency(session, nc_item, op_moneda)
 
-    diferencia = monto_total - cobertura_total
+    # Invariant (AD-NC-01):
+    # monto_total = base_items + pago_a_cuenta - nc_total - dac_total
+    # ⟺ diferencia = base_items + pago_a_cuenta - nc_total - dac_total - monto_total = 0
+    diferencia = base_items + pago_a_cuenta_total - nc_total_op_currency - dac_total - monto_total
+
     if diferencia != Decimal("0"):
-        moneda = str(op.moneda)
+        moneda = op_moneda
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"La OP no balancea: diferencia = {diferencia:+.2f} {moneda}. "
-                f"monto_total={monto_total:.2f}, cobertura={cobertura_total:.2f}. "
-                f"Asigná el excedente como pago_a_cuenta o ajustá los ítems."
+                f"monto_total={monto_total:.2f}, "
+                f"items={base_items:.2f}, pago_a_cuenta={pago_a_cuenta_total:.2f}, "
+                f"nc_credito={nc_total_op_currency:.2f}, dac_credito={dac_total:.2f}. "
+                f"Revisá los ítems, el monto total o los créditos aplicados."
             ),
         )
 

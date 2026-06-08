@@ -330,15 +330,19 @@ class TestCrearYPagarConBancoEndpoint:
         """
         Scenario H: crear_y_pagar con banco_id + ncs_aplicadas → full combo.
         BancoMovimiento egreso + imputación NC→pedido in DB.
+
+        New model (AD-NC-01): NC subtracts from cash.
+        items_pedido=10000, NC=5000 → monto_total = 10000 - 5000 = 5000.
+        Banco debits 5000; the other 5000 is covered by the NC credit.
         """
-        # NC cubre 5000, pedido item cubre 5000 → balance 10000 == monto_total (PR3)
+        # NC cubre 5000, pedido item cubre 10000 → net cash = 10000 - 5000 = 5000
         payload = {
             "empresa_id": empresa.id,
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
-            "monto_total": 10000,
+            "monto_total": 5000,
             "modo_imputacion": "especifica",
-            "items": [{"tipo": "pedido_compra", "id": pedido.id, "monto": 5000}],
+            "items": [{"tipo": "pedido_compra", "id": pedido.id, "monto": 10000}],
             "banco_id": banco.id,
             "fecha_pago_real": "2026-05-21",
             "ncs_aplicadas": [{"nc_id": nc_aprobada.id, "monto": 5000, "pedido_id": pedido.id}],
@@ -360,7 +364,8 @@ class TestCrearYPagarConBancoEndpoint:
         op_db = db.get(OrdenPago, op_id)
         mov = db.get(BancoMovimiento, op_db.banco_movimiento_id)
         assert mov is not None
-        assert Decimal(str(mov.monto)) == Decimal("10000")
+        # Banco debits the NET cash (monto_total=5000): items(10000) - NC(5000)
+        assert Decimal(str(mov.monto)) == Decimal("5000")
 
         # NC imputada
         from app.models.imputacion import Imputacion  # noqa: PLC0415

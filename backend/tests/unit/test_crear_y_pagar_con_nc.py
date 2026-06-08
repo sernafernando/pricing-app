@@ -149,14 +149,15 @@ class TestCrearYPagarConNC:
     def test_happy_path_con_nc_a_cuenta(self, db, empresa, proveedor, caja, pedido, nc_aprobada, active_user) -> None:
         """crear_y_pagar + NC con pedido_id → OP pagada + imputación NC creada.
 
-        NC cubre 3000, pago_a_cuenta cubre los 7000 restantes para balancear.
+        New model (AD-NC-01): NC subtracts from cash.
+        pago_a_cuenta=7000, NC=3000 → monto_total = 7000 - 3000 = 4000.
         """
         op = ordenes_pago_service.crear_y_pagar(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
-            monto_total=Decimal("10000"),
+            monto_total=Decimal("4000"),
             modo_imputacion="especifica",
             items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("7000")}],
             caja_id=caja.id,
@@ -215,12 +216,13 @@ class TestCrearYPagarConNC:
         pagada (es decir, la imputación NC→pedido se crea después del movimiento
         de caja, todo en la misma transacción).
         """
+        # New model (AD-NC-01): pago_a_cuenta=8000, nc=2000 → monto_total = 8000 - 2000 = 6000
         op = ordenes_pago_service.crear_y_pagar(
             db,
             proveedor_id=proveedor.id,
             empresa_id=empresa.id,
             moneda="ARS",
-            monto_total=Decimal("10000"),
+            monto_total=Decimal("6000"),
             modo_imputacion="especifica",
             items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("8000")}],
             caja_id=caja.id,
