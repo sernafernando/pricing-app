@@ -396,12 +396,85 @@ export default function ModalOrdenPagoNueva({
     return monto; // misma moneda por otro camino
   };
 
-  // itemsDerivados: items[] con montoDerivado calculado en render.
-  // Recomputa automáticamente cada vez que cambia items, form.moneda o form.tipo_cambio.
+  // Net-item model: pedido cash items must be net of NC and DAC credits.
+  //
+  // For each pedido_compra item, the net native monto is:
+  //   netNative = raw_monto − Σ(NC.monto for NCs targeting this pedido)
+  //                         − (dacMonto if DAC targets this pedido)
+  //
+  // NCs target a pedido via nc.pedido_id. The panel sets pedido_id=null for
+  // single-pedido OPs (backend infers it). For multi-pedido OPs the panel
+  // would need to set explicit pedido_id — but the current UI only supports
+  // applying NCs when pedido_id can be inferred (single pedido).
+  //
+  // DAC targets the first pedido_compra item.
+  const pedidoItemIds = items
+    .filter((it) => it.tipo === 'pedido_compra' && it.id)
+    .map((it) => String(it.id));
+  const isSinglePedido = pedidoItemIds.length === 1;
+
+  const ncDeductForItem = (itemId) => {
+    const id = String(itemId);
+    return ncsAplicadas.reduce((acc, nc) => {
+      const ncPedidoId = nc.pedido_id != null ? String(nc.pedido_id) : null;
+      // NC applies if explicitly targeting this pedido, or if null + single pedido (inferred).
+      if (ncPedidoId === id || (ncPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
+        return acc + (parseFloat(nc.monto) || 0);
+      }
+      return acc;
+    }, 0);
+  };
+
+  const dacTargetItemId = (() => {
+    const first = items.find((it) => it.tipo === 'pedido_compra' && it.id);
+    return first ? String(first.id) : null;
+  })();
+
+  // netNativeForItem: raw native monto minus NC and DAC credits for this pedido.
+  const netNativeForItem = (item) => {
+    if (item.tipo !== 'pedido_compra' || !item.id) return parseFloat(item.monto) || 0;
+    const raw = parseFloat(item.monto) || 0;
+    const ncDeduct = ncDeductForItem(item.id);
+    const dacDeduct = dacSeleccionado && dacMontoNum > 0 && String(item.id) === dacTargetItemId
+      ? dacMontoNum
+      : 0;
+    return Math.max(0, raw - ncDeduct - dacDeduct);
+  };
+
+  // montoEnMonedaOPNet: same as montoEnMonedaOP but uses netNativeForItem.
+  const montoEnMonedaOPNet = (item) => {
+    const netNative = netNativeForItem(item);
+    if (!Number.isFinite(netNative) || netNative <= 0) {
+      // If net is 0 (fully covered by NC/DAC), still need to check TC validity.
+      // Return 0 so it contributes nothing to sumaItems.
+      if (item.tipo !== 'pedido_compra' || !item.id) return netNative > 0 ? netNative : null;
+      const pedido = pedidoDe(item.id);
+      if (!pedido || pedido.moneda === form.moneda) return 0;
+      if (!tcValido) return null;
+      return 0;
+    }
+    if (item.tipo !== 'pedido_compra' || !item.id) return netNative;
+    const pedido = pedidoDe(item.id);
+    if (!pedido) return netNative;
+    if (pedido.moneda === form.moneda) return netNative;
+    if (!tcValido) return null;
+    if (form.moneda === 'ARS' && pedido.moneda === 'USD') return netNative * tcNumLive;
+    if (form.moneda === 'USD' && pedido.moneda === 'ARS') return netNative / tcNumLive;
+    return netNative;
+  };
+
+  // itemsDerivados: items[] with montoDerivado = NET OP-currency amount.
+  // This is what gets sent in the payload and used for balance calculations.
+  // Recomputes when items, NC selections, DAC selection, or moneda/TC changes.
   const itemsDerivados = useMemo(
-    () => items.map((it) => ({ ...it, montoDerivado: montoEnMonedaOP(it) })),
+    () => items.map((it) => ({
+      ...it,
+      montoDerivado: montoEnMonedaOPNet(it),
+      // Keep the raw OP-currency amount for display of the original pedido value.
+      montoDerivadoRaw: montoEnMonedaOP(it),
+    })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, form.moneda, form.tipo_cambio]
+    [items, form.moneda, form.tipo_cambio, ncsAplicadas, dacSeleccionado, dacMontoNum]
   );
 
   // IDs de pedidos ya agregados como items (para evitar duplicar al elegir del dropdown).
@@ -605,62 +678,47 @@ export default function ModalOrdenPagoNueva({
   };
 
   // ── Validación ──
-  // sumaItems suma montoDerivado (en moneda OP) de todos los items.
-  // Items sin TC válido (montoDerivado === null) contribuyen 0 — el validar()
-  // los bloquea antes del submit si hay cross-moneda sin TC.
+  // sumaItems: sum of NET OP-currency amounts across all items.
+  // NC and DAC discounts are already baked into montoDerivado (net-item model).
   const sumaItems = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivado ?? 0), 0);
+
+  // sumaItemsRaw: sum of GROSS OP-currency amounts (before NC/DAC deductions).
+  // Used for the informational summary breakdown so the user sees gross − NC − DAC = net.
+  const sumaItemsRaw = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivadoRaw ?? it.montoDerivado ?? 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
-  // Bug A fix — modoImputacion computed from OP-currency doc sum (sumaItems),
-  // NOT from native item.monto. This prevents cross-moneda "mixta" misfires
-  // where native USD << ARS total but OP-currency sum == total → 'especifica'.
+  // Bug A fix — modoImputacion derived from NET OP-currency sum (sumaItems).
   const modoImputacion = derivarModoImputacion(sumaItems, form.monto_total, items.length > 0, pagoACuentaNum);
 
-  // PR3/PR4 — NC/DAC now SUBTRACT from the total (new money model).
-  //
-  // sumaNCsOP: NCs converted to OP currency using each NC's own tipo_cambio
-  // (with optional per-NC override supplied by the panel).
-  //   same-moneda:        nc.monto
-  //   OP=ARS, NC=USD:     nc.monto × tc
-  //   OP=USD, NC=ARS:     nc.monto ÷ tc
+  // sumaNCsOP / sumaDAC: kept for the informational summary row ONLY.
+  // They are NOT balance terms in the net-item model — NCs and DAC are
+  // already reflected in the net montoDerivado of each pedido item.
   const sumaNCsOP = ncsAplicadas.reduce((acc, nc) => {
     const montoNC = parseFloat(nc.monto) || 0;
     if (nc.moneda === undefined || nc.moneda === form.moneda) {
-      // Same-moneda or no moneda info — use monto directly.
       return acc + montoNC;
     }
-    // Cross-moneda: use override if set, else nc.tipo_cambio.
     const tc = parseFloat(nc.tipo_cambio_override) > 0
       ? parseFloat(nc.tipo_cambio_override)
       : parseFloat(nc.tipo_cambio);
-    if (!Number.isFinite(tc) || tc <= 0) return acc + montoNC; // fallback: treat as same-moneda
-    // Convertir y redondear POR-NC a 2 decimales, igual que el backend
-    // (fx_service.q_ars/q_usd redondea cada NC antes de sumar). Si el front sumara
-    // a precisión float y redondeara el agregado, podría diferir 1 centavo del
-    // balance del backend → 422 espurio al pagar.
+    if (!Number.isFinite(tc) || tc <= 0) return acc + montoNC;
     let convertido = montoNC;
     if (form.moneda === 'ARS' && nc.moneda === 'USD') convertido = montoNC * tc;
     else if (form.moneda === 'USD' && nc.moneda === 'ARS') convertido = montoNC / tc;
     return acc + Math.round(convertido * 100) / 100;
   }, 0);
 
-  // sumaDAC: same-moneda only (DAC has no tipo_cambio), subtract directly.
-  const sumaDAC = dacMontoNum;
-
-  // net: the cash amount the user needs to pay (items minus discounts).
-  // pago_a_cuenta is additive — it represents an intentional surplus.
-  const net = Math.round((sumaItems - sumaNCsOP - sumaDAC) * 100) / 100;
+  // net: cash amount the user needs to pay.
+  // In the net-item model, sumaItems already incorporates NC and DAC discounts.
+  // pago_a_cuenta is additive (intentional surplus).
+  const net = Math.round(sumaItems * 100) / 100;
 
   // diferencia: how far monto_total is from net (excluding excedente).
-  // == 0 → balanced; > 0 → falta cubrir; < 0 → extra (unusual, won't happen in normal flow).
   const diferencia = Math.round((montoTotalNum - net - pagoACuentaNum) * 100) / 100;
 
 
-  // Auto-sum monto_total = net (sumaItems − sumaNCsOP − sumaDAC).
-  // NCs and DAC now participate: applying an NC lowers the auto-summed total.
-  // Skips: edit mode, user has manually touched the field, or no items (a_cuenta).
-  // No loop: net depends on sumaItems/sumaNCsOP/sumaDAC (not on monto_total),
-  // and monto_total doesn't feed back into net. Setting monto_total here is safe.
+  // Auto-sum monto_total = net (sum of NET item montos in OP currency).
+  // Applying an NC or DAC now lowers sumaItems (net), which lowers the auto-sum.
   useEffect(() => {
     if (isEditMode || montoTotalTouched || items.length === 0) return;
     const target = Math.max(0, net).toFixed(2);
@@ -670,15 +728,7 @@ export default function ModalOrdenPagoNueva({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [net, isEditMode, montoTotalTouched, items.length]);
 
-  // Refinement A — auto-fill pagoACuenta = max(0, montoTotalNum − net) when:
-  //   - not in edit mode
-  //   - the user has NOT touched the field yet (pagoACuentaTouched === false)
-  // The excedente is the intentional surplus the user introduces by raising monto_total
-  // above net (= sumaItems − sumaNCsOP − sumaDAC).
-  // When monto_total === net (default), excedente = 0 → field stays empty.
-  //
-  // No loop: setPagoACuenta does NOT touch pagoACuentaTouched. Effect fires on
-  // montoTotalNum or net change; pagoACuentaTouched gates early return.
+  // Refinement A — auto-fill pagoACuenta when monto_total > net.
   useEffect(() => {
     if (isEditMode || pagoACuentaTouched) return;
     const surplus = Math.max(0, Math.round((montoTotalNum - net) * 100) / 100);
@@ -1457,8 +1507,13 @@ export default function ModalOrdenPagoNueva({
 
                   <div className={styles.summaryRows}>
                     <div className={styles.summaryRow}>
-                      <span className={styles.summaryRowLabel}>Pedidos</span>
-                      <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
+                      {/* Show gross pedidos when there are discounts; net when no discounts. */}
+                      <span className={styles.summaryRowLabel}>
+                        Pedidos{(sumaNCsOP > 0 || dacMontoNum > 0) ? ' (bruto)' : ''}
+                      </span>
+                      <span className={styles.summaryRowAmount}>
+                        {formatCurrency(sumaItemsRaw > 0 ? sumaItemsRaw : sumaItems, form.moneda)}
+                      </span>
                     </div>
                     {sumaNCsOP > 0 && (
                       <div className={styles.summaryRow}>
@@ -1474,6 +1529,12 @@ export default function ModalOrdenPagoNueva({
                         <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
                           -{formatCurrency(dacMontoNum, form.moneda)}
                         </span>
+                      </div>
+                    )}
+                    {(sumaNCsOP > 0 || dacMontoNum > 0) && items.length > 0 && (
+                      <div className={`${styles.summaryRow} ${styles.summaryRowNet}`}>
+                        <span className={styles.summaryRowLabel}>Pedidos (neto)</span>
+                        <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
                       </div>
                     )}
                     {pagoACuentaNum > 0 && (
