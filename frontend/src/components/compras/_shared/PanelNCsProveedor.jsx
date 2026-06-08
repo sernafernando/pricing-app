@@ -14,17 +14,20 @@ import styles from './PanelNCsProveedor.module.css';
  *   - El caller es responsable de hacer la llamada al backend y refrescar.
  *
  * mode="seleccionar" (F7 — usado desde ModalOrdenPagoNueva):
- *   - Muestra checkboxes + input de monto.
+ *   - Muestra checkboxes + input de monto + TC override opcional.
  *   - Mantiene estado interno de las NCs seleccionadas y notifica al padre
  *     vía `onChange(ncsSeleccionadas)` donde cada entrada es
- *     `{ nc_id, monto, pedido_id }`.
+ *     `{ nc_id, monto, pedido_id, tipo_cambio_override? }`.
  *   - `pedido_id` se deja en null aquí; el caller lo inyecta cuando tiene
  *     un único pedido en los items, o el backend lo resuelve con 422 si
  *     hace falta y el usuario no lo proveyó.
  *
  * Props:
  *   proveedorId   (number|string)  — id del proveedor; si es falsy el panel no carga.
- *   moneda        (string)         — "ARS" | "USD"; filtra NCs por moneda (opcional).
+ *   moneda        (string)         — "ARS" | "USD"; solo para label de "sin NCs". NO filtra.
+ *   monedasFiltro (string[])       — filtra NCs cuya moneda esté en este array.
+ *                                    Si se omite, no filtra por moneda.
+ *   opMoneda      (string)         — moneda de la OP; para mostrar TC cuando hay cross-moneda.
  *   mode          ("aplicar"|"seleccionar") — default "aplicar".
  *   onAplicar     (nc, monto) => Promise<void>  — sólo en mode="aplicar".
  *   onChange      (ncsSeleccionadas) => void    — sólo en mode="seleccionar".
@@ -39,6 +42,8 @@ const formatCurrency = (value, moneda = 'ARS') => {
 export default function PanelNCsProveedor({
   proveedorId,
   moneda,
+  monedasFiltro,
+  opMoneda,
   mode = 'aplicar',
   onAplicar,
   onChange,
@@ -66,8 +71,11 @@ export default function PanelNCsProveedor({
     try {
       const result = await listarNCs({ proveedor_id: proveedorId, limit: 100, offset: 0 });
       let items = Array.isArray(result) ? result : [];
-      // Optional client-side moneda filter (backend may not support it).
-      if (moneda) {
+      // Filter by monedasFiltro (array of pedido monedas) when provided.
+      // Falls back to the legacy moneda string filter only for mode="aplicar".
+      if (monedasFiltro && monedasFiltro.length > 0) {
+        items = items.filter((nc) => monedasFiltro.includes(nc.moneda));
+      } else if (moneda && mode === 'aplicar') {
         items = items.filter((nc) => nc.moneda === moneda);
       }
       setNcsDisponibles(items);
@@ -76,7 +84,7 @@ export default function PanelNCsProveedor({
     } finally {
       setLoading(false);
     }
-  }, [listarNCs, proveedorId, moneda]);
+  }, [listarNCs, proveedorId, moneda, monedasFiltro, mode]);
 
   useEffect(() => {
     if (abierto && proveedorId) {
@@ -133,26 +141,51 @@ export default function PanelNCsProveedor({
       if (!onChange) return;
       const result = Object.entries(nextSeleccion)
         .filter(([, v]) => v.checked && parseFloat(v.monto) > 0)
-        .map(([ncId, v]) => ({
-          nc_id: Number(ncId),
-          monto: parseFloat(v.monto),
-          pedido_id: null, // resolved by backend or caller
-        }));
+        .map(([ncId, v]) => {
+          const nc = ncsDisponibles.find((n) => String(n.id) === String(ncId));
+          const entry = {
+            nc_id: Number(ncId),
+            monto: parseFloat(v.monto),
+            pedido_id: null, // resolved by backend or caller
+            // Include moneda and tipo_cambio so the parent can convert to OP currency.
+            moneda: nc?.moneda,
+            tipo_cambio: nc?.tipo_cambio,
+          };
+          const tcOv = parseFloat(v.tcOverride);
+          if (Number.isFinite(tcOv) && tcOv > 0) {
+            entry.tipo_cambio_override = tcOv;
+          }
+          return entry;
+        });
       onChange(result);
     },
-    [onChange],
+    [onChange, ncsDisponibles],
   );
 
   const handleToggle = (nc) => {
-    const cur = seleccion[nc.id] ?? { checked: false, monto: '' };
-    const next = { ...seleccion, [nc.id]: { ...cur, checked: !cur.checked } };
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+    // Default monto to nc.saldo_pendiente when checking.
+    const defaultMonto = !cur.checked
+      ? String(Number(nc.saldo_pendiente ?? nc.monto) || '')
+      : cur.monto;
+    const next = {
+      ...seleccion,
+      [nc.id]: { ...cur, checked: !cur.checked, monto: !cur.checked ? defaultMonto : cur.monto },
+    };
     setSeleccion(next);
     notifyChange(next);
   };
 
   const handleMontoSeleccion = (nc, value) => {
-    const cur = seleccion[nc.id] ?? { checked: false, monto: '' };
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
     const next = { ...seleccion, [nc.id]: { ...cur, monto: value } };
+    setSeleccion(next);
+    notifyChange(next);
+  };
+
+  const handleTcOverride = (nc, value) => {
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+    const next = { ...seleccion, [nc.id]: { ...cur, tcOverride: value } };
     setSeleccion(next);
     notifyChange(next);
   };
@@ -199,6 +232,7 @@ export default function PanelNCsProveedor({
                     <th>Moneda</th>
                     <th className={styles.thRight}>Saldo disponible</th>
                     <th>{mode === 'aplicar' ? 'Monto a aplicar' : 'Monto a descontar'}</th>
+                    {mode === 'seleccionar' && <th>TC (opcional)</th>}
                     {mode === 'aplicar' && <th></th>}
                   </tr>
                 </thead>
@@ -252,7 +286,9 @@ export default function PanelNCsProveedor({
                     }
 
                     // mode="seleccionar"
-                    const sel = seleccion[nc.id] ?? { checked: false, monto: '' };
+                    const sel = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+                    // Show TC column when nc.moneda differs from opMoneda (cross-moneda NC).
+                    const isCrossNC = opMoneda && nc.moneda !== opMoneda;
                     return (
                       <tr key={nc.id}>
                         <td>
@@ -280,6 +316,24 @@ export default function PanelNCsProveedor({
                             disabled={disabled || !sel.checked}
                             aria-label={`Monto a descontar para NC ${nc.numero}`}
                           />
+                        </td>
+                        <td>
+                          {isCrossNC ? (
+                            <input
+                              type="number"
+                              min="0.0001"
+                              step="0.0001"
+                              placeholder={nc.tipo_cambio ? String(nc.tipo_cambio) : 'TC NC'}
+                              className={styles.montoInput}
+                              value={sel.tcOverride}
+                              onChange={(e) => handleTcOverride(nc, e.target.value)}
+                              disabled={disabled || !sel.checked}
+                              aria-label={`TC override para NC ${nc.numero} (default: ${nc.tipo_cambio ?? 'N/A'})`}
+                              title={nc.tipo_cambio ? `TC original de la NC: ${nc.tipo_cambio}` : undefined}
+                            />
+                          ) : (
+                            <span className={styles.tdSecondary}>—</span>
+                          )}
                         </td>
                       </tr>
                     );

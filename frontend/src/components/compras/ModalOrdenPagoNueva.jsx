@@ -280,6 +280,12 @@ export default function ModalOrdenPagoNueva({
   // Auto-fill resumes only on a fresh modal open (useState resets to false).
   const [pagoACuentaTouched, setPagoACuentaTouched] = useState(false);
 
+  // Bug B fix — "touched" flag for monto_total auto-sum.
+  // When false (default), monto_total follows sumaItems (OP-currency doc sum) automatically.
+  // Becomes true the moment the user manually edits the field (excedente intent),
+  // disabling auto-sum for the lifetime of this modal instance.
+  const [montoTotalTouched, setMontoTotalTouched] = useState(false);
+
   // PR5 — Warning shown when monto_total changes with 2+ items (FR-5.2).
   // Note: auto-clear when diferencia reaches 0 is handled in the render
   // (warning is gated on itemsSumWarning AND items.length > 1).
@@ -301,26 +307,24 @@ export default function ModalOrdenPagoNueva({
   // de moneda exigiría TC para imputar los items pre-cargados.
   const [confirmMoneda, setConfirmMoneda] = useState(null);
 
-  // ── Modo imputación derivado de los items ──
+  // ── Modo imputación — derivado después de sumaItems (ver abajo) ──
+  // La función recibe la suma en MONEDA OP (no el nativo de los items).
+  // ADR-6: usar sumaItems (OP-currency) para no comparar äpples con naranjas
+  // en operaciones cross-moneda (e.g. USD nativo << ARS total → mixta espuria).
   // 0 items         → a_cuenta
-  // items, suma === total → especifica
-  // items, suma < total  → mixta
+  // items, sumaOP === total → especifica
+  // items, sumaOP < total  → mixta
   // (suma > total es inválido — validar() lo bloquea)
   // PR3: pago_a_cuenta se trata como item de cobertura para derivar el modo.
-  const derivarModoImputacion = (currentItems, total, pacNum = 0) => {
+  const derivarModoImputacion = (sumaDocOP, total, hasItems, pacNum = 0) => {
     const hasPac = pacNum > 0;
-    if (currentItems.length === 0 && !hasPac) return 'a_cuenta';
-    const sumaDoc = Math.round(
-      currentItems.reduce((acc, it) => acc + (parseFloat(it.monto) || 0), 0) * 100
-    ) / 100;
-    const sumaTotal = Math.round((sumaDoc + pacNum) * 100) / 100;
+    if (!hasItems && !hasPac) return 'a_cuenta';
+    const sumaTotal = Math.round((sumaDocOP + pacNum) * 100) / 100;
     const totalR = Math.round((parseFloat(total) || 0) * 100) / 100;
     // Si hay items de documento y también pago_a_cuenta → mixta (hay mezcla de destinos)
-    if (currentItems.length > 0 && hasPac) return 'mixta';
+    if (hasItems && hasPac) return 'mixta';
     return sumaTotal >= totalR ? 'especifica' : 'mixta';
   };
-
-  const modoImputacion = derivarModoImputacion(items, form.monto_total, pagoACuentaNum);
 
   // Lookup de pedido por id. Combina pendientesDelProveedor (lista del
   // dropdown) + pedidoInicial (pre-cargado vía prop, puede no estar en
@@ -419,36 +423,11 @@ export default function ModalOrdenPagoNueva({
       setItemsSumWarning(false);
     }
 
-    // PR5 / T5.3 — Single-item auto-sync on monto_total change (FR-5.1/FR-5.2).
-    // Must run BEFORE setForm so we have access to current items.
+    // Bug B reconcile: monto_total is now auto-summed from documents.
+    // Manual edits here signal excedente intent → mark touched to disable auto-sum.
+    // We do NOT sync items[].monto from the typed total (items own their native amount).
     if (campo === 'monto_total') {
-      const nuevoTotal = parseFloat(valor) || 0;
-      if (items.length === 1) {
-        // FR-5.1: exactly 1 item → auto-sync its monto to the new total.
-        // ADR-6: solo sincronizamos si el item es same-moneda (nativo === OP).
-        // Si es cross-moneda, items[].monto es nativo del pedido — no lo pisamos.
-        const primerItem = items[0];
-        const primerPedido =
-          primerItem.tipo === 'pedido_compra' && primerItem.id
-            ? pedidoDe(primerItem.id)
-            : null;
-        const esSameMoneda = !primerPedido || primerPedido.moneda === form.moneda;
-        if (esSameMoneda) {
-          setItems((prev) =>
-            prev.map((it, i) =>
-              i === 0 ? { ...it, monto: nuevoTotal > 0 ? nuevoTotal.toFixed(2) : '' } : it
-            )
-          );
-        }
-        setItemsSumWarning(false);
-      } else if (items.length > 1) {
-        // FR-5.2: 2+ items → show warning, do NOT touch item amounts.
-        const sumaActual = Math.round(
-          itemsDerivados.reduce((acc, it) => acc + (it.montoDerivado ?? 0), 0) * 100
-        ) / 100;
-        const totalR = Math.round(nuevoTotal * 100) / 100;
-        setItemsSumWarning(Math.abs(sumaActual - totalR) > 0.001);
-      }
+      setMontoTotalTouched(true);
     }
 
     setForm((f) => {
@@ -487,29 +466,11 @@ export default function ModalOrdenPagoNueva({
         setNcsAplicadas([]);
       }
       // Cualquier edición del campo tipo_cambio limpia el error inline.
+      // ADR-6: items[].monto es NATIVO — el TC no lo toca; itemsDerivados recomputa solo.
+      // Bug B reconcile: monto_total now auto-sums from sumaItems (which depends on TC
+      // via itemsDerivados), so no explicit TC→monto_total sync needed here.
       if (campo === 'tipo_cambio') {
         setTcError(null);
-        // ADR-6: items[].monto es NATIVO — el TC no lo toca; itemsDerivados recomputa solo.
-        // Pero el monto_total (en moneda OP) SÍ debe seguir al TC: si hay exactamente
-        // 1 item cross-moneda, el total se re-sincroniza al derivado con el TC nuevo
-        // (simétrico al auto-sync de monto_total). Así pagar un pedido USD en pesos no
-        // genera excedente/faltante espurio al mover el tipo de cambio.
-        const nuevoTc = parseFloat(valor);
-        if (Number.isFinite(nuevoTc) && nuevoTc > 0 && items.length === 1) {
-          const it = items[0];
-          const ped =
-            it.tipo === 'pedido_compra' && it.id ? pedidoDe(it.id) : null;
-          const nativo = parseFloat(it.monto);
-          if (ped && ped.moneda !== f.moneda && Number.isFinite(nativo) && nativo > 0) {
-            const derivado =
-              f.moneda === 'ARS' && ped.moneda === 'USD'
-                ? nativo * nuevoTc
-                : f.moneda === 'USD' && ped.moneda === 'ARS'
-                  ? nativo / nuevoTc
-                  : null;
-            if (derivado != null) next.monto_total = derivado.toFixed(2);
-          }
-        }
       }
       return next;
     });
@@ -650,35 +611,80 @@ export default function ModalOrdenPagoNueva({
   const sumaItems = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivado ?? 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
-  // PR3/PR4 — Cobertura total y diferencia en vivo.
-  // cobertura = sum(items documentos) + sum(NCs aplicadas) + pagoACuenta + DAC.
-  const sumaNCs = ncsAplicadas.reduce((acc, nc) => acc + (parseFloat(nc.monto) || 0), 0);
-  const coberturaTotal = sumaItems + sumaNCs + pagoACuentaNum + dacMontoNum;
-  const diferencia = Math.round((montoTotalNum - coberturaTotal) * 100) / 100;
+  // Bug A fix — modoImputacion computed from OP-currency doc sum (sumaItems),
+  // NOT from native item.monto. This prevents cross-moneda "mixta" misfires
+  // where native USD << ARS total but OP-currency sum == total → 'especifica'.
+  const modoImputacion = derivarModoImputacion(sumaItems, form.monto_total, items.length > 0, pagoACuentaNum);
 
-  // Refinement A — auto-fill pagoACuenta with the surplus when:
-  //   - not in edit mode (edit mode doesn't show the pagoACuenta field)
-  //   - the user has NOT touched the field yet (pagoACuentaTouched === false)
-  //   - diferencia > 0, meaning the user is paying MORE than covered
-  // Once the user touches the field (even to clear it), auto-fill stops for
-  // the lifetime of this modal instance. This prevents the re-fill loop that
-  // occurred when clearing set the old flag to false and re-triggered the fill.
+  // PR3/PR4 — NC/DAC now SUBTRACT from the total (new money model).
   //
-  // Convergence: setPagoACuenta does NOT set pagoACuentaTouched, so no loop.
-  // pagoACuentaTouched is set only by onChange (user gesture). Effect deps
-  // include pagoACuentaTouched; when it becomes true the effect early-returns
-  // and never calls setPagoACuenta again.
+  // sumaNCsOP: NCs converted to OP currency using each NC's own tipo_cambio
+  // (with optional per-NC override supplied by the panel).
+  //   same-moneda:        nc.monto
+  //   OP=ARS, NC=USD:     nc.monto × tc
+  //   OP=USD, NC=ARS:     nc.monto ÷ tc
+  const sumaNCsOP = ncsAplicadas.reduce((acc, nc) => {
+    const montoNC = parseFloat(nc.monto) || 0;
+    if (nc.moneda === undefined || nc.moneda === form.moneda) {
+      // Same-moneda or no moneda info — use monto directly.
+      return acc + montoNC;
+    }
+    // Cross-moneda: use override if set, else nc.tipo_cambio.
+    const tc = parseFloat(nc.tipo_cambio_override) > 0
+      ? parseFloat(nc.tipo_cambio_override)
+      : parseFloat(nc.tipo_cambio);
+    if (!Number.isFinite(tc) || tc <= 0) return acc + montoNC; // fallback: treat as same-moneda
+    // Convertir y redondear POR-NC a 2 decimales, igual que el backend
+    // (fx_service.q_ars/q_usd redondea cada NC antes de sumar). Si el front sumara
+    // a precisión float y redondeara el agregado, podría diferir 1 centavo del
+    // balance del backend → 422 espurio al pagar.
+    let convertido = montoNC;
+    if (form.moneda === 'ARS' && nc.moneda === 'USD') convertido = montoNC * tc;
+    else if (form.moneda === 'USD' && nc.moneda === 'ARS') convertido = montoNC / tc;
+    return acc + Math.round(convertido * 100) / 100;
+  }, 0);
+
+  // sumaDAC: same-moneda only (DAC has no tipo_cambio), subtract directly.
+  const sumaDAC = dacMontoNum;
+
+  // net: the cash amount the user needs to pay (items minus discounts).
+  // pago_a_cuenta is additive — it represents an intentional surplus.
+  const net = Math.round((sumaItems - sumaNCsOP - sumaDAC) * 100) / 100;
+
+  // diferencia: how far monto_total is from net (excluding excedente).
+  // == 0 → balanced; > 0 → falta cubrir; < 0 → extra (unusual, won't happen in normal flow).
+  const diferencia = Math.round((montoTotalNum - net - pagoACuentaNum) * 100) / 100;
+
+
+  // Auto-sum monto_total = net (sumaItems − sumaNCsOP − sumaDAC).
+  // NCs and DAC now participate: applying an NC lowers the auto-summed total.
+  // Skips: edit mode, user has manually touched the field, or no items (a_cuenta).
+  // No loop: net depends on sumaItems/sumaNCsOP/sumaDAC (not on monto_total),
+  // and monto_total doesn't feed back into net. Setting monto_total here is safe.
   useEffect(() => {
-    if (isEditMode || pagoACuentaTouched) return;
-    if (diferencia > 0) {
-      const surplus = Math.round(diferencia * 100) / 100;
-      setPagoACuenta(String(surplus));
-    } else {
-      // diferencia <= 0: no surplus — keep the field clear (or clear stale value).
-      setPagoACuenta('');
+    if (isEditMode || montoTotalTouched || items.length === 0) return;
+    const target = Math.max(0, net).toFixed(2);
+    if (form.monto_total !== target) {
+      setForm((f) => ({ ...f, monto_total: target }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [montoTotalNum, sumaItems, sumaNCs, dacMontoNum, isEditMode, pagoACuentaTouched]);
+  }, [net, isEditMode, montoTotalTouched, items.length]);
+
+  // Refinement A — auto-fill pagoACuenta = max(0, montoTotalNum − net) when:
+  //   - not in edit mode
+  //   - the user has NOT touched the field yet (pagoACuentaTouched === false)
+  // The excedente is the intentional surplus the user introduces by raising monto_total
+  // above net (= sumaItems − sumaNCsOP − sumaDAC).
+  // When monto_total === net (default), excedente = 0 → field stays empty.
+  //
+  // No loop: setPagoACuenta does NOT touch pagoACuentaTouched. Effect fires on
+  // montoTotalNum or net change; pagoACuentaTouched gates early return.
+  useEffect(() => {
+    if (isEditMode || pagoACuentaTouched) return;
+    const surplus = Math.max(0, Math.round((montoTotalNum - net) * 100) / 100);
+    const target = surplus > 0 ? String(surplus) : '';
+    setPagoACuenta(target);
+  }, [montoTotalNum, net, isEditMode, pagoACuentaTouched]);
 
 
   const validar = () => {
@@ -755,7 +761,16 @@ export default function ModalOrdenPagoNueva({
       confirmar_duplicado: confirmarDuplicado,
       actualizar_tc_pedido: actualizarTcPedido,
       // F7 — NCs a aplicar en la misma transacción (solo en creación, no edición).
-      ncs_aplicadas: isEditMode ? [] : ncsAplicadas,
+      // tipo_cambio_override is forwarded when the user overrode the NC's TC in the panel.
+      ncs_aplicadas: isEditMode
+        ? []
+        : ncsAplicadas.map((nc) => {
+            const entry = { nc_id: nc.nc_id, monto: nc.monto, pedido_id: nc.pedido_id };
+            if (nc.tipo_cambio_override != null) {
+              entry.tipo_cambio_override = nc.tipo_cambio_override;
+            }
+            return entry;
+          }),
     };
     if (pagarAhora) {
       const [fuenteTipo, fuenteIdStr] = (pagoForm.fuenteKey || '').split(':');
@@ -860,7 +875,20 @@ export default function ModalOrdenPagoNueva({
           setError(res.data?.detail || 'Conflicto al crear la OP.');
         }
       } else {
-        setError(res?.data?.detail || 'Error al crear la OP.');
+        // Destapar el mensaje real del backend, que puede venir en varias formas:
+        // detail string, detail.{mensaje}, detail[] (422 validación), o {error:{message}}.
+        const d = res?.data;
+        const msg =
+          (typeof d?.detail === 'string' && d.detail) ||
+          d?.detail?.mensaje ||
+          (Array.isArray(d?.detail) &&
+            d.detail.map((e) => e?.msg || e?.mensaje || JSON.stringify(e)).join('; ')) ||
+          d?.error?.message ||
+          d?.mensaje ||
+          d?.message ||
+          err.message ||
+          'Error al crear la OP.';
+        setError(msg);
       }
     } finally {
       setSaving(false);
@@ -1278,10 +1306,26 @@ export default function ModalOrdenPagoNueva({
                   </h2>
 
                   {/* F7 — NC como medio de pago */}
+                  {/* monedasFiltro: show NCs whose moneda matches any selected pedido's moneda
+                      (cross-moneda NCs are valid; filter by OP moneda would hide them). */}
                   <PanelNCsProveedor
                     key={`${form.proveedor_id}-${form.moneda}`}
                     proveedorId={Number(form.proveedor_id)}
                     moneda={form.moneda || undefined}
+                    monedasFiltro={(() => {
+                      const monedas = new Set(
+                        items
+                          .filter((it) => it.tipo === 'pedido_compra' && it.id)
+                          .map((it) => {
+                            const p = pedidoDe(it.id);
+                            return p ? p.moneda : null;
+                          })
+                          .filter(Boolean)
+                      );
+                      // If no pedidos selected yet, fall back to OP moneda so panel isn't empty.
+                      return monedas.size > 0 ? Array.from(monedas) : [form.moneda];
+                    })()}
+                    opMoneda={form.moneda}
                     mode="seleccionar"
                     onChange={setNcsAplicadas}
                     disabled={saving}
@@ -1360,7 +1404,8 @@ export default function ModalOrdenPagoNueva({
               )}
 
               {/* ── EXCEDENTE / PAGO A CUENTA ── */}
-              {!isEditMode && (
+              {/* Only shown when the user has raised monto_total above net (intentional surplus). */}
+              {!isEditMode && montoTotalNum > net && (
                 <section className={styles.formSection}>
                   <h2 className={styles.sectionHeadingSmall}>
                     Excedente — Pago a cuenta{' '}
@@ -1415,11 +1460,11 @@ export default function ModalOrdenPagoNueva({
                       <span className={styles.summaryRowLabel}>Pedidos</span>
                       <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
                     </div>
-                    {sumaNCs > 0 && (
+                    {sumaNCsOP > 0 && (
                       <div className={styles.summaryRow}>
                         <span className={styles.summaryRowLabel}>Notas de crédito</span>
                         <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
-                          -{formatCurrency(sumaNCs, form.moneda)}
+                          -{formatCurrency(sumaNCsOP, form.moneda)}
                         </span>
                       </div>
                     )}
@@ -1431,10 +1476,12 @@ export default function ModalOrdenPagoNueva({
                         </span>
                       </div>
                     )}
-                    <div className={styles.summaryRow}>
-                      <span className={styles.summaryRowLabel}>Excedente a cuenta</span>
-                      <span className={styles.summaryRowAmount}>{formatCurrency(pagoACuentaNum, form.moneda)}</span>
-                    </div>
+                    {pagoACuentaNum > 0 && (
+                      <div className={styles.summaryRow}>
+                        <span className={styles.summaryRowLabel}>Excedente a cuenta</span>
+                        <span className={styles.summaryRowAmount}>{formatCurrency(pagoACuentaNum, form.moneda)}</span>
+                      </div>
+                    )}
                   </div>
 
                   <hr className={styles.summaryDivider} />
