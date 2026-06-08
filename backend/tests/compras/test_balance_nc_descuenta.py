@@ -1,18 +1,22 @@
 """
-Tests para el nuevo modelo de cobertura NC/DAC (AD-NC-01):
+Tests para el modelo net-item de cobertura NC/DAC.
 
-  monto_total = sum(pedido/factura items) + sum(pago_a_cuenta) - sum(NC en moneda OP) - sum(DAC en moneda OP)
+Modelo corregido (fix over-imputación):
+  El item pedido/factura lleva el monto NETO (ya descontados NC y DAC).
+  El balance es:
+    monto_total = sum(pedido/factura NET items) + sum(pago_a_cuenta)
+
+  NC y DAC no son términos del balance. Su efecto está reflejado en los
+  montos netos de los items.
 
 Cobertura:
-  - Regresión: OP solo con pedidos sigue balanceando sin NCs.
-  - NC mismo moneda reduce el cash: OP=ARS, item=30M ARS, NC=5M ARS → monto_total=25M.
-  - NC cross-moneda vía TC propio: OP=ARS, item=23.404.073 ARS, NC=5000 USD, tc=1400 → NC_ARS=7M → monto_total=16.404.073.
-  - NC cross-moneda con tipo_cambio_override: mismo escenario pero tc_override=1450 → NC_ARS=7.25M.
-  - DAC same-moneda: subtractive (DAC no tiene tipo_cambio, solo funciona same-moneda).
-  - pago_a_cuenta sigue siendo ADITIVO (excedente aumenta el cash requerido).
-  - Mismatch (balance != 0) levanta 422 con mensaje claro.
-
-Strict TDD: estos tests se escriben ANTES de cambiar validar_balance_op.
+  - Regresión: OP solo con pedidos sigue balanceando.
+  - NC mismo moneda: item ya es neto (item=25M, monto_total=25M) → balancea.
+  - NC cross-moneda: item ya es neto en moneda OP → balancea.
+  - DAC same-moneda: item ya es neto (item=25M, monto_total=25M) → balancea.
+  - pago_a_cuenta sigue siendo ADITIVO.
+  - Mismatch levanta 422.
+  - Old additive model (item full + NC subtractive) ahora falla correctamente.
 """
 
 from __future__ import annotations
@@ -74,7 +78,7 @@ def test_regression_op_solo_pedidos_balancea() -> None:
     session = _FakeSession()
     items = [{"tipo": "pedido_compra", "monto": 30_000_000}]
     # No debe lanzar excepción.
-    validar_balance_op(session, op, items, ncs_pendientes=None)
+    validar_balance_op(session, op, items)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -84,8 +88,9 @@ def test_regression_op_solo_pedidos_balancea() -> None:
 
 def test_nc_same_moneda_reduce_cash() -> None:
     """
-    OP=ARS, item=30M, NC ARS=5M → monto_total correcto = 25M (no 35M).
-    Con monto_total=25M debe balancear.
+    Net-item model: NC discount is baked into the item monto.
+    OP=ARS, item=25M (net = 30M - 5M NC), monto_total=25M → balancea.
+    NC is not a balance term — it is reflected in the net item.
     """
 
     nc_id = 1
@@ -93,17 +98,17 @@ def test_nc_same_moneda_reduce_cash() -> None:
     session = _FakeSession({("NotaCreditoLocal", nc_id): nc})
 
     op = _FakeOP(monto_total=Decimal("25000000"), moneda="ARS")
-    items = [{"tipo": "pedido_compra", "monto": 30_000_000}]
-    ncs_pendientes = [{"nc_id": nc_id, "monto": "5000000"}]
+    # Item is NET (25M), not full (30M). NC is not a balance term.
+    items = [{"tipo": "pedido_compra", "monto": 25_000_000}]
 
-    # Must NOT raise: 30M - 5M = 25M == monto_total
-    validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+    # Must NOT raise: item=25M == monto_total=25M
+    validar_balance_op(session, op, items)
 
 
-def test_nc_same_moneda_old_additive_model_raises() -> None:
+def test_nc_same_moneda_full_item_raises() -> None:
     """
-    Con el nuevo modelo, monto_total=35M cuando NC es subtractive → 422.
-    (Esto verifica que el modelo VIEJO fallaría y el nuevo rechaza 35M.)
+    In the net-item model, sending the FULL item (30M) while monto_total=25M → 422.
+    The item must already be net-of-NC (25M) to balance.
     """
     from fastapi import HTTPException
 
@@ -111,13 +116,12 @@ def test_nc_same_moneda_old_additive_model_raises() -> None:
     nc = _fake_nc(nc_id=nc_id, moneda="ARS", monto=Decimal("5000000"), tipo_cambio=None)
     session = _FakeSession({("NotaCreditoLocal", nc_id): nc})
 
-    # monto_total=35M es el incorrecto (modelo aditivo viejo)
-    op = _FakeOP(monto_total=Decimal("35000000"), moneda="ARS")
-    items = [{"tipo": "pedido_compra", "monto": 30_000_000}]
-    ncs_pendientes = [{"nc_id": nc_id, "monto": "5000000"}]
+    # monto_total=25M, but item is full 30M → diferencia = 30M - 25M = +5M ≠ 0
+    op = _FakeOP(monto_total=Decimal("25000000"), moneda="ARS")
+    items = [{"tipo": "pedido_compra", "monto": 30_000_000}]  # full, not net — wrong
 
     with pytest.raises(HTTPException) as exc_info:
-        validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+        validar_balance_op(session, op, items)
 
     assert exc_info.value.status_code == 422
     assert "diferencia" in exc_info.value.detail.lower() or "balancea" in exc_info.value.detail.lower()
@@ -128,11 +132,12 @@ def test_nc_same_moneda_old_additive_model_raises() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_nc_cross_moneda_usa_tc_propio() -> None:
+def test_nc_cross_moneda_net_item_balancea() -> None:
     """
-    OP=ARS, item=23_404_073 ARS, NC=5_000 USD, nc.tipo_cambio=1_400
-    → NC_ARS = 5_000 * 1_400 = 7_000_000
-    → monto_total correcto = 23_404_073 - 7_000_000 = 16_404_073
+    Net-item model with cross-moneda NC.
+    OP=ARS, pedido=23_404_073 ARS, NC=5_000 USD at tc=1_400 → NC_ARS=7_000_000.
+    Frontend computes net item = 23_404_073 - 7_000_000 = 16_404_073.
+    Item sent = 16_404_073 (net), monto_total = 16_404_073 → balancea.
     """
 
     nc_id = 10
@@ -140,17 +145,16 @@ def test_nc_cross_moneda_usa_tc_propio() -> None:
     session = _FakeSession({("NotaCreditoLocal", nc_id): nc})
 
     op = _FakeOP(monto_total=Decimal("16404073"), moneda="ARS")
-    items = [{"tipo": "pedido_compra", "monto": "23404073"}]
-    ncs_pendientes = [{"nc_id": nc_id, "monto": "5000"}]
+    # Item is NET (already discounted 7M NC ARS equivalent).
+    items = [{"tipo": "pedido_compra", "monto": "16404073"}]
 
-    validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+    validar_balance_op(session, op, items)
 
 
-def test_nc_cross_moneda_tc_override() -> None:
+def test_nc_cross_moneda_net_item_tc_override_balancea() -> None:
     """
-    Mismo escenario pero con tipo_cambio_override=1_450 en el nc item.
-    NC_ARS = 5_000 * 1_450 = 7_250_000
-    monto_total = 23_404_073 - 7_250_000 = 16_154_073
+    Same scenario with tc_override=1_450.
+    NC_ARS = 5_000 * 1_450 = 7_250_000 → net item = 23_404_073 - 7_250_000 = 16_154_073.
     """
 
     nc_id = 11
@@ -158,16 +162,14 @@ def test_nc_cross_moneda_tc_override() -> None:
     session = _FakeSession({("NotaCreditoLocal", nc_id): nc})
 
     op = _FakeOP(monto_total=Decimal("16154073"), moneda="ARS")
-    items = [{"tipo": "pedido_compra", "monto": "23404073"}]
-    ncs_pendientes = [{"nc_id": nc_id, "monto": "5000", "tipo_cambio_override": "1450"}]
+    items = [{"tipo": "pedido_compra", "monto": "16154073"}]
 
-    validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+    validar_balance_op(session, op, items)
 
 
 def test_nc_cross_moneda_wrong_monto_raises() -> None:
     """
-    OP=ARS, item=23_404_073, NC=5_000 USD, tc=1_400 → NC_ARS=7_000_000
-    Si monto_total=16_000_000 (incorrecto) → 422.
+    OP=ARS, net item=16_404_073, monto_total=16_000_000 (incorrecto) → 422.
     """
     from fastapi import HTTPException
 
@@ -176,11 +178,10 @@ def test_nc_cross_moneda_wrong_monto_raises() -> None:
     session = _FakeSession({("NotaCreditoLocal", nc_id): nc})
 
     op = _FakeOP(monto_total=Decimal("16000000"), moneda="ARS")
-    items = [{"tipo": "pedido_compra", "monto": "23404073"}]
-    ncs_pendientes = [{"nc_id": nc_id, "monto": "5000"}]
+    items = [{"tipo": "pedido_compra", "monto": "16404073"}]  # net but total is wrong
 
     with pytest.raises(HTTPException) as exc_info:
-        validar_balance_op(session, op, items, ncs_pendientes=ncs_pendientes)
+        validar_balance_op(session, op, items)
 
     assert exc_info.value.status_code == 422
 
@@ -190,36 +191,39 @@ def test_nc_cross_moneda_wrong_monto_raises() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_dac_same_moneda_subtractive() -> None:
+def test_dac_net_item_balancea() -> None:
     """
-    OP=ARS, item=30M, DAC=5M ARS (mismo moneda) → monto_total = 25M.
-    Los items dinero_a_cuenta son subtractive bajo el nuevo modelo.
+    Net-item model with DAC.
+    OP=ARS, pedido saldo=30M, DAC=5M → net cash item = 25M, monto_total = 25M.
+    dinero_a_cuenta item is present in the list but NOT counted in the balance.
     """
     op = _FakeOP(monto_total=Decimal("25000000"), moneda="ARS")
     items = [
-        {"tipo": "pedido_compra", "monto": 30_000_000},
-        {"tipo": "dinero_a_cuenta", "monto": 5_000_000},
+        {"tipo": "pedido_compra", "monto": 25_000_000},  # NET: 30M - 5M DAC
+        {"tipo": "dinero_a_cuenta", "monto": 5_000_000},  # side payment, not balance term
     ]
     session = _FakeSession()
 
-    validar_balance_op(session, op, items, ncs_pendientes=None)
+    validar_balance_op(session, op, items)
 
 
-def test_dac_old_additive_model_raises() -> None:
+def test_dac_full_item_raises() -> None:
     """
-    Con el nuevo modelo subtractive, monto_total=35M (viejo additive) → 422.
+    Sending the FULL pedido item (30M) with DAC 5M and monto_total=25M → 422
+    because items sum (30M) ≠ monto_total (25M) in the net-item model.
+    (Old model passed this; new model correctly rejects it.)
     """
     from fastapi import HTTPException
 
-    op = _FakeOP(monto_total=Decimal("35000000"), moneda="ARS")
+    op = _FakeOP(monto_total=Decimal("25000000"), moneda="ARS")
     items = [
-        {"tipo": "pedido_compra", "monto": 30_000_000},
+        {"tipo": "pedido_compra", "monto": 30_000_000},  # full, not net — wrong
         {"tipo": "dinero_a_cuenta", "monto": 5_000_000},
     ]
     session = _FakeSession()
 
     with pytest.raises(HTTPException) as exc_info:
-        validar_balance_op(session, op, items, ncs_pendientes=None)
+        validar_balance_op(session, op, items)
 
     assert exc_info.value.status_code == 422
 
@@ -241,7 +245,7 @@ def test_pago_a_cuenta_aditivo() -> None:
     ]
     session = _FakeSession()
 
-    validar_balance_op(session, op, items, ncs_pendientes=None)
+    validar_balance_op(session, op, items)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -260,7 +264,7 @@ def test_mismatch_levanta_422_con_mensaje() -> None:
     session = _FakeSession()
 
     with pytest.raises(HTTPException) as exc_info:
-        validar_balance_op(session, op, items, ncs_pendientes=None)
+        validar_balance_op(session, op, items)
 
     assert exc_info.value.status_code == 422
     detail = exc_info.value.detail.lower()

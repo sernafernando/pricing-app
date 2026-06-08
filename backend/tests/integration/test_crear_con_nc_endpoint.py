@@ -227,18 +227,18 @@ class TestCrearYPagarConNCEndpoint:
     ) -> None:
         """crear-y-pagar + ncs_aplicadas → pagada, NC saldo reducido.
 
-        New model (AD-NC-01): NC is subtractive from the OP cash.
-        pago_a_cuenta=8000, NC=2000 → monto_total = 8000 - 2000 = 6000.
-        Only 6000 is debited from caja; 2000 is covered by the NC credit.
+        Net-item model: NC is applied to the pedido separately (not a balance term).
+        The OP has a pago_a_cuenta item of 6000 (net cash the user is depositing).
+        NC 2000 is applied to the pedido as a standalone credit.
+        monto_total = 6000, pago_a_cuenta = 6000 → balance 0.
         """
-        # NC cubre 2000; pago_a_cuenta 8000: net cash = 8000 - 2000 = 6000
         payload = {
             "empresa_id": empresa.id,
             "proveedor_id": proveedor.id,
             "moneda": "ARS",
             "monto_total": "6000",
             "modo_imputacion": "especifica",
-            "items": [{"tipo": "pago_a_cuenta", "id": None, "monto": "8000"}],
+            "items": [{"tipo": "pago_a_cuenta", "id": None, "monto": "6000"}],
             "caja_id": caja.id,
             "fecha_pago_real": "2026-05-21",
             "ncs_aplicadas": [{"nc_id": nc_aprobada.id, "monto": "2000", "pedido_id": pedido.id}],

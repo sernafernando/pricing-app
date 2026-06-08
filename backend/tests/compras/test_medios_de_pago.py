@@ -508,13 +508,13 @@ def test_consumo_full_marca_consumido(db, empresa, proveedor, user) -> None:
 
 def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja) -> None:
     """
-    AC-4.1 (AD-NC-01): NC applied as credit reduces the cash to pay (subtractive model).
-    items_pedido=7.000, NC=3.000 ARS → monto_total = 7.000 - 3.000 = 4.000 → diferencia=0.
+    AC-4.1 — net-item model: NC discount baked into the item monto.
 
-    Verifica que validar_balance_op acepta el nuevo invariante subtractive y que la OP
-    llega a estado 'pagado'.
+    pedido=7.000, NC=3.000 ARS → NC applied at create (reduces pedido saldo to 4.000).
+    OP item = 4.000 (net), monto_total = 4.000 → diferencia=0, OP ends 'pagado'.
     """
     from app.services import ordenes_pago_service
+    from app.services.ordenes_pago_service import imputar_nc_a_pedido
 
     # Crear pedido de 7.000
     ped_id = _insert_pedido(
@@ -543,9 +543,15 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
     )
     db.add(nc)
     db.flush()
-    nc_id = nc.id
 
-    # Crear OP de 4.000 ARS (net cash: items - NC)
+    # Apply NC to pedido (simulates CREATE flow — reduces pedido saldo 7000→4000).
+    from app.models.pedido_compra import PedidoCompra as _PC
+
+    pedido_obj = db.get(_PC, ped_id)
+    imputar_nc_a_pedido(db, nc=nc, pedido=pedido_obj, monto=Decimal("3000"), creado_por_id=user.id)
+    db.flush()
+
+    # OP: item = 4.000 (net), monto_total = 4.000.
     op_id = _insert_op(
         db,
         empresa_id=empresa.id,
@@ -555,22 +561,20 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
         numero="OP-NC-001",
     )
 
-    # Items: pedido 7.000
+    # Net item: 4.000 (not full 7.000)
     _seed_evento_items(
         db,
         op_id=op_id,
-        items=[{"tipo": "pedido_compra", "id": ped_id, "monto": 7_000}],
+        items=[{"tipo": "pedido_compra", "id": ped_id, "monto": 4_000}],
         user_id=user.id,
     )
 
-    # Ejecutar pago con NC de 3.000 → diferencia = 7000 - 3000 - 4000 = 0
     op = ordenes_pago_service.ejecutar_pago(
         db,
         orden_pago_id=op_id,
         caja_id=caja.id,
         fecha_pago_real=date(2026, 1, 1),
         user_id=user.id,
-        ncs_pendientes=[{"nc_id": int(nc_id), "monto": 3000, "pedido_id": ped_id}],
     )
 
     assert op.estado == "pagado", f"La OP debería estar 'pagado' con NC como cobertura. Estado: '{op.estado}'."
@@ -600,12 +604,13 @@ def test_dinero_a_cuenta_cero_disponible_no_seleccionable(db, empresa, proveedor
 
 def test_cross_moneda_nc_sin_tc_rechaza(db, empresa, proveedor, user, caja) -> None:
     """
-    AC-4.5: NC en USD aplicada a OP ARS sin TC debe fallar.
-    El backend rechaza la imputación cross-moneda sin tipo_cambio.
+    AC-4.5: NC en USD aplicada a pedido ARS debe fallar.
+
+    En el modelo net-item, el rechazo de NC cross-moneda ocurre en
+    imputar_nc_a_pedido (nc.moneda != pedido.moneda → 422).
+    La validación ya no es responsabilidad del balance check.
     """
     from fastapi import HTTPException
-
-    from app.services import ordenes_pago_service
 
     # Pedido ARS
     ped_id = _insert_pedido(
@@ -635,38 +640,23 @@ def test_cross_moneda_nc_sin_tc_rechaza(db, empresa, proveedor, user, caja) -> N
     )
     db.add(nc_usd)
     db.flush()
-    nc_usd_id = nc_usd.id
 
-    # OP ARS de 10.000 con NC USD sin TC → debe rechazar cross-moneda
-    op_id = _insert_op(
-        db,
-        empresa_id=empresa.id,
-        proveedor_id=proveedor.id,
-        user_id=user.id,
-        monto_total=10_000,
-        moneda="ARS",
-        numero="OP-CROSSNC-001",
-    )
-    _seed_evento_items(
-        db,
-        op_id=op_id,
-        items=[{"tipo": "pedido_compra", "id": ped_id, "monto": 10_000}],
-        user_id=user.id,
-    )
+    # imputar_nc_a_pedido must reject NC USD → pedido ARS cross-moneda.
+    from app.models.pedido_compra import PedidoCompra as _PC
+    from app.services.ordenes_pago_service import imputar_nc_a_pedido
 
-    # Sin TC → el backend debe rechazar la NC cross-moneda
-    # La NC USD no tiene valor en ARS sin tipo_cambio definido.
-    # El servicio debería rechazar con 400/422 porque la cobertura NC
-    # no se puede computar en ARS (cross-moneda sin TC).
-    with pytest.raises((HTTPException, ValueError)):
-        ordenes_pago_service.ejecutar_pago(
+    pedido_obj = db.get(_PC, ped_id)
+    with pytest.raises(HTTPException) as exc_info:
+        imputar_nc_a_pedido(
             db,
-            orden_pago_id=op_id,
-            caja_id=caja.id,
-            fecha_pago_real=date(2026, 1, 1),
-            user_id=user.id,
-            ncs_pendientes=[{"nc_id": int(nc_usd_id), "monto": 100, "pedido_id": ped_id}],
+            nc=nc_usd,
+            pedido=pedido_obj,
+            monto=Decimal("100"),
+            creado_por_id=user.id,
         )
+
+    assert exc_info.value.status_code == 422
+    assert "cross-moneda" in exc_info.value.detail.lower() or "moneda" in exc_info.value.detail.lower()
 
 
 # ──────────────────────────────────────────────────────────────────────────
