@@ -373,7 +373,7 @@ def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
     # Apply NC to pedido first (simulates CREATE flow: NC applied at create time).
     from app.services.ordenes_pago_service import imputar_nc_a_pedido
 
-    pedido_obj = db.get(__import__("app.models.pedido_compra", fromlist=["PedidoCompra"]).PedidoCompra, pedido_id)
+    pedido_obj = db.get(PedidoCompra, pedido_id)
     imputar_nc_a_pedido(db, nc=nc, pedido=pedido_obj, monto=Decimal(str(monto_nc)), creado_por_id=user.id)
     db.flush()
 
