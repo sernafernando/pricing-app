@@ -1073,6 +1073,41 @@
   margin: 0;
 }
 
+/* Resumen de la columna Rebate dentro de la celda Clásica (solo lectura) */
+.clasica-rebate-resumen {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-secondary);
+}
+
+.clasica-rebate-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.clasica-out-of-cards {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.clasica-out-of-cards.is-out {
+  color: var(--error);
+}
+
+.clasica-out-of-cards.is-in {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
 .out-of-cards-checkbox {
   display: flex;
   align-items: center;

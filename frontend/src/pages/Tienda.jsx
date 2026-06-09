@@ -22,7 +22,7 @@ import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
-import { DollarSign, BarChart3, Check, X, RotateCcw } from 'lucide-react';
+import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
 
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
@@ -1577,6 +1577,24 @@ export default function Tienda() {
                             {p.markup}%
                           </div>
                         )}
+                        {/* Resumen de la columna Rebate (solo lectura) */}
+                        {p.participa_rebate && p.precio_rebate ? (
+                          <div className="clasica-rebate-resumen">
+                            <span className="clasica-rebate-label">Rebate</span>
+                            <div className="rebate-price">
+                              ${p.precio_rebate.toLocaleString('es-AR')}
+                            </div>
+                            {p.markup_rebate !== null && p.markup_rebate !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_rebate) }}>
+                                {p.markup_rebate}%
+                              </div>
+                            )}
+                            <div className={`clasica-out-of-cards ${p.out_of_cards ? 'is-out' : 'is-in'}`}>
+                              {p.out_of_cards ? <Ban size={12} aria-hidden="true" /> : <CreditCard size={12} aria-hidden="true" />}
+                              <span>{p.out_of_cards ? 'Out of Cards' : 'En cards'}</span>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </td>
 
