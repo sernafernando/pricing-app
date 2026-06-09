@@ -648,6 +648,12 @@
   color: var(--error);
 }
 
+.summaryRowNet {
+  border-top: 1px solid var(--cf-border);
+  padding-top: var(--spacing-xs);
+  font-weight: 600;
+}
+
 .summaryDiferencia {
   display: flex;
   align-items: center;

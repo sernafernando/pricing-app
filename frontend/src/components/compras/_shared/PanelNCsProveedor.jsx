@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import useNCsLocales from '../../../hooks/useNCsLocales';
 import styles from './PanelNCsProveedor.module.css';
@@ -51,6 +51,18 @@ export default function PanelNCsProveedor({
 }) {
   const { listarDisponibles: listarNCs } = useNCsLocales();
 
+  // Parents often pass `monedasFiltro` as a fresh array literal on every render
+  // (e.g. computed inline). Depending on that reference would give `fetchNCs` a
+  // new identity each render → its effect refires → a backend refetch on every
+  // parent state change (every keystroke). Derive a stable primitive key and
+  // rebuild the array only when the *contents* change. Currency codes never
+  // contain commas, so join/split round-trips safely.
+  const monedasFiltroKey = (monedasFiltro || []).join(',');
+  const monedasFiltroStable = useMemo(
+    () => (monedasFiltroKey ? monedasFiltroKey.split(',') : []),
+    [monedasFiltroKey],
+  );
+
   const [abierto, setAbierto] = useState(false);
   const [ncsDisponibles, setNcsDisponibles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -73,8 +85,8 @@ export default function PanelNCsProveedor({
       let items = Array.isArray(result) ? result : [];
       // Filter by monedasFiltro (array of pedido monedas) when provided.
       // Falls back to the legacy moneda string filter only for mode="aplicar".
-      if (monedasFiltro && monedasFiltro.length > 0) {
-        items = items.filter((nc) => monedasFiltro.includes(nc.moneda));
+      if (monedasFiltroStable.length > 0) {
+        items = items.filter((nc) => monedasFiltroStable.includes(nc.moneda));
       } else if (moneda && mode === 'aplicar') {
         items = items.filter((nc) => nc.moneda === moneda);
       }
@@ -84,7 +96,7 @@ export default function PanelNCsProveedor({
     } finally {
       setLoading(false);
     }
-  }, [listarNCs, proveedorId, moneda, monedasFiltro, mode]);
+  }, [listarNCs, proveedorId, moneda, monedasFiltroStable, mode]);
 
   useEffect(() => {
     if (abierto && proveedorId) {

@@ -6,7 +6,10 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' (not autoUpdate): a new build does NOT silently reload the
+      // page — that would wipe a half-filled form on a business app. Instead
+      // the app surfaces a toast and the user applies the update on click.
+      registerType: 'prompt',
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB — app bundles exceed default 2 MiB
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

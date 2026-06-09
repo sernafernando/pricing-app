@@ -60,6 +60,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
+import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import './styles/design-tokens.css';
 import './styles/components.css';
 import './styles/buttons-tesla.css';
@@ -99,6 +100,7 @@ function App() {
 
   return (
     <ThemeProvider>
+      <PwaUpdatePrompt />
       <PermisosProvider>
         <BrowserRouter
           future={{

@@ -335,23 +335,24 @@ def test_payload_multi_item_cobertura_exacta(db, empresa, proveedor, user, caja)
 
 def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
     """
-    NC reduces the cash to pay (AD-NC-01 subtractive model).
-    PR5 UX: NC listed in Medios de pago section — backend invariante holds.
+    NC reduces the cash to pay — net-item model.
 
-    New model: monto_total = items_pedido - NC
-               items_pedido = 7.000, NC = 3.000 → monto_total = 4.000 (cash debited from caja).
-    The OP only debits 4.000 from caja because 3.000 is covered by the NC credit.
+    The NC is applied to the pedido BEFORE the OP is paid (imputar_nc_a_pedido).
+    The OP item carries the NET monto (pedido - NC), and monto_total = net.
+
+    pedido = 7.000, NC = 3.000 → net item = 4.000, monto_total = 4.000.
+    Caja debits 4.000 (not 7.000).
     """
-    monto_item_pedido = 7_000.0
+    monto_pedido = 7_000.0
     monto_nc = 3_000.0
-    # Under the new model monto_total is the NET cash: pedido - NC
-    monto_total = monto_item_pedido - monto_nc  # 4_000.0
+    monto_net = monto_pedido - monto_nc  # 4_000.0
+
     pedido_id = _insert_pedido(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto=monto_item_pedido,
+        monto=monto_pedido,
         numero="PED-S-004",
     )
     nc = NotaCreditoLocal(
@@ -369,19 +370,26 @@ def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
     db.add(nc)
     db.flush()
 
-    # OP monto_total = full OP; items + NC = full coverage
+    # Apply NC to pedido first (simulates CREATE flow: NC applied at create time).
+    from app.services.ordenes_pago_service import imputar_nc_a_pedido
+
+    pedido_obj = db.get(__import__("app.models.pedido_compra", fromlist=["PedidoCompra"]).PedidoCompra, pedido_id)
+    imputar_nc_a_pedido(db, nc=nc, pedido=pedido_obj, monto=Decimal(str(monto_nc)), creado_por_id=user.id)
+    db.flush()
+
+    # OP: item is NET (4.000), monto_total = 4.000.
     op_id = _insert_op(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto_total=monto_total,
+        monto_total=monto_net,
         numero="OP-S-004",
     )
     _seed_evento_items(
         db,
         op_id=op_id,
-        items=[{"tipo": "pedido_compra", "id": pedido_id, "monto": monto_item_pedido}],
+        items=[{"tipo": "pedido_compra", "id": pedido_id, "monto": monto_net}],  # NET
         user_id=user.id,
     )
 
@@ -390,7 +398,6 @@ def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
         orden_pago_id=op_id,
         caja_id=caja.id,
         fecha_pago_real=date.today(),
-        ncs_pendientes=[{"nc_id": nc.id, "monto": monto_nc, "pedido_id": pedido_id}],
         user_id=user.id,
     )
 
@@ -400,19 +407,15 @@ def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
 
 def test_payload_dac_como_cobertura(db, empresa, proveedor, user, caja):
     """
-    Dinero a cuenta used as medio de pago — consumir path still works post-PR5.
-    PR5 UX: DAC listed in Medios de pago section alongside NC/efectivo.
+    Dinero a cuenta used as medio de pago — net-item model.
 
-    New model (AD-NC-01): DAC is subtractive — it reduces the cash to pay.
-    monto_total = pedido_items - dac = 12.000 - 8.000 = 4.000 (cash debited from caja).
-    The caja only pays 4.000; the rest (8.000) was already deposited as DAC.
+    DAC covers 8.000 of a 12.000 pedido. The pedido cash item is NET: 12.000 - 8.000 = 4.000.
+    monto_total = 4.000 (cash from caja). DAC item is a side payment (not a balance term).
     """
     monto_dac = 8_000.0
     monto_efectivo_pedido = 12_000.0
-    # Under the new model monto_total is the NET cash: pedido - DAC
-    monto_total = monto_efectivo_pedido - monto_dac  # 4_000.0
 
-    # Pedido total = cash_item + dac (the full obligation, partially covered by DAC credit)
+    # Pedido total = full obligation; DAC + cash item (net) together cover it.
     pedido_id = _insert_pedido(
         db,
         empresa_id=empresa.id,
@@ -444,20 +447,22 @@ def test_payload_dac_como_cobertura(db, empresa, proveedor, user, caja):
     db.add(dac)
     db.flush()
 
-    # monto_total = 4.000 (caja debits net cash: pedido - DAC); items: cash portion + DAC
+    # Net-item model: pedido item is NET (pedido - DAC = 4.000), monto_total = 4.000.
+    # DAC item is still included in the items list (side payment) but NOT counted in balance.
+    monto_net_pedido = monto_efectivo_pedido - monto_dac  # 4_000.0
     op_id = _insert_op(
         db,
         empresa_id=empresa.id,
         proveedor_id=proveedor.id,
         user_id=user.id,
-        monto_total=monto_total,
+        monto_total=monto_net_pedido,  # NET cash
         numero="OP-S-005",
     )
     _seed_evento_items(
         db,
         op_id=op_id,
         items=[
-            {"tipo": "pedido_compra", "id": pedido_id, "monto": monto_efectivo_pedido},
+            {"tipo": "pedido_compra", "id": pedido_id, "monto": monto_net_pedido},  # NET
             {
                 "tipo": "dinero_a_cuenta",
                 "id": dac.id,

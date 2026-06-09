@@ -149,8 +149,9 @@ class TestCrearYPagarConNC:
     def test_happy_path_con_nc_a_cuenta(self, db, empresa, proveedor, caja, pedido, nc_aprobada, active_user) -> None:
         """crear_y_pagar + NC con pedido_id → OP pagada + imputación NC creada.
 
-        New model (AD-NC-01): NC subtracts from cash.
-        pago_a_cuenta=7000, NC=3000 → monto_total = 7000 - 3000 = 4000.
+        Net-item model: pago_a_cuenta = net cash = monto_total.
+        NC applies to the pedido separately (standalone credit, not a balance term).
+        pago_a_cuenta=4000, monto_total=4000. NC=3000 applied to pedido independently.
         """
         op = ordenes_pago_service.crear_y_pagar(
             db,
@@ -159,7 +160,7 @@ class TestCrearYPagarConNC:
             moneda="ARS",
             monto_total=Decimal("4000"),
             modo_imputacion="especifica",
-            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("7000")}],
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("4000")}],
             caja_id=caja.id,
             fecha_pago_real=date(2026, 5, 21),
             creado_por_id=active_user.id,
@@ -216,7 +217,7 @@ class TestCrearYPagarConNC:
         pagada (es decir, la imputación NC→pedido se crea después del movimiento
         de caja, todo en la misma transacción).
         """
-        # New model (AD-NC-01): pago_a_cuenta=8000, nc=2000 → monto_total = 8000 - 2000 = 6000
+        # Net-item model: pago_a_cuenta = monto_total (net cash). NC applies to pedido separately.
         op = ordenes_pago_service.crear_y_pagar(
             db,
             proveedor_id=proveedor.id,
@@ -224,7 +225,7 @@ class TestCrearYPagarConNC:
             moneda="ARS",
             monto_total=Decimal("6000"),
             modo_imputacion="especifica",
-            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("8000")}],
+            items=[{"tipo": "pago_a_cuenta", "id": None, "monto": Decimal("6000")}],
             caja_id=caja.id,
             fecha_pago_real=date(2026, 5, 21),
             creado_por_id=active_user.id,
