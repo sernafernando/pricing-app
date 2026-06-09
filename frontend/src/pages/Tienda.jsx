@@ -1574,7 +1574,7 @@ export default function Tienda() {
                         </div>
                         {p.markup !== null && p.markup !== undefined && (
                           <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
-                            {p.markup}%
+                            {p.markup.toFixed(2)}%
                           </div>
                         )}
                         {/* Resumen de la columna Rebate (solo lectura) */}
@@ -1582,11 +1582,11 @@ export default function Tienda() {
                           <div className="clasica-rebate-resumen">
                             <span className="clasica-rebate-label">Rebate</span>
                             <div className="rebate-price">
-                              ${p.precio_rebate.toLocaleString('es-AR')}
+                              ${p.precio_rebate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                             {p.markup_rebate !== null && p.markup_rebate !== undefined && (
                               <div className="markup-display" style={{ color: getMarkupColor(p.markup_rebate) }}>
-                                {p.markup_rebate}%
+                                {p.markup_rebate.toFixed(2)}%
                               </div>
                             )}
                             <div className={`clasica-out-of-cards ${p.out_of_cards ? 'is-out' : 'is-in'}`}>
