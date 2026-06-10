@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 // How often to poll the server for a newer build, in ms.
@@ -21,6 +21,9 @@ export function usePwaUpdate() {
   // useEffect that React can tear down — onRegisteredSW may fire more than once
   // (re-registration, retries), so wiring timers/listeners there would stack them.
   const [registration, setRegistration] = useState(null);
+  // Guards against a double reload if both our controllerchange listener and
+  // vite-plugin-pwa's internal one fire for the same activation.
+  const reloadingRef = useRef(false);
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -51,9 +54,35 @@ export function usePwaUpdate() {
     };
   }, [registration]);
 
+  // Apply the pending update. We do NOT rely on vite-plugin-pwa's built-in
+  // reload: it only reloads on `controlling` when `event.isUpdate` is true,
+  // which is false when the page was loaded uncontrolled (e.g. right after a
+  // hard refresh) — then clicking would skip-waiting but never reload. We arm
+  // our own one-shot `controllerchange` reload so it works every time.
+  const applyUpdate = () => {
+    // Hide the toast right away; the reload will replace the page anyway, but
+    // if anything stalls the user isn't left staring at a dead button.
+    setNeedRefresh(false);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener(
+        'controllerchange',
+        () => {
+          if (reloadingRef.current) return;
+          reloadingRef.current = true;
+          window.location.reload();
+        },
+        { once: true },
+      );
+    }
+
+    // Tell the waiting SW to skipWaiting → it activates → controllerchange.
+    updateServiceWorker(true);
+  };
+
   return {
     needRefresh,
-    applyUpdate: () => updateServiceWorker(true), // activate new SW + reload
+    applyUpdate,
     dismiss: () => setNeedRefresh(false),
   };
 }
