@@ -23,6 +23,7 @@ load_dotenv(dotenv_path=env_path)
 
 from app.core.database import SessionLocal
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.pricing_calculator import (
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
@@ -66,6 +67,11 @@ def main():
 
         print(f"\nProductos a procesar: {len(productos)}")
 
+        # Pre-fetch real shipping costs for all products in one batch query.
+        # Items absent from the dict fall back to ProductoERP.envio (ERP value).
+        script_item_ids = [p_erp.item_id for _, p_erp in productos]
+        envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, script_item_ids)
+
         actualizados_web = 0
         actualizados_pvp = 0
         actualizados_cuotas_pvp = 0
@@ -88,6 +94,11 @@ def main():
                 # Obtener grupo
                 grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
 
+                # Resolve real shipping cost: batch resolver takes priority over ERP envio.
+                costo_envio = envio_real_by_item.get(producto_erp.item_id)
+                if costo_envio is None:
+                    costo_envio = float(producto_erp.envio or 0)
+
                 # ========== RECALCULAR MARKUP WEB CLÁSICO ==========
                 if pricing.precio_lista_ml and pricing.precio_lista_ml > 0:
                     # Obtener comisión base (lista 4 = clásica web)
@@ -106,7 +117,7 @@ def main():
                         limpio = calcular_limpio(
                             float(pricing.precio_lista_ml),
                             float(producto_erp.iva),
-                            float(producto_erp.envio or 0),
+                            costo_envio,
                             comisiones["comision_total"],
                             db=db,
                             grupo_id=grupo_id,
@@ -139,7 +150,7 @@ def main():
                         limpio_pvp = calcular_limpio(
                             float(pricing.precio_pvp),
                             float(producto_erp.iva),
-                            float(producto_erp.envio or 0),
+                            costo_envio,
                             comisiones_pvp["comision_total"],
                             db=db,
                             grupo_id=grupo_id,
@@ -179,7 +190,7 @@ def main():
                                     limpio_cuota = calcular_limpio(
                                         float(precio_cuota),
                                         float(producto_erp.iva),
-                                        float(producto_erp.envio or 0),
+                                        costo_envio,
                                         comisiones_cuota["comision_total"],
                                         db=db,
                                         grupo_id=grupo_id,
