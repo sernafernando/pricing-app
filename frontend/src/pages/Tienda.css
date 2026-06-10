@@ -1909,3 +1909,29 @@
   color: var(--text-secondary);
   text-decoration: line-through;
 }
+
+
+/* Indicator for individually-set markup_sugerido (origin='producto') */
+.markup-sugerido-origen-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  margin-left: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Inline edit input for markup sugerido */
+.markup-sugerido-edit-input {
+  width: 60px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--brand-primary);
+  border-radius: 3px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: right;
+}
+

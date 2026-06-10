@@ -32,6 +32,8 @@ export function useTiendaPricing({
   const [editandoPrecioGremio, setEditandoPrecioGremio] = useState(null);
   const [modoEdicionGremio, setModoEdicionGremio] = useState('precio');
   const [precioGremioTemp, setPrecioGremioTemp] = useState({ sin_iva: '', con_iva: '', markup: '' });
+  const [editandoMarkupSugerido, setEditandoMarkupSugerido] = useState(null);
+  const [markupSugeridoTemp, setMarkupSugeridoTemp] = useState('');
 
   // === WEB TRANSFERENCIA ===
 
@@ -317,6 +319,73 @@ export function useTiendaPricing({
     }
   };
 
+  // === MARKUP SUGERIDO ===
+
+  const iniciarEdicionMarkupSugerido = (producto) => {
+    setEditandoMarkupSugerido(producto.item_id);
+    setMarkupSugeridoTemp(producto.markup_sugerido_valor ?? '');
+  };
+
+  const guardarMarkupSugerido = async (itemId) => {
+    const raw = markupSugeridoTemp.toString().trim();
+
+    // Clear case: empty input deletes the individual row. The server recomputes
+    // and returns the brand fallback (or nulls), so patch local state from the
+    // response — not hardcoded nulls — or a product with a brand-level sugerido
+    // would blank out on screen until the next reload.
+    if (raw === '') {
+      try {
+        const r = await api.patch(`/markups-tienda/productos/${itemId}/markup-sugerido`, { markup_sugerido: null });
+        setProductos(prods => prods.map(p =>
+          p.item_id === itemId
+            ? {
+                ...p,
+                markup_sugerido_valor: r.data.markup_sugerido_valor,
+                markup_sugerido_total: r.data.markup_sugerido_total,
+                markup_sugerido_origen: r.data.markup_sugerido_origen,
+                precio_sugerido_sin_iva: r.data.precio_sugerido_sin_iva,
+                precio_sugerido_con_iva: r.data.precio_sugerido_con_iva,
+              }
+            : p
+        ));
+        setEditandoMarkupSugerido(null);
+      } catch {
+        showToast('Error al guardar markup sugerido', 'error');
+      }
+      return;
+    }
+
+    // Set case: parse and send value
+    const val = parseFloat(raw.replace(',', '.'));
+    if (Number.isNaN(val)) {
+      showToast('Ingresá un valor numérico válido', 'error');
+      return;
+    }
+
+    if (val < 0) {
+      showToast('Atención: el markup sugerido es negativo', 'warning');
+    }
+
+    try {
+      const r = await api.patch(`/markups-tienda/productos/${itemId}/markup-sugerido`, { markup_sugerido: val });
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? {
+              ...p,
+              markup_sugerido_valor: r.data.markup_sugerido_valor,
+              markup_sugerido_total: r.data.markup_sugerido_total,
+              markup_sugerido_origen: r.data.markup_sugerido_origen,
+              precio_sugerido_sin_iva: r.data.precio_sugerido_sin_iva,
+              precio_sugerido_con_iva: r.data.precio_sugerido_con_iva,
+            }
+          : p
+      ));
+      setEditandoMarkupSugerido(null);
+    } catch {
+      showToast('Error al guardar markup sugerido', 'error');
+    }
+  };
+
   // === TOGGLES RÁPIDOS (usados por teclado y UI) ===
 
   const toggleRebateRapido = async (producto) => {
@@ -533,5 +602,11 @@ export function useTiendaPricing({
     toggleWebTransfRapido,
     toggleOutOfCardsRapido,
     iniciarEdicionDesdeTeclado,
+
+    // Markup Sugerido
+    editandoMarkupSugerido, setEditandoMarkupSugerido,
+    markupSugeridoTemp, setMarkupSugeridoTemp,
+    iniciarEdicionMarkupSugerido,
+    guardarMarkupSugerido,
   };
 }

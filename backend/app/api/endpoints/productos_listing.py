@@ -15,6 +15,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     ProductoListResponse,
     ProductoTiendaResponse,
     ProductoTiendaListResponse,
+    computar_precio_sugerido,
 )
 
 logger = logging.getLogger(__name__)
@@ -2021,23 +2022,25 @@ def listar_productos_tienda(
                 precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
 
         # Precio Sugerido — markup_clasica + markup_sugerido aplicado sobre fórmula gremio
-        precio_sugerido_sin_iva, precio_sugerido_con_iva = None, None
-        markup_sugerido_valor, markup_sugerido_total = None, None
+        markup_sugerido_valor, markup_sugerido_origen = None, None
 
         # Resolver markup_sugerido con prioridad producto > marca (NULL = 0)
         if producto_erp.item_id in markups_sugerido_producto_dict:
             markup_sugerido_valor = markups_sugerido_producto_dict[producto_erp.item_id]
+            markup_sugerido_origen = "producto"
         elif producto_erp.marca and producto_erp.marca in markups_sugerido_marca_dict:
             markup_sugerido_valor = markups_sugerido_marca_dict[producto_erp.marca]
+            markup_sugerido_origen = "marca"
 
         markup_clasica = producto_pricing.markup_calculado if producto_pricing else None
-        if markup_clasica is not None and costo_ars and costo_ars > 0:
-            # Si no hay markup_sugerido configurado, usar 0 (precio = solo markup_clasica)
-            effective_sugerido = markup_sugerido_valor if markup_sugerido_valor is not None else 0.0
-            markup_sugerido_total = markup_clasica + effective_sugerido
-            precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_sugerido_total / 100)
-            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
-            precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva_producto / 100)
+        iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+        precio_sugerido_sin_iva, precio_sugerido_con_iva, markup_sugerido_total = computar_precio_sugerido(
+            costo_ars=costo_ars,
+            iva=iva_producto,
+            markup_clasica=markup_clasica,
+            markup_sugerido_valor=markup_sugerido_valor,
+            varios_porcentaje=varios_porcentaje,
+        )
 
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
@@ -2113,6 +2116,7 @@ def listar_productos_tienda(
                 precio_sugerido_con_iva=precio_sugerido_con_iva,
                 markup_sugerido_valor=markup_sugerido_valor,
                 markup_sugerido_total=markup_sugerido_total,
+                markup_sugerido_origen=markup_sugerido_origen,
                 participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
                 porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web)
                 if producto_pricing and producto_pricing.porcentaje_markup_web
