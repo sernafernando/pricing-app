@@ -1935,3 +1935,10 @@
   text-align: right;
 }
 
+
+/* Affordance to add an individual markup sugerido when none is set yet */
+.markup-sugerido-add {
+  opacity: 0.6;
+  border-bottom: 1px dashed var(--border-secondary);
+}
+

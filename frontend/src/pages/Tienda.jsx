@@ -1618,40 +1618,47 @@ export default function Tienda() {
                           {p.markup_sugerido_total !== null && p.markup_sugerido_total !== undefined && (
                             <div className="gremio-markup" style={{ color: getMarkupColor(p.markup_sugerido_total) }}>
                               {p.markup_sugerido_total.toFixed(1)}%
-                              {p.markup_sugerido_valor !== null && p.markup_sugerido_valor !== undefined && (
-                                editandoMarkupSugerido === p.item_id && puedeEditarMarkupSugerido ? (
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    className="markup-sugerido-edit-input"
-                                    value={markupSugeridoTemp}
-                                    onChange={(e) => setMarkupSugeridoTemp(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') guardarMarkupSugerido(p.item_id);
-                                      if (e.key === 'Escape') setEditandoMarkupSugerido(null);
-                                    }}
-                                    onBlur={() => setEditandoMarkupSugerido(null)}
-                                    autoFocus
-                                  />
-                                ) : (
-                                  <span
-                                    className="info-text-11"
-                                    onClick={puedeEditarMarkupSugerido ? () => iniciarEdicionMarkupSugerido(p) : undefined}
-                                    style={{ cursor: puedeEditarMarkupSugerido ? 'pointer' : 'default' }}
-                                    title={puedeEditarMarkupSugerido ? 'Clic para editar markup sugerido' : undefined}
-                                  >
-                                    {' '}(+{p.markup_sugerido_valor}%)
-                                    {p.markup_sugerido_origen === 'producto' && (
-                                      <span
-                                        className="markup-sugerido-origen-indicator"
-                                        title="Markup individual (producto)"
-                                        aria-label="Markup individual"
-                                        role="img"
-                                      />
-                                    )}
-                                  </span>
-                                )
-                              )}
+                              {editandoMarkupSugerido === p.item_id && puedeEditarMarkupSugerido ? (
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  className="markup-sugerido-edit-input"
+                                  value={markupSugeridoTemp}
+                                  onChange={(e) => setMarkupSugeridoTemp(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') guardarMarkupSugerido(p.item_id);
+                                    if (e.key === 'Escape') setEditandoMarkupSugerido(null);
+                                  }}
+                                  onBlur={() => setEditandoMarkupSugerido(null)}
+                                  autoFocus
+                                />
+                              ) : (p.markup_sugerido_valor !== null && p.markup_sugerido_valor !== undefined) ? (
+                                <span
+                                  className="info-text-11"
+                                  onClick={puedeEditarMarkupSugerido ? () => iniciarEdicionMarkupSugerido(p) : undefined}
+                                  style={{ cursor: puedeEditarMarkupSugerido ? 'pointer' : 'default' }}
+                                  title={puedeEditarMarkupSugerido ? 'Clic para editar markup sugerido' : undefined}
+                                >
+                                  {' '}(+{p.markup_sugerido_valor}%)
+                                  {p.markup_sugerido_origen === 'producto' && (
+                                    <span
+                                      className="markup-sugerido-origen-indicator"
+                                      title="Markup individual (producto)"
+                                      aria-label="Markup individual"
+                                      role="img"
+                                    />
+                                  )}
+                                </span>
+                              ) : puedeEditarMarkupSugerido ? (
+                                <span
+                                  className="info-text-11 markup-sugerido-add"
+                                  onClick={() => iniciarEdicionMarkupSugerido(p)}
+                                  style={{ cursor: 'pointer' }}
+                                  title="Agregar markup sugerido individual"
+                                >
+                                  {' '}(+)
+                                </span>
+                              ) : null}
                             </div>
                           )}
                         </div>
