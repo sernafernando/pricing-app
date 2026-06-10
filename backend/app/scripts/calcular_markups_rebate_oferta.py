@@ -20,6 +20,7 @@ import app.models
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.publicacion_ml import PublicacionML
 from app.models.oferta_ml import OfertaML
+from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.pricing_calculator import (
     obtener_tipo_cambio_actual,
     convertir_a_pesos,
@@ -52,6 +53,11 @@ def calcular_markups(db: Session):
     total_productos = len(productos)
     print(f"📊 Procesando {total_productos} productos\n")
 
+    # Pre-fetch real shipping costs for all products in one batch query.
+    # Items absent from the dict fall back to ProductoERP.envio (ERP value).
+    rebate_item_ids = [p_erp.item_id for p_erp, _ in productos]
+    envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, rebate_item_ids)
+
     actualizados_rebate = 0
     actualizados_oferta = 0
     errores = 0
@@ -60,6 +66,11 @@ def calcular_markups(db: Session):
         try:
             markup_rebate_val = None
             markup_oferta_val = None
+
+            # Resolve real shipping cost: batch resolver takes priority over ERP envio.
+            costo_envio = envio_real_by_item.get(producto_erp.item_id)
+            if costo_envio is None:
+                costo_envio = float(producto_erp.envio or 0)
 
             # ========== CALCULAR MARKUP REBATE ==========
             if producto_pricing.participa_rebate and producto_pricing.precio_lista_ml and producto_erp.costo:
@@ -85,7 +96,7 @@ def calcular_markups(db: Session):
                         limpio_rebate = calcular_limpio(
                             precio_rebate,
                             producto_erp.iva,
-                            producto_erp.envio or 0,
+                            costo_envio,
                             comisiones_rebate["comision_total"],
                             db=db,
                             grupo_id=grupo_id_rebate,
@@ -144,7 +155,7 @@ def calcular_markups(db: Session):
                                 limpio_oferta = calcular_limpio(
                                     mejor_oferta_pvp,
                                     producto_erp.iva,
-                                    producto_erp.envio or 0,
+                                    costo_envio,
                                     comisiones_oferta["comision_total"],
                                     db=db,
                                     grupo_id=grupo_id_oferta,

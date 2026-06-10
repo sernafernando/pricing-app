@@ -7,6 +7,7 @@ from app.models.usuario import Usuario
 from datetime import UTC, datetime
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
+from app.services.envio_real_service import resolver_costos_envio_batch
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -694,6 +695,11 @@ def calcular_pvp_masivo(
 
     productos = query.all()
 
+    # Pre-fetch real shipping costs for all products in one batch query.
+    # Items absent from the dict fall back to ProductoERP.envio (ERP value).
+    pvp_masivo_item_ids = [p_erp.item_id for p_erp, _ in productos]
+    envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, pvp_masivo_item_ids)
+
     procesados = 0
     tipo_cambio_cache = {}
 
@@ -713,13 +719,18 @@ def calcular_pvp_masivo(
                 producto_pricing = ProductoPricing(item_id=producto_erp.item_id, usuario_id=current_user.id)
                 db.add(producto_pricing)
 
+            # Resolve real shipping cost: batch resolver takes priority over ERP envio.
+            costo_envio_pvp = envio_real_by_item.get(producto_erp.item_id)
+            if costo_envio_pvp is None:
+                costo_envio_pvp = float(producto_erp.envio or 0)
+
             # Calcular PVP CLÁSICA (pricelist_id=12)
             resultado_clasica = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
                 moneda_costo=producto_erp.moneda_costo,
                 iva=producto_erp.iva,
-                envio=producto_erp.envio or 0,
+                envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=12,  # 54-Lista ML PVP
                 markup_objetivo=request.markup_pvp_clasica,
@@ -740,7 +751,7 @@ def calcular_pvp_masivo(
                 costo=producto_erp.costo,
                 moneda_costo=producto_erp.moneda_costo,
                 iva=producto_erp.iva,
-                envio=producto_erp.envio or 0,
+                envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=18,  # 55-Lista ML PVP 3C
                 markup_objetivo=request.markup_pvp_clasica,  # Mismo que clásica
@@ -758,7 +769,7 @@ def calcular_pvp_masivo(
                 costo=producto_erp.costo,
                 moneda_costo=producto_erp.moneda_costo,
                 iva=producto_erp.iva,
-                envio=producto_erp.envio or 0,
+                envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=19,  # 56-Lista ML PVP 6C
                 markup_objetivo=request.markup_pvp_clasica,
@@ -776,7 +787,7 @@ def calcular_pvp_masivo(
                 costo=producto_erp.costo,
                 moneda_costo=producto_erp.moneda_costo,
                 iva=producto_erp.iva,
-                envio=producto_erp.envio or 0,
+                envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=20,  # 57-Lista ML PVP 9C
                 markup_objetivo=request.markup_pvp_clasica,
@@ -794,7 +805,7 @@ def calcular_pvp_masivo(
                 costo=producto_erp.costo,
                 moneda_costo=producto_erp.moneda_costo,
                 iva=producto_erp.iva,
-                envio=producto_erp.envio or 0,
+                envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=21,  # 58-Lista ML PVP 12C
                 markup_objetivo=request.markup_pvp_clasica,
@@ -973,6 +984,11 @@ def recalcular_cuotas_masivo(
 
     productos = query.all()
 
+    # Pre-fetch real shipping costs for all products in one batch query.
+    # Items absent from the dict fall back to ProductoERP.envio (ERP value).
+    cuotas_masivo_item_ids = [p_erp.item_id for p_erp, _ in productos]
+    envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, cuotas_masivo_item_ids)
+
     # Markup adicional global (fallback si el producto no tiene custom)
     markup_adicional_global = obtener_markup_adicional_cuotas(db)
 
@@ -1022,6 +1038,11 @@ def recalcular_cuotas_masivo(
             costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
             grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
 
+            # Resolve real shipping cost: batch resolver takes priority over ERP envio.
+            costo_envio_cuotas = envio_real_by_item.get(producto_erp.item_id)
+            if costo_envio_cuotas is None:
+                costo_envio_cuotas = float(producto_erp.envio or 0)
+
             # Calcular markup del precio base existente
             comision_base = obtener_comision_base(db, pricelist_clasica, grupo_id)
             if not comision_base:
@@ -1031,7 +1052,7 @@ def recalcular_cuotas_masivo(
             limpio = calcular_limpio(
                 precio_base,
                 producto_erp.iva,
-                producto_erp.envio or 0,
+                costo_envio_cuotas,
                 comisiones["comision_total"],
                 db=db,
                 grupo_id=grupo_id,
@@ -1061,7 +1082,7 @@ def recalcular_cuotas_masivo(
                         costo=producto_erp.costo,
                         moneda_costo=producto_erp.moneda_costo,
                         iva=producto_erp.iva,
-                        envio=producto_erp.envio or 0,
+                        envio=costo_envio_cuotas,
                         subcategoria_id=producto_erp.subcategoria_id,
                         pricelist_id=pricelist_id,
                         markup_objetivo=markup_porcentaje,
@@ -1083,7 +1104,7 @@ def recalcular_cuotas_masivo(
                                 limpio_cuota = calcular_limpio(
                                     float(precio_cuota),
                                     producto_erp.iva,
-                                    producto_erp.envio or 0,
+                                    costo_envio_cuotas,
                                     comisiones_cuota["comision_total"],
                                     db=db,
                                     grupo_id=grupo_id,

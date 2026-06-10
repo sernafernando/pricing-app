@@ -10,6 +10,7 @@ from typing import Dict
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.pricing_calculator import (
     VARIOS_DEFAULT,
     calcular_comision_ml_total,
@@ -34,6 +35,11 @@ def recalcular_markups(db: Session) -> Dict:
 
     pricings = db.query(ProductoPricing).filter(ProductoPricing.precio_lista_ml.isnot(None)).all()
 
+    # Pre-fetch real shipping costs for all products in one batch query.
+    # Items absent from the dict fall back to ProductoERP.envio (ERP value).
+    all_item_ids = [p.item_id for p in pricings]
+    envio_real_by_item: Dict[int, float] = resolver_costos_envio_batch(db, all_item_ids)
+
     for pricing in pricings:
         try:
             producto = db.query(ProductoERP).filter(ProductoERP.item_id == pricing.item_id).first()
@@ -52,6 +58,11 @@ def recalcular_markups(db: Session) -> Dict:
             if not comision_base:
                 continue
 
+            # Use real shipping cost when available; fall back to ERP envio otherwise.
+            costo_envio = envio_real_by_item.get(pricing.item_id)
+            if costo_envio is None:
+                costo_envio = float(producto.envio or 0)
+
             comisiones = calcular_comision_ml_total(
                 pricing.precio_lista_ml,
                 comision_base,
@@ -62,7 +73,7 @@ def recalcular_markups(db: Session) -> Dict:
             limpio = calcular_limpio(
                 pricing.precio_lista_ml,
                 producto.iva,
-                producto.envio or 0,
+                costo_envio,
                 comisiones["comision_total"],
                 db=db,
                 grupo_id=grupo_id,
