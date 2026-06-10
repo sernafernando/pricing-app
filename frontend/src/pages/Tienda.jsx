@@ -106,6 +106,9 @@ export default function Tienda() {
     eliminarPrecioGremioManual, eliminarTodosPreciosGremioManuales,
     toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
     iniciarEdicionDesdeTeclado,
+    editandoMarkupSugerido, setEditandoMarkupSugerido,
+    markupSugeridoTemp, setMarkupSugeridoTemp,
+    iniciarEdicionMarkupSugerido, guardarMarkupSugerido,
   } = useTiendaPricing({
     setProductos,
     productos,
@@ -163,6 +166,7 @@ export default function Tienda() {
 
   // === PERMISOS ===
   const puedeEditarPrecioGremioManual = tienePermiso('tienda.editar_precio_gremio_manual');
+  const puedeEditarMarkupSugerido = tienePermiso('productos.gestionar_markups_tienda');
   const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
   const puedeMarcarColor = tienePermiso('productos.marcar_color');
   const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
@@ -1614,8 +1618,39 @@ export default function Tienda() {
                           {p.markup_sugerido_total !== null && p.markup_sugerido_total !== undefined && (
                             <div className="gremio-markup" style={{ color: getMarkupColor(p.markup_sugerido_total) }}>
                               {p.markup_sugerido_total.toFixed(1)}%
-                              {p.markup_sugerido_valor !== null && (
-                                <span className="info-text-11"> (+{p.markup_sugerido_valor}%)</span>
+                              {p.markup_sugerido_valor !== null && p.markup_sugerido_valor !== undefined && (
+                                editandoMarkupSugerido === p.item_id && puedeEditarMarkupSugerido ? (
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="markup-sugerido-edit-input"
+                                    value={markupSugeridoTemp}
+                                    onChange={(e) => setMarkupSugeridoTemp(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') guardarMarkupSugerido(p.item_id);
+                                      if (e.key === 'Escape') setEditandoMarkupSugerido(null);
+                                    }}
+                                    onBlur={() => setEditandoMarkupSugerido(null)}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <span
+                                    className="info-text-11"
+                                    onClick={puedeEditarMarkupSugerido ? () => iniciarEdicionMarkupSugerido(p) : undefined}
+                                    style={{ cursor: puedeEditarMarkupSugerido ? 'pointer' : 'default' }}
+                                    title={puedeEditarMarkupSugerido ? 'Clic para editar markup sugerido' : undefined}
+                                  >
+                                    {' '}(+{p.markup_sugerido_valor}%)
+                                    {p.markup_sugerido_origen === 'producto' && (
+                                      <span
+                                        className="markup-sugerido-origen-indicator"
+                                        title="Markup individual (producto)"
+                                        aria-label="Markup individual"
+                                        role="img"
+                                      />
+                                    )}
+                                  </span>
+                                )
                               )}
                             </div>
                           )}

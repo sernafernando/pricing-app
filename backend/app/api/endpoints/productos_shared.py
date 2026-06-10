@@ -4,7 +4,7 @@ Shared Pydantic models for the productos module.
 All schemas used across productos sub-modules live here.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime, date
 import logging
@@ -135,6 +135,7 @@ class ProductoTiendaResponse(BaseModel):
     precio_sugerido_con_iva: Optional[float] = None
     markup_sugerido_valor: Optional[float] = None  # % sugerido configurado (marca o producto)
     markup_sugerido_total: Optional[float] = None  # markup_clasica + markup_sugerido
+    markup_sugerido_origen: Optional[Literal["producto", "marca"]] = None  # origen del markup sugerido efectivo
     participa_web_transferencia: Optional[bool] = False
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None
@@ -176,6 +177,56 @@ class ProductoTiendaListResponse(BaseModel):
     page: int
     page_size: int
     productos: List[ProductoTiendaResponse]
+
+
+# =============================================================================
+# SHARED PRICING HELPERS
+# =============================================================================
+
+
+def computar_precio_sugerido(
+    costo_ars: float,
+    iva: float,
+    markup_clasica: Optional[float],
+    markup_sugerido_valor: Optional[float],
+    varios_porcentaje: float,
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Compute precio_sugerido_sin_iva, precio_sugerido_con_iva, and markup_sugerido_total
+    from the given inputs.
+
+    This is the single source of truth for the suggested-price formula, shared by:
+    - the Tienda listing (productos_listing.py) for bulk computation
+    - the PATCH /markups-tienda/productos/{item_id}/markup-sugerido endpoint for single-row recompute
+
+    The formula is:
+        effective_sugerido = markup_sugerido_valor if not None else 0.0
+        markup_sugerido_total = markup_clasica + effective_sugerido
+        precio_sugerido_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_sugerido_total / 100)
+        precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva / 100)
+
+    Args:
+        costo_ars: Product cost in ARS (already converted from USD if applicable).
+        iva: IVA percentage (e.g. 21.0 for 21%).
+        markup_clasica: The Clásica (gremio) markup % from producto_pricing.markup_calculado.
+                        If None or costo_ars <= 0 the function returns (None, None, None).
+        markup_sugerido_valor: The additional suggested markup % (product or brand level).
+                               None is treated as 0.0 (no additional markup).
+        varios_porcentaje: Operating cost percentage (e.g. 6.5).
+
+    Returns:
+        Tuple (precio_sugerido_sin_iva, precio_sugerido_con_iva, markup_sugerido_total).
+        All three are None when required inputs are missing.
+    """
+    if markup_clasica is None or not costo_ars or costo_ars <= 0:
+        return None, None, None
+
+    effective_sugerido = markup_sugerido_valor if markup_sugerido_valor is not None else 0.0
+    markup_sugerido_total = markup_clasica + effective_sugerido
+    precio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_sugerido_total / 100)
+    iva_rate = iva if iva is not None else 21.0
+    precio_con_iva = precio_sin_iva * (1 + iva_rate / 100)
+    return precio_sin_iva, precio_con_iva, markup_sugerido_total
 
 
 class ExportRebateRequest(BaseModel):
