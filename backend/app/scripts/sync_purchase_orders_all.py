@@ -159,13 +159,19 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
                     "poh_isemailenvied": record.get("poh_iseMailEnvied"),
                 }
 
+                # Savepoint por registro: si un valor no entra en su columna/tipo,
+                # se aísla ese registro (reportado con su PK) sin tumbar el lote.
+                with db.begin_nested():
+                    if existente:
+                        for key, value in datos.items():
+                            setattr(existente, key, value)
+                    else:
+                        db.add(PurchaseOrderHeader(**datos))
+                    db.flush()
+
                 if existente:
-                    for key, value in datos.items():
-                        setattr(existente, key, value)
                     actualizados += 1
                 else:
-                    nuevo = PurchaseOrderHeader(**datos)
-                    db.add(nuevo)
                     nuevos += 1
 
                 # Commit cada 500
@@ -174,11 +180,16 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
 
             except Exception as e:
                 errores += 1
-                if errores <= 5:
-                    print(f"\n  ⚠️  Error en registro: {str(e)}")
+                error_key = type(e).__name__
+                if errores <= 10:
+                    print(f"\n  ⚠️  poh_id={record.get('poh_id')} [{error_key}]: {str(e)[:400]}")
                 continue
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"\n  ❌ Error en commit final (header): {str(e)[:400]}")
         print(f"✓ ({nuevos} nuevos, {actualizados} actualizados, {errores} errores)")
         return (nuevos, actualizados, errores)
 
@@ -301,41 +312,43 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
                     "stor_id": record.get("stor_id"),
                 }
 
+                # Savepoint por registro: aísla el registro que no entra en su
+                # columna/tipo (reportado con su PK) sin perder todo el lote.
+                with db.begin_nested():
+                    if existente:
+                        for key, value in datos.items():
+                            setattr(existente, key, value)
+                    else:
+                        db.add(PurchaseOrderDetail(**datos))
+                    db.flush()
+
                 if existente:
-                    for key, value in datos.items():
-                        setattr(existente, key, value)
                     actualizados += 1
                 else:
-                    nuevo = PurchaseOrderDetail(**datos)
-                    db.add(nuevo)
                     nuevos += 1
 
-                # Commit cada 100 para detectar errores más rápido
+                # Commit cada 100
                 if (nuevos + actualizados) % 100 == 0:
-                    try:
-                        db.commit()
-                    except Exception as commit_err:
-                        db.rollback()
-                        errores += 1
-                        error_key = type(commit_err).__name__
-                        errores_por_tipo[error_key] = errores_por_tipo.get(error_key, 0) + 1
-                        if errores <= 3:
-                            print(f"\n  ⚠️  Error en commit: {str(commit_err)[:100]}")
+                    db.commit()
 
             except Exception as e:
                 errores += 1
                 error_key = type(e).__name__
                 errores_por_tipo[error_key] = errores_por_tipo.get(error_key, 0) + 1
-                if errores <= 3:
-                    print(f"\n  ⚠️  Error: {str(e)[:100]}")
+                if errores <= 10:
+                    print(
+                        f"\n  ⚠️  pod_id={record.get('pod_id')} poh_id={record.get('poh_id')} "
+                        f"[{error_key}]: {str(e)[:400]}"
+                    )
                 continue
 
         try:
             db.commit()
         except Exception as e:
             db.rollback()
+            print(f"\n  ❌ Error en commit final (detail): {str(e)[:400]}")
             if errores_por_tipo:
-                print(f"\n  📊 Errores por tipo: {errores_por_tipo}")
+                print(f"  📊 Errores por tipo: {errores_por_tipo}")
         print(f"✓ ({nuevos} nuevos, {actualizados} actualizados, {errores} errores)")
         return (nuevos, actualizados, errores)
 
