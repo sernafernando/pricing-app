@@ -145,12 +145,16 @@
   background: var(--cf-accent-gray);
 }
 
-.dotMensajes {
-  background: var(--cf-accent-purple);
+.dotSinResponder {
+  background: var(--cf-accent-red);
+}
+
+.dotSinLeer {
+  background: var(--cf-accent-teal);
 }
 
 .dotActividad {
-  background: var(--cf-accent-red);
+  background: var(--cf-accent-purple);
 }
 
 /* ── Ver todos link ──────────────────────────────────── */

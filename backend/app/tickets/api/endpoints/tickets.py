@@ -121,14 +121,31 @@ def badge_count(
         .subquery()
     )
 
-    # ── Sub-query: último comentario por ticket ──────────────────────
-    # Mensajes nuevos = acción "comentado" más reciente por ticket
-    ultima_mensaje = (
+    # ── Sub-query: último comentario de OTRO usuario por ticket ────────
+    # Used for sin_responder and sin_leer — own comments excluded
+    coment_otros = (
         db.query(
             HistorialTicket.ticket_id,
             func.max(HistorialTicket.fecha).label("ultima_fecha"),
         )
-        .filter(HistorialTicket.accion == "comentado")
+        .filter(
+            HistorialTicket.accion == "comentado",
+            HistorialTicket.usuario_id != current_user.id,
+        )
+        .group_by(HistorialTicket.ticket_id)
+        .subquery()
+    )
+
+    # ── Sub-query: último comentario MÍO por ticket ─────────────────
+    coment_mio = (
+        db.query(
+            HistorialTicket.ticket_id,
+            func.max(HistorialTicket.fecha).label("ultima_fecha"),
+        )
+        .filter(
+            HistorialTicket.accion == "comentado",
+            HistorialTicket.usuario_id == current_user.id,
+        )
         .group_by(HistorialTicket.ticket_id)
         .subquery()
     )
@@ -232,23 +249,41 @@ def badge_count(
         or 0
     )
 
-    # 5. con_mensajes_nuevos: comment-specific unread predicate
-    con_mensajes_nuevos: int = (
+    # 5. sin_responder: latest comment is from someone other than me
+    # coment_otros IS NOT NULL AND (coment_mio IS NULL OR coment_otros > coment_mio)
+    sin_responder: int = (
         _base()
-        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
-        .outerjoin(ultima_mensaje, Ticket.id == ultima_mensaje.c.ticket_id)
+        .outerjoin(coment_otros, Ticket.id == coment_otros.c.ticket_id)
+        .outerjoin(coment_mio, Ticket.id == coment_mio.c.ticket_id)
         .filter(
-            ultima_mensaje.c.ultima_fecha.isnot(None),
+            coment_otros.c.ultima_fecha.isnot(None),
             or_(
-                ultima_revision.c.ultima_fecha.is_(None),
-                ultima_mensaje.c.ultima_fecha > ultima_revision.c.ultima_fecha,
+                coment_mio.c.ultima_fecha.is_(None),
+                coment_otros.c.ultima_fecha > coment_mio.c.ultima_fecha,
             ),
         )
         .scalar()
         or 0
     )
 
-    # pendientes = acción requerida = sin_asignar + asignados_a_mi (no 5th query)
+    # 6. sin_leer: other's comment newer than my last revisado (ticket open)
+    # coment_otros IS NOT NULL AND (ultima_revision IS NULL OR coment_otros > ultima_revision)
+    sin_leer: int = (
+        _base()
+        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
+        .outerjoin(coment_otros, Ticket.id == coment_otros.c.ticket_id)
+        .filter(
+            coment_otros.c.ultima_fecha.isnot(None),
+            or_(
+                ultima_revision.c.ultima_fecha.is_(None),
+                coment_otros.c.ultima_fecha > ultima_revision.c.ultima_fecha,
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
+    # pendientes = acción requerida = sin_asignar + asignados_a_mi (no extra query)
     pendientes: int = sin_asignar + asignados_a_mi
 
     return TicketBadgeCount(
@@ -257,7 +292,8 @@ def badge_count(
         asignados_a_mi=asignados_a_mi,
         asignados_a_otros=asignados_a_otros,
         con_actividad_nueva=con_actividad_nueva,
-        con_mensajes_nuevos=con_mensajes_nuevos,
+        sin_responder=sin_responder,
+        sin_leer=sin_leer,
     )
 
 
