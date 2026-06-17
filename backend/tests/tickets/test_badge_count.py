@@ -443,3 +443,93 @@ class TestScopeNonPermiso:
         # Should only see the 1 ticket me created, not other's
         assert total_visible == 1
         assert body["sin_asignar"] == 1  # t_mine is unassigned
+
+
+# ---------------------------------------------------------------------------
+# con_mensajes_nuevos — new test cases (SC-12 to SC-15)
+# ---------------------------------------------------------------------------
+
+
+class TestConMensajesNuevos:
+    def test_comment_newer_than_revision_counted(self, client, db, rol_ventas):
+        """SC-12: Comment after last revisado → con_mensajes_nuevos=1."""
+        user = _make_user(db, rol_ventas, "sc12")
+        _give_permiso(db, user, "tickets.ver")
+        sector = _make_sector(db)
+        _, tipo, abierto, _ = _make_workflow_and_tipo(db, sector)
+        db.add(SectorUsuario(sector_id=sector.id, usuario_id=user.id, activo=True))
+        db.flush()
+
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=abierto, creador=user)
+        t_revision = datetime.now(UTC) - timedelta(hours=2)
+        t_comment = datetime.now(UTC) - timedelta(hours=1)
+
+        _add_historial(db, ticket=ticket, usuario=user, accion="revisado", fecha=t_revision)
+        _add_historial(db, ticket=ticket, usuario=user, accion="comentado", fecha=t_comment)
+
+        resp = client.get(ENDPOINT, headers=_headers(user))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["con_mensajes_nuevos"] >= 1
+
+    def test_non_comment_activity_not_in_mensajes(self, client, db, rol_ventas):
+        """SC-13: Non-comment activity after revisado → counted in con_actividad_nueva
+        but NOT in con_mensajes_nuevos (proves the distinction)."""
+        user = _make_user(db, rol_ventas, "sc13")
+        _give_permiso(db, user, "tickets.ver")
+        sector = _make_sector(db)
+        _, tipo, abierto, _ = _make_workflow_and_tipo(db, sector)
+        db.add(SectorUsuario(sector_id=sector.id, usuario_id=user.id, activo=True))
+        db.flush()
+
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=abierto, creador=user)
+        t_revision = datetime.now(UTC) - timedelta(hours=2)
+        t_activity = datetime.now(UTC) - timedelta(hours=1)
+
+        _add_historial(db, ticket=ticket, usuario=user, accion="revisado", fecha=t_revision)
+        # Estado change — actividad but NOT a comment
+        _add_historial(db, ticket=ticket, usuario=user, accion="estado_cambiado", fecha=t_activity)
+
+        resp = client.get(ENDPOINT, headers=_headers(user))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["con_actividad_nueva"] >= 1
+        assert body["con_mensajes_nuevos"] == 0
+
+    def test_comment_older_than_revision_not_counted(self, client, db, rol_ventas):
+        """SC-14: Comment OLDER than last revisado → NOT in con_mensajes_nuevos."""
+        user = _make_user(db, rol_ventas, "sc14")
+        _give_permiso(db, user, "tickets.ver")
+        sector = _make_sector(db)
+        _, tipo, abierto, _ = _make_workflow_and_tipo(db, sector)
+        db.add(SectorUsuario(sector_id=sector.id, usuario_id=user.id, activo=True))
+        db.flush()
+
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=abierto, creador=user)
+        t_comment = datetime.now(UTC) - timedelta(hours=2)
+        t_revision = datetime.now(UTC) - timedelta(hours=1)
+
+        _add_historial(db, ticket=ticket, usuario=user, accion="comentado", fecha=t_comment)
+        _add_historial(db, ticket=ticket, usuario=user, accion="revisado", fecha=t_revision)
+
+        resp = client.get(ENDPOINT, headers=_headers(user))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["con_mensajes_nuevos"] == 0
+
+    def test_closed_ticket_with_comment_not_counted(self, client, db, rol_ventas):
+        """SC-15: Closed ticket with new comment → NOT in con_mensajes_nuevos."""
+        user = _make_user(db, rol_ventas, "sc15")
+        _give_permiso(db, user, "tickets.ver")
+        sector = _make_sector(db)
+        _, tipo, _, cerrado = _make_workflow_and_tipo(db, sector)
+        db.add(SectorUsuario(sector_id=sector.id, usuario_id=user.id, activo=True))
+        db.flush()
+
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=cerrado, creador=user)
+        _add_historial(db, ticket=ticket, usuario=user, accion="comentado")
+
+        resp = client.get(ENDPOINT, headers=_headers(user))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["con_mensajes_nuevos"] == 0

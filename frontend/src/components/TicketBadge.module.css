@@ -145,6 +145,10 @@
   background: var(--cf-accent-gray);
 }
 
+.dotMensajes {
+  background: var(--cf-accent-purple);
+}
+
 .dotActividad {
   background: var(--cf-accent-red);
 }

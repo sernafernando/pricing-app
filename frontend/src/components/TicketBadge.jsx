@@ -23,6 +23,7 @@ const ZERO_BREAKDOWN = {
   sin_asignar: 0,
   asignados_a_mi: 0,
   asignados_a_otros: 0,
+  con_mensajes_nuevos: 0,
   con_actividad_nueva: 0,
 };
 
@@ -162,6 +163,11 @@ export default function TicketBadge() {
                 value={breakdown.asignados_a_otros}
               />
             )}
+            <Row
+              dotClass={styles.dotMensajes}
+              label="Mensajes nuevos"
+              value={breakdown.con_mensajes_nuevos}
+            />
             <Row
               dotClass={styles.dotActividad}
               label="Actividad nueva"

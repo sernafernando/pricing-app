@@ -121,6 +121,18 @@ def badge_count(
         .subquery()
     )
 
+    # ── Sub-query: último comentario por ticket ──────────────────────
+    # Mensajes nuevos = acción "comentado" más reciente por ticket
+    ultima_mensaje = (
+        db.query(
+            HistorialTicket.ticket_id,
+            func.max(HistorialTicket.fecha).label("ultima_fecha"),
+        )
+        .filter(HistorialTicket.accion == "comentado")
+        .group_by(HistorialTicket.ticket_id)
+        .subquery()
+    )
+
     # ── Sub-query: última actividad real por ticket ──────────────────
     # Actividad = cualquier acción que NO sea "revisado"
     ultima_actividad = (
@@ -220,6 +232,22 @@ def badge_count(
         or 0
     )
 
+    # 5. con_mensajes_nuevos: comment-specific unread predicate
+    con_mensajes_nuevos: int = (
+        _base()
+        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
+        .outerjoin(ultima_mensaje, Ticket.id == ultima_mensaje.c.ticket_id)
+        .filter(
+            ultima_mensaje.c.ultima_fecha.isnot(None),
+            or_(
+                ultima_revision.c.ultima_fecha.is_(None),
+                ultima_mensaje.c.ultima_fecha > ultima_revision.c.ultima_fecha,
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
     # pendientes = acción requerida = sin_asignar + asignados_a_mi (no 5th query)
     pendientes: int = sin_asignar + asignados_a_mi
 
@@ -229,6 +257,7 @@ def badge_count(
         asignados_a_mi=asignados_a_mi,
         asignados_a_otros=asignados_a_otros,
         con_actividad_nueva=con_actividad_nueva,
+        con_mensajes_nuevos=con_mensajes_nuevos,
     )
 
 
