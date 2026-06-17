@@ -249,9 +249,15 @@ class AdjuntoResponse(BaseModel):
 
 
 class TicketBadgeCount(BaseModel):
-    """Schema de respuesta para badge count"""
+    """Schema de respuesta para badge count + breakdown por categoría."""
 
-    pendientes: int = Field(..., description="Tickets sin revisar por el usuario actual")
+    pendientes: int = Field(..., description="Acción requerida = sin_asignar + asignados_a_mi (badge primario)")
+    sin_asignar: int = Field(0, description="Tickets abiertos visibles sin asignación activa")
+    asignados_a_mi: int = Field(0, description="Tickets abiertos visibles asignados al usuario actual")
+    asignados_a_otros: int = Field(0, description="Asignados a otra persona; 0 sin permiso tickets.ver")
+    con_actividad_nueva: int = Field(
+        0, description="Cross-cutting: actividad nueva desde la última revisión; solapa las demás"
+    )
 
 
 class TicketListPaginatedResponse(BaseModel):

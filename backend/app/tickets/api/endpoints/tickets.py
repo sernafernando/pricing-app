@@ -88,15 +88,17 @@ def badge_count(
     current_user: Usuario = Depends(get_current_user),
 ) -> TicketBadgeCount:
     """
-    Retorna la cantidad de tickets con actividad no leída para el usuario.
+    Retorna el breakdown de tickets por categoría para el badge del TopBar.
 
-    Lógica:
-    Un ticket cuenta como "pendiente" si tiene actividad (comentario,
-    cambio de estado, asignación) POSTERIOR a la última vez que el usuario
-    lo marcó como revisado.  Si nunca lo revisó, cuenta siempre.
+    Categorías:
+    - sin_asignar: tickets abiertos en scope sin asignación activa
+    - asignados_a_mi: tickets abiertos asignados activamente al usuario
+    - asignados_a_otros: tickets abiertos asignados a otro (solo con tickets.ver)
+    - con_actividad_nueva: tickets con actividad posterior a la última revisión
+    - pendientes (derivado): sin_asignar + asignados_a_mi (badge primario)
 
     Alcance:
-    - tickets.ver → tickets de sus sectores (asignados o no) + los que creó
+    - tickets.ver → tickets de sus sectores + los que creó
     - sin tickets.ver → solo tickets que creó el usuario
 
     Usado por TicketBadge en el TopBar.
@@ -131,25 +133,20 @@ def badge_count(
         .subquery()
     )
 
-    # ── Query base: tickets abiertos ─────────────────────────────────
-    query = (
-        db.query(func.count(Ticket.id))
-        .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
-        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
-        .outerjoin(ultima_actividad, Ticket.id == ultima_actividad.c.ticket_id)
-        .filter(
-            EstadoTicket.es_final.is_(False),
-            # Tiene actividad Y (nunca revisado O actividad posterior a revisión)
-            ultima_actividad.c.ultima_fecha.isnot(None),
-            or_(
-                ultima_revision.c.ultima_fecha.is_(None),
-                ultima_actividad.c.ultima_fecha > ultima_revision.c.ultima_fecha,
-            ),
+    # ── Sub-query: asignación activa por ticket ──────────────────────
+    # Ticket.asignacion_actual is a Python property — cannot be used in SQL.
+    # Use this subquery instead to filter by active assignment.
+    asignacion_activa = (
+        db.query(
+            AsignacionTicket.ticket_id,
+            AsignacionTicket.asignado_a_id,
         )
+        .filter(AsignacionTicket.fecha_finalizacion.is_(None))
+        .subquery()
     )
 
+    # ── Scope predicate (shared across all four counts) ──────────────
     if puede_ver:
-        # Gestores: tickets de sus sectores + los que crearon
         mis_sectores = (
             db.query(SectorUsuario.sector_id)
             .filter(
@@ -158,18 +155,81 @@ def badge_count(
             )
             .scalar_subquery()
         )
-        query = query.filter(
-            or_(
-                Ticket.sector_id.in_(mis_sectores),
-                Ticket.creador_id == current_user.id,
-            )
+        scope_filter = or_(
+            Ticket.sector_id.in_(mis_sectores),
+            Ticket.creador_id == current_user.id,
         )
     else:
-        # Usuarios normales: solo sus tickets
-        query = query.filter(Ticket.creador_id == current_user.id)
+        scope_filter = Ticket.creador_id == current_user.id
 
-    pendientes = query.scalar() or 0
-    return TicketBadgeCount(pendientes=pendientes)
+    open_filter = EstadoTicket.es_final.is_(False)
+
+    # ── Base query factory (open + in-scope tickets, joined to estado) ─
+    def _base() -> object:
+        return (
+            db.query(func.count(func.distinct(Ticket.id)))
+            .join(EstadoTicket, Ticket.estado_id == EstadoTicket.id)
+            .filter(open_filter, scope_filter)
+        )
+
+    # 1. sin_asignar: open + in scope + no active assignment row
+    sin_asignar: int = (
+        _base()
+        .outerjoin(asignacion_activa, Ticket.id == asignacion_activa.c.ticket_id)
+        .filter(asignacion_activa.c.ticket_id.is_(None))
+        .scalar()
+        or 0
+    )
+
+    # 2. asignados_a_mi: open + in scope + active assignment to me
+    asignados_a_mi: int = (
+        _base()
+        .join(asignacion_activa, Ticket.id == asignacion_activa.c.ticket_id)
+        .filter(asignacion_activa.c.asignado_a_id == current_user.id)
+        .scalar()
+        or 0
+    )
+
+    # 3. asignados_a_otros: only computed for tickets.ver users (gate saves a query)
+    if puede_ver:
+        asignados_a_otros: int = (
+            _base()
+            .join(asignacion_activa, Ticket.id == asignacion_activa.c.ticket_id)
+            .filter(
+                asignacion_activa.c.asignado_a_id != current_user.id,
+            )
+            .scalar()
+            or 0
+        )
+    else:
+        asignados_a_otros = 0
+
+    # 4. con_actividad_nueva: existing unread predicate (preserved verbatim)
+    con_actividad_nueva: int = (
+        _base()
+        .outerjoin(ultima_revision, Ticket.id == ultima_revision.c.ticket_id)
+        .outerjoin(ultima_actividad, Ticket.id == ultima_actividad.c.ticket_id)
+        .filter(
+            ultima_actividad.c.ultima_fecha.isnot(None),
+            or_(
+                ultima_revision.c.ultima_fecha.is_(None),
+                ultima_actividad.c.ultima_fecha > ultima_revision.c.ultima_fecha,
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
+    # pendientes = acción requerida = sin_asignar + asignados_a_mi (no 5th query)
+    pendientes: int = sin_asignar + asignados_a_mi
+
+    return TicketBadgeCount(
+        pendientes=pendientes,
+        sin_asignar=sin_asignar,
+        asignados_a_mi=asignados_a_mi,
+        asignados_a_otros=asignados_a_otros,
+        con_actividad_nueva=con_actividad_nueva,
+    )
 
 
 @router.post("/tickets/marcar-revisado/{ticket_id}")

@@ -1,5 +1,11 @@
 /* TicketBadge - Acceso directo a tickets en TopBar */
 
+/* Wrapper anchors the popover */
+.wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
 .badge {
   display: flex;
   align-items: center;
@@ -51,7 +57,121 @@
   line-height: 1;
 }
 
-/* Light mode */
+/* ── Popover ─────────────────────────────────────────── */
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-popover);
+  min-width: 220px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+  animation: popoverIn var(--duration-150) var(--ease-in-out);
+}
+
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Rows ────────────────────────────────────────────── */
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: opacity var(--duration-150) var(--ease-in-out);
+}
+
+.rowLabel {
+  flex: 1;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.rowCount {
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  min-width: 20px;
+  text-align: right;
+}
+
+/* Zero-count rows are dimmed but remain visible */
+.dim {
+  opacity: 0.45;
+}
+
+/* ── Colored dots ────────────────────────────────────── */
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotSinAsignar {
+  background: var(--cf-accent-orange);
+}
+
+.dotAMi {
+  background: var(--cf-accent-blue);
+}
+
+.dotAOtros {
+  background: var(--cf-accent-gray);
+}
+
+.dotActividad {
+  background: var(--cf-accent-red);
+}
+
+/* ── Ver todos link ──────────────────────────────────── */
+
+.verTodos {
+  display: block;
+  margin-top: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--cf-border-subtle);
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  text-align: center;
+  border-radius: 0 0 6px 6px;
+  transition: background var(--duration-150) var(--ease-in-out);
+}
+
+.verTodos:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-accent-blue-hover);
+}
+
+/* ── Light mode overrides ────────────────────────────── */
+
 :global([data-theme="light"]) .hasCount {
   background: rgba(59, 130, 246, 0.08);
   border-color: rgba(59, 130, 246, 0.2);
@@ -63,7 +183,12 @@
   border-color: rgba(59, 130, 246, 0.35);
 }
 
-/* Responsive */
+:global([data-theme="light"]) .popover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Responsive ≤768px ───────────────────────────────── */
+
 @media (max-width: 768px) {
   .badge {
     padding: 6px 8px;
@@ -71,5 +196,12 @@
 
   .count {
     display: none;
+  }
+
+  /* Clamp popover so it doesn't overflow narrow viewports */
+  .popover {
+    right: 0;
+    left: auto;
+    max-width: calc(100vw - 24px);
   }
 }
