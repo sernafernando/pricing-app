@@ -23,7 +23,8 @@ const ZERO_BREAKDOWN = {
   sin_asignar: 0,
   asignados_a_mi: 0,
   asignados_a_otros: 0,
-  con_mensajes_nuevos: 0,
+  sin_responder: 0,
+  sin_leer: 0,
   con_actividad_nueva: 0,
 };
 
@@ -164,9 +165,14 @@ export default function TicketBadge() {
               />
             )}
             <Row
-              dotClass={styles.dotMensajes}
-              label="Mensajes nuevos"
-              value={breakdown.con_mensajes_nuevos}
+              dotClass={styles.dotSinResponder}
+              label="Sin responder"
+              value={breakdown.sin_responder}
+            />
+            <Row
+              dotClass={styles.dotSinLeer}
+              label="Sin leer"
+              value={breakdown.sin_leer}
             />
             <Row
               dotClass={styles.dotActividad}

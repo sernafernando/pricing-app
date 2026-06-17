@@ -258,8 +258,11 @@ class TicketBadgeCount(BaseModel):
     con_actividad_nueva: int = Field(
         0, description="Cross-cutting: actividad nueva desde la última revisión; solapa las demás"
     )
-    con_mensajes_nuevos: int = Field(
-        0, description="Cross-cutting: comentario nuevo desde la última revisión; subconjunto de con_actividad_nueva"
+    sin_responder: int = Field(
+        0, description="Cross-cutting: último comentario es de otro usuario (pelota en mi cancha)"
+    )
+    sin_leer: int = Field(
+        0, description="Cross-cutting: comentario de otro usuario más reciente que mi última revisión"
     )
 
 
