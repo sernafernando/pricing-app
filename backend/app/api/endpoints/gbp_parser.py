@@ -79,6 +79,8 @@ SCRIPT_CONFIG = {
         "updateToDate",
     ],
     "scriptSaleOrderDetailHistory": ["fromDate", "toDate", "sohID", "sohhID", "sodID", "braID"],
+    "scriptPurchaseOrderHeader": ["fromDate", "toDate", "pohID", "braID", "updateFromDate", "updateToDate"],
+    "scriptPurchaseOrderDetail": ["fromDate", "toDate", "pohID", "pohID2", "podID", "braID"],
     "scriptVentasFueraOM": ["fromDate", "toDate", "braID"],
     "scriptBrand": ["brandID"],
     "scriptCategory": ["catID"],
