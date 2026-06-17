@@ -164,6 +164,10 @@ from app.models.nota_credito_local import NotaCreditoLocal
 # Compras v2 — Dinero a cuenta (PR2 / PR3)
 from app.models.dinero_a_cuenta import DineroACuenta
 
+# Compras — Órdenes de compra ERP (mirror local)
+from app.models.purchase_order_header import PurchaseOrderHeader
+from app.models.purchase_order_detail import PurchaseOrderDetail
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -338,4 +342,7 @@ __all__ = [
     "CompraAdjunto",
     "NotaCreditoLocal",
     "DineroACuenta",
+    # Compras — Órdenes de compra ERP (mirror local)
+    "PurchaseOrderHeader",
+    "PurchaseOrderDetail",
 ]
