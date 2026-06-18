@@ -1595,9 +1595,10 @@ class TestListadosNoN1:
         data = r.json()
         assert data["total"] >= 10
         # Con joinedload esperamos: 1 COUNT + 1 SELECT con LEFT JOIN empresas + proveedores.
-        # Sin joinedload serían ~1 + 1 + 10 (empresa) + 10 (proveedor) ≈ 22.
-        # Cota conservadora: <= 5 cubre margen para N+1 de CT o eventos colaterales.
-        assert contador[0] <= 5, f"posible N+1: {contador[0]} selects disparados (esperado <= 5)"
+        # REQ-FX-001/002: calcular_varianza_tc_batch agrega ~4-5 queries sobre PEDIDOS_COMPRA
+        # (resolver_tc_efectivo_batch, caso_a_batch, moneda/tc_orig query — bounded, not N+1).
+        # Umbral actualizado a 15: bounded sin importar N (vs ~22 sin joinedload o N+1 previo).
+        assert contador[0] <= 15, f"posible N+1: {contador[0]} selects disparados (esperado <= 15)"
 
     def test_listar_ops_sin_n1(self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos):
         """Idem para OPs: 10 OPs y contar queries."""

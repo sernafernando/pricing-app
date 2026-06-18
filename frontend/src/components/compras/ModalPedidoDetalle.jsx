@@ -413,6 +413,15 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                       {formatCurrency(pedido.saldo_pendiente, pedido.moneda)}
                     </strong>
                   )}
+                  {/* REQ-FX-004: when FX differential pending, show explicit ARS varianza */}
+                  {pedido.varianza_tc_pendiente && (
+                    <div className={styles.infoSubvalue}>
+                      Diferencial TC:{' '}
+                      <strong>
+                        {formatCurrency(Number(pedido.varianza_tc_neta), 'ARS')} ARS
+                      </strong>
+                    </div>
+                  )}
                 </div>
               )}
               {pedido.moneda === 'USD' && (

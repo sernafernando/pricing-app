@@ -15,6 +15,7 @@ import {
   Clock,
   Trash2,
   Inbox,
+  TrendingUp,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -129,6 +130,7 @@ export default function TabPedidosCompra() {
   const [filtroProveedorId, setFiltroProveedorId] = useState('');
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
+  const [filtroDiferencial, setFiltroDiferencial] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const debouncedBusqueda = useDebounce(busqueda, 300);
 
@@ -155,6 +157,7 @@ export default function TabPedidosCompra() {
     if (filtroProveedorId) params.proveedor_id = filtroProveedorId;
     if (filtroDesde) params.desde = filtroDesde;
     if (filtroHasta) params.hasta = filtroHasta;
+    if (filtroDiferencial) params.diferencial_cambio_pendiente = true;
 
     try {
       const data = await listarPedidos(params);
@@ -178,6 +181,7 @@ export default function TabPedidosCompra() {
     filtroProveedorId,
     filtroDesde,
     filtroHasta,
+    filtroDiferencial,
     debouncedBusqueda,
   ]);
 
@@ -201,7 +205,7 @@ export default function TabPedidosCompra() {
   // Reset page on filters
   useEffect(() => {
     setPage(1);
-  }, [filtroEstado, filtroEmpresa, filtroProveedorId, filtroDesde, filtroHasta, debouncedBusqueda]);
+  }, [filtroEstado, filtroEmpresa, filtroProveedorId, filtroDesde, filtroHasta, filtroDiferencial, debouncedBusqueda]);
 
   // ── Actions ──
   const handleOpenCrear = () => {
@@ -479,6 +483,25 @@ export default function TabPedidosCompra() {
       case 'moneda':
         return <span className={styles.tdMono}>{p.moneda}</span>;
       case 'monto': {
+        // REQ-FX-004 / REQ-FX-005: when FX differential is pending, replace the saldo
+        // display with the ARS varianza amount and show the "Falta aplicar NC/ND" badge.
+        if (p.varianza_tc_pendiente) {
+          const varNeta = Number(p.varianza_tc_neta);
+          return (
+            <div className={styles.montoDual}>
+              <span className={styles.montoArsPrincipal}>
+                {formatCurrency(varNeta, 'ARS')}
+                {' '}
+                <span className={styles.monedaVarianzaLabel}>ARS</span>
+              </span>
+              <span className={styles.montoUsdSecundario}>diferencial a regularizar</span>
+              <span className={styles.badgeDiferencial}>
+                <TrendingUp size={11} />
+                Falta aplicar NC/ND
+              </span>
+            </div>
+          );
+        }
         // Saldo pendiente (= monto - imputaciones efectivas) en moneda del
         // pedido. Si pedido es USD con TC, mostramos saldo ARS = saldo_usd × TC.
         // El total se muestra como subvalor para no perder contexto.
@@ -611,6 +634,16 @@ export default function TabPedidosCompra() {
           size="sm"
           className={styles.searchWrapper}
         />
+        {/* REQ-FX-006: filter toggle for FX differential pending orders */}
+        <label className={styles.filtroToggle}>
+          <input
+            type="checkbox"
+            checked={filtroDiferencial}
+            onChange={(e) => setFiltroDiferencial(e.target.checked)}
+          />
+          <TrendingUp size={13} />
+          Solo con diferencial pendiente
+        </label>
       </FiltersBar>
 
       {pedidosError && (

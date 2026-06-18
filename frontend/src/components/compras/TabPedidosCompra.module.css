@@ -251,3 +251,42 @@
   color: var(--cf-accent-red);
   background: rgba(239, 68, 68, 0.12);
 }
+
+/* ── REQ-FX-005 — Badge diferencial de cambio pendiente ──────────── */
+.badgeDiferencial {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: var(--spacing-xs);
+  color: var(--cf-accent-blue);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+/* ── REQ-FX-004 — Explicit ARS currency label next to varianza ───── */
+.monedaVarianzaLabel {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  margin-left: 2px;
+}
+
+/* ── REQ-FX-006 — Filter toggle in FiltersBar ────────────────────── */
+.filtroToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.filtroToggle input[type='checkbox'] {
+  accent-color: var(--cf-accent-blue);
+  cursor: pointer;
+}

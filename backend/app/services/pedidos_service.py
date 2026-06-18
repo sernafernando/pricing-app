@@ -1278,6 +1278,186 @@ def calcular_varianza_tc(session: Session, pedido: PedidoCompra) -> Decimal:
     return (varianza_bruta - varianza_compensada).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def calcular_varianza_tc_batch(
+    session: Session,
+    pedido_ids: list[int],
+) -> dict[int, Decimal]:
+    """
+    F2 batch — varianza_tc_neta for N pedidos with a bounded query count (no N+1).
+
+    Mirrors calcular_varianza_tc (single-order) exactly so list/detail parity holds.
+    Returns {pedido_id: Decimal}. Every input id is present; non-USD / no-Caso-B → Decimal('0').
+
+    Query budget: 4-5 queries regardless of N (resolver_tc_efectivo_pedido_batch
+    issues 1-2, plus 1 Caso-B grouped, 1 NC-local grouped).
+
+    REQ-FX-001, REQ-FX-EDGE-001, REQ-FX-EDGE-002.
+    """
+    from sqlalchemy import case, func as sa_func  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    if not pedido_ids:
+        return {}
+
+    result: dict[int, Decimal] = {pid: Decimal("0") for pid in pedido_ids}
+
+    # ── Query 1-2: TC efectivo per pedido (resolver_tc_efectivo_pedido_batch, 1-2 queries) ──
+    tc_efectivo_map = resolver_tc_efectivo_pedido_batch(session, pedido_ids)
+
+    # ── Query 3: moneda + tipo_cambio_original per pedido (can reuse data from resolver,
+    # but resolver doesn't expose moneda; issue one explicit query) ──
+    moneda_rows = session.execute(
+        select(PedidoCompra.id, PedidoCompra.moneda, PedidoCompra.tipo_cambio_original).where(
+            PedidoCompra.id.in_(pedido_ids)
+        )
+    ).all()
+    moneda_map: dict[int, str] = {}
+    tc_original_map: dict[int, Optional[Decimal]] = {}
+    for row in moneda_rows:
+        pid = int(row[0])
+        moneda_map[pid] = row[1]
+        tc_original_map[pid] = Decimal(row[2]) if row[2] is not None else None
+
+    # ── Query 4: Caso-B signed USD sum per pedido (non-reversal minus reversal) ──
+    caso_b_rows = session.execute(
+        select(
+            Imputacion.destino_id,
+            sa_func.sum(
+                case(
+                    (Imputacion.es_reversal.is_(True), -Imputacion.monto_imputado),
+                    else_=Imputacion.monto_imputado,
+                )
+            ).label("signed_usd"),
+        )
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id.in_(pedido_ids),
+            Imputacion.moneda_imputada == "USD",
+            Imputacion.tipo_cambio.is_not(None),
+            OrdenPago.actualizar_tc_pedido.is_(False),
+        )
+        .group_by(Imputacion.destino_id)
+    ).all()
+    caso_b_map: dict[int, Decimal] = {}
+    for pid, signed in caso_b_rows:
+        caso_b_map[int(pid)] = Decimal(signed or 0)
+
+    # ── Query 5: NC-local signed ARS sum per pedido ──
+    # signo: debito → +1, credito → -1; folded with es_reversal
+    signo_nc = case((NotaCreditoLocal.tipo == "debito", 1), else_=-1)
+    nc_rows = session.execute(
+        select(
+            Imputacion.destino_id,
+            sa_func.sum(
+                case(
+                    (Imputacion.es_reversal.is_(True), -signo_nc * Imputacion.monto_imputado),
+                    else_=signo_nc * Imputacion.monto_imputado,
+                )
+            ).label("signed_ars"),
+        )
+        .join(NotaCreditoLocal, NotaCreditoLocal.id == Imputacion.origen_id)
+        .where(
+            Imputacion.origen_tipo == "nota_credito_local",
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.destino_id.in_(pedido_ids),
+            Imputacion.moneda_imputada == "ARS",
+        )
+        .group_by(Imputacion.destino_id)
+    ).all()
+    nc_map: dict[int, Decimal] = {}
+    for pid, signed in nc_rows:
+        nc_map[int(pid)] = Decimal(signed or 0)
+
+    # ── In-memory arithmetic — same formula as single-order calcular_varianza_tc ──
+    for pid in pedido_ids:
+        moneda = moneda_map.get(pid, "ARS")
+        if moneda != "USD":
+            result[pid] = Decimal("0")
+            continue
+
+        tc_ef = tc_efectivo_map.get(pid)
+        if tc_ef is None:
+            result[pid] = Decimal("0")
+            continue
+
+        # tipo_cambio_original NULL → fall back to tc_efectivo (bruta = 0) mirroring single-order :1232
+        tc_orig = tc_original_map.get(pid)
+        if tc_orig is None:
+            tc_orig = tc_ef
+
+        caso_b_usd = caso_b_map.get(pid, Decimal("0"))
+        varianza_bruta = (tc_ef - tc_orig) * caso_b_usd
+        varianza_compensada = nc_map.get(pid, Decimal("0"))
+        result[pid] = (varianza_bruta - varianza_compensada).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return result
+
+
+def listar_pedido_ids_con_caso_b(
+    session: Session,
+    *,
+    estados: tuple[str, ...],
+    proveedor_id: Optional[int] = None,
+    empresa_id: Optional[int] = None,
+    desde: Optional[object] = None,
+    hasta: Optional[object] = None,
+) -> list[int]:
+    """
+    Stage-1 SQL candidate query for the ?diferencial_cambio_pendiente=true filter.
+
+    Returns DISTINCT pedido_compra.id for:
+      - USD pedidos in the given estados
+      - with at least one Caso-B USD imputacion (actualizar_tc_pedido=False)
+      - matching optional base filters (proveedor_id, empresa_id, desde, hasta)
+
+    This is a cheap, indexed id-only query that narrows the universe
+    before running calcular_varianza_tc_batch over the candidates.
+    Does NOT compute variance — callers must run the batch over these ids
+    and filter by threshold themselves (AD-D2, design §4.2).
+
+    REQ-FX-003.
+    """
+    from sqlalchemy import distinct  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    from datetime import datetime  # noqa: PLC0415
+
+    conds = [
+        PedidoCompra.moneda == "USD",
+        PedidoCompra.estado.in_(list(estados)),
+        Imputacion.origen_tipo == "orden_pago",
+        Imputacion.destino_tipo == "pedido_compra",
+        Imputacion.moneda_imputada == "USD",
+        Imputacion.tipo_cambio.is_not(None),
+        OrdenPago.actualizar_tc_pedido.is_(False),
+    ]
+    if proveedor_id is not None:
+        conds.append(PedidoCompra.proveedor_id == proveedor_id)
+    if empresa_id is not None:
+        conds.append(PedidoCompra.empresa_id == empresa_id)
+    if desde is not None:
+        conds.append(PedidoCompra.created_at >= datetime.combine(desde, datetime.min.time()))
+    if hasta is not None:
+        conds.append(PedidoCompra.created_at <= datetime.combine(hasta, datetime.max.time()))
+
+    rows = session.execute(
+        select(distinct(PedidoCompra.id))
+        .join(Imputacion, Imputacion.destino_id == PedidoCompra.id)
+        .join(OrdenPago, OrdenPago.id == Imputacion.origen_id)
+        .where(*conds)
+    ).all()
+    return [int(row[0]) for row in rows]
+
+
 def aplicar_imputacion_a_pedido(
     session: Session,
     *,
