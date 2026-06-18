@@ -396,19 +396,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               {pedido.saldo_pendiente !== null && pedido.saldo_pendiente !== undefined && (
                 <div>
                   <span className={styles.infoLabel}>Saldo pendiente</span>
-                  {/* REQ-FX-004/005: con diferencial de cambio pendiente, el saldo ES
-                      el diferencial en ARS (igual que el histórico y la lista); el saldo
-                      en moneda origen queda como contexto secundario. */}
-                  {pedido.varianza_tc_pendiente ? (
-                    <>
-                      <strong className={styles.infoValue}>
-                        {formatCurrency(Number(pedido.varianza_tc_neta), 'ARS')} ARS
-                      </strong>
-                      <div className={styles.infoSubvalue}>
-                        diferencial de cambio a regularizar (NC/ND)
-                      </div>
-                    </>
-                  ) : pedido.moneda === 'USD' && pedido.tipo_cambio ? (
+                  {pedido.moneda === 'USD' && pedido.tipo_cambio ? (
                     <>
                       <strong className={styles.infoValue}>
                         {formatCurrency(
