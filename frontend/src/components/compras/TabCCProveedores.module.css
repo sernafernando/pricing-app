@@ -1176,3 +1176,49 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Varianza TC — badge y filtro ────────────────────────────────────── */
+
+/* Badge "Falta NC/ND" — inline junto a EstadoBadge. */
+/* Uses rgba() instead of color-mix for broader browser compatibility.   */
+.badgeVarianzaTc {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  flex-shrink: 0;
+  background: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+}
+
+/* Filter toggle row above the pedido list. */
+.filtroVarianza {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  user-select: none;
+  margin-bottom: var(--spacing-sm);
+  width: fit-content;
+}
+
+.filtroVarianza input[type='checkbox'] {
+  accent-color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.filtroVarianza:hover {
+  background: var(--cf-bg-hover);
+}

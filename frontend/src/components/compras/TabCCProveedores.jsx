@@ -19,6 +19,8 @@ import {
   Wallet,
   CreditCard,
   Undo2,
+  AlertTriangle,
+  Filter,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -161,6 +163,7 @@ export default function TabCCProveedores() {
 
   const [detalle, setDetalle] = useState(null);
   const [porPedido, setPorPedido] = useState([]);
+  const [filtrarVarianzaPendiente, setFiltrarVarianzaPendiente] = useState(false);
   const [imputaciones, setImputaciones] = useState([]);
   const [tcEstimado, setTcEstimado] = useState(null);
 
@@ -634,6 +637,18 @@ export default function TabCCProveedores() {
             />
           ) : (
             <div className={styles.grupoList}>
+              {/* Filter toggle: show only orders with pending FX variance */}
+              {porPedido.some((g) => g.varianza_tc_pendiente) && (
+                <label className={styles.filtroVarianza}>
+                  <input
+                    type="checkbox"
+                    checked={filtrarVarianzaPendiente}
+                    onChange={(e) => setFiltrarVarianzaPendiente(e.target.checked)}
+                  />
+                  <Filter size={12} />
+                  Solo pedidos con diferencial TC pendiente
+                </label>
+              )}
               {porPedido.length === 0 ? (
                 <EmptyState
                   icon={<Layers size={28} strokeWidth={1.5} />}
@@ -641,7 +656,9 @@ export default function TabCCProveedores() {
                   tone="default"
                 />
               ) : (
-                porPedido.map((g) => {
+                porPedido
+                  .filter((g) => !filtrarVarianzaPendiente || g.varianza_tc_pendiente === true)
+                  .map((g) => {
                   // Batch 6 — T6.4 (decisión pragmática): solo permitimos
                   // "Aplicar NC" desde el card si hay al menos una NC
                   // disponible del proveedor en la MISMA moneda que el pedido.
@@ -1068,7 +1085,7 @@ function GrupoPedidoCard({
       : filas.length > 0
         ? filas[filas.length - 1].saldoCorriente
         : 0;
-  const tienePendiente = Math.abs(saldoFinal) > 0.01;
+  const tienePendiente = Math.abs(saldoFinal) > 0.01 || Boolean(grupo.varianza_tc_pendiente);
   // Si pedido es USD y tiene TC, calculamos equivalente ARS para mostrar
   // junto al monto/saldo (la empresa paga en pesos).
   const tcPedido = grupo.pedido_tipo_cambio ? Number(grupo.pedido_tipo_cambio) : null;
@@ -1097,6 +1114,12 @@ function GrupoPedidoCard({
             <div className={styles.grupoHeaderLeftRow}>
               <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
               <EstadoBadge variant="pedido" estado={grupo.pedido_estado} saldo={saldoFinal} />
+              {grupo.varianza_tc_pendiente && (
+                <span className={styles.badgeVarianzaTc} title="Diferencial de tipo de cambio pendiente de NC/ND">
+                  <AlertTriangle size={10} />
+                  Falta NC/ND
+                </span>
+              )}
             </div>
             {tcPonderadoVal !== null && (
               <span className={styles.tcPonderado}>
@@ -1130,7 +1153,11 @@ function GrupoPedidoCard({
                 }
               >
                 {mostrarEquivArs
-                  ? formatMoneda(saldoFinal * tcPedido, 'ARS')
+                  ? formatMoneda(
+                      saldoFinal * tcPedido +
+                        (grupo.varianza_tc_pendiente ? Number(grupo.varianza_tc_neta) : 0),
+                      'ARS'
+                    )
                   : formatMoneda(saldoFinal, grupo.pedido_moneda)}
               </span>
             </div>

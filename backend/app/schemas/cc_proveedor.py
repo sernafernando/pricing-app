@@ -102,6 +102,13 @@ class CCAgrupadoPorPedido(BaseModel):
     # TC ponderado por aporte de imputaciones cross-moneda al pedido (FR-008).
     # 4 decimales. None si el pedido no tiene imps cross-moneda.
     tc_ponderado: Optional[Decimal] = None
+    # Diferencial de tipo de cambio neto en ARS (REQ-FX-CC-001).
+    # Positivo → el proveedor cobró de más (ND pendiente); negativo → el proveedor
+    # cobró de menos (NC pendiente). Cero para pedidos ARS o sin Caso-B.
+    varianza_tc_neta: Decimal = Decimal("0")
+    # True cuando abs(varianza_tc_neta) > VARIANZA_TC_THRESHOLD_ARS (1 ARS).
+    # Señal para el frontend de mostrar badge "Falta aplicar NC/ND".
+    varianza_tc_pendiente: bool = False
     movimientos: list[CCMovimientoResponse]
 
 

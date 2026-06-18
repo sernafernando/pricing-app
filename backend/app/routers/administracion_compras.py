@@ -2724,6 +2724,8 @@ def obtener_cc_por_pedido(
     # F6 — effective TC for ARS projection: resolve once across all pedido groups
     # (prevents N+1 when _enriquecer_movimientos_cc is called per group below).
     tc_efectivo_map = pedidos_service.resolver_tc_efectivo_pedido_batch(db, pedido_ids)
+    # REQ-FX-CC-001 — varianza TC neta batch (reusa maquinaria existente, sin N+1).
+    varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
 
     resultado: list[CCAgrupadoPorPedido] = []
     for pid, movs in grupos.items():
@@ -2731,6 +2733,7 @@ def obtener_cc_por_pedido(
         if pedido is None:
             continue  # pedido fue borrado: skip
         saldo_pendiente = Decimal(pedido.monto) - saldo_imp_map.get(pid, Decimal(0))
+        varianza_tc_neta = varianza_map.get(pid, Decimal("0"))
         resultado.append(
             CCAgrupadoPorPedido(
                 pedido_compra_id=pid,
@@ -2741,6 +2744,8 @@ def obtener_cc_por_pedido(
                 pedido_tipo_cambio=Decimal(pedido.tipo_cambio) if pedido.tipo_cambio is not None else None,
                 pedido_saldo_pendiente=saldo_pendiente,
                 tc_ponderado=tc_pond_map.get(pid),
+                varianza_tc_neta=varianza_tc_neta,
+                varianza_tc_pendiente=abs(varianza_tc_neta) > VARIANZA_TC_THRESHOLD_ARS,
                 movimientos=_enriquecer_movimientos_cc(db, list(movs), tc_efectivo_externo=tc_efectivo_map),
             )
         )
