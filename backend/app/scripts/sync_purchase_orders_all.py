@@ -31,7 +31,7 @@ import argparse
 import httpx
 from datetime import datetime, timedelta, date
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, text
 from app.core.database import SessionLocal, get_background_db
 from app.models.purchase_order_header import PurchaseOrderHeader
 from app.models.purchase_order_detail import PurchaseOrderDetail
@@ -99,7 +99,8 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
         to_date = (date.today() + timedelta(days=1)).isoformat()
 
         async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.get(
+            # Pase 1: por fecha de EDICIÓN (poh_isEditingCd) — OC modificadas.
+            resp_edit = await client.get(
                 GBP_PARSER_URL,
                 params={
                     "strScriptLabel": "scriptPurchaseOrderHeader",
@@ -107,10 +108,30 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
                     "updateToDate": to_date,
                 },
             )
-            response.raise_for_status()
-            data = response.json()
+            resp_edit.raise_for_status()
+            data_edit = resp_edit.json()
+            # Pase 2: por fecha de CREACIÓN (poh_cd) — OC NUEVAS cuyo poh_isEditingCd
+            # el ERP no setea al crear. Hay que usar LOS DOS filtros, no uno solo.
+            resp_new = await client.get(
+                GBP_PARSER_URL,
+                params={
+                    "strScriptLabel": "scriptPurchaseOrderHeader",
+                    "fromDate": from_date,
+                    "toDate": to_date,
+                },
+            )
+            resp_new.raise_for_status()
+            data_new = resp_new.json()
 
-        if not isinstance(data, list) or len(data) == 0:
+        # Unir ambos pases, dedupe por (comp_id, bra_id, poh_id).
+        merged: dict[tuple, dict] = {}
+        for rec in (data_edit if isinstance(data_edit, list) else []) + (
+            data_new if isinstance(data_new, list) else []
+        ):
+            merged[(rec.get("comp_id"), rec.get("bra_id"), rec.get("poh_id"))] = rec
+        data = list(merged.values())
+
+        if not data:
             print("✓ (sin datos)")
             return (0, 0, 0)
 
@@ -240,8 +261,18 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
         # Fecha hasta: día SIGUIENTE a las 00:00:00 (incluye todo el día de hoy)
         to_date = (date.today() + timedelta(days=1)).isoformat()
 
+        # El detalle del ERP solo filtra por pod_isEditingCd (no tiene fecha de
+        # creación). Para traer el detalle de OC NUEVAS (cuyo pod_isEditingCd no
+        # se setea al crear), pedimos también por poh_id >= el menor poh_id de las
+        # OC del período (ya sincronizadas en el header por creación + edición).
+        poh_id_floor = db.execute(
+            text("SELECT MIN(poh_id) FROM tb_purchase_order_header WHERE poh_cd >= :d OR poh_iseditingcd >= :d"),
+            {"d": from_date},
+        ).scalar()
+
         async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.get(
+            # Pase A: por fecha de EDICIÓN del detalle (pod_isEditingCd).
+            resp_edit = await client.get(
                 GBP_PARSER_URL,
                 params={
                     "strScriptLabel": "scriptPurchaseOrderDetail",
@@ -249,10 +280,30 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
                     "toDate": to_date,
                 },
             )
-            response.raise_for_status()
-            data = response.json()
+            resp_edit.raise_for_status()
+            data_edit = resp_edit.json()
+            # Pase B: por poh_id de las OC del período (captura el detalle de OC nuevas).
+            data_poh: list = []
+            if poh_id_floor is not None:
+                resp_poh = await client.get(
+                    GBP_PARSER_URL,
+                    params={
+                        "strScriptLabel": "scriptPurchaseOrderDetail",
+                        "pohID": int(poh_id_floor),
+                    },
+                )
+                resp_poh.raise_for_status()
+                data_poh = resp_poh.json()
 
-        if not isinstance(data, list) or len(data) == 0:
+        # Unir ambos pases, dedupe por (comp_id, bra_id, poh_id, pod_id).
+        merged: dict[tuple, dict] = {}
+        for rec in (data_edit if isinstance(data_edit, list) else []) + (
+            data_poh if isinstance(data_poh, list) else []
+        ):
+            merged[(rec.get("comp_id"), rec.get("bra_id"), rec.get("poh_id"), rec.get("pod_id"))] = rec
+        data = list(merged.values())
+
+        if not data:
             print("✓ (sin datos)")
             return (0, 0, 0)
 
