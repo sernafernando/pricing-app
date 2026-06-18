@@ -1,0 +1,201 @@
+/* ModalVincularOC — CF tokens, modal Tesla outline-subtle. Cloned from ModalVincularFactura. */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  width: 100%;
+  max-width: 680px;
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.modalTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.modalCloseBtn {
+  background: none;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.modalCloseBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.instructions {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-lg);
+  color: var(--cf-text-secondary);
+}
+
+.empty {
+  padding: var(--spacing-md);
+  background: var(--cf-bg-hover);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  text-align: center;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── Tabla de candidatas ──────────────────────────────────── */
+.tableWrapper {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-app);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: var(--cf-bg-hover);
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.rowSelected {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+.tdRadio {
+  width: 32px;
+  text-align: center;
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+}
+
+.thRight,
+.tdRight {
+  text-align: right;
+}
+
+/* ── Botones ─────────────────────────────────────────────── */
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.btnPrimary {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+.btnSecondary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+.btnPrimary:disabled,
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

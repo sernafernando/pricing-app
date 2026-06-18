@@ -27,7 +27,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.core.database import Base
 
@@ -68,6 +68,13 @@ class PedidoCompra(Base):
     # Set via PUT /pedidos/{id}/tipo-cambio. Cleared by passing null.
     # AD-3: single nullable column encodes both flag and value.
     tipo_cambio_manual = Column(Numeric(18, 6), nullable=True)
+
+    # Batch J — Vincular OC del ERP (logical FK, no physical constraint — mirrors ct_transaction_id).
+    # The three columns are ALL NULL (unlinked) or ALL NOT NULL (linked).
+    # Invariant enforced at service layer, not by DB constraint.
+    oc_comp_id = Column(Integer, nullable=True)
+    oc_bra_id = Column(Integer, nullable=True)
+    oc_poh_id = Column(BigInteger, nullable=True)
 
     # Notas libres del pedido. Editable en borrador y en aprobado/pagado_parcial/pagado
     # como metadata (no impacta CC ni imputaciones). Ver compras_026_pedido_observaciones.
@@ -155,6 +162,13 @@ class PedidoCompra(Base):
             "ix_pedidos_compra_ct_transaction",
             "ct_transaction_id",
             postgresql_where="ct_transaction_id IS NOT NULL",
+        ),
+        Index(
+            "ix_pedidos_compra_oc_poh",
+            "oc_comp_id",
+            "oc_bra_id",
+            "oc_poh_id",
+            postgresql_where=text("oc_poh_id IS NOT NULL"),
         ),
     )
 

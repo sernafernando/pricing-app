@@ -99,6 +99,11 @@ from app.schemas.orden_pago import (
     OrdenPagoPaginated,
     OrdenPagoResponse,
 )
+from app.schemas.oc_ingreso import (
+    OCCandidataResponse,
+    OrdenCompraDetalleResponse,
+    VincularOCRequest,
+)
 from app.schemas.pedido_compra import (
     CorreccionPedidoRequest,
     DocumentoERPImputado,
@@ -120,6 +125,7 @@ from app.services import (
     etiqueta_retiro_service,
     imputaciones_service,
     ncs_locales_service,
+    oc_ingresos_service,
     ordenes_pago_service,
     pedidos_service,
 )
@@ -3532,6 +3538,150 @@ def desvincular_factura_pedido(
     _commit_or_rollback(db, operacion="desvincular_factura_pedido")
     db.refresh(pedido)
     return _pedido_response(pedido)
+
+
+# ==========================================================================
+# Batch J — Vincular OC del ERP al pedido (Slice 1)
+# ==========================================================================
+#
+# Flujo Slice 1:
+#   GET    /pedidos/{id}/oc-candidatas       → lista OCs pendientes del proveedor
+#   POST   /pedidos/{id}/vincular-oc         → setea las 3 cols oc_*
+#   DELETE /pedidos/{id}/desvincular-oc      → limpia las 3 cols oc_*
+#   GET    /pedidos/{id}/orden-compra/detalle → desglose por depósito (read-only)
+#
+# Todos requieren `administracion.gestionar_ordenes_compra`.
+# ERP tables are READ-ONLY throughout.
+
+
+@router.get(
+    "/pedidos/{pedido_id}/oc-candidatas",
+    response_model=list[OCCandidataResponse],
+    summary="Listar OCs del ERP candidatas a vincular al pedido",
+)
+def listar_oc_candidatas(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> list[OCCandidataResponse]:
+    """
+    Returns pending OC candidates from the ERP for the pedido's supplier.
+
+    CRITERION-PENDIENTE: OC has at least one unprocessed line
+    (bool_and(COALESCE(pod_isprocessed, FALSE)) = FALSE).
+    Excludes OCs already linked to other pedidos.
+
+    Returns empty list if the proveedor has no supp_id ERP mapping.
+
+    Batch J.1.
+    """
+    return oc_ingresos_service.get_oc_candidatas(db, pedido_id=pedido_id)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/vincular-oc",
+    response_model=PedidoCompraResponse,
+    summary="Vincular OC del ERP al pedido",
+)
+def vincular_oc_pedido(
+    pedido_id: int,
+    body: VincularOCRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """
+    Links the specified ERP OC (oc_comp_id, oc_bra_id, oc_poh_id) to the pedido.
+
+    Validates:
+      - Pedido exists (404).
+      - Pedido has no OC yet (409 — unlink first).
+      - OC exists in tb_purchase_order_header (404).
+      - OC supp_id matches pedido proveedor supp_id (409 supplier mismatch).
+      - OC satisfies CRITERION-PENDIENTE (409 if all lines processed).
+
+    Returns the updated pedido summary.
+
+    Batch J.2.
+    """
+    try:
+        pedido = pedidos_service.vincular_oc(
+            db,
+            pedido_id=pedido_id,
+            oc_comp_id=body.oc_comp_id,
+            oc_bra_id=body.oc_bra_id,
+            oc_poh_id=body.oc_poh_id,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("vincular_oc_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al vincular la OC.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="vincular_oc_pedido")
+    db.refresh(pedido)
+    return _pedido_response(pedido)
+
+
+@router.delete(
+    "/pedidos/{pedido_id}/desvincular-oc",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Desvincular OC del pedido",
+)
+def desvincular_oc_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> Response:
+    """
+    Clears the three oc_* columns on the pedido.
+
+    Blocked if confirmed ingresos exist (Slice 2 table pedido_compra_ingresos).
+    Returns HTTP 204 No Content on success.
+
+    Batch J.3.
+    """
+    try:
+        pedidos_service.desvincular_oc(db, pedido_id=pedido_id, user_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("desvincular_oc_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al desvincular la OC.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="desvincular_oc_pedido")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/pedidos/{pedido_id}/orden-compra/detalle",
+    response_model=OrdenCompraDetalleResponse,
+    summary="Desglose por depósito de la OC vinculada al pedido",
+)
+def orden_compra_detalle(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OrdenCompraDetalleResponse:
+    """
+    Returns the per-depot line breakdown of the OC linked to the pedido.
+
+    Reads live from tb_purchase_order_detail JOIN tb_storage (read-only).
+    Requires the pedido to have a linked OC (409 otherwise).
+
+    Batch J.4.
+    """
+    return oc_ingresos_service.get_orden_compra_detalle(db, pedido_id=pedido_id)
 
 
 # ==========================================================================
