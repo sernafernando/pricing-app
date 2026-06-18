@@ -135,6 +135,28 @@ const enriquecerConDebeHaberYSaldo = (movimientos = []) => {
   });
 };
 
+/**
+ * Diferencial de cambio pendiente de un pedido en la vista CC por-pedido.
+ * El pedido está saldado en su moneda de origen (saldoFinal ≈ 0) pero quedó un
+ * saldo REAL en pesos (≠ 0) por haber pagado a un TC distinto. Ese saldo sale de
+ * la MISMA lógica que el histórico (saldoArsAcum = suma de monto_ars de cada
+ * movimiento), NO del cálculo de varianza del flujo de compras (que da 0 acá).
+ * Devuelve { saldoArsReal, saldoFinal, pendiente }.
+ */
+const calcularDiferencialPedido = (grupo) => {
+  const filas = enriquecerConDebeHaberYSaldo(grupo.movimientos);
+  const saldoArsReal = filas.length > 0 ? filas[filas.length - 1].saldoArsAcum : null;
+  const saldoFinal =
+    grupo.pedido_saldo_pendiente !== null && grupo.pedido_saldo_pendiente !== undefined
+      ? Number(grupo.pedido_saldo_pendiente)
+      : filas.length > 0
+        ? filas[filas.length - 1].saldoCorriente
+        : 0;
+  const pendiente =
+    saldoArsReal !== null && Math.abs(saldoFinal) <= 0.01 && Math.abs(saldoArsReal) > 1;
+  return { saldoArsReal, saldoFinal, pendiente };
+};
+
 export default function TabCCProveedores() {
   // Desestructurar funciones memoizadas para evitar loop en useEffect/useCallback.
   // El objeto `ccApi` se recrea en cada render; las funciones internas son estables.
@@ -638,7 +660,7 @@ export default function TabCCProveedores() {
           ) : (
             <div className={styles.grupoList}>
               {/* Filter toggle: show only orders with pending FX variance */}
-              {porPedido.some((g) => g.varianza_tc_pendiente) && (
+              {porPedido.some((g) => calcularDiferencialPedido(g).pendiente) && (
                 <label className={styles.filtroVarianza}>
                   <input
                     type="checkbox"
@@ -657,7 +679,7 @@ export default function TabCCProveedores() {
                 />
               ) : (
                 porPedido
-                  .filter((g) => !filtrarVarianzaPendiente || g.varianza_tc_pendiente === true)
+                  .filter((g) => !filtrarVarianzaPendiente || calcularDiferencialPedido(g).pendiente)
                   .map((g) => {
                   // Batch 6 — T6.4 (decisión pragmática): solo permitimos
                   // "Aplicar NC" desde el card si hay al menos una NC
@@ -1085,7 +1107,12 @@ function GrupoPedidoCard({
       : filas.length > 0
         ? filas[filas.length - 1].saldoCorriente
         : 0;
-  const tienePendiente = Math.abs(saldoFinal) > 0.01 || Boolean(grupo.varianza_tc_pendiente);
+  // Saldo REAL en pesos (misma lógica del histórico). Si el pedido está saldado
+  // en origen (saldoFinal ≈ 0) pero esto es ≠ 0, es el diferencial de cambio (-400).
+  const saldoArsReal = filas.length > 0 ? filas[filas.length - 1].saldoArsAcum : null;
+  const diferencialPendiente =
+    saldoArsReal !== null && Math.abs(saldoFinal) <= 0.01 && Math.abs(saldoArsReal) > 1;
+  const tienePendiente = Math.abs(saldoFinal) > 0.01 || diferencialPendiente;
   // Si pedido es USD y tiene TC, calculamos equivalente ARS para mostrar
   // junto al monto/saldo (la empresa paga en pesos).
   const tcPedido = grupo.pedido_tipo_cambio ? Number(grupo.pedido_tipo_cambio) : null;
@@ -1114,7 +1141,7 @@ function GrupoPedidoCard({
             <div className={styles.grupoHeaderLeftRow}>
               <strong className={styles.grupoNumero}>{grupo.pedido_numero}</strong>
               <EstadoBadge variant="pedido" estado={grupo.pedido_estado} saldo={saldoFinal} />
-              {grupo.varianza_tc_pendiente && (
+              {diferencialPendiente && (
                 <span className={styles.badgeVarianzaTc} title="Diferencial de tipo de cambio pendiente de NC/ND">
                   <AlertTriangle size={10} />
                   Falta NC/ND
@@ -1152,13 +1179,11 @@ function GrupoPedidoCard({
                   tienePendiente ? styles.grupoSaldoPendiente : styles.grupoSaldoOk
                 }
               >
-                {mostrarEquivArs
-                  ? formatMoneda(
-                      saldoFinal * tcPedido +
-                        (grupo.varianza_tc_pendiente ? Number(grupo.varianza_tc_neta) : 0),
-                      'ARS'
-                    )
-                  : formatMoneda(saldoFinal, grupo.pedido_moneda)}
+                {diferencialPendiente
+                  ? formatMoneda(saldoArsReal, 'ARS')
+                  : mostrarEquivArs
+                    ? formatMoneda(saldoFinal * tcPedido, 'ARS')
+                    : formatMoneda(saldoFinal, grupo.pedido_moneda)}
               </span>
             </div>
           </div>
