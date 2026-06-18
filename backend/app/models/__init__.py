@@ -168,6 +168,9 @@ from app.models.dinero_a_cuenta import DineroACuenta
 from app.models.purchase_order_header import PurchaseOrderHeader
 from app.models.purchase_order_detail import PurchaseOrderDetail
 
+# Compras — Recepción de mercadería por depósito (Slice A)
+from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -345,4 +348,6 @@ __all__ = [
     # Compras — Órdenes de compra ERP (mirror local)
     "PurchaseOrderHeader",
     "PurchaseOrderDetail",
+    # Compras — Recepción de mercadería por depósito
+    "PedidoCompraIngreso",
 ]

@@ -57,6 +57,7 @@ class OrdenCompraLineaResponse(BaseModel):
 
     pod_id: int
     item_id: int | None = None
+    item_nombre: str | None = None  # resolved via LEFT JOIN to productos_erp (Slice 2)
     stor_id: int | None = None
     deposito_nombre: str | None = None
     pod_qty: Decimal | None = None
