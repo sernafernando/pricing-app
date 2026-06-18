@@ -127,8 +127,10 @@ class PedidoCompraResponse(PedidoCompraBase):
     #   Caso-B pagos y el TC efectivo del pedido. Positivo → falta ND (debito);
     #   negativo → falta NC (credito). Cero cuando está completamente compensado.
     # `varianza_tc_pendiente`: True cuando abs(varianza_tc_neta) > umbral ARS 1.00.
+    # `moneda_varianza`: always "ARS" — explicit currency label for consumers (REQ-FX-002).
     varianza_tc_pendiente: bool = False
     varianza_tc_neta: Decimal = Decimal("0")
+    moneda_varianza: str = "ARS"
 
     # F5 — Manual TC override fields.
     # `tipo_cambio_manual`: the override value (AD-3). None = no override active.

@@ -295,6 +295,9 @@ def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoRes
 # ==========================================================================
 
 
+_ESTADOS_DIFERENCIAL: tuple[str, ...] = ("pagado", "pagado_parcial")
+
+
 @router.get(
     "/pedidos",
     response_model=PedidoCompraPaginated,
@@ -306,12 +309,105 @@ def listar_pedidos(
     empresa_id: Optional[int] = Query(None, ge=1),
     desde: Optional[date] = Query(None, description="created_at >= desde"),
     hasta: Optional[date] = Query(None, description="created_at <= hasta"),
+    diferencial_cambio_pendiente: Optional[bool] = Query(
+        None, description="Filtrar pedidos con diferencia de cambio pendiente (Caso-B, abs > 1 ARS)"
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> PedidoCompraPaginated:
-    """Lista paginada de pedidos. REQ-PED-001, design §9.1."""
+    """
+    Lista paginada de pedidos. REQ-PED-001, REQ-FX-002, REQ-FX-003, design §9.1.
+
+    Cuando diferencial_cambio_pendiente=True: two-stage filter (design §4.2).
+      Stage 1 — SQL candidate-id query (USD pedidos in pagado/pagado_parcial with >=1
+                 Caso-B imputacion). Bounded by the Caso-B subset, not the whole table.
+      Stage 2 — calcular_varianza_tc_batch over candidates; keep abs(neta) > threshold.
+                 total = len(survivors); paginate the id list, load only the page.
+    Correct pagination: total reflects the full filtered set, not the current page.
+    """
+    if diferencial_cambio_pendiente:
+        # ── Two-stage filter (design §4.2 / AD-D2) ──────────────────────────
+        # Stage 1: SQL candidate narrowing (cheap, indexed).
+        # Intersect with ESTADOS_DIFERENCIAL; ignore explicit `estado` param
+        # if it conflicts (design locked: only pagado/pagado_parcial can have FX diff).
+        if estado is not None and estado not in _ESTADOS_DIFERENCIAL:
+            # Explicit estado outside differential scope → empty result.
+            return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+
+        candidatos = pedidos_service.listar_pedido_ids_con_caso_b(
+            db,
+            estados=_ESTADOS_DIFERENCIAL,
+            proveedor_id=proveedor_id,
+            empresa_id=empresa_id,
+            desde=desde,
+            hasta=hasta,
+        )
+        if not candidatos:
+            return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+
+        # Stage 2: F2 batch over candidates, keep survivors.
+        varianza_map = pedidos_service.calcular_varianza_tc_batch(db, candidatos)
+        survivors = [pid for pid in candidatos if abs(varianza_map[pid]) > VARIANZA_TC_THRESHOLD_ARS]
+
+        if not survivors:
+            return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+
+        # Stable order matching the default list (created_at desc, id desc).
+        # Load created_at for the survivors to sort in memory (one query).
+        order_rows = db.execute(
+            select(PedidoCompra.id, PedidoCompra.created_at).where(PedidoCompra.id.in_(survivors))
+        ).all()
+        id_to_created = {int(row[0]): row[1] for row in order_rows}
+        survivors.sort(key=lambda pid: (id_to_created.get(pid), pid), reverse=True)
+
+        total = len(survivors)
+        offset = (page - 1) * page_size
+        page_ids = survivors[offset : offset + page_size]
+
+        if not page_ids:
+            return PedidoCompraPaginated(items=[], total=total, page=page, page_size=page_size)
+
+        # Load the page with joinedloads, preserving order.
+        page_pedidos_unordered = (
+            db.execute(
+                select(PedidoCompra)
+                .options(
+                    joinedload(PedidoCompra.empresa),
+                    joinedload(PedidoCompra.proveedor),
+                )
+                .where(PedidoCompra.id.in_(page_ids))
+            )
+            .scalars()
+            .unique()
+            .all()
+        )
+        # Restore the sorted order.
+        pedido_by_id = {p.id: p for p in page_pedidos_unordered}
+        items_page = [pedido_by_id[pid] for pid in page_ids if pid in pedido_by_id]
+
+        puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items_page)
+        saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, page_ids)
+        tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, page_ids)
+
+        return PedidoCompraPaginated(
+            items=[
+                _pedido_response(
+                    p,
+                    puede_eliminar=puede_map.get(p.id, False),
+                    saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
+                    tipo_cambio_ponderado=tc_pond_map.get(p.id),
+                    varianza_tc_neta=varianza_map.get(p.id),
+                )
+                for p in items_page
+            ],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    # ── Standard path (unchanged) ────────────────────────────────────────────
     condiciones = []
     if estado is not None:
         condiciones.append(PedidoCompra.estado == estado)
@@ -339,6 +435,8 @@ def listar_pedidos(
     saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
     # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
     tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
+    # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
+    varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
     return PedidoCompraPaginated(
         items=[
             _pedido_response(
@@ -346,6 +444,7 @@ def listar_pedidos(
                 puede_eliminar=puede_map.get(p.id, False),
                 saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
                 tipo_cambio_ponderado=tc_pond_map.get(p.id),
+                varianza_tc_neta=varianza_map.get(p.id),
             )
             for p in items
         ],
