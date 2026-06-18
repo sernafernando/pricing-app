@@ -1795,7 +1795,9 @@ def vincular_oc(
         text(
             "SELECT COUNT(*) FROM tb_purchase_order_detail d "
             "WHERE d.comp_id = :comp AND d.bra_id = :bra AND d.poh_id = :poh "
-            "AND COALESCE(d.pod_isprocessed, 0) = 0"
+            # pod_isprocessed es BOOLEAN en PostgreSQL: COALESCE(boolean, 0) tira
+            # DatatypeMismatch. Usar literales booleanos (SQLite lo tolera igual).
+            "AND COALESCE(d.pod_isprocessed, FALSE) = FALSE"
         ),
         {"comp": oc_comp_id, "bra": oc_bra_id, "poh": oc_poh_id},
     ).scalar()
@@ -1841,6 +1843,7 @@ def desvincular_oc(
                             Slice 2 creates the table).
     """
     from sqlalchemy import text  # noqa: PLC0415
+    from sqlalchemy.exc import OperationalError, ProgrammingError  # noqa: PLC0415
 
     pedido = _obtener_pedido_o_404(session, pedido_id)
     if pedido.oc_poh_id is None:
@@ -1850,26 +1853,32 @@ def desvincular_oc(
         )
 
     # Defensive guard: block if ingresos exist. The table is created in Slice 2.
-    # TODO(Slice 2): replace with real query once pedido_compra_ingresos exists.
+    # The probe runs inside a SAVEPOINT (begin_nested) so that, while the table
+    # still doesn't exist (Slice 1), the failed query rolls back ONLY the savepoint
+    # and leaves the outer transaction usable for the unlink. Without the savepoint,
+    # the failed SELECT would abort the whole transaction on PostgreSQL and the
+    # subsequent unlink would fail too.
+    # TODO(Slice 2): drop the guard's table-missing tolerance once the table exists.
+    ingresos_count = 0
     try:
-        ingresos_count = (
-            session.execute(
-                text("SELECT COUNT(*) FROM pedido_compra_ingresos WHERE pedido_id = :pid"),
-                {"pid": pedido_id},
-            ).scalar()
-            or 0
-        )
-        if ingresos_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=("Cannot unlink OC: confirmed ingresos exist. Anular ingresos first."),
+        with session.begin_nested():
+            ingresos_count = (
+                session.execute(
+                    text("SELECT COUNT(*) FROM pedido_compra_ingresos WHERE pedido_id = :pid"),
+                    {"pid": pedido_id},
+                ).scalar()
+                or 0
             )
-    except HTTPException:
-        raise
-    except Exception:  # noqa: BLE001
-        # Table doesn't exist yet (Slice 1 — pedido_compra_ingresos created in Slice 2).
-        # Safe to proceed with unlink.
-        pass
+    except (ProgrammingError, OperationalError):
+        # Table pedido_compra_ingresos doesn't exist yet (Slice 1). Savepoint rolled
+        # back; the outer transaction is intact, so it's safe to proceed with the unlink.
+        ingresos_count = 0
+
+    if ingresos_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=("Cannot unlink OC: confirmed ingresos exist. Anular ingresos first."),
+        )
 
     oc_anterior = {
         "oc_comp_id": pedido.oc_comp_id,

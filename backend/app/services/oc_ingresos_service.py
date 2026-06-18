@@ -74,12 +74,16 @@ def get_oc_candidatas(
     # compatible with SQLite (used in tests). On PostgreSQL, both are equivalent
     # for this use case. The canonical criterion is:
     #   bool_and(COALESCE(pod_isprocessed, FALSE)) = FALSE
-    # which equals: MIN(CASE WHEN COALESCE(pod_isprocessed,0)=1 THEN 1 ELSE 0 END) = 0
+    # IMPORTANT: pod_isprocessed is a real BOOLEAN in PostgreSQL, so the COALESCE
+    # default and the comparison MUST use boolean literals (FALSE/TRUE), not 0/1.
+    # COALESCE(boolean, 0) raises DatatypeMismatch on PostgreSQL even though it
+    # works on SQLite (where booleans are stored as integers) — the test DB does
+    # NOT catch this.
     stmt = text(
         """
         SELECT h.comp_id, h.bra_id, h.poh_id, h.poh_total, h.poh_cd,
                SUM(d.pod_qty)                                             AS qty_total,
-               SUM(CASE WHEN COALESCE(d.pod_isprocessed, 0) = 0 THEN 1 ELSE 0 END) AS lineas_pendientes
+               SUM(CASE WHEN COALESCE(d.pod_isprocessed, FALSE) = FALSE THEN 1 ELSE 0 END) AS lineas_pendientes
         FROM tb_purchase_order_header h
         JOIN tb_purchase_order_detail d
           ON d.comp_id = h.comp_id AND d.bra_id = h.bra_id AND d.poh_id = h.poh_id
@@ -92,7 +96,7 @@ def get_oc_candidatas(
                 AND p.id <> :pedido_id
           )
         GROUP BY h.comp_id, h.bra_id, h.poh_id, h.poh_total, h.poh_cd
-        HAVING MIN(CASE WHEN COALESCE(d.pod_isprocessed, 0) = 1 THEN 1 ELSE 0 END) = 0
+        HAVING MIN(CASE WHEN COALESCE(d.pod_isprocessed, FALSE) = TRUE THEN 1 ELSE 0 END) = 0
         ORDER BY h.poh_cd DESC NULLS LAST
         LIMIT 100
         """
