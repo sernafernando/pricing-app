@@ -57,6 +57,26 @@ def parse_dt(val: str | None) -> datetime | None:
         return None
 
 
+def parse_bool(val) -> bool | None:
+    """Convierte valores del ERP a bool o None.
+
+    El ERP devuelve '' (string vacío) para booleanos sin setear, que SQLAlchemy
+    Boolean rechaza con 'Not a boolean value'. Normaliza '' y desconocidos a None.
+    """
+    if val is None or val == "":
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    s = str(val).strip().lower()
+    if s in ("true", "1", "t", "y", "yes", "si"):
+        return True
+    if s in ("false", "0", "f", "n", "no"):
+        return False
+    return None
+
+
 async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, int, int]:
     """
     Sincroniza cabecera de órdenes de compra.
@@ -134,7 +154,7 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
                     "supp_id": record.get("supp_id"),
                     "poh_quotation": record.get("poh_quotation"),
                     "pt_id": record.get("pt_id"),
-                    "poh_isediting": record.get("poh_isEditing"),
+                    "poh_isediting": parse_bool(record.get("poh_isEditing")),
                     "poh_iseditingcd": parse_dt(record.get("poh_isEditingCd")),
                     "ptr_id": record.get("ptr_id"),
                     "poh_acurrency": record.get("poh_ACurrency"),
@@ -146,7 +166,7 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
                     "poh_discount2": record.get("poh_Discount2"),
                     "poh_discount3": record.get("poh_Discount3"),
                     "poh_discount4": record.get("poh_Discount4"),
-                    "pho_selectedinrecepcion": record.get("pho_selectedInRecepcion"),
+                    "pho_selectedinrecepcion": parse_bool(record.get("pho_selectedInRecepcion")),
                     "user_id": record.get("user_id"),
                     "poh_validup2date": parse_dt(record.get("poh_validUp2Date")),
                     "poa_id": record.get("poa_id"),
@@ -156,7 +176,7 @@ async def sync_purchase_order_header(db: Session, days: int = 7) -> tuple[int, i
                     "pro_id": record.get("pro_id"),
                     "poh_total": record.get("poh_total"),
                     "poh_totalinsuppcurrency": record.get("poh_totalinSuppCurrency"),
-                    "poh_isemailenvied": record.get("poh_iseMailEnvied"),
+                    "poh_isemailenvied": parse_bool(record.get("poh_iseMailEnvied")),
                 }
 
                 # Savepoint por registro: si un valor no entra en su columna/tipo,
@@ -280,12 +300,12 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
                     "pod_qty": record.get("pod_qty"),
                     "pod_price": record.get("pod_price"),
                     "tax_id": record.get("tax_id"),
-                    "pod_isprocessed": record.get("pod_isProcessed"),
-                    "pod_isediting": record.get("pod_isEditing"),
+                    "pod_isprocessed": parse_bool(record.get("pod_isProcessed")),
+                    "pod_isediting": parse_bool(record.get("pod_isEditing")),
                     "pod_iseditingcd": parse_dt(record.get("pod_isEditingCd")),
                     "pod_obs": record.get("pod_obs"),
                     "pod_priceb": record.get("pod_priceB"),
-                    "pod_custom": record.get("pod_custom"),
+                    "pod_custom": parse_bool(record.get("pod_custom")),
                     "pod_customnumber": record.get("pod_customNumber"),
                     "pod_discount1": record.get("pod_Discount1"),
                     "pod_discount2": record.get("pod_Discount2"),
@@ -306,7 +326,7 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
                     "pod_stamp": record.get("pod_Stamp"),
                     "pod_lotnumber": record.get("pod_LotNumber"),
                     "pod_expirationdate": parse_dt(record.get("pod_ExpirationDate")),
-                    "pod_includeinavailablestock": record.get("pod_includeInAvailableStock"),
+                    "pod_includeinavailablestock": parse_bool(record.get("pod_includeInAvailableStock")),
                     "pod_id_from": record.get("pod_id_from"),
                     "pod_id_from_cd": parse_dt(record.get("pod_id_from_CD")),
                     "stor_id": record.get("stor_id"),
