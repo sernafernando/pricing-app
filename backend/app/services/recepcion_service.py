@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -286,12 +286,17 @@ def registrar_ingresos(
         SELECT pod_id, item_id, stor_id
         FROM tb_purchase_order_detail
         WHERE comp_id = :comp AND bra_id = :bra AND poh_id = :poh
-          AND pod_id IN ({placeholders})
-        """.format(placeholders=",".join(str(l.pod_id) for l in lineas_validas))
-    )
+          AND pod_id IN :pod_ids
+        """
+    ).bindparams(bindparam("pod_ids", expanding=True))
     pod_rows = session.execute(
         stmt_pod,
-        {"comp": pedido.oc_comp_id, "bra": pedido.oc_bra_id, "poh": pedido.oc_poh_id},
+        {
+            "comp": pedido.oc_comp_id,
+            "bra": pedido.oc_bra_id,
+            "poh": pedido.oc_poh_id,
+            "pod_ids": [linea.pod_id for linea in lineas_validas],
+        },
     ).all()
     pod_detail: dict[int, dict[str, Any]] = {
         int(r[0]): {"item_id": int(r[1]) if r[1] else None, "stor_id": int(r[2]) if r[2] else None} for r in pod_rows

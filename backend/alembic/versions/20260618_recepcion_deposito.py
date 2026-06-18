@@ -4,7 +4,7 @@ Creates pedido_compra_ingresos, extends estado CHECK constraint on pedidos_compr
 and seeds deposito.recibir_mercaderia permission (SUPERADMIN only).
 
 Revision ID: 20260618_recepcion_deposito
-Revises: 20260618_add_oc_link_to_pedidos_compra
+Revises: 20260618_add_oc_link
 Create Date: 2026-06-18
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20260618_recepcion_deposito"
-down_revision = "20260618_add_oc_link_to_pedidos_compra"
+down_revision = "20260618_add_oc_link"
 branch_labels = None
 depends_on = None
 
