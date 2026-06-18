@@ -134,6 +134,9 @@ class TiposEvento:
     IMPUTACIONES_REAPLICADAS_POR_CORRECCION: Final[str] = "imputaciones_reaplicadas_por_correccion"
     # F5 — manual TC override
     TC_MANUAL_ACTUALIZADO: Final[str] = "tc_manual_actualizado"
+    # Batch J — OC link
+    OC_VINCULADA: Final[str] = "oc_vinculada"
+    OC_DESVINCULADA: Final[str] = "oc_desvinculada"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1725,6 +1728,167 @@ def desvincular_factura(
         ct_anterior,
     )
     return pedido
+
+
+def vincular_oc(
+    session: Session,
+    *,
+    pedido_id: int,
+    oc_comp_id: int,
+    oc_bra_id: int,
+    oc_poh_id: int,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Links a purchase order (OC) from the ERP mirror to this pedido.
+
+    Preconditions:
+      - Pedido exists (404 otherwise).
+      - Pedido has no linked OC (409 otherwise — unlink first).
+      - (comp_id, bra_id, poh_id) exists in tb_purchase_order_header (404 otherwise).
+      - The OC's supp_id matches the pedido's proveedor supp_id (409 otherwise).
+      - The OC satisfies CRITERION-PENDIENTE: at least one unprocessed line
+        (bool_and(COALESCE(pod_isprocessed, FALSE)) = FALSE) — 409 otherwise.
+
+    Registers event OC_VINCULADA. Does NOT commit (router commits).
+
+    Raises:
+        HTTPException 404 — pedido or OC not found.
+        HTTPException 409 — already linked, supplier mismatch, or OC not pending.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    if pedido.oc_poh_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Pedido id={pedido.id} already has a linked OC (poh_id={pedido.oc_poh_id}). Unlink first."),
+        )
+
+    # Verify OC exists in ERP
+    oc_row = session.execute(
+        text(
+            "SELECT h.supp_id FROM tb_purchase_order_header h "
+            "WHERE h.comp_id = :comp AND h.bra_id = :bra AND h.poh_id = :poh"
+        ),
+        {"comp": oc_comp_id, "bra": oc_bra_id, "poh": oc_poh_id},
+    ).first()
+    if oc_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OC not found: (comp_id={oc_comp_id}, bra_id={oc_bra_id}, poh_id={oc_poh_id}).",
+        )
+
+    # Verify supplier match
+    pedido_supp_id = session.execute(
+        text("SELECT supp_id FROM proveedores WHERE id = :pid"),
+        {"pid": pedido.proveedor_id},
+    ).scalar_one_or_none()
+    if pedido_supp_id is None or int(oc_row[0] or -1) != int(pedido_supp_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"supplier mismatch: OC supp_id={oc_row[0]}, pedido proveedor supp_id={pedido_supp_id}."),
+        )
+
+    # Verify CRITERION-PENDIENTE: at least one unprocessed line
+    has_unprocessed = session.execute(
+        text(
+            "SELECT COUNT(*) FROM tb_purchase_order_detail d "
+            "WHERE d.comp_id = :comp AND d.bra_id = :bra AND d.poh_id = :poh "
+            "AND COALESCE(d.pod_isprocessed, 0) = 0"
+        ),
+        {"comp": oc_comp_id, "bra": oc_bra_id, "poh": oc_poh_id},
+    ).scalar()
+    if not has_unprocessed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"OC poh_id={oc_poh_id} does not satisfy CRITERION-PENDIENTE: no unprocessed lines found."),
+        )
+
+    pedido.oc_comp_id = oc_comp_id
+    pedido.oc_bra_id = oc_bra_id
+    pedido.oc_poh_id = oc_poh_id
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.OC_VINCULADA,
+        usuario_id=user_id,
+        payload={"oc_comp_id": oc_comp_id, "oc_bra_id": oc_bra_id, "oc_poh_id": oc_poh_id},
+    )
+    logger.info(
+        "pedido_vincular_oc id=%s poh_id=%s",
+        pedido.id,
+        oc_poh_id,
+    )
+    return pedido
+
+
+def desvincular_oc(
+    session: Session,
+    *,
+    pedido_id: int,
+    user_id: int,
+) -> None:
+    """
+    Unlinks the OC from the pedido (clears the 3 oc_* columns).
+
+    Raises:
+        HTTPException 404 — pedido not found.
+        HTTPException 409 — no OC linked, or active ingresos exist
+                            (table pedido_compra_ingresos — guarded defensively;
+                            Slice 2 creates the table).
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    if pedido.oc_poh_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Pedido id={pedido.id} has no linked OC.",
+        )
+
+    # Defensive guard: block if ingresos exist. The table is created in Slice 2.
+    # TODO(Slice 2): replace with real query once pedido_compra_ingresos exists.
+    try:
+        ingresos_count = (
+            session.execute(
+                text("SELECT COUNT(*) FROM pedido_compra_ingresos WHERE pedido_id = :pid"),
+                {"pid": pedido_id},
+            ).scalar()
+            or 0
+        )
+        if ingresos_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=("Cannot unlink OC: confirmed ingresos exist. Anular ingresos first."),
+            )
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001
+        # Table doesn't exist yet (Slice 1 — pedido_compra_ingresos created in Slice 2).
+        # Safe to proceed with unlink.
+        pass
+
+    oc_anterior = {
+        "oc_comp_id": pedido.oc_comp_id,
+        "oc_bra_id": pedido.oc_bra_id,
+        "oc_poh_id": pedido.oc_poh_id,
+    }
+    pedido.oc_comp_id = None
+    pedido.oc_bra_id = None
+    pedido.oc_poh_id = None
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.OC_DESVINCULADA,
+        usuario_id=user_id,
+        payload={**oc_anterior, "ingresos_count": 0},
+    )
+    logger.info("pedido_desvincular_oc id=%s oc_anterior=%s", pedido.id, oc_anterior)
 
 
 def ajustar_monto_con_factura(

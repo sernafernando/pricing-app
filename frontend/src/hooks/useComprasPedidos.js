@@ -188,6 +188,26 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  // ── Batch J — vincular OC del ERP ──────────────────────────────────
+  const desvinculaOc = useCallback(
+    (id) =>
+      wrap(async () => {
+        await api.delete(`/administracion/compras/pedidos/${id}/desvincular-oc`);
+      }),
+    [wrap]
+  );
+
+  const fetchOcDetalle = useCallback(
+    (id) =>
+      wrap(async () => {
+        const { data } = await api.get(
+          `/administracion/compras/pedidos/${id}/orden-compra/detalle`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   // ── Feature D — corregir pedido (clonación append-only) ────────────
   const corregir = useCallback(
     (id, payload) =>
@@ -222,5 +242,8 @@ export default function useComprasPedidos() {
     desvincularFactura,
     // Feature D — corregir pedido
     corregir,
+    // Batch J — OC link
+    desvinculaOc,
+    fetchOcDetalle,
   };
 }

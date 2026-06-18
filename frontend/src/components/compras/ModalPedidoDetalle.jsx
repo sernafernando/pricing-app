@@ -28,6 +28,7 @@ import api from '../../services/api';
 import AdjuntosPanel from './AdjuntosPanel';
 import EstadoBadge from './_shared/EstadoBadge';
 import ModalVincularFactura from './ModalVincularFactura';
+import ModalVincularOC from './ModalVincularOC';
 import ModalCorregirPedido from './ModalCorregirPedido';
 import styles from './ModalPedidoDetalle.module.css';
 
@@ -75,7 +76,7 @@ const formatCurrency = (value, moneda = 'ARS') => {
 
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
-  const { obtener: obtenerPedido, desvincularFactura } = useComprasPedidos();
+  const { obtener: obtenerPedido, desvincularFactura, desvinculaOc, fetchOcDetalle } = useComprasPedidos();
   const { tienePermiso } = usePermisos();
 
   const canGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
@@ -87,6 +88,13 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
   const [showCorregirModal, setShowCorregirModal] = useState(false);
+  // Batch J — OC section state.
+  const [showVincularOCModal, setShowVincularOCModal] = useState(false);
+  const [desvinculandoOC, setDesvinculandoOC] = useState(false);
+  const [errorOC, setErrorOC] = useState(null);
+  const [ocDetalle, setOcDetalle] = useState(null);
+  const [loadingOcDetalle, setLoadingOcDetalle] = useState(false);
+
   // F2 — ND/NC variance circuit.
   const [resolviendoVarianza, setResolviendoVarianza] = useState(false);
   const [errorVarianza, setErrorVarianza] = useState(null);
@@ -126,12 +134,26 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       const data = await obtenerPedido(pedidoId);
       setPedido(data);
       fetchDocumentos(data?.id);
+      // Batch J — fetch OC detalle if linked
+      if (data?.oc_poh_id && data?.id) {
+        setLoadingOcDetalle(true);
+        try {
+          const detalle = await fetchOcDetalle(data.id);
+          setOcDetalle(detalle);
+        } catch {
+          setOcDetalle(null);
+        } finally {
+          setLoadingOcDetalle(false);
+        }
+      } else {
+        setOcDetalle(null);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cargar el pedido.');
     } finally {
       setLoading(false);
     }
-  }, [obtenerPedido, pedidoId, fetchDocumentos]);
+  }, [obtenerPedido, pedidoId, fetchDocumentos, fetchOcDetalle]);
 
   useEffect(() => {
     fetchDetalle();
@@ -157,6 +179,46 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       if (reload) fetchDetalle();
     },
     [fetchDetalle]
+  );
+
+  // Batch J — OC handlers
+  const handleDesvinculaOC = useCallback(async () => {
+    if (!pedido?.id) return;
+    setDesvinculandoOC(true);
+    setErrorOC(null);
+    try {
+      await desvinculaOc(pedido.id);
+      setOcDetalle(null);
+      await fetchDetalle();
+    } catch (err) {
+      setErrorOC(
+        err.response?.data?.error?.message ||
+          err.response?.data?.detail ||
+          'Error al desvincular la OC.'
+      );
+    } finally {
+      setDesvinculandoOC(false);
+    }
+  }, [desvinculaOc, pedido?.id, fetchDetalle]);
+
+  const handleVinculaOC = useCallback(
+    async (updatedPedido) => {
+      setShowVincularOCModal(false);
+      setPedido(updatedPedido);
+      // Fetch OC detalle after linking
+      if (updatedPedido?.oc_poh_id) {
+        setLoadingOcDetalle(true);
+        try {
+          const detalle = await fetchOcDetalle(updatedPedido.id);
+          setOcDetalle(detalle);
+        } catch {
+          setOcDetalle(null);
+        } finally {
+          setLoadingOcDetalle(false);
+        }
+      }
+    },
+    [fetchOcDetalle]
   );
 
   // Feature D — al corregir se crea un clon. Cierra este modal y propaga el
@@ -612,6 +674,95 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               )}
             </div>
 
+            {/* ── Orden de compra ERP (Batch J) ── */}
+            <h3 className={styles.sectionTitle}>
+              <Link2 size={14} /> Orden de compra ERP
+            </h3>
+            {errorOC && (
+              <div className={styles.errorBanner}>
+                <AlertCircle size={14} /> {errorOC}
+              </div>
+            )}
+            <div className={styles.facturaBlock}>
+              {pedido.oc_poh_id ? (
+                <div className={styles.facturaVinculada}>
+                  <div className={styles.facturaInfo}>
+                    <span className={styles.facturaMain}>
+                      Vinculada a OC <strong>#{pedido.oc_poh_id}</strong>
+                    </span>
+                    <span className={styles.facturaSub}>
+                      comp_id={pedido.oc_comp_id} | bra_id={pedido.oc_bra_id}
+                    </span>
+                  </div>
+                  {canGestionar && (
+                    <button
+                      type="button"
+                      className={styles.btnGhost}
+                      onClick={handleDesvinculaOC}
+                      disabled={desvinculandoOC}
+                      title="Desvincular OC"
+                    >
+                      {desvinculandoOC ? (
+                        <Loader2 size={14} className={styles.spin} />
+                      ) : (
+                        <Link2Off size={14} />
+                      )}
+                      Desvincular OC
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.facturaNoVinculada}>
+                  <span className={styles.emptyHint}>Sin OC del ERP vinculada.</span>
+                  {canGestionar && (
+                    <button
+                      type="button"
+                      className={styles.btnPrimaryInline}
+                      onClick={() => setShowVincularOCModal(true)}
+                    >
+                      <Link2 size={14} /> Vincular OC
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* OC detalle por depósito (read-only, Slice 1) */}
+            {pedido.oc_poh_id && (
+              <>
+                {loadingOcDetalle ? (
+                  <div className={styles.centered}>
+                    <Loader2 size={14} className={styles.spin} /> Cargando desglose OC…
+                  </div>
+                ) : ocDetalle?.lines?.length > 0 ? (
+                  <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Depósito</th>
+                          <th>Item ID</th>
+                          <th className={styles.thRight}>Qty OC</th>
+                          <th className={styles.thRight}>Saldo pendiente</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ocDetalle.lines.map((line) => (
+                          <tr key={line.pod_id}>
+                            <td>{line.deposito_nombre || `stor_id ${line.stor_id}`}</td>
+                            <td className={styles.tdMono}>{line.item_id ?? '—'}</td>
+                            <td className={styles.tdRight}>{Number(line.pod_qty ?? 0).toLocaleString('es-AR')}</td>
+                            <td className={styles.tdRight}>{Number(line.saldo_pendiente ?? 0).toLocaleString('es-AR')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : ocDetalle ? (
+                  <div className={styles.emptySection}>Sin líneas de detalle disponibles.</div>
+                ) : null}
+              </>
+            )}
+
             {/* ── Documentos ERP imputados (sub-batch 3) ── */}
             <h3 className={styles.sectionTitle}>
               <FileText size={14} /> Documentos imputados ({documentos.length})
@@ -817,6 +968,13 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
 
       {showVincularModal && pedido && (
         <ModalVincularFactura pedido={pedido} onClose={handleVincularClose} />
+      )}
+      {showVincularOCModal && pedido && (
+        <ModalVincularOC
+          pedido={pedido}
+          onClose={() => setShowVincularOCModal(false)}
+          onVinculada={handleVinculaOC}
+        />
       )}
       {showCorregirModal && pedido && (
         <ModalCorregirPedido pedido={pedido} onClose={handleCorregirClose} />
