@@ -143,10 +143,13 @@ def get_orden_compra_detalle(
     stmt = text(
         """
         SELECT d.pod_id, d.item_id, d.stor_id, s.stor_desc,
-               d.pod_qty, d.pod_confirmedqty, d.pod_price
+               d.pod_qty, d.pod_confirmedqty, d.pod_price,
+               p.descripcion AS item_nombre
         FROM tb_purchase_order_detail d
         LEFT JOIN tb_storage s
           ON s.comp_id = d.comp_id AND s.stor_id = d.stor_id
+        LEFT JOIN productos_erp p
+          ON p.item_id = d.item_id
         WHERE d.comp_id = :comp AND d.bra_id = :bra AND d.poh_id = :poh
         ORDER BY d.pod_id
         """
@@ -166,10 +169,15 @@ def get_orden_compra_detalle(
         pod_confirmedqty = Decimal(str(row[5] or 0))
         # In Slice 1 there are no ingresos yet; recibido_pricing = 0.
         saldo_pendiente = pod_qty - pod_confirmedqty
+        item_id = int(row[1]) if row[1] is not None else None
+        # item_nombre: resolved via LEFT JOIN; NULL if phantom item → use str(item_id)
+        raw_nombre = row[7]
+        item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
         lines.append(
             OrdenCompraLineaResponse(
                 pod_id=int(row[0]),
-                item_id=int(row[1]) if row[1] is not None else None,
+                item_id=item_id,
+                item_nombre=item_nombre,
                 stor_id=int(row[2]) if row[2] is not None else None,
                 deposito_nombre=row[3],
                 pod_qty=pod_qty,

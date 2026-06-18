@@ -904,17 +904,20 @@ def actualizar_tipo_cambio_manual_endpoint(
 # ──────────────────────────────────────────────────────────────────────────
 
 
-@router.post(
-    "/pedidos/{pedido_id}/generar-etiqueta-envio",
-    summary="Generar etiqueta de retiro para un pedido (requiere_envio=True)",
-)
-def generar_etiqueta_envio(
+def _despachar_retiro_response(
+    db: Session,
+    *,
     pedido_id: int,
-    payload: dict[str, Any] = Body(default_factory=dict),
-    db: Session = Depends(get_db),
-    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+    payload: dict[str, Any],
+    user_id: int,
+    operacion: str,
 ) -> dict[str, Any]:
-    """Genera `etiquetas_envio` tipo=retiro_proveedor. REQ-LOG-002, design §9.1."""
+    """Shared helper: call generar_etiqueta_retiro and return the compact dict.
+
+    Used by both generar_etiqueta_envio (administracion.gestionar_ordenes_compra)
+    and despachar_retiro (deposito.despachar_retiro) so business logic lives in
+    one place while each endpoint keeps its own permission gate.
+    """
     proveedor_direccion_id = (payload or {}).get("proveedor_direccion_id")
     if proveedor_direccion_id is not None and not isinstance(proveedor_direccion_id, int):
         raise HTTPException(
@@ -927,17 +930,17 @@ def generar_etiqueta_envio(
             db,
             pedido_id=pedido_id,
             proveedor_direccion_id=proveedor_direccion_id,
-            user_id=user.id,
+            user_id=user_id,
         )
     except HTTPException:
         db.rollback()
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("generar_etiqueta_envio falló: %s", exc)
+        logger.exception("%s falló: %s", operacion, exc)
         raise HTTPException(status_code=500, detail="Error al generar la etiqueta.") from exc
 
-    _commit_or_rollback(db, operacion="generar_etiqueta_envio")
+    _commit_or_rollback(db, operacion=operacion)
 
     # No hay schema Pydantic en el proyecto para EtiquetaEnvio, se responde
     # con un dict compacto — el frontend F6 consumirá estos campos.
@@ -955,6 +958,43 @@ def generar_etiqueta_envio(
         "manual_city_name": etiqueta.manual_city_name,
         "manual_phone": etiqueta.manual_phone,
     }
+
+
+@router.post(
+    "/pedidos/{pedido_id}/generar-etiqueta-envio",
+    summary="Generar etiqueta de retiro para un pedido (requiere_envio=True)",
+)
+def generar_etiqueta_envio(
+    pedido_id: int,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> dict[str, Any]:
+    """Genera `etiquetas_envio` tipo=retiro_proveedor. REQ-LOG-002, design §9.1."""
+    return _despachar_retiro_response(
+        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="generar_etiqueta_envio"
+    )
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/despachar-retiro",
+    summary="Despachar retiro de proveedor desde depósito (requiere_envio=True)",
+)
+def despachar_retiro(
+    pedido_id: int,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("deposito.despachar_retiro")),
+) -> dict[str, Any]:
+    """Genera `etiquetas_envio` tipo=retiro_proveedor desde el flujo de depósito.
+
+    REQ-LOG-002, design §9.1. Gated by deposito.despachar_retiro — allows
+    warehouse operators to dispatch supplier pickups from the reception tab
+    without requiring administracion.gestionar_ordenes_compra.
+    """
+    return _despachar_retiro_response(
+        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="despachar_retiro"
+    )
 
 
 @router.get(
@@ -4716,6 +4756,148 @@ def obtener_saldo_a_favor_breakdown(
         empresa_id=empresa_id,
     )
     return SaldoAFavorBreakdown(**data)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Batch K — Recepción de mercadería por depósito
+# Todos los endpoints requieren deposito.recibir_mercaderia (D2 LOCKED).
+# ──────────────────────────────────────────────────────────────────────────
+
+from app.schemas.recepcion import (  # noqa: E402
+    ConfirmarPedidoRequest,
+    ConfirmarPedidoResponse,
+    EventosRecepcionResponse,
+    RegistrarIngresosRequest,
+    RegistrarIngresosResponse,
+    SaldosResponse,
+)
+from app.services import recepcion_service  # noqa: E402
+
+
+def _obtener_pedido_recepcion_o_404(db: Session, pedido_id: int) -> PedidoCompra:
+    """Return PedidoCompra or raise HTTP 404. Used by all Batch K endpoints."""
+    pedido = db.get(PedidoCompra, pedido_id)
+    if pedido is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pedido not found",
+        )
+    return pedido
+
+
+@router.get(
+    "/pedidos/{pedido_id}/recepcion/saldos",
+    response_model=SaldosResponse,
+    summary="Saldos de recepción por línea OC para un pedido",
+)
+def get_recepcion_saldos(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> SaldosResponse:
+    """Returns per-line balance for goods reception.
+
+    Permission required: deposito.recibir_mercaderia (D2 LOCKED — single permiso).
+    Returns 404 if pedido not found, 409 if pedido not in a receivable state.
+    ERP tables are read-only throughout.
+    """
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    # Guard: only receptive states allowed (409 otherwise)
+    if pedido.estado not in {"pagado", "con_faltantes", "recibido"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pedido not in a receivable state",
+        )
+    return recepcion_service.computar_saldos(db, pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/ingresos",
+    response_model=RegistrarIngresosResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar tanda de recepción de mercadería (CON OC)",
+)
+def post_recepcion_ingresos(
+    pedido_id: int,
+    request: RegistrarIngresosRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> RegistrarIngresosResponse:
+    """Register a multi-line receipt batch for a pedido WITH a linked OC.
+
+    Atomic: all lines succeed or none is inserted (over-receipt → 409 + rollback).
+    Updates pedido estado and emits a compras_evento.
+
+    Permission required: deposito.recibir_mercaderia (D2 LOCKED).
+    """
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.registrar_ingresos(db, pedido, user, request)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("registrar_ingresos falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al registrar ingresos.") from exc
+
+    _commit_or_rollback(db, operacion="registrar_ingresos")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/confirmar-pedido",
+    response_model=ConfirmarPedidoResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Confirmar recepción a nivel pedido (SIN OC)",
+)
+def post_confirmar_pedido_recepcion(
+    pedido_id: int,
+    request: ConfirmarPedidoRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> ConfirmarPedidoResponse:
+    """Confirm reception at pedido level for pedidos WITHOUT a linked OC.
+
+    Does not require OC lines. Writes a sentinel row for auditing.
+    Returns 409 if the pedido has an OC linked (use /recepcion/ingresos instead).
+
+    Permission required: deposito.recibir_mercaderia.
+    """
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.confirmar_pedido_sin_oc(db, pedido, user, request)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("confirmar_pedido_sin_oc falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
+
+    _commit_or_rollback(db, operacion="confirmar_pedido_sin_oc")
+    return result
+
+
+@router.get(
+    "/pedidos/{pedido_id}/recepcion/eventos",
+    response_model=EventosRecepcionResponse,
+    summary="Listar eventos de recepción para un pedido",
+)
+def get_recepcion_eventos(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> EventosRecepcionResponse:
+    """Return all reception events for a pedido, newest first.
+
+    Filters compras_eventos by tipo in recepcion_registrada / recepcion_con_faltantes.
+    Returns 404 if pedido not found.
+
+    Permission required: deposito.recibir_mercaderia.
+    """
+    _obtener_pedido_recepcion_o_404(db, pedido_id)
+    return recepcion_service.get_eventos_recepcion(db, pedido_id)
 
 
 __all__ = ["router"]
