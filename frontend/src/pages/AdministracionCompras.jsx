@@ -9,6 +9,7 @@ import {
   BookOpen,
   Trash2,
   MinusCircle,
+  Package,
 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import TabPedidosCompra from '../components/compras/TabPedidosCompra';
@@ -18,6 +19,7 @@ import TabCCProveedores from '../components/compras/TabCCProveedores';
 import TabReconciliacion from '../components/compras/TabReconciliacion';
 import TabSaleDocumentCatalog from '../components/compras/TabSaleDocumentCatalog';
 import TabPapelera from '../components/compras/TabPapelera';
+import TabRecepcionDeposito from '../components/compras/TabRecepcionDeposito';
 import WipeComprasButton from '../components/compras/WipeComprasButton';
 import styles from './AdministracionCompras.module.css';
 
@@ -64,6 +66,13 @@ const TABS = [
     icon: BookOpen,
     permiso: 'administracion.ver_ordenes_compra',
     Component: TabSaleDocumentCatalog,
+  },
+  {
+    id: 'deposito',
+    label: 'Depósito',
+    icon: Package,
+    permiso: 'deposito.recibir_mercaderia',
+    Component: TabRecepcionDeposito,
   },
   {
     id: 'papelera',
