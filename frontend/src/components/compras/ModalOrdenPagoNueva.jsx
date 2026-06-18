@@ -757,7 +757,9 @@ export default function ModalOrdenPagoNueva({
     if (pagoACuentaNum < 0) return 'El pago a cuenta no puede ser negativo.';
     // PR3: al confirmar (crear y pagar), la diferencia debe ser 0.
     // Al solo crear (draft), se permite diferencia != 0.
-    if (pagarAhora && diferencia !== 0) {
+    // Tolerancia de medio centavo: el redondeo de TC puede dejar un -0.00 /
+    // sub-centavo que NO es exactamente 0 y bloqueaba el pago indebidamente.
+    if (pagarAhora && Math.abs(diferencia) >= 0.005) {
       return `Diferencia de ${formatCurrency(Math.abs(diferencia), form.moneda)} — la cobertura debe ser igual al total para confirmar el pago.`;
     }
     return null;
@@ -968,7 +970,7 @@ export default function ModalOrdenPagoNueva({
   const empresaNombre = pedidoInicial?.empresa_nombre ?? empresas.find((e) => String(e.id) === String(form.empresa_id))?.nombre ?? null;
   const isPreFilled = !!(proveedorNombre && empresaNombre);
 
-  const diferenciaStatus = diferencia === 0
+  const diferenciaStatus = Math.abs(diferencia) < 0.005
     ? 'ok'
     : diferencia > 0
       ? 'falta'
