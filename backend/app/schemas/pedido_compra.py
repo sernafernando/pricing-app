@@ -24,6 +24,8 @@ ESTADOS_PEDIDO: tuple[str, ...] = (
     "cancelado",
     "pagado_parcial",
     "pagado",
+    "recibido",
+    "con_faltantes",
 )
 
 

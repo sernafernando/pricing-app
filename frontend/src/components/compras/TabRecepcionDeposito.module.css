@@ -1,0 +1,472 @@
+/* TabRecepcionDeposito — CSS Modules, Tesla CF tokens exclusively. */
+
+/* ── Page container ──────────────────────────────────────────── */
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+}
+
+/* ── Filter tabs ─────────────────────────────────────────────── */
+.filterTabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.filterTab {
+  padding: var(--space-1) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-out);
+}
+
+.filterTab:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.filterTabActive {
+  background: var(--cf-accent-blue);
+  border-color: var(--cf-accent-blue);
+  color: #fff;
+}
+
+/* ── Loading / empty states ──────────────────────────────────── */
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.emptyState {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+  background: var(--cf-bg-hover);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+/* ── Error banner ────────────────────────────────────────────── */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── Accordion list ──────────────────────────────────────────── */
+.accordionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* ── Accordion card ──────────────────────────────────────────── */
+.accordion {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--cf-bg-card);
+  overflow: hidden;
+  transition: box-shadow var(--duration-200) var(--ease-out);
+}
+
+.accordion:focus-within {
+  box-shadow: 0 0 0 2px var(--cf-accent-blue);
+}
+
+/* ── Accordion header ────────────────────────────────────────── */
+.accordionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--cf-text-primary);
+  transition: background var(--duration-150) var(--ease-out);
+}
+
+.accordionHeader:hover {
+  background: var(--cf-bg-hover);
+}
+
+.chevron {
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--duration-200) var(--ease-out);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.pedidoNumero {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  flex-shrink: 0;
+}
+
+.pedidoProveedor {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerBadges {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+/* ── Estado badges ───────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badgePagado {
+  composes: badge;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--cf-accent-blue);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badgeConFaltantes {
+  composes: badge;
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.badgeRecibido {
+  composes: badge;
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.tagRetiro {
+  composes: badge;
+  background: rgba(139, 92, 246, 0.12);
+  color: #7c3aed;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+/* ── Retiro button (in header) ───────────────────────────────── */
+.retiroButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px var(--spacing-sm);
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: #7c3aed;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background var(--duration-150) var(--ease-out);
+}
+
+.retiroButton:hover {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+/* ── Accordion body ──────────────────────────────────────────── */
+.accordionBody {
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* ── Inline error / toast-like ───────────────────────────────── */
+.inlineError {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.inlineSuccess {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: #059669;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── Item table (CON OC mode) ────────────────────────────────── */
+.tableWrapper {
+  overflow-x: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-app);
+}
+
+.itemTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.itemTable th {
+  position: sticky;
+  top: 0;
+  background: var(--cf-bg-hover);
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
+.itemTable th.thCenter,
+.itemTable td.tdCenter {
+  text-align: center;
+}
+
+.itemTable th.thRight,
+.itemTable td.tdRight {
+  text-align: right;
+}
+
+.itemTable td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+  vertical-align: middle;
+}
+
+.itemTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.itemTable tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.itemNombre {
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.itemCodigo {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.saldoCell {
+  font-weight: var(--font-semibold);
+}
+
+.saldoPendiente {
+  color: var(--cf-accent-red);
+}
+
+.saldoCero {
+  color: #059669;
+}
+
+/* ── Quantity input ──────────────────────────────────────────── */
+.inputCantidad {
+  width: 90px;
+  padding: var(--space-1) var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  text-align: right;
+  transition: border-color var(--duration-150) var(--ease-out);
+}
+
+.inputCantidad:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.inputError {
+  border-color: var(--cf-accent-red) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15) !important;
+}
+
+/* ── Action bar ──────────────────────────────────────────────── */
+.actionBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.actionBarLeft {
+  flex: 1;
+}
+
+.actionBarRight {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+/* ── SIN OC banner ───────────────────────────────────────────── */
+.noOcBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  color: #92400e;
+  font-size: var(--font-sm);
+}
+
+.noOcBannerText {
+  flex: 1;
+  line-height: var(--leading-normal);
+}
+
+.noOcActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+/* Inline textarea para observaciones SIN OC */
+.observacionesInline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.observacionesLabel {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+}
+
+.observacionesTextarea {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  resize: vertical;
+  min-height: 64px;
+  transition: border-color var(--duration-150) var(--ease-out);
+}
+
+.observacionesTextarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.observacionesTextarea.inputError {
+  border-color: var(--cf-accent-red);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+}
+
+/* ── Shared button styles ────────────────────────────────────── */
+.btnPrimary {
+  composes: btn-tesla outline-subtle-success sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnSecondary {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnDanger {
+  composes: btn-tesla outline-subtle-danger sm from '../../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.btnPrimary:disabled,
+.btnSecondary:disabled,
+.btnDanger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Spinner */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
