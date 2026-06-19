@@ -410,7 +410,14 @@ def listar_pedidos(
     # ── Standard path (unchanged) ────────────────────────────────────────────
     condiciones = []
     if estado is not None:
-        condiciones.append(PedidoCompra.estado == estado)
+        # Soporta uno o varios estados separados por coma (e.g. la pestaña
+        # Recepción de depósito pide "pagado,con_faltantes"). Antes comparaba
+        # con igualdad exacta y un multi-valor no matcheaba nada.
+        estados = [e.strip() for e in estado.split(",") if e.strip()]
+        if len(estados) == 1:
+            condiciones.append(PedidoCompra.estado == estados[0])
+        elif estados:
+            condiciones.append(PedidoCompra.estado.in_(estados))
     if proveedor_id is not None:
         condiciones.append(PedidoCompra.proveedor_id == proveedor_id)
     if empresa_id is not None:
