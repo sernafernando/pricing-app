@@ -278,6 +278,42 @@ class TestPedidosCRUD:
         assert encontrado["empresa_nombre"] == "TestEmpresa"
         assert encontrado["proveedor_nombre"] == "TestProveedor"
 
+    def test_listar_pedidos_estado_multivalor(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        """El listado debe aceptar estados separados por coma (?estado=pagado,con_faltantes),
+        como los usa la pestaña Recepción de depósito. Antes comparaba con igualdad exacta
+        (estado == 'pagado,con_faltantes') y devolvía lista vacía."""
+        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+
+        def _mk(estado: str) -> PedidoCompra:
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("5000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = estado
+            db.flush()
+            return p
+
+        p_pagado = _mk("pagado")
+        p_faltantes = _mk("con_faltantes")
+        p_borrador = _mk("borrador")
+
+        r = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"estado": "pagado,con_faltantes"},
+        )
+        assert r.status_code == 200, r.text
+        ids = {p["id"] for p in r.json()["items"]}
+        assert p_pagado.id in ids
+        assert p_faltantes.id in ids
+        assert p_borrador.id not in ids
+
     def test_obtener_pedido_detalle(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         r = client.get(f"{BASE}/pedidos/{pedido_borrador.id}", headers=auth_headers)
         assert r.status_code == 200
