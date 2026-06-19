@@ -10,14 +10,14 @@
 ## Slice 1 — Núcleo + cheque propio en la OP
 
 ### Backend
-- [ ] **T1.1** Migración Alembic `YYYYMMDD_cheques_modulo.py`: tablas `chequeras`, `cheques`, `orden_pago_cheque`, `cheque_evento` (esquema completo del design) + constraints/índices. Seed del permiso `tesoreria.gestionar_cheques` (sin asignar a rol). [No destructivo.]
-- [ ] **T1.2** Modelos SQLAlchemy: `Chequera`, `Cheque`, `OrdenPagoCheque`, `ChequeEvento`. Tipos explícitos, CheckConstraints.
-- [ ] **T1.3** `cheques_service.py`: `crear_chequera`, `listar_chequeras`, `proximo_numero(chequera)`.
-- [ ] **T1.4** `cheques_service.emitir_cheque_propio(...)`: valida fechas (pago ≥ emisión), numeración (única por chequera, avanza próximo número), estado inicial (`emitido`/`diferido`), evento `emitido`. **Test RED→GREEN.**
-- [ ] **T1.5** Máquina de estados `transicionar_cheque(...)` + `TRANSICIONES_CHEQUE` (propios). `anular` revierte imputación CC. Transición inválida → 422. **Test.**
+- [x] **T1.1** Migración Alembic `20260619_cheques_modulo.py`: tablas `chequeras`, `cheques`, `orden_pago_cheque`, `cheque_evento` (esquema completo del design) + constraints/índices. Seed del permiso `tesoreria.gestionar_cheques` (sin asignar a rol). [No destructivo.]
+- [x] **T1.2** Modelos SQLAlchemy: `Chequera`, `Cheque`, `OrdenPagoCheque`, `ChequeEvento`. Tipos explícitos, CheckConstraints.
+- [x] **T1.3** `cheques_service.py`: `crear_chequera`, `listar_chequeras`, `proximo_numero(chequera)`.
+- [x] **T1.4** `cheques_service.emitir_cheque_propio(...)`: valida fechas (pago ≥ emisión), numeración (única por chequera, avanza próximo número), estado inicial (`emitido`/`diferido`), evento `emitido`. **Test RED→GREEN.**
+- [x] **T1.5** Máquina de estados `transicionar_cheque(...)` + `TRANSICIONES_CHEQUE` (propios). `anular` (con motivo) → estado `anulado` + evento. Transición inválida → 422. **Test.**
 - [ ] **T1.6** Integración OP: extender payload de pago (`crear_y_pagar`/`ejecutar_pago`) con `cheques: [...]`; emitir + crear `orden_pago_cheque` (monto derivado a moneda OP por TC) + imputar `cc_proveedor`, todo en la misma transacción. **Test (incluye cross-moneda).**
 - [ ] **T1.7** `validar_balance_op`: sumar `Σ orden_pago_cheque.monto_op_moneda` a la cobertura, tolerancia `< 0.005`. **Test: cubre, falta cubrir, combinado cheque+caja, cross-moneda.**
-- [ ] **T1.8** Endpoints (`require_permiso("tesoreria.gestionar_cheques")`): `POST /chequeras`, `GET /chequeras`, `GET /cheques` (filtros), `POST /cheques/propio`, `POST /cheques/{id}/anular`, `GET /cheques/{id}`. **Tests de integración (incl. 403 sin permiso).**
+- [x] **T1.8** Endpoints (`require_permiso("tesoreria.gestionar_cheques")`): `POST /chequeras`, `GET /chequeras`, `GET /cheques` (filtros), `POST /cheques/propio`, `POST /cheques/{id}/anular`, `GET /cheques/{id}`. **Tests de integración (incl. 403 sin permiso). [standalone; sin integración OP — eso es T1.6/T1.7]**
 
 ### Frontend
 - [ ] **T1.9** `useCheques.js` hook (listar, crear chequera, emitir, anular, obtener).
