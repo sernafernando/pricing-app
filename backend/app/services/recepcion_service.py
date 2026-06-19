@@ -129,7 +129,8 @@ def computar_saldos(session: Session, pedido: PedidoCompra) -> SaldosResponse:
                s.stor_desc,
                d.pod_qty,
                COALESCE(d.pod_confirmedqty, 0) AS pod_confirmedqty,
-               p.descripcion AS item_nombre
+               p.descripcion AS item_nombre,
+               p.codigo AS item_code
         FROM tb_purchase_order_detail d
         LEFT JOIN tb_storage s
           ON s.comp_id = d.comp_id AND s.stor_id = d.stor_id
@@ -165,6 +166,7 @@ def computar_saldos(session: Session, pedido: PedidoCompra) -> SaldosResponse:
         pod_qty = Decimal(str(row[4] or 0))
         pod_confirmedqty = Decimal(str(row[5] or 0))
         raw_nombre: str | None = row[6]
+        item_code: str | None = row[7]
         # Phantom item fallback: if no match in productos_erp, use str(item_id)
         item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
 
@@ -175,6 +177,7 @@ def computar_saldos(session: Session, pedido: PedidoCompra) -> SaldosResponse:
             SaldoLineaResponse(
                 pod_id=pod_id,
                 item_id=item_id,
+                item_code=item_code,
                 item_nombre=item_nombre,
                 stor_id=stor_id,
                 deposito_nombre=deposito_nombre,

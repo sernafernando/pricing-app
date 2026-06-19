@@ -465,6 +465,17 @@ class TestRecepcionServiceSaldos:
         result = recepcion_service.computar_saldos(db, pedido_pagado_con_oc)
         assert result.lineas[0].item_nombre == "Tornillo M8"
 
+    def test_computar_saldos_item_code_resolved(self, db, pedido_pagado_con_oc):
+        """Item presente en productos_erp → item_code (codigo) resuelto."""
+        _mk_oc_header(db, poh_id=9001, supp_id=55)
+        _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=10.0, item_id=5005)
+        _mk_storage(db, stor_id=1)
+        _mk_producto_erp(db, item_id=5005, descripcion="SSD HIKSEMI", codigo="SSD-HS-1TB")
+        db.flush()
+
+        result = recepcion_service.computar_saldos(db, pedido_pagado_con_oc)
+        assert result.lineas[0].item_code == "SSD-HS-1TB"
+
     def test_saldos_phantom_item_fallback(self, db, pedido_pagado_con_oc):
         """Item NOT in productos_erp → item_nombre is str(item_id)."""
         _mk_oc_header(db, poh_id=9001, supp_id=55)
@@ -474,6 +485,19 @@ class TestRecepcionServiceSaldos:
 
         result = recepcion_service.computar_saldos(db, pedido_pagado_con_oc)
         assert result.lineas[0].item_nombre == "99999"
+
+    def test_ingreso_linea_rechaza_cantidad_decimal(self):
+        """Las unidades no tienen decimales: cantidad_recibida no-entera → ValidationError."""
+        from pydantic import ValidationError  # noqa: PLC0415
+
+        from app.schemas.recepcion import IngresoLinea  # noqa: PLC0415
+
+        with pytest.raises(ValidationError):
+            IngresoLinea(pod_id=1, cantidad_recibida=Decimal("1.3"))
+
+        # Entero válido (acepta enteros y decimales con parte fraccionaria nula).
+        assert IngresoLinea(pod_id=1, cantidad_recibida=Decimal("2")).cantidad_recibida == Decimal("2")
+        assert IngresoLinea(pod_id=1, cantidad_recibida=Decimal("2.0")).cantidad_recibida == Decimal("2.0")
 
     def test_recalcular_estado_todos_cero_da_recibido(self, db, pedido_pagado_con_oc):
 

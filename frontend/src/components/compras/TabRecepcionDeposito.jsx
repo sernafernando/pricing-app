@@ -135,9 +135,23 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     setTanda(next);
   };
 
+  const handleDesmarcarTodo = () => {
+    const next = {};
+    lineas.forEach((l) => { next[l.pod_id] = '0'; });
+    setTanda(next);
+  };
+
+  // Todo marcado: hay líneas con saldo > 0 y todas están en su saldo pleno.
+  const lineasMarcables = lineas.filter((l) => l.saldo_pendiente > 0);
+  const allMarked =
+    lineasMarcables.length > 0 &&
+    lineasMarcables.every(
+      (l) => Math.abs(parseFloat(tanda[l.pod_id] || '0') - l.saldo_pendiente) < 0.000001
+    );
+
   const handleInputChange = (podId, value) => {
-    // Only allow non-negative numbers
-    if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
+    // Las unidades son enteras: solo dígitos, sin decimales ("1.3 memorias" no existe).
+    if (value !== '' && !/^\d+$/.test(value)) return;
     setTanda((prev) => ({ ...prev, [podId]: value }));
   };
 
@@ -225,7 +239,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                   </td>
                   <td>
                     <div className={styles.itemNombre}>{nombre}</div>
-                    <div className={styles.itemCodigo}>#{linea.item_id}</div>
+                    <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
                   </td>
                   <td>{linea.deposito_nombre || '—'}</td>
                   <td className={styles.tdRight}>{linea.pod_qty}</td>
@@ -242,7 +256,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                       type="number"
                       min="0"
                       max={linea.saldo_pendiente}
-                      step="any"
+                      step="1"
                       value={tanda[linea.pod_id] ?? '0'}
                       disabled={linea.saldo_pendiente <= 0}
                       onChange={(e) => handleInputChange(linea.pod_id, e.target.value)}
@@ -273,10 +287,10 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={handleMarcarTodo}
+            onClick={allMarked ? handleDesmarcarTodo : handleMarcarTodo}
             disabled={submitting}
           >
-            Marcar todo
+            {allMarked ? 'Desmarcar todo' : 'Marcar todo'}
           </button>
         </div>
         <div className={styles.actionBarRight}>
