@@ -1747,14 +1747,10 @@ def _curr_id_a_moneda(curr_id: int) -> Optional[str]:
     return None
 
 
-def _validar_moneda_factura_coincide(
-    *, pedido: PedidoCompra, ct_transaction: int, ct_docnumber: str, curr_id: int
-) -> None:
-    """Verifica que la moneda de la factura ERP coincida con la del pedido.
-
-    Si difieren, vincular o ajustar produciría datos incoherentes (un pedido
-    USD con monto en pesos, o viceversa). Caso real detectado: pedido
-    P-02-2026-00001 quedó con monto 46M USD por vincular factura ARS.
+def _validar_curr_id_factura_mapeable(*, ct_transaction: int, ct_docnumber: str, curr_id: int) -> str:
+    """Verifica que el `curr_id` de la factura ERP mapee a una moneda conocida
+    (ARS/USD) y la devuelve. NO exige que coincida con el pedido: un pedido
+    puede estar en USD y la factura en ARS (y viceversa) — caso válido.
     """
     moneda_factura = _curr_id_a_moneda(curr_id)
     if moneda_factura is None:
@@ -1765,6 +1761,26 @@ def _validar_moneda_factura_coincide(
                 f"que no mapea a ARS ni USD. No se puede vincular."
             ),
         )
+    return moneda_factura
+
+
+def _validar_moneda_factura_coincide(
+    *, pedido: PedidoCompra, ct_transaction: int, ct_docnumber: str, curr_id: int
+) -> None:
+    """Verifica que la moneda de la factura ERP coincida con la del pedido.
+
+    Se usa SOLO en `ajustar_monto_con_factura`: ese flujo reescribe
+    `pedido.monto`, así que un cross-moneda sin conversión por TC produciría
+    datos incoherentes (un pedido USD con monto en pesos). Caso real: pedido
+    P-02-2026-00001 quedó con monto 46M USD por ajustar contra una factura ARS.
+
+    `vincular_factura` NO usa esta función: vincular es solo una referencia y
+    no toca el monto, por lo que el cross-moneda es válido (la diferencia de
+    cambio la captura el diferencial de TC en la CC).
+    """
+    moneda_factura = _validar_curr_id_factura_mapeable(
+        ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id
+    )
     if moneda_factura != pedido.moneda:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1837,9 +1853,10 @@ def vincular_factura(
             ),
         )
     ct_docnumber, ct_total, curr_id = match
-    _validar_moneda_factura_coincide(
-        pedido=pedido, ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id
-    )
+    # Vincular es solo una referencia y NO toca el monto del pedido, así que el
+    # cross-moneda es válido (pedido USD + factura ARS y viceversa). Solo exigimos
+    # que la moneda de la factura sea mapeable (ARS/USD).
+    _validar_curr_id_factura_mapeable(ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id)
 
     pedido.ct_transaction_id = int(ct_transaction)
     session.flush()

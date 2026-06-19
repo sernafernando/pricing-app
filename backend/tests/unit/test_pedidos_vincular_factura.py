@@ -260,10 +260,12 @@ class TestVincularFactura:
             )
         assert exc.value.status_code == 400
 
-    def test_moneda_factura_distinta_a_pedido_400(self, db, empresa, proveedor, sd_factura, active_user):
-        """Regresión: pedido USD + factura ARS (curr_id=1) → 400. Reproduce el
-        bug del pedido legacy P-02-2026-00001 que quedó en 46M USD por vincular
-        una factura ARS sin validar moneda.
+    def test_moneda_factura_distinta_a_pedido_se_permite(self, db, empresa, proveedor, sd_factura, active_user):
+        """Cross-moneda válido: pedido USD + factura ARS (curr_id=1) se VINCULA.
+        Vincular es solo una referencia y NO toca el monto, así que el cross-moneda
+        es legítimo (la diferencia la captura el diferencial de TC en la CC).
+        El monto del pedido queda intacto (no se corrompe como en el bug legacy
+        P-02-2026-00001, que era por AJUSTAR, no por vincular).
         """
         pedido = PedidoCompra(
             numero="P-USD-00001",
@@ -287,18 +289,40 @@ class TestVincularFactura:
             curr_id=1,
         )
 
+        pedidos_service.vincular_factura(
+            db,
+            pedido_id=pedido.id,
+            ct_transaction=700099,
+            user_id=active_user.id,
+        )
+
+        db.refresh(pedido)
+        # Se vinculó y el monto (USD) quedó intacto.
+        assert pedido.ct_transaction_id == 700099
+        assert pedido.monto == Decimal("1000")
+        assert pedido.moneda == "USD"
+
+    def test_moneda_factura_no_mapeable_400(self, db, empresa, proveedor, sd_factura, active_user):
+        """Una factura con curr_id que no mapea a ARS/USD sigue siendo 400."""
+        pedido = _crear_pedido(db, empresa, proveedor, active_user)
+        _crear_ct(
+            db,
+            ct_transaction=700098,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("1000"),
+            curr_id=99,  # no mapea
+        )
+
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             pedidos_service.vincular_factura(
                 db,
                 pedido_id=pedido.id,
-                ct_transaction=700099,
+                ct_transaction=700098,
                 user_id=active_user.id,
             )
         assert exc.value.status_code == 400
-        assert "no coincide" in exc.value.detail.lower()
-        # El pedido sigue intacto
         db.refresh(pedido)
         assert pedido.ct_transaction_id is None
 
