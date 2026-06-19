@@ -16,6 +16,7 @@ import {
   Trash2,
   Inbox,
   TrendingUp,
+  RotateCcw,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -107,6 +108,7 @@ export default function TabPedidosCompra() {
     enviarAprobacion,
     aprobar: aprobarPedido,
     rechazar: rechazarPedido,
+    reabrir: reabrirPedido,
     cancelar: cancelarPedido,
     generarEtiqueta,
     eliminar: eliminarPedido,
@@ -318,6 +320,18 @@ export default function TabPedidosCompra() {
     }
   };
 
+  const handleReabrir = async (pedido) => {
+    // Un pedido rechazado vuelve a borrador (editable). El backend soporta
+    // ("rechazado","reabrir") → "borrador"; antes faltaba el botón y el pedido
+    // quedaba trabado en rechazado sin poder editarse.
+    try {
+      await reabrirPedido(pedido.id);
+      fetchPedidos();
+    } catch {
+      /* el hook expone el error en pedidosError */
+    }
+  };
+
   const handlePagarAhora = (pedido) => {
     // Deep-link al tab OPs con pedido pre-cargado (TabOrdenesPago lo lee).
     setSearchParams(
@@ -357,6 +371,7 @@ export default function TabPedidosCompra() {
     const puedeEnviar = canManage && estado === 'borrador';
     const puedeAprobar = canApprove && estado === 'pendiente_aprobacion';
     const puedeRechazar = canApprove && estado === 'pendiente_aprobacion';
+    const puedeReabrir = canManage && estado === 'rechazado';
     const puedeCancelarBorrador =
       canManage && (estado === 'borrador' || estado === 'pendiente_aprobacion');
     const puedeCancelarAprobado = canManage && estado === 'aprobado';
@@ -412,6 +427,16 @@ export default function TabPedidosCompra() {
             title="Rechazar"
           >
             <X size={14} />
+          </button>
+        )}
+        {puedeReabrir && (
+          <button
+            className={styles.iconBtn}
+            onClick={() => handleReabrir(p)}
+            aria-label="Reabrir"
+            title="Reabrir (vuelve a borrador)"
+          >
+            <RotateCcw size={14} />
           </button>
         )}
         {puedeCancelarBorrador && (
