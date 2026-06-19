@@ -510,7 +510,10 @@ def validar_balance_op(
     # ⟺ diferencia = base_items + pago_a_cuenta − monto_total = 0
     diferencia = base_items + pago_a_cuenta_total - monto_total
 
-    if diferencia != Decimal("0"):
+    # Tolerancia de medio centavo: la conversión cross-moneda (nativo×TC) puede
+    # dejar un residuo sub-centavo (-0.00) que NO es exactamente 0 y bloqueaba
+    # el pago indebidamente. Mismo criterio que el frontend (commit #778).
+    if abs(diferencia) >= Decimal("0.005"):
         moneda = op_moneda
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

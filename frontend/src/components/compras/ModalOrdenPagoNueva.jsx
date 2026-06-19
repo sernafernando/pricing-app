@@ -137,9 +137,12 @@ export default function ModalOrdenPagoNueva({
         // Solo pedido_compra deriva en el render (montoEnMonedaOPNet ignora
         // factura_erp/otros). Reconstruimos el nativo únicamente para ese tipo.
         if (it.tipo === 'pedido_compra' && id && opTcOk && Number.isFinite(stored)) {
-          const ped = (pendientesDelProveedor || []).find(
-            (p) => String(p.id) === id
-          );
+          // Mismo lookup que pedidoDe() (pendientes + pedidoInicial) para que el
+          // initializer y el render vean el mismo conjunto: si divergieran, uno
+          // reconstruiría el nativo y el otro no → reaparecería la doble conversión.
+          const ped =
+            (pendientesDelProveedor || []).find((p) => String(p.id) === id) ||
+            (pedidoInicial && String(pedidoInicial.id) === id ? pedidoInicial : null);
           if (ped && ped.moneda !== op.moneda) {
             // Deshacemos la conversión a moneda OP para recuperar el nativo.
             const nativo =
@@ -814,7 +817,9 @@ export default function ModalOrdenPagoNueva({
         ...itemsDerivados.map((it) => ({
           tipo: it.tipo,
           id: it.id ? Number(it.id) : null,
-          monto: it.montoDerivado ?? parseFloat(it.monto),
+          // Redondeo a 2 decimales: la conversión nativo×TC puede dejar ruido de
+          // float (e.g. 6311180.399999999) que rompía el balance exacto del backend.
+          monto: Math.round((it.montoDerivado ?? parseFloat(it.monto)) * 100) / 100,
           numero_factura: it.numero_factura || null,
         })),
         // PR3: pago_a_cuenta como item explícito cuando el usuario lo indica
@@ -879,7 +884,9 @@ export default function ModalOrdenPagoNueva({
     items: itemsDerivados.map((it) => ({
       tipo: it.tipo,
       id: it.id ? Number(it.id) : null,
-      monto: it.montoDerivado ?? parseFloat(it.monto),
+      // Redondeo a 2 decimales (ver nota en buildCreatePayload): evita el ruido
+      // de float de la conversión nativo×TC que rompía el balance del backend.
+      monto: Math.round((it.montoDerivado ?? parseFloat(it.monto)) * 100) / 100,
       numero_factura: it.numero_factura || null,
     })),
   });

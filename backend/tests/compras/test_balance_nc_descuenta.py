@@ -269,3 +269,39 @@ def test_mismatch_levanta_422_con_mensaje() -> None:
     assert exc_info.value.status_code == 422
     detail = exc_info.value.detail.lower()
     assert "diferencia" in detail or "balancea" in detail
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 7. Tolerancia de medio centavo (residuo sub-centavo por redondeo de TC)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_balance_sub_centavo_no_bloquea() -> None:
+    """
+    Residuo sub-centavo (float noise de la conversión cross-moneda) NO bloquea.
+    Pagar una OP cross-moneda envía monto = nativo×TC con ruido (e.g.
+    6311180.399999999), que contra monto_total=6311180.40 da diferencia=-0.0001.
+    Debe tratarse como balanceado (mismo criterio que el frontend, #778).
+    """
+    op = _FakeOP(monto_total=Decimal("6311180.40"), moneda="ARS")
+    items = [{"tipo": "pedido_compra", "monto": "6311180.399999999"}]
+    session = _FakeSession()
+
+    # No debe lanzar: |diferencia| < 0.005.
+    validar_balance_op(session, op, items)
+
+
+def test_balance_medio_centavo_o_mas_sigue_bloqueando() -> None:
+    """
+    Una diferencia de medio centavo o más (≥ 0.005) sigue siendo un error real.
+    """
+    from fastapi import HTTPException
+
+    op = _FakeOP(monto_total=Decimal("6311180.40"), moneda="ARS")
+    items = [{"tipo": "pedido_compra", "monto": "6311180.39"}]  # diferencia = -0.01
+    session = _FakeSession()
+
+    with pytest.raises(HTTPException) as exc_info:
+        validar_balance_op(session, op, items)
+
+    assert exc_info.value.status_code == 422
