@@ -123,12 +123,41 @@ export default function ModalOrdenPagoNueva({
 
   const [items, setItems] = useState(() => {
     if (isEditMode) {
-      return (opItems || []).map((it) => ({
-        tipo: it.tipo || 'pedido_compra',
-        id: it.id !== null && it.id !== undefined ? String(it.id) : '',
-        monto: String(it.monto ?? ''),
-        numero_factura: it.numero_factura || '',
-      }));
+      // El payload persistido guarda monto en moneda OP (submit envía
+      // montoDerivado). ADR-6 exige que items[].monto sea NATIVO para que el
+      // derive-at-edge convierta exactamente una vez. Si dejáramos el valor en
+      // moneda OP, el render lo volvería a multiplicar por TC (doble conversión
+      // → monto × TC²). Reconstruimos el nativo de los items cross-moneda.
+      const opTc = parseFloat(op.tipo_cambio);
+      const opTcOk = Number.isFinite(opTc) && opTc > 0;
+      return (opItems || []).map((it) => {
+        const id = it.id !== null && it.id !== undefined ? String(it.id) : '';
+        const stored = parseFloat(it.monto);
+        let nativoMonto = it.monto;
+        // Solo pedido_compra deriva en el render (montoEnMonedaOPNet ignora
+        // factura_erp/otros). Reconstruimos el nativo únicamente para ese tipo.
+        if (it.tipo === 'pedido_compra' && id && opTcOk && Number.isFinite(stored)) {
+          const ped = (pendientesDelProveedor || []).find(
+            (p) => String(p.id) === id
+          );
+          if (ped && ped.moneda !== op.moneda) {
+            // Deshacemos la conversión a moneda OP para recuperar el nativo.
+            const nativo =
+              op.moneda === 'ARS' && ped.moneda === 'USD'
+                ? stored / opTc // ARS guardado / TC = USD nativo
+                : op.moneda === 'USD' && ped.moneda === 'ARS'
+                  ? stored * opTc // USD guardado × TC = ARS nativo
+                  : stored;
+            nativoMonto = nativo.toFixed(2);
+          }
+        }
+        return {
+          tipo: it.tipo || 'pedido_compra',
+          id,
+          monto: String(nativoMonto ?? ''),
+          numero_factura: it.numero_factura || '',
+        };
+      });
     }
     return pedidoInicial
       ? [
