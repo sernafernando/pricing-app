@@ -262,16 +262,20 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
         to_date = (date.today() + timedelta(days=1)).isoformat()
 
         # El detalle del ERP solo filtra por pod_isEditingCd (no tiene fecha de
-        # creación). Para traer el detalle de OC NUEVAS (cuyo pod_isEditingCd no
-        # se setea al crear), pedimos también por poh_id >= el menor poh_id de las
-        # OC del período (ya sincronizadas en el header por creación + edición).
-        poh_id_floor = db.execute(
-            text("SELECT MIN(poh_id) FROM tb_purchase_order_header WHERE poh_cd >= :d OR poh_iseditingcd >= :d"),
+        # creación). Para traer el detalle de OC NUEVAS (cuyo pod_isEditingCd no se
+        # setea al crear) lo pedimos por poh_id. OJO: poh_id depende de bra_id (cada
+        # sucursal tiene su propia secuencia; ej. bra 1 poh 246 y bra 45 poh 246
+        # conviven), así que pedimos POR SUCURSAL desde el menor poh_id del período.
+        floors = db.execute(
+            text(
+                "SELECT bra_id, MIN(poh_id) AS min_poh FROM tb_purchase_order_header "
+                "WHERE poh_cd >= :d OR poh_iseditingcd >= :d GROUP BY bra_id"
+            ),
             {"d": from_date},
-        ).scalar()
+        ).all()
 
         async with httpx.AsyncClient(timeout=300.0) as client:
-            # Pase A: por fecha de EDICIÓN del detalle (pod_isEditingCd).
+            # Pase A: por fecha de EDICIÓN del detalle (pod_isEditingCd) — todas las sucursales.
             resp_edit = await client.get(
                 GBP_PARSER_URL,
                 params={
@@ -282,24 +286,29 @@ async def sync_purchase_order_detail(db: Session, days: int = 7) -> tuple[int, i
             )
             resp_edit.raise_for_status()
             data_edit = resp_edit.json()
-            # Pase B: por poh_id de las OC del período (captura el detalle de OC nuevas).
+            data_edit = data_edit if isinstance(data_edit, list) else []
+
+            # Pase B: por (bra_id, poh_id) de las OC del período — branch-aware.
             data_poh: list = []
-            if poh_id_floor is not None:
+            for bra_id, min_poh in floors:
+                if bra_id is None or min_poh is None:
+                    continue
                 resp_poh = await client.get(
                     GBP_PARSER_URL,
                     params={
                         "strScriptLabel": "scriptPurchaseOrderDetail",
-                        "pohID": int(poh_id_floor),
+                        "braID": int(bra_id),
+                        "pohID": int(min_poh),
                     },
                 )
                 resp_poh.raise_for_status()
-                data_poh = resp_poh.json()
+                rows = resp_poh.json()
+                if isinstance(rows, list):
+                    data_poh.extend(rows)
 
         # Unir ambos pases, dedupe por (comp_id, bra_id, poh_id, pod_id).
         merged: dict[tuple, dict] = {}
-        for rec in (data_edit if isinstance(data_edit, list) else []) + (
-            data_poh if isinstance(data_poh, list) else []
-        ):
+        for rec in data_edit + data_poh:
             merged[(rec.get("comp_id"), rec.get("bra_id"), rec.get("poh_id"), rec.get("pod_id"))] = rec
         data = list(merged.values())
 
