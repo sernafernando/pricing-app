@@ -479,7 +479,10 @@ function PedidoAccordion({ pedido, onRefreshList }) {
 
       {open && (
         <div className={styles.accordionBody}>
-          {pedido.tiene_oc ? (
+          {/* La lista (PedidoCompraResponse) expone oc_poh_id, no tiene_oc:
+              ese flag solo viene en la respuesta de saldos. Usar tiene_oc acá
+              daba siempre undefined → "sin OC" aunque el pedido tuviera OC. */}
+          {pedido.oc_poh_id != null ? (
             <AccordionBodyConOc pedido={pedido} onRefreshList={onRefreshList} />
           ) : (
             <AccordionBodySinOc pedido={pedido} onRefreshList={onRefreshList} />
