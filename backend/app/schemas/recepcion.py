@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -27,6 +27,7 @@ class SaldoLineaResponse(BaseModel):
 
     pod_id: int
     item_id: int | None = None
+    item_code: str | None = None
     item_nombre: str | None = None
     stor_id: int | None = None
     deposito_nombre: str | None = None
@@ -61,6 +62,14 @@ class IngresoLinea(BaseModel):
     cantidad_recibida: Decimal
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("cantidad_recibida")
+    @classmethod
+    def _cantidad_entera(cls, v: Decimal) -> Decimal:
+        """Las unidades no tienen decimales (no existen '1.3 memorias')."""
+        if v != v.to_integral_value():
+            raise ValueError("cantidad_recibida debe ser un número entero (sin decimales).")
+        return v
 
 
 class RegistrarIngresosRequest(BaseModel):
