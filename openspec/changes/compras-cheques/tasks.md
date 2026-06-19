@@ -1,0 +1,56 @@
+# Tasks — Módulo de Cheques
+
+**Change ID:** `compras-cheques`
+**Fase:** tasks
+**Status:** draft
+**Estrategia de entrega:** PRs encadenados por slice. Cada slice shippable y verificable. TDD estricto en backend (`cd backend && venv/bin/pytest tests/ -x`).
+
+---
+
+## Slice 1 — Núcleo + cheque propio en la OP
+
+### Backend
+- [ ] **T1.1** Migración Alembic `YYYYMMDD_cheques_modulo.py`: tablas `chequeras`, `cheques`, `orden_pago_cheque`, `cheque_evento` (esquema completo del design) + constraints/índices. Seed del permiso `tesoreria.gestionar_cheques` (sin asignar a rol). [No destructivo.]
+- [ ] **T1.2** Modelos SQLAlchemy: `Chequera`, `Cheque`, `OrdenPagoCheque`, `ChequeEvento`. Tipos explícitos, CheckConstraints.
+- [ ] **T1.3** `cheques_service.py`: `crear_chequera`, `listar_chequeras`, `proximo_numero(chequera)`.
+- [ ] **T1.4** `cheques_service.emitir_cheque_propio(...)`: valida fechas (pago ≥ emisión), numeración (única por chequera, avanza próximo número), estado inicial (`emitido`/`diferido`), evento `emitido`. **Test RED→GREEN.**
+- [ ] **T1.5** Máquina de estados `transicionar_cheque(...)` + `TRANSICIONES_CHEQUE` (propios). `anular` revierte imputación CC. Transición inválida → 422. **Test.**
+- [ ] **T1.6** Integración OP: extender payload de pago (`crear_y_pagar`/`ejecutar_pago`) con `cheques: [...]`; emitir + crear `orden_pago_cheque` (monto derivado a moneda OP por TC) + imputar `cc_proveedor`, todo en la misma transacción. **Test (incluye cross-moneda).**
+- [ ] **T1.7** `validar_balance_op`: sumar `Σ orden_pago_cheque.monto_op_moneda` a la cobertura, tolerancia `< 0.005`. **Test: cubre, falta cubrir, combinado cheque+caja, cross-moneda.**
+- [ ] **T1.8** Endpoints (`require_permiso("tesoreria.gestionar_cheques")`): `POST /chequeras`, `GET /chequeras`, `GET /cheques` (filtros), `POST /cheques/propio`, `POST /cheques/{id}/anular`, `GET /cheques/{id}`. **Tests de integración (incl. 403 sin permiso).**
+
+### Frontend
+- [ ] **T1.9** `useCheques.js` hook (listar, crear chequera, emitir, anular, obtener).
+- [ ] **T1.10** `ModalCheque.jsx` (emisión de propio): tipo/instrumento, banco, chequera (autocompleta número), número editable, beneficiario, monto/moneda, fechas (badge diferido), resumen. Validaciones. Tesla DS + CSS Modules + dark mode.
+- [ ] **T1.11** Página `Cheques` (`TabCheques.jsx` o ruta): tabla con filtros (estado/tipo/banco/moneda/fechas), `EstadoBadge`, acción anular.
+- [ ] **T1.12** Integración en modal de OP: "Cheque" como fuente de fondos (junto a caja/banco) → abre `ModalCheque` en modo emisión → suma a la cobertura.
+- [ ] **T1.13** Permiso en frontend (`PermisosContext`): gatear UI por `tesoreria.gestionar_cheques`.
+
+### Verificación
+- [ ] **T1.14** Suite backend verde + lint (ruff). Frontend lint. QA manual: emitir cheque propio (al día y diferido), pago combinado, cross-moneda, anular (revierte CC).
+
+### Review Workload Forecast
+- Estimado > 400 líneas → **chained PRs recomendado** (separar backend núcleo + integración OP de la UI). Decisión de delivery al iniciar apply.
+
+---
+
+## Slice 2 — Cheques de terceros (cartera + endoso)
+- [ ] Modal de carga de cheque de tercero → `en_cartera`.
+- [ ] Página de cartera (cheques `en_cartera`).
+- [ ] Endoso a proveedor en la OP (`en_cartera → entregado` + imputa CC).
+- [ ] Estados terceros + tests.
+
+## Slice 3 — e-cheq
+- [ ] `instrumento=echeq` (propios + terceros), número del banco.
+- [ ] Estados `aceptado`/`rechazado_emision`/`en_custodia` (carga manual) + tests.
+
+## Slice 4 — Conciliación bancaria
+- [ ] `debitar` (propio) / `acreditar` (tercero) → `banco_movimiento`, paso explícito.
+- [ ] Validación no debitar/cobrar antes de `fecha_pago`.
+- [ ] Reporte de cheques por estado (cartera, a debitar, vencidos).
+
+---
+
+## Notas
+- Reusar: derive-at-edge por TC + tolerancia medio centavo (PRs #781/#782), `EstadoBadge`, patrón de transiciones de pedidos/NCs.
+- No-goals: GL doble partida, integración bancaria automática, cobranzas, descuento de cheques.
