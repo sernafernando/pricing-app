@@ -132,3 +132,44 @@ class ChequeResponse(BaseModel):
     eventos: list[ChequeEventoResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ChequeListResponse(BaseModel):
+    """Respuesta de cheque para listados (sin eventos — evita N+1)."""
+
+    id: int
+    tipo: str
+    instrumento: str
+    estado: str
+    numero: str
+    monto: Decimal
+    moneda: str
+    fecha_emision: date
+    fecha_pago: date
+    es_diferido: bool
+    banco_empresa_id: Optional[int]
+    chequera_id: Optional[int]
+    proveedor_id: Optional[int]
+    orden_pago_id: Optional[int]
+    motivo_anulacion: Optional[str]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChequePaginated(BaseModel):
+    """Respuesta paginada del listado de cheques."""
+
+    items: list[ChequeListResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class ChequeraPaginated(BaseModel):
+    """Respuesta paginada del listado de chequeras."""
+
+    items: list[ChequeraResponse]
+    total: int
+    page: int
+    page_size: int

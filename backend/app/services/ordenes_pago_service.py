@@ -450,6 +450,7 @@ def validar_balance_op(
     session: Session,
     op: OrdenPago,
     items: list[dict],
+    cheques_op_moneda: Optional[Decimal] = None,
 ) -> None:
     """Valida el invariante no-diferencia ANTES de ejecutar el pago (AD-5).
 
@@ -506,9 +507,13 @@ def validar_balance_op(
         # dinero_a_cuenta items are intentionally excluded: they are not cash
         # output from the OP. Their coverage is reflected in the net item monto.
 
-    # Invariant: monto_total = base_items + pago_a_cuenta
-    # ⟺ diferencia = base_items + pago_a_cuenta − monto_total = 0
-    diferencia = base_items + pago_a_cuenta_total - monto_total
+    # Cheques: cobertura adicional (valores), reduce el efectivo necesario.
+    # La suma ya está derivada a moneda OP por el caller (ejecutar_pago).
+    suma_cheques = cheques_op_moneda if cheques_op_moneda is not None else Decimal("0")
+
+    # Invariant: monto_total = base_items + pago_a_cuenta + cheques
+    # ⟺ diferencia = base_items + pago_a_cuenta + cheques − monto_total = 0
+    diferencia = base_items + pago_a_cuenta_total + suma_cheques - monto_total
 
     # Tolerancia de medio centavo: la conversión cross-moneda (nativo×TC) puede
     # dejar un residuo sub-centavo (-0.00) que NO es exactamente 0 y bloqueaba
@@ -520,7 +525,8 @@ def validar_balance_op(
             detail=(
                 f"La OP no balancea: diferencia = {diferencia:+.2f} {moneda}. "
                 f"monto_total={monto_total:.2f}, "
-                f"items={base_items:.2f}, pago_a_cuenta={pago_a_cuenta_total:.2f}. "
+                f"items={base_items:.2f}, pago_a_cuenta={pago_a_cuenta_total:.2f}, "
+                f"cheques={suma_cheques:.2f}. "
                 f"Revisá los ítems y el monto total. "
                 f"Los créditos (NC, DAC) deben estar descontados del monto de cada ítem."
             ),
@@ -966,6 +972,7 @@ def ejecutar_pago(
     fecha_pago_real: date,
     user_id: int,
     tipo_cambio_override: Optional[Decimal] = None,
+    cheques: Optional[list[dict]] = None,
 ) -> OrdenPago:
     """
     Ejecuta el pago de una OP en 9 pasos ATÓMICOS (design §2.3).
@@ -1030,6 +1037,9 @@ def ejecutar_pago(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.",
         )
+
+    # Deep-copy cheque dicts to avoid mutating caller's data structures.
+    cheques_norm: list[dict] = [dict(ch) for ch in (cheques or [])]
 
     # Aplicar tipo_cambio_override ANTES de validar cross-moneda.
     if tipo_cambio_override is not None:
@@ -1126,43 +1136,89 @@ def ejecutar_pago(
                     },
                 )
 
-    else:
-        # No fund source provided — service-level guard (schema validator already blocks this).
+    elif not cheques_norm:
+        # No fund source AND no cheques — cannot pay.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Se requiere exactamente una fuente de fondos: caja_id o banco_id.",
+            detail="Se requiere exactamente una fuente de fondos: caja_id, banco_id, o cheques.",
         )
 
-    # Monto en la moneda de la fuente (idéntica lógica para caja y banco):
-    if fuente_moneda == str(op.moneda):
-        monto_en_fuente = Decimal(op.monto_total)
-    elif op.moneda == "USD" and fuente_moneda == "ARS":
-        monto_en_fuente = q_ars(Decimal(op.monto_total) * Decimal(tc_efectivo))
-    else:
-        # op ARS → fuente USD: monto / TC.
-        monto_en_fuente = q_usd(Decimal(op.monto_total) / Decimal(tc_efectivo))
+    # ── Deriva cheques a moneda OP (para balance y para linkear) ──────────────
+    # El caller pasa cada cheque en su moneda original. Derivamos a moneda OP
+    # con el mismo TC que ya existe en la OP (derive-at-edge reutilizado).
+    suma_cheques_op: Decimal = Decimal("0")
+    for ch in cheques_norm:
+        ch_monto = Decimal(str(ch["monto"]))
+        ch_moneda = str(ch.get("moneda", op.moneda))
+        if ch_moneda == str(op.moneda):
+            monto_op = ch_monto
+        elif op.moneda == "USD" and ch_moneda == "ARS":
+            # Cheque ARS, OP USD: monto_op = ARS / TC
+            if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(f"Cheque en ARS con OP en USD requiere tipo_cambio > 0 (número={ch.get('numero')})."),
+                )
+            monto_op = q_usd(ch_monto / Decimal(tc_efectivo))
+        else:
+            # Cheque USD, OP ARS: monto_op = USD * TC
+            if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(f"Cheque en USD con OP en ARS requiere tipo_cambio > 0 (número={ch.get('numero')})."),
+                )
+            monto_op = q_ars(ch_monto * Decimal(tc_efectivo))
+        ch["_monto_op_moneda"] = monto_op
+        suma_cheques_op += monto_op
 
-    # Paso 4-5: registrar egreso en la fuente elegida.
-    detalle_base = f"OP {op.numero} - {proveedor_nombre}"
-    movimiento_id, documento_id = _registrar_egreso_en_fuente(
-        session,
-        op=op,
-        caja_id=caja_id,
-        banco_id=banco_id,
-        fecha_pago_real=fecha_pago_real,
-        user_id=user_id,
-        monto_en_fuente=monto_en_fuente,
-        detalle=detalle_base,
-        tc_efectivo=tc_efectivo if fuente_moneda != str(op.moneda) else None,
-        proveedor_nombre=proveedor_nombre,
-    )
+    # Monto de efectivo a registrar en la fuente (monto_total - cobertura por cheques).
+    # Puede ser cero si los cheques cubren el total.
+    monto_efectivo_op = Decimal(op.monto_total) - suma_cheques_op
+
+    has_fuente = (caja_id is not None) or (banco_id is not None)
+
+    movimiento_id: Optional[int] = None
+    documento_id: Optional[int] = None
+    monto_en_fuente: Decimal = Decimal("0")
+
+    if has_fuente and monto_efectivo_op > Decimal("0"):
+        # Monto en la moneda de la fuente (idéntica lógica para caja y banco):
+        if fuente_moneda == str(op.moneda):
+            monto_en_fuente = monto_efectivo_op
+        elif op.moneda == "USD" and fuente_moneda == "ARS":
+            monto_en_fuente = q_ars(monto_efectivo_op * Decimal(tc_efectivo))
+        else:
+            # op ARS → fuente USD: monto / TC.
+            monto_en_fuente = q_usd(monto_efectivo_op / Decimal(tc_efectivo))
+
+        # Paso 4-5: registrar egreso en la fuente elegida.
+        detalle_base = f"OP {op.numero} - {proveedor_nombre}"
+        movimiento_id, documento_id = _registrar_egreso_en_fuente(
+            session,
+            op=op,
+            caja_id=caja_id,
+            banco_id=banco_id,
+            fecha_pago_real=fecha_pago_real,
+            user_id=user_id,
+            monto_en_fuente=monto_en_fuente,
+            detalle=detalle_base,
+            tc_efectivo=tc_efectivo if fuente_moneda != str(op.moneda) else None,
+            proveedor_nombre=proveedor_nombre,
+        )
+    elif has_fuente and monto_efectivo_op <= Decimal("0"):
+        # Cheques cubren todo o más — no se registra egreso en caja/banco.
+        logger.info(
+            "op=%s cheques cubren el total — no se registra egreso en fuente caja/banco",
+            op.id,
+        )
+    # else: sin fuente Y sin efectivo (pure-cheque path) — OK.
 
     # Paso 6 + 7: crear imputaciones según modo + items
     items = _leer_items_de_op(session, op.id)
 
     # PR3 — Invariante no-diferencia (AD-5, design §3.4).
     # Verificar ANTES de tocar caja/banco: cobertura total debe == monto_total.
-    validar_balance_op(session, op, items)
+    validar_balance_op(session, op, items, cheques_op_moneda=suma_cheques_op if suma_cheques_op > 0 else None)
 
     # Defensa en profundidad: validar cross-moneda antes de imputar.
     # Con compras-cross-moneda-y-ncs-cc (FR-004), una OP cross-moneda DEBE
@@ -1378,6 +1434,143 @@ def ejecutar_pago(
             destino_tipo_dac,
             destino_id_dac,
         )
+
+    # ── Cheques: emitir + linkear + imputar CC ────────────────────────────────
+    # Para cada cheque del payload: emitir_cheque_propio (cheques_service),
+    # crear OrdenPagoCheque (link OP↔cheque), e imputar haber en CC del proveedor.
+    # TODO en la misma transacción (sin commit intermedio).
+    if cheques_norm:
+        from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+        from app.services import cheques_service  # noqa: PLC0415
+
+        for ch in cheques_norm:
+            cheque_emitido = cheques_service.emitir_cheque_propio(
+                session,
+                tipo="propio",
+                instrumento=str(ch.get("instrumento", "fisico")),
+                numero=str(ch["numero"]),
+                monto=Decimal(str(ch["monto"])),
+                moneda=str(ch.get("moneda", op.moneda)),
+                fecha_emision=ch["fecha_emision"],
+                fecha_pago=ch["fecha_pago"],
+                banco_empresa_id=int(ch["banco_empresa_id"]),
+                chequera_id=ch.get("chequera_id"),
+                proveedor_id=op.proveedor_id,
+                usuario_id=user_id,
+            )
+
+            # Denormalize FK to OP
+            cheque_emitido.orden_pago_id = op.id
+            session.flush()
+
+            monto_op_moneda = ch["_monto_op_moneda"]
+
+            # Tabla de enlace OP↔cheque
+            link = OrdenPagoCheque(
+                orden_pago_id=op.id,
+                cheque_id=cheque_emitido.id,
+                monto_op_moneda=monto_op_moneda,
+            )
+            session.add(link)
+            session.flush()
+
+            # Imputar haber en CC del proveedor (entregar un cheque ES un pago).
+            # Caso A — con pedido_id: crear Imputacion cheque→pedido (espeja NC).
+            #   La CC se actualiza vía aplicar_imputacion (NO haber directo → evita doble conteo).
+            # Caso B — sin pedido_id ("a cuenta"): haber directo CC (camino original).
+            pedido_id_cheque: Optional[int] = ch.get("pedido_id")
+            if pedido_id_cheque is not None:
+                # Validate pedido exists and belongs to the same provider.
+                pedido_cheque = session.get(PedidoCompra, pedido_id_cheque)
+                if pedido_cheque is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Pedido id={pedido_id_cheque} no encontrado (referenciado por cheque #{ch.get('numero')}).",
+                    )
+                if pedido_cheque.proveedor_id != op.proveedor_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            f"Pedido id={pedido_id_cheque} pertenece al proveedor id={pedido_cheque.proveedor_id}, "
+                            f"distinto al de la OP (proveedor_id={op.proveedor_id})."
+                        ),
+                    )
+                # Validate pedido saldo >= monto_op_moneda to prevent over-imputation.
+                saldo_pedido = pedidos_service.calcular_saldo_pendiente_pedido(session, pedido_id_cheque)
+                if monto_op_moneda > saldo_pedido:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            f"Cheque #{ch.get('numero')}: monto a imputar ({monto_op_moneda}) "
+                            f"excede el saldo pendiente del pedido id={pedido_id_cheque} ({saldo_pedido})."
+                        ),
+                    )
+                # Create Imputacion cheque→pedido_compra (mirrors imputar_nc_a_pedido).
+                imp_cheque = imputaciones_service.crear_imputacion(
+                    session,
+                    origen_tipo="cheque",
+                    origen_id=cheque_emitido.id,
+                    destino_tipo="pedido_compra",
+                    destino_id=pedido_id_cheque,
+                    monto_imputado=monto_op_moneda,
+                    moneda_imputada=str(op.moneda),  # type: ignore[arg-type]
+                    proveedor_id=op.proveedor_id,
+                    creado_por_id=user_id,
+                )
+                # CC haber is emitted by aplicar_imputacion (not a direct insertar_mov).
+                cc_proveedor_service.aplicar_imputacion(session, imputacion_id=imp_cheque.id)
+                # Recalculate pedido state (aprobado → pagado_parcial / pagado).
+                pedidos_service.aplicar_imputacion_a_pedido(
+                    session,
+                    pedido_id=pedido_id_cheque,
+                    monto_imputado=Decimal("0"),
+                )
+                logger.info(
+                    "✅ Cheque id=%s imputado a pedido_id=%s monto=%s %s via Imputacion id=%s",
+                    cheque_emitido.id,
+                    pedido_id_cheque,
+                    monto_op_moneda,
+                    op.moneda,
+                    imp_cheque.id,
+                )
+            else:
+                # Caso B: "a cuenta" — haber directo CC (comportamiento previo).
+                cc_proveedor_service.insertar_mov(
+                    session,
+                    proveedor_id=op.proveedor_id,
+                    empresa_id=op.empresa_id,
+                    fecha_movimiento=fecha_pago_real,
+                    tipo="haber",
+                    monto=monto_op_moneda,
+                    moneda=str(op.moneda),
+                    origen_tipo="cheque",
+                    origen_id=cheque_emitido.id,
+                    descripcion=(f"Cheque #{cheque_emitido.numero} emitido para OP {op.numero}"),
+                    creado_por_id=user_id,
+                )
+
+            # Evento 'imputado_cc' en cheque_evento
+            cheques_service._registrar_evento(
+                session,
+                cheque_id=cheque_emitido.id,
+                tipo="imputado_cc",
+                payload={
+                    "orden_pago_id": op.id,
+                    "monto_op_moneda": str(monto_op_moneda),
+                    "moneda_op": str(op.moneda),
+                    "pedido_id": pedido_id_cheque,
+                },
+                usuario_id=user_id,
+            )
+
+            logger.info(
+                "✅ Cheque emitido y linkeado a OP op=%s cheque_id=%s numero=%s monto_op=%s %s",
+                op.id,
+                cheque_emitido.id,
+                cheque_emitido.numero,
+                monto_op_moneda,
+                op.moneda,
+            )
 
     # Paso 8: actualizar OP — set la FK de la fuente usada; la otra queda NULL.
     if caja_id is not None:
@@ -2009,6 +2202,7 @@ def crear_y_pagar(
     actualizar_tc_pedido: bool = False,
     tipo_cambio_override: Optional[Decimal] = None,
     ncs_aplicadas: Optional[list[dict]] = None,
+    cheques: Optional[list[dict]] = None,
 ) -> OrdenPago:
     """Crea y paga una OP en una única transacción atómica (F3, design §3.5, AD-10).
 
@@ -2072,6 +2266,7 @@ def crear_y_pagar(
         fecha_pago_real=fecha_pago_real,
         user_id=creado_por_id,
         tipo_cambio_override=tipo_cambio_override,
+        cheques=cheques,
     )
 
     # Paso 3: aplicar NCs (DESPUÉS del pago, en la misma transacción).

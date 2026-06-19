@@ -120,14 +120,21 @@ Validaciones transversales: `rechazado`/`anulado` terminales; no `debitar`/`acre
 
 ---
 
-## Integración con la OP (Slice 1)
+## Integración con la OP (Slice 1) — el cheque es un VALOR (se comporta como la NC)
 
-1. **Emisión en el pago:** el payload de pago de la OP acepta, además de caja/banco, una lista `cheques` (emisión de propios). Por cada uno: crear `cheque` (estado emitido/diferido), crear `orden_pago_cheque` con `monto_op_moneda` derivado por TC.
-2. **Balance:** `validar_balance_op` suma `Σ orden_pago_cheque.monto_op_moneda` a la cobertura (junto a caja/banco/items), con tolerancia `< 0.005` (igual que hoy).
-3. **Imputación CC:** al emitir el cheque dentro del pago se inserta el movimiento en `cc_proveedor_movimiento` (mismo circuito que caja/banco — reduce saldo del proveedor). Evento `imputado_cc`.
-4. **Anulación:** `anular` un cheque de una OP pendiente revierte el movimiento CC (append-only reversal) y quita la cobertura.
+**Decisión del usuario:** en la OP el cheque NO es una "fuente de fondos" (caja/banco). Es un **valor** que se aplica igual que una **NC**: se selecciona/emite desde un panel, **cubre parte del Total a pagar** y por lo tanto **reduce el efectivo (caja/banco) necesario**. Aparece en el "Resumen de pago" como una línea que descuenta, junto a NC y dinero a cuenta.
 
-> El derive-at-edge por TC y la tolerancia de medio centavo ya existen (PRs #781/#782) — se reutilizan, no se reinventan.
+1. **Panel de valores:** el modal de OP tiene un panel de cheques (espejo del `PanelNCsProveedor`): para **propios** = emitir un cheque nuevo; para **terceros** (Slice 2) = elegir uno de la cartera. Se pueden aplicar uno o más.
+2. **Cobertura (como NC/DAC):** el monto del cheque (derivado a moneda OP por TC) es un componente de cobertura que **descuenta del monto a pagar**, igual que `sumaNCsOP`/`sumaDAC` hoy. La caja/banco cubre el resto. `validar_balance_op` incluye `Σ orden_pago_cheque.monto_op_moneda` en la cobertura, con tolerancia `< 0.005`.
+   - Cobertura total = items(pedidos) cubiertos por: **valores** (NC + dinero a cuenta + **cheques**) + efectivo (caja/banco) + excedente. La diferencia debe dar 0 al confirmar.
+3. **Imputación — AMBOS casos (decisión del usuario):** el cheque en el payload lleva un `pedido_id` opcional (a qué pedido de la OP se aplica), igual que la NC lleva `nc.pedido_id`:
+   - **Con `pedido_id`** (cubre un pedido específico): el cheque **imputa al pedido** (crea una `Imputacion` origen=cheque/orden_pago → destino=pedido), bajando el saldo del pedido — exactamente como `imputar_nc_a_pedido`. El ítem del pedido va NETO del cheque (igual que va neto de NC), así `item_neto + cheque = obligación del pedido` y el saldo llega a cero. La CC del proveedor se actualiza vía esa imputación (no se crea un haber directo aparte → evita doble conteo).
+   - **Sin `pedido_id`** ("a cuenta"): el cheque inserta un haber directo en `cc_proveedor_movimiento` (baja solo el saldo global del proveedor). Es el caso ya implementado.
+   En ambos: evento `imputado_cc`, se crea `orden_pago_cheque` con `monto_op_moneda`.
+   > ⚠️ Cuidado over-imputación (mismo trap que NC): el ítem del pedido DEBE ir neto del cheque y el cheque imputa el resto. NO imputar el cheque al pedido Y además tener el ítem en bruto (doble conteo). Reusar/espejar exactamente el camino de `imputar_nc_a_pedido`.
+4. **Anulación:** `anular` un cheque de una OP pendiente revierte el movimiento CC (append-only reversal) y quita la cobertura (vuelve a faltar ese monto).
+
+> El derive-at-edge por TC y la tolerancia de medio centavo ya existen (PRs #781/#782) — se reutilizan. El panel de cheques reusa el patrón de `PanelNCsProveedor` y el resumen reusa las líneas de descuento de NC/DAC.
 
 ---
 

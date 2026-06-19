@@ -18,18 +18,21 @@ Integración OP (Slice 1 PR2): se extiende el payload de pago en administracion_
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.cheque import Cheque
+from app.models.cheque import Cheque, Chequera
 from app.schemas.cheque import (
     AnularChequeRequest,
+    ChequePaginated,
     ChequeraCreate,
+    ChequeraPaginated,
     ChequeraResponse,
     ChequeResponse,
     EmitirChequePropio,
@@ -90,19 +93,29 @@ def crear_chequera(
 
 @router.get(
     "/chequeras",
-    response_model=List[ChequeraResponse],
+    response_model=ChequeraPaginated,
     dependencies=[Depends(require_permiso(_PERMISO))],
 )
 def listar_chequeras(
     banco_empresa_id: Optional[int] = Query(default=None),
     solo_activas: bool = Query(default=False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-) -> List[ChequeraResponse]:
-    """Lista chequeras, opcionalmente filtradas por banco y activas.
+) -> ChequeraPaginated:
+    """Lista chequeras paginadas, opcionalmente filtradas por banco y activas.
 
+    Paginación: ?page=1&page_size=50 (máx 200).
     Requiere permiso `tesoreria.gestionar_cheques`.
     """
-    return cheques_service.listar_chequeras(db, banco_empresa_id=banco_empresa_id, solo_activas=solo_activas)
+    q = db.query(Chequera)
+    if banco_empresa_id is not None:
+        q = q.filter(Chequera.banco_empresa_id == banco_empresa_id)
+    if solo_activas:
+        q = q.filter(Chequera.activa.is_(True))
+    total = q.with_entities(func.count(Chequera.id)).scalar() or 0
+    items = q.order_by(Chequera.id).offset((page - 1) * page_size).limit(page_size).all()
+    return ChequeraPaginated(items=items, total=total, page=page, page_size=page_size)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -203,7 +216,7 @@ def anular_cheque(
 
 @router.get(
     "/cheques",
-    response_model=List[ChequeResponse],
+    response_model=ChequePaginated,
     dependencies=[Depends(require_permiso(_PERMISO))],
 )
 def listar_cheques(
@@ -213,11 +226,15 @@ def listar_cheques(
     moneda: Optional[str] = Query(default=None),
     desde: Optional[date] = Query(default=None),
     hasta: Optional[date] = Query(default=None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-) -> List[ChequeResponse]:
-    """Lista cheques con filtros opcionales.
+) -> ChequePaginated:
+    """Lista cheques paginados con filtros opcionales.
 
     Filtros: tipo (propio/tercero), estado, banco_empresa_id, moneda, rango de fecha_pago.
+    Paginación: ?page=1&page_size=50 (máx 200).
+    Los eventos NO se incluyen en el listado (usar GET /cheques/{id} para detalle completo).
     Requiere permiso `tesoreria.gestionar_cheques`.
     """
     q = db.query(Cheque)
@@ -233,7 +250,15 @@ def listar_cheques(
         q = q.filter(Cheque.fecha_pago >= desde)
     if hasta:
         q = q.filter(Cheque.fecha_pago <= hasta)
-    return q.order_by(Cheque.id.desc()).all()
+    total = q.with_entities(func.count(Cheque.id)).scalar() or 0
+    items = (
+        q.options(joinedload(Cheque.chequera))
+        .order_by(Cheque.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return ChequePaginated(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get(

@@ -603,12 +603,22 @@ class TestChequesEndpoints200:
     def test_get_chequeras_200(self, client, auth_headers, chequera, _permiso_solo):
         r = client.get(f"{BASE}/chequeras", headers=auth_headers)
         assert r.status_code == 200
-        assert isinstance(r.json(), list)
+        data = r.json()
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "page_size" in data
+        assert isinstance(data["items"], list)
 
     def test_get_cheques_200(self, client, auth_headers, _permiso_solo):
         r = client.get(f"{BASE}/cheques", headers=auth_headers)
         assert r.status_code == 200
-        assert isinstance(r.json(), list)
+        data = r.json()
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "page_size" in data
+        assert isinstance(data["items"], list)
 
     def test_post_cheque_propio_201(self, client, auth_headers, chequera, _permiso_solo):
         hoy = date.today().isoformat()

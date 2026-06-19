@@ -7,9 +7,11 @@ Implementa:
   - TRANSICIONES_CHEQUE: dict (tipo, estado_origen, accion) -> estado_destino.
   - transicionar_cheque: aplica transición con validación + evento append-only.
 
-Slice 1 alcance:
+Alcance actual:
   - Propios: emitir, anular. Transiciones parciales listas para extensión.
-  - NO imputa CC ni asocia OP en esta entrega (PR de integración OP es el siguiente).
+  - Imputa CC del proveedor vía OP (ver _revertir_cc_si_linkeado).
+  - Anular revierte la imputación: vía reversal de Imputacion (si hay pedido) o
+    mediante movimiento 'debe' directo en cc_proveedor_movimientos (a cuenta).
 
 Referencias:
   - openspec/changes/compras-cheques/design.md (máquina de estados, modelo de datos)
@@ -146,7 +148,8 @@ def emitir_cheque_propio(
       - Avanza proximo_numero de la chequera si es físico.
       - Registra evento 'emitido' en cheque_evento.
 
-    NO imputa CC en esta entrega (integración OP es el PR siguiente).
+    La imputación CC ocurre al asociar el cheque a una OP (ver routers de compras).
+    Anular el cheque revierte esa imputación vía _revertir_cc_si_linkeado.
     """
     # Validaciones
     if tipo != "propio":
@@ -239,6 +242,7 @@ def transicionar_cheque(
     *,
     usuario_id: Optional[int] = None,
     motivo: Optional[str] = None,
+    empresa_id: Optional[int] = None,
 ) -> Cheque:
     """Aplica una transición de estado al cheque.
 
@@ -268,6 +272,8 @@ def transicionar_cheque(
     # Campos adicionales por acción
     if accion == "anular":
         cheque.motivo_anulacion = motivo or ""
+        # Revertir imputación CC si el cheque estaba linkeado a una OP.
+        _revertir_cc_si_linkeado(db, cheque=cheque, usuario_id=usuario_id, empresa_id=empresa_id)
 
     cheque.estado = estado_destino
 
@@ -296,6 +302,156 @@ def transicionar_cheque(
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers internos
 # ──────────────────────────────────────────────────────────────────────────
+
+
+def _revertir_cc_si_linkeado(
+    db: Session,
+    *,
+    cheque: Cheque,
+    usuario_id: Optional[int],
+    empresa_id: Optional[int],
+) -> None:
+    """Revierte el movimiento CC del proveedor si el cheque estaba linkeado a una OP.
+
+    Busca el OrdenPagoCheque del cheque; si existe, inserta un 'debe' en
+    cc_proveedor_movimientos (reversal append-only) por el monto_op_moneda
+    del link. Registra evento 'revertido_cc' en cheque_evento.
+
+    Si el cheque no tiene link OP, no hace nada.
+    """
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+    from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+    if cheque.orden_pago_id is None:
+        return
+
+    link = db.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.cheque_id == cheque.id)).scalar_one_or_none()
+
+    if link is None:
+        logger.warning(
+            "⚠️ Cheque id=%s tiene orden_pago_id=%s pero no hay OrdenPagoCheque — skip reversal CC.",
+            cheque.id,
+            cheque.orden_pago_id,
+        )
+        return
+
+    # Resolver empresa_id desde la OP si no se pasó explícitamente.
+    eid = empresa_id
+    if eid is None:
+        op = db.get(OrdenPago, cheque.orden_pago_id)
+        eid = int(op.empresa_id) if op is not None else None
+
+    if eid is None:
+        logger.error(
+            "❌ No se pudo determinar empresa_id para reversal CC del cheque id=%s",
+            cheque.id,
+        )
+        return
+
+    from datetime import date as _date  # noqa: PLC0415
+
+    from app.services import cc_proveedor_service, imputaciones_service, pedidos_service  # noqa: PLC0415
+
+    # Detect whether this cheque was imputado via Imputacion (con pedido_id) or
+    # via direct CC haber (a cuenta / old path).
+    imp_pedido = db.execute(
+        select(Imputacion).where(
+            Imputacion.origen_tipo == "cheque",
+            Imputacion.origen_id == cheque.id,
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.es_reversal.is_(False),
+        )
+    ).scalar_one_or_none()
+
+    if imp_pedido is not None:
+        # Caso A — cheque imputado a un pedido específico.
+        # Revert via append-only reversal imputacion (mirrors NC/OP anulacion).
+        reversals = imputaciones_service.revertir_imputaciones_de_origen(
+            db,
+            origen_tipo="cheque",
+            origen_id=cheque.id,
+            user_id=usuario_id,
+            motivo=f"Cheque #{cheque.numero} anulado",
+        )
+        # Recalculate pedido state for every affected pedido.
+        pedidos_afectados: set[int] = {
+            int(r.destino_id) for r in reversals if r.destino_tipo == "pedido_compra" and r.destino_id is not None
+        }
+        for pid in pedidos_afectados:
+            pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=pid, monto_imputado=Decimal("0"))
+
+        _registrar_evento(
+            db,
+            cheque_id=cheque.id,
+            tipo="revertido_cc",
+            payload={
+                "orden_pago_id": cheque.orden_pago_id,
+                "monto_revertido": str(link.monto_op_moneda),
+                "moneda": str(cheque.moneda),
+                "via": "imputacion_reversal",
+                "reversals_count": len(reversals),
+            },
+            usuario_id=usuario_id,
+        )
+        logger.info(
+            "🔄 Imputacion revertida para cheque id=%s OP id=%s pedidos=%s monto=%s %s",
+            cheque.id,
+            cheque.orden_pago_id,
+            sorted(pedidos_afectados),
+            link.monto_op_moneda,
+            cheque.moneda,
+        )
+    else:
+        # Caso B — "a cuenta": append-only reversal via direct CC debe movement.
+        if cheque.proveedor_id is None:
+            logger.error(
+                "❌ Cheque id=%s vinculado a OP id=%s sin proveedor_id ni imputacion a pedido — "
+                "no se puede revertir CC directo. Revisá la integridad del link.",
+                cheque.id,
+                cheque.orden_pago_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"No se puede revertir la CC del cheque #{cheque.numero}: "
+                    "falta proveedor_id y no hay imputación a pedido registrada."
+                ),
+            )
+        cc_proveedor_service.insertar_mov(
+            db,
+            proveedor_id=cheque.proveedor_id,
+            empresa_id=eid,
+            fecha_movimiento=_date.today(),
+            tipo="debe",
+            monto=Decimal(str(link.monto_op_moneda)),
+            moneda=str(cheque.moneda),
+            origen_tipo="cheque_anulado",
+            origen_id=cheque.id,
+            descripcion=f"Reversal cheque #{cheque.numero} anulado (OP id={cheque.orden_pago_id})",
+            creado_por_id=usuario_id,
+        )
+
+        _registrar_evento(
+            db,
+            cheque_id=cheque.id,
+            tipo="revertido_cc",
+            payload={
+                "orden_pago_id": cheque.orden_pago_id,
+                "monto_revertido": str(link.monto_op_moneda),
+                "moneda": str(cheque.moneda),
+                "via": "cc_directo",
+            },
+            usuario_id=usuario_id,
+        )
+
+        logger.info(
+            "🔄 CC revertida para cheque id=%s OP id=%s monto=%s %s",
+            cheque.id,
+            cheque.orden_pago_id,
+            link.monto_op_moneda,
+            cheque.moneda,
+        )
 
 
 def _registrar_evento(

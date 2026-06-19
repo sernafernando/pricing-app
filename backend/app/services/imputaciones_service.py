@@ -67,6 +67,10 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
         # el haber ya entró al CC cuando se creó el DAC).
         ("dinero_a_cuenta", "pedido_compra"),
         ("dinero_a_cuenta", "factura_erp"),
+        # Slice 1 cheques — cheque propio imputado a un pedido específico.
+        # Espeja el camino de nota_credito_local: crear_imputacion → aplicar_imputacion
+        # (CC haber) → aplicar_imputacion_a_pedido (recalcula estado pedido).
+        ("cheque", "pedido_compra"),
     }
 )
 
