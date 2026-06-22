@@ -22,6 +22,47 @@
   margin: 0;
 }
 
+/* ── Segmented control (vista) ────────────────────────────── */
+.segmented {
+  display: flex;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+  width: fit-content;
+}
+
+.segBtn {
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-150), color var(--duration-150);
+  white-space: nowrap;
+}
+
+.segBtn:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.segBtnActive {
+  background: var(--cf-bg-card);
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-medium);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* ── CUIT tag inline ──────────────────────────────────────── */
+.cuitTag {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
 .btnPrimary {
   display: inline-flex;
   align-items: center;

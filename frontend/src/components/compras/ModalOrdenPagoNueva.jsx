@@ -477,11 +477,27 @@ export default function ModalOrdenPagoNueva({
   // When cheque covers partial → netNative = remainder, item(remainder) + cheque(partial) = obligation.
   const chequeDeductForItem = (itemId) => {
     const id = String(itemId);
+    // Look up the pedido to know its native currency (for cross-currency conversion).
+    const item = items.find((it) => String(it.id) === id && it.tipo === 'pedido_compra');
+    const pedido = item ? pedidoDe(item.id) : null;
+    const pedidoMoneda = pedido?.moneda ?? form.moneda;
+
     return chequesAplicados.reduce((acc, ch) => {
       const chPedidoId = ch.pedido_id != null ? String(ch.pedido_id) : null;
       // Cheque applies if explicitly targeting this pedido, or if null + single pedido (inferred).
       if (chPedidoId === id || (chPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
-        return acc + (parseFloat(ch.monto) || 0);
+        const chMonto = parseFloat(ch.monto) || 0;
+        const chMoneda = ch.moneda ?? form.moneda;
+        // FIX 3: convert cheque amount to pedido native currency before deducting.
+        if (chMoneda === pedidoMoneda) {
+          return acc + chMonto;
+        }
+        // Cross-currency: require valid TC; if unavailable, skip deduction (safe: net won't go negative).
+        if (!tcValido) return acc;
+        let converted = chMonto;
+        if (chMoneda === 'USD' && pedidoMoneda === 'ARS') converted = chMonto * tcNumLive;
+        else if (chMoneda === 'ARS' && pedidoMoneda === 'USD') converted = chMonto / tcNumLive;
+        return acc + Math.round(converted * 100) / 100;
       }
       return acc;
     }, 0);
@@ -937,7 +953,9 @@ export default function ModalOrdenPagoNueva({
               : isSinglePedido
                 ? Number(pedidoItemIds[0])
                 : null;
-            return { ...ch, pedido_id: inferredPedidoId };
+            // Strip UI-only display fields before sending to backend.
+            const { _display_numero, _display_banco, _display_fecha_pago, _es_endoso, ...cleanCh } = ch;
+            return { ...cleanCh, pedido_id: inferredPedidoId };
           }),
     };
     if (pagarAhora) {
@@ -1501,15 +1519,24 @@ export default function ModalOrdenPagoNueva({
                     disabled={saving}
                   />
 
-                  {/* T1.12 — Cheques como VALOR (igual que NC: descuentan del total) */}
-                  <PanelCheques
-                    key={`cheques-${form.empresa_id}-${form.proveedor_id}-${form.moneda}`}
-                    proveedorId={form.proveedor_id ? Number(form.proveedor_id) : null}
-                    empresaId={form.empresa_id ? Number(form.empresa_id) : null}
-                    opMoneda={form.moneda}
-                    onChange={setChequesAplicados}
-                    disabled={saving}
-                  />
+                  {/* T1.12 — Cheques como VALOR (igual que NC: descuentan del total).
+                      Only shown when there is at most one pedido_compra in the OP.
+                      With multiple pedidos the cheque cannot infer which pedido to impute
+                      against (same limitation as NC), causing over-imputation. */}
+                  {isSinglePedido || pedidoItemIds.length === 0 ? (
+                    <PanelCheques
+                      key={`cheques-${form.empresa_id}-${form.proveedor_id}-${form.moneda}`}
+                      proveedorId={form.proveedor_id ? Number(form.proveedor_id) : null}
+                      empresaId={form.empresa_id ? Number(form.empresa_id) : null}
+                      opMoneda={form.moneda}
+                      onChange={setChequesAplicados}
+                      disabled={saving}
+                    />
+                  ) : (
+                    <div className={styles.fieldHint}>
+                      Cheques disponibles solo con un único pedido en la OP.
+                    </div>
+                  )}
 
                   {/* PR4 — Dinero a cuenta */}
                   <div className={styles.dacCard}>

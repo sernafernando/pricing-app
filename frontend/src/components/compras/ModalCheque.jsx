@@ -30,6 +30,13 @@ import styles from './ModalCheque.module.css';
  *   empresaId    number — filtra bancos de empresa.
  *
  * RULE: NO cierra con click en overlay (AGENTS.md: solo X o Cancelar).
+ *
+ * Slice 2: agrega modo "tercero":
+ *   - Campos: banco_nombre (texto), cuit_librador (texto), librador_nombre (texto opt).
+ *   - En mode="standalone": llama recibirTercero → crea en_cartera.
+ *   - En mode="op": llama onEmitido(payload) con los datos (sin cheque_id — el
+ *     modal de cartera es quien provee cheque_id para endoso). El padre decide
+ *     si va a backend como emisión nueva de tercero o como endoso existente.
  */
 
 const today = () => {
@@ -60,7 +67,10 @@ export default function ModalCheque({
   proveedorId: proveedorIdProp = null,
   empresaId: empresaIdProp = null,
 }) {
-  const { emitirPropio, listarChequeras, loading: saving, error: hookError } = useCheques();
+  const { emitirPropio, recibirTercero, listarChequeras, loading: saving, error: hookError } = useCheques();
+
+  // FIX 4: guard against double-submit in mode="op" (isSaving only covers standalone).
+  const [submitting, setSubmitting] = useState(false);
 
   // ── Bancos de empresa ──
   const [bancosEmpresa, setBancosEmpresa] = useState([]);
@@ -114,10 +124,18 @@ export default function ModalCheque({
   );
 
   // ── Form state ──
-  const [tipo] = useState('propio'); // Slice 1: solo propio
+  // In mode="op" only "propio" is allowed — tercero alta goes to standalone (TabCheques).
+  // Third-party cheques are added to the OP via "Endosar de cartera" in PanelCheques.
+  const [tipo, setTipo] = useState('propio');
   const [instrumento, setInstrumento] = useState('fisico');
+  // propio
   const [bancoEmpresaId, setBancoEmpresaId] = useState('');
   const [chequeraId, setChequeraId] = useState('');
+  // tercero
+  const [bancoNombre, setBancoNombre] = useState('');
+  const [cuitLibrador, setCuitLibrador] = useState('');
+  const [libradorNombre, setLibradorNombre] = useState('');
+  // comunes
   const [numero, setNumero] = useState('');
   const [proveedorId, setProveedorId] = useState(proveedorIdProp ? String(proveedorIdProp) : '');
   const [monto, setMonto] = useState('');
@@ -125,6 +143,24 @@ export default function ModalCheque({
   const [fechaEmision, setFechaEmision] = useState(today());
   const [fechaPago, setFechaPago] = useState(today());
   const [error, setError] = useState(null);
+
+  // Reset campos al cambiar de tipo.
+  const handleSetTipo = (t) => {
+    setTipo(t);
+    setError(null);
+    setNumero('');
+    setMonto('');
+    setFechaEmision(today());
+    setFechaPago(today());
+    // reset propio
+    setBancoEmpresaId('');
+    setChequeraId('');
+    setChequeras([]);
+    // reset tercero
+    setBancoNombre('');
+    setCuitLibrador('');
+    setLibradorNombre('');
+  };
 
   // Auto-populate proveedor cuando cambia la prop (modo OP).
   useEffect(() => {
@@ -156,37 +192,63 @@ export default function ModalCheque({
   const esDiferido = dias > 0;
 
   // ── Derived: resumen ──
-  const bancoNombre = bancosEmpresa.find((b) => String(b.id) === String(bancoEmpresaId))
-    ?.banco_nombre ?? '—';
+  const bancoNombreResumen = tipo === 'propio'
+    ? (bancosEmpresa.find((b) => String(b.id) === String(bancoEmpresaId))?.banco_nombre ?? '—')
+    : (bancoNombre.trim() || '—');
 
   // ── Validación ──
+  const validarCuit = (v) => /^\d{2}-\d{8}-\d$/.test(v.trim()) || /^\d{11}$/.test(v.trim());
+
   const validar = () => {
-    if (!bancoEmpresaId) return 'Seleccioná un banco.';
-    if (instrumento === 'fisico' && !chequeraId) return 'Seleccioná una chequera.';
+    if (tipo === 'propio') {
+      if (!bancoEmpresaId) return 'Seleccioná un banco.';
+      if (instrumento === 'fisico' && !chequeraId) return 'Seleccioná una chequera.';
+      if (!proveedorId) return 'El beneficiario es requerido.';
+    } else {
+      if (!bancoNombre.trim()) return 'El nombre del banco es requerido.';
+      if (!cuitLibrador.trim()) return 'El CUIT del librador es requerido.';
+      if (!validarCuit(cuitLibrador)) return 'El CUIT debe tener formato XX-XXXXXXXX-X o 11 dígitos.';
+    }
     if (!numero.trim()) return 'El número de cheque es requerido.';
     const montoNum = parseFloat(monto);
     if (!Number.isFinite(montoNum) || montoNum <= 0) return 'El monto debe ser mayor a 0.';
-    if (!proveedorId) return 'El beneficiario es requerido.';
     if (!fechaEmision) return 'La fecha de emisión es requerida.';
     if (!fechaPago) return 'La fecha de pago es requerida.';
     if (dias < 0) return 'La fecha de pago no puede ser anterior a la de emisión.';
     return null;
   };
 
-  const buildPayload = () => ({
-    banco_empresa_id: Number(bancoEmpresaId),
-    chequera_id: instrumento === 'fisico' && chequeraId ? Number(chequeraId) : null,
-    instrumento,
-    numero: numero.trim(),
-    monto: parseFloat(monto),
-    moneda,
-    fecha_emision: fechaEmision,
-    fecha_pago: fechaPago,
-    proveedor_id: Number(proveedorId),
-  });
+  const buildPayload = () => {
+    if (tipo === 'propio') {
+      return {
+        banco_empresa_id: Number(bancoEmpresaId),
+        chequera_id: instrumento === 'fisico' && chequeraId ? Number(chequeraId) : null,
+        instrumento,
+        numero: numero.trim(),
+        monto: parseFloat(monto),
+        moneda,
+        fecha_emision: fechaEmision,
+        fecha_pago: fechaPago,
+        proveedor_id: Number(proveedorId),
+      };
+    }
+    // tercero
+    return {
+      banco_nombre: bancoNombre.trim(),
+      cuit_librador: cuitLibrador.trim(),
+      ...(libradorNombre.trim() ? { librador_nombre: libradorNombre.trim() } : {}),
+      instrumento,
+      numero: numero.trim(),
+      monto: parseFloat(monto),
+      moneda,
+      fecha_emision: fechaEmision,
+      fecha_pago: fechaPago,
+    };
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return; // FIX 4: prevent double-submit in mode="op"
     const v = validar();
     if (v) {
       setError(v);
@@ -198,13 +260,18 @@ export default function ModalCheque({
 
     if (mode === 'op') {
       // En modo OP no vamos al backend: el padre lo emite en la misma TX.
+      setSubmitting(true);
       onEmitido?.(payload);
       return;
     }
 
     // Modo standalone: llamar al backend.
     try {
-      await emitirPropio(payload);
+      if (tipo === 'propio') {
+        await emitirPropio(payload);
+      } else {
+        await recibirTercero(payload);
+      }
       onClose(true);
     } catch (err) {
       const d = err.response?.data;
@@ -212,12 +279,13 @@ export default function ModalCheque({
         (typeof d?.detail === 'string' && d.detail) ||
         d?.mensaje ||
         err.message ||
-        'Error al emitir el cheque.';
-      setError(typeof msg === 'string' ? msg : 'Error al emitir el cheque.');
+        'Error al procesar el cheque.';
+      setError(typeof msg === 'string' ? msg : 'Error al procesar el cheque.');
     }
   };
 
-  const isSaving = saving && mode === 'standalone';
+  const isSaving = (saving && mode === 'standalone') || submitting;
+  const titleText = tipo === 'tercero' ? 'Recibir cheque de tercero' : 'Emitir cheque propio';
 
   return (
     <div className={styles.overlay}>
@@ -225,7 +293,7 @@ export default function ModalCheque({
 
         {/* Header */}
         <header className={styles.header}>
-          <h2 id="modal-cheque-title" className={styles.title}>Emitir cheque</h2>
+          <h2 id="modal-cheque-title" className={styles.title}>{titleText}</h2>
           <button
             type="button"
             className={styles.closeBtn}
@@ -246,27 +314,30 @@ export default function ModalCheque({
 
           <form id="form-cheque" onSubmit={handleSubmit}>
 
-            {/* Tipo de cheque (segmented) */}
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Tipo de cheque</label>
-              <div className={styles.segmented}>
-                <button
-                  type="button"
-                  className={`${styles.segBtn} ${tipo === 'propio' ? styles.segBtnActive : ''}`}
-                >
-                  Propio
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.segBtn} ${styles.segBtnDisabled}`}
-                  disabled
-                  aria-disabled="true"
-                >
-                  De tercero
-                  <span className={styles.badgeProximamente}>Próximamente</span>
-                </button>
+            {/* Tipo de cheque (segmented) — in mode="op" only "propio" is available */}
+            {mode !== 'op' && (
+              <div className={styles.fieldGroup}>
+                <label className={styles.fieldLabel}>Tipo de cheque</label>
+                <div className={styles.segmented}>
+                  <button
+                    type="button"
+                    className={`${styles.segBtn} ${tipo === 'propio' ? styles.segBtnActive : ''}`}
+                    onClick={() => handleSetTipo('propio')}
+                    disabled={isSaving}
+                  >
+                    Propio
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.segBtn} ${tipo === 'tercero' ? styles.segBtnActive : ''}`}
+                    onClick={() => handleSetTipo('tercero')}
+                    disabled={isSaving}
+                  >
+                    De tercero
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Instrumento (pills) */}
             <div className={styles.fieldGroup}>
@@ -289,45 +360,106 @@ export default function ModalCheque({
               </div>
             </div>
 
-            {/* Banco */}
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel} htmlFor="cheque-banco">
-                Banco
-              </label>
-              {loadingBancos ? (
-                <div className={styles.loadingRow}>
-                  <Loader2 size={14} className={styles.spin} /> Cargando bancos...
+            {/* Campos específicos: propio vs tercero */}
+            {tipo === 'propio' && (
+              <>
+                {/* Banco (select empresa) */}
+                <div className={styles.fieldGroup}>
+                  <label className={styles.fieldLabel} htmlFor="cheque-banco">
+                    Banco
+                  </label>
+                  {loadingBancos ? (
+                    <div className={styles.loadingRow}>
+                      <Loader2 size={14} className={styles.spin} /> Cargando bancos...
+                    </div>
+                  ) : bancosEmpresa.length === 0 && !empresaIdProp ? (
+                    <p className={styles.fieldHint}>
+                      El banco se carga automáticamente desde la empresa de la OP.
+                      En modo standalone, la empresa debe proporcionarse como prop.
+                    </p>
+                  ) : (
+                    <div className={styles.selectWrapper}>
+                      <select
+                        id="cheque-banco"
+                        className={styles.select}
+                        value={bancoEmpresaId}
+                        onChange={(e) => setBancoEmpresaId(e.target.value)}
+                        required
+                        disabled={isSaving}
+                      >
+                        <option value="">Seleccioná un banco...</option>
+                        {bancosEmpresa.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.banco_nombre} — {b.tipo_cuenta ?? 'Cuenta corriente'} {b.moneda ?? ''}{' '}
+                            {b.numero_cuenta ? `(${b.numero_cuenta})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} className={styles.selectArrow} />
+                    </div>
+                  )}
                 </div>
-              ) : bancosEmpresa.length === 0 && !empresaIdProp ? (
-                <p className={styles.fieldHint}>
-                  El banco se cargaría automáticamente desde la empresa de la OP.
-                  En modo standalone, seleccioná la empresa primero (funcionalidad pendiente en este modal).
-                </p>
-              ) : (
-                <div className={styles.selectWrapper}>
-                  <select
-                    id="cheque-banco"
-                    className={styles.select}
-                    value={bancoEmpresaId}
-                    onChange={(e) => setBancoEmpresaId(e.target.value)}
+              </>
+            )}
+
+            {tipo === 'tercero' && (
+              <>
+                {/* Banco nombre (texto libre) */}
+                <div className={styles.fieldGroup}>
+                  <label className={styles.fieldLabel} htmlFor="cheque-banco-nombre">
+                    Banco
+                  </label>
+                  <input
+                    id="cheque-banco-nombre"
+                    type="text"
+                    className={styles.inputMono}
+                    value={bancoNombre}
+                    onChange={(e) => setBancoNombre(e.target.value)}
+                    placeholder="Ej: Banco Nación"
                     required
                     disabled={isSaving}
-                  >
-                    <option value="">Seleccioná un banco...</option>
-                    {bancosEmpresa.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.banco_nombre} — {b.tipo_cuenta ?? 'Cuenta corriente'} {b.moneda ?? ''}{' '}
-                        {b.numero_cuenta ? `(${b.numero_cuenta})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} className={styles.selectArrow} />
+                  />
                 </div>
-              )}
-            </div>
 
-            {/* Chequera + Número (grid 2 cols) */}
-            {instrumento === 'fisico' && (
+                {/* CUIT librador + Nombre librador (grid 2) */}
+                <div className={styles.grid2}>
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.fieldLabel} htmlFor="cheque-cuit">
+                      CUIT librador
+                    </label>
+                    <input
+                      id="cheque-cuit"
+                      type="text"
+                      className={styles.inputMono}
+                      value={cuitLibrador}
+                      onChange={(e) => setCuitLibrador(e.target.value)}
+                      placeholder="XX-XXXXXXXX-X"
+                      required
+                      disabled={isSaving}
+                    />
+                    <p className={styles.fieldHint}>Formato: 20-12345678-9 o 11 dígitos</p>
+                  </div>
+
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.fieldLabel} htmlFor="cheque-librador">
+                      Librador (opcional)
+                    </label>
+                    <input
+                      id="cheque-librador"
+                      type="text"
+                      className={styles.inputMono}
+                      value={libradorNombre}
+                      onChange={(e) => setLibradorNombre(e.target.value)}
+                      placeholder="Razón social o nombre"
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Chequera + Número (grid 2 cols) — solo propio+físico */}
+            {tipo === 'propio' && instrumento === 'fisico' && (
               <div className={styles.grid2}>
                 <div className={styles.fieldGroup}>
                   <label className={styles.fieldLabel} htmlFor="cheque-chequera">
@@ -381,11 +513,11 @@ export default function ModalCheque({
               </div>
             )}
 
-            {/* e-cheq: solo número */}
-            {instrumento === 'echeq' && (
+            {/* e-cheq o tercero+físico: número standalone */}
+            {(instrumento === 'echeq' || (tipo === 'tercero' && instrumento === 'fisico')) && (
               <div className={styles.fieldGroup}>
                 <label className={styles.fieldLabel} htmlFor="cheque-numero-echeq">
-                  Número e-cheq
+                  {instrumento === 'echeq' ? 'Número e-cheq' : 'Número de cheque'}
                 </label>
                 <input
                   id="cheque-numero-echeq"
@@ -393,22 +525,27 @@ export default function ModalCheque({
                   className={styles.inputMono}
                   value={numero}
                   onChange={(e) => setNumero(e.target.value)}
-                  placeholder="Número del banco"
+                  placeholder={instrumento === 'echeq' ? 'Número del banco' : '00000000'}
                   required
+                  disabled={isSaving}
+                />
+                {instrumento === 'fisico' && (
+                  <p className={styles.fieldHint}>Número impreso en el cheque</p>
+                )}
+              </div>
+            )}
+
+            {/* Beneficiario (solo cheques propios) */}
+            {tipo === 'propio' && (
+              <div className={styles.fieldGroup}>
+                <label className={styles.fieldLabel}>Beneficiario</label>
+                <ProveedorComprasAutocomplete
+                  value={proveedorId ? Number(proveedorId) : null}
+                  onChange={(id) => setProveedorId(id ? String(id) : '')}
                   disabled={isSaving}
                 />
               </div>
             )}
-
-            {/* Beneficiario */}
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Beneficiario</label>
-              <ProveedorComprasAutocomplete
-                value={proveedorId ? Number(proveedorId) : null}
-                onChange={(id) => setProveedorId(id ? String(id) : '')}
-                disabled={isSaving}
-              />
-            </div>
 
             {/* Monto + Moneda (grid 3 cols: monto ocupa 2) */}
             <div className={styles.grid3}>
@@ -496,17 +633,20 @@ export default function ModalCheque({
             </div>
 
             {/* Resumen en vivo */}
-            {numero && bancoNombre !== '—' && parseFloat(monto) > 0 && (
+            {numero && bancoNombreResumen !== '—' && parseFloat(monto) > 0 && (
               <div className={styles.resumenCard}>
                 <Info size={15} className={styles.resumenIcon} />
                 <p className={styles.resumenText}>
                   Cheque Nº{' '}
                   <strong>{numero}</strong> ·{' '}
-                  Banco <strong>{bancoNombre}</strong> ·{' '}
+                  Banco <strong>{bancoNombreResumen}</strong> ·{' '}
                   <strong>{formatCurrency(parseFloat(monto) || 0, moneda)} {moneda}</strong> ·{' '}
                   vence <strong>{fechaPago}</strong>
                   {esDiferido && (
                     <> · <span className={styles.resumenDiferido}>Diferido {dias}d</span></>
+                  )}
+                  {tipo === 'tercero' && cuitLibrador && (
+                    <> · CUIT <strong>{cuitLibrador}</strong></>
                   )}
                 </p>
               </div>
@@ -539,7 +679,7 @@ export default function ModalCheque({
             ) : (
               <>
                 <Send size={14} />
-                Emitir cheque
+                {tipo === 'tercero' ? 'Recibir en cartera' : 'Emitir cheque'}
               </>
             )}
           </button>

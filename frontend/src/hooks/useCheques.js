@@ -106,6 +106,21 @@ export default function useCheques() {
     [wrap],
   );
 
+  /**
+   * Recibir cheque de tercero (alta a cartera).
+   * body: { banco_nombre, cuit_librador, librador_nombre?, numero, monto, moneda,
+   *          fecha_emision, fecha_pago, instrumento? }
+   * Estado resultante: en_cartera.
+   */
+  const recibirTercero = useCallback(
+    (payload) =>
+      wrap(async () => {
+        const { data } = await api.post('/administracion/cheques/cheques/tercero', payload);
+        return data;
+      }),
+    [wrap],
+  );
+
   return {
     loading,
     error,
@@ -113,6 +128,7 @@ export default function useCheques() {
     listarChequeras,
     crearChequera,
     emitirPropio,
+    recibirTercero,
     anular,
     obtener,
   };

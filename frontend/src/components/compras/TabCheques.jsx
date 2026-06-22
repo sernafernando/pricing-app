@@ -7,6 +7,7 @@ import {
   Loader2,
   Inbox,
   Filter,
+  X,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCheques from '../../hooks/useCheques';
@@ -25,6 +26,13 @@ import styles from './TabCheques.module.css';
 const PAGE_SIZE = 50;
 
 const ESTADOS_CHEQUE = ['emitido', 'diferido', 'debitado', 'rechazado', 'anulado'];
+const ESTADOS_TERCERO = ['en_cartera', 'entregado', 'depositado', 'acreditado', 'rechazado', 'anulado'];
+
+// Vistas del tab principal
+const VISTAS = {
+  PROPIOS: 'propios',
+  CARTERA: 'cartera',
+};
 
 
 const formatCurrency = (value, moneda = 'ARS') => {
@@ -68,12 +76,19 @@ export default function TabCheques() {
   const { tienePermiso } = usePermisos();
   const { listar, anular: anularCheque, loading, error } = useCheques();
 
-  // ── Filters ──
+  // ── Vista activa ──
+  const [vista, setVista] = useState(VISTAS.PROPIOS);
+
+  // ── Filters (propios) ──
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
   const [filtroMoneda, setFiltroMoneda] = useState('');
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
+
+  // ── Filters (cartera) ──
+  const [filtroEstadoCartera, setFiltroEstadoCartera] = useState('en_cartera');
+  const [filtroMonedaCartera, setFiltroMonedaCartera] = useState('');
 
   // ── Pagination ──
   const [page, setPage] = useState(1);
@@ -92,6 +107,27 @@ export default function TabCheques() {
   const [savingAnulacion, setSavingAnulacion] = useState(false);
 
   const fetchCheques = useCallback(async () => {
+    if (vista === VISTAS.CARTERA) {
+      const params = {
+        page,
+        page_size: PAGE_SIZE,
+        tipo: 'tercero',
+      };
+      if (filtroEstadoCartera) params.estado = filtroEstadoCartera;
+      if (filtroMonedaCartera) params.moneda = filtroMonedaCartera;
+      try {
+        const result = await listar(params);
+        const items = result?.items ?? (Array.isArray(result) ? result : []);
+        setCheques(items);
+        setTotalItems(result?.total ?? items.length);
+      } catch {
+        setCheques([]);
+        setTotalItems(0);
+      }
+      return;
+    }
+
+    // vista PROPIOS
     const params = {
       page,
       page_size: PAGE_SIZE,
@@ -111,11 +147,17 @@ export default function TabCheques() {
       setCheques([]);
       setTotalItems(0);
     }
-  }, [listar, page, filtroEstado, filtroTipo, filtroMoneda, filtroDesde, filtroHasta]);
+  }, [listar, page, vista, filtroEstado, filtroTipo, filtroMoneda, filtroDesde, filtroHasta, filtroEstadoCartera, filtroMonedaCartera]);
 
   useEffect(() => {
     fetchCheques();
   }, [fetchCheques]);
+
+  const handleCambiarVista = (v) => {
+    setVista(v);
+    setPage(1);
+    setCheques([]);
+  };
 
   // Reset to page 1 on filter change.
   const handleFiltroChange = (setter) => (val) => {
@@ -167,7 +209,24 @@ export default function TabCheques() {
 
       {/* Toolbar */}
       <div className={styles.toolbar}>
-        <h2 className={styles.sectionTitle}>Cheques propios</h2>
+        {/* Segmented: Propios / Cartera */}
+        <div className={styles.segmented}>
+          <button
+            type="button"
+            className={`${styles.segBtn} ${vista === VISTAS.PROPIOS ? styles.segBtnActive : ''}`}
+            onClick={() => handleCambiarVista(VISTAS.PROPIOS)}
+          >
+            Propios
+          </button>
+          <button
+            type="button"
+            className={`${styles.segBtn} ${vista === VISTAS.CARTERA ? styles.segBtnActive : ''}`}
+            onClick={() => handleCambiarVista(VISTAS.CARTERA)}
+          >
+            Cartera de terceros
+          </button>
+        </div>
+
         <button
           type="button"
           className={styles.btnPrimary}
@@ -178,82 +237,132 @@ export default function TabCheques() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className={styles.filtersRow}>
-        <div className={styles.filterIcon}>
-          <Filter size={14} />
-        </div>
+      {/* Filters — Propios */}
+      {vista === VISTAS.PROPIOS && (
+        <div className={styles.filtersRow}>
+          <div className={styles.filterIcon}>
+            <Filter size={14} />
+          </div>
 
-        <select
-          className={styles.filterSelect}
-          value={filtroEstado}
-          onChange={(e) => handleFiltroChange(setFiltroEstado)(e.target.value)}
-          aria-label="Filtrar por estado"
-        >
-          <option value="">Todos los estados</option>
-          {ESTADOS_CHEQUE.map((e) => (
-            <option key={e} value={e}>
-              {e.charAt(0).toUpperCase() + e.slice(1)}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className={styles.filterSelect}
-          value={filtroTipo}
-          onChange={(e) => handleFiltroChange(setFiltroTipo)(e.target.value)}
-          aria-label="Filtrar por tipo"
-        >
-          <option value="">Todos los tipos</option>
-          <option value="propio">Propios</option>
-          <option value="tercero">Terceros</option>
-        </select>
-
-        <select
-          className={styles.filterSelect}
-          value={filtroMoneda}
-          onChange={(e) => handleFiltroChange(setFiltroMoneda)(e.target.value)}
-          aria-label="Filtrar por moneda"
-        >
-          <option value="">Todas las monedas</option>
-          <option value="ARS">ARS</option>
-          <option value="USD">USD</option>
-        </select>
-
-        <input
-          type="date"
-          className={styles.filterInput}
-          value={filtroDesde}
-          onChange={(e) => handleFiltroChange(setFiltroDesde)(e.target.value)}
-          aria-label="Desde"
-          title="Fecha desde"
-        />
-        <input
-          type="date"
-          className={styles.filterInput}
-          value={filtroHasta}
-          onChange={(e) => handleFiltroChange(setFiltroHasta)(e.target.value)}
-          aria-label="Hasta"
-          title="Fecha hasta"
-        />
-
-        {(filtroEstado || filtroTipo || filtroMoneda || filtroDesde || filtroHasta) && (
-          <button
-            type="button"
-            className={styles.btnClearFilters}
-            onClick={() => {
-              setFiltroEstado('');
-              setFiltroTipo('');
-              setFiltroMoneda('');
-              setFiltroDesde('');
-              setFiltroHasta('');
-              setPage(1);
-            }}
+          <select
+            className={styles.filterSelect}
+            value={filtroEstado}
+            onChange={(e) => handleFiltroChange(setFiltroEstado)(e.target.value)}
+            aria-label="Filtrar por estado"
           >
-            Limpiar
-          </button>
-        )}
-      </div>
+            <option value="">Todos los estados</option>
+            {ESTADOS_CHEQUE.map((e) => (
+              <option key={e} value={e}>
+                {e.charAt(0).toUpperCase() + e.slice(1)}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className={styles.filterSelect}
+            value={filtroTipo}
+            onChange={(e) => handleFiltroChange(setFiltroTipo)(e.target.value)}
+            aria-label="Filtrar por tipo"
+          >
+            <option value="">Todos los tipos</option>
+            <option value="propio">Propios</option>
+            <option value="tercero">Terceros</option>
+          </select>
+
+          <select
+            className={styles.filterSelect}
+            value={filtroMoneda}
+            onChange={(e) => handleFiltroChange(setFiltroMoneda)(e.target.value)}
+            aria-label="Filtrar por moneda"
+          >
+            <option value="">Todas las monedas</option>
+            <option value="ARS">ARS</option>
+            <option value="USD">USD</option>
+          </select>
+
+          <input
+            type="date"
+            className={styles.filterInput}
+            value={filtroDesde}
+            onChange={(e) => handleFiltroChange(setFiltroDesde)(e.target.value)}
+            aria-label="Desde"
+            title="Fecha desde"
+          />
+          <input
+            type="date"
+            className={styles.filterInput}
+            value={filtroHasta}
+            onChange={(e) => handleFiltroChange(setFiltroHasta)(e.target.value)}
+            aria-label="Hasta"
+            title="Fecha hasta"
+          />
+
+          {(filtroEstado || filtroTipo || filtroMoneda || filtroDesde || filtroHasta) && (
+            <button
+              type="button"
+              className={styles.btnClearFilters}
+              onClick={() => {
+                setFiltroEstado('');
+                setFiltroTipo('');
+                setFiltroMoneda('');
+                setFiltroDesde('');
+                setFiltroHasta('');
+                setPage(1);
+              }}
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Filters — Cartera de terceros */}
+      {vista === VISTAS.CARTERA && (
+        <div className={styles.filtersRow}>
+          <div className={styles.filterIcon}>
+            <Filter size={14} />
+          </div>
+
+          <select
+            className={styles.filterSelect}
+            value={filtroEstadoCartera}
+            onChange={(e) => { setPage(1); setFiltroEstadoCartera(e.target.value); }}
+            aria-label="Filtrar por estado"
+          >
+            <option value="">Todos los estados</option>
+            {ESTADOS_TERCERO.map((e) => (
+              <option key={e} value={e}>
+                {e.replace('_', ' ').charAt(0).toUpperCase() + e.replace('_', ' ').slice(1)}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className={styles.filterSelect}
+            value={filtroMonedaCartera}
+            onChange={(e) => { setPage(1); setFiltroMonedaCartera(e.target.value); }}
+            aria-label="Filtrar por moneda"
+          >
+            <option value="">Todas las monedas</option>
+            <option value="ARS">ARS</option>
+            <option value="USD">USD</option>
+          </select>
+
+          {(filtroEstadoCartera !== 'en_cartera' || filtroMonedaCartera) && (
+            <button
+              type="button"
+              className={styles.btnClearFilters}
+              onClick={() => {
+                setFiltroEstadoCartera('en_cartera');
+                setFiltroMonedaCartera('');
+                setPage(1);
+              }}
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -277,55 +386,92 @@ export default function TabCheques() {
         <div className={styles.tableWrapper}>
           <table className={styles.table}>
             <thead>
-              <tr>
-                <th>Número</th>
-                <th>Tipo</th>
-                <th>Banco</th>
-                <th>Beneficiario</th>
-                <th className={styles.thRight}>Monto</th>
-                <th>Mon.</th>
-                <th>Emisión</th>
-                <th>Pago</th>
-                <th>Estado</th>
-                {puedeGestionar && <th className={styles.thRight}>Acciones</th>}
-              </tr>
+              {vista === VISTAS.CARTERA ? (
+                <tr>
+                  <th>Número</th>
+                  <th>Banco</th>
+                  <th>CUIT librador</th>
+                  <th>Librador</th>
+                  <th className={styles.thRight}>Monto</th>
+                  <th>Mon.</th>
+                  <th>Emisión</th>
+                  <th>Pago</th>
+                  <th>Estado</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th>Número</th>
+                  <th>Tipo</th>
+                  <th>Banco</th>
+                  <th>Beneficiario / Librador</th>
+                  <th className={styles.thRight}>Monto</th>
+                  <th>Mon.</th>
+                  <th>Emisión</th>
+                  <th>Pago</th>
+                  <th>Estado</th>
+                  {puedeGestionar && <th className={styles.thRight}>Acciones</th>}
+                </tr>
+              )}
             </thead>
             <tbody>
               {cheques.map((ch) => (
-                <tr key={ch.id} className={styles.tableRow}>
-                  <td className={styles.tdMono}>{ch.numero}</td>
-                  <td className={styles.tdSecondary}>{ch.tipo}</td>
-                  <td className={styles.tdSecondary}>{ch.banco_nombre ?? '—'}</td>
-                  <td>{ch.proveedor_nombre ?? '—'}</td>
-                  <td className={`${styles.tdMono} ${styles.tdRight}`}>
-                    {formatCurrency(ch.monto, ch.moneda)}
-                  </td>
-                  <td className={styles.tdSecondary}>{ch.moneda}</td>
-                  <td className={styles.tdSecondary}>{formatDate(ch.fecha_emision)}</td>
-                  <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
-                  <td>
-                    <EstadoBadgeCheque estado={ch.estado} />
-                  </td>
-                  {puedeGestionar && (
-                    <td className={styles.tdRight}>
-                      {['emitido', 'diferido'].includes(ch.estado) && (
-                        <button
-                          type="button"
-                          className={styles.btnDanger}
-                          onClick={() => {
-                            setAnulando(ch);
-                            setMotivoAnulacion('');
-                            setErrorAnulacion(null);
-                          }}
-                          aria-label={`Anular cheque ${ch.numero}`}
-                        >
-                          <Ban size={12} />
-                          Anular
-                        </button>
+                vista === VISTAS.CARTERA ? (
+                  <tr key={ch.id} className={styles.tableRow}>
+                    <td className={styles.tdMono}>{ch.numero}</td>
+                    <td className={styles.tdSecondary}>{ch.banco_nombre ?? '—'}</td>
+                    <td className={styles.tdMono}>{ch.cuit_librador ?? '—'}</td>
+                    <td>{ch.librador_nombre ?? ch.proveedor_nombre ?? '—'}</td>
+                    <td className={`${styles.tdMono} ${styles.tdRight}`}>
+                      {formatCurrency(ch.monto, ch.moneda)}
+                    </td>
+                    <td className={styles.tdSecondary}>{ch.moneda}</td>
+                    <td className={styles.tdSecondary}>{formatDate(ch.fecha_emision)}</td>
+                    <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
+                    <td>
+                      <EstadoBadgeCheque estado={ch.estado} />
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={ch.id} className={styles.tableRow}>
+                    <td className={styles.tdMono}>{ch.numero}</td>
+                    <td className={styles.tdSecondary}>{ch.tipo}</td>
+                    <td className={styles.tdSecondary}>{ch.banco_nombre ?? '—'}</td>
+                    <td>
+                      {ch.proveedor_nombre ?? ch.librador_nombre ?? '—'}
+                      {ch.cuit_librador && (
+                        <span className={styles.cuitTag}> · {ch.cuit_librador}</span>
                       )}
                     </td>
-                  )}
-                </tr>
+                    <td className={`${styles.tdMono} ${styles.tdRight}`}>
+                      {formatCurrency(ch.monto, ch.moneda)}
+                    </td>
+                    <td className={styles.tdSecondary}>{ch.moneda}</td>
+                    <td className={styles.tdSecondary}>{formatDate(ch.fecha_emision)}</td>
+                    <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
+                    <td>
+                      <EstadoBadgeCheque estado={ch.estado} />
+                    </td>
+                    {puedeGestionar && (
+                      <td className={styles.tdRight}>
+                        {['emitido', 'diferido'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnDanger}
+                            onClick={() => {
+                              setAnulando(ch);
+                              setMotivoAnulacion('');
+                              setErrorAnulacion(null);
+                            }}
+                            aria-label={`Anular cheque ${ch.numero}`}
+                          >
+                            <Ban size={12} />
+                            Anular
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                )
               ))}
             </tbody>
           </table>
@@ -389,7 +535,7 @@ export default function TabCheques() {
                 onClick={() => setAnulando(null)}
                 aria-label="Cerrar"
               >
-                ×
+                <X size={16} />
               </button>
             </header>
 
