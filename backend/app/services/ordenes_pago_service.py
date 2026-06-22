@@ -1554,7 +1554,7 @@ def ejecutar_pago(
     #
     # En ambos casos se crea OrdenPagoCheque y se imputa CC igual.
     # La lógica de imputación (Caso A con pedido_id / Caso B a_cuenta) es
-    # idéntica — se factorizó en _imputar_cheque_a_op para no duplicar código.
+    # idéntica — se factorizó en _imputar_cheque_en_op para no duplicar código.
     if cheques_norm:
         from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
         from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
@@ -2181,8 +2181,8 @@ def _des_endosar_cheques_tercero_de_op(
         )
 
         # Limpiar campos del cheque y restaurar a en_cartera.
-        # El link OrdenPagoCheque ya fue eliminado por _revertir_cc_si_linkeado
-        # (no — ese helper NO lo elimina). Lo eliminamos acá explícitamente.
+        # _revertir_cc_si_linkeado NO elimina el link OrdenPagoCheque (solo lo
+        # lee para el monto). Lo eliminamos acá explícitamente.
         cheque.proveedor_id = None
         cheque.orden_pago_id = None
         cheque.estado = "en_cartera"
@@ -2204,6 +2204,92 @@ def _des_endosar_cheques_tercero_de_op(
         )
         logger.info(
             "🔄 Cheque tercero id=%s des-endosado al anular OP id=%s — vuelve a en_cartera",
+            cheque.id,
+            op.id,
+        )
+
+
+def _revertir_cheques_propios_de_op(
+    session: Session,
+    *,
+    op: OrdenPago,
+    user_id: int,
+) -> None:
+    """Revierte los cheques PROPIOS linkeados a la OP al anularla.
+
+    Los cheques propios emitidos para esta OP tienen imputaciones con
+    origen_tipo="cheque" (no "orden_pago"), por lo que no son alcanzadas por
+    `revertir_imputaciones_de_origen(origen_tipo="orden_pago")`.
+    `_des_endosar_cheques_tercero_de_op` los salta (solo procesa tipo='tercero').
+
+    Por cada OrdenPagoCheque cuyo cheque es tipo='propio':
+      1. Llama a cheques_service._revertir_cc_si_linkeado para revertir la CC
+         (Caso A: reversal de imputacion cheque→pedido / Caso B: debe directo CC).
+      2. Transiciona el cheque a estado 'anulado' vía cheques_service.transicionar_cheque.
+         No se vuelve a llamar _revertir_cc_si_linkeado desde transicionar_cheque
+         porque ya se hizo en el paso anterior (cheque.orden_pago_id se limpia después).
+      3. Limpia proveedor_id y orden_pago_id del cheque.
+      4. Elimina el link OrdenPagoCheque.
+
+    Registra evento del cheque con motivo de anulación de la OP.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+    from app.services import cheques_service  # noqa: PLC0415
+
+    links = list(session.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.orden_pago_id == op.id)).scalars().all())
+    for link in links:
+        cheque = session.get(ChequeModel, link.cheque_id)
+        if cheque is None or cheque.tipo != "propio":
+            continue
+
+        if cheque.estado in ("anulado",):
+            # Ya fue anulado manualmente antes de la OP. La CC ya fue revertida.
+            logger.warning(
+                "⚠️ Cheque propio id=%s en OP id=%s ya está en estado '%s' — skip.",
+                cheque.id,
+                op.id,
+                cheque.estado,
+            )
+            # Limpiar el link de todas formas para no dejar colgado.
+            db_link = session.get(OrdenPagoCheque, link.id)
+            if db_link is not None:
+                session.delete(db_link)
+            continue
+
+        # Paso 1: revertir imputación CC (Caso A vía reversal / Caso B vía debe directo).
+        cheques_service._revertir_cc_si_linkeado(
+            session,
+            cheque=cheque,
+            usuario_id=user_id,
+            empresa_id=op.empresa_id,
+        )
+
+        # Paso 2: limpiar FK de la OP ANTES de transicionar para que
+        # transicionar_cheque("anular") no vuelva a llamar _revertir_cc_si_linkeado
+        # (la guarda es `cheque.orden_pago_id is None → return`).
+        cheque.proveedor_id = None
+        cheque.orden_pago_id = None
+        session.flush()
+
+        # Paso 3: transicionar el cheque a 'anulado'.
+        cheques_service.transicionar_cheque(
+            session,
+            cheque,
+            "anular",
+            usuario_id=user_id,
+            motivo=f"Anulación de OP {op.numero}",
+            empresa_id=op.empresa_id,
+        )
+
+        # Paso 4: eliminar el link OrdenPagoCheque.
+        db_link = session.get(OrdenPagoCheque, link.id)
+        if db_link is not None:
+            session.delete(db_link)
+
+        session.flush()
+        logger.info(
+            "🔄 Cheque propio id=%s anulado al revertir OP id=%s",
             cheque.id,
             op.id,
         )
@@ -2384,15 +2470,22 @@ def anular(
     # Criterio:
     #   - Cheque de tercero 'entregado' cuya OP se anula → vuelve a 'en_cartera'.
     #     El cheque sigue siendo válido; solo se des-asigna de esta OP.
-    #   - Cheque propio: ya fue anulado por _revertir_cc_si_linkeado al
-    #     revertir sus imputaciones (camino existente).
-    # Las imputaciones CC de cheques propios se revierten vía
-    # revertir_imputaciones_de_origen (origen_tipo='orden_pago'). Las de cheques
-    # de tercero tienen origen_tipo='cheque' y NO son cubiertas por ese paso;
-    # _des_endosar_cheques_tercero_de_op las revierte internamente usando
-    # _revertir_cc_si_linkeado. Además limpia proveedor_id/orden_pago_id y
-    # restaura el estado a 'en_cartera'.
+    # Las imputaciones CC de cheques de tercero tienen origen_tipo='cheque' y NO
+    # son cubiertas por revertir_imputaciones_de_origen(orden_pago); se revierten
+    # internamente con _revertir_cc_si_linkeado. Además limpia
+    # proveedor_id/orden_pago_id y restaura el estado a 'en_cartera'.
     _des_endosar_cheques_tercero_de_op(session, op=op, user_id=user_id)
+
+    # Fix: revertir cheques PROPIOS linkeados a la OP.
+    # Al pagar con cheque propio la imputación se crea con origen_tipo="cheque"
+    # (no "orden_pago"), por lo que revertir_imputaciones_de_origen(orden_pago)
+    # no la alcanza. Además _des_endosar_cheques_tercero_de_op salta los propios.
+    # Aquí revertimos cada cheque propio:
+    #   - _revertir_cc_si_linkeado: revierte imputación CC (Caso A via reversal
+    #     imputacion / Caso B via debe directo) y restaura saldo del pedido.
+    #   - transicionar_cheque "anular": cambia estado → 'anulado'.
+    #   - limpiamos proveedor_id, orden_pago_id y borramos el link.
+    _revertir_cheques_propios_de_op(session, op=op, user_id=user_id)
 
     # Paso 6: estado anulado
     op.estado = "anulado"

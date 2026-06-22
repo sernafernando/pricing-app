@@ -397,9 +397,7 @@ def caja_p(db, empresa_p, tipos_doc_caja_p) -> "Caja":
 class TestChequeConPedidoId:
     """Imputación al pedido cuando el cheque lleva pedido_id."""
 
-    def _cheque_payload(
-        self, banco_p: "BancoEmpresa", numero: str, monto: Decimal, pedido_id: int | None = None
-    ) -> dict:
+    def _cheque_payload(self, banco_p, numero: str, monto: Decimal, pedido_id: int | None = None) -> dict:
         payload: dict = {
             "banco_empresa_id": banco_p.id,
             "chequera_id": None,
@@ -544,6 +542,208 @@ class TestChequeConPedidoId:
             .one_or_none()
         )
         assert mov is not None, "Debe existir haber directo CC en modo a_cuenta"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fix 1 — anular OP pagada con cheque PROPIO no revertía nada
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Escenarios (TDD strict — RED→GREEN):
+#   A. Propio con pedido_id: saldo restaurado, cheque anulado, imputacion revertida.
+#   B. Propio "a cuenta" (sin pedido_id): haber CC revertido (debe neto = 0).
+
+
+class TestAnularOPConChequePropio:
+    """Bug fix: anular OP pagada con cheque PROPIO debe revertir la imputación
+    y transicionar el cheque a 'anulado'."""
+
+    def _crear_op_con_cheque_propio(
+        self,
+        db,
+        *,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        active_user,
+        pedido_id,
+        monto: Decimal,
+        numero: str,
+    ):
+        """Crea y paga una OP 100% con cheque propio. Devuelve (op, cheque)."""
+        items = []
+        if pedido_id is not None:
+            items = []  # 100% cheque, modo a_cuenta
+        payload = {
+            "banco_empresa_id": banco_p.id,
+            "chequera_id": None,
+            "instrumento": "echeq",
+            "numero": numero,
+            "monto": monto,
+            "moneda": "ARS",
+            "fecha_emision": date(2026, 6, 19),
+            "fecha_pago": date(2026, 6, 19),
+        }
+        if pedido_id is not None:
+            payload["pedido_id"] = pedido_id
+
+        op = ordenes_pago_service.crear_y_pagar(
+            db,
+            proveedor_id=proveedor_p.id,
+            empresa_id=empresa_p.id,
+            moneda="ARS",
+            monto_total=monto,
+            modo_imputacion="a_cuenta",
+            items=items,
+            caja_id=None,
+            banco_id=None,
+            fecha_pago_real=date(2026, 6, 19),
+            creado_por_id=active_user.id,
+            cheques=[payload],
+        )
+        cheque = db.query(Cheque).filter(Cheque.numero == numero).one()
+        return op, cheque
+
+    def test_anular_op_propio_con_pedido_restaura_saldo(
+        self,
+        db,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        pedido_1m,
+        active_user,
+    ) -> None:
+        """
+        Caso A (con pedido_id):
+          1. Pagar OP 1_000_000 con cheque propio linkeado al pedido.
+          2. Saldo del pedido baja a 0.
+          3. Anular la OP.
+          4. Asserts:
+             - saldo_pendiente_pedido vuelve a 1_000_000.
+             - cheque.estado == 'anulado'.
+             - La imputación cheque→pedido fue revertida (es_reversal=True existe).
+        """
+        from app.models.imputacion import Imputacion
+        from app.services import ordenes_pago_service as ops
+        from app.services.pedidos_service import calcular_saldo_pendiente_pedido
+
+        op, cheque = self._crear_op_con_cheque_propio(
+            db,
+            empresa_p=empresa_p,
+            proveedor_p=proveedor_p,
+            banco_p=banco_p,
+            active_user=active_user,
+            pedido_id=pedido_1m.id,
+            monto=Decimal("1000000"),
+            numero="ECH-ANUL-A-001",
+        )
+
+        # Precondición: saldo del pedido es 0.
+        saldo_pre = calcular_saldo_pendiente_pedido(db, pedido_1m.id)
+        assert saldo_pre == Decimal("0"), f"Saldo antes de anular debe ser 0, got {saldo_pre}"
+
+        # Anular la OP.
+        ops.anular(db, orden_pago_id=op.id, motivo="Test fix anular propio con pedido", user_id=active_user.id)
+
+        db.expire_all()
+
+        # 1. Saldo del pedido restaurado.
+        saldo_post = calcular_saldo_pendiente_pedido(db, pedido_1m.id)
+        assert saldo_post == Decimal("1000000"), (
+            f"Saldo del pedido debe volver a 1_000_000 tras anular la OP, got {saldo_post}"
+        )
+
+        # 2. Cheque propio queda anulado.
+        db.refresh(cheque)
+        assert cheque.estado == "anulado", f"El cheque propio debe quedar 'anulado', got '{cheque.estado}'"
+
+        # 3. Existe el reversal de la imputación cheque→pedido.
+        reversal = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "cheque",
+                Imputacion.origen_id == cheque.id,
+                Imputacion.destino_tipo == "pedido_compra",
+                Imputacion.es_reversal.is_(True),
+            )
+            .one_or_none()
+        )
+        assert reversal is not None, "Debe existir el reversal de la imputación cheque→pedido_compra"
+
+    def test_anular_op_propio_a_cuenta_revierte_haber_cc(
+        self,
+        db,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        active_user,
+    ) -> None:
+        """
+        Caso B (sin pedido_id, a cuenta):
+          1. Pagar OP 500_000 con cheque propio sin pedido_id.
+          2. Haber directo CC insertado.
+          3. Anular la OP.
+          4. Asserts:
+             - El movimiento CC neto del proveedor es 0 (haber cancelado por debe).
+             - cheque.estado == 'anulado'.
+        """
+        from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
+        from app.services import ordenes_pago_service as ops
+
+        op, cheque = self._crear_op_con_cheque_propio(
+            db,
+            empresa_p=empresa_p,
+            proveedor_p=proveedor_p,
+            banco_p=banco_p,
+            active_user=active_user,
+            pedido_id=None,
+            monto=Decimal("500000"),
+            numero="ECH-ANUL-B-001",
+        )
+
+        # Precondición: hay un haber CC del cheque.
+        movs_pre = (
+            db.query(CCProveedorMovimiento)
+            .filter(
+                CCProveedorMovimiento.proveedor_id == proveedor_p.id,
+                CCProveedorMovimiento.origen_tipo == "cheque",
+            )
+            .all()
+        )
+        assert len(movs_pre) == 1
+        assert movs_pre[0].tipo == "haber"
+
+        # Anular la OP.
+        ops.anular(db, orden_pago_id=op.id, motivo="Test fix anular propio a cuenta", user_id=active_user.id)
+
+        db.expire_all()
+
+        # 1. Cheque anulado.
+        db.refresh(cheque)
+        assert cheque.estado == "anulado", f"El cheque propio debe quedar 'anulado', got '{cheque.estado}'"
+
+        # 2. El neto CC del proveedor (haber - debe) es 0.
+        movs_post = db.query(CCProveedorMovimiento).filter(CCProveedorMovimiento.proveedor_id == proveedor_p.id).all()
+        neto = sum((Decimal(str(m.monto)) if m.tipo == "haber" else -Decimal(str(m.monto))) for m in movs_post)
+        assert neto == Decimal("0"), f"El saldo neto CC debe ser 0 tras revertir, got {neto}"
+
+
+class TestChequeConPedidoIdAnular:
+    """Reversal de cheque propio via cheques_service.transicionar_cheque (no via anular OP)."""
+
+    def _cheque_payload(self, banco_p, numero: str, monto: Decimal, pedido_id: int | None = None) -> dict:
+        payload: dict = {
+            "banco_empresa_id": banco_p.id,
+            "chequera_id": None,
+            "instrumento": "echeq",
+            "numero": numero,
+            "monto": monto,
+            "moneda": "ARS",
+            "fecha_emision": date(2026, 6, 19),
+            "fecha_pago": date(2026, 6, 19),
+        }
+        if pedido_id is not None:
+            payload["pedido_id"] = pedido_id
+        return payload
 
     def test_anular_cheque_imputado_a_pedido_restaura_saldo(
         self, db, empresa_p, proveedor_p, caja_p, banco_p, pedido_1m, active_user

@@ -142,5 +142,5 @@
 .btnEmitir:hover {
   border-color: var(--cf-accent-blue);
   color: var(--cf-accent-blue);
-  background: rgba(59, 130, 246, 0.06);
+  background: color-mix(in srgb, var(--cf-accent-blue) 6%, transparent);
 }

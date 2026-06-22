@@ -249,7 +249,12 @@ def anular_cheque(
         )
         db.commit()
         db.refresh(cheque)
-        return cheque
+        return ChequeResponse.model_validate(cheque).model_copy(
+            update={
+                "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else cheque.banco_nombre,
+                "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+            }
+        )
     except HTTPException:
         db.rollback()
         raise
@@ -314,7 +319,7 @@ def listar_cheques(
     items = [
         ChequeListResponse.model_validate(ch).model_copy(
             update={
-                "banco_nombre": ch.banco_empresa.banco if ch.banco_empresa else None,
+                "banco_nombre": ch.banco_empresa.banco if ch.banco_empresa else ch.banco_nombre,
                 "proveedor_nombre": ch.proveedor.nombre if ch.proveedor else None,
             }
         )
@@ -343,7 +348,7 @@ def obtener_cheque(
     # muestre en None.
     return ChequeResponse.model_validate(cheque).model_copy(
         update={
-            "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else None,
+            "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else cheque.banco_nombre,
             "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
         }
     )

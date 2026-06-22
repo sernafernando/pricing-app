@@ -839,3 +839,8 @@ class TestRecibirChequeTerceroEndpoint:
         items = r.json()["items"]
         numeros = [i["numero"] for i in items]
         assert "T-LIST-001" in numeros, f"Cheque T-LIST-001 no encontrado en {numeros}"
+        # El cheque de tercero NO tiene banco_empresa FK: su banco viene de la
+        # columna banco_nombre y NO debe quedar pisado a None en el listado.
+        ch_tercero = next(i for i in items if i["numero"] == "T-LIST-001")
+        assert ch_tercero["banco_nombre"] == "Banco Test List"
+        assert ch_tercero["cuit_librador"] == "20999888777"

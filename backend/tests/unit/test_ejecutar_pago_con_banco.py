@@ -408,11 +408,13 @@ class TestAnularOpPagadaConBanco:
             # Sequential execute calls:
             # 1) SELECT FOR UPDATE → op
             # 2) imputaciones query → empty
-            # 3) OrdenPagoCheque query (Slice 2 des-endoso) → empty
+            # 3) OrdenPagoCheque query (Slice 2 des-endoso terceros) → empty
+            # 4) OrdenPagoCheque query (Fix 1 revertir propios) → empty
             session.execute.side_effect = [
                 _mock_execute_scalar(op),
                 _mock_execute_scalars([]),
                 _mock_execute_scalars([]),  # no third-party cheques to des-endorse
+                _mock_execute_scalars([]),  # no own cheques to revert
             ]
 
             result = ordenes_pago_service.anular(
@@ -469,6 +471,7 @@ class TestAnularOpPagadaConBanco:
                 _mock_execute_scalar(op),
                 _mock_execute_scalars([]),
                 _mock_execute_scalars([]),  # no third-party cheques to des-endorse (Slice 2)
+                _mock_execute_scalars([]),  # no own cheques to revert (Fix 1)
             ]
             session.get.return_value = egreso_caja_original
 
