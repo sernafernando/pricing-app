@@ -1,0 +1,445 @@
+/* ModalCheque — CSS Modules + design tokens.
+   Dark mode automático vía tokens; sin colores hardcoded. */
+
+/* ── Overlay & container ──────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-backdrop);
+  backdrop-filter: blur(4px);
+  padding: var(--spacing-md);
+}
+
+.container {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  transition: background var(--duration-150);
+}
+
+.closeBtn:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+/* ── Body (scrollable) ────────────────────────────────────── */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  scrollbar-width: none;
+}
+
+.body::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Error banner ─────────────────────────────────────────── */
+.errorBanner {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+}
+
+/* ── Field groups ─────────────────────────────────────────── */
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.fieldLabel {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fieldHint {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  opacity: 0.75;
+}
+
+/* ── Grid layouts ─────────────────────────────────────────── */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.colSpan2 {
+  grid-column: span 2;
+}
+
+/* ── Segmented control (Tipo) ─────────────────────────────── */
+.segmented {
+  display: flex;
+  background: var(--cf-bg-app);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.segBtn {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-150), color var(--duration-150);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.segBtnActive {
+  background: var(--cf-bg-card);
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-medium);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.segBtnDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.badgeProximamente {
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* ── Pills (Instrumento) ──────────────────────────────────── */
+.pills {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.pill {
+  padding: 5px var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150), border-color var(--duration-150), color var(--duration-150);
+}
+
+.pill:hover {
+  background: var(--cf-bg-hover);
+}
+
+.pillActive {
+  background: var(--cf-accent-blue);
+  color: var(--text-inverse);
+  border-color: var(--cf-accent-blue);
+  font-weight: var(--font-semibold);
+}
+
+/* ── Select ───────────────────────────────────────────────── */
+.selectWrapper {
+  position: relative;
+}
+
+.select {
+  width: 100%;
+  padding: 10px var(--spacing-md);
+  padding-right: 36px;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  appearance: none;
+  cursor: pointer;
+  transition: border-color var(--duration-150);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selectArrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--cf-text-secondary);
+}
+
+/* ── Input mono ───────────────────────────────────────────── */
+.inputMono {
+  width: 100%;
+  padding: 10px var(--spacing-md);
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-family: var(--font-mono, monospace);
+  transition: border-color var(--duration-150);
+}
+
+.inputMono:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+}
+
+.inputMono:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Monto ($ prefix + right-aligned input) ───────────────── */
+.montoWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.montoPrefix {
+  position: absolute;
+  left: 12px;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  pointer-events: none;
+  font-family: var(--font-mono, monospace);
+}
+
+.montoInput {
+  width: 100%;
+  padding: 10px var(--spacing-md);
+  padding-left: 28px;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--cf-text-primary);
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-mono, monospace);
+  text-align: right;
+  transition: border-color var(--duration-150);
+}
+
+.montoInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+}
+
+.montoInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Fechas ───────────────────────────────────────────────── */
+.fechaPagoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.badgeDiferido {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* ── Resumen card ─────────────────────────────────────────── */
+.resumenCard {
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.resumenIcon {
+  color: var(--cf-accent-blue);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.resumenText {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.resumenText strong {
+  color: var(--cf-text-primary);
+}
+
+.resumenDiferido {
+  color: var(--warning);
+  font-weight: var(--font-semibold);
+}
+
+/* ── Loading row ──────────────────────────────────────────── */
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  padding: 10px var(--spacing-md);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.btnCancel {
+  padding: 8px var(--spacing-lg);
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnCancel:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.btnCancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSubmit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 8px var(--spacing-lg);
+  background: var(--brand-primary);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  font-weight: var(--font-bold);
+  cursor: pointer;
+  transition: background var(--duration-150), transform var(--duration-100);
+}
+
+.btnSubmit:hover:not(:disabled) {
+  background: var(--brand-secondary);
+}
+
+.btnSubmit:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btnSubmit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

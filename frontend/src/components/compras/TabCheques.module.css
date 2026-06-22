@@ -1,0 +1,510 @@
+/* TabCheques — CSS Modules + design tokens. Sin colores hardcoded. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+}
+
+/* ── Toolbar ──────────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.sectionTitle {
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+/* ── Segmented control (vista) ────────────────────────────── */
+.segmented {
+  display: flex;
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+  width: fit-content;
+}
+
+.segBtn {
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-150), color var(--duration-150);
+  white-space: nowrap;
+}
+
+.segBtn:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.segBtnActive {
+  background: var(--cf-bg-card);
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-medium);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* ── CUIT tag inline ──────────────────────────────────────── */
+.cuitTag {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 8px var(--spacing-md);
+  background: var(--brand-primary);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnPrimary:hover {
+  background: var(--brand-secondary);
+}
+
+/* ── Filters ──────────────────────────────────────────────── */
+.filtersRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.filterIcon {
+  color: var(--cf-text-tertiary);
+  display: flex;
+  align-items: center;
+}
+
+.filterSelect {
+  padding: 6px var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.filterInput {
+  padding: 6px var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.filterInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.btnClearFilters {
+  padding: 6px var(--spacing-sm);
+  background: none;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.btnClearFilters:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* ── Error ────────────────────────────────────────────────── */
+.errorBanner {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+}
+
+/* ── Loading / Empty ──────────────────────────────────────── */
+.loadingBlock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.emptyIcon {
+  opacity: 0.4;
+}
+
+.sinPermiso {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-2xl);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+/* ── Table ────────────────────────────────────────────────── */
+.tableWrapper {
+  overflow-x: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-weight: var(--font-semibold);
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle);
+  color: var(--cf-text-primary);
+  vertical-align: middle;
+}
+
+.tableRow:last-child td {
+  border-bottom: none;
+}
+
+.tableRow:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdRight {
+  text-align: right;
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+}
+
+.tdSecondary {
+  color: var(--cf-text-secondary);
+}
+
+/* ── Actions ──────────────────────────────────────────────── */
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnDanger:hover {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+/* ── Pagination ───────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.btnPage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnPage:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.btnPage:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+/* ── Modal anular ─────────────────────────────────────────── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-backdrop);
+  backdrop-filter: blur(4px);
+  padding: var(--spacing-md);
+}
+
+.modalAnular {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.modalAnularHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.modalAnularTitle {
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.btnClose {
+  background: none;
+  border: none;
+  color: var(--cf-text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-md);
+}
+
+.btnClose:hover {
+  background: var(--cf-bg-hover);
+}
+
+.modalAnularBody {
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.modalAnularDesc {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  margin: 0;
+}
+
+.fieldLabel {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+.modalAnularFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.btnCancel {
+  padding: 7px var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.btnCancel:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.btnCancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnDangerFull {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 7px var(--spacing-md);
+  background: var(--error);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: opacity var(--duration-150);
+}
+
+.btnDangerFull:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── EstadoBadgeCheque ────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+.badgeEmitido {
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.badgeDiferido {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+.badgeDebitado {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.badgeRechazado {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error);
+}
+
+.badgeAnulado {
+  background: color-mix(in srgb, var(--cf-text-tertiary) 12%, transparent);
+  color: var(--cf-text-tertiary);
+}
+
+.badgeEnCartera {
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.badgeEntregado {
+  background: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+  color: var(--brand-primary);
+}
+
+.badgeDepositado {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.badgeAcreditado {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+
+.badgeFallback {
+  background: color-mix(in srgb, var(--cf-text-tertiary) 12%, transparent);
+  color: var(--cf-text-tertiary);
+}

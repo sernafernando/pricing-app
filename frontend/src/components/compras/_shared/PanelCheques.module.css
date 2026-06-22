@@ -1,0 +1,356 @@
+/* PanelCheques — espejo de PanelNCsProveedor */
+
+.wrapper {
+  margin-bottom: var(--spacing-md);
+}
+
+.toggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  padding: var(--spacing-xs) 0;
+  margin-bottom: var(--spacing-xs);
+}
+
+.toggleBtn:hover {
+  color: var(--cf-text-primary);
+}
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--cf-text-tertiary);
+}
+
+.panel {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.panelHint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Lista de cheques ─────────────────────────────────────── */
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.chequeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  gap: var(--spacing-sm);
+}
+
+.chequeInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  font-size: var(--font-sm);
+}
+
+.chequeNumero {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+  font-weight: var(--font-medium);
+}
+
+.chequeMonto {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.chequeFecha {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.crossMonedaTag {
+  color: var(--warning);
+  font-weight: var(--font-semibold);
+}
+
+.diferidoTag {
+  color: var(--warning);
+  font-size: var(--font-xs);
+}
+
+.btnQuitar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--cf-text-tertiary);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  transition: color var(--duration-150), background var(--duration-150);
+}
+
+.btnQuitar:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-bg);
+}
+
+.btnQuitar:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Emitir / acción buttons ──────────────────────────────── */
+.botonesAccion {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.btnEmitir {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 5px var(--spacing-sm);
+  background: none;
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: border-color var(--duration-150), color var(--duration-150), background var(--duration-150);
+  width: fit-content;
+}
+
+.btnEmitir:hover {
+  border-color: var(--cf-accent-blue);
+  color: var(--cf-accent-blue);
+  background: color-mix(in srgb, var(--cf-accent-blue) 6%, transparent);
+}
+
+/* ── Endoso row ───────────────────────────────────────────── */
+.chequeRowEndoso {
+  border-color: color-mix(in srgb, var(--cf-accent-blue) 30%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-blue) 4%, transparent);
+}
+
+.tagEndoso {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.chequeBanco {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Selector de cartera (overlay modal) ──────────────────── */
+.selectorOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-backdrop);
+  backdrop-filter: blur(4px);
+  padding: var(--spacing-md);
+}
+
+.selectorModal {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.selectorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.selectorTitle {
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.btnClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  transition: background var(--duration-150);
+}
+
+.btnClose:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.selectorBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+  scrollbar-width: none;
+}
+
+.selectorBody::-webkit-scrollbar {
+  display: none;
+}
+
+.selectorLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.selectorEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.selectorLista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selectorItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--duration-150), border-color var(--duration-150);
+  width: 100%;
+}
+
+.selectorItem:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+}
+
+.selectorItemUsado {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.selectorItemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selectorNumero {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+}
+
+.selectorBanco {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.selectorLibrador {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.selectorItemRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.selectorMonto {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.selectorFecha {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.selectorTagUsado {
+  font-size: 10px;
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-semibold);
+}

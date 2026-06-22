@@ -171,6 +171,9 @@ from app.models.purchase_order_detail import PurchaseOrderDetail
 # Compras — Recepción de mercadería por depósito (Slice A)
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 
+# Tesorería — Módulo de Cheques (Slice 1)
+from app.models.cheque import Chequera, Cheque, OrdenPagoCheque, ChequeEvento
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -350,4 +353,9 @@ __all__ = [
     "PurchaseOrderDetail",
     # Compras — Recepción de mercadería por depósito
     "PedidoCompraIngreso",
+    # Tesorería — Módulo de Cheques
+    "Chequera",
+    "Cheque",
+    "OrdenPagoCheque",
+    "ChequeEvento",
 ]

@@ -372,7 +372,7 @@ def aplicar_imputacion(
         # idéntica semántica que `nota_credito_erp`. La NC local NO impactó
         # CC al aprobarse (decisión de diseño T.6 — análogo a OPs); el HABER
         # se materializa acá, al imputarse a un destino concreto.
-        if imp.origen_tipo not in {"orden_pago", "nota_credito_erp", "nota_credito_local"}:
+        if imp.origen_tipo not in {"orden_pago", "nota_credito_erp", "nota_credito_local", "cheque"}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
