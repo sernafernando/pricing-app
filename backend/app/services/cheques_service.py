@@ -50,15 +50,19 @@ TRANSICIONES_CHEQUE: Final[dict[tuple[str, str, str], str]] = {
     # Propios — Slice 1
     ("propio", "emitido", "anular"): "anulado",
     ("propio", "diferido", "anular"): "anulado",
-    # Propios — Slice 4 (placeholder para no romper typing cuando se implemente)
+    # Propios — Slice 4 (placeholder)
     # ("propio", "emitido",  "debitar")  -> "debitado"   — Slice 4
     # ("propio", "diferido", "debitar")  -> "debitado"   — Slice 4
     # ("propio", "emitido",  "rechazar") -> "rechazado"  — Slice 4
     # ("propio", "diferido", "rechazar") -> "rechazado"  — Slice 4
-    # Terceros — Slice 2 (placeholder)
-    # ("tercero", "en_cartera", "entregar")  -> "entregado"   — Slice 2
+    # Terceros — Slice 2
+    ("tercero", "en_cartera", "entregar"): "entregado",  # endoso a proveedor en OP
+    ("tercero", "en_cartera", "anular"): "anulado",
+    ("tercero", "en_cartera", "rechazar"): "rechazado",
+    ("tercero", "entregado", "rechazar"): "rechazado",
+    # Terceros — Slice 4 (placeholder)
     # ("tercero", "en_cartera", "depositar") -> "depositado"  — Slice 4
-    # ("tercero", "en_cartera", "anular")    -> "anulado"     — Slice 2
+    # ("tercero", "depositado", "acreditar") -> "acreditado"  — Slice 4
 }
 
 # Estados terminales (no permiten más transiciones)
@@ -467,6 +471,131 @@ def _revertir_cc_si_linkeado(
             link.monto_op_moneda,
             cheque.moneda,
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 2 — Cheques de terceros
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def recibir_cheque_tercero(
+    db: Session,
+    *,
+    banco_nombre: str,
+    cuit_librador: str,
+    librador_nombre: Optional[str] = None,
+    numero: str,
+    monto: Decimal,
+    moneda: str,
+    fecha_emision: date,
+    fecha_pago: date,
+    instrumento: str = "fisico",
+    usuario_id: Optional[int] = None,
+) -> Cheque:
+    """Da de alta un cheque de tercero a la cartera (estado `en_cartera`).
+
+    El cheque de tercero NO usa chequera/banco_empresa propio. Los campos
+    banco_nombre y cuit_librador son obligatorios porque identifican al
+    librador externo.
+
+    Validaciones:
+      - monto > 0 (422 si no).
+      - fecha_pago >= fecha_emision (422 si no).
+      - cuit_librador y banco_nombre son obligatorios.
+      - estado inicial = 'en_cartera'.
+      - Registra evento 'recibido'.
+
+    Args:
+        db: sesión activa.
+        banco_nombre: nombre del banco del librador (texto libre).
+        cuit_librador: CUIT del librador externo.
+        librador_nombre: razón social o nombre del librador (opcional).
+        numero: número del cheque físico o e-cheq.
+        monto: monto del cheque.
+        moneda: 'ARS' | 'USD'.
+        fecha_emision: fecha de emisión del cheque.
+        fecha_pago: fecha de pago / cobro del cheque.
+        instrumento: 'fisico' | 'echeq'.
+        usuario_id: id del usuario que lo registra.
+
+    Returns:
+        El Cheque creado en estado 'en_cartera'.
+
+    Raises:
+        HTTPException 422: validaciones fallidas.
+    """
+    if not banco_nombre or not banco_nombre.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="banco_nombre es requerido para cheques de tercero.",
+        )
+    if not cuit_librador or not cuit_librador.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cuit_librador es requerido para cheques de tercero.",
+        )
+    if monto <= Decimal("0"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El monto del cheque debe ser mayor a cero.",
+        )
+    if fecha_pago < fecha_emision:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La fecha de pago no puede ser anterior a la fecha de emisión.",
+        )
+
+    es_diferido = fecha_pago > fecha_emision
+    cheque = Cheque(
+        tipo="tercero",
+        instrumento=instrumento,
+        estado="en_cartera",
+        numero=numero,
+        monto=monto,
+        moneda=moneda,
+        fecha_emision=fecha_emision,
+        fecha_pago=fecha_pago,
+        es_diferido=es_diferido,
+        banco_nombre=banco_nombre,
+        cuit_librador=cuit_librador,
+        librador_nombre=librador_nombre,
+        created_by=usuario_id,
+    )
+    db.add(cheque)
+    db.flush()
+
+    _registrar_evento(
+        db,
+        cheque_id=cheque.id,
+        tipo="recibido",
+        payload={
+            "estado": "en_cartera",
+            "banco_nombre": banco_nombre,
+            "cuit_librador": cuit_librador,
+            "monto": str(monto),
+            "moneda": moneda,
+            "fecha_emision": fecha_emision.isoformat(),
+            "fecha_pago": fecha_pago.isoformat(),
+        },
+        usuario_id=usuario_id,
+    )
+
+    logger.info(
+        "✅ Cheque tercero recibido — id=%s numero=%s banco=%s cuit=%s monto=%s %s",
+        cheque.id,
+        numero,
+        banco_nombre,
+        cuit_librador,
+        monto,
+        moneda,
+    )
+    return cheque
+
+
+# NOTE: des_endosar_cheque_tercero was removed (dead code — no callers).
+# The des-endorsement logic when canceling an OP lives in
+# ordenes_pago_service._des_endosar_cheques_tercero_de_op, which handles
+# the full context (op, empresa_id, linked imputaciones) correctly.
 
 
 def registrar_evento(

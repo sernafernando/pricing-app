@@ -774,3 +774,68 @@ class TestEmitirChequera_CrossBanco:
                 usuario_id=active_user.id,
             )
         assert exc.value.status_code == 422
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 2 — Endpoint POST /cheques/tercero
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestRecibirChequeTerceroEndpoint:
+    """FR-2.1 — Endpoint POST /cheques/tercero."""
+
+    _PAYLOAD = {
+        "banco_nombre": "Banco Galicia",
+        "cuit_librador": "20304050607",
+        "librador_nombre": "Empresa ABC SRL",
+        "numero": "000000123456",
+        "monto": "50000.00",
+        "moneda": "ARS",
+        "fecha_emision": "2026-06-22",
+        "fecha_pago": "2026-07-22",
+        "instrumento": "fisico",
+    }
+
+    def test_alta_tercero_201_con_permiso(self, client, auth_headers, _permiso_solo) -> None:
+        r = client.post(f"{BASE}/cheques/tercero", json=self._PAYLOAD, headers=auth_headers)
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["tipo"] == "tercero"
+        assert data["estado"] == "en_cartera"
+
+    def test_alta_tercero_403_sin_permiso(self, client, auth_headers, sin_permiso_cheques) -> None:
+        r = client.post(f"{BASE}/cheques/tercero", json=self._PAYLOAD, headers=auth_headers)
+        assert r.status_code == 403
+
+    def test_alta_tercero_validacion_monto_cero(self, client, auth_headers, _permiso_solo) -> None:
+        payload = {**self._PAYLOAD, "monto": "0"}
+        r = client.post(f"{BASE}/cheques/tercero", json=payload, headers=auth_headers)
+        assert r.status_code in (422,)
+
+    def test_listado_filtra_tipo_tercero_estado_en_cartera(
+        self, client, auth_headers, db, active_user, _permiso_solo
+    ) -> None:
+        """GET /cheques?tipo=tercero&estado=en_cartera filtra correctamente."""
+        from decimal import Decimal
+        from datetime import date
+
+        from app.services.cheques_service import recibir_cheque_tercero
+
+        recibir_cheque_tercero(
+            db,
+            banco_nombre="Banco Test List",
+            cuit_librador="20999888777",
+            numero="T-LIST-001",
+            monto=Decimal("10000"),
+            moneda="ARS",
+            fecha_emision=date(2026, 6, 22),
+            fecha_pago=date(2026, 7, 22),
+            usuario_id=active_user.id,
+        )
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques?tipo=tercero&estado=en_cartera", headers=auth_headers)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        numeros = [i["numero"] for i in items]
+        assert "T-LIST-001" in numeros, f"Cheque T-LIST-001 no encontrado en {numeros}"

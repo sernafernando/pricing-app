@@ -405,12 +405,14 @@ class TestAnularOpPagadaConBanco:
             mock_banco_svc = MockBancoSvc.return_value
             mock_banco_svc.registrar_movimiento.return_value = banco_movimiento_reverso
 
-            # Two sequential execute calls: 1) SELECT FOR UPDATE op, 2) imputaciones
+            # Sequential execute calls:
+            # 1) SELECT FOR UPDATE → op
+            # 2) imputaciones query → empty
+            # 3) OrdenPagoCheque query (Slice 2 des-endoso) → empty
             session.execute.side_effect = [
-                # Call 1: SELECT FOR UPDATE → op
                 _mock_execute_scalar(op),
-                # Call 2: imputaciones query → empty
                 _mock_execute_scalars([]),
+                _mock_execute_scalars([]),  # no third-party cheques to des-endorse
             ]
 
             result = ordenes_pago_service.anular(
@@ -466,6 +468,7 @@ class TestAnularOpPagadaConBanco:
             session.execute.side_effect = [
                 _mock_execute_scalar(op),
                 _mock_execute_scalars([]),
+                _mock_execute_scalars([]),  # no third-party cheques to des-endorse (Slice 2)
             ]
             session.get.return_value = egreso_caja_original
 

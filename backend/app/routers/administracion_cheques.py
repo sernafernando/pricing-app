@@ -37,6 +37,7 @@ from app.schemas.cheque import (
     ChequeraResponse,
     ChequeResponse,
     EmitirChequePropio,
+    RecibirChequeTercero,
 )
 from app.services import cheques_service
 
@@ -164,6 +165,54 @@ def emitir_cheque_propio(
         db.rollback()
         logger.error("❌ Error emitiendo cheque propio: %s", exc)
         raise HTTPException(status_code=500, detail="Error interno al emitir cheque.") from exc
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cheques de tercero — alta a cartera (Slice 2)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/cheques/tercero",
+    response_model=ChequeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def recibir_cheque_tercero(
+    payload: RecibirChequeTercero,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeResponse:
+    """Da de alta un cheque de tercero a la cartera (estado `en_cartera`).
+
+    El cheque queda disponible para ser endosado a un proveedor en una OP.
+    Los campos banco_nombre y cuit_librador son obligatorios para identificar
+    al librador externo.
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    try:
+        cheque = cheques_service.recibir_cheque_tercero(
+            db,
+            banco_nombre=payload.banco_nombre,
+            cuit_librador=payload.cuit_librador,
+            librador_nombre=payload.librador_nombre,
+            numero=payload.numero,
+            monto=payload.monto,
+            moneda=payload.moneda,
+            fecha_emision=payload.fecha_emision,
+            fecha_pago=payload.fecha_pago,
+            instrumento=payload.instrumento,
+            usuario_id=current_user.id,
+        )
+        db.commit()
+        db.refresh(cheque)
+        return ChequeResponse.model_validate(cheque)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error recibiendo cheque de tercero: %s", exc)
+        raise HTTPException(status_code=500, detail="Error interno al registrar cheque de tercero.") from exc
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -132,6 +132,8 @@ class ChequeResponse(BaseModel):
     eventos: list[ChequeEventoResponse] = []
     banco_nombre: Optional[str] = None
     proveedor_nombre: Optional[str] = None
+    cuit_librador: Optional[str] = None
+    librador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,6 +159,8 @@ class ChequeListResponse(BaseModel):
     created_at: datetime
     banco_nombre: Optional[str] = None
     proveedor_nombre: Optional[str] = None
+    cuit_librador: Optional[str] = None
+    librador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -177,3 +181,43 @@ class ChequeraPaginated(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 2 — Cheques de terceros
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class RecibirChequeTercero(BaseModel):
+    """Payload para dar de alta un cheque de tercero a la cartera.
+
+    El cheque se crea en estado `en_cartera` y NO requiere chequera ni
+    banco_empresa propio.  Los campos banco_nombre y cuit_librador son
+    obligatorios porque identifican al librador externo del cheque.
+    """
+
+    banco_nombre: str = Field(min_length=1, max_length=120)
+    cuit_librador: str = Field(min_length=11, max_length=13, pattern=r"^\d{2}-?\d{8}-?\d{1}$")
+    librador_nombre: Optional[str] = Field(default=None, max_length=160)
+    numero: str = Field(min_length=1, max_length=40)
+    monto: Decimal = Field(gt=0)
+    moneda: str = Field(default="ARS", pattern="^(ARS|USD)$")
+    fecha_emision: date
+    fecha_pago: date
+    instrumento: str = Field(default="fisico", pattern="^(fisico|echeq)$")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "banco_nombre": "Banco Galicia",
+                "cuit_librador": "20304050607",
+                "librador_nombre": "Empresa ABC SRL",
+                "numero": "000000123456",
+                "monto": "50000.00",
+                "moneda": "ARS",
+                "fecha_emision": "2026-06-22",
+                "fecha_pago": "2026-07-22",
+                "instrumento": "fisico",
+            }
+        }
+    )

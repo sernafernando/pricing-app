@@ -35,10 +35,13 @@
 ---
 
 ## Slice 2 — Cheques de terceros (cartera + endoso)
-- [ ] Modal de carga de cheque de tercero → `en_cartera`.
-- [ ] Página de cartera (cheques `en_cartera`).
-- [ ] Endoso a proveedor en la OP (`en_cartera → entregado` + imputa CC).
-- [ ] Estados terceros + tests.
+- [ ] Modal de carga de cheque de tercero → `en_cartera`. (frontend — pendiente)
+- [ ] Página de cartera (cheques `en_cartera`). (frontend — pendiente)
+- [x] **FR-2.1** `recibir_cheque_tercero` — alta a cartera + validaciones + evento `recibido`. Tests RED→GREEN.
+- [x] **FR-2.2** Endoso a proveedor en la OP (`en_cartera → entregado` + imputa CC) via `cheque_id` en payload. Helper `_imputar_cheque_en_op` factorizado para propios y terceros. Tests.
+- [x] **FR-2.4** Estados terceros: `entregar / anular / rechazar` + transición inválida 422. Tests.
+- [x] Des-endoso al anular OP: cheque vuelve a `en_cartera` + imputación CC revertida. Fix pure-cheque path en `anular`. Tests.
+- [x] Endpoint `POST /cheques/tercero` con permiso + tests de integración (201, 403, validaciones, listado).
 
 ## Slice 3 — e-cheq
 - [ ] `instrumento=echeq` (propios + terceros), número del banco.
