@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
+import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard, CheckSquare } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import PanelNCsProveedor from './_shared/PanelNCsProveedor';
+import PanelCheques from './_shared/PanelCheques';
 import styles from './ModalOrdenPagoNueva.module.css';
 
 /**
@@ -259,6 +260,12 @@ export default function ModalOrdenPagoNueva({
   // F7 — NCs seleccionadas para aplicar al crear la OP.
   // Cada entrada: { nc_id, monto, pedido_id }.
   const [ncsAplicadas, setNcsAplicadas] = useState([]);
+
+  // T1.12 — Cheques emitidos como VALOR (igual que NC), descuentan del total a pagar.
+  // Cada entrada es el payload de un cheque: { banco_empresa_id, chequera_id, instrumento,
+  //   numero, monto, moneda, fecha_emision, fecha_pago, proveedor_id }
+  // La cobertura en moneda OP se deriva por TC al construir el payload (igual que NC cross-moneda).
+  const [chequesAplicados, setChequesAplicados] = useState([]);
 
   // PR4 — Dinero a cuenta como medio de pago.
   // dacsDisponibles: lista de { id, monto, moneda, saldo_disponible, estado, origen_op_numero }
@@ -520,8 +527,13 @@ export default function ModalOrdenPagoNueva({
     // T1.14 — al cambiar proveedor, las NCs seleccionadas del proveedor
     // anterior quedan huérfanas: el backend las rechazaría (403/422).
     // Reseteamos siempre que cambia proveedor_id.
+    if (campo === 'empresa_id') {
+      setChequesAplicados([]);
+    }
+
     if (campo === 'proveedor_id') {
       setNcsAplicadas([]);
+      setChequesAplicados([]);
       setDacSeleccionado(null);
       setDacMonto('');
       setItems([]);
@@ -567,8 +579,9 @@ export default function ModalOrdenPagoNueva({
         // Cuando el user corrige la moneda, limpiamos cualquier error
         // previo del TC para no quedar con feedback obsoleto.
         setTcError(null);
-        // T1.14 — NCs son moneda-específicas; al cambiar moneda se limpian.
+        // T1.14 — NCs y cheques son moneda-específicos; al cambiar moneda se limpian.
         setNcsAplicadas([]);
+        setChequesAplicados([]);
       }
       // Cualquier edición del campo tipo_cambio limpia el error inline.
       // ADR-6: items[].monto es NATIVO — el TC no lo toca; itemsDerivados recomputa solo.
@@ -722,6 +735,21 @@ export default function ModalOrdenPagoNueva({
   // Bug A fix — modoImputacion derived from NET OP-currency sum (sumaItems).
   const modoImputacion = derivarModoImputacion(sumaItems, form.monto_total, items.length > 0, pagoACuentaNum);
 
+  // T1.12 — sumaChequesOP: total de cobertura de cheques en moneda OP.
+  // Los cheques son valores como las NCs: descuentan del efectivo necesario.
+  // Cross-moneda: se convierte por TC de la OP (igual que NC cross-moneda).
+  const sumaChequesOP = chequesAplicados.reduce((acc, ch) => {
+    const montoNum = parseFloat(ch.monto) || 0;
+    if (ch.moneda === undefined || ch.moneda === form.moneda) {
+      return acc + montoNum;
+    }
+    if (!tcValido) return acc; // exclude cross-moneda cheque when TC is invalid — avoid misleading display
+    let convertido = montoNum;
+    if (form.moneda === 'ARS' && ch.moneda === 'USD') convertido = montoNum * tcNumLive;
+    else if (form.moneda === 'USD' && ch.moneda === 'ARS') convertido = montoNum / tcNumLive;
+    return acc + Math.round(convertido * 100) / 100;
+  }, 0);
+
   // sumaNCsOP / sumaDAC: kept for the informational summary row ONLY.
   // They are NOT balance terms in the net-item model — NCs and DAC are
   // already reflected in the net montoDerivado of each pedido item.
@@ -743,10 +771,12 @@ export default function ModalOrdenPagoNueva({
   // net: cash amount the user needs to pay.
   // In the net-item model, sumaItems already incorporates NC and DAC discounts.
   // pago_a_cuenta is additive (intentional surplus).
+  // T1.12: cheques are valores — they cover part of the total like NCs.
   const net = Math.round(sumaItems * 100) / 100;
 
-  // diferencia: how far monto_total is from net (excluding excedente).
-  const diferencia = Math.round((montoTotalNum - net - pagoACuentaNum) * 100) / 100;
+  // diferencia: how far monto_total is from (net + cheques coverage + excedente).
+  // Cheques descuentan del monto a pagar en efectivo (igual que NCs/DAC).
+  const diferencia = Math.round((montoTotalNum - net - pagoACuentaNum - sumaChequesOP) * 100) / 100;
 
 
   // Auto-sum monto_total = net (sum of NET item montos in OP currency).
@@ -857,6 +887,10 @@ export default function ModalOrdenPagoNueva({
             }
             return entry;
           }),
+      // T1.12 — cheques como VALOR: emitir en la misma TX y linkear a la OP.
+      // Backend espera: [{ banco_empresa_id, chequera_id, instrumento, numero,
+      //                     monto, moneda, fecha_emision, fecha_pago, proveedor_id }]
+      cheques: isEditMode ? [] : chequesAplicados,
     };
     if (pagarAhora) {
       const [fuenteTipo, fuenteIdStr] = (pagoForm.fuenteKey || '').split(':');
@@ -1419,6 +1453,16 @@ export default function ModalOrdenPagoNueva({
                     disabled={saving}
                   />
 
+                  {/* T1.12 — Cheques como VALOR (igual que NC: descuentan del total) */}
+                  <PanelCheques
+                    key={`cheques-${form.empresa_id}-${form.proveedor_id}-${form.moneda}`}
+                    proveedorId={form.proveedor_id ? Number(form.proveedor_id) : null}
+                    empresaId={form.empresa_id ? Number(form.empresa_id) : null}
+                    opMoneda={form.moneda}
+                    onChange={setChequesAplicados}
+                    disabled={saving}
+                  />
+
                   {/* PR4 — Dinero a cuenta */}
                   <div className={styles.dacCard}>
                     <div className={styles.dacCardHeader}>
@@ -1547,7 +1591,7 @@ export default function ModalOrdenPagoNueva({
                     <div className={styles.summaryRow}>
                       {/* Show gross pedidos when there are discounts; net when no discounts. */}
                       <span className={styles.summaryRowLabel}>
-                        Pedidos{(sumaNCsOP > 0 || dacMontoNum > 0) ? ' (bruto)' : ''}
+                        Pedidos{(sumaNCsOP > 0 || dacMontoNum > 0 || sumaChequesOP > 0) ? ' (bruto)' : ''}
                       </span>
                       <span className={styles.summaryRowAmount}>
                         {formatCurrency(sumaItemsRaw > 0 ? sumaItemsRaw : sumaItems, form.moneda)}
@@ -1561,6 +1605,14 @@ export default function ModalOrdenPagoNueva({
                         </span>
                       </div>
                     )}
+                    {sumaChequesOP > 0 && (
+                      <div className={styles.summaryRow}>
+                        <span className={styles.summaryRowLabel}>Cheques ({chequesAplicados.length})</span>
+                        <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
+                          -{formatCurrency(sumaChequesOP, form.moneda)}
+                        </span>
+                      </div>
+                    )}
                     {dacMontoNum > 0 && (
                       <div className={styles.summaryRow}>
                         <span className={styles.summaryRowLabel}>Dinero a cuenta</span>
@@ -1569,7 +1621,7 @@ export default function ModalOrdenPagoNueva({
                         </span>
                       </div>
                     )}
-                    {(sumaNCsOP > 0 || dacMontoNum > 0) && items.length > 0 && (
+                    {(sumaNCsOP > 0 || dacMontoNum > 0 || sumaChequesOP > 0) && items.length > 0 && (
                       <div className={`${styles.summaryRow} ${styles.summaryRowNet}`}>
                         <span className={styles.summaryRowLabel}>Pedidos (neto)</span>
                         <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
@@ -1719,7 +1771,7 @@ export default function ModalOrdenPagoNueva({
             <button
               type="submit"
               className={styles.btnSuccess}
-              disabled={saving || (pagarAhora && diferencia !== 0)}
+              disabled={saving || (pagarAhora && Math.abs(diferencia) >= 0.005)}
             >
               {saving
                 ? isEditMode

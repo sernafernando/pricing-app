@@ -10,6 +10,7 @@ import {
   Trash2,
   MinusCircle,
   Package,
+  CheckSquare,
 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import TabPedidosCompra from '../components/compras/TabPedidosCompra';
@@ -20,6 +21,7 @@ import TabReconciliacion from '../components/compras/TabReconciliacion';
 import TabSaleDocumentCatalog from '../components/compras/TabSaleDocumentCatalog';
 import TabPapelera from '../components/compras/TabPapelera';
 import TabRecepcionDeposito from '../components/compras/TabRecepcionDeposito';
+import TabCheques from '../components/compras/TabCheques';
 import WipeComprasButton from '../components/compras/WipeComprasButton';
 import styles from './AdministracionCompras.module.css';
 
@@ -73,6 +75,13 @@ const TABS = [
     icon: Package,
     permiso: 'deposito.recibir_mercaderia',
     Component: TabRecepcionDeposito,
+  },
+  {
+    id: 'cheques',
+    label: 'Cheques',
+    icon: CheckSquare,
+    permiso: 'tesoreria.gestionar_cheques',
+    Component: TabCheques,
   },
   {
     id: 'papelera',
