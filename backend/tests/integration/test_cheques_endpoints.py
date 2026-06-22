@@ -670,3 +670,107 @@ class TestChequesEndpoints200:
         assert r.status_code == 200
         data = r.json()
         assert data["estado"] == "anulado"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fix: banco_nombre / proveedor_nombre en listado
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestChequeListNombres:
+    """Verifica que banco_nombre y proveedor_nombre vengan poblados en GET /cheques."""
+
+    def test_listado_incluye_banco_nombre(self, client, auth_headers, db, chequera, active_user, _permiso_solo):
+        from app.services.cheques_service import emitir_cheque_propio
+
+        hoy = date.today()
+        emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="NOM-0001",
+            monto=Decimal("500.00"),
+            moneda="ARS",
+            fecha_emision=hoy,
+            fecha_pago=hoy,
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+
+        r = client.get(f"{BASE}/cheques", headers=auth_headers)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) >= 1
+        ch = next(i for i in items if i["numero"] == "NOM-0001")
+        assert ch["banco_nombre"] == "Banco Test"
+        assert ch["proveedor_nombre"] is None
+
+    def test_listado_incluye_proveedor_nombre(self, client, auth_headers, db, chequera, active_user, _permiso_solo):
+        from app.models.proveedor import Proveedor
+        from app.services.cheques_service import emitir_cheque_propio
+
+        prov = Proveedor(nombre="Proveedor Nombres Test", activo=True, origen="manual")
+        db.add(prov)
+        db.flush()
+
+        hoy = date.today()
+        emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="NOM-0002",
+            monto=Decimal("750.00"),
+            moneda="ARS",
+            fecha_emision=hoy,
+            fecha_pago=hoy,
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            proveedor_id=prov.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+
+        r = client.get(f"{BASE}/cheques", headers=auth_headers)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        ch = next(i for i in items if i["numero"] == "NOM-0002")
+        assert ch["banco_nombre"] == "Banco Test"
+        assert ch["proveedor_nombre"] == "Proveedor Nombres Test"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fix: validación chequera cross-banco en emitir_cheque_propio
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestEmitirChequera_CrossBanco:
+    """chequera_id que no pertenece a banco_empresa_id debe dar 422."""
+
+    def test_chequera_cross_banco_422(self, db, banco, chequera, active_user):
+        from app.models.banco_empresa import BancoEmpresa
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import emitir_cheque_propio
+
+        otro_banco = BancoEmpresa(banco="Otro Banco", alias="OB", activo=True)
+        db.add(otro_banco)
+        db.flush()
+
+        hoy = date.today()
+        with pytest.raises(HTTPException) as exc:
+            emitir_cheque_propio(
+                db,
+                tipo="propio",
+                instrumento="fisico",
+                numero="CROSS-0001",
+                monto=Decimal("100.00"),
+                moneda="ARS",
+                fecha_emision=hoy,
+                fecha_pago=hoy,
+                banco_empresa_id=otro_banco.id,
+                chequera_id=chequera.id,  # chequera pertenece a `banco`, no a `otro_banco`
+                usuario_id=active_user.id,
+            )
+        assert exc.value.status_code == 422

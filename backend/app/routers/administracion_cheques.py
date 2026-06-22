@@ -22,7 +22,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_permiso
 from app.core.database import get_db
@@ -31,6 +31,7 @@ from app.models.cheque import Cheque, Chequera
 from app.schemas.cheque import (
     AnularChequeRequest,
     ChequePaginated,
+    ChequeListResponse,
     ChequeraCreate,
     ChequeraPaginated,
     ChequeraResponse,
@@ -242,7 +243,7 @@ def listar_cheques(
         q = q.filter(Cheque.tipo == tipo)
     if estado:
         q = q.filter(Cheque.estado == estado)
-    if banco_empresa_id:
+    if banco_empresa_id is not None:
         q = q.filter(Cheque.banco_empresa_id == banco_empresa_id)
     if moneda:
         q = q.filter(Cheque.moneda == moneda)
@@ -251,13 +252,25 @@ def listar_cheques(
     if hasta:
         q = q.filter(Cheque.fecha_pago <= hasta)
     total = q.with_entities(func.count(Cheque.id)).scalar() or 0
-    items = (
-        q.options(joinedload(Cheque.chequera))
+    rows = (
+        q.options(
+            selectinload(Cheque.banco_empresa),
+            selectinload(Cheque.proveedor),
+        )
         .order_by(Cheque.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
+    items = [
+        ChequeListResponse.model_validate(ch).model_copy(
+            update={
+                "banco_nombre": ch.banco_empresa.banco if ch.banco_empresa else None,
+                "proveedor_nombre": ch.proveedor.nombre if ch.proveedor else None,
+            }
+        )
+        for ch in rows
+    ]
     return ChequePaginated(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -277,4 +290,11 @@ def obtener_cheque(
     cheque = db.query(Cheque).filter(Cheque.id == cheque_id).first()
     if cheque is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cheque {cheque_id} no encontrado.")
-    return cheque
+    # Poblar nombres derivados (igual que el listado) para que el detalle no los
+    # muestre en None.
+    return ChequeResponse.model_validate(cheque).model_copy(
+        update={
+            "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else None,
+            "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+        }
+    )

@@ -130,6 +130,8 @@ class ChequeResponse(BaseModel):
     motivo_anulacion: Optional[str]
     created_at: datetime
     eventos: list[ChequeEventoResponse] = []
+    banco_nombre: Optional[str] = None
+    proveedor_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -153,6 +155,8 @@ class ChequeListResponse(BaseModel):
     orden_pago_id: Optional[int]
     motivo_anulacion: Optional[str]
     created_at: datetime
+    banco_nombre: Optional[str] = None
+    proveedor_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

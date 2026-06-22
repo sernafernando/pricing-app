@@ -1550,7 +1550,7 @@ def ejecutar_pago(
                 )
 
             # Evento 'imputado_cc' en cheque_evento
-            cheques_service._registrar_evento(
+            cheques_service.registrar_evento(
                 session,
                 cheque_id=cheque_emitido.id,
                 tipo="imputado_cc",

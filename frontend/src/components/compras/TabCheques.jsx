@@ -295,7 +295,7 @@ export default function TabCheques() {
                 <tr key={ch.id} className={styles.tableRow}>
                   <td className={styles.tdMono}>{ch.numero}</td>
                   <td className={styles.tdSecondary}>{ch.tipo}</td>
-                  <td className={styles.tdSecondary}>{ch.banco_nombre ?? ch.banco_empresa_nombre ?? '—'}</td>
+                  <td className={styles.tdSecondary}>{ch.banco_nombre ?? '—'}</td>
                   <td>{ch.proveedor_nombre ?? '—'}</td>
                   <td className={`${styles.tdMono} ${styles.tdRight}`}>
                     {formatCurrency(ch.monto, ch.moneda)}

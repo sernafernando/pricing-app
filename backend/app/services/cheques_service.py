@@ -162,6 +162,21 @@ def emitir_cheque_propio(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Un cheque propio físico requiere chequera_id.",
         )
+    if chequera_id is not None:
+        chequera_obj = db.execute(select(Chequera).where(Chequera.id == chequera_id)).scalar_one_or_none()
+        if chequera_obj is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Chequera id={chequera_id} no encontrada.",
+            )
+        if chequera_obj.banco_empresa_id != banco_empresa_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"La chequera id={chequera_id} pertenece al banco_empresa_id="
+                    f"{chequera_obj.banco_empresa_id}, no al banco_empresa_id={banco_empresa_id} recibido."
+                ),
+            )
     if monto <= Decimal("0"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -454,7 +469,7 @@ def _revertir_cc_si_linkeado(
         )
 
 
-def _registrar_evento(
+def registrar_evento(
     db: Session,
     *,
     cheque_id: int,
@@ -462,7 +477,7 @@ def _registrar_evento(
     payload: Optional[dict],
     usuario_id: Optional[int],
 ) -> ChequeEvento:
-    """Inserta un evento append-only en cheque_evento."""
+    """Inserta un evento append-only en cheque_evento (API pública)."""
     evento = ChequeEvento(
         cheque_id=cheque_id,
         tipo=tipo,
@@ -471,3 +486,7 @@ def _registrar_evento(
     )
     db.add(evento)
     return evento
+
+
+# Alias interno para compatibilidad con llamadas dentro de este módulo.
+_registrar_evento = registrar_evento

@@ -115,6 +115,7 @@ class Cheque(Base):
     # Relationships
     chequera = relationship("Chequera", back_populates="cheques")
     banco_empresa = relationship("BancoEmpresa", foreign_keys=[banco_empresa_id])
+    proveedor = relationship("Proveedor", foreign_keys=[proveedor_id])
     eventos = relationship("ChequeEvento", back_populates="cheque", order_by="ChequeEvento.id")
 
     __table_args__ = (

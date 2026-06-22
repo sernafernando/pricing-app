@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard, CheckSquare } from 'lucide-react';
+import { X, AlertTriangle, Check, Zap, Wallet, FileText, CreditCard } from 'lucide-react';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import useComprasOP from '../../hooks/useComprasOP';
@@ -464,12 +464,38 @@ export default function ModalOrdenPagoNueva({
     }, 0);
   };
 
+  // chequeDeductForItem: mirrors ncDeductForItem exactly.
+  // Returns the sum of cheque amounts that apply to this pedido item, in the cheque's
+  // own currency (assumed same as the pedido's native currency — same assumption as NC).
+  // Cross-currency cheque vs pedido is an unsupported edge case (same as NC).
+  // Inference rule: if cheque.pedido_id is null AND isSinglePedido, it applies to the
+  // single pedido (backend also infers this). Multi-pedido cheques require explicit
+  // pedido_id — not yet supported in the UI (same scope as NC).
+  //
+  // Invariant: netNativeForItem(item) + chequeDeductForItem(item.id) ≤ raw_monto.
+  // When cheque covers 100% → netNative = 0, backend receives item(0) + cheque(full) = obligation.
+  // When cheque covers partial → netNative = remainder, item(remainder) + cheque(partial) = obligation.
+  const chequeDeductForItem = (itemId) => {
+    const id = String(itemId);
+    return chequesAplicados.reduce((acc, ch) => {
+      const chPedidoId = ch.pedido_id != null ? String(ch.pedido_id) : null;
+      // Cheque applies if explicitly targeting this pedido, or if null + single pedido (inferred).
+      if (chPedidoId === id || (chPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
+        return acc + (parseFloat(ch.monto) || 0);
+      }
+      return acc;
+    }, 0);
+  };
+
   const dacTargetItemId = (() => {
     const first = items.find((it) => it.tipo === 'pedido_compra' && it.id);
     return first ? String(first.id) : null;
   })();
 
-  // netNativeForItem: raw native monto minus NC and DAC credits for this pedido.
+  // netNativeForItem: raw native monto minus NC, DAC, and cheque credits for this pedido.
+  // Cheques mirror NCs: they are deducted from the item so that net + cheque = obligation.
+  // This ensures the backend receives item(net) + cheque(pedido_id) that together impute
+  // the full obligation, bringing pedido saldo to zero.
   const netNativeForItem = (item) => {
     if (item.tipo !== 'pedido_compra' || !item.id) return parseFloat(item.monto) || 0;
     const raw = parseFloat(item.monto) || 0;
@@ -477,7 +503,8 @@ export default function ModalOrdenPagoNueva({
     const dacDeduct = dacSeleccionado && dacMontoNum > 0 && String(item.id) === dacTargetItemId
       ? dacMontoNum
       : 0;
-    return Math.max(0, raw - ncDeduct - dacDeduct);
+    const chequeDeduct = chequeDeductForItem(item.id);
+    return Math.max(0, raw - ncDeduct - dacDeduct - chequeDeduct);
   };
 
   // montoEnMonedaOPNet: same as montoEnMonedaOP but uses netNativeForItem.
@@ -513,7 +540,7 @@ export default function ModalOrdenPagoNueva({
       montoDerivadoRaw: montoEnMonedaOP(it),
     })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, form.moneda, form.tipo_cambio, ncsAplicadas, dacSeleccionado, dacMontoNum]
+    [items, form.moneda, form.tipo_cambio, ncsAplicadas, dacSeleccionado, dacMontoNum, chequesAplicados]
   );
 
   // IDs de pedidos ya agregados como items (para evitar duplicar al elegir del dropdown).
@@ -844,14 +871,25 @@ export default function ModalOrdenPagoNueva({
       items: [
         // ADR-6: el backend espera monto en moneda OP. Derivamos en el momento
         // del submit desde el monto nativo + TC actual (nunca desde el nativo mutado).
-        ...itemsDerivados.map((it) => ({
-          tipo: it.tipo,
-          id: it.id ? Number(it.id) : null,
-          // Redondeo a 2 decimales: la conversión nativo×TC puede dejar ruido de
-          // float (e.g. 6311180.399999999) que rompía el balance exacto del backend.
-          monto: Math.round((it.montoDerivado ?? parseFloat(it.monto)) * 100) / 100,
-          numero_factura: it.numero_factura || null,
-        })),
+        // Filtramos los ítems totalmente cubiertos por NC/cheque/DAC (neto ≤ 0):
+        // su saldo lo cancelan esas imputaciones (NC/cheque llevan pedido_id), así
+        // que el ítem de pago no aporta nada. Ej: cheque cubre 100% → items=[] +
+        // cheque con pedido_id (lo que el backend espera). No filtramos los de TC
+        // inválido (montoDerivado null) — esos los frena el balance, no este map.
+        ...itemsDerivados
+          .filter((it) => {
+            if (it.tipo !== 'pedido_compra' && it.tipo !== 'factura_erp') return true;
+            const m = it.montoDerivado ?? parseFloat(it.monto);
+            return !(Number.isFinite(m) && m <= 0.005);
+          })
+          .map((it) => ({
+            tipo: it.tipo,
+            id: it.id ? Number(it.id) : null,
+            // Redondeo a 2 decimales: la conversión nativo×TC puede dejar ruido de
+            // float (e.g. 6311180.399999999) que rompía el balance exacto del backend.
+            monto: Math.round((it.montoDerivado ?? parseFloat(it.monto)) * 100) / 100,
+            numero_factura: it.numero_factura || null,
+          })),
         // PR3: pago_a_cuenta como item explícito cuando el usuario lo indica
         ...(pagoACuentaNum > 0
           ? [{ tipo: 'pago_a_cuenta', id: null, monto: pagoACuentaNum }]
@@ -888,9 +926,19 @@ export default function ModalOrdenPagoNueva({
             return entry;
           }),
       // T1.12 — cheques como VALOR: emitir en la misma TX y linkear a la OP.
-      // Backend espera: [{ banco_empresa_id, chequera_id, instrumento, numero,
-      //                     monto, moneda, fecha_emision, fecha_pago, proveedor_id }]
-      cheques: isEditMode ? [] : chequesAplicados,
+      // pedido_id mirrors NC behavior: explicit if set, inferred from single-pedido context,
+      // null if OP has no pedidos (a-cuenta). Backend uses pedido_id to impute the cheque
+      // against the pedido obligation, bringing its saldo to zero (same as NC).
+      cheques: isEditMode
+        ? []
+        : chequesAplicados.map((ch) => {
+            const inferredPedidoId = ch.pedido_id != null
+              ? ch.pedido_id
+              : isSinglePedido
+                ? Number(pedidoItemIds[0])
+                : null;
+            return { ...ch, pedido_id: inferredPedidoId };
+          }),
     };
     if (pagarAhora) {
       const [fuenteTipo, fuenteIdStr] = (pagoForm.fuenteKey || '').split(':');
