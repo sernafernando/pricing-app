@@ -139,6 +139,68 @@ export default function useCheques() {
     [wrap],
   );
 
+  // ── Slice 4 — Conciliación bancaria ──────────────────────────────────────
+
+  /**
+   * Debitar cheque propio (emitido|diferido → debitado).
+   * Genera egreso bancario en el banco del cheque.
+   * fecha: opcional (por defecto hoy en el backend).
+   */
+  const debitar = useCallback(
+    (id, fecha = null) =>
+      wrap(async () => {
+        const body = fecha ? { fecha } : {};
+        const { data } = await api.post(`/administracion/cheques/cheques/${id}/debitar`, body);
+        return data;
+      }),
+    [wrap],
+  );
+
+  /**
+   * Depositar cheque de tercero (en_cartera|aceptado → depositado).
+   * banco_empresa_id: cuenta bancaria destino del depósito.
+   * fecha: opcional (por defecto hoy en el backend).
+   * NO genera movimiento bancario todavía.
+   */
+  const depositar = useCallback(
+    (id, bancoEmpresaId, fecha = null) =>
+      wrap(async () => {
+        const body = { banco_empresa_id: bancoEmpresaId };
+        if (fecha) body.fecha = fecha;
+        const { data } = await api.post(`/administracion/cheques/cheques/${id}/depositar`, body);
+        return data;
+      }),
+    [wrap],
+  );
+
+  /**
+   * Acreditar cheque (depositado|en_custodia → acreditado).
+   * Genera ingreso bancario en el banco destino.
+   * fecha: opcional (por defecto hoy en el backend).
+   */
+  const acreditar = useCallback(
+    (id, fecha = null) =>
+      wrap(async () => {
+        const body = fecha ? { fecha } : {};
+        const { data } = await api.post(`/administracion/cheques/cheques/${id}/acreditar`, body);
+        return data;
+      }),
+    [wrap],
+  );
+
+  /**
+   * Obtener reporte de cheques agrupado por segmento (FR-4.4).
+   * Retorna { en_cartera, a_debitar, vencidos }.
+   */
+  const obtenerReporte = useCallback(
+    () =>
+      wrap(async () => {
+        const { data } = await api.get('/administracion/cheques/cheques/reporte');
+        return data;
+      }),
+    [wrap],
+  );
+
   return {
     loading,
     error,
@@ -150,5 +212,10 @@ export default function useCheques() {
     anular,
     obtener,
     transicionarEcheq,
+    // Slice 4
+    debitar,
+    depositar,
+    acreditar,
+    obtenerReporte,
   };
 }

@@ -548,3 +548,43 @@
   background: color-mix(in srgb, var(--cf-text-tertiary) 12%, transparent);
   color: var(--cf-text-tertiary);
 }
+
+/* ── Slice 4 — Reporte ────────────────────────────────────── */
+.reporteContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+  padding-top: var(--spacing-sm);
+}
+
+.reporteSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.reporteTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.reporteTitleVencidos {
+  color: var(--error);
+}
+
+.reporteEmpty {
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  margin: 0;
+}
+
+.rowVencido {
+  background: color-mix(in srgb, var(--error) 4%, transparent);
+}

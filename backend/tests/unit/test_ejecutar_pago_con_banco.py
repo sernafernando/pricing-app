@@ -407,11 +407,13 @@ class TestAnularOpPagadaConBanco:
 
             # Sequential execute calls:
             # 1) SELECT FOR UPDATE → op
-            # 2) imputaciones query → empty
-            # 3) OrdenPagoCheque query (Slice 2 des-endoso terceros) → empty
-            # 4) OrdenPagoCheque query (Fix 1 revertir propios) → empty
+            # 2) _verificar_cheques_bloqueantes_para_anulacion → empty (no cheques cobrados)
+            # 3) imputaciones query → empty
+            # 4) OrdenPagoCheque query (Slice 2 des-endoso terceros) → empty
+            # 5) OrdenPagoCheque query (Fix 1 revertir propios) → empty
             session.execute.side_effect = [
                 _mock_execute_scalar(op),
+                _mock_execute_scalars([]),  # verificar bloqueantes
                 _mock_execute_scalars([]),
                 _mock_execute_scalars([]),  # no third-party cheques to des-endorse
                 _mock_execute_scalars([]),  # no own cheques to revert
@@ -469,6 +471,7 @@ class TestAnularOpPagadaConBanco:
             session = MagicMock()
             session.execute.side_effect = [
                 _mock_execute_scalar(op),
+                _mock_execute_scalars([]),  # verificar bloqueantes
                 _mock_execute_scalars([]),
                 _mock_execute_scalars([]),  # no third-party cheques to des-endorse (Slice 2)
                 _mock_execute_scalars([]),  # no own cheques to revert (Fix 1)

@@ -2130,6 +2130,44 @@ def cancelar_pendiente(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _verificar_cheques_bloqueantes_para_anulacion(
+    session: Session,
+    *,
+    op: OrdenPago,
+) -> None:
+    """Verifica que ningún cheque linkeado a la OP esté en estado terminal cobrado.
+
+    Estados terminales que BLOQUEAN la anulación (el banco ya cobró/acreditó):
+      - 'debitado': cheque propio ya debitado por el banco (egreso real).
+      - 'acreditado': cheque de tercero ya acreditado en cuenta (ingreso real).
+
+    Si alguno de estos estados se encuentra, levanta HTTPException 409 antes de
+    mutar cualquier dato (fail-clean: la OP y el cheque quedan intactos).
+
+    Estados que NO bloquean (ya terminales pero sin cobro bancario):
+      - 'rechazado', 'anulado': el cheque no circuló / fue devuelto.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+
+    _ESTADOS_COBRADOS = {"debitado", "acreditado"}
+
+    links = list(session.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.orden_pago_id == op.id)).scalars().all())
+    for link in links:
+        cheque = session.get(ChequeModel, link.cheque_id)
+        if cheque is None:
+            continue
+        if cheque.estado in _ESTADOS_COBRADOS:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"No se puede anular la OP {op.numero}: el cheque #{cheque.numero} "
+                    f"ya fue {cheque.estado} (cobrado por el banco). "
+                    "Requiere un ajuste manual."
+                ),
+            )
+
+
 def _des_endosar_cheques_tercero_de_op(
     session: Session,
     *,
@@ -2157,9 +2195,9 @@ def _des_endosar_cheques_tercero_de_op(
         cheque = session.get(ChequeModel, link.cheque_id)
         if cheque is None or cheque.tipo != "tercero":
             continue
+        # 'debitado'/'acreditado' ya fueron bloqueados en _verificar_cheques_bloqueantes_para_anulacion.
+        # Si llegamos aquí con un estado terminal no-cobrado (rechazado/anulado), skip sin re-transicionar.
         if cheque.estado != "entregado":
-            # El cheque ya fue anulado/rechazado manualmente antes de la OP.
-            # No se puede des-endosar — ignorar (la CC ya fue revertida).
             logger.warning(
                 "⚠️ Cheque tercero id=%s en OP id=%s tiene estado '%s' (no 'entregado') — skip des-endoso.",
                 cheque.id,
@@ -2243,15 +2281,24 @@ def _revertir_cheques_propios_de_op(
         if cheque is None or cheque.tipo != "propio":
             continue
 
-        if cheque.estado in ("anulado",):
-            # Ya fue anulado manualmente antes de la OP. La CC ya fue revertida.
+        # 'debitado'/'acreditado' ya fueron bloqueados antes de llegar aquí.
+        # 'rechazado'/'anulado' son terminales no-cobrados: revertir CC si aplica pero
+        # NO llamar transicionar_cheque (ya está en estado terminal).
+        if cheque.estado in ("anulado", "rechazado"):
             logger.warning(
-                "⚠️ Cheque propio id=%s en OP id=%s ya está en estado '%s' — skip.",
+                "⚠️ Cheque propio id=%s en OP id=%s ya está en estado '%s' — skip transición, revertir CC.",
                 cheque.id,
                 op.id,
                 cheque.estado,
             )
-            # Limpiar el link de todas formas para no dejar colgado.
+            cheques_service._revertir_cc_si_linkeado(
+                session,
+                cheque=cheque,
+                usuario_id=user_id,
+                empresa_id=op.empresa_id,
+            )
+            cheque.proveedor_id = None
+            cheque.orden_pago_id = None
             db_link = session.get(OrdenPagoCheque, link.id)
             if db_link is not None:
                 session.delete(db_link)
@@ -2350,6 +2397,10 @@ def anular(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"OP {op.numero} en estado '{op.estado}' — solo se pueden anular OPs 'pagadas'.",
         )
+
+    # Bloqueo temprano: cheques ya cobrados por el banco → la OP se pagó de verdad.
+    # Se chequea ANTES de mutar nada para fallar limpio.
+    _verificar_cheques_bloqueantes_para_anulacion(session, op=op)
 
     # Paso 2: ingreso de compensación — caja o banco según la fuente original.
     # F7 (PR#2b): si op.banco_id está seteado → reverso va al banco (Risk #9).

@@ -11,7 +11,12 @@ import {
   CheckCircle,
   Archive,
   XCircle,
+  CreditCard,
+  Landmark,
+  ArrowDownCircle,
+  BarChart3,
 } from 'lucide-react';
+import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCheques from '../../hooks/useCheques';
 import ModalCheque from './ModalCheque';
@@ -38,6 +43,7 @@ const ESTADOS_TERCERO = [
 const VISTAS = {
   PROPIOS: 'propios',
   CARTERA: 'cartera',
+  REPORTE: 'reporte',
 };
 
 
@@ -84,7 +90,11 @@ function EstadoBadgeCheque({ estado }) {
 
 export default function TabCheques() {
   const { tienePermiso } = usePermisos();
-  const { listar, anular: anularCheque, transicionarEcheq, loading, error } = useCheques();
+  const {
+    listar, anular: anularCheque, transicionarEcheq,
+    debitar, depositar, acreditar, obtenerReporte,
+    loading, error,
+  } = useCheques();
 
   // ── Vista activa ──
   const [vista, setVista] = useState(VISTAS.PROPIOS);
@@ -122,6 +132,28 @@ export default function TabCheques() {
   const [motivoEcheq, setMotivoEcheq] = useState('');
   const [errorEcheq, setErrorEcheq] = useState(null);
   const [savingEcheq, setSavingEcheq] = useState(false);
+
+  // ── Slice 4 — Conciliación bancaria ──
+  // Modal debitar: { cheque }
+  const [debitando, setDebitando] = useState(null);
+  const [savingDebitar, setSavingDebitar] = useState(false);
+  const [errorDebitar, setErrorDebitar] = useState(null);
+
+  // Modal depositar: { cheque } + selección de banco destino
+  const [depositando, setDepositando] = useState(null);
+  const [bancosDisponibles, setBancosDisponibles] = useState([]);
+  const [bancoDepositoId, setBancoDepositoId] = useState('');
+  const [savingDepositar, setSavingDepositar] = useState(false);
+  const [errorDepositar, setErrorDepositar] = useState(null);
+
+  // Modal acreditar: { cheque }
+  const [acreditando, setAcreditando] = useState(null);
+  const [savingAcreditar, setSavingAcreditar] = useState(false);
+  const [errorAcreditar, setErrorAcreditar] = useState(null);
+
+  // Reporte FR-4.4
+  const [reporte, setReporte] = useState(null);
+  const [loadingReporte, setLoadingReporte] = useState(false);
 
   const fetchCheques = useCallback(async () => {
     if (vista === VISTAS.CARTERA) {
@@ -167,8 +199,29 @@ export default function TabCheques() {
   }, [listar, page, vista, filtroEstado, filtroTipo, filtroMoneda, filtroDesde, filtroHasta, filtroEstadoCartera, filtroMonedaCartera]);
 
   useEffect(() => {
-    fetchCheques();
-  }, [fetchCheques]);
+    if (vista !== VISTAS.REPORTE) fetchCheques();
+  }, [fetchCheques, vista]);
+
+  // Fetch reporte cuando cambia a vista REPORTE
+  useEffect(() => {
+    if (vista !== VISTAS.REPORTE) return;
+    setLoadingReporte(true);
+    obtenerReporte()
+      .then((data) => setReporte(data))
+      .catch(() => setReporte(null))
+      .finally(() => setLoadingReporte(false));
+  }, [vista, obtenerReporte]);
+
+  // Cargar bancos disponibles al abrir modal depositar
+  useEffect(() => {
+    if (!depositando) return;
+    api.get('/administracion/bancos?solo_activos=true')
+      .then(({ data }) => {
+        const items = Array.isArray(data) ? data : (data.items ?? []);
+        setBancosDisponibles(items);
+      })
+      .catch(() => setBancosDisponibles([]));
+  }, [depositando]);
 
   const handleCambiarVista = (v) => {
     setVista(v);
@@ -249,6 +302,62 @@ export default function TabCheques() {
     }
   };
 
+  // ── Slice 4 handlers ──
+  const handleDebitar = async () => {
+    if (!debitando) return;
+    setSavingDebitar(true);
+    setErrorDebitar(null);
+    try {
+      await debitar(debitando.id);
+      setDebitando(null);
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg = (typeof d?.detail === 'string' && d.detail) || err.message || 'Error al debitar.';
+      setErrorDebitar(typeof msg === 'string' ? msg : 'Error al debitar.');
+    } finally {
+      setSavingDebitar(false);
+    }
+  };
+
+  const handleDepositar = async () => {
+    if (!depositando || !bancoDepositoId) {
+      setErrorDepositar('Seleccioná un banco destino.');
+      return;
+    }
+    setSavingDepositar(true);
+    setErrorDepositar(null);
+    try {
+      await depositar(depositando.id, Number(bancoDepositoId));
+      setDepositando(null);
+      setBancoDepositoId('');
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg = (typeof d?.detail === 'string' && d.detail) || err.message || 'Error al depositar.';
+      setErrorDepositar(typeof msg === 'string' ? msg : 'Error al depositar.');
+    } finally {
+      setSavingDepositar(false);
+    }
+  };
+
+  const handleAcreditar = async () => {
+    if (!acreditando) return;
+    setSavingAcreditar(true);
+    setErrorAcreditar(null);
+    try {
+      await acreditar(acreditando.id);
+      setAcreditando(null);
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg = (typeof d?.detail === 'string' && d.detail) || err.message || 'Error al acreditar.';
+      setErrorAcreditar(typeof msg === 'string' ? msg : 'Error al acreditar.');
+    } finally {
+      setSavingAcreditar(false);
+    }
+  };
+
   const LABEL_ACCION_ECHEQ = {
     aceptar: 'Aceptar e-cheq',
     poner_en_custodia: 'Poner en custodia',
@@ -275,6 +384,14 @@ export default function TabCheques() {
             onClick={() => handleCambiarVista(VISTAS.CARTERA)}
           >
             Cartera de terceros
+          </button>
+          <button
+            type="button"
+            className={`${styles.segBtn} ${vista === VISTAS.REPORTE ? styles.segBtnActive : ''}`}
+            onClick={() => handleCambiarVista(VISTAS.REPORTE)}
+          >
+            <BarChart3 size={13} />
+            Reporte
           </button>
         </div>
 
@@ -484,6 +601,30 @@ export default function TabCheques() {
                     </td>
                     {puedeGestionar && (
                       <td className={styles.tdRight}>
+                        {/* Depositar: tercero en_cartera|aceptado (Slice 4) */}
+                        {['en_cartera', 'aceptado'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => { setErrorDepositar(null); setBancoDepositoId(''); setDepositando(ch); }}
+                            aria-label={`Depositar cheque ${ch.numero}`}
+                          >
+                            <Landmark size={12} />
+                            Depositar
+                          </button>
+                        )}
+                        {/* Acreditar: depositado o en_custodia (Slice 4) */}
+                        {['depositado', 'en_custodia'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => { setErrorAcreditar(null); setAcreditando(ch); }}
+                            aria-label={`Acreditar cheque ${ch.numero}`}
+                          >
+                            <ArrowDownCircle size={12} />
+                            Acreditar
+                          </button>
+                        )}
                         {/* e-cheq acciones (Slice 3) — solo si instrumento='echeq' */}
                         {ch.instrumento === 'echeq' && ch.estado === 'en_cartera' && (
                           <button
@@ -543,6 +684,18 @@ export default function TabCheques() {
                     </td>
                     {puedeGestionar && (
                       <td className={`${styles.tdRight} ${styles.actionsCell}`}>
+                        {/* Debitar: propio emitido/diferido (Slice 4) */}
+                        {ch.tipo === 'propio' && ['emitido', 'diferido'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => { setErrorDebitar(null); setDebitando(ch); }}
+                            aria-label={`Debitar cheque ${ch.numero}`}
+                          >
+                            <CreditCard size={12} />
+                            Debitar
+                          </button>
+                        )}
                         {/* Anular: propios emitido/diferido */}
                         {['emitido', 'diferido'].includes(ch.estado) && (
                           <button
@@ -605,6 +758,140 @@ export default function TabCheques() {
           >
             <ChevronRight size={14} />
           </button>
+        </div>
+      )}
+
+      {/* Vista Reporte (FR-4.4) */}
+      {vista === VISTAS.REPORTE && (
+        <div className={styles.reporteContainer}>
+          {loadingReporte ? (
+            <div className={styles.loadingBlock}>
+              <Loader2 size={20} className={styles.spin} />
+              <span>Cargando reporte...</span>
+            </div>
+          ) : !reporte ? (
+            <div className={styles.emptyState}>
+              <Inbox size={32} className={styles.emptyIcon} />
+              <p>No hay datos de reporte disponibles.</p>
+            </div>
+          ) : (
+            <>
+              <section className={styles.reporteSection}>
+                <h4 className={styles.reporteTitle}>
+                  <Inbox size={16} />
+                  En cartera ({reporte.en_cartera?.length ?? 0})
+                </h4>
+                {reporte.en_cartera?.length === 0 ? (
+                  <p className={styles.reporteEmpty}>Sin cheques en cartera.</p>
+                ) : (
+                  <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Número</th>
+                          <th>Banco</th>
+                          <th>CUIT librador</th>
+                          <th className={styles.thRight}>Monto</th>
+                          <th>Mon.</th>
+                          <th>Pago</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reporte.en_cartera.map((ch) => (
+                          <tr key={ch.id} className={styles.tableRow}>
+                            <td className={styles.tdMono}>{ch.numero}</td>
+                            <td>{ch.banco_nombre ?? '—'}</td>
+                            <td className={styles.tdMono}>{ch.cuit_librador ?? '—'}</td>
+                            <td className={`${styles.tdMono} ${styles.tdRight}`}>{formatCurrency(ch.monto, ch.moneda)}</td>
+                            <td className={styles.tdSecondary}>{ch.moneda}</td>
+                            <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
+                            <td><EstadoBadgeCheque estado={ch.estado} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section className={styles.reporteSection}>
+                <h4 className={styles.reporteTitle}>
+                  <CreditCard size={16} />
+                  A debitar ({reporte.a_debitar?.length ?? 0})
+                </h4>
+                {reporte.a_debitar?.length === 0 ? (
+                  <p className={styles.reporteEmpty}>Sin cheques a debitar.</p>
+                ) : (
+                  <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Número</th>
+                          <th>Banco</th>
+                          <th className={styles.thRight}>Monto</th>
+                          <th>Mon.</th>
+                          <th>Fecha pago</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reporte.a_debitar.map((ch) => (
+                          <tr key={ch.id} className={styles.tableRow}>
+                            <td className={styles.tdMono}>{ch.numero}</td>
+                            <td>{ch.banco_nombre ?? '—'}</td>
+                            <td className={`${styles.tdMono} ${styles.tdRight}`}>{formatCurrency(ch.monto, ch.moneda)}</td>
+                            <td className={styles.tdSecondary}>{ch.moneda}</td>
+                            <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
+                            <td><EstadoBadgeCheque estado={ch.estado} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section className={styles.reporteSection}>
+                <h4 className={`${styles.reporteTitle} ${styles.reporteTitleVencidos}`}>
+                  <XCircle size={16} />
+                  Vencidos sin conciliar ({reporte.vencidos?.length ?? 0})
+                </h4>
+                {reporte.vencidos?.length === 0 ? (
+                  <p className={styles.reporteEmpty}>Sin cheques vencidos.</p>
+                ) : (
+                  <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Número</th>
+                          <th>Tipo</th>
+                          <th>Banco</th>
+                          <th className={styles.thRight}>Monto</th>
+                          <th>Mon.</th>
+                          <th>Fecha pago</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reporte.vencidos.map((ch) => (
+                          <tr key={ch.id} className={`${styles.tableRow} ${styles.rowVencido}`}>
+                            <td className={styles.tdMono}>{ch.numero}</td>
+                            <td className={styles.tdSecondary}>{ch.tipo}</td>
+                            <td>{ch.banco_nombre ?? '—'}</td>
+                            <td className={`${styles.tdMono} ${styles.tdRight}`}>{formatCurrency(ch.monto, ch.moneda)}</td>
+                            <td className={styles.tdSecondary}>{ch.moneda}</td>
+                            <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
+                            <td><EstadoBadgeCheque estado={ch.estado} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       )}
 
@@ -776,6 +1063,125 @@ export default function TabCheques() {
                     Confirmar
                   </>
                 )}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Modal debitar (Slice 4) */}
+      {debitando && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalAnular} role="dialog" aria-modal="true" aria-labelledby="modal-debitar-title">
+            <header className={styles.modalAnularHeader}>
+              <h3 id="modal-debitar-title" className={styles.modalAnularTitle}>
+                Debitar cheque {debitando.numero}
+              </h3>
+              <button type="button" className={styles.btnClose} onClick={() => setDebitando(null)} aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </header>
+            <div className={styles.modalAnularBody}>
+              <p className={styles.modalAnularDesc}>
+                Se registrará un débito bancario de <strong>{formatCurrency(debitando.monto, debitando.moneda)}</strong> en
+                el banco {debitando.banco_nombre ?? `id=${debitando.banco_empresa_id}`}.
+                Esta acción es irreversible.
+              </p>
+              {errorDebitar && <div className={styles.errorBanner} role="alert">{errorDebitar}</div>}
+            </div>
+            <footer className={styles.modalAnularFooter}>
+              <button type="button" className={styles.btnCancel} onClick={() => setDebitando(null)} disabled={savingDebitar}>
+                Cancelar
+              </button>
+              <button type="button" className={styles.btnPrimary} onClick={handleDebitar} disabled={savingDebitar}>
+                {savingDebitar ? <><Loader2 size={13} className={styles.spin} /> Debitando...</> : <><CreditCard size={13} /> Confirmar débito</>}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Modal depositar (Slice 4) */}
+      {depositando && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalAnular} role="dialog" aria-modal="true" aria-labelledby="modal-depositar-title">
+            <header className={styles.modalAnularHeader}>
+              <h3 id="modal-depositar-title" className={styles.modalAnularTitle}>
+                Depositar cheque {depositando.numero}
+              </h3>
+              <button type="button" className={styles.btnClose} onClick={() => setDepositando(null)} aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </header>
+            <div className={styles.modalAnularBody}>
+              <p className={styles.modalAnularDesc}>
+                Seleccioná la cuenta bancaria donde depositás el cheque de <strong>{formatCurrency(depositando.monto, depositando.moneda)}</strong>.
+                No genera movimiento bancario hasta acreditar.
+              </p>
+              {errorDepositar && <div className={styles.errorBanner} role="alert">{errorDepositar}</div>}
+              <label className={styles.fieldLabel} htmlFor="banco-deposito-select">
+                Banco destino
+              </label>
+              <select
+                id="banco-deposito-select"
+                className={styles.filterSelect}
+                value={bancoDepositoId}
+                onChange={(e) => setBancoDepositoId(e.target.value)}
+                disabled={savingDepositar}
+                aria-label="Banco destino"
+              >
+                <option value="">Seleccioná un banco...</option>
+                {bancosDisponibles
+                  .filter((b) => b.moneda === depositando.moneda)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.banco} ({b.moneda})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <footer className={styles.modalAnularFooter}>
+              <button type="button" className={styles.btnCancel} onClick={() => setDepositando(null)} disabled={savingDepositar}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleDepositar}
+                disabled={savingDepositar || !bancoDepositoId}
+              >
+                {savingDepositar ? <><Loader2 size={13} className={styles.spin} /> Depositando...</> : <><Landmark size={13} /> Confirmar depósito</>}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Modal acreditar (Slice 4) */}
+      {acreditando && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalAnular} role="dialog" aria-modal="true" aria-labelledby="modal-acreditar-title">
+            <header className={styles.modalAnularHeader}>
+              <h3 id="modal-acreditar-title" className={styles.modalAnularTitle}>
+                Acreditar cheque {acreditando.numero}
+              </h3>
+              <button type="button" className={styles.btnClose} onClick={() => setAcreditando(null)} aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </header>
+            <div className={styles.modalAnularBody}>
+              <p className={styles.modalAnularDesc}>
+                Se registrará un ingreso bancario de <strong>{formatCurrency(acreditando.monto, acreditando.moneda)}</strong> en
+                la cuenta destino. Esta acción es irreversible.
+              </p>
+              {errorAcreditar && <div className={styles.errorBanner} role="alert">{errorAcreditar}</div>}
+            </div>
+            <footer className={styles.modalAnularFooter}>
+              <button type="button" className={styles.btnCancel} onClick={() => setAcreditando(null)} disabled={savingAcreditar}>
+                Cancelar
+              </button>
+              <button type="button" className={styles.btnPrimary} onClick={handleAcreditar} disabled={savingAcreditar}>
+                {savingAcreditar ? <><Loader2 size={13} className={styles.spin} /> Acreditando...</> : <><ArrowDownCircle size={13} /> Confirmar acreditación</>}
               </button>
             </footer>
           </div>

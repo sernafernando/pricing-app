@@ -528,9 +528,10 @@ class TestMaquinaEstados:
         from app.services.cheques_service import transicionar_cheque
 
         cheque = self._emitir(db, chequera, active_user, numero="20000003")
-        # 'debitar' no está implementado en Slice 1 para el estado emitido (se va a 422)
+        # 'rechazar' desde 'emitido' está implementado pero 'depositar' es sólo para terceros
+        # Usamos 'depositar' que es una acción de tercero y no aplica a propios.
         with pytest.raises(HTTPException) as exc:
-            transicionar_cheque(db, cheque, "debitar", usuario_id=active_user.id)
+            transicionar_cheque(db, cheque, "depositar", usuario_id=active_user.id)
         assert exc.value.status_code == 422
 
     def test_anular_cheque_ya_anulado_422(self, db, chequera, active_user):
