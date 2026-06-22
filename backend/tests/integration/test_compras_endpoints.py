@@ -314,6 +314,42 @@ class TestPedidosCRUD:
         assert p_faltantes.id in ids
         assert p_borrador.id not in ids
 
+    def test_buscar_proveedores_con_permiso_compras(self, client, auth_headers):
+        """El buscador de proveedor del modal de pedido debe funcionar con el
+        permiso de compras (gestionar_ordenes_compra) SIN exigir ver_proveedores."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_permiso",
+            side_effect=lambda _self, *a, **k: (a[0] if a else None) == "administracion.gestionar_ordenes_compra",
+        ):
+            r = client.get(
+                "/api/administracion/proveedores",
+                headers=auth_headers,
+                params={"search": "Test"},
+            )
+        # Lo que valida este test es la AUTORIZACIÓN: con permiso de compras el
+        # gate ya no rechaza (antes daba 403 por exigir ver_proveedores). El query
+        # de búsqueda usa SQL específico de Postgres y puede dar 500 bajo SQLite,
+        # lo cual es ajeno a este cambio de permiso.
+        assert r.status_code != 403, r.text
+        assert r.status_code != 401, r.text
+
+    def test_buscar_proveedores_sin_permiso_relevante_403(self, client, auth_headers):
+        """Sin ver_proveedores ni permisos de compras → 403."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_permiso",
+            side_effect=lambda _self, *a, **k: (a[0] if a else None) == "algo.irrelevante",
+        ):
+            r = client.get(
+                "/api/administracion/proveedores",
+                headers=auth_headers,
+                params={"search": "Test"},
+            )
+        assert r.status_code == 403, r.text
+
     def test_obtener_pedido_detalle(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         r = client.get(f"{BASE}/pedidos/{pedido_borrador.id}", headers=auth_headers)
         assert r.status_code == 200

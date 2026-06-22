@@ -241,6 +241,27 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
         raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
 
 
+# Permisos que habilitan la LECTURA de proveedores. El buscador de proveedor del
+# módulo Compras (modal de pedido) necesita esto: quien ve/gestiona órdenes de
+# compra debe poder buscar proveedores sin tener el permiso de la sección
+# Administración → Proveedores.
+_PERMISOS_LECTURA_PROVEEDOR: tuple[str, ...] = (
+    "administracion.ver_proveedores",
+    "administracion.ver_ordenes_compra",
+    "administracion.gestionar_ordenes_compra",
+)
+
+
+def _check_permiso_lectura_proveedor(db: Session, user: Usuario) -> None:
+    """403 salvo que el usuario tenga alguno de los permisos de lectura de proveedor."""
+    svc = PermisosService(db)
+    if not any(svc.tiene_permiso(user, p) for p in _PERMISOS_LECTURA_PROVEEDOR):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Sin permiso: requiere uno de {list(_PERMISOS_LECTURA_PROVEEDOR)}",
+        )
+
+
 def _proveedor_to_response(prov: object) -> ProveedorResponse:
     """Convierte un Proveedor ORM a ProveedorResponse con resumen fiscal."""
     datos = getattr(prov, "datos_fiscales", None)
@@ -314,7 +335,7 @@ def listar_proveedores(
     current_user: Usuario = Depends(get_current_user),
 ) -> ProveedorListResponse:
     """Lista proveedores con búsqueda y paginación."""
-    _check_permiso(db, current_user, "administracion.ver_proveedores")
+    _check_permiso_lectura_proveedor(db, current_user)
 
     svc = ProveedoresService(db)
     proveedores, total = svc.listar(
@@ -339,7 +360,8 @@ def obtener_proveedor(
     current_user: Usuario = Depends(get_current_user),
 ) -> ProveedorDetalleResponse:
     """Obtiene un proveedor con sus datos fiscales completos."""
-    _check_permiso(db, current_user, "administracion.ver_proveedores")
+    # El autocomplete de compras precarga el proveedor por id al editar un pedido.
+    _check_permiso_lectura_proveedor(db, current_user)
 
     svc = ProveedoresService(db)
     prov = svc.obtener(proveedor_id)
