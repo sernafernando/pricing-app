@@ -121,6 +121,24 @@ export default function useCheques() {
     [wrap],
   );
 
+  /**
+   * Aplicar transición manual de e-cheq (Slice 3).
+   * accion: 'aceptar' | 'rechazar_emision' | 'poner_en_custodia'
+   * motivo: string opcional (requerido por el backend solo para rechazar_emision).
+   *
+   * NOTE: estas transiciones son manuales — sin integración bancaria automática (Slice 4).
+   */
+  const transicionarEcheq = useCallback(
+    (id, accion, motivo = null) =>
+      wrap(async () => {
+        const body = { accion };
+        if (motivo) body.motivo = motivo;
+        const { data } = await api.post(`/administracion/cheques/cheques/${id}/echeq`, body);
+        return data;
+      }),
+    [wrap],
+  );
+
   return {
     loading,
     error,
@@ -131,5 +149,6 @@ export default function useCheques() {
     recibirTercero,
     anular,
     obtener,
+    transicionarEcheq,
   };
 }

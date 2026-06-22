@@ -8,6 +8,9 @@ import {
   Inbox,
   Filter,
   X,
+  CheckCircle,
+  Archive,
+  XCircle,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCheques from '../../hooks/useCheques';
@@ -25,8 +28,11 @@ import styles from './TabCheques.module.css';
 
 const PAGE_SIZE = 50;
 
-const ESTADOS_CHEQUE = ['emitido', 'diferido', 'debitado', 'rechazado', 'anulado'];
-const ESTADOS_TERCERO = ['en_cartera', 'entregado', 'depositado', 'acreditado', 'rechazado', 'anulado'];
+const ESTADOS_CHEQUE = ['emitido', 'diferido', 'en_custodia', 'debitado', 'rechazado', 'anulado'];
+const ESTADOS_TERCERO = [
+  'en_cartera', 'aceptado', 'entregado', 'en_custodia',
+  'depositado', 'acreditado', 'rechazado', 'rechazado_emision', 'anulado',
+];
 
 // Vistas del tab principal
 const VISTAS = {
@@ -52,15 +58,19 @@ const formatDate = (dateStr) => {
  * EstadoBadge acepta variant "op"/"pedido"/"nc"; usamos "op" como base con overrides.
  */
 const ESTADO_BADGE_MAP = {
-  emitido:    { cls: 'badgeEmitido',    label: 'Emitido' },
-  diferido:   { cls: 'badgeDiferido',   label: 'Diferido' },
-  debitado:   { cls: 'badgeDebitado',   label: 'Debitado' },
-  rechazado:  { cls: 'badgeRechazado',  label: 'Rechazado' },
-  anulado:    { cls: 'badgeAnulado',    label: 'Anulado' },
-  en_cartera: { cls: 'badgeEnCartera',  label: 'En cartera' },
-  entregado:  { cls: 'badgeEntregado',  label: 'Entregado' },
-  depositado: { cls: 'badgeDepositado', label: 'Depositado' },
-  acreditado: { cls: 'badgeAcreditado', label: 'Acreditado' },
+  emitido:           { cls: 'badgeEmitido',          label: 'Emitido' },
+  diferido:          { cls: 'badgeDiferido',          label: 'Diferido' },
+  debitado:          { cls: 'badgeDebitado',          label: 'Debitado' },
+  rechazado:         { cls: 'badgeRechazado',         label: 'Rechazado' },
+  anulado:           { cls: 'badgeAnulado',           label: 'Anulado' },
+  en_cartera:        { cls: 'badgeEnCartera',         label: 'En cartera' },
+  entregado:         { cls: 'badgeEntregado',         label: 'Entregado' },
+  depositado:        { cls: 'badgeDepositado',        label: 'Depositado' },
+  acreditado:        { cls: 'badgeAcreditado',        label: 'Acreditado' },
+  // Slice 3 — e-cheq
+  aceptado:          { cls: 'badgeAceptado',          label: 'Aceptado' },
+  rechazado_emision: { cls: 'badgeRechazadoEmision',  label: 'Rec. emisión' },
+  en_custodia:       { cls: 'badgeEnCustodia',        label: 'En custodia' },
 };
 
 function EstadoBadgeCheque({ estado }) {
@@ -74,7 +84,7 @@ function EstadoBadgeCheque({ estado }) {
 
 export default function TabCheques() {
   const { tienePermiso } = usePermisos();
-  const { listar, anular: anularCheque, loading, error } = useCheques();
+  const { listar, anular: anularCheque, transicionarEcheq, loading, error } = useCheques();
 
   // ── Vista activa ──
   const [vista, setVista] = useState(VISTAS.PROPIOS);
@@ -105,6 +115,13 @@ export default function TabCheques() {
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
   const [errorAnulacion, setErrorAnulacion] = useState(null);
   const [savingAnulacion, setSavingAnulacion] = useState(false);
+
+  // ── Modal transición e-cheq (Slice 3) ──
+  // accionEcheq: { cheque, accion } — set to open modal
+  const [accionEcheq, setAccionEcheq] = useState(null);
+  const [motivoEcheq, setMotivoEcheq] = useState('');
+  const [errorEcheq, setErrorEcheq] = useState(null);
+  const [savingEcheq, setSavingEcheq] = useState(false);
 
   const fetchCheques = useCallback(async () => {
     if (vista === VISTAS.CARTERA) {
@@ -202,6 +219,40 @@ export default function TabCheques() {
     } finally {
       setSavingAnulacion(false);
     }
+  };
+
+  const handleEcheq = async () => {
+    if (!accionEcheq) return;
+    // rechazar_emision requires motivo.
+    if (accionEcheq.accion === 'rechazar_emision' && !motivoEcheq.trim()) {
+      setErrorEcheq('El motivo es requerido para rechazar la emisión.');
+      return;
+    }
+    setSavingEcheq(true);
+    setErrorEcheq(null);
+    try {
+      const motivo = motivoEcheq.trim() || null;
+      await transicionarEcheq(accionEcheq.cheque.id, accionEcheq.accion, motivo);
+      setAccionEcheq(null);
+      setMotivoEcheq('');
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg =
+        (typeof d?.detail === 'string' && d.detail) ||
+        d?.mensaje ||
+        err.message ||
+        'Error al procesar acción e-cheq.';
+      setErrorEcheq(typeof msg === 'string' ? msg : 'Error al procesar acción e-cheq.');
+    } finally {
+      setSavingEcheq(false);
+    }
+  };
+
+  const LABEL_ACCION_ECHEQ = {
+    aceptar: 'Aceptar e-cheq',
+    poner_en_custodia: 'Poner en custodia',
+    rechazar_emision: 'Rechazar e-cheq',
   };
 
   return (
@@ -397,6 +448,7 @@ export default function TabCheques() {
                   <th>Emisión</th>
                   <th>Pago</th>
                   <th>Estado</th>
+                  {puedeGestionar && <th className={styles.thRight}>Acciones</th>}
                 </tr>
               ) : (
                 <tr>
@@ -430,6 +482,44 @@ export default function TabCheques() {
                     <td>
                       <EstadoBadgeCheque estado={ch.estado} />
                     </td>
+                    {puedeGestionar && (
+                      <td className={styles.tdRight}>
+                        {/* e-cheq acciones (Slice 3) — solo si instrumento='echeq' */}
+                        {ch.instrumento === 'echeq' && ch.estado === 'en_cartera' && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => setAccionEcheq({ cheque: ch, accion: 'aceptar' })}
+                            aria-label={`Aceptar e-cheq ${ch.numero}`}
+                          >
+                            <CheckCircle size={12} />
+                            Aceptar
+                          </button>
+                        )}
+                        {ch.instrumento === 'echeq' && ['en_cartera', 'aceptado'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => setAccionEcheq({ cheque: ch, accion: 'poner_en_custodia' })}
+                            aria-label={`Poner en custodia e-cheq ${ch.numero}`}
+                          >
+                            <Archive size={12} />
+                            Custodia
+                          </button>
+                        )}
+                        {ch.instrumento === 'echeq' && ['en_cartera', 'aceptado'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnDanger}
+                            onClick={() => { setMotivoEcheq(''); setAccionEcheq({ cheque: ch, accion: 'rechazar_emision' }); }}
+                            aria-label={`Rechazar emisión e-cheq ${ch.numero}`}
+                          >
+                            <XCircle size={12} />
+                            Rechazar
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ) : (
                   <tr key={ch.id} className={styles.tableRow}>
@@ -452,7 +542,8 @@ export default function TabCheques() {
                       <EstadoBadgeCheque estado={ch.estado} />
                     </td>
                     {puedeGestionar && (
-                      <td className={styles.tdRight}>
+                      <td className={`${styles.tdRight} ${styles.actionsCell}`}>
+                        {/* Anular: propios emitido/diferido */}
                         {['emitido', 'diferido'].includes(ch.estado) && (
                           <button
                             type="button"
@@ -466,6 +557,18 @@ export default function TabCheques() {
                           >
                             <Ban size={12} />
                             Anular
+                          </button>
+                        )}
+                        {/* e-cheq custodia (Slice 3) */}
+                        {ch.instrumento === 'echeq' && ['emitido', 'diferido'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => setAccionEcheq({ cheque: ch, accion: 'poner_en_custodia' })}
+                            aria-label={`Poner en custodia e-cheq ${ch.numero}`}
+                          >
+                            <Archive size={12} />
+                            Custodia
                           </button>
                         )}
                       </td>
@@ -587,6 +690,90 @@ export default function TabCheques() {
                   <>
                     <Ban size={13} />
                     Confirmar anulación
+                  </>
+                )}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Modal e-cheq transición (Slice 3) */}
+      {accionEcheq && (
+        <div className={styles.modalOverlay}>
+          <div
+            className={styles.modalAnular}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-echeq-title"
+          >
+            <header className={styles.modalAnularHeader}>
+              <h3 id="modal-echeq-title" className={styles.modalAnularTitle}>
+                {LABEL_ACCION_ECHEQ[accionEcheq.accion] ?? accionEcheq.accion} — {accionEcheq.cheque.numero}
+              </h3>
+              <button
+                type="button"
+                className={styles.btnClose}
+                onClick={() => { setAccionEcheq(null); setErrorEcheq(null); setMotivoEcheq(''); }}
+                aria-label="Cerrar"
+              >
+                <X size={16} />
+              </button>
+            </header>
+
+            <div className={styles.modalAnularBody}>
+              <p className={styles.modalAnularDesc}>
+                {accionEcheq.accion === 'aceptar' && 'El banco aceptó este e-cheq. Se registrará el estado como aceptado.'}
+                {accionEcheq.accion === 'poner_en_custodia' && 'El e-cheq pasará a custodia bancaria (depósito automático al vencimiento). Esta acción es manual y NO integra con rieles bancarios.'}
+                {accionEcheq.accion === 'rechazar_emision' && 'El banco rechazó este e-cheq. Se registrará el estado como rechazado. Esta acción es terminal.'}
+              </p>
+              {errorEcheq && (
+                <div className={styles.errorBanner} role="alert">
+                  {errorEcheq}
+                </div>
+              )}
+              {accionEcheq.accion === 'rechazar_emision' && (
+                <>
+                  <label className={styles.fieldLabel} htmlFor="motivo-echeq-rechazo">
+                    Motivo del rechazo
+                  </label>
+                  <textarea
+                    id="motivo-echeq-rechazo"
+                    className={styles.textarea}
+                    value={motivoEcheq}
+                    onChange={(e) => setMotivoEcheq(e.target.value)}
+                    placeholder="Describí el motivo del rechazo bancario..."
+                    rows={3}
+                    disabled={savingEcheq}
+                  />
+                </>
+              )}
+            </div>
+
+            <footer className={styles.modalAnularFooter}>
+              <button
+                type="button"
+                className={styles.btnCancel}
+                onClick={() => { setAccionEcheq(null); setErrorEcheq(null); setMotivoEcheq(''); }}
+                disabled={savingEcheq}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleEcheq}
+                disabled={savingEcheq || (accionEcheq.accion === 'rechazar_emision' && !motivoEcheq.trim())}
+              >
+                {savingEcheq ? (
+                  <>
+                    <Loader2 size={13} className={styles.spin} />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle size={13} />
+                    Confirmar
                   </>
                 )}
               </button>

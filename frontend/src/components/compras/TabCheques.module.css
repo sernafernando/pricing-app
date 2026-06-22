@@ -253,6 +253,30 @@
 }
 
 /* ── Actions ──────────────────────────────────────────────── */
+.actionsCell {
+  white-space: nowrap;
+}
+
+/* Neutral action button (e-cheq transitions) */
+.btnAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--cf-accent-blue) 10%, transparent);
+  color: var(--cf-accent-blue);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-blue) 20%, transparent);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: background var(--duration-150);
+  white-space: nowrap;
+}
+
+.btnAction:hover {
+  background: color-mix(in srgb, var(--cf-accent-blue) 20%, transparent);
+}
+
 .btnDanger {
   display: inline-flex;
   align-items: center;
@@ -502,6 +526,22 @@
 .badgeAcreditado {
   background: color-mix(in srgb, var(--success) 18%, transparent);
   color: var(--success);
+}
+
+/* ── Slice 3 — e-cheq estados ─────────────────────────────── */
+.badgeAceptado {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.badgeRechazadoEmision {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  color: var(--error);
+}
+
+.badgeEnCustodia {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
 }
 
 .badgeFallback {

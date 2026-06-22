@@ -38,6 +38,7 @@ from app.schemas.cheque import (
     ChequeResponse,
     EmitirChequePropio,
     RecibirChequeTercero,
+    TransicionEcheqRequest,
 )
 from app.services import cheques_service
 
@@ -262,6 +263,63 @@ def anular_cheque(
         db.rollback()
         logger.error("❌ Error anulando cheque id=%d: %s", cheque_id, exc)
         raise HTTPException(status_code=500, detail="Error interno al anular cheque.") from exc
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# e-cheq — transiciones manuales (Slice 3)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/cheques/{cheque_id}/echeq",
+    response_model=ChequeResponse,
+)
+def transicionar_echeq(
+    cheque_id: int,
+    payload: TransicionEcheqRequest,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeResponse:
+    """Aplica una transición manual de e-cheq.
+
+    Acciones admitidas:
+      - aceptar:           en_cartera → aceptado (banco aceptó el e-cheq).
+      - rechazar_emision:  en_cartera | aceptado → rechazado_emision (banco rechaza).
+      - poner_en_custodia: emitido | diferido | aceptado | en_cartera → en_custodia.
+
+    Requiere instrumento == 'echeq'; devuelve 422 si el cheque es físico.
+    Requiere permiso `tesoreria.gestionar_cheques`.
+
+    NOTE: sin integración bancaria automática (Slice 4); estas transiciones son
+    exclusivamente manuales (el operador actualiza el estado según lo informa el banco).
+    """
+    cheque = db.query(Cheque).filter(Cheque.id == cheque_id).first()
+    if cheque is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cheque {cheque_id} no encontrado.")
+
+    try:
+        cheques_service.transicionar_cheque(
+            db,
+            cheque,
+            payload.accion,
+            usuario_id=current_user.id,
+            motivo=payload.motivo,
+        )
+        db.commit()
+        db.refresh(cheque)
+        return ChequeResponse.model_validate(cheque).model_copy(
+            update={
+                "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else cheque.banco_nombre,
+                "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+            }
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error transición e-cheq id=%d accion=%s: %s", cheque_id, payload.accion, exc)
+        raise HTTPException(status_code=500, detail="Error interno al procesar transición e-cheq.") from exc
 
 
 # ──────────────────────────────────────────────────────────────────────────
