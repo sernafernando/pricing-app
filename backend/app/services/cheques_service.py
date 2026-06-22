@@ -63,10 +63,45 @@ TRANSICIONES_CHEQUE: Final[dict[tuple[str, str, str], str]] = {
     # Terceros — Slice 4 (placeholder)
     # ("tercero", "en_cartera", "depositar") -> "depositado"  — Slice 4
     # ("tercero", "depositado", "acreditar") -> "acreditado"  — Slice 4
+    # ── Slice 3 — e-cheq (instrumento == 'echeq' only; validado en transicionar_cheque) ──
+    #
+    # Terceros e-cheq: aceptación bancaria
+    #   en_cartera --[aceptar]--> aceptado       (banco acepta el e-cheq; pasa a ser utilizable)
+    #   en_cartera --[rechazar_emision]--> rechazado_emision  (banco rechaza antes de aceptar)
+    #   aceptado   --[entregar]--> entregado      (endoso desde estado aceptado)
+    #   aceptado   --[rechazar_emision]--> rechazado_emision  (banco rechaza post-aceptación)
+    #   aceptado   --[anular]--> anulado
+    #
+    # NOTA DISEÑO: "aceptar" es OPCIONAL para e-cheq tercero. Un e-cheq en_cartera ya es
+    # endosable directamente (en_cartera --[entregar]--> entregado), igual que un cheque
+    # físico. aceptar/rechazar_emision reflejan el ciclo BCRA pero NO son obligatorios
+    # en Slice 3 (sin integración bancaria real). La transición en_cartera→entregar está
+    # disponible para TODOS los instrumentos de tercero (ver TRANSICIONES_CHEQUE de Slice 2).
+    #
+    # E-cheq propios y terceros: custodia (depósito automático al vencimiento)
+    #   emitido    --[poner_en_custodia]--> en_custodia  (propio e-cheq)
+    #   diferido   --[poner_en_custodia]--> en_custodia  (propio e-cheq diferido)
+    #   aceptado   --[poner_en_custodia]--> en_custodia  (tercero e-cheq aceptado)
+    #   en_cartera --[poner_en_custodia]--> en_custodia  (tercero e-cheq, raro pero permitido)
+    #
+    # NOTE: custodia es manual en este slice — Slice 4 agrega integración bancaria real.
+    ("tercero", "en_cartera", "aceptar"): "aceptado",
+    ("tercero", "en_cartera", "rechazar_emision"): "rechazado_emision",
+    ("tercero", "aceptado", "entregar"): "entregado",
+    ("tercero", "aceptado", "rechazar_emision"): "rechazado_emision",
+    ("tercero", "aceptado", "anular"): "anulado",
+    ("tercero", "aceptado", "poner_en_custodia"): "en_custodia",
+    ("tercero", "en_cartera", "poner_en_custodia"): "en_custodia",
+    ("propio", "emitido", "poner_en_custodia"): "en_custodia",
+    ("propio", "diferido", "poner_en_custodia"): "en_custodia",
 }
 
-# Estados terminales (no permiten más transiciones)
-ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"anulado", "rechazado"})
+# Estados terminales (no permiten más transiciones).
+# en_custodia: terminal en Slice 3; la salida (acreditar al vencimiento) llega en Slice 4.
+ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"anulado", "rechazado", "rechazado_emision", "en_custodia"})
+
+# Acciones exclusivas de e-cheq; se rechazan con 422 si instrumento == 'fisico'.
+ACCIONES_ECHEQ: Final[frozenset[str]] = frozenset({"aceptar", "rechazar_emision", "poner_en_custodia"})
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -271,6 +306,16 @@ def transicionar_cheque(
     Para `anular`: requiere motivo (almacenado en cheque.motivo_anulacion).
     """
     estado_actual = cheque.estado
+
+    # Acciones exclusivas de e-cheq — cheques físicos no pueden usarlas.
+    if accion in ACCIONES_ECHEQ and cheque.instrumento != "echeq":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"La acción '{accion}' es exclusiva de e-cheq. "
+                f"El cheque id={cheque.id} es instrumento='{cheque.instrumento}'."
+            ),
+        )
 
     # Estados terminales no permiten transiciones
     if estado_actual in ESTADOS_TERMINALES:

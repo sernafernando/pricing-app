@@ -346,14 +346,21 @@ export default function ModalCheque({
                 <button
                   type="button"
                   className={`${styles.pill} ${instrumento === 'fisico' ? styles.pillActive : ''}`}
-                  onClick={() => setInstrumento('fisico')}
+                  onClick={() => {
+                    setInstrumento('fisico');
+                    setNumero('');
+                    // For propio+físico the chequera useEffect re-fills the number automatically.
+                  }}
                 >
                   Físico
                 </button>
                 <button
                   type="button"
                   className={`${styles.pill} ${instrumento === 'echeq' ? styles.pillActive : ''}`}
-                  onClick={() => setInstrumento('echeq')}
+                  onClick={() => {
+                    setInstrumento('echeq');
+                    setNumero(''); // e-cheq requires manual bank number — clear any autocomplete.
+                  }}
                 >
                   e-cheq
                 </button>

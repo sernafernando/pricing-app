@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -186,6 +186,37 @@ class ChequeraPaginated(BaseModel):
 # ──────────────────────────────────────────────────────────────────────────
 # Slice 2 — Cheques de terceros
 # ──────────────────────────────────────────────────────────────────────────
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 3 — e-cheq transiciones manuales
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TransicionEcheqRequest(BaseModel):
+    """Payload para transiciones manuales de e-cheq.
+
+    accion: 'aceptar' | 'rechazar_emision' | 'poner_en_custodia'
+    motivo: requerido para rechazar_emision; opcional para las demás acciones.
+    """
+
+    accion: str = Field(pattern=r"^(aceptar|rechazar_emision|poner_en_custodia)$")
+    motivo: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _motivo_requerido_para_rechazar(self) -> "TransicionEcheqRequest":
+        if self.accion == "rechazar_emision" and not (self.motivo and self.motivo.strip()):
+            raise ValueError("motivo es requerido cuando accion='rechazar_emision'")
+        return self
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "accion": "rechazar_emision",
+                "motivo": "Rechazo bancario por fondos insuficientes",
+            }
+        }
+    )
 
 
 class RecibirChequeTercero(BaseModel):
