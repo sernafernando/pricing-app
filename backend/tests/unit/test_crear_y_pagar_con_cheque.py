@@ -789,3 +789,126 @@ class TestChequeConPedidoIdAnular:
         # Saldo del pedido debe haberse restaurado al monto del cheque (700_000)
         saldo_post = calcular_saldo_pendiente_pedido(db, pedido_1m.id)
         assert saldo_post == Decimal("700000"), f"Se esperaba saldo=700000, got {saldo_post}"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# FIX 1 — anular OP con cheque en estado terminal cobrado debe bloquearse
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestAnularOPConChequeDebitadoBloqueada:
+    """FIX 1: anular OP cuyo cheque propio ya fue debitado (terminal cobrado)
+    debe levantar 409 sin mutar nada. RED→GREEN."""
+
+    def _crear_op_propio(
+        self,
+        db,
+        *,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        active_user,
+        numero: str,
+        monto: Decimal = Decimal("100000"),
+    ):
+        payload = {
+            "banco_empresa_id": banco_p.id,
+            "chequera_id": None,
+            "instrumento": "echeq",
+            "numero": numero,
+            "monto": monto,
+            "moneda": "ARS",
+            "fecha_emision": date(2026, 6, 1),
+            "fecha_pago": date(2026, 6, 1),
+        }
+        op = ordenes_pago_service.crear_y_pagar(
+            db,
+            proveedor_id=proveedor_p.id,
+            empresa_id=empresa_p.id,
+            moneda="ARS",
+            monto_total=monto,
+            modo_imputacion="a_cuenta",
+            items=[],
+            caja_id=None,
+            banco_id=None,
+            fecha_pago_real=date(2026, 6, 1),
+            creado_por_id=active_user.id,
+            cheques=[payload],
+        )
+        cheque = db.query(Cheque).filter(Cheque.numero == numero).one()
+        return op, cheque
+
+    def test_anular_op_cheque_debitado_levanta_409(
+        self,
+        db,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        active_user,
+    ) -> None:
+        """Cheque propio debitado (banco ya cobró) → anular OP levanta 409.
+        OP sigue en 'pagado', cheque sigue en 'debitado'."""
+        from fastapi import HTTPException
+
+        from app.services import ordenes_pago_service as ops
+
+        op, cheque = self._crear_op_propio(
+            db,
+            empresa_p=empresa_p,
+            proveedor_p=proveedor_p,
+            banco_p=banco_p,
+            active_user=active_user,
+            numero="ECH-FIX1-DEBITADO",
+        )
+
+        # Forzar cheque a estado 'debitado' (simula conciliación bancaria).
+        cheque.estado = "debitado"
+        db.flush()
+
+        # Intentar anular la OP debe fallar con 409.
+        with pytest.raises(HTTPException) as exc_info:
+            ops.anular(db, orden_pago_id=op.id, motivo="Test FIX1", user_id=active_user.id)
+
+        assert exc_info.value.status_code == 409
+        assert "debitado" in exc_info.value.detail.lower() or "cobrado" in exc_info.value.detail.lower()
+
+        # La OP no debe haber cambiado de estado.
+        db.expire_all()
+        db.refresh(op)
+        assert op.estado == "pagado", f"OP debe seguir 'pagado', got '{op.estado}'"
+
+        # El cheque no debe haber cambiado de estado.
+        db.refresh(cheque)
+        assert cheque.estado == "debitado", f"Cheque debe seguir 'debitado', got '{cheque.estado}'"
+
+    def test_anular_op_cheque_emitido_sigue_funcionando(
+        self,
+        db,
+        empresa_p,
+        proveedor_p,
+        banco_p,
+        active_user,
+    ) -> None:
+        """Regresión: cheque en estado emitido → anular OP sigue funcionando normalmente."""
+        from app.services import ordenes_pago_service as ops
+
+        op, cheque = self._crear_op_propio(
+            db,
+            empresa_p=empresa_p,
+            proveedor_p=proveedor_p,
+            banco_p=banco_p,
+            active_user=active_user,
+            numero="ECH-FIX1-EMITIDO",
+        )
+
+        assert cheque.estado in {"emitido", "diferido"}
+
+        # Anular la OP debe funcionar.
+        ops.anular(db, orden_pago_id=op.id, motivo="Test FIX1 regresion emitido", user_id=active_user.id)
+
+        db.expire_all()
+        db.refresh(op)
+        db.refresh(cheque)
+
+        assert op.estado == "anulado"
+        assert cheque.estado == "anulado"

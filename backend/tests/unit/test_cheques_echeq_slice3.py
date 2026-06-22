@@ -375,8 +375,15 @@ class TestFisicoNoEcheq:
 
 
 class TestEnCustodiaTerminal:
-    def test_en_custodia_es_terminal(self, db, banco) -> None:
-        """en_custodia es estado terminal en Slice 3 — cualquier transición levanta 422."""
+    def test_en_custodia_bloquea_transiciones_invalidas(self, db, banco) -> None:
+        """en_custodia bloquea transiciones no previstas (ej. anular) — 422 siempre.
+
+        NOTE (Slice 4): en_custodia ya NO está en ESTADOS_TERMINALES porque Slice 4
+        le agregó la salida 'acreditar'. Sin embargo, cualquier transición inválida
+        desde en_custodia sigue devolviendo 422 (transición no registrada en el dict).
+        Este test fue ajustado en Slice 4 para verificar el comportamiento correcto:
+        el 422 sigue disparándose pero el mensaje es 'transición inválida' (no 'terminal').
+        """
         cheque = _echeq_propio(db, banco.id, numero="ECH-P-CUTERM-001")
         db.flush()
         cheques_service.transicionar_cheque(db, cheque, "poner_en_custodia")
@@ -384,10 +391,11 @@ class TestEnCustodiaTerminal:
         with pytest.raises(HTTPException) as exc_info:
             cheques_service.transicionar_cheque(db, cheque, "anular", motivo="Intento post-custodia")
         assert exc_info.value.status_code == 422
-        assert "terminal" in exc_info.value.detail.lower()
+        # Desde Slice 4: en_custodia no es terminal, el error es 'transición inválida'
+        assert "transición inválida" in exc_info.value.detail.lower() or "terminal" in exc_info.value.detail.lower()
 
-    def test_en_custodia_tercero_es_terminal(self, db) -> None:
-        """en_custodia desde tercero e-cheq también es terminal."""
+    def test_en_custodia_tercero_bloquea_transiciones_invalidas(self, db) -> None:
+        """en_custodia desde tercero e-cheq bloquea transiciones inválidas (ej. entregar)."""
         cheque = _echeq_tercero(db, numero="ECH-T-CUTERM-001")
         db.flush()
         cheques_service.transicionar_cheque(db, cheque, "aceptar")

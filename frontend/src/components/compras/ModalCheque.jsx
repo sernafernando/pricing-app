@@ -193,7 +193,7 @@ export default function ModalCheque({
 
   // ── Derived: resumen ──
   const bancoNombreResumen = tipo === 'propio'
-    ? (bancosEmpresa.find((b) => String(b.id) === String(bancoEmpresaId))?.banco_nombre ?? '—')
+    ? (bancosEmpresa.find((b) => String(b.id) === String(bancoEmpresaId))?.banco ?? '—')
     : (bancoNombre.trim() || '—');
 
   // ── Validación ──
@@ -397,7 +397,7 @@ export default function ModalCheque({
                         <option value="">Seleccioná un banco...</option>
                         {bancosEmpresa.map((b) => (
                           <option key={b.id} value={b.id}>
-                            {b.banco_nombre} — {b.tipo_cuenta ?? 'Cuenta corriente'} {b.moneda ?? ''}{' '}
+                            {b.banco} — {b.tipo_cuenta ?? 'Cuenta corriente'} {b.moneda ?? ''}{' '}
                             {b.numero_cuenta ? `(${b.numero_cuenta})` : ''}
                           </option>
                         ))}

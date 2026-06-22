@@ -50,19 +50,23 @@ TRANSICIONES_CHEQUE: Final[dict[tuple[str, str, str], str]] = {
     # Propios — Slice 1
     ("propio", "emitido", "anular"): "anulado",
     ("propio", "diferido", "anular"): "anulado",
-    # Propios — Slice 4 (placeholder)
-    # ("propio", "emitido",  "debitar")  -> "debitado"   — Slice 4
-    # ("propio", "diferido", "debitar")  -> "debitado"   — Slice 4
-    # ("propio", "emitido",  "rechazar") -> "rechazado"  — Slice 4
-    # ("propio", "diferido", "rechazar") -> "rechazado"  — Slice 4
+    # Propios — Slice 4
+    ("propio", "emitido", "debitar"): "debitado",
+    ("propio", "diferido", "debitar"): "debitado",
+    ("propio", "emitido", "rechazar"): "rechazado",
+    ("propio", "diferido", "rechazar"): "rechazado",
     # Terceros — Slice 2
     ("tercero", "en_cartera", "entregar"): "entregado",  # endoso a proveedor en OP
     ("tercero", "en_cartera", "anular"): "anulado",
     ("tercero", "en_cartera", "rechazar"): "rechazado",
     ("tercero", "entregado", "rechazar"): "rechazado",
-    # Terceros — Slice 4 (placeholder)
-    # ("tercero", "en_cartera", "depositar") -> "depositado"  — Slice 4
-    # ("tercero", "depositado", "acreditar") -> "acreditado"  — Slice 4
+    # Terceros — Slice 4
+    ("tercero", "en_cartera", "depositar"): "depositado",
+    ("tercero", "aceptado", "depositar"): "depositado",
+    ("tercero", "depositado", "acreditar"): "acreditado",
+    # e-cheq en_custodia → acreditar (Slice 4 le da salida a en_custodia)
+    ("tercero", "en_custodia", "acreditar"): "acreditado",
+    ("propio", "en_custodia", "acreditar"): "acreditado",
     # ── Slice 3 — e-cheq (instrumento == 'echeq' only; validado en transicionar_cheque) ──
     #
     # Terceros e-cheq: aceptación bancaria
@@ -97,8 +101,10 @@ TRANSICIONES_CHEQUE: Final[dict[tuple[str, str, str], str]] = {
 }
 
 # Estados terminales (no permiten más transiciones).
-# en_custodia: terminal en Slice 3; la salida (acreditar al vencimiento) llega en Slice 4.
-ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"anulado", "rechazado", "rechazado_emision", "en_custodia"})
+# Slice 4: en_custodia ya NO es terminal (puede acreditarse). Se agregan debitado/acreditado.
+ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset(
+    {"anulado", "rechazado", "rechazado_emision", "debitado", "acreditado"}
+)
 
 # Acciones exclusivas de e-cheq; se rechazan con 422 si instrumento == 'fisico'.
 ACCIONES_ECHEQ: Final[frozenset[str]] = frozenset({"aceptar", "rechazar_emision", "poner_en_custodia"})
@@ -641,6 +647,398 @@ def recibir_cheque_tercero(
 # The des-endorsement logic when canceling an OP lives in
 # ordenes_pago_service._des_endosar_cheques_tercero_de_op, which handles
 # the full context (op, empresa_id, linked imputaciones) correctly.
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 4 — Conciliación bancaria
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def debitar_cheque(
+    db: Session,
+    cheque: Cheque,
+    *,
+    fecha: date,
+    usuario_id: Optional[int] = None,
+) -> Cheque:
+    """Marca un cheque propio como debitado (el banco lo débita de la cuenta).
+
+    Transiciones válidas: emitido → debitado, diferido → debitado.
+    Genera un BancoMovimiento de EGRESO en el banco del cheque.
+
+    Validaciones:
+      - FR-4.3: no antes de fecha_pago (422).
+      - Moneda del cheque debe coincidir con moneda del banco (422).
+      - El banco_empresa_id debe existir en el cheque (422 si no).
+
+    Args:
+        db: sesión activa.
+        cheque: instancia del Cheque (tipo='propio', estado emitido|diferido).
+        fecha: fecha real del débito (generalmente hoy o fecha_pago).
+        usuario_id: id del usuario que ejecuta la acción.
+
+    Returns:
+        El Cheque actualizado a estado 'debitado'.
+
+    Raises:
+        HTTPException 422: fecha antes de fecha_pago, moneda no coincide, banco no encontrado.
+    """
+    from app.models.banco_empresa import BancoEmpresa  # noqa: PLC0415
+    from app.services.banco_service import BancoService  # noqa: PLC0415
+
+    # FR-4.3: no debitar antes de fecha_pago
+    if fecha < cheque.fecha_pago:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No se puede debitar antes de la fecha de pago. "
+                f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
+            ),
+        )
+
+    if cheque.banco_empresa_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"El cheque id={cheque.id} no tiene banco_empresa_id asignado.",
+        )
+
+    banco = db.query(BancoEmpresa).filter(BancoEmpresa.id == cheque.banco_empresa_id).first()
+    if banco is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BancoEmpresa id={cheque.banco_empresa_id} no encontrado.",
+        )
+
+    # Validar moneda
+    if str(banco.moneda) != str(cheque.moneda):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"La moneda del banco ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
+                "No se puede debitar en moneda distinta."
+            ),
+        )
+
+    # Aplicar transición vía máquina de estados estándar
+    transicionar_cheque(db, cheque, "debitar", usuario_id=usuario_id)
+
+    # Registrar movimiento bancario de EGRESO
+    svc = BancoService(db)
+    movimiento = svc.registrar_movimiento(
+        banco_id=cheque.banco_empresa_id,
+        fecha=fecha,
+        detalle=f"Débito cheque #{cheque.numero} (id={cheque.id})",
+        tipo="egreso",
+        monto=Decimal(str(cheque.monto)),
+        user_id=usuario_id,
+        origen="cheque_debitado",
+    )
+
+    # Actualizar evento con referencia al movimiento bancario
+    _registrar_evento(
+        db,
+        cheque_id=cheque.id,
+        tipo="banco_movimiento_egreso",
+        payload={
+            "banco_movimiento_id": movimiento.id,
+            "banco_id": cheque.banco_empresa_id,
+            "monto": str(cheque.monto),
+            "moneda": str(cheque.moneda),
+            "fecha": fecha.isoformat(),
+        },
+        usuario_id=usuario_id,
+    )
+
+    logger.info(
+        "✅ Cheque propio debitado — id=%s numero=%s banco_id=%s monto=%s %s mov_id=%s",
+        cheque.id,
+        cheque.numero,
+        cheque.banco_empresa_id,
+        cheque.monto,
+        cheque.moneda,
+        movimiento.id,
+    )
+    return cheque
+
+
+def depositar_cheque(
+    db: Session,
+    cheque: Cheque,
+    *,
+    banco_empresa_id: int,
+    fecha: date,
+    usuario_id: Optional[int] = None,
+) -> Cheque:
+    """Deposita un cheque de tercero en una cuenta bancaria de la empresa.
+
+    Transiciones: en_cartera → depositado, aceptado → depositado.
+    NO genera movimiento bancario (depositado ≠ acreditado).
+    Registra banco_deposito_id en el cheque para luego acreditar.
+
+    Validaciones:
+      - FR-4.3: no antes de fecha_pago (422).
+      - Moneda del banco destino debe coincidir con moneda del cheque (422).
+
+    Args:
+        db: sesión activa.
+        cheque: instancia del Cheque (tipo='tercero', estado en_cartera|aceptado).
+        banco_empresa_id: id de la cuenta bancaria destino del depósito.
+        fecha: fecha del depósito.
+        usuario_id: id del usuario que ejecuta la acción.
+
+    Returns:
+        El Cheque actualizado a estado 'depositado'.
+
+    Raises:
+        HTTPException 422: fecha antes de fecha_pago, moneda no coincide.
+    """
+    from app.models.banco_empresa import BancoEmpresa  # noqa: PLC0415
+
+    # FR-4.3: no depositar antes de fecha_pago
+    if fecha < cheque.fecha_pago:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No se puede depositar antes de la fecha de pago. "
+                f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
+            ),
+        )
+
+    banco = db.query(BancoEmpresa).filter(BancoEmpresa.id == banco_empresa_id).first()
+    if banco is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BancoEmpresa id={banco_empresa_id} no encontrado.",
+        )
+
+    # Validar moneda
+    if str(banco.moneda) != str(cheque.moneda):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"La moneda del banco destino ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
+                "No se puede depositar en moneda distinta."
+            ),
+        )
+
+    # Guardar banco destino para usar al acreditar
+    cheque.banco_deposito_id = banco_empresa_id
+
+    # Aplicar transición
+    transicionar_cheque(db, cheque, "depositar", usuario_id=usuario_id)
+
+    # Agregar detalle del depósito al último evento (registrado por transicionar_cheque)
+    _registrar_evento(
+        db,
+        cheque_id=cheque.id,
+        tipo="deposito_banco",
+        payload={
+            "banco_deposito_id": banco_empresa_id,
+            "banco_nombre": str(banco.banco),
+            "fecha": fecha.isoformat(),
+        },
+        usuario_id=usuario_id,
+    )
+
+    logger.info(
+        "✅ Cheque tercero depositado — id=%s numero=%s banco_destino_id=%s monto=%s %s",
+        cheque.id,
+        cheque.numero,
+        banco_empresa_id,
+        cheque.monto,
+        cheque.moneda,
+    )
+    return cheque
+
+
+def acreditar_cheque(
+    db: Session,
+    cheque: Cheque,
+    *,
+    fecha: date,
+    usuario_id: Optional[int] = None,
+) -> Cheque:
+    """Acredita un cheque de tercero (depositado o en_custodia) en el banco.
+
+    Transiciones: depositado → acreditado, en_custodia → acreditado.
+    Genera un BancoMovimiento de INGRESO en el banco destino.
+
+    Para en_custodia (e-cheq): el banco_deposito_id puede ser el banco_empresa_id
+    del cheque (si es propio) o requerir ser seteado antes.
+
+    Validaciones:
+      - Moneda del banco destino debe coincidir con moneda del cheque (422).
+      - banco_deposito_id debe estar seteado (422 si no).
+
+    Args:
+        db: sesión activa.
+        cheque: instancia del Cheque en estado depositado o en_custodia.
+        fecha: fecha real de la acreditación.
+        usuario_id: id del usuario que ejecuta la acción.
+
+    Returns:
+        El Cheque actualizado a estado 'acreditado'.
+
+    Raises:
+        HTTPException 422: banco no encontrado, moneda no coincide.
+    """
+    from app.models.banco_empresa import BancoEmpresa  # noqa: PLC0415
+    from app.services.banco_service import BancoService  # noqa: PLC0415
+
+    # FR-4.3: no acreditar antes de fecha_pago
+    if fecha < cheque.fecha_pago:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No se puede acreditar antes de la fecha de pago. "
+                f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
+            ),
+        )
+
+    # Determinar banco destino: banco_deposito_id (terceros depositados) o banco_empresa_id (propios en_custodia)
+    banco_id = cheque.banco_deposito_id or cheque.banco_empresa_id
+
+    if banco_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"El cheque id={cheque.id} no tiene banco destino asignado. "
+                "Para cheques de tercero: ejecutar depositar_cheque primero. "
+                "Para e-cheq en custodia: setear banco_deposito_id antes de acreditar."
+            ),
+        )
+
+    banco = db.query(BancoEmpresa).filter(BancoEmpresa.id == banco_id).first()
+    if banco is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BancoEmpresa id={banco_id} no encontrado.",
+        )
+
+    # Validar moneda
+    if str(banco.moneda) != str(cheque.moneda):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"La moneda del banco ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
+                "No se puede acreditar en moneda distinta."
+            ),
+        )
+
+    # Para en_custodia necesitamos bypass del check de ESTADOS_TERMINALES anterior.
+    # en_custodia NO está en ESTADOS_TERMINALES desde Slice 4, así que transicionar_cheque funciona.
+    # La acción 'acreditar' es válida para depositado→acreditado y en_custodia→acreditado.
+    transicionar_cheque(db, cheque, "acreditar", usuario_id=usuario_id)
+
+    # Registrar movimiento bancario de INGRESO
+    svc = BancoService(db)
+    movimiento = svc.registrar_movimiento(
+        banco_id=banco_id,
+        fecha=fecha,
+        detalle=f"Acreditación cheque #{cheque.numero} (id={cheque.id})",
+        tipo="ingreso",
+        monto=Decimal(str(cheque.monto)),
+        user_id=usuario_id,
+        origen="cheque_acreditado",
+    )
+
+    _registrar_evento(
+        db,
+        cheque_id=cheque.id,
+        tipo="banco_movimiento_ingreso",
+        payload={
+            "banco_movimiento_id": movimiento.id,
+            "banco_id": banco_id,
+            "monto": str(cheque.monto),
+            "moneda": str(cheque.moneda),
+            "fecha": fecha.isoformat(),
+        },
+        usuario_id=usuario_id,
+    )
+
+    logger.info(
+        "✅ Cheque acreditado — id=%s numero=%s banco_id=%s monto=%s %s mov_id=%s",
+        cheque.id,
+        cheque.numero,
+        banco_id,
+        cheque.monto,
+        cheque.moneda,
+        movimiento.id,
+    )
+    return cheque
+
+
+def get_reporte_cheques(
+    db: Session,
+    *,
+    hoy: Optional[date] = None,
+) -> dict[str, list[Cheque]]:
+    """Reporte de cheques agrupado por segmento (FR-4.4).
+
+    Segmentos:
+      - en_cartera: terceros en estado en_cartera o aceptado (disponibles).
+      - a_debitar: propios en emitido|diferido con fecha_pago <= hoy (listos para debitar).
+      - vencidos: cualquier cheque activo con fecha_pago < hoy y aún no terminal.
+
+    Args:
+        db: sesión activa.
+        hoy: fecha de referencia (default: date.today()).
+
+    Returns:
+        Dict con claves 'en_cartera', 'a_debitar', 'vencidos'.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    ref = hoy or _date.today()
+
+    en_cartera = (
+        db.query(Cheque)
+        .filter(
+            Cheque.tipo == "tercero",
+            Cheque.estado.in_(["en_cartera", "aceptado"]),
+        )
+        .order_by(Cheque.fecha_pago)
+        .all()
+    )
+
+    # Propios emitidos/diferidos listos para debitar (fecha_pago <= hoy)
+    a_debitar = (
+        db.query(Cheque)
+        .filter(
+            Cheque.tipo == "propio",
+            Cheque.estado.in_(["emitido", "diferido"]),
+            Cheque.fecha_pago <= ref,
+        )
+        .order_by(Cheque.fecha_pago)
+        .all()
+    )
+
+    # Vencidos: cheques activos con fecha_pago < hoy que AÚN no fueron conciliados.
+    # Segmentación sin solapamiento:
+    #   - Propios (emitido|diferido): solo aparecen en 'vencidos' si fecha_pago < hoy
+    #     (estrictamente) Y NO están en 'a_debitar' (que usa <= hoy). Como 'a_debitar'
+    #     ya cubre propios emitido|diferido con fecha_pago <= hoy, cualquier propio
+    #     con fecha_pago < hoy ya está en 'a_debitar'. Por lo tanto, propios
+    #     emitido|diferido NO se incluyen aquí para evitar doble conteo.
+    #   - Terceros (en_cartera|aceptado|depositado) con fecha_pago < hoy sí aparecen
+    #     en vencidos (no tienen segmento propio equivalente a 'a_debitar').
+    estados_vencidos_tercero = ["en_cartera", "aceptado", "depositado"]
+    vencidos = (
+        db.query(Cheque)
+        .filter(
+            Cheque.tipo == "tercero",
+            Cheque.estado.in_(estados_vencidos_tercero),
+            Cheque.fecha_pago < ref,
+        )
+        .order_by(Cheque.fecha_pago)
+        .all()
+    )
+
+    return {
+        "en_cartera": en_cartera,
+        "a_debitar": a_debitar,
+        "vencidos": vencidos,
+    }
 
 
 def registrar_evento(

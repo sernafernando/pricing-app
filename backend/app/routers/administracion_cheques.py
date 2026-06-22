@@ -29,13 +29,17 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.cheque import Cheque, Chequera
 from app.schemas.cheque import (
+    AcreditarChequeRequest,
     AnularChequeRequest,
     ChequePaginated,
     ChequeListResponse,
     ChequeraCreate,
     ChequeraPaginated,
     ChequeraResponse,
+    ChequeReporteResponse,
     ChequeResponse,
+    DebitarChequeRequest,
+    DepositarChequeRequest,
     EmitirChequePropio,
     RecibirChequeTercero,
     TransicionEcheqRequest,
@@ -384,6 +388,189 @@ def listar_cheques(
         for ch in rows
     ]
     return ChequePaginated(items=items, total=total, page=page, page_size=page_size)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 4 — Conciliación bancaria
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/cheques/reporte",
+    response_model=ChequeReporteResponse,
+    dependencies=[Depends(require_permiso(_PERMISO))],
+)
+def reporte_cheques(
+    db: Session = Depends(get_db),
+) -> ChequeReporteResponse:
+    """Reporte FR-4.4 — cheques agrupados por segmento.
+
+    Segmentos:
+      - en_cartera: terceros en_cartera|aceptado disponibles para depositar/endosar.
+      - a_debitar: propios emitidos/diferidos con fecha_pago <= hoy.
+      - vencidos: cheques activos con fecha_pago < hoy sin debitar/acreditar.
+
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    import datetime  # noqa: PLC0415
+
+    hoy = datetime.date.today()
+    data = cheques_service.get_reporte_cheques(db, hoy=hoy)
+
+    def _to_list(cheques: list) -> list[ChequeListResponse]:
+        return [
+            ChequeListResponse.model_validate(ch).model_copy(
+                update={
+                    "banco_nombre": ch.banco_empresa.banco if ch.banco_empresa else ch.banco_nombre,
+                    "proveedor_nombre": ch.proveedor.nombre if ch.proveedor else None,
+                }
+            )
+            for ch in cheques
+        ]
+
+    return ChequeReporteResponse(
+        en_cartera=_to_list(data["en_cartera"]),
+        a_debitar=_to_list(data["a_debitar"]),
+        vencidos=_to_list(data["vencidos"]),
+    )
+
+
+@router.post(
+    "/cheques/{cheque_id}/debitar",
+    response_model=ChequeResponse,
+)
+def debitar_cheque(
+    cheque_id: int,
+    payload: DebitarChequeRequest,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeResponse:
+    """Debita un cheque propio (emitido|diferido → debitado).
+
+    Genera un BancoMovimiento de EGRESO en el banco del cheque por el monto total.
+    No permite debitar antes de fecha_pago (FR-4.3).
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    import datetime  # noqa: PLC0415
+
+    cheque = db.query(Cheque).filter(Cheque.id == cheque_id).with_for_update().first()
+    if cheque is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cheque {cheque_id} no encontrado.")
+
+    fecha = payload.fecha or datetime.date.today()
+
+    try:
+        cheques_service.debitar_cheque(db, cheque, fecha=fecha, usuario_id=current_user.id)
+        db.commit()
+        db.refresh(cheque)
+        return ChequeResponse.model_validate(cheque).model_copy(
+            update={
+                "banco_nombre": cheque.banco_empresa.banco if cheque.banco_empresa else cheque.banco_nombre,
+                "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+            }
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error debitando cheque id=%d: %s", cheque_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al debitar cheque.") from exc
+
+
+@router.post(
+    "/cheques/{cheque_id}/depositar",
+    response_model=ChequeResponse,
+)
+def depositar_cheque(
+    cheque_id: int,
+    payload: DepositarChequeRequest,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeResponse:
+    """Deposita un cheque de tercero (en_cartera|aceptado → depositado).
+
+    No genera movimiento bancario todavía (depositado ≠ acreditado).
+    Registra el banco_empresa_id destino para usar al acreditar.
+    No permite depositar antes de fecha_pago (FR-4.3).
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    import datetime  # noqa: PLC0415
+
+    cheque = db.query(Cheque).filter(Cheque.id == cheque_id).with_for_update().first()
+    if cheque is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cheque {cheque_id} no encontrado.")
+
+    fecha = payload.fecha or datetime.date.today()
+
+    try:
+        cheques_service.depositar_cheque(
+            db,
+            cheque,
+            banco_empresa_id=payload.banco_empresa_id,
+            fecha=fecha,
+            usuario_id=current_user.id,
+        )
+        db.commit()
+        db.refresh(cheque)
+        return ChequeResponse.model_validate(cheque).model_copy(
+            update={
+                "banco_nombre": cheque.banco_deposito.banco if cheque.banco_deposito else cheque.banco_nombre,
+                "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+            }
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error depositando cheque id=%d: %s", cheque_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al depositar cheque.") from exc
+
+
+@router.post(
+    "/cheques/{cheque_id}/acreditar",
+    response_model=ChequeResponse,
+)
+def acreditar_cheque(
+    cheque_id: int,
+    payload: AcreditarChequeRequest,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeResponse:
+    """Acredita un cheque (depositado|en_custodia → acreditado).
+
+    Genera un BancoMovimiento de INGRESO en el banco destino por el monto total.
+    Para cheques depositados usa el banco registrado al depositar.
+    Para e-cheq en_custodia usa banco_deposito_id o banco_empresa_id.
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    import datetime  # noqa: PLC0415
+
+    cheque = db.query(Cheque).filter(Cheque.id == cheque_id).with_for_update().first()
+    if cheque is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Cheque {cheque_id} no encontrado.")
+
+    fecha = payload.fecha or datetime.date.today()
+
+    try:
+        cheques_service.acreditar_cheque(db, cheque, fecha=fecha, usuario_id=current_user.id)
+        db.commit()
+        db.refresh(cheque)
+        banco_rel = cheque.banco_deposito or cheque.banco_empresa
+        return ChequeResponse.model_validate(cheque).model_copy(
+            update={
+                "banco_nombre": banco_rel.banco if banco_rel else cheque.banco_nombre,
+                "proveedor_nombre": cheque.proveedor.nombre if cheque.proveedor else None,
+            }
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error acreditando cheque id=%d: %s", cheque_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al acreditar cheque.") from exc
 
 
 @router.get(

@@ -125,6 +125,7 @@ class ChequeResponse(BaseModel):
     es_diferido: bool
     banco_empresa_id: Optional[int]
     chequera_id: Optional[int]
+    banco_deposito_id: Optional[int] = None
     proveedor_id: Optional[int]
     orden_pago_id: Optional[int]
     motivo_anulacion: Optional[str]
@@ -153,6 +154,7 @@ class ChequeListResponse(BaseModel):
     es_diferido: bool
     banco_empresa_id: Optional[int]
     chequera_id: Optional[int]
+    banco_deposito_id: Optional[int] = None
     proveedor_id: Optional[int]
     orden_pago_id: Optional[int]
     motivo_anulacion: Optional[str]
@@ -217,6 +219,54 @@ class TransicionEcheqRequest(BaseModel):
             }
         }
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Slice 4 — Conciliación bancaria
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class DebitarChequeRequest(BaseModel):
+    """Payload para debitar un cheque propio (emitido|diferido → debitado).
+
+    fecha: fecha real del débito (por defecto hoy en el endpoint; no antes de fecha_pago).
+    """
+
+    fecha: Optional[date] = None
+
+    model_config = ConfigDict(json_schema_extra={"example": {"fecha": "2026-06-22"}})
+
+
+class DepositarChequeRequest(BaseModel):
+    """Payload para depositar un cheque de tercero en una cuenta bancaria de la empresa.
+
+    banco_empresa_id: cuenta destino del depósito (moneda debe coincidir con el cheque).
+    fecha: fecha del depósito (por defecto hoy; no antes de fecha_pago).
+    """
+
+    banco_empresa_id: int
+    fecha: Optional[date] = None
+
+    model_config = ConfigDict(json_schema_extra={"example": {"banco_empresa_id": 2, "fecha": "2026-06-22"}})
+
+
+class AcreditarChequeRequest(BaseModel):
+    """Payload para acreditar un cheque (depositado|en_custodia → acreditado).
+
+    fecha: fecha real de la acreditación (por defecto hoy).
+    """
+
+    fecha: Optional[date] = None
+
+    model_config = ConfigDict(json_schema_extra={"example": {"fecha": "2026-06-22"}})
+
+
+class ChequeReporteResponse(BaseModel):
+    """Respuesta del reporte FR-4.4 — cheques agrupados por segmento."""
+
+    en_cartera: list[ChequeListResponse]
+    a_debitar: list[ChequeListResponse]
+    vencidos: list[ChequeListResponse]
 
 
 class RecibirChequeTercero(BaseModel):

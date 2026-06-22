@@ -97,6 +97,11 @@ class Cheque(Base):
     cuit_librador = Column(String(13), nullable=True)
     librador_nombre = Column(String(160), nullable=True)
 
+    # Conciliación bancaria (Slice 4)
+    # banco_deposito_id: banco de la empresa donde se depositó un cheque de tercero.
+    # Se asigna al ejecutar depositar_cheque y es requerido para acreditar.
+    banco_deposito_id = Column(Integer, ForeignKey("bancos_empresa.id", ondelete="RESTRICT"), nullable=True)
+
     # Pago / imputación
     proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="RESTRICT"), nullable=True)
     orden_pago_id = Column(Integer, ForeignKey("ordenes_pago.id", ondelete="SET NULL"), nullable=True)
@@ -115,6 +120,7 @@ class Cheque(Base):
     # Relationships
     chequera = relationship("Chequera", back_populates="cheques")
     banco_empresa = relationship("BancoEmpresa", foreign_keys=[banco_empresa_id])
+    banco_deposito = relationship("BancoEmpresa", foreign_keys=[banco_deposito_id])
     proveedor = relationship("Proveedor", foreign_keys=[proveedor_id])
     eventos = relationship("ChequeEvento", back_populates="cheque", order_by="ChequeEvento.id")
 
