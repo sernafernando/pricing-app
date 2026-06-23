@@ -244,6 +244,37 @@ frontend/src/
 
 ---
 
+## Code Minimalism (Decision Ladder)
+
+The best code is the code you never wrote. Before writing ANY new code, climb this ladder and STOP at the first rung that applies:
+
+1. **Does this need to exist?** — Can the requirement be met without new code at all?
+2. **Reuse** — Is there already a function, hook, component, or service that does this? Check `services/`, `hooks/`, `utils/`, and existing skills first.
+3. **Stdlib / framework** — Does the Python/JS standard library or FastAPI/React already solve it?
+4. **Native platform** — Is there a built-in (DB constraint, SQLAlchemy feature, browser API) instead of hand-rolled logic?
+5. **Existing dependency** — Does a package already in `requirements.txt` / `package.json` cover it?
+6. **Write the minimum** — Only now, write the least code that satisfies the requirement.
+
+Non-negotiable: minimalism NEVER applies to validation, error handling, security, or accessibility. Cut over-engineering, never safety.
+
+### Deferred-debt ledger (`ponytail:` marker)
+
+When you knowingly take a shortcut, mark it at the point of the shortcut so "later" doesn't become "never":
+
+```python
+# ponytail: hardcoded ARS rate — move to config when multi-currency lands
+```
+
+Harvest every marker on demand:
+
+```bash
+rg -n "ponytail:" --glob '!docs/tech-debt-ledger.md' backend frontend
+```
+
+Record harvested items in [`docs/tech-debt-ledger.md`](docs/tech-debt-ledger.md) and review the ledger before each release.
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### Backend
