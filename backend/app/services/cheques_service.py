@@ -27,7 +27,7 @@ from typing import Final, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.logging import get_logger
 from app.models.cheque import Cheque, ChequeEvento, Chequera
@@ -991,8 +991,17 @@ def get_reporte_cheques(
 
     ref = hoy or _date.today()
 
+    # selectinload de banco_empresa y proveedor: el router serializa
+    # ch.banco_empresa.banco y ch.proveedor.nombre por fila; sin eager loading
+    # cada cheque dispararía un lazy-load (N+1) en los tres segmentos.
+    eager = (
+        selectinload(Cheque.banco_empresa),
+        selectinload(Cheque.proveedor),
+    )
+
     en_cartera = (
         db.query(Cheque)
+        .options(*eager)
         .filter(
             Cheque.tipo == "tercero",
             Cheque.estado.in_(["en_cartera", "aceptado"]),
@@ -1004,6 +1013,7 @@ def get_reporte_cheques(
     # Propios emitidos/diferidos listos para debitar (fecha_pago <= hoy)
     a_debitar = (
         db.query(Cheque)
+        .options(*eager)
         .filter(
             Cheque.tipo == "propio",
             Cheque.estado.in_(["emitido", "diferido"]),
@@ -1025,6 +1035,7 @@ def get_reporte_cheques(
     estados_vencidos_tercero = ["en_cartera", "aceptado", "depositado"]
     vencidos = (
         db.query(Cheque)
+        .options(*eager)
         .filter(
             Cheque.tipo == "tercero",
             Cheque.estado.in_(estados_vencidos_tercero),

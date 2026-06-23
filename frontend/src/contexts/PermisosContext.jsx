@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useAuthStore } from '../store/authStore';
 
 const PermisosContext = createContext();
 
@@ -13,6 +14,11 @@ export const usePermisos = () => {
 };
 
 export const PermisosProvider = ({ children }) => {
+  // El provider envuelve toda la app (incluido /login), así que monta una sola
+  // vez. Nos suscribimos al token para recargar permisos cuando el usuario
+  // inicia o cierra sesión sin recargar la página (navegación SPA).
+  const token = useAuthStore((state) => state.token);
+
   const [permisos, setPermisos] = useState(new Set());
   const [rol, setRol] = useState(null);
   const [usuarioId, setUsuarioId] = useState(null);
@@ -70,9 +76,12 @@ export const PermisosProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
+  // Recarga al montar y cada vez que cambia el token (login → carga permisos
+  // reales; logout → vuelve a un set vacío sin permisos colgados de la sesión
+  // anterior). Esto evita el redirect erróneo a /fichaje tras loguearse.
   useEffect(() => {
     cargarPermisos();
-  }, [cargarPermisos]);
+  }, [cargarPermisos, token]);
 
   /**
    * Verifica si el usuario tiene un permiso específico
