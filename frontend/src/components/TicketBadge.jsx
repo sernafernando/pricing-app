@@ -47,7 +47,6 @@ export default function TicketBadge() {
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
   const wrapperRef = useRef(null);
-  const isTouchRef = useRef(false);
 
   const canSeeOtros = tienePermiso('tickets.ver');
 
@@ -119,9 +118,6 @@ export default function TicketBadge() {
       ref={wrapperRef}
       className={styles.wrapper}
       data-ticket-badge
-      onTouchStart={() => { isTouchRef.current = true; }}
-      onMouseEnter={() => { if (!isTouchRef.current) setOpen(true); }}
-      onMouseLeave={() => { if (!isTouchRef.current) setOpen(false); isTouchRef.current = false; }}
     >
       <button
         type="button"
