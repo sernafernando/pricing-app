@@ -144,6 +144,76 @@ def reconciliar_asociaciones_combo(db: Session, item_id: int, itema_ids_vigentes
     return eliminadas
 
 
+# Fracción mínima del padrón local que el fetch completo debe alcanzar para que
+# la reconciliación global se considere segura. Un fetch truncado o a medio
+# fallar devuelve muchas menos filas; borrar globalmente en ese caso vaciaría la
+# tabla. Con un padrón sano el fetch completo trae ~100% de lo local, así que un
+# piso del 50% deja margen amplio sin habilitar borrados catastróficos.
+RECONCILIACION_GLOBAL_PISO = 0.5
+
+
+def reconciliar_asociaciones_global(
+    db: Session, itema_ids_erp: list[int], comp_ids_erp: set[int], local_count_pre: int
+) -> int:
+    """
+    Elimina toda asociación local ausente del dataset COMPLETO del ERP.
+
+    Versión a escala global de `reconciliar_asociaciones_combo`. El sync es upsert
+    puro y nunca refleja los borrados del ERP, así que las filas viejas de combos
+    modificados quedan como componentes fantasma. En un full sync (fetch sin
+    filtros) el ERP devuelve TODAS las asociaciones vigentes, por lo que cualquier
+    `itema_id` local que no esté en esa respuesta es un fantasma y se borra.
+
+    El borrado se acota a las compañías (`comp_id`) que el ERP efectivamente
+    devolvió: la clave de la tabla es `(comp_id, itema_id)` y el fetch sin filtros
+    puede traer solo una compañía. Borrar por `itema_id` a secas se llevaría filas
+    válidas de otra `comp_id` cuyo id no figure en la respuesta. Solo tocamos las
+    compañías de las que el ERP nos habló.
+
+    Un borrado global mal disparado vacía la tabla, así que solo se ejecuta bajo
+    dos guards (el caller ya garantiza que no hay filas sin `itema_id`):
+    - `itema_ids_erp` no vacío — una respuesta vacía es un fetch fallido.
+    - El ERP devolvió al menos `RECONCILIACION_GLOBAL_PISO` del padrón local
+      previo — protege contra un fetch truncado que se llevaría filas válidas.
+
+    Args:
+        db: sesión SQLAlchemy ya abierta — no se commitea acá.
+        itema_ids_erp: itema_id de TODAS las asociaciones que el ERP devolvió en
+            el fetch sin filtros.
+        comp_ids_erp: comp_id presentes en la respuesta del ERP. El borrado se
+            limita a estas compañías.
+        local_count_pre: cantidad de filas locales ANTES de procesar este sync,
+            para el guard de completitud.
+
+    Returns:
+        Cantidad de filas locales eliminadas.
+    """
+    if not itema_ids_erp:
+        logger.warning("⚠️ Reconciliación global omitida: el ERP no devolvió asociaciones (posible fetch fallido)")
+        return 0
+
+    if local_count_pre and len(itema_ids_erp) < local_count_pre * RECONCILIACION_GLOBAL_PISO:
+        logger.warning(
+            f"⚠️ Reconciliación global omitida: el ERP devolvió {len(itema_ids_erp)} asociaciones "
+            f"contra {local_count_pre} locales (por debajo del piso {RECONCILIACION_GLOBAL_PISO:.0%}, "
+            f"posible fetch truncado)"
+        )
+        return 0
+
+    eliminadas = (
+        db.query(TbItemAssociation)
+        .filter(
+            TbItemAssociation.comp_id.in_(comp_ids_erp),
+            TbItemAssociation.itema_id.notin_(itema_ids_erp),
+        )
+        .delete(synchronize_session=False)
+    )
+
+    if eliminadas:
+        logger.info(f"🔄 Reconciliación global: {eliminadas} asociación(es) fantasma eliminada(s)")
+    return eliminadas
+
+
 def sync_item_associations(
     itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
 ):
@@ -176,6 +246,10 @@ def sync_item_associations(
         if not registros_erp:
             logger.info("No hay registros para sincronizar")
             return (0, 0)
+
+        # Padrón local previo: lo necesita el guard de completitud de la
+        # reconciliación global (no borrar si el fetch vino sospechosamente corto).
+        local_count_pre = db_local.query(TbItemAssociation).count()
 
         # Obtener IDs existentes
         itema_ids = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
@@ -220,6 +294,7 @@ def sync_item_associations(
         # puntual (item_id, sin otros filtros), el ERP devolvió su BOM COMPLETA.
         # Borramos las asociaciones locales de ese combo que ya no existen en el
         # origen — los componentes fantasma de un combo que fue modificado.
+        sin_filtros = not item_id and not itema_id and not itema_id_4update and not item1_id
         if item_id and not itema_id and not itema_id_4update and not item1_id:
             itema_ids_vigentes = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
             # Si algún registro vino sin itema_id, la respuesta es parcial y la
@@ -232,6 +307,23 @@ def sync_item_associations(
                 )
             else:
                 reconciliar_asociaciones_combo(db_local, item_id, itema_ids_vigentes)
+
+        # Reconciliación global: el full sync (sin ningún filtro) trae TODO el
+        # padrón de asociaciones del ERP. Es el camino que corre el sync periódico
+        # (`sync_master_tables_small`), así que es acá donde se barren los
+        # componentes fantasma de combos modificados — el upsert nunca los borraba.
+        elif sin_filtros:
+            itema_ids_erp = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
+            comp_ids_erp = {r.get("comp_id", 1) for r in registros_erp if r.get("itema_id")}
+            # Misma salvaguarda parcial que la reconciliación por combo: si faltan
+            # itema_id la respuesta es incompleta y un borrado global se llevaría
+            # filas válidas.
+            if len(itema_ids_erp) != len(registros_erp):
+                logger.warning(
+                    "⚠️ Reconciliación global omitida: el ERP devolvió registros sin itema_id (respuesta parcial)"
+                )
+            else:
+                reconciliar_asociaciones_global(db_local, itema_ids_erp, comp_ids_erp, local_count_pre)
 
         # Commit final
         db_local.commit()
@@ -280,6 +372,9 @@ async def sync_item_associations_all(db: Session):
         total_nuevos = 0
         total_actualizados = 0
 
+        # Padrón local previo para el guard de completitud de la reconciliación.
+        local_count_pre = db.query(TbItemAssociation).count()
+
         # Obtener IDs existentes
         itema_ids = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
         existing = db.query(TbItemAssociation.itema_id).filter(TbItemAssociation.itema_id.in_(itema_ids)).all()
@@ -315,6 +410,18 @@ async def sync_item_associations_all(db: Session):
                 nuevo_registro = TbItemAssociation(**datos)
                 db.add(nuevo_registro)
                 total_nuevos += 1
+
+        # Reconciliación global: este es un full sync (fetch sin filtros), así que
+        # el ERP devolvió TODO el padrón. Barremos las asociaciones fantasma que el
+        # upsert nunca borraba. Si faltan itema_id la respuesta es parcial y un
+        # borrado global se llevaría filas válidas — no reconciliamos en ese caso.
+        if len(itema_ids) != len(registros_erp):
+            logger.warning(
+                "⚠️ Reconciliación global omitida: el ERP devolvió registros sin itema_id (respuesta parcial)"
+            )
+        else:
+            comp_ids_erp = {r.get("comp_id", 1) for r in registros_erp if r.get("itema_id")}
+            reconciliar_asociaciones_global(db, itema_ids, comp_ids_erp, local_count_pre)
 
         # Commit
         db.commit()
