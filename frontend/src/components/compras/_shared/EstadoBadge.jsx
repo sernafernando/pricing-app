@@ -37,6 +37,12 @@ const MAPPING_PEDIDO = {
   pagado: { tone: 'pagado', label: 'Pagado' },
   pagado_parcial: { tone: 'parcial', label: 'Parcial' },
   // pagado_parcial+saldo=0 se resuelve en runtime más abajo
+  // Estados de recepción en depósito (TabRecepcionDeposito).
+  // 'recibido' = arrived but not yet controlled → amber (parcial).
+  // 'controlado' = fully controlled → green (pagado). Terminal state.
+  recibido: { tone: 'parcial', label: 'Recibido' },
+  controlado: { tone: 'pagado', label: 'Controlado' },
+  con_faltantes: { tone: 'pendiente', label: 'Con faltantes' },
   aprobado: { tone: 'pendiente', label: 'Pendiente' },
   pendiente_aprobacion: { tone: 'borrador', label: 'Sin aprobar' },
   borrador: { tone: 'borrador', label: 'Borrador' },

@@ -17,6 +17,7 @@ import GestionAlertas from './pages/GestionAlertas';
 import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardMetricasML from './pages/DashboardMetricasML';
+import DashboardTPLink from './pages/DashboardTPLink';
 import DashboardVentasFuera from './pages/DashboardVentasFuera';
 import DashboardTiendaNube from './pages/DashboardTiendaNube';
 import Calculos from './pages/Calculos';
@@ -48,6 +49,7 @@ import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import FichajeMobile from './pages/FichajeMobile';
 import Tickets from './pages/Tickets';
+import ReescribirLH from './pages/ReescribirLH';
 import TicketsAdmin from './pages/TicketsAdmin';
 import AdministracionProveedores from './pages/AdministracionProveedores';
 import AdministracionBancos from './pages/AdministracionBancos';
@@ -164,6 +166,11 @@ function App() {
                 <Route path="/dashboard-metricas-ml" element={
                   <ProtectedRoute permiso="ventas_ml.ver_dashboard">
                     <DashboardMetricasML />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-tplink" element={
+                  <ProtectedRoute permiso="dashboard_tplink.ver">
+                    <DashboardTPLink />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-ventas-fuera" element={
@@ -348,6 +355,11 @@ function App() {
             <Route path="/tickets" element={
               <ProtectedRoute permiso="tickets.ver">
                 <Tickets />
+              </ProtectedRoute>
+            } />
+            <Route path="/etiquetas/reescribir-lh" element={
+              <ProtectedRoute permiso="etiquetas.reescribir_lh">
+                <ReescribirLH />
               </ProtectedRoute>
             } />
             <Route path="/tickets/admin" element={

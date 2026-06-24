@@ -36,13 +36,12 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
-from app.services.fx_service import q_ars
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.imputacion import Imputacion
 from app.models.tipo_cambio import TipoCambio
 
 if TYPE_CHECKING:
-    from app.models.pedido_compra import PedidoCompra
+    pass
 
 logger = get_logger("services.cc_proveedor_service")
 
@@ -880,79 +879,6 @@ def _crear_alerta_y_notificaciones_divergencia(
         return None, []
 
 
-def registrar_ajuste_revaluacion_tc(
-    session: Session,
-    *,
-    pedido: "PedidoCompra",
-    tc_anterior: Decimal,
-    tc_nuevo: Decimal,
-    user_id: int,
-    motivo: str,
-) -> Optional[CCProveedorMovimiento]:
-    """
-    Emits an append-only CC `ajuste` movement for a TC re-valuation delta.
-
-    Implements AD-9: re-valuation of the pedido's ARS debt NEVER mutates
-    existing `cc_proveedor_movimientos` rows — it creates a NEW row.
-
-    The movement amount is: abs(tc_nuevo - tc_anterior) * pedido.monto (USD).
-    Sign:
-      - `signo_ajuste=+1` if TC rose (debt increased in ARS).
-      - `signo_ajuste=-1` if TC fell (debt decreased in ARS).
-
-    Moneda of the adjustment: always ARS (the re-valuation is an ARS delta).
-
-    Args:
-        session: active tx.
-        pedido: the PedidoCompra being re-valued.
-        tc_anterior: effective TC before this operation.
-        tc_nuevo: effective TC after this operation.
-        user_id: user triggering the re-valuation.
-        motivo: short description for the adjustment record.
-
-    Returns:
-        The created `CCProveedorMovimiento`, or None if delta is zero
-        (no-op, no row created).
-    """
-
-    delta_tc = Decimal(tc_nuevo) - Decimal(tc_anterior)
-    if delta_tc == 0:
-        return None
-
-    # ARS delta = |tc_diff| * monto_usd. `pedido.monto` is always the
-    # USD face-value of the pedido (stored as Numeric(18,2)).
-    monto_ajuste = q_ars(abs(delta_tc) * Decimal(pedido.monto))
-    signo = 1 if delta_tc > 0 else -1
-
-    fecha_mov = date.today()
-
-    mov = insertar_mov(
-        session,
-        proveedor_id=pedido.proveedor_id,
-        empresa_id=pedido.empresa_id,
-        fecha_movimiento=fecha_mov,
-        tipo="ajuste",
-        monto=monto_ajuste,
-        moneda="ARS",
-        origen_tipo="revaluacion_tc",
-        origen_id=pedido.id,
-        descripcion=f"Revaluación TC pedido #{pedido.numero}: {tc_anterior} → {tc_nuevo} ({motivo})",
-        creado_por_id=user_id,
-        signo_ajuste=signo,
-    )
-
-    logger.info(
-        "ajuste_revaluacion_tc pedido_id=%s tc_anterior=%s tc_nuevo=%s delta=%s signo=%s monto_ars=%s",
-        pedido.id,
-        tc_anterior,
-        tc_nuevo,
-        delta_tc,
-        signo,
-        monto_ajuste,
-    )
-    return mov
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # calcular_saldo_a_favor_breakdown (PR2 — AD-8)
 # ──────────────────────────────────────────────────────────────────────────
@@ -1111,5 +1037,4 @@ __all__ = [
     "insertar_mov",
     "listar_movimientos",
     "reconciliar_diario",
-    "registrar_ajuste_revaluacion_tc",
 ]

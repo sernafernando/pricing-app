@@ -143,7 +143,7 @@ class PedidoCompra(Base):
         CheckConstraint("monto > 0", name="ck_pedidos_compra_monto_positivo"),
         CheckConstraint(
             "estado IN ('borrador','pendiente_aprobacion','aprobado','rechazado',"
-            "'cancelado','pagado_parcial','pagado','recibido','con_faltantes')",
+            "'cancelado','pagado_parcial','pagado','recibido','con_faltantes','controlado')",
             name="ck_pedidos_compra_estado",
         ),
         Index("ix_pedidos_compra_empresa_estado", "empresa_id", "estado"),

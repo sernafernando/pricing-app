@@ -72,6 +72,10 @@ export default function ModalCheque({
   // FIX 4: guard against double-submit in mode="op" (isSaving only covers standalone).
   const [submitting, setSubmitting] = useState(false);
 
+  // ── Empresas (standalone: elegir empresa para poder filtrar sus bancos) ──
+  const [empresas, setEmpresas] = useState([]);
+  const [empresaSel, setEmpresaSel] = useState(empresaIdProp ? String(empresaIdProp) : '');
+
   // ── Bancos de empresa ──
   const [bancosEmpresa, setBancosEmpresa] = useState([]);
   const [loadingBancos, setLoadingBancos] = useState(false);
@@ -93,11 +97,23 @@ export default function ModalCheque({
     }
   }, []);
 
-  // Si viene empresaIdProp, cargamos desde el inicio.
+  // Empresa efectiva: la de la OP (prop) o la elegida en modo standalone.
+  const effectiveEmpresaId = empresaIdProp ?? (empresaSel ? Number(empresaSel) : null);
+
+  // Standalone: cargar la lista de empresas para el selector.
   useEffect(() => {
-    if (empresaIdProp) fetchBancos(empresaIdProp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (empresaIdProp) return;
+    api
+      .get('/admin/empresas')
+      .then(({ data }) => setEmpresas(Array.isArray(data) ? data : data?.empresas ?? []))
+      .catch(() => setEmpresas([]));
+  }, [empresaIdProp]);
+
+  // Cargar bancos cada vez que cambia la empresa efectiva (prop o elegida).
+  useEffect(() => {
+    if (effectiveEmpresaId) fetchBancos(effectiveEmpresaId);
+    else setBancosEmpresa([]);
+  }, [effectiveEmpresaId, fetchBancos]);
 
   // ── Chequeras ──
   const [chequeras, setChequeras] = useState([]);
@@ -201,6 +217,7 @@ export default function ModalCheque({
 
   const validar = () => {
     if (tipo === 'propio') {
+      if (!effectiveEmpresaId) return 'Seleccioná una empresa.';
       if (!bancoEmpresaId) return 'Seleccioná un banco.';
       if (instrumento === 'fisico' && !chequeraId) return 'Seleccioná una chequera.';
       if (!proveedorId) return 'El beneficiario es requerido.';
@@ -370,6 +387,37 @@ export default function ModalCheque({
             {/* Campos específicos: propio vs tercero */}
             {tipo === 'propio' && (
               <>
+                {/* Empresa — solo standalone; en modo OP se hereda de la OP. */}
+                {!empresaIdProp && (
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.fieldLabel} htmlFor="cheque-empresa">
+                      Empresa
+                    </label>
+                    <div className={styles.selectWrapper}>
+                      <select
+                        id="cheque-empresa"
+                        className={styles.select}
+                        value={empresaSel}
+                        onChange={(e) => {
+                          setEmpresaSel(e.target.value);
+                          setBancoEmpresaId('');
+                          setChequeraId('');
+                        }}
+                        required
+                        disabled={isSaving}
+                      >
+                        <option value="">Seleccioná una empresa...</option>
+                        {empresas.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.nombre}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} className={styles.selectArrow} />
+                    </div>
+                  </div>
+                )}
+
                 {/* Banco (select empresa) */}
                 <div className={styles.fieldGroup}>
                   <label className={styles.fieldLabel} htmlFor="cheque-banco">
@@ -379,10 +427,13 @@ export default function ModalCheque({
                     <div className={styles.loadingRow}>
                       <Loader2 size={14} className={styles.spin} /> Cargando bancos...
                     </div>
-                  ) : bancosEmpresa.length === 0 && !empresaIdProp ? (
+                  ) : !effectiveEmpresaId ? (
                     <p className={styles.fieldHint}>
-                      El banco se carga automáticamente desde la empresa de la OP.
-                      En modo standalone, la empresa debe proporcionarse como prop.
+                      Elegí una empresa para ver sus bancos.
+                    </p>
+                  ) : bancosEmpresa.length === 0 ? (
+                    <p className={styles.fieldHint}>
+                      La empresa seleccionada no tiene bancos activos.
                     </p>
                   ) : (
                     <div className={styles.selectWrapper}>

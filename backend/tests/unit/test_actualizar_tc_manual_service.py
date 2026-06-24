@@ -6,7 +6,7 @@ Tests cover:
   T5.8  — After override, Caso-A payment does NOT change tipo_cambio.
   T5.9  — Clear override (null) resumes weighted Caso-A average.
   T5.10 — Clear override with no Caso-A payments → falls back to tipo_cambio_original.
-  T5.11 — Override emits append-only CC ajuste; existing rows untouched.
+  T5.11 — Override does NOT emit any CC movement (revaluación removed as vestigial).
   T5.12 — After override, varianza_tc is recomputed.
   T5.13 — Override wins over posterior Caso-A payment (AD-4, Scenario 5.A).
   T5.14 — Clearing after posterior Caso-A resumes Caso-A weighted avg (Scenario 5.B).
@@ -272,8 +272,14 @@ class TestActualizarTipoCambioManual:
         assert pedido.tipo_cambio_manual is None
         assert pedido.tipo_cambio == Decimal("1400")  # = tipo_cambio_original
 
-    def test_override_emits_append_only_cc_ajuste(self, db, empresa, proveedor, active_user) -> None:
-        """T5.11 / AC5.4 — setting override creates one CC ajuste row; existing rows unchanged."""
+    def test_override_does_not_emit_cc_ajuste(self, db, empresa, proveedor, active_user) -> None:
+        """T5.11 — a manual TC override must NOT post any CC movement.
+
+        The pedido is not invoiced, so the final paid debt is the source of
+        truth (that is why Caso A exists). The vestigial TC re-valuation
+        adjustment was removed: the override only updates pedido.tipo_cambio
+        for costing and never touches the supplier current account.
+        """
         pedido = _make_pedido_usd(db, empresa, proveedor, active_user.id, tc_original=Decimal("1400"))
 
         # Count CC movements before.
@@ -302,21 +308,19 @@ class TestActualizarTipoCambioManual:
             .count()
         )
 
-        # Exactly one new CC row was appended.
-        assert count_after == count_before + 1
+        # No CC movement is created by a manual TC override.
+        assert count_after == count_before
 
-        # The new row is tipo='ajuste'.
+        # Specifically, no revaluation 'ajuste' row was appended.
         ajuste = (
             db.query(CCProveedorMovimiento)
             .filter(
                 CCProveedorMovimiento.proveedor_id == proveedor.id,
                 CCProveedorMovimiento.tipo == "ajuste",
             )
-            .order_by(CCProveedorMovimiento.id.desc())
             .first()
         )
-        assert ajuste is not None
-        assert ajuste.tipo == "ajuste"
+        assert ajuste is None
 
     def test_override_triggers_varianza_recompute(self, db, empresa, proveedor, active_user) -> None:
         """T5.12 / AC5.5 — after override, varianza_tc_neta is recomputed correctly."""

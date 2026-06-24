@@ -291,7 +291,8 @@ def crear(
       - Coherencia `moneda` ↔ `tipo_cambio` (vía `_resolver_tipo_cambio`).
       - `motivo` no vacío.
 
-    Genera número via `numeracion_service.generar_siguiente_numero(tipo='nota_credito')`.
+    Genera número via `numeracion_service.generar_siguiente_numero`, con prefijo
+    NC-... para `tipo='credito'` y ND-... para `tipo='debito'`.
     Inserta evento `nc_creada` en `compras_eventos`.
 
     NO commit — responsabilidad del caller.
@@ -330,9 +331,12 @@ def crear(
 
     tc_resuelto = _resolver_tipo_cambio(session, moneda=moneda, tipo_cambio=tipo_cambio)
 
+    # F2 — el prefijo del correlativo sigue el tipo de la nota: las Notas de
+    # Débito (tipo='debito') se numeran ND-..., las de Crédito NC-...
+    tipo_numeracion = "nota_debito" if tipo == "debito" else "nota_credito"
     numero, _ = numeracion_service.generar_siguiente_numero(
         session,
-        tipo="nota_credito",
+        tipo=tipo_numeracion,
         empresa_id=empresa_id,
     )
 

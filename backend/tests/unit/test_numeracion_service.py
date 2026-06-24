@@ -70,8 +70,13 @@ class TestConstantes:
 
     def test_prefijos_contiene_los_tipos_soportados(self) -> None:
         # Compras v1: pedido + orden_pago.
-        # Compras v2: + nota_credito (NCs locales).
-        assert PREFIX == {"pedido": "P", "orden_pago": "OP", "nota_credito": "NC"}
+        # Compras v2: + nota_credito (NCs locales) + nota_debito (NDs locales).
+        assert PREFIX == {
+            "pedido": "P",
+            "orden_pago": "OP",
+            "nota_credito": "NC",
+            "nota_debito": "ND",
+        }
 
     def test_tz_argentina_es_utc_minus_3(self) -> None:
         assert TZ_ARGENTINA == ZoneInfo("America/Argentina/Buenos_Aires")
@@ -89,6 +94,30 @@ class TestFormato:
         numero, nuevo = generar_siguiente_numero(db, tipo="orden_pago", empresa_id=2, anio=2026)
         assert numero == "OP-02-2026-00001"
         assert nuevo == 1
+
+    def test_primer_numero_nota_credito_formato(self, db) -> None:
+        _crear_empresa(db, 1)
+        numero, nuevo = generar_siguiente_numero(db, tipo="nota_credito", empresa_id=1, anio=2026)
+        assert numero == "NC-01-2026-00001"
+        assert nuevo == 1
+
+    def test_primer_numero_nota_debito_formato(self, db) -> None:
+        _crear_empresa(db, 1)
+        numero, nuevo = generar_siguiente_numero(db, tipo="nota_debito", empresa_id=1, anio=2026)
+        assert numero == "ND-01-2026-00001"
+        assert nuevo == 1
+
+    def test_nc_y_nd_tienen_secuencias_independientes(self, db) -> None:
+        """NC y ND no comparten correlativo: cada una arranca en 1."""
+        _crear_empresa(db, 1)
+        nc1, i_nc1 = generar_siguiente_numero(db, tipo="nota_credito", empresa_id=1, anio=2026)
+        nd1, i_nd1 = generar_siguiente_numero(db, tipo="nota_debito", empresa_id=1, anio=2026)
+        nc2, i_nc2 = generar_siguiente_numero(db, tipo="nota_credito", empresa_id=1, anio=2026)
+
+        assert nc1 == "NC-01-2026-00001"
+        assert nd1 == "ND-01-2026-00001"
+        assert nc2 == "NC-01-2026-00002"
+        assert (i_nc1, i_nd1, i_nc2) == (1, 1, 2)
 
 
 class TestIncremento:

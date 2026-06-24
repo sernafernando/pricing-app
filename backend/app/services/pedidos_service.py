@@ -2894,12 +2894,13 @@ def actualizar_tipo_cambio_manual(
       - `tipo_cambio` non-null → set/replace override.
         * Stores value in `pedido.tipo_cambio_manual`.
         * Re-derives effective TC via `resolver_tc_efectivo_pedido`.
-        * Emits an append-only CC `ajuste` movement for the ARS delta.
+        * Writes the new effective TC to the materialized cache (AD-1).
       - `tipo_cambio` null → CLEAR override.
         * Sets `pedido.tipo_cambio_manual = None`.
         * Re-derives effective TC (falls back to Caso-A weighted or tipo_cambio_original).
-        * Emits CC `ajuste` for the delta from old to new effective TC.
+        * Writes the new effective TC to the materialized cache (AD-1).
 
+    Does NOT emit any CC movement — TC updates are for costing only.
     This is IN-PLACE re-valuation — never cancels+clones the pedido (AD-9).
     `pedido.monto` is NEVER changed.
 
@@ -2919,8 +2920,6 @@ def actualizar_tipo_cambio_manual(
         HTTPException 404: pedido not found.
         HTTPException 409: pedido state is not in {aprobado, pagado_parcial, pagado}.
     """
-    from app.services.cc_proveedor_service import registrar_ajuste_revaluacion_tc  # noqa: PLC0415
-
     # Validate motivo — must be non-empty after stripping whitespace.
     motivo_limpio = (motivo or "").strip()
     if not motivo_limpio:
@@ -2970,17 +2969,6 @@ def actualizar_tipo_cambio_manual(
     # on a USD pedido is already a pre-existing condition, not introduced by F5.
     if tc_nuevo is not None:
         pedido.tipo_cambio = tc_nuevo
-
-    # Emit append-only CC ajuste for the ARS delta (AD-9).
-    if tc_anterior is not None and tc_nuevo is not None:
-        registrar_ajuste_revaluacion_tc(
-            session,
-            pedido=pedido,
-            tc_anterior=tc_anterior,
-            tc_nuevo=tc_nuevo,
-            user_id=user_id,
-            motivo=motivo,
-        )
 
     _registrar_evento(
         session,

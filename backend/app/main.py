@@ -23,6 +23,7 @@ from app.api.endpoints import (
     configuracion,
     items_sin_mla,
     dashboard_ml,
+    dashboard_tplink,
     erp_sync,
     ml_catalog,
     tienda_nube,
@@ -251,6 +252,7 @@ app.include_router(calculos.router, prefix="/api", tags=["calculos"])
 app.include_router(configuracion.router, prefix="/api", tags=["configuracion"])
 app.include_router(items_sin_mla.router, prefix="/api/items-sin-mla", tags=["items-sin-mla"])
 app.include_router(dashboard_ml.router, prefix="/api", tags=["dashboard-ml"])
+app.include_router(dashboard_tplink.router, prefix="/api", tags=["dashboard-tplink"])
 app.include_router(erp_sync.router, prefix="/api", tags=["erp-sync"])
 app.include_router(ml_catalog.router, prefix="/api/ml-catalog", tags=["ml-catalog"])
 app.include_router(tienda_nube.router, prefix="/api/tienda-nube", tags=["tienda-nube"])

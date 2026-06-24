@@ -47,7 +47,8 @@ logger = get_logger("services.recepcion_service")
 PERMISO_RECEPCION: str = "deposito.recibir_mercaderia"
 
 # States that accept incoming receipt operations.
-_ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "con_faltantes"})
+# 'recibido' added: it is now the intermediate state after arrival (D-CONOC).
+_ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "recibido", "con_faltantes"})
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -58,14 +59,14 @@ _ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "con_faltantes"})
 def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
     """Raise 409 if the pedido cannot accept a receipt operation.
 
-    Allowed entry states: 'pagado', 'con_faltantes'.
-    'recibido' raises a distinct 409 (terminal state).
+    Allowed entry states: 'pagado', 'recibido', 'con_faltantes'.
+    'controlado' raises a distinct 409 — it is the terminal state (D-SINOC).
     All other states raise a generic 409.
     """
-    if pedido.estado == "recibido":
+    if pedido.estado == "controlado":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Pedido already fully received",
+            detail="Pedido already controlled",
         )
     if pedido.estado not in _ESTADOS_RECEPTIVOS:
         raise HTTPException(
@@ -207,10 +208,11 @@ def recalcular_estado(
         oc_lineas_saldos: list of dicts with keys 'pod_id' and 'saldo' (Decimal).
 
     Returns:
-        The new estado string ('recibido' or 'con_faltantes').
+        The new estado string ('controlado' or 'con_faltantes').
     """
     all_zero = all(Decimal(str(l["saldo"])) <= Decimal("0") for l in oc_lineas_saldos)
-    nuevo_estado = "recibido" if all_zero else "con_faltantes"
+    # D-CONOC: all OC lines balanced → controlado (terminal); partial → con_faltantes.
+    nuevo_estado = "controlado" if all_zero else "con_faltantes"
     pedido.estado = nuevo_estado
     return nuevo_estado
 
@@ -333,7 +335,7 @@ def registrar_ingresos(
     session.flush()  # persist estado update so callers see the new value
 
     # Step 8 — emit event
-    if nuevo_estado == "recibido":
+    if nuevo_estado == "controlado":
         tipo_evento = "recepcion_registrada"
         lineas_payload = [
             {
@@ -402,9 +404,17 @@ def confirmar_pedido_sin_oc(
     user: Usuario,
     request: ConfirmarPedidoRequest,
 ) -> ConfirmarPedidoResponse:
-    """Confirm reception at pedido level for SIN-OC pedidos.
+    """Confirm reception at pedido level — SIN-OC path (D-SINOC truth table).
 
-    Writes a single sentinel row in pedido_compra_ingresos (pod_id=NULL,
+    Two-step logic derived from current estado:
+      - pagado + any      → recibido    (ARRIVAL step; completo ignored)
+      - recibido + True   → controlado  (CONTROL step: complete)
+      - recibido + False  → con_faltantes
+      - con_faltantes + True  → controlado
+      - con_faltantes + False → con_faltantes (stays, partial again)
+      - controlado + any  → 409 terminal
+
+    Writes a sentinel row in pedido_compra_ingresos (pod_id=NULL,
     cantidad_recibida=1) for uniform WHO/WHEN auditing. The partial index
     ix_pci_pod excludes this row from saldo calculations.
 
@@ -419,6 +429,23 @@ def confirmar_pedido_sin_oc(
         )
 
     _validar_estado_receptivo(pedido)
+
+    # D-SINOC routing: arrival vs control step
+    if pedido.estado == "pagado":
+        # ARRIVAL step — record logistics fact; completo is ignored
+        nuevo_estado = "recibido"
+        tipo_evento = "recepcion_arribo"
+    elif pedido.estado in {"recibido", "con_faltantes"}:
+        # CONTROL step — evaluate completeness
+        nuevo_estado = "controlado" if request.completo else "con_faltantes"
+        tipo_evento = "recepcion_registrada" if request.completo else "recepcion_con_faltantes"
+    else:
+        # Should not reach here since _validar_estado_receptivo guards above,
+        # but guard defensively.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Pedido not in a receivable state (estado='{pedido.estado}')",
+        )
 
     # Sentinel row — pod_id=NULL marks SIN-OC confirmations
     sentinel = PedidoCompraIngreso(
@@ -435,10 +462,8 @@ def confirmar_pedido_sin_oc(
     )
     session.add(sentinel)
 
-    nuevo_estado = "recibido" if request.completo else "con_faltantes"
     pedido.estado = nuevo_estado
 
-    tipo_evento = "recepcion_registrada" if request.completo else "recepcion_con_faltantes"
     _emit_evento(
         session,
         pedido=pedido,
@@ -458,6 +483,80 @@ def confirmar_pedido_sin_oc(
     return ConfirmarPedidoResponse(
         pedido_id=pedido.id,
         estado_nuevo=nuevo_estado,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# RD-A.8b — confirmar_arribo_con_oc (D-CONOC arrival, state-only)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def confirmar_arribo_con_oc(
+    session: Session,
+    pedido: PedidoCompra,
+    user: Usuario,
+) -> ConfirmarPedidoResponse:
+    """State-only arrival transition for CON-OC pedidos: pagado → recibido.
+
+    Does NOT create ingresos lines (counting happens via /recepcion/ingresos
+    at the control step). Writes a sentinel row for WHO/WHEN auditing and
+    emits 'recepcion_arribo'.
+
+    Raises:
+        HTTPException 409 — pedido has no OC linked (use confirmar_pedido_sin_oc).
+        HTTPException 409 — pedido not in estado='pagado' (only arrival step accepted here).
+    """
+    if pedido.oc_poh_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pedido has no linked OC. Use /recepcion/confirmar-pedido instead.",
+        )
+
+    _validar_estado_receptivo(pedido)
+
+    if pedido.estado != "pagado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"CON-OC arrival only valid from 'pagado' (current estado='{pedido.estado}'). "
+                "Use /recepcion/ingresos for the control step."
+            ),
+        )
+
+    # Sentinel row — pod_id=NULL marks arrival confirmations without line counting
+    sentinel = PedidoCompraIngreso(
+        pedido_id=pedido.id,
+        pod_id=None,
+        oc_comp_id=pedido.oc_comp_id,
+        oc_bra_id=pedido.oc_bra_id,
+        oc_poh_id=pedido.oc_poh_id,
+        item_id=None,
+        stor_id=None,
+        cantidad_recibida=Decimal("1"),
+        usuario_id=user.id,
+        observaciones=None,
+    )
+    session.add(sentinel)
+
+    pedido.estado = "recibido"
+
+    _emit_evento(
+        session,
+        pedido=pedido,
+        user=user,
+        tipo="recepcion_arribo",
+        payload={
+            "modo": "con_oc",
+            "requiere_envio": bool(pedido.requiere_envio),
+            "retiro_generado": False,
+        },
+    )
+
+    session.flush()
+
+    return ConfirmarPedidoResponse(
+        pedido_id=pedido.id,
+        estado_nuevo="recibido",
     )
 
 
@@ -482,7 +581,7 @@ def get_eventos_recepcion(
         .filter(
             CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_PEDIDO,
             CompraEvento.entidad_id == pedido_id,
-            CompraEvento.tipo.in_(["recepcion_registrada", "recepcion_con_faltantes"]),
+            CompraEvento.tipo.in_(["recepcion_registrada", "recepcion_con_faltantes", "recepcion_arribo"]),
         )
         .order_by(CompraEvento.id.desc())
         .all()
