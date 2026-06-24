@@ -101,7 +101,9 @@ def reescribir_lh(
     try:
         result = rewrite_label_home(inner, target_y)
     except NoLabelHomeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # 422 Unprocessable Content: the upload is well-formed but contains
+        # no ^LH command to rewrite, so there is nothing to process.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # 6. Derive safe output filename
     out_name = derive_output_filename(stem)

@@ -123,14 +123,14 @@ class TestAuth:
 
 
 class TestValidation:
-    def test_t61c_no_lh_returns_400(self, client_with_permiso):
-        """T6.1c: Valid auth + no ^LH file → 400."""
+    def test_t61c_no_lh_returns_422(self, client_with_permiso):
+        """T6.1c: Valid auth + no ^LH file → 422 (well-formed but nothing to process)."""
         response = client_with_permiso.post(
             "/api/etiquetas-envio/reescribir-lh",
             files=_make_txt_upload(NO_LH_ZPL),
             data={"target_y": "450"},
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_t61d_negative_y_returns_400(self, client_with_permiso):
         """T6.1d: target_y = -1 → 400."""
