@@ -84,6 +84,52 @@ class TestCrearNCLocal:
         assert nc.motivo == "Devolución por mercadería defectuosa"
         assert nc.aprobado_por_id is None
 
+    def test_crear_nd_debito_usa_prefijo_nd(self, db, empresa, proveedor, active_user) -> None:
+        """Regresión: una Nota de Débito (tipo='debito') debe numerarse ND-..., no NC-..."""
+        nd = ncs_locales_service.crear(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("3000.00"),
+            fecha_emision=date(2026, 4, 22),
+            motivo="Nota de débito por varianza",
+            creado_por_id=active_user.id,
+            tipo="debito",
+        )
+        assert nd.tipo == "debito"
+        assert nd.numero.startswith("ND-01-")
+        assert not nd.numero.startswith("NC-")
+
+    def test_crear_nc_credito_y_nd_debito_secuencias_separadas(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        """NC y ND llevan correlativos independientes: cada una arranca en 00001."""
+        nc = ncs_locales_service.crear(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000.00"),
+            fecha_emision=date(2026, 4, 22),
+            motivo="Crédito",
+            creado_por_id=active_user.id,
+            tipo="credito",
+        )
+        nd = ncs_locales_service.crear(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000.00"),
+            fecha_emision=date(2026, 4, 22),
+            motivo="Débito",
+            creado_por_id=active_user.id,
+            tipo="debito",
+        )
+        assert nc.numero == "NC-01-2026-00001"
+        assert nd.numero == "ND-01-2026-00001"
+
     def test_crear_nc_usd_con_tc_ok(self, db, empresa, proveedor, active_user) -> None:
         nc = ncs_locales_service.crear(
             db,
