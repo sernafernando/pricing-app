@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle } from 'lucide-react';
+import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle, FileText } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from '../components/SearchInput';
 import styles from './PedidosPreparacion.module.css';
@@ -494,6 +494,15 @@ export default function PedidosPreparacion() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>Envíos Pendientes</h1>
+        {puedeReescribirLH && (
+          <button
+            onClick={() => setModalReescribirLH(true)}
+            className={styles.agregarPrearmadoBtn}
+            title="Corregir offset vertical ^LH en etiquetas ZPL"
+          >
+            <FileText size={16} /> Corregir ^LH
+          </button>
+        )}
       </div>
 
       {/* Navegación por Tabs */}
@@ -579,15 +588,6 @@ export default function PedidosPreparacion() {
                 title="Agregar producto a pre-armado manualmente"
               >
                 + Pre-armado
-              </button>
-            )}
-            {puedeReescribirLH && (
-              <button
-                onClick={() => setModalReescribirLH(true)}
-                className={styles.agregarPrearmadoBtn}
-                title="Corregir offset vertical ^LH en etiquetas ZPL"
-              >
-                Corregir ^LH
               </button>
             )}
           </div>
