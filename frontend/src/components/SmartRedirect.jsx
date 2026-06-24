@@ -48,6 +48,7 @@ export default function SmartRedirect() {
     { path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
     { path: '/rrhh/empleados', permiso: 'rrhh.ver' },
     { path: '/administracion/proveedores', permiso: 'administracion.ver_proveedores' },
+    { path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso
