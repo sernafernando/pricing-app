@@ -36,21 +36,25 @@ if _is_script_context():
         poolclass=NullPool,
     )
 else:
-    # FastAPI/uvicorn: pool moderado — PgBouncer hace el pooling pesado.
-    # pool_size=8        → 8 conexiones persistentes por worker a PgBouncer
-    # max_overflow=4     → hasta 12 total por worker en picos
+    # FastAPI/uvicorn: pool dimensionado contra el threadpool de Starlette (40).
+    # pool_size=15       → 15 conexiones persistentes por worker a PgBouncer
+    # max_overflow=10    → hasta 25 total por worker en picos
     # pool_recycle=600   → recicla cada 10 min (≤ PgBouncer server_idle_timeout)
     # pool_timeout=30    → espera 30s antes de fallar
     # pool_pre_ping=True → detecta conexiones que PgBouncer cerró por idle
     # pool_use_lifo=True → reutiliza la conexión más fresca (menos chance de stale)
     #
-    # Con 4 workers: 4 × 12 = 48 client-conns a PgBouncer (max_client_conn=500)
-    # PgBouncer → PostgreSQL: ~60-70 conexiones reales (max_connections=200)
+    # Con 4 workers: 4 × 25 = 100 client-conns a PgBouncer (max_client_conn=500).
+    # PgBouncer (transaction mode) multiplexa esas 100 sobre default_pool_size=80
+    # server-conns reales a PostgreSQL (max_connections=200), liberando entre
+    # transacciones → en operación normal queda bien por debajo de 80.
+    # NOTA: 25 sigue < 40 (threadpool de Starlette). El fix real es no retener la
+    # sesión durante llamadas HTTP externas (ej: refetch ERP en prearmado).
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=8,
-        max_overflow=4,
+        pool_size=15,
+        max_overflow=10,
         pool_recycle=600,
         pool_timeout=30,
         pool_use_lifo=True,
