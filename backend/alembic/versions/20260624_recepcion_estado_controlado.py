@@ -49,6 +49,7 @@ def _estados_check(estados: tuple[str, ...]) -> str:
 
 
 def upgrade() -> None:
+  develop
     # Step 1: Drop the current 9-state constraint FIRST.
     # The data migration below writes 'controlado', a value the OLD constraint
     # does NOT allow. The constraint must be gone before the UPDATE runs, or
@@ -62,6 +63,16 @@ def upgrade() -> None:
     op.execute("UPDATE pedidos_compra SET estado = 'controlado' WHERE estado = 'recibido'")
 
     # Step 3: Add the new 10-state constraint (includes 'controlado').
+
+    # Step 1: Rename existing terminal 'recibido' rows to 'controlado'
+    # MUST happen BEFORE dropping the constraint so the value is still valid.
+    op.execute("UPDATE pedidos_compra SET estado = 'controlado' WHERE estado = 'recibido'")
+
+    # Step 2: Drop current 9-state constraint
+    op.drop_constraint("ck_pedidos_compra_estado", "pedidos_compra", type_="check")
+
+    # Step 3: Add new 10-state constraint (includes 'controlado')
+ main
     op.create_check_constraint(
         "ck_pedidos_compra_estado",
         "pedidos_compra",
