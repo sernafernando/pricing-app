@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle } from 'lucide-react';
+import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck, MinusCircle, FileText } from 'lucide-react';
 import api from '../services/api';
 import SearchInput from '../components/SearchInput';
 import styles from './PedidosPreparacion.module.css';
@@ -11,6 +11,7 @@ import TabPistoleado from '../components/TabPistoleado';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
+import ReescribirLHModal from '../components/ReescribirLHModal';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import { registrarPagina } from '../registry/tabRegistry';
@@ -143,6 +144,7 @@ export default function PedidosPreparacion() {
   const [procesando, setProcesando] = useState(new Set());
   const [modalPrearmado, setModalPrearmado] = useState(null); // { item_id, item_code, item_desc, cantidad_actual }
   const [modalBanlist, setModalBanlist] = useState(false);
+  const [modalReescribirLH, setModalReescribirLH] = useState(false);
   const [banlist, setBanlist] = useState([]);
   const [modalAgregarPrearmado, setModalAgregarPrearmado] = useState(false);
   const [busquedaPrearmado, setBusquedaPrearmado] = useState('');
@@ -157,6 +159,7 @@ export default function PedidosPreparacion() {
   const puedeVerEnviosFlex = tienePermiso('envios_flex.ver');
   const puedeVerCheckeoColecta = tienePermiso('envios_flex.ver');
   const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
+  const puedeReescribirLH = tienePermiso('etiquetas.reescribir_lh');
 
   // Prearmadas stats for visible items in the current pedido
   const prearmadasItemIds = useMemo(
@@ -491,6 +494,15 @@ export default function PedidosPreparacion() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>Envíos Pendientes</h1>
+        {puedeReescribirLH && (
+          <button
+            onClick={() => setModalReescribirLH(true)}
+            className={styles.agregarPrearmadoBtn}
+            title="Corregir offset vertical ^LH en etiquetas ZPL"
+          >
+            <FileText size={16} /> Corregir ^LH
+          </button>
+        )}
       </div>
 
       {/* Navegación por Tabs */}
@@ -902,6 +914,11 @@ export default function PedidosPreparacion() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Corregir etiquetas ^LH */}
+      {modalReescribirLH && (
+        <ReescribirLHModal onClose={() => setModalReescribirLH(false)} />
       )}
 
       {/* Modal Agregar Pre-armado Manual */}
