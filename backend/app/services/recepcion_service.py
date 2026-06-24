@@ -208,7 +208,7 @@ def recalcular_estado(
         oc_lineas_saldos: list of dicts with keys 'pod_id' and 'saldo' (Decimal).
 
     Returns:
-        The new estado string ('recibido' or 'con_faltantes').
+        The new estado string ('controlado' or 'con_faltantes').
     """
     all_zero = all(Decimal(str(l["saldo"])) <= Decimal("0") for l in oc_lineas_saldos)
     # D-CONOC: all OC lines balanced → controlado (terminal); partial → con_faltantes.
