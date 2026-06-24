@@ -345,7 +345,10 @@ class TestMigration:
         db.rollback()
 
     def test_migration_new_states_accepted(self, db, empresa, proveedor, active_user):
-        """States 'recibido' and 'con_faltantes' are accepted by PedidoCompra."""
+        """States 'recibido', 'con_faltantes', and 'controlado' are accepted by PedidoCompra.
+
+        REQ-EC-008, REQ-EC-011.
+        """
         p1 = PedidoCompra(
             numero="P-RD-ST-01",
             empresa_id=empresa.id,
@@ -364,10 +367,20 @@ class TestMigration:
             estado="con_faltantes",
             creado_por_id=active_user.id,
         )
-        db.add_all([p1, p2])
+        p3 = PedidoCompra(
+            numero="P-RD-ST-03",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add_all([p1, p2, p3])
         db.flush()
         assert p1.id is not None
         assert p2.id is not None
+        assert p3.id is not None
 
     def test_migration_invalid_state_rejected(self, db, empresa, proveedor, active_user):
         """State 'en_camino' (invalid) is rejected by CheckConstraint."""
@@ -499,12 +512,12 @@ class TestRecepcionServiceSaldos:
         assert IngresoLinea(pod_id=1, cantidad_recibida=Decimal("2")).cantidad_recibida == Decimal("2")
         assert IngresoLinea(pod_id=1, cantidad_recibida=Decimal("2.0")).cantidad_recibida == Decimal("2.0")
 
-    def test_recalcular_estado_todos_cero_da_recibido(self, db, pedido_pagado_con_oc):
-
+    def test_recalcular_estado_todos_cero_da_controlado(self, db, pedido_pagado_con_oc):
+        # REQ-EC-002: CON-OC control step — all saldos zero → controlado (terminal)
         saldos = [{"pod_id": 1, "saldo": Decimal("0")}, {"pod_id": 2, "saldo": Decimal("0")}]
         estado = recepcion_service.recalcular_estado(db, pedido_pagado_con_oc, saldos)
-        assert estado == "recibido"
-        assert pedido_pagado_con_oc.estado == "recibido"
+        assert estado == "controlado"
+        assert pedido_pagado_con_oc.estado == "controlado"
 
     def test_recalcular_estado_alguno_positivo_da_con_faltantes(self, db, pedido_pagado_con_oc):
 
@@ -513,11 +526,33 @@ class TestRecepcionServiceSaldos:
         assert estado == "con_faltantes"
         assert pedido_pagado_con_oc.estado == "con_faltantes"
 
-    def test_validar_estado_receptivo_rechaza_recibido(self, db, empresa, proveedor, active_user):
+    def test_validar_estado_receptivo_rechaza_controlado(self, db, empresa, proveedor, active_user):
+        # REQ-EC-001: controlado is the terminal state → 409
+        # REQ-EC-012 INVERT: old test rejected recibido; new test rejects controlado
         from fastapi import HTTPException
 
         p = PedidoCompra(
-            numero="P-RD-RECV",
+            numero="P-RD-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service._validar_estado_receptivo(p)
+        assert exc.value.status_code == 409
+        assert "already controlled" in exc.value.detail
+
+    def test_validar_estado_receptivo_acepta_recibido(self, db, empresa, proveedor, active_user):
+        # REQ-EC-002: recibido is now receptive (intermediate state)
+        # REQ-EC-012 INVERT: old test expected recibido to be rejected
+        p = PedidoCompra(
+            numero="P-RD-RECV-OK",
             empresa_id=empresa.id,
             proveedor_id=proveedor.id,
             moneda="ARS",
@@ -528,10 +563,8 @@ class TestRecepcionServiceSaldos:
         db.add(p)
         db.flush()
 
-        with pytest.raises(HTTPException) as exc:
-            recepcion_service._validar_estado_receptivo(p)
-        assert exc.value.status_code == 409
-        assert "already fully received" in exc.value.detail
+        # Should NOT raise
+        recepcion_service._validar_estado_receptivo(p)
 
     def test_validar_estado_receptivo_rechaza_borrador(self, db, pedido_borrador):
         from fastapi import HTTPException
@@ -581,8 +614,9 @@ class TestRegistrarIngresosService:
         assert result.estado_nuevo == "con_faltantes"
         assert len(result.ingresos_creados) == 1
 
-    def test_registrar_ingresos_complete_batch_da_recibido(self, db, empresa, proveedor, active_user):
-
+    def test_registrar_ingresos_complete_batch_da_controlado(self, db, empresa, proveedor, active_user):
+        # REQ-EC-002: CON-OC control step — complete batch → controlado
+        # REQ-EC-012 INVERT: was "da_recibido"
         p = self._pedido_con_oc_y_lineas(db, empresa, proveedor, active_user, poh_id=9011)
         req = RegistrarIngresosRequest(
             lineas=[
@@ -591,10 +625,13 @@ class TestRegistrarIngresosService:
             ],
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
-        assert result.estado_nuevo == "recibido"
+        assert result.estado_nuevo == "controlado"
 
-    def test_registrar_ingresos_second_batch_desde_con_faltantes_da_recibido(self, db, empresa, proveedor, active_user):
-
+    def test_registrar_ingresos_second_batch_desde_con_faltantes_da_controlado(
+        self, db, empresa, proveedor, active_user
+    ):
+        # REQ-EC-002: con_faltantes → controlado when second batch completes all lines
+        # REQ-EC-012 INVERT: was "da_recibido"
         p = self._pedido_con_oc_y_lineas(db, empresa, proveedor, active_user, poh_id=9012)
         # First batch partial
         ing1 = PedidoCompraIngreso(
@@ -619,7 +656,7 @@ class TestRegistrarIngresosService:
             ],
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
-        assert result.estado_nuevo == "recibido"
+        assert result.estado_nuevo == "controlado"
 
     def test_registrar_ingresos_second_batch_sigue_con_faltantes(self, db, empresa, proveedor, active_user):
 
@@ -687,7 +724,9 @@ class TestRegistrarIngresosService:
         ).scalar()
         assert count == 0
 
-    def test_registrar_ingresos_pedido_ya_recibido_409(self, db, empresa, proveedor, active_user):
+    def test_registrar_ingresos_pedido_ya_controlado_409(self, db, empresa, proveedor, active_user):
+        # REQ-EC-001: controlado is terminal → 409
+        # REQ-EC-012 INVERT: was "pedido_ya_recibido" with estado=recibido
         from fastapi import HTTPException
 
         p = PedidoCompra(
@@ -696,7 +735,7 @@ class TestRegistrarIngresosService:
             proveedor_id=proveedor.id,
             moneda="ARS",
             monto=Decimal("100"),
-            estado="recibido",
+            estado="controlado",
             oc_poh_id=9020,
             oc_comp_id=1,
             oc_bra_id=1,
@@ -710,7 +749,7 @@ class TestRegistrarIngresosService:
         with pytest.raises(HTTPException) as exc:
             recepcion_service.registrar_ingresos(db, p, active_user, req)
         assert exc.value.status_code == 409
-        assert "already fully received" in exc.value.detail
+        assert "already controlled" in exc.value.detail
 
     def test_registrar_ingresos_sin_oc_409(self, db, pedido_pagado, active_user):
         from fastapi import HTTPException
@@ -783,17 +822,54 @@ class TestRegistrarIngresosService:
 
 
 class TestConfirmarPedidoSinOc:
-    def test_confirmar_sin_oc_completo_true_da_recibido(self, db, pedido_pagado, active_user):
-
+    def test_confirmar_sin_oc_completo_true_en_estado_pagado_da_recibido(self, db, pedido_pagado, active_user):
+        # REQ-EC-003: pagado + completo (any) → recibido (arrival step)
+        # In D-SINOC: pagado + any → recibido regardless of completo flag
         req = ConfirmarPedidoRequest(completo=True)
         result = recepcion_service.confirmar_pedido_sin_oc(db, pedido_pagado, active_user, req)
         assert result.estado_nuevo == "recibido"
         assert pedido_pagado.estado == "recibido"
 
-    def test_confirmar_sin_oc_completo_false_da_con_faltantes(self, db, pedido_pagado, active_user):
+    def test_confirmar_sin_oc_completo_true_en_estado_recibido_da_controlado(self, db, empresa, proveedor, active_user):
+        # REQ-EC-003: recibido + completo=true → controlado (control step)
+        # REQ-EC-012 INVERT: was "completo_true_da_recibido" at pagado state
+        p = PedidoCompra(
+            numero="P-SINOC-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+        assert p.estado == "controlado"
 
+    def test_confirmar_sin_oc_pagado_completo_false_da_recibido(self, db, pedido_pagado, active_user):
+        # REQ-EC-003: pagado + completo=false → recibido (arrival step ignores completo)
         req = ConfirmarPedidoRequest(completo=False, observaciones="Faltaron 3 ítems")
         result = recepcion_service.confirmar_pedido_sin_oc(db, pedido_pagado, active_user, req)
+        assert result.estado_nuevo == "recibido"
+
+    def test_confirmar_sin_oc_recibido_completo_false_da_con_faltantes(self, db, empresa, proveedor, active_user):
+        # REQ-EC-003: recibido + completo=false → con_faltantes (control step)
+        p = PedidoCompra(
+            numero="P-SINOC-CF",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=False, observaciones="Faltaron 3 ítems")
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
 
     def test_confirmar_sin_oc_completo_false_sin_observaciones_422(self):
@@ -1012,6 +1088,8 @@ class TestIngresosEndpoint:
     def test_ingresos_201_complete(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
     ):
+        # REQ-EC-002: complete receipt batch → controlado
+        # REQ-EC-012 INVERT: was "recibido"
         p = self._setup_pedido_con_oc(db, empresa, proveedor, active_user, poh_id=8002)
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/ingresos",
@@ -1025,7 +1103,7 @@ class TestIngresosEndpoint:
         )
         assert r.status_code == 201
         data = r.json()
-        assert data["estado_nuevo"] == "recibido"
+        assert data["estado_nuevo"] == "controlado"
 
     def test_ingresos_409_over_receipt(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
@@ -1051,7 +1129,8 @@ class TestConfirmarPedidoEndpoint:
         )
         assert r.status_code == 403
 
-    def test_confirmar_pedido_200_completo(self, client, auth_headers, pedido_pagado, con_permiso_deposito):
+    def test_confirmar_pedido_200_pagado_da_recibido(self, client, auth_headers, pedido_pagado, con_permiso_deposito):
+        # REQ-EC-003: pagado + any completo → recibido (arrival step, completo ignored)
         r = client.post(
             f"{BASE}/pedidos/{pedido_pagado.id}/recepcion/confirmar-pedido",
             json={"completo": True},
@@ -1060,16 +1139,40 @@ class TestConfirmarPedidoEndpoint:
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "recibido"
 
-    def test_confirmar_pedido_200_con_faltantes(
+    def test_confirmar_pedido_200_pagado_completo_false_da_recibido(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
     ):
+        # REQ-EC-003: pagado + completo=false → still recibido (arrival ignores completo)
+        p = PedidoCompra(
+            numero="P-EP-CONF-ARR",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
+            json={"completo": False, "observaciones": "llegó parcial"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["estado_nuevo"] == "recibido"
+
+    def test_confirmar_pedido_200_recibido_completo_false_da_con_faltantes(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        # REQ-EC-003: recibido + completo=false → con_faltantes (control step)
         p = PedidoCompra(
             numero="P-EP-CONF-CF",
             empresa_id=empresa.id,
             proveedor_id=proveedor.id,
             moneda="ARS",
             monto=Decimal("100"),
-            estado="pagado",
+            estado="recibido",
             creado_por_id=active_user.id,
         )
         db.add(p)
@@ -1082,13 +1185,20 @@ class TestConfirmarPedidoEndpoint:
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "con_faltantes"
 
-    def test_confirmar_pedido_409_tiene_oc(self, client, auth_headers, pedido_pagado_con_oc, con_permiso_deposito):
+    def test_confirmar_pedido_con_oc_pagado_da_recibido(
+        self, client, auth_headers, db, pedido_pagado_con_oc, con_permiso_deposito
+    ):
+        # REQ-EC-002: CON-OC + pagado → arrival via confirmar-pedido endpoint → recibido
+        _mk_oc_header(db, poh_id=9001, supp_id=55)
+        _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=100.0, item_id=101)
+        _mk_storage(db, stor_id=1)
         r = client.post(
             f"{BASE}/pedidos/{pedido_pagado_con_oc.id}/recepcion/confirmar-pedido",
             json={"completo": True},
             headers=auth_headers,
         )
-        assert r.status_code == 409
+        assert r.status_code == 200
+        assert r.json()["estado_nuevo"] == "recibido"
 
 
 class TestEventosEndpoint:
@@ -1134,20 +1244,24 @@ class TestStateMachine:
         _mk_storage(db, stor_id=1)
         return p
 
-    def test_state_pagado_a_recibido_directo(self, db, empresa, proveedor, active_user):
-
+    def test_state_pagado_a_controlado_directo(self, db, empresa, proveedor, active_user):
+        # REQ-EC-002: CON-OC complete batch from pagado → controlado
+        # REQ-EC-012 INVERT: was "pagado_a_recibido_directo"
         p = self._mk_pagado_con_oc(db, empresa, proveedor, active_user, poh_id=7001)
         req = RegistrarIngresosRequest(
             lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("100"))],
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
-        assert result.estado_nuevo == "recibido"
+        assert result.estado_nuevo == "controlado"
         db.refresh(p)
-        assert p.estado == "recibido"
+        assert p.estado == "controlado"
 
-    def test_state_pagado_con_faltantes_con_faltantes_recibido(self, db, empresa, proveedor, active_user):
-        """3-batch journey: pagado → con_faltantes → con_faltantes → recibido."""
+    def test_state_pagado_con_faltantes_con_faltantes_controlado(self, db, empresa, proveedor, active_user):
+        """3-batch journey: pagado → con_faltantes → con_faltantes → controlado.
 
+        REQ-EC-002: CON-OC multi-batch journey ends at controlado.
+        REQ-EC-012 INVERT: was "con_faltantes_recibido".
+        """
         p = self._mk_pagado_con_oc(db, empresa, proveedor, active_user, poh_id=7002)
         _mk_oc_detail(db, poh_id=7002, pod_id=2, qty=50.0, item_id=102)
 
@@ -1178,18 +1292,20 @@ class TestStateMachine:
                 ]
             ),
         )
-        assert r3.estado_nuevo == "recibido"
+        assert r3.estado_nuevo == "controlado"
 
         # 3 events emitted
         eventos = (
             db.query(CompraEvento)
             .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra")
-            .filter(CompraEvento.tipo.in_(["recepcion_registrada", "recepcion_con_faltantes"]))
+            .filter(CompraEvento.tipo.in_(["recepcion_registrada", "recepcion_con_faltantes", "recepcion_arribo"]))
             .all()
         )
         assert len(eventos) == 3
 
-    def test_state_recibido_rechaza_ingreso_409(self, db, empresa, proveedor, active_user):
+    def test_state_controlado_rechaza_ingreso_409(self, db, empresa, proveedor, active_user):
+        # REQ-EC-001: controlado is terminal → rejects ingresos with 409
+        # REQ-EC-012 INVERT: was test_state_recibido_rechaza_ingreso_409
         from fastapi import HTTPException
 
         p = PedidoCompra(
@@ -1198,7 +1314,7 @@ class TestStateMachine:
             proveedor_id=proveedor.id,
             moneda="ARS",
             monto=Decimal("100"),
-            estado="recibido",
+            estado="controlado",
             oc_poh_id=7010,
             oc_comp_id=1,
             oc_bra_id=1,
@@ -1212,6 +1328,32 @@ class TestStateMachine:
         with pytest.raises(HTTPException) as exc:
             recepcion_service.registrar_ingresos(db, p, active_user, req)
         assert exc.value.status_code == 409
+
+    def test_state_recibido_acepta_ingreso_201(self, db, empresa, proveedor, active_user):
+        # REQ-EC-002: recibido is now receptive — accepts ingresos for control step
+        # REQ-EC-012 NEW: recibido must ACCEPT ingresos (was previously rejected)
+        _mk_oc_header(db, poh_id=7015, supp_id=55)
+        _mk_oc_detail(db, poh_id=7015, pod_id=1, qty=100.0, item_id=101)
+        _mk_storage(db, stor_id=1)
+        p = PedidoCompra(
+            numero="P-SM-RECV-OK",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            oc_poh_id=7015,
+            oc_comp_id=1,
+            oc_bra_id=1,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = RegistrarIngresosRequest(
+            lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("100"))],
+        )
+        result = recepcion_service.registrar_ingresos(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
 
     def test_state_borrador_rechaza_ingreso_409(self, db, pedido_borrador, active_user):
         from fastapi import HTTPException
@@ -1508,4 +1650,210 @@ class TestDespachlarRetiro:
                 headers=auth_headers,
             )
 
+        assert r.status_code == 200
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# T07 — New state machine transition tests (two-step reception)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestEstadoControladoTransitions:
+    """Full D-SINOC truth table and saldo visibility tests.
+
+    REQ-EC-001, REQ-EC-002, REQ-EC-003, REQ-EC-008, REQ-EC-009.
+    """
+
+    def test_pagado_arrival_sin_oc_da_recibido(self, db, empresa, proveedor, active_user):
+        """REQ-EC-003: pagado SIN-OC → arrival → recibido, event=recepcion_arribo, no ingresos line."""
+        p = PedidoCompra(
+            numero="P-T07-ARR-SINOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "recibido"
+        assert p.estado == "recibido"
+
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_arribo")
+            .first()
+        )
+        assert evento is not None, "recepcion_arribo event must be emitted on arrival"
+
+    def test_pagado_arrival_con_oc_da_recibido(self, db, empresa, proveedor, active_user):
+        """REQ-EC-002: pagado CON-OC → confirmar-pedido → recibido (state-only, no ingresos lines)."""
+        _mk_oc_header(db, poh_id=8100, supp_id=55)
+        _mk_oc_detail(db, poh_id=8100, pod_id=1, qty=100.0, item_id=101)
+        _mk_storage(db, stor_id=1)
+        p = PedidoCompra(
+            numero="P-T07-ARR-CONOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=8100,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        # CON-OC arrival uses confirmar_pedido (state-only path)
+        req = ConfirmarPedidoRequest(completo=True)
+        # Must reject because pedido has OC linked — CON-OC arrival uses a different path
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert exc.value.status_code == 409
+        assert "OC linked" in exc.value.detail
+
+    def test_recibido_to_controlado_sin_oc(self, db, empresa, proveedor, active_user):
+        """REQ-EC-003: recibido SIN-OC + completo=true → controlado."""
+        p = PedidoCompra(
+            numero="P-T07-CTRL-SINOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+        assert p.estado == "controlado"
+
+    def test_recibido_to_con_faltantes_sin_oc(self, db, empresa, proveedor, active_user):
+        """REQ-EC-003: recibido SIN-OC + completo=false → con_faltantes."""
+        p = PedidoCompra(
+            numero="P-T07-CF-SINOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=False, observaciones="Faltan 5 unidades")
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.estado == "con_faltantes"
+
+    def test_con_faltantes_to_controlado_sin_oc(self, db, empresa, proveedor, active_user):
+        """REQ-EC-003: con_faltantes SIN-OC + completo=true → controlado."""
+        p = PedidoCompra(
+            numero="P-T07-CF-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+        assert p.estado == "controlado"
+
+    def test_controlado_rejects_confirmar_409(self, db, empresa, proveedor, active_user):
+        """REQ-EC-001, REQ-EC-003: controlado is terminal → 409 on confirmar-pedido."""
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-T07-CTRL-REJ",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert exc.value.status_code == 409
+
+    def test_migration_accepts_controlado(self, db, empresa, proveedor, active_user):
+        """REQ-EC-008: estado='controlado' accepted; 'en_camino' rejected."""
+        from sqlalchemy.exc import IntegrityError
+
+        p = PedidoCompra(
+            numero="P-T07-MIG-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        assert p.id is not None
+
+        p_invalid = PedidoCompra(
+            numero="P-T07-MIG-INV",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="en_camino",
+            creado_por_id=active_user.id,
+        )
+        db.add(p_invalid)
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+    def test_saldo_recibido_200(self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito):
+        """REQ-EC-009: GET /saldos on estado=recibido returns 200."""
+        p = PedidoCompra(
+            numero="P-T07-SALDO-RECV",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
+        assert r.status_code == 200
+
+    def test_saldo_controlado_200(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """REQ-EC-009: GET /saldos on estado=controlado returns 200 (audit access)."""
+        p = PedidoCompra(
+            numero="P-T07-SALDO-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
         assert r.status_code == 200

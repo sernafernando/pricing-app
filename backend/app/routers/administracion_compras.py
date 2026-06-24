@@ -4913,8 +4913,9 @@ def get_recepcion_saldos(
     ERP tables are read-only throughout.
     """
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
-    # Guard: only receptive states allowed (409 otherwise)
-    if pedido.estado not in {"pagado", "con_faltantes", "recibido"}:
+    # Guard: receptive states + controlado for audit access (REQ-EC-009).
+    # controlado is terminal but saldos are still queryable for audit/traceability.
+    if pedido.estado not in {"pagado", "recibido", "con_faltantes", "controlado"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pedido not in a receivable state",
@@ -4960,7 +4961,7 @@ def post_recepcion_ingresos(
     "/pedidos/{pedido_id}/recepcion/confirmar-pedido",
     response_model=ConfirmarPedidoResponse,
     status_code=status.HTTP_200_OK,
-    summary="Confirmar recepción a nivel pedido (SIN OC)",
+    summary="Confirmar recepción a nivel pedido",
 )
 def post_confirmar_pedido_recepcion(
     pedido_id: int,
@@ -4968,25 +4969,31 @@ def post_confirmar_pedido_recepcion(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
 ) -> ConfirmarPedidoResponse:
-    """Confirm reception at pedido level for pedidos WITHOUT a linked OC.
+    """Confirm reception at pedido level (D-SINOC / D-CONOC router).
 
-    Does not require OC lines. Writes a sentinel row for auditing.
-    Returns 409 if the pedido has an OC linked (use /recepcion/ingresos instead).
+    Routes by estado + oc_poh_id:
+      - CON-OC + pagado → arrival (state-only, no ingresos lines)
+      - SIN-OC → D-SINOC truth table (arrival if pagado; control if recibido/con_faltantes)
+      - controlado → 409 (terminal)
 
     Permission required: deposito.recibir_mercaderia.
     """
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     try:
-        result = recepcion_service.confirmar_pedido_sin_oc(db, pedido, user, request)
+        # CON-OC arrival path: pagado → recibido (state-only, no line counting)
+        if pedido.oc_poh_id is not None and pedido.estado == "pagado":
+            result = recepcion_service.confirmar_arribo_con_oc(db, pedido, user)
+        else:
+            result = recepcion_service.confirmar_pedido_sin_oc(db, pedido, user, request)
     except HTTPException:
         db.rollback()
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("confirmar_pedido_sin_oc falló: %s", exc)
+        logger.exception("confirmar_pedido falló: %s", exc)
         raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
 
-    _commit_or_rollback(db, operacion="confirmar_pedido_sin_oc")
+    _commit_or_rollback(db, operacion="confirmar_pedido")
     return result
 
 

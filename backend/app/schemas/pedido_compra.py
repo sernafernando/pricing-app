@@ -26,6 +26,7 @@ ESTADOS_PEDIDO: tuple[str, ...] = (
     "pagado",
     "recibido",
     "con_faltantes",
+    "controlado",
 )
 
 
