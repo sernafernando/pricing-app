@@ -16,9 +16,10 @@ import styles from './TabRecepcionDeposito.module.css';
 // ── Helpers ──────────────────────────────────────────────────────
 
 const FILTER_TABS = [
-  { id: 'todos', label: 'Por recibir' },
+  { id: 'pagado', label: 'Por recibir' },
+  { id: 'recibido', label: 'Recibidos sin controlar' },
+  { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
-  { id: 'recibidos', label: 'Recibidos' },
 ];
 
 function estadoBadge(estado, stylesMap) {
@@ -29,9 +30,69 @@ function estadoBadge(estado, stylesMap) {
       return <span className={stylesMap.badgeConFaltantes}>Con faltantes</span>;
     case 'recibido':
       return <span className={stylesMap.badgeRecibido}>Recibido</span>;
+    case 'controlado':
+      return <span className={stylesMap.badgeControlado}>Controlado</span>;
     default:
       return <span className={stylesMap.badge}>{estado}</span>;
   }
+}
+
+// ── Accordion body — CON OC — arrival panel (estado=pagado) ──────
+
+function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
+  const { confirmarPedido } = useRecepcionDeposito();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+
+  const handleArribo = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      // CON-OC + pagado → confirmar-pedido routes to confirmar_arribo_con_oc (state-only)
+      await confirmarPedido(pedido.id, { completo: true });
+      setSubmitSuccess('Arribo registrado. El pedido está listo para el control de items.');
+      onRefreshList();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setSubmitError(typeof detail === 'string' ? detail : 'Error al registrar arribo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      {submitError && (
+        <div className={styles.inlineError} role="alert">
+          <AlertCircle size={14} /> {submitError}
+        </div>
+      )}
+      {submitSuccess && (
+        <div className={styles.inlineSuccess} role="status">
+          <CheckCircle2 size={14} /> {submitSuccess}
+        </div>
+      )}
+      <div className={styles.noOcBanner} role="status">
+        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+        <p className={styles.noOcBannerText}>
+          El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de ítems.
+        </p>
+      </div>
+      <div className={styles.noOcActions}>
+        <button
+          type="button"
+          className={styles.btnPrimary}
+          disabled={submitting}
+          onClick={handleArribo}
+        >
+          {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
+          Marcar como recibido
+        </button>
+      </div>
+    </>
+  );
 }
 
 // ── Accordion body — CON OC ───────────────────────────────────────
@@ -161,7 +222,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     setSubmitSuccess(null);
     try {
       await registrarIngresos(pedido.id, { lineas: tandaLineas });
-      setSubmitSuccess('Recepción registrada correctamente.');
+      setSubmitSuccess('Control registrado correctamente.');
       await fetchSaldos();
       onRefreshList();
     } catch (err) {
@@ -310,7 +371,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
             disabled={!canSubmitRecibido || submitting || anyInputError}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
-            Marcar como recibido
+            Marcar como controlado
           </button>
         </div>
       </div>
@@ -343,7 +404,16 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
         ? { completo: true }
         : { completo: false, observaciones: observaciones.trim() };
       await confirmarPedido(pedido.id, payload);
-      setSubmitSuccess(completo ? 'Pedido marcado como recibido.' : 'Pedido marcado con faltantes.');
+      // D-SINOC messages based on source estado
+      let msg;
+      if (pedido.estado === 'pagado') {
+        msg = 'Pedido marcado como recibido.';
+      } else if (completo) {
+        msg = 'Pedido marcado como controlado.';
+      } else {
+        msg = 'Pedido marcado con faltantes.';
+      }
+      setSubmitSuccess(msg);
       onRefreshList();
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -354,6 +424,16 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       setSubmitting(false);
     }
   };
+
+  // D-SINOC state machine button gating:
+  //   pagado         → show ONLY "Marcar como recibido" (arrival)
+  //   recibido       → show "Marcar como controlado" + "Con faltantes"
+  //   con_faltantes  → show ONLY "Marcar como controlado"
+  //   controlado     → no action buttons (terminal)
+  const estado = pedido.estado;
+  const showArriboBtn = estado === 'pagado';
+  const showControladoBtn = estado === 'recibido' || estado === 'con_faltantes';
+  const showFaltantesBtn = estado === 'recibido';
 
   return (
     <>
@@ -376,23 +456,38 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       </div>
 
       <div className={styles.noOcActions}>
-        <button
-          type="button"
-          className={styles.btnPrimary}
-          disabled={submitting}
-          onClick={() => handleConfirmar(true)}
-        >
-          {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
-          Confirmar recibido
-        </button>
-        <button
-          type="button"
-          className={styles.btnSecondary}
-          disabled={submitting}
-          onClick={() => setShowFaltantes((v) => !v)}
-        >
-          Marcar con faltantes
-        </button>
+        {showArriboBtn && (
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={submitting}
+            onClick={() => handleConfirmar(true)}
+          >
+            {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
+            Marcar como recibido
+          </button>
+        )}
+        {showControladoBtn && (
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={submitting}
+            onClick={() => handleConfirmar(true)}
+          >
+            {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
+            Marcar como controlado
+          </button>
+        )}
+        {showFaltantesBtn && (
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={submitting}
+            onClick={() => setShowFaltantes((v) => !v)}
+          >
+            Con faltantes
+          </button>
+        )}
       </div>
 
       {showFaltantes && (
@@ -495,9 +590,15 @@ function PedidoAccordion({ pedido, onRefreshList }) {
         <div className={styles.accordionBody}>
           {/* La lista (PedidoCompraResponse) expone oc_poh_id, no tiene_oc:
               ese flag solo viene en la respuesta de saldos. Usar tiene_oc acá
-              daba siempre undefined → "sin OC" aunque el pedido tuviera OC. */}
+              daba siempre undefined → "sin OC" aunque el pedido tuviera OC.
+              CON-OC + pagado → arrival panel (no item counting yet).
+              CON-OC + recibido/con_faltantes → item-level ingresos panel. */}
           {pedido.oc_poh_id != null ? (
-            <AccordionBodyConOc pedido={pedido} onRefreshList={onRefreshList} />
+            pedido.estado === 'pagado' ? (
+              <AccordionBodyConOcArribo pedido={pedido} onRefreshList={onRefreshList} />
+            ) : (
+              <AccordionBodyConOc pedido={pedido} onRefreshList={onRefreshList} />
+            )
           ) : (
             <AccordionBodySinOc pedido={pedido} onRefreshList={onRefreshList} />
           )}
@@ -521,7 +622,7 @@ function PedidoAccordion({ pedido, onRefreshList }) {
 // ── Main tab ──────────────────────────────────────────────────────
 
 export default function TabRecepcionDeposito() {
-  const [filtro, setFiltro] = useState('todos'); // 'todos' | 'con_faltantes' | 'recibidos'
+  const [filtro, setFiltro] = useState('pagado'); // 'pagado' | 'recibido' | 'controlado' | 'con_faltantes'
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -531,13 +632,8 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Request pedidos in receivable states; backend filters by estado
-      const estados =
-        filtro === 'recibidos'
-          ? 'recibido'
-          : filtro === 'con_faltantes'
-          ? 'con_faltantes'
-          : 'pagado,con_faltantes';
+      // Each tab maps 1:1 to a backend estado value.
+      const estados = filtro;
 
       const { data } = await api.get('/administracion/compras/pedidos', {
         params: { estado: estados, page_size: 200 },

@@ -182,11 +182,20 @@
   border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
+/* 'recibido' = arrived, not yet controlled → amber tone (pending control) */
 .badgeRecibido {
   composes: badge;
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid rgba(255, 170, 0, 0.35);
+}
+
+/* 'controlado' = fully controlled → green tone (terminal/success) */
+.badgeControlado {
+  composes: badge;
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(0, 200, 81, 0.3);
 }
 
 .tagRetiro {
