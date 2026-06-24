@@ -438,7 +438,7 @@ export default function DashboardTPLink() {
                     <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
                     <td className={styles.monto}>{renderGanancia(op.costo_sin_iva)}</td>
                     <td className={styles.monto}>{renderGanancia(op.costo_total)}</td>
-                    <td className={styles.centrado}>{renderGanancia(op.comision_porcentaje)}</td>
+                    <td className={styles.centrado}>{renderMarkup(op.comision_porcentaje)}</td>
                     <td className={styles.monto}>{renderGanancia(op.comision_pesos)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
