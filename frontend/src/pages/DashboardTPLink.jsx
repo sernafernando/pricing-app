@@ -9,7 +9,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
-import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw, Download } from 'lucide-react';
+import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw } from 'lucide-react';
 
 const TPLINK_API_BASE = '/dashboard-tplink';
 
@@ -209,31 +209,6 @@ export default function DashboardTPLink() {
 
   const limpiarCategorias = () => updateFilters({ categorias: '' });
 
-  const exportarOperaciones = async () => {
-    try {
-      showToast('Generando archivo Excel...', 'info');
-      const params = { from_date: fechaDesde, to_date: fechaHasta };
-      if (categoriasSeleccionadas.length > 0) params.categorias = categoriasSeleccionadas.join(',');
-
-      const response = await api.get(`${TPLINK_API_BASE}/exportar-operaciones`, {
-        params,
-        responseType: 'blob'
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `operaciones_tplink_${fechaDesde}_${fechaHasta}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      showToast('Archivo descargado correctamente', 'success');
-    } catch {
-      showToast('Error al exportar operaciones', 'error');
-    }
-  };
-
   const operacionesFiltradas = pagination.data;
 
   // Helper: render masked value when user lacks ver_ganancia
@@ -416,13 +391,6 @@ export default function DashboardTPLink() {
             <div className={styles.resultadosCount}>
               {operacionesFiltradas.length} operación{operacionesFiltradas.length !== 1 ? 'es' : ''}
             </div>
-            <button
-              onClick={exportarOperaciones}
-              className={`btn-tesla outline-subtle-success sm ${styles.btnExportar}`}
-            >
-              <Download size={16} />
-              Exportar
-            </button>
           </div>
 
           <div
@@ -437,25 +405,25 @@ export default function DashboardTPLink() {
                   <th>ML ID</th>
                   <th>Código</th>
                   <th>Producto</th>
+                  <th>Categoría</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>Total</th>
-                  <th>IVA%</th>
                   <th>Costo Unit</th>
                   <th>Costo Total</th>
                   <th>Comisión%</th>
                   <th>Comisión $</th>
-                  <th>Envío s/IVA</th>
+                  <th>Envío</th>
                   <th>Limpio</th>
                   <th>Markup%</th>
-                  <th>Lista</th>
+                  <th>Logística</th>
                 </tr>
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op) => (
                   <tr
                     key={op.id_operacion}
-                    className={`${op.pack_id ? styles.rowPack : ''} ${op.is_cancelled ? styles.rowCancelada : ''}`}
+                    className={op.is_cancelled ? styles.rowCancelada : ''}
                   >
                     <td>{formatearFecha(op.fecha_venta)}</td>
                     <td>
@@ -464,10 +432,10 @@ export default function DashboardTPLink() {
                     </td>
                     <td>{op.codigo || '-'}</td>
                     <td className={styles.descripcion}>{op.descripcion || '-'}</td>
+                    <td>{op.categoria || '-'}</td>
                     <td className={styles.centrado}>{op.cantidad}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_unitario)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
-                    <td className={styles.centrado}>{op.iva}%</td>
                     <td className={styles.monto}>{renderGanancia(op.costo_sin_iva)}</td>
                     <td className={styles.monto}>{renderGanancia(op.costo_total)}</td>
                     <td className={styles.centrado}>{renderGanancia(op.comision_porcentaje)}</td>
@@ -477,7 +445,7 @@ export default function DashboardTPLink() {
                     <td className={`${styles.centrado} ${puedeVerGanancia && parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
                       {renderMarkup(op.markup_porcentaje)}
                     </td>
-                    <td>{op.tipo_publicacion || '-'}</td>
+                    <td>{getTipoLogistica(op.tipo_logistica) || '-'}</td>
                   </tr>
                 ))}
               </tbody>
