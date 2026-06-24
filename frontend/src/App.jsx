@@ -48,7 +48,6 @@ import RRHHReportes from './pages/RRHHReportes';
 import RRHHCumpleanos from './pages/RRHHCumpleanos';
 import FichajeMobile from './pages/FichajeMobile';
 import Tickets from './pages/Tickets';
-import ReescribirLH from './pages/ReescribirLH';
 import TicketsAdmin from './pages/TicketsAdmin';
 import AdministracionProveedores from './pages/AdministracionProveedores';
 import AdministracionBancos from './pages/AdministracionBancos';
@@ -349,11 +348,6 @@ function App() {
             <Route path="/tickets" element={
               <ProtectedRoute permiso="tickets.ver">
                 <Tickets />
-              </ProtectedRoute>
-            } />
-            <Route path="/etiquetas/reescribir-lh" element={
-              <ProtectedRoute permiso="etiquetas.reescribir_lh">
-                <ReescribirLH />
               </ProtectedRoute>
             } />
             <Route path="/tickets/admin" element={

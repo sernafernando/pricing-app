@@ -81,7 +81,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Turbo', path: '/turbo-routing', permiso: 'ordenes.gestionar_turbo_routing' },
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
         { label: 'Configuración', path: '/config-operaciones', permiso: 'envios_flex.config' },
-        { label: 'Reescribir ^LH', path: '/etiquetas/reescribir-lh', permiso: 'etiquetas.reescribir_lh' },
       ],
     },
     {
