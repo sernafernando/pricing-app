@@ -17,6 +17,7 @@ import GestionAlertas from './pages/GestionAlertas';
 import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardMetricasML from './pages/DashboardMetricasML';
+import DashboardTPLink from './pages/DashboardTPLink';
 import DashboardVentasFuera from './pages/DashboardVentasFuera';
 import DashboardTiendaNube from './pages/DashboardTiendaNube';
 import Calculos from './pages/Calculos';
@@ -165,6 +166,11 @@ function App() {
                 <Route path="/dashboard-metricas-ml" element={
                   <ProtectedRoute permiso="ventas_ml.ver_dashboard">
                     <DashboardMetricasML />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-tplink" element={
+                  <ProtectedRoute permiso="dashboard_tplink.ver">
+                    <DashboardTPLink />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-ventas-fuera" element={
