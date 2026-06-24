@@ -409,23 +409,135 @@ class TestOffsetAbsence:
             assert "total_offset_flex" not in row, "total_offset_flex must never appear in brand logistica response"
 
     @pytest.mark.parametrize("user_fixture", ["user_ver_only", "user_ver_ganancia"])
-    def test_no_operaciones_endpoint_exposes_offset(self, request, client, user_fixture: str) -> None:
-        """
-        The operaciones endpoint (if implemented) must not expose offset_flex.
-        Using por-categoria as a proxy here since operaciones is excluded from
-        the base 6 endpoints in the initial scaffold.
-        This test asserts the general contract: no brand response contains offset keys.
-        """
+    def test_offsets_absent_from_operaciones(self, request, client, user_fixture: str, tplink_venta) -> None:
+        """offset_flex must never appear in any operaciones row at any permission level."""
         user = request.getfixturevalue(user_fixture)
         response = client.get(
-            "/api/dashboard-tplink/por-categoria",
+            "/api/dashboard-tplink/operaciones",
             headers=_bearer(user),
         )
         assert response.status_code == 200
         rows = response.json()
         for row in rows:
-            for key in OFFSET_KEYS:
-                assert key not in row, f"Offset key '{key}' must never appear in brand category response"
+            assert "offset_flex" not in row, "offset_flex must never appear in brand operaciones response"
+
+
+# ---------------------------------------------------------------------------
+# Operaciones endpoint tests (RED before endpoint exists)
+# ---------------------------------------------------------------------------
+
+MARGIN_KEYS_OPERACIONES = {
+    "costo_sin_iva",
+    "costo_total",
+    "comision_porcentaje",
+    "comision_pesos",
+    "markup_porcentaje",
+    "ganancia",
+}
+
+
+class TestOperacionesEndpoint:
+    def test_operaciones_403_without_ver(self, client, user_no_perm) -> None:
+        """No .ver → 403 on operaciones endpoint."""
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_operaciones_200_with_ver(self, client, user_ver_only, tplink_venta) -> None:
+        """With .ver → 200 and list of operations."""
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_ver_only),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+    def test_operaciones_store_lock_ignores_tampered_param(
+        self, client, user_ver_only, tplink_venta, other_store_venta
+    ) -> None:
+        """
+        Client sends tiendas_oficiales=57997 — server ignores it (param not in
+        signature). Only store-2645 row is returned.
+        """
+        response = client.get(
+            "/api/dashboard-tplink/operaciones?tiendas_oficiales=57997",
+            headers=_bearer(user_ver_only),
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        # other_store_venta has monto_total=99000 which would appear if store leaked
+        total_amounts = [float(r["monto_total"]) for r in rows]
+        assert all(a < 50000 for a in total_amounts), (
+            f"Expected only store-2645 amounts (≈10000) but got {total_amounts}"
+        )
+
+    def test_operaciones_margin_absent_without_ver_ganancia(self, client, user_ver_only, tplink_venta) -> None:
+        """User with .ver only: margin keys ABSENT from each operaciones row."""
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_ver_only),
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        assert rows, "Expected at least one row"
+        for row in rows:
+            present = MARGIN_KEYS_OPERACIONES & set(row.keys())
+            assert not present, f"Margin keys should be ABSENT but found {present} in row"
+
+    def test_operaciones_margin_present_with_ver_ganancia(self, client, user_ver_ganancia, tplink_venta) -> None:
+        """User with both permissions: margin keys present in each row."""
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_ver_ganancia),
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        assert rows, "Expected at least one row"
+        for row in rows:
+            for key in MARGIN_KEYS_OPERACIONES:
+                assert key in row, f"Margin key '{key}' should be present but was absent"
+
+    def test_operaciones_no_offset_flex_field(self, client, user_ver_ganancia, tplink_venta) -> None:
+        """offset_flex never in operaciones rows — not even with full permissions."""
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_ver_ganancia),
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        for row in rows:
+            assert "offset_flex" not in row, "offset_flex must never appear in brand operaciones"
+
+    def test_operaciones_non_margin_fields_always_present(self, client, user_ver_only, tplink_venta) -> None:
+        """Non-margin fields always visible regardless of .ver_ganancia."""
+        required_fields = {
+            "id_operacion",
+            "fecha_venta",
+            "codigo",
+            "descripcion",
+            "marca",
+            "categoria",
+            "cantidad",
+            "monto_unitario",
+            "monto_total",
+            "monto_limpio",
+            "costo_envio",
+            "is_cancelled",
+        }
+        response = client.get(
+            "/api/dashboard-tplink/operaciones",
+            headers=_bearer(user_ver_only),
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        assert rows
+        for row in rows:
+            missing = required_fields - set(row.keys())
+            assert not missing, f"Non-margin fields missing from row: {missing}"
 
 
 # ---------------------------------------------------------------------------

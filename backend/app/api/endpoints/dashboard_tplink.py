@@ -17,7 +17,7 @@ Security guarantees on every endpoint:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
@@ -462,3 +462,117 @@ def get_categorias_disponibles_tplink(
 
     categorias = query.distinct().order_by(MLVentaMetrica.categoria).all()
     return [c[0] for c in categorias]
+
+
+# ---------------------------------------------------------------------------
+# Operaciones response model
+# ---------------------------------------------------------------------------
+
+
+class OperacionTPLinkResponse(BaseModel):
+    """Per-row operations response for the TP-Link Detalle de Operaciones tab.
+
+    Reads directly from `ml_ventas_metricas` (pre-calculated fields).
+    No offset_flex field by construction.
+    Margin-related fields (costo_sin_iva, costo_total, comision_porcentaje,
+    comision_pesos, markup_porcentaje, ganancia) are Optional — omitted when
+    the caller lacks `dashboard_tplink.ver_ganancia`.
+    """
+
+    # Operation identifiers
+    id_operacion: int
+    ml_id: Optional[str] = None
+    fecha_venta: datetime
+
+    # Product info
+    item_id: Optional[int] = None
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    categoria: Optional[str] = None
+    marca: Optional[str] = None
+
+    # Sale data — always visible
+    cantidad: int
+    monto_unitario: Decimal
+    monto_total: Decimal
+    monto_limpio: Decimal
+    costo_envio: Decimal
+    tipo_logistica: Optional[str] = None
+    is_cancelled: bool
+
+    # Margin fields — gated by .ver_ganancia; omitted when absent
+    costo_sin_iva: Optional[Decimal] = None
+    costo_total: Optional[Decimal] = None
+    comision_porcentaje: Optional[Decimal] = None
+    comision_pesos: Optional[Decimal] = None
+    markup_porcentaje: Optional[Decimal] = None
+    ganancia: Optional[Decimal] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/dashboard-tplink/operaciones",
+    response_model=List[OperacionTPLinkResponse],
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_permiso("dashboard_tplink.ver"))],
+    tags=["dashboard-tplink"],
+)
+def get_operaciones_tplink(
+    fecha_desde: Optional[str] = Query(None, description="Date from (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Date to (YYYY-MM-DD)"),
+    categorias: Optional[str] = Query(None, description="Filter by categories (comma-separated)"),
+    limit: int = Query(1000, le=50000, description="Max results"),
+    offset_page: int = Query(0, alias="offset", description="Pagination offset"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[OperacionTPLinkResponse]:
+    """
+    TP-Link Detalle de Operaciones — individual sales rows.
+
+    Reads from ml_ventas_metricas (pre-calculated). Store is hard-locked to 2645.
+    Client cannot supply tiendas_oficiales, pm_ids, or marcas — they are not in
+    the signature. No offset_flex field. Margin fields omitted unless caller has
+    `dashboard_tplink.ver_ganancia`.
+    """
+    query = db.query(MLVentaMetrica).filter(MLVentaMetrica.is_cancelled.isnot(None))
+
+    # Store lock
+    query = _apply_store_lock(query)
+
+    # Date and category filters only (no marca, no store from client)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+
+    # Order newest first, paginate
+    resultados = query.order_by(MLVentaMetrica.fecha_venta.desc()).offset(offset_page).limit(limit).all()
+
+    show_ganancia = _has_ganancia(current_user, db)
+
+    def _build_row(r: MLVentaMetrica) -> OperacionTPLinkResponse:
+        row = OperacionTPLinkResponse(
+            id_operacion=r.id_operacion,
+            ml_id=r.mla_id,
+            fecha_venta=r.fecha_venta,
+            item_id=r.item_id,
+            codigo=r.codigo,
+            descripcion=r.descripcion,
+            categoria=r.categoria,
+            marca=r.marca,
+            cantidad=r.cantidad,
+            monto_unitario=r.monto_unitario or Decimal("0"),
+            monto_total=r.monto_total or Decimal("0"),
+            monto_limpio=r.monto_limpio or Decimal("0"),
+            costo_envio=r.costo_envio_ml or Decimal("0"),
+            tipo_logistica=r.tipo_logistica,
+            is_cancelled=r.is_cancelled if r.is_cancelled is not None else False,
+        )
+        if show_ganancia:
+            row.costo_sin_iva = r.costo_total_sin_iva or Decimal("0")
+            row.costo_total = r.costo_total or Decimal("0")
+            row.comision_porcentaje = r.porcentaje_comision_ml or Decimal("0")
+            row.comision_pesos = r.comision_ml or Decimal("0")
+            row.markup_porcentaje = r.markup_porcentaje or Decimal("0")
+            row.ganancia = r.ganancia or Decimal("0")
+        return row
+
+    return [_build_row(r) for r in resultados]
