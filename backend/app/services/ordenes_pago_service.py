@@ -1804,24 +1804,11 @@ def _actualizar_tc_efectivo_pedidos_afectados(
     `pedido.tipo_cambio == resolver_tc_efectivo_pedido(session, pedido)` must
     hold after every ejecutar_pago call (Caso A or Caso B).
 
-    Also emits an append-only CC `ajuste` movement if the effective TC
-    changed (Caso A: TC drifted; Caso B: TC unchanged, no adjustment).
-
-    W4 — money safety: the CC re-valuation adjustment and the
-    `pedido.tipo_cambio` cache write are ATOMIC. The adjustment is emitted
-    FIRST; only if it succeeds is the cache written. If the adjustment
-    fails, the error PROPAGATES (it is never swallowed) so the whole
-    `ejecutar_pago` transaction rolls back — the pedido cache and the CC
-    ledger can never silently diverge.
+    Does NOT emit any CC movement — the TC cache update is purely for costing
+    and does not touch the supplier current account.
 
     Does NOT modify `tipo_cambio_original` — that field is immutable.
     """
-    # Deferred import to avoid circular dependency: cc_proveedor_service
-    # imports pedidos_service helpers which in turn import this module.
-    from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
-
-    from app.services import cc_proveedor_service  # noqa: PLC0415
-
     if not pedidos_afectados:
         return
 
@@ -1839,38 +1826,7 @@ def _actualizar_tc_efectivo_pedidos_afectados(
             continue
 
         if tc_anterior != tc_nuevo:
-            # W4 — emit the append-only CC adjustment FIRST. The pedido TC
-            # cache is written only after the adjustment succeeds, so the
-            # cache and the CC ledger stay consistent. If the adjustment
-            # fails, the error propagates and the whole tx rolls back.
-            if tc_anterior is not None:
-                try:
-                    cc_proveedor_service.registrar_ajuste_revaluacion_tc(
-                        session,
-                        pedido=pedido,
-                        tc_anterior=tc_anterior,
-                        tc_nuevo=tc_nuevo,
-                        user_id=user_id,
-                        motivo="revaluacion_pago_caso_a",
-                    )
-                except (HTTPException, SQLAlchemyError, ValueError):
-                    # Do NOT swallow: the CC adjustment and the pedido TC
-                    # cache must be atomic. Log for traceability, then
-                    # re-raise so ejecutar_pago's transaction rolls back —
-                    # never leave the cache and the CC ledger inconsistent.
-                    logger.exception(
-                        "❌ _actualizar_tc_efectivo: ajuste CC falló pedido_id=%s "
-                        "tc_anterior=%s tc_nuevo=%s — abortando pago para no dejar "
-                        "el cache del pedido y la CC inconsistentes",
-                        pedido_id,
-                        tc_anterior,
-                        tc_nuevo,
-                    )
-                    raise
-
-            # Write new effective TC to the materialized cache — only
-            # reached when the CC adjustment succeeded (or was not needed,
-            # i.e. tc_anterior is None).
+            # Write new effective TC to the materialized cache.
             pedido.tipo_cambio = tc_nuevo
             session.flush()
 
