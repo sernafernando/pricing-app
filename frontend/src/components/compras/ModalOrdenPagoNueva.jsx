@@ -775,8 +775,10 @@ export default function ModalOrdenPagoNueva({
   const sumaItemsRaw = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivadoRaw ?? it.montoDerivado ?? 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
-  // Bug A fix — modoImputacion derived from NET OP-currency sum (sumaItems).
-  const modoImputacion = derivarModoImputacion(sumaItems, form.monto_total, items.length > 0, pagoACuentaNum);
+  // modoImputacion: cobertura específica = items (net) + cheques (también con pedido_id).
+  // monto_total ahora incluye la obligación completa (net + cheques), así que la suma
+  // específica también debe incluir cheques para detectar correctamente "especifica" vs "mixta".
+  const modoImputacion = derivarModoImputacion(sumaItems + sumaChequesOP, form.monto_total, items.length > 0, pagoACuentaNum);
 
   // T1.12 — sumaChequesOP: total de cobertura de cheques en moneda OP.
   // Los cheques son valores como las NCs: descuentan del efectivo necesario.
@@ -822,24 +824,27 @@ export default function ModalOrdenPagoNueva({
   const diferencia = Math.round((montoTotalNum - net - pagoACuentaNum - sumaChequesOP) * 100) / 100;
 
 
-  // Auto-sum monto_total = net (sum of NET item montos in OP currency).
-  // Applying an NC or DAC now lowers sumaItems (net), which lowers the auto-sum.
+  // Auto-sum monto_total = net + cheques (the full obligation being paid).
+  // NCs and DAC are real credits and stay baked into net (lowering the auto-sum).
+  // Cheques are a payment method, not a discount — they cover part of the
+  // obligation but the obligation itself remains visible and persisted.
   useEffect(() => {
     if (isEditMode || montoTotalTouched || items.length === 0) return;
-    const target = Math.max(0, net).toFixed(2);
+    const target = Math.max(0, net + sumaChequesOP).toFixed(2);
     if (form.monto_total !== target) {
       setForm((f) => ({ ...f, monto_total: target }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [net, isEditMode, montoTotalTouched, items.length]);
+  }, [net, sumaChequesOP, isEditMode, montoTotalTouched, items.length]);
 
-  // Refinement A — auto-fill pagoACuenta when monto_total > net.
+  // Refinement A — auto-fill pagoACuenta when monto_total > (net + cheques).
+  // Only the part above the obligation is a real surplus (excedente "a cuenta").
   useEffect(() => {
     if (isEditMode || pagoACuentaTouched) return;
-    const surplus = Math.max(0, Math.round((montoTotalNum - net) * 100) / 100);
+    const surplus = Math.max(0, Math.round((montoTotalNum - net - sumaChequesOP) * 100) / 100);
     const target = surplus > 0 ? String(surplus) : '';
     setPagoACuenta(target);
-  }, [montoTotalNum, net, isEditMode, pagoACuentaTouched]);
+  }, [montoTotalNum, net, sumaChequesOP, isEditMode, pagoACuentaTouched]);
 
 
   const validar = () => {
@@ -1454,24 +1459,30 @@ export default function ModalOrdenPagoNueva({
                   </div>
                 )}
 
-                {/* T5.5 — Running sum */}
-                {items.length > 0 && (
-                  <div
-                    className={
-                      Math.abs(sumaItems - montoTotalNum) < 0.005
-                        ? styles.itemsRunningOk
-                        : styles.itemsRunningMismatch
-                    }
-                  >
-                    <span>Suma documentos:</span>
-                    <strong>{formatCurrency(sumaItems, form.moneda)}</strong>
-                    {Math.abs(sumaItems - montoTotalNum) >= 0.005 && (
-                      <span className={styles.itemsRunningDiff}>
-                        (diferencia con total: {formatCurrency(Math.abs(sumaItems - montoTotalNum), form.moneda)})
-                      </span>
-                    )}
-                  </div>
-                )}
+                {/* T5.5 — Running sum.
+                    Cheques cover part of the total without lowering the obligation,
+                    so the running sum is items + cheques (must match monto_total). */}
+                {items.length > 0 && (() => {
+                  const sumaCubierta = sumaItems + sumaChequesOP;
+                  const desfasaje = Math.abs(sumaCubierta - montoTotalNum);
+                  return (
+                    <div
+                      className={
+                        desfasaje < 0.005
+                          ? styles.itemsRunningOk
+                          : styles.itemsRunningMismatch
+                      }
+                    >
+                      <span>Suma documentos:</span>
+                      <strong>{formatCurrency(sumaCubierta, form.moneda)}</strong>
+                      {desfasaje >= 0.005 && (
+                        <span className={styles.itemsRunningDiff}>
+                          (diferencia con total: {formatCurrency(desfasaje, form.moneda)})
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* T5.3 / FR-5.2 — Multi-item warning */}
                 {itemsSumWarning && items.length > 1 && (
@@ -1611,8 +1622,9 @@ export default function ModalOrdenPagoNueva({
               )}
 
               {/* ── EXCEDENTE / PAGO A CUENTA ── */}
-              {/* Only shown when the user has raised monto_total above net (intentional surplus). */}
-              {!isEditMode && montoTotalNum > net && (
+              {/* Only shown when monto_total exceeds the obligation (net + cheques).
+                  Cheques are payment coverage, not surplus — they don't trigger this section. */}
+              {!isEditMode && montoTotalNum > net + sumaChequesOP && (
                 <section className={styles.formSection}>
                   <h2 className={styles.sectionHeadingSmall}>
                     Excedente — Pago a cuenta{' '}
@@ -1698,7 +1710,9 @@ export default function ModalOrdenPagoNueva({
                     )}
                     {(sumaNCsOP > 0 || dacMontoNum > 0 || sumaChequesOP > 0) && items.length > 0 && (
                       <div className={`${styles.summaryRow} ${styles.summaryRowNet}`}>
-                        <span className={styles.summaryRowLabel}>Pedidos (neto)</span>
+                        <span className={styles.summaryRowLabel}>
+                          {sumaChequesOP > 0 ? 'A cubrir en efectivo' : 'Pedidos (neto)'}
+                        </span>
                         <span className={styles.summaryRowAmount}>{formatCurrency(sumaItems, form.moneda)}</span>
                       </div>
                     )}
