@@ -130,14 +130,35 @@ class TopProductoTPLinkResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _apply_store_lock(query):
-    """Filter to TP-Link store 2645 using the direct column on MLVentaMetrica.
+def _aplicar_filtros_tplink(
+    query,
+    fecha_desde: Optional[str],
+    fecha_hasta: Optional[str],
+    categorias: Optional[str],
+    db: Session,
+):
+    """Apply the EXACT same filters as the ML metrics dashboard, with the store
+    hard-locked to TP-Link (2645).
 
-    Using `mlp_official_store_id` directly (denormalized column on the metrics
-    table) is simpler and testable without joining MercadoLibreItemPublicado.
-    This is a stronger lock: the column is on the same table as the data.
+    This delegates to `aplicar_filtros_comunes` (the same helper the ML dashboard
+    uses) passing the TP-Link store id where ML would pass the user's store
+    selector. Using ML's `aplicar_filtro_tienda_oficial` path (mla_id IN
+    publications of the official store) guarantees the TP-Link dashboard returns
+    byte-for-byte the same rows as "ML dashboard filtered to store 2645" — same
+    store predicate, same cancelled exclusion, same date/category handling.
+
+    The store id is never read from the client; brand endpoints don't accept a
+    tiendas_oficiales param, so this remains a true hard-lock.
     """
-    return query.filter(MLVentaMetrica.mlp_official_store_id == TPLINK_OFFICIAL_STORE_ID)
+    return aplicar_filtros_comunes(
+        query,
+        fecha_desde,
+        fecha_hasta,
+        None,  # marcas — brand bypass, never filter by marca
+        categorias,
+        str(TPLINK_OFFICIAL_STORE_ID),  # store hard-locked to TP-Link
+        db,
+    )
 
 
 def _has_ganancia(current_user: Usuario, db: Session) -> bool:
@@ -183,11 +204,8 @@ def get_metricas_generales_tplink(
         func.sum(MLVentaMetrica.costo_envio_ml).label("total_envios"),
     )
 
-    # Store lock — never from request params
-    query = _apply_store_lock(query)
-
-    # Common filters: date range + categoría only (no marcas, no store params from client)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    # ML's exact filters, store hard-locked to TP-Link (2645)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, categorias, db)
 
     result = query.first()
 
@@ -252,8 +270,7 @@ def get_ventas_por_categoria_tplink(
         func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
     ).filter(MLVentaMetrica.categoria.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, None, None, db)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, None, db)
 
     resultados = query.group_by(MLVentaMetrica.categoria).order_by(desc("total_ventas")).all()
 
@@ -303,8 +320,7 @@ def get_ventas_por_logistica_tplink(
         func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
     ).filter(MLVentaMetrica.tipo_logistica.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, categorias, db)
 
     resultados = query.group_by(MLVentaMetrica.tipo_logistica).order_by(desc("total_ventas")).all()
 
@@ -347,8 +363,7 @@ def get_ventas_por_dia_tplink(
         func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
     )
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, categorias, db)
 
     resultados = query.group_by(fecha_truncada).order_by(fecha_truncada).all()
 
@@ -398,8 +413,7 @@ def get_top_productos_tplink(
         func.sum(MLVentaMetrica.cantidad).label("cantidad_unidades"),
     ).filter(MLVentaMetrica.item_id.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, categorias, db)
 
     order_column = "total_ventas" if orden == "facturacion" else "cantidad_unidades"
     resultados = (
@@ -457,8 +471,7 @@ def get_categorias_disponibles_tplink(
     """
     query = db.query(MLVentaMetrica.categoria).filter(MLVentaMetrica.categoria.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, None, None, db)
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, None, db)
 
     categorias = query.distinct().order_by(MLVentaMetrica.categoria).all()
     return [c[0] for c in categorias]
@@ -535,13 +548,12 @@ def get_operaciones_tplink(
     the signature. No offset_flex field. Margin fields omitted unless caller has
     `dashboard_tplink.ver_ganancia`.
     """
-    query = db.query(MLVentaMetrica).filter(MLVentaMetrica.is_cancelled.isnot(None))
+    query = db.query(MLVentaMetrica)
 
-    # Store lock
-    query = _apply_store_lock(query)
-
-    # Date and category filters only (no marca, no store from client)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    # ML's exact filters, store hard-locked to TP-Link (2645). This also excludes
+    # cancelled rows (same as ML), which is what removes the spurious costo=0 /
+    # comisión=0 operations the brand detail used to show.
+    query = _aplicar_filtros_tplink(query, fecha_desde, fecha_hasta, categorias, db)
 
     # Order newest first, paginate
     resultados = query.order_by(MLVentaMetrica.fecha_venta.desc()).offset(offset_page).limit(limit).all()

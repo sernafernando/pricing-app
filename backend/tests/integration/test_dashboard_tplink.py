@@ -22,6 +22,7 @@ import pytest
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.permiso import Permiso
 from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
@@ -62,12 +63,28 @@ def _make_venta(
     marca: str = "TP-Link",
     offset_flex: float = 0.0,
 ) -> MLVentaMetrica:
-    """Seed one MLVentaMetrica row."""
+    """Seed one MLVentaMetrica row plus its matching publication.
+
+    The TP-Link dashboard scopes the store exactly like the ML dashboard: it
+    filters `mla_id IN (publications WHERE mlp_official_store_id = store)`, NOT by
+    the denormalized column on the metric row. So every sale needs a publication
+    in `tb_mercadolibre_items_publicados`. `mla_id` holds the publication id as a
+    string (ML's filter casts `mlp_id` to String and matches it against `mla_id`).
+    """
     global _venta_counter
     _venta_counter += 1
+
+    mlp_pub_id = 900000 + _venta_counter
+    db.add(
+        MercadoLibreItemPublicado(
+            mlp_id=mlp_pub_id,
+            mlp_official_store_id=store_id,
+        )
+    )
+
     v = MLVentaMetrica(
         id_operacion=_venta_counter,
-        mla_id="MLA999",
+        mla_id=str(mlp_pub_id),
         item_id=1001,
         codigo="TL-WR840N",
         descripcion="Router TP-Link",
