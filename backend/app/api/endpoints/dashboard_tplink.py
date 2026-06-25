@@ -21,7 +21,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
@@ -534,8 +534,11 @@ class OperacionTPLinkResponse(BaseModel):
     tags=["dashboard-tplink"],
 )
 def get_operaciones_tplink(
-    fecha_desde: Optional[str] = Query(None, description="Date from (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Date to (YYYY-MM-DD)"),
+    # Param names are from_date/to_date (NOT fecha_desde/hasta): the frontend's
+    # useServerPagination sends from_date/to_date. The live query requires real
+    # dates — a name mismatch leaves them None and crashes on `to_date + ...`.
+    from_date: Optional[str] = Query(None, description="Date from (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="Date to (YYYY-MM-DD)"),
     categorias: Optional[str] = Query(None, description="Filter by categories (comma-separated)"),
     limit: int = Query(1000, le=50000, description="Max results"),
     offset_page: int = Query(0, alias="offset", description="Pagination offset"),
@@ -558,10 +561,17 @@ def get_operaciones_tplink(
     MarcaPM rows. No offset_flex field. Margin fields are omitted unless the
     caller has `dashboard_tplink.ver_ganancia`.
     """
+    # The live query requires a real date range (the SQL uses BETWEEN and builds
+    # `to_date + " 23:59:59"`). Reject missing dates with a clean 422 instead of a
+    # 500. The permission gate already ran (decorator dependency), so this never
+    # masks the 403 path.
+    if not from_date or not to_date:
+        raise HTTPException(status_code=422, detail="from_date y to_date son requeridos")
+
     operaciones = fetch_operaciones_con_metricas(
         db,
-        from_date=fecha_desde,
-        to_date=fecha_hasta,
+        from_date=from_date,
+        to_date=to_date,
         categorias=categorias,
         # Store hard-locked to TP-Link (2645); never read from the client request.
         tiendas_oficiales=str(TPLINK_OFFICIAL_STORE_ID),
