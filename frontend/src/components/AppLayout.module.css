@@ -15,6 +15,11 @@
   margin-left: var(--cf-sidebar-width-collapsed);
 }
 
+/* Brand-only users have no sidebar: content spans the full width. */
+.mainWrapper[data-sidebar-hidden="true"] {
+  margin-left: 0;
+}
+
 .mainContent {
   margin-top: var(--cf-topbar-height);
   padding: 24px;
