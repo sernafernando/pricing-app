@@ -23,7 +23,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
-from app.core.database import get_db
+from app.core.database import get_background_db, get_db
 from app.models.prearmado import Prearmado, PrearmadoSerial
 from app.models.tb_item import TBItem
 from app.models.tb_item_association import TbItemAssociation
@@ -151,7 +151,7 @@ def _refetch_serial_sale_order(is_id: int) -> tuple[Optional[bool], Optional[int
     return (True, int(soh_id))
 
 
-def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> ValidateSerialResponse:
+def _validar_serial_core(serial: str, item_id_esperado: int) -> ValidateSerialResponse:
     """Lógica de validación reutilizable (endpoint + POST /seriales + PATCH).
 
     Orden de checks (corta al primer fallo):
@@ -172,41 +172,64 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
 
     Un serial bloqueado se puede guardar igual con `force=true` (queda con
     `validado=false`).
+
+    Lifecycle: this function opens its own short-lived get_background_db() context
+    managers and closes them BEFORE any ERP HTTP call. No DB session is held across
+    the network boundary (the root cause of the pool exhaustion incident).
+    Callers must NOT pass a session; writes happen on the caller's DI db after
+    this function returns.
     """
+    # PHASE 0: blank/empty serial — no session needed.
     if not serial or not serial.strip():
         return ValidateSerialResponse(valid=False, motivo="SerialNotFound")
 
-    ts: Optional[TbItemSerial] = (
-        db.query(TbItemSerial).filter(func.upper(TbItemSerial.is_serial) == serial.strip().upper()).first()
-    )
-    if not ts:
-        return ValidateSerialResponse(valid=False, motivo="SerialNotFound")
-
-    real_item: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == ts.item_id).first()
-    item_code_real = real_item.item_code if real_item else None
-    item_desc_real = real_item.item_desc if real_item else None
-
-    if ts.item_id != item_id_esperado:
-        return ValidateSerialResponse(
-            valid=False,
-            motivo="ItemMismatch",
-            is_id=ts.is_id,
-            item_id_real=ts.item_id,
-            item_code_real=item_code_real,
-            item_desc_real=item_desc_real,
+    # PHASE A — READ BLOCK #1: all DB reads captured into plain locals before close.
+    # Early short-circuits (SerialNotFound, ItemMismatch) happen inside the block
+    # (returning from inside a `with` is fine; the CM still closes on return).
+    with get_background_db() as db:
+        ts: Optional[TbItemSerial] = (
+            db.query(TbItemSerial).filter(func.upper(TbItemSerial.is_serial) == serial.strip().upper()).first()
         )
+        if not ts:
+            return ValidateSerialResponse(valid=False, motivo="SerialNotFound")
 
-    # ¿Ya está asignado a un sales order pendiente (no facturado todavía)?
-    sos_row = db.execute(
-        text("SELECT soh_id FROM tb_sale_order_serials WHERE is_id = :is_id LIMIT 1"),
-        {"is_id": ts.is_id},
-    ).first()
-    if sos_row:
+        # Capture all TbItemSerial attributes into plain locals before block exits.
+        is_id: int = ts.is_id
+        item_id_real: int = ts.item_id
+        is_available_local: bool = ts.is_available is True
+
+        real_item: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == ts.item_id).first()
+        item_code_real: Optional[str] = real_item.item_code if real_item else None
+        item_desc_real: Optional[str] = real_item.item_desc if real_item else None
+
+        if item_id_real != item_id_esperado:
+            return ValidateSerialResponse(
+                valid=False,
+                motivo="ItemMismatch",
+                is_id=is_id,
+                item_id_real=item_id_real,
+                item_code_real=item_code_real,
+                item_desc_real=item_desc_real,
+            )
+
+        # ¿Ya está asignado a un sales order pendiente (no facturado todavía)?
+        sos_row = db.execute(
+            text("SELECT soh_id FROM tb_sale_order_serials WHERE is_id = :is_id LIMIT 1"),
+            {"is_id": is_id},
+        ).first()
+        # Capture Row scalars into plain locals; Row objects are already detached
+        # snapshots but we copy for uniformity and safety across block exit.
+        had_sos_row: bool = sos_row is not None
+        soh_id_local: Optional[int] = sos_row.soh_id if sos_row else None
+    # READ BLOCK #1 closes here — pool released, no session held during HTTP.
+
+    # PHASE B — HTTP for sale-order (NO session held). Only if had_sos_row.
+    if had_sos_row:
         # La fila local puede ser fantasma: el sync de tb_sale_order_serials es
         # upsert puro y no refleja borrados (cuando se quita un serial de un pedido
         # en el ERP, la fila queda local). Verificamos contra el ERP antes de
         # bloquear para no rechazar seriales que ya están libres.
-        en_so_erp, soh_id_erp = _refetch_serial_sale_order(ts.is_id)
+        en_so_erp, soh_id_erp = _refetch_serial_sale_order(is_id)
         if en_so_erp is False:
             # ERP confirma que el serial ya no está en ningún pedido — la fila
             # local es fantasma, seguimos con los checks de disponibilidad.
@@ -214,32 +237,44 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
         else:
             # en_so_erp is True → reportamos el soh_id fresco del ERP.
             # en_so_erp is None (refetch falló) → caemos al soh_id local.
-            soh_id_a_reportar = soh_id_erp if en_so_erp is True else sos_row.soh_id
+            soh_id_a_reportar = soh_id_erp if en_so_erp is True else soh_id_local
             return ValidateSerialResponse(
                 valid=False,
                 motivo="AlreadyInSaleOrder",
-                is_id=ts.is_id,
-                item_id_real=ts.item_id,
+                is_id=is_id,
+                item_id_real=item_id_real,
                 item_code_real=item_code_real,
                 item_desc_real=item_desc_real,
                 usado_en_soh_id=soh_id_a_reportar,
             )
 
+    # PHASE C — availability resolution (NO session held).
     # Gate de disponibilidad. El ERP marca `is_available=true` cuando el serial
     # está libre para usar; una NC o quitar el item de una factura lo vuelven a
     # poner en true. No alcanza con preguntar si ESTUVO en una factura.
-    disponible = ts.is_available is True
+    disponible = is_available_local
 
     # `is_available` local puede estar viejo: el sync incremental de
     # tb_item_serials no re-trae seriales antiguos liberados por una NC. Si local
     # lo da como ocupado, reconsultamos ese serial puntual al ERP antes de
     # bloquearlo. Si el ERP no responde, caemos al estado local conocido.
     if not disponible:
-        erp_disponible = _refetch_serial_is_available(ts.is_id)
+        erp_disponible = _refetch_serial_is_available(is_id)
         if erp_disponible is not None:
             disponible = erp_disponible
 
-    if not disponible:
+    if disponible:
+        return ValidateSerialResponse(
+            valid=True,
+            is_id=is_id,
+            item_id_real=item_id_real,
+            item_code_real=item_code_real,
+            item_desc_real=item_desc_real,
+        )
+
+    # PHASE D — FINISH READ BLOCK #2 (only reached when NOT available).
+    # Opens a second short-lived session for the fact_row lookup.
+    with get_background_db() as db:
         # No disponible. Buscamos en qué factura quedó para que el armador pueda
         # rastrearlo — la query solo informa el "dónde", ya no decide.
         fact_row = db.execute(
@@ -255,34 +290,31 @@ def _validar_serial_core(db: Session, serial: str, item_id_esperado: int) -> Val
                 LIMIT 1
                 """
             ),
-            {"is_id": ts.is_id},
+            {"is_id": is_id},
         ).first()
-        if fact_row:
-            return ValidateSerialResponse(
-                valid=False,
-                motivo="AlreadyInvoiced",
-                is_id=ts.is_id,
-                item_id_real=ts.item_id,
-                item_code_real=item_code_real,
-                item_desc_real=item_desc_real,
-                usado_en_factura=fact_row.ct_transaction,
-                usado_en_factura_soh_id=fact_row.ct_soh_id,
-            )
-        # No disponible y sin rastro de factura: ocupado por otra causa (remito,
-        # transferencia, reserva). No tenemos el "dónde", pero no está libre.
+        # Capture Row scalars into plain locals before block exits.
+        ct_transaction: Optional[int] = fact_row.ct_transaction if fact_row else None
+        ct_soh_id: Optional[int] = fact_row.ct_soh_id if fact_row else None
+    # READ BLOCK #2 closes here.
+
+    if ct_transaction is not None:
         return ValidateSerialResponse(
             valid=False,
-            motivo="NoDisponible",
-            is_id=ts.is_id,
-            item_id_real=ts.item_id,
+            motivo="AlreadyInvoiced",
+            is_id=is_id,
+            item_id_real=item_id_real,
             item_code_real=item_code_real,
             item_desc_real=item_desc_real,
+            usado_en_factura=ct_transaction,
+            usado_en_factura_soh_id=ct_soh_id,
         )
-
+    # No disponible y sin rastro de factura: ocupado por otra causa (remito,
+    # transferencia, reserva). No tenemos el "dónde", pero no está libre.
     return ValidateSerialResponse(
-        valid=True,
-        is_id=ts.is_id,
-        item_id_real=ts.item_id,
+        valid=False,
+        motivo="NoDisponible",
+        is_id=is_id,
+        item_id_real=item_id_real,
         item_code_real=item_code_real,
         item_desc_real=item_desc_real,
     )
@@ -488,10 +520,9 @@ def obtener_componentes_para_prearmado(
 )
 def validar_serial(
     body: ValidateSerialRequest,
-    db: Session = Depends(get_db),
 ) -> ValidateSerialResponse:
     """Verifica que el serial exista en tb_item_serials y matchee el item esperado."""
-    return _validar_serial_core(db, body.serial, body.item_id_esperado)
+    return _validar_serial_core(body.serial, body.item_id_esperado)
 
 
 @router.post(
@@ -683,7 +714,9 @@ def cargar_seriales(
             errores.append({"index": idx, "motivo": "SerialFaltante"})
             continue
 
-        validacion = _validar_serial_core(db, item.serial, item.componente_item_id)
+        # DI db is idle (not used) during ERP HTTP calls inside _validar_serial_core;
+        # pool connection held but no blocking read during HTTP. See AD-7.
+        validacion = _validar_serial_core(item.serial, item.componente_item_id)
         if not validacion.valid and not item.force:
             errores.append(
                 {
@@ -720,6 +753,9 @@ def cargar_seriales(
             detail={"message": "Seriales inválidos (usá force=true por item)", "errores": errores},
         )
 
+    # TOCTOU: a window exists between the read-session close in _validar_serial_core
+    # and this commit. Pre-existing (ERP refetch already opened this window).
+    # Out of scope.
     db.add_all(a_insertar)
     db.commit()
     db.refresh(p)
@@ -783,7 +819,7 @@ def actualizar_serial(
             detail="Este componente no requiere serie — no se puede editar",
         )
 
-    validacion = _validar_serial_core(db, body.serial, s.componente_item_id)
+    validacion = _validar_serial_core(body.serial, s.componente_item_id)
     if not validacion.valid and not body.force:
         raise HTTPException(
             status_code=422,

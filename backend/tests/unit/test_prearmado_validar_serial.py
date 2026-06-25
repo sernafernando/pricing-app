@@ -5,11 +5,34 @@ si el serial estuvo alguna vez en una factura. La traza solo informa el "dónde"
 cuando el serial está ocupado.
 """
 
+from contextlib import contextmanager
+from typing import Generator, Optional
+
+import pytest
+from sqlalchemy.orm import Session
+
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.tb_item_serials import TbItemSerial
 from app.models.tb_item_transaction_serials import TbItemTransactionSerial
 from app.models.tb_sale_order_serial import TbSaleOrderSerial
 from app.routers import prearmado
+
+
+@pytest.fixture(autouse=True)
+def _patch_bg_db(db: Session, monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Patches prearmado.get_background_db with a CM that yields the test db.
+
+    The fixture db session owns the transaction lifecycle (rollback on teardown).
+    The fake CM must NOT commit or close that session — doing so would break
+    transaction isolation and prevent rollback-based test cleanup.
+    """
+
+    @contextmanager
+    def _fake_bg_db() -> Generator[Session, None, None]:
+        yield db
+        # No commit, no close — the db fixture owns the session lifecycle.
+
+    monkeypatch.setattr(prearmado, "get_background_db", _fake_bg_db)
 
 
 def _crear_serial(db, is_id: int = 1, item_id: int = 10, serial: str = "ABC123", is_available: bool = True):
@@ -47,7 +70,7 @@ def test_serial_disponible_es_valido(db, monkeypatch):
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", _refetch_no_llamar)
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is True
     assert resp.motivo is None
@@ -60,7 +83,7 @@ def test_serial_facturado_pero_disponible_es_valido(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_factura(db, is_id=1)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is True
     assert resp.motivo is None
@@ -72,7 +95,7 @@ def test_serial_no_disponible_y_facturado(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=False)
     _crear_factura(db, is_id=1, ct_transaction=5000, ct_soh_id=777)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "AlreadyInvoiced"
@@ -87,7 +110,7 @@ def test_local_ocupado_pero_erp_lo_libera(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=False)
     _crear_factura(db, is_id=1)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is True
     assert resp.motivo is None
@@ -98,7 +121,7 @@ def test_no_disponible_sin_rastro_de_factura(db, monkeypatch):
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", lambda is_id: False)
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=False)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "NoDisponible"
@@ -109,7 +132,7 @@ def test_no_disponible_con_erp_caido(db, monkeypatch):
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", lambda is_id: None)
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=False)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "NoDisponible"
@@ -121,7 +144,7 @@ def test_is_available_none_se_verifica_contra_erp(db, monkeypatch):
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", lambda is_id: True)
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=None)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is True
 
@@ -135,7 +158,7 @@ def test_sale_order_pendiente_bloquea_aunque_este_disponible(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_sale_order(db, is_id=1, soh_id=888)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "AlreadyInSaleOrder"
@@ -152,7 +175,7 @@ def test_sale_order_local_pero_erp_dice_no_es_valido(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_sale_order(db, is_id=1, soh_id=888)  # fila local fantasma
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is True
     assert resp.motivo is None
@@ -165,7 +188,7 @@ def test_sale_order_refetch_falla_cae_a_local(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_sale_order(db, is_id=1, soh_id=888)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "AlreadyInSaleOrder"
@@ -179,7 +202,7 @@ def test_sale_order_erp_devuelve_soh_id_fresco(db, monkeypatch):
     _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
     _crear_sale_order(db, is_id=1, soh_id=888)  # local desactualizado
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "AlreadyInSaleOrder"
@@ -190,7 +213,7 @@ def test_serial_inexistente(db, monkeypatch):
     """Un serial que no existe en tb_item_serials → SerialNotFound."""
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", _refetch_no_llamar)
 
-    resp = prearmado._validar_serial_core(db, "NO-EXISTE", 10)
+    resp = prearmado._validar_serial_core("NO-EXISTE", 10)
 
     assert resp.valid is False
     assert resp.motivo == "SerialNotFound"
@@ -201,8 +224,48 @@ def test_item_mismatch(db, monkeypatch):
     monkeypatch.setattr(prearmado, "_refetch_serial_is_available", _refetch_no_llamar)
     _crear_serial(db, is_id=1, item_id=99, serial="ABC123", is_available=True)
 
-    resp = prearmado._validar_serial_core(db, "ABC123", 10)
+    resp = prearmado._validar_serial_core("ABC123", 10)
 
     assert resp.valid is False
     assert resp.motivo == "ItemMismatch"
     assert resp.item_id_real == 99
+
+
+def test_bg_db_context_exited_before_refetch_calls(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SC-13 structural invariant: get_background_db CM is exited BEFORE any
+    _refetch_* helper is called. This makes the 'no DB session held during ERP
+    HTTP' guarantee machine-checkable, not just structural.
+
+    Strategy: wrap the autouse _patch_bg_db mock to record exit state, then
+    assert context was exited before each refetch invocation.
+    """
+    call_log: list[str] = []
+
+    # Override the autouse patch with an instrumented version.
+    @contextmanager
+    def _instrumented_bg_db() -> Generator[Session, None, None]:
+        call_log.append("cm_enter")
+        yield db
+        call_log.append("cm_exit")
+
+    monkeypatch.setattr(prearmado, "get_background_db", _instrumented_bg_db)
+
+    def _refetch_sale_order_spy(is_id: int) -> tuple[Optional[bool], Optional[int]]:
+        call_log.append("refetch_sale_order")
+        return (True, 888)
+
+    monkeypatch.setattr(prearmado, "_refetch_serial_sale_order", _refetch_sale_order_spy)
+
+    _crear_serial(db, is_id=1, item_id=10, serial="ABC123", is_available=True)
+    _crear_sale_order(db, is_id=1, soh_id=888)
+
+    prearmado._validar_serial_core("ABC123", 10)
+
+    # The first cm_exit must appear in the log BEFORE refetch_sale_order.
+    assert "cm_exit" in call_log, "get_background_db CM was never exited"
+    assert "refetch_sale_order" in call_log, "_refetch_serial_sale_order was never called"
+    cm_exit_idx = call_log.index("cm_exit")
+    refetch_idx = call_log.index("refetch_sale_order")
+    assert cm_exit_idx < refetch_idx, (
+        f"get_background_db CM was still open when _refetch_serial_sale_order was called. call_log={call_log}"
+    )
