@@ -537,44 +537,44 @@ class OperacionConMetricasResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/ventas-ml/operaciones-con-metricas", response_model=List[OperacionConMetricasResponse])
-def get_operaciones_con_metricas(
-    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
-    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
-    ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
-    codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
-    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
-    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
-    tiendas_oficiales: Optional[str] = Query(
-        None, description="Filtrar por tiendas oficiales (IDs separados por coma)"
-    ),
-    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
-    search: Optional[str] = Query(None, description="Buscar en código o descripción"),
-    limit: int = Query(1000, le=50000, description="Límite de resultados"),
-    offset: int = Query(0, description="Offset para paginación"),
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-):
+def fetch_operaciones_con_metricas(
+    db: Session,
+    *,
+    from_date: str,
+    to_date: str,
+    ml_id: Optional[str] = None,
+    codigo: Optional[str] = None,
+    marcas: Optional[str] = None,
+    categorias: Optional[str] = None,
+    tiendas_oficiales: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 1000,
+    offset: int = 0,
+    pares_usuario: Optional[set] = None,
+    coslis_id: int = 1,
+) -> List[dict]:
     """
-    Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
-    Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
-    Soporta paginación server-side con limit/offset.
+    Núcleo compartido que computa las operaciones de ML con todas las métricas
+    LIVE desde las tablas crudas del ERP (costo real, comisión real, ml_id real).
+
+    Extraído desde el endpoint `get_operaciones_con_metricas` SIN cambios de
+    comportamiento. Dos puntos parametrizados respecto al original:
+      1. `coslis_id` reemplaza el `coslis_id = 1` hardcodeado en el SQL (default 1
+         preserva el comportamiento histórico de ML). Una futura lista de costos
+         independiente para otra marca = pasar otro coslis_id.
+      2. `pares_usuario` se recibe como parámetro (antes se calculaba dentro del
+         endpoint). El filtro post-loop por par (marca, categoría) es idéntico:
+         None = ve todo, set vacío = no ve nada.
+
+    Args:
+        db: Sesión SQLAlchemy (se usa su conexión raw psycopg2 para el SQL crudo).
+        pares_usuario: None = sin restricción por par marca/categoría; set vacío =
+            no ve nada; set con pares = solo esos (marca, categoría) en UPPER.
+        coslis_id: id de la lista de costos a usar en los JOIN/subqueries de costo.
+
+    Returns:
+        Lista de dicts con todas las métricas calculadas por fila.
     """
-
-    # Obtener pares marca+categoría del usuario para filtrar
-    # Si pm_ids está presente (usuario admin seleccionó PMs), usar esos en lugar del usuario actual
-    if pm_ids:
-        pm_ids_list = [int(id.strip()) for id in pm_ids.split(",") if id.strip().isdigit()]
-        if pm_ids_list:
-            pares_pms = (
-                db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids_list)).distinct().all()
-            )
-            pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
-        else:
-            pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
-    else:
-        pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
-
     to_date_full = to_date + " 23:59:59"
 
     query_str = """
@@ -617,10 +617,10 @@ def get_operaciones_con_metricas(
                     FROM tb_item_cost_list_history iclh
                     LEFT JOIN tb_item_cost_list ticl
                         ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = 1
+                        AND ticl.coslis_id = %(coslis_id)s
                     WHERE iclh.item_id = tmlod.item_id
                       AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = 1
+                      AND iclh.coslis_id = %(coslis_id)s
                     ORDER BY iclh.iclh_id DESC
                     LIMIT 1
                 ),
@@ -636,7 +636,7 @@ def get_operaciones_con_metricas(
                     END
                     FROM tb_item_cost_list ticl
                     WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
+                      AND ticl.coslis_id = %(coslis_id)s
                 ),
                 0
             ) as costo_sin_iva,
@@ -766,7 +766,7 @@ def get_operaciones_con_metricas(
         LEFT JOIN tb_item_cost_list ticl
             ON ticl.comp_id = tmlod.comp_id
             AND ticl.item_id = tmlod.item_id
-            AND ticl.coslis_id = 1
+            AND ticl.coslis_id = %(coslis_id)s
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
@@ -837,7 +837,13 @@ def get_operaciones_con_metricas(
     )
 
     # Preparar parámetros
-    params = {"from_date": from_date, "to_date": to_date_full, "limit": limit, "offset": offset}
+    params = {
+        "from_date": from_date,
+        "to_date": to_date_full,
+        "limit": limit,
+        "offset": offset,
+        "coslis_id": coslis_id,
+    }
 
     if ml_id:
         params["ml_id"] = ml_id
@@ -951,11 +957,74 @@ def get_operaciones_con_metricas(
                 "monto_limpio": Decimal(str(metricas["monto_limpio"])),
                 "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
+                # Ganancia ya calculada por el helper (monto_limpio - costo_total_sin_iva)
+                "ganancia": Decimal(str(metricas["ganancia"])),
+                # Tipo de logística crudo del ERP (self_service, fulfillment, etc.)
+                # Aditivo: el response model de ML lo ignora; lo usa el detalle TP-Link.
+                "ml_logistic_type": row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
                 "is_cancelled": bool(row.is_cancelled),
             }
         )
 
     return operaciones
+
+
+@router.get("/ventas-ml/operaciones-con-metricas", response_model=List[OperacionConMetricasResponse])
+def get_operaciones_con_metricas(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
+    codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(
+        None, description="Filtrar por tiendas oficiales (IDs separados por coma)"
+    ),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
+    search: Optional[str] = Query(None, description="Buscar en código o descripción"),
+    limit: int = Query(1000, le=50000, description="Límite de resultados"),
+    offset: int = Query(0, description="Offset para paginación"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
+    Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
+    Soporta paginación server-side con limit/offset.
+
+    Wrapper delgado: calcula `pares_usuario` como siempre y delega en
+    `fetch_operaciones_con_metricas` con `coslis_id=1` (comportamiento histórico).
+    """
+
+    # Obtener pares marca+categoría del usuario para filtrar
+    # Si pm_ids está presente (usuario admin seleccionó PMs), usar esos en lugar del usuario actual
+    if pm_ids:
+        pm_ids_list = [int(id.strip()) for id in pm_ids.split(",") if id.strip().isdigit()]
+        if pm_ids_list:
+            pares_pms = (
+                db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids_list)).distinct().all()
+            )
+            pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
+        else:
+            pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
+    else:
+        pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
+
+    return fetch_operaciones_con_metricas(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        ml_id=ml_id,
+        codigo=codigo,
+        marcas=marcas,
+        categorias=categorias,
+        tiendas_oficiales=tiendas_oficiales,
+        search=search,
+        limit=limit,
+        offset=offset,
+        pares_usuario=pares_usuario,
+        coslis_id=1,
+    )
 
 
 @router.get("/ventas-ml/exportar-operaciones")
