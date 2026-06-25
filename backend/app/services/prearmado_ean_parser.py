@@ -50,12 +50,9 @@ Examples::
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from typing import Literal, Optional
-
-logger = logging.getLogger(__name__)
 
 WindowsLiteral = Literal["home", "pro"]
 
@@ -98,8 +95,11 @@ class ParsedEan:
 def parse_combo_ean(item_code: Optional[str]) -> Optional[ParsedEan]:
     """Decompose a combo item_code into its EAN components.
 
-    The parser never raises. Malformed suffixes are logged at WARNING level and
-    return ``None`` so callers can handle them gracefully (count as 0 in stats).
+    The parser never raises. Suffixes that don't match the EAN format return
+    ``None`` so callers can handle them gracefully. Returning ``None`` is NOT an
+    error: custom-built combos (e.g. ``"PC-R5700G-A-16G"``) use a different
+    naming scheme and are matched by exact identity by the caller, not decomposed
+    here. Severity is the caller's decision, so the parser stays silent.
 
     Parameters
     ----------
@@ -154,7 +154,8 @@ def parse_combo_ean(item_code: Optional[str]) -> Optional[ParsedEan]:
     if remaining:
         m_mem = _MEMORIA_RE.match(remaining)
         if not m_mem:
-            logger.warning("EAN parse failed for item_code=%s (suffix=%r)", raw, suffix)
+            # Suffix doesn't match the EAN format ({memoria}{disco}{windows}).
+            # Not an error — non-EAN combos are matched by exact identity upstream.
             return None
         memoria = m_mem.group("memoria")
 

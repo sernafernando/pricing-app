@@ -16,8 +16,11 @@ from unittest.mock import MagicMock
 
 from app.services.prearmado_ean_parser import ParsedEan
 from app.services.prearmado_stats_service import (
+    _build_exact_index,
     _build_prearmadas_index,
     _count_coverage,
+    _count_for_item,
+    _exact_cover,
     classify,
 )
 
@@ -27,11 +30,16 @@ from app.services.prearmado_stats_service import (
 # ---------------------------------------------------------------------------
 
 
-def _make_prearmado(id_: int, combo_item_code: str) -> MagicMock:
-    """Helper: create a minimal Prearmado mock."""
+def _make_prearmado(id_: int, combo_item_code: str, combo_item_id: int | None = None) -> MagicMock:
+    """Helper: create a minimal Prearmado mock.
+
+    ``combo_item_id`` defaults to ``id_`` when not given (each mock is its own
+    distinct combo unless a test deliberately shares an id).
+    """
     p = MagicMock()
     p.id = id_
     p.combo_item_code = combo_item_code
+    p.combo_item_id = combo_item_id if combo_item_id is not None else id_
     return p
 
 
@@ -48,17 +56,23 @@ class TestBuildPrearmadasIndex:
         assert key in index
         assert len(index[key]) == 2
 
-    def test_unparseable_row_skipped_with_warning(self):
-        """Prearmados whose code cannot be parsed are skipped (no exception)."""
+    def test_unparseable_row_excluded_from_specs_index(self):
+        """Non-EAN codes are excluded from the SPECS index (no exception, no warning).
+
+        They are not lost from stats — they are covered by the exact-identity
+        index instead (see TestBuildExactIndex).
+        """
         prearmadas = [
             _make_prearmado(1, "LENOVO-16512GWP"),
             _make_prearmado(2, "NOTACOMBO"),  # no dash → None
             _make_prearmado(3, "HP-32256G"),
+            _make_prearmado(4, "PC-R5700G-A-16G"),  # custom build → None
         ]
         index = _build_prearmadas_index(prearmadas)
 
-        # NOTACOMBO is skipped
+        # Non-EAN codes are absent from the specs index
         assert ("NOTACOMBO", None, None) not in index
+        assert ("PC", None, None) not in index
         # Valid ones are present
         assert ("LENOVO", "16", "512G") in index
         assert ("HP", "32", "256G") in index
@@ -173,3 +187,94 @@ def test_classify_re_export():
     assert classify(None, None) == "exact"
     assert classify(None, "pro") == "upgrade"
     assert classify("pro", "home") == "none"
+
+
+# ---------------------------------------------------------------------------
+# _build_exact_index — exact-identity coverage for custom (non-EAN) combos
+# ---------------------------------------------------------------------------
+
+
+class TestBuildExactIndex:
+    def test_counts_by_combo_item_id(self):
+        """Prearmados are tallied by combo_item_id regardless of code format."""
+        prearmadas = [
+            _make_prearmado(1, "PC-R5700G-A-16G", combo_item_id=500),
+            _make_prearmado(2, "PC-R5700G-A-16G", combo_item_id=500),
+            _make_prearmado(3, "PC-R5600G-A-8G", combo_item_id=501),
+        ]
+        assert _build_exact_index(prearmadas) == {500: 2, 501: 1}
+
+    def test_includes_ean_combos_too(self):
+        """The exact index counts every armado, EAN or not (branch isolation
+        in the batch path prevents double-counting)."""
+        prearmadas = [
+            _make_prearmado(1, "LENOVO-16512GWP", combo_item_id=10),
+            _make_prearmado(2, "PC-R5700G-A-16G", combo_item_id=20),
+        ]
+        assert _build_exact_index(prearmadas) == {10: 1, 20: 1}
+
+    def test_empty_input(self):
+        assert _build_exact_index([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# _count_for_item — per-item branch between spec coverage and exact identity
+# ---------------------------------------------------------------------------
+
+
+class TestCountForItem:
+    def test_ean_item_uses_spec_coverage(self):
+        """An EAN item delegates to spec-based coverage (exact + upgrade)."""
+        specs_index = _build_prearmadas_index(
+            [
+                _make_prearmado(1, "LENOVO-16512GWP"),
+                _make_prearmado(2, "LENOVO-16512GWP"),
+            ]
+        )
+        result = _count_for_item("LENOVO-16512GWP", 999, specs_index, exact_index={})
+        assert result == {"exact": 2, "upgrade": 0}
+
+    def test_ean_item_counts_windows_upgrade(self):
+        """EAN item needing home is covered as upgrade by a pro prearmado."""
+        specs_index = _build_prearmadas_index([_make_prearmado(1, "LENOVO-16512GWP")])
+        result = _count_for_item("LENOVO-16512GWH", 999, specs_index, exact_index={})
+        assert result == {"exact": 0, "upgrade": 1}
+
+    def test_custom_combo_uses_exact_identity(self):
+        """A non-EAN combo (PC-...) matches only by combo_item_id; never upgrades."""
+        # PC- codes never enter the specs index
+        specs_index = _build_prearmadas_index([_make_prearmado(1, "PC-R5700G-A-16G", combo_item_id=500)])
+        assert specs_index == {}
+        exact_index = _build_exact_index([_make_prearmado(1, "PC-R5700G-A-16G", combo_item_id=500)])
+        result = _count_for_item("PC-R5700G-A-16G", 500, specs_index, exact_index)
+        assert result == {"exact": 1, "upgrade": 0}
+
+    def test_custom_combo_no_match_is_zero(self):
+        """Custom combo with no armado of that exact id → 0/0."""
+        result = _count_for_item("PC-R5700G-A-16G", 500, specs_index={}, exact_index={501: 3})
+        assert result == {"exact": 0, "upgrade": 0}
+
+
+# ---------------------------------------------------------------------------
+# _exact_cover — sellers page covers[] for custom combos
+# ---------------------------------------------------------------------------
+
+
+class TestExactCover:
+    def test_returns_self_classified_exact(self):
+        items_by_id = {
+            500: {"item_id": 500, "item_code": "PC-R5700G-A-16G", "item_desc": "PC Gamer"},
+        }
+        covers = _exact_cover(500, items_by_id)
+        assert covers == [
+            {
+                "item_id": 500,
+                "item_code": "PC-R5700G-A-16G",
+                "item_desc": "PC Gamer",
+                "classification": "exact",
+            }
+        ]
+
+    def test_missing_item_returns_empty(self):
+        """Combo item absent from the catalog → no covers (graceful)."""
+        assert _exact_cover(999, items_by_id={}) == []

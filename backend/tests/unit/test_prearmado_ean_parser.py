@@ -105,17 +105,17 @@ class TestEdgeCases:
         """'-WP' (empty base) → None."""
         assert parse_combo_ean("-WP") is None
 
-    def test_junk_suffix_returns_none_and_logs_warning(self):
-        """'XXXX-FOO' — suffix doesn't match → returns None AND calls logger.warning."""
-        from unittest.mock import patch
+    def test_junk_suffix_returns_none_silently(self):
+        """'XXXX-FOO' — suffix doesn't match → returns None WITHOUT logging.
 
-        with patch("app.services.prearmado_ean_parser.logger") as mock_log:
-            result = parse_combo_ean("XXXX-FOO")
-        assert result is None
-        mock_log.warning.assert_called_once()
-        # The warning should reference the original item_code
-        call_args = mock_log.warning.call_args
-        assert "XXXX-FOO" in str(call_args)
+        A non-EAN suffix is expected (custom combos like 'PC-R5700G-A-16G' are
+        matched by exact identity upstream), so the parser stays silent and lets
+        the caller decide severity. The module deliberately exposes no logger.
+        """
+        import app.services.prearmado_ean_parser as parser_mod
+
+        assert not hasattr(parser_mod, "logger")
+        assert parse_combo_ean("XXXX-FOO") is None
 
     def test_whitespace_only_after_strip(self):
         """'   ' → None."""
@@ -125,7 +125,7 @@ class TestEdgeCases:
         """'A-B-C' → ean_base='A', suffix='B-C' parsed.
 
         'B-C' is not a valid suffix (contains a dash which the regex won't match)
-        so it should return None with a warning, not raise.
+        so it should return None silently, not raise.
         """
         # 'B-C' won't match the suffix pattern → None
         result = parse_combo_ean("A-B-C")
