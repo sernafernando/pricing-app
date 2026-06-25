@@ -81,10 +81,14 @@ _IndexKey = tuple[str, Optional[str], Optional[str]]  # (ean_base, memoria, disc
 def _build_prearmadas_index(
     prearmadas: list[Prearmado],
 ) -> dict[_IndexKey, list[ParsedEan]]:
-    """Build an in-memory index of prearmadas keyed by (ean_base, memoria, disco).
+    """Build an in-memory index of EAN-format prearmadas keyed by (ean_base, memoria, disco).
 
-    Prearmadas whose ``combo_item_code`` cannot be parsed are skipped with a
-    WARNING log — they contribute 0 to all item stats.
+    Prearmadas whose ``combo_item_code`` does not follow the EAN format (e.g.
+    custom-built PCs like ``PC-R5700G-A-16G``) cannot be decomposed into
+    memoria/disco/windows, so they are excluded from THIS index. They are NOT
+    excluded from stats: they are covered by exact identity via
+    ``_build_exact_index`` instead. No WARNING is logged — a non-EAN combo is
+    expected, not an error.
 
     Parameters
     ----------
@@ -99,15 +103,33 @@ def _build_prearmadas_index(
     for p in prearmadas:
         parsed = parse_combo_ean(p.combo_item_code)
         if parsed is None:
-            logger.warning(
-                "Prearmado id=%s combo_item_code=%r could not be parsed — skipped from stats index",
-                p.id,
-                p.combo_item_code,
-            )
             continue
         key: _IndexKey = (parsed.ean_base, parsed.memoria, parsed.disco)
         index.setdefault(key, []).append(parsed)
     return index
+
+
+def _build_exact_index(prearmadas: list[Prearmado]) -> dict[int, int]:
+    """Count armado prearmadas by ``combo_item_id`` for exact-identity coverage.
+
+    Custom-built combos (e.g. ``PC-R5700G-A-16G``) have no memoria/disco/windows
+    axes to compare, so availability is defined by EXACT identity: a prearmado
+    covers a requested item only when it IS the same combo. We key by
+    ``combo_item_id`` (stable, indexed) rather than the raw code string so the
+    match is immune to casing/whitespace variants.
+
+    Counts ALL armado prearmadas. This is safe against double-counting because
+    the batch path consults this index only for requested items whose code does
+    not parse — a mutually exclusive branch from the EAN spec path.
+
+    Returns
+    -------
+    dict mapping ``combo_item_id`` → number of armado prearmadas for that combo.
+    """
+    counts: dict[int, int] = {}
+    for p in prearmadas:
+        counts[p.combo_item_id] = counts.get(p.combo_item_id, 0) + 1
+    return counts
 
 
 def _count_coverage(
@@ -126,6 +148,41 @@ def _count_coverage(
         elif result == "upgrade":
             upgrade += 1
     return {"exact": exact, "upgrade": upgrade}
+
+
+def _count_for_item(
+    item_code: Optional[str],
+    item_id: int,
+    specs_index: dict[_IndexKey, list[ParsedEan]],
+    exact_index: dict[int, int],
+) -> dict[str, int]:
+    """Coverage counts for a single requested item.
+
+    Two disjoint coverage models, selected by whether the item's code parses:
+      - EAN-format combos → spec-based coverage (exact + windows upgrades).
+      - Non-parseable combos (custom PCs) → exact identity by ``combo_item_id``;
+        there is no notion of an "upgrade" for a made-to-order build.
+    """
+    parsed = parse_combo_ean(item_code)
+    if parsed is None:
+        return {"exact": exact_index.get(item_id, 0), "upgrade": 0}
+    return _count_coverage(parsed, specs_index)
+
+
+def _exact_cover(
+    combo_item_id: int,
+    items_by_id: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build the exact-identity covers[] for a non-EAN prearmado.
+
+    A custom-built combo covers exactly one catalog item: itself. Returns a
+    single-element list classified ``exact`` when the combo item is present in
+    the catalog, or an empty list when it is not.
+    """
+    item = items_by_id.get(combo_item_id)
+    if item is None:
+        return []
+    return [{**item, "classification": "exact"}]
 
 
 # ---------------------------------------------------------------------------
@@ -232,20 +289,19 @@ async def compute_batch_stats(
                 comp_id,
             )
 
-        # Build index once (not per item)
+        # Build both indexes once (not per item):
+        #  - specs index for EAN-format combos (exact + windows upgrades)
+        #  - exact index for custom combos matched by identity (combo_item_id)
         index = _build_prearmadas_index(prearmadas)
+        exact_index = _build_exact_index(prearmadas)
 
         for iid in miss_ids:
             item_code = code_map.get(iid)
             if item_code is None:
+                # Requested id not found in tb_item — nothing to match against.
                 computed_map[iid] = {"exact": 0, "upgrade": 0}
                 continue
-            item_parsed = parse_combo_ean(item_code)
-            if item_parsed is None:
-                # Non-combo item (no '-') or unparseable
-                computed_map[iid] = {"exact": 0, "upgrade": 0}
-                continue
-            computed_map[iid] = _count_coverage(item_parsed, index)
+            computed_map[iid] = _count_for_item(item_code, iid, index, exact_index)
 
     # ----- Cache write -----
     if redis is not None and computed_map:
@@ -345,9 +401,22 @@ def get_armadas_list(
             comp_id,
         )
 
-    # Build ean_base → list of items map
+    # Build two catalog maps in one pass:
+    #  - items_by_base: EAN-format items bucketed by ean_base (spec coverage)
+    #  - items_by_id:   every combo item keyed by item_id (exact-identity coverage
+    #                   for custom combos that don't parse)
+    # Both Query B and the prearmados query require a dash (`item_code LIKE '%-%'`),
+    # so exact-identity coverage assumes custom combo codes contain a dash
+    # (they do: e.g. "PC-R5700G-A-16G"). A dash-less combo would be absent here
+    # and degrade gracefully to empty covers.
     items_by_base: dict[str, list[dict[str, Any]]] = {}
+    items_by_id: dict[int, dict[str, Any]] = {}
     for row in combo_items:
+        items_by_id[row.item_id] = {
+            "item_id": row.item_id,
+            "item_code": row.item_code,
+            "item_desc": row.item_desc,
+        }
         parsed = parse_combo_ean(row.item_code)
         if parsed is None:
             continue
@@ -365,13 +434,10 @@ def get_armadas_list(
     for p in prearmadas:
         p_parsed = parse_combo_ean(p.combo_item_code)
         if p_parsed is None:
-            logger.warning(
-                "Prearmado id=%s combo_item_code=%r could not be parsed — covers will be empty",
-                p.id,
-                p.combo_item_code,
-            )
+            # Custom-built combo (e.g. PC-...) — no spec axes to compare. It covers
+            # exactly one catalog item: itself, matched by combo_item_id.
             p_parsed_dict: dict[str, Any] = {"ean_base": None, "memoria": None, "disco": None, "windows": None}
-            covers: list[dict[str, Any]] = []
+            covers: list[dict[str, Any]] = _exact_cover(p.combo_item_id, items_by_id)
         else:
             p_parsed_dict = {
                 "ean_base": p_parsed.ean_base,
