@@ -775,11 +775,6 @@ export default function ModalOrdenPagoNueva({
   const sumaItemsRaw = itemsDerivados.reduce((acc, it) => acc + (it.montoDerivadoRaw ?? it.montoDerivado ?? 0), 0);
   const montoTotalNum = parseFloat(form.monto_total) || 0;
 
-  // modoImputacion: cobertura específica = items (net) + cheques (también con pedido_id).
-  // monto_total ahora incluye la obligación completa (net + cheques), así que la suma
-  // específica también debe incluir cheques para detectar correctamente "especifica" vs "mixta".
-  const modoImputacion = derivarModoImputacion(sumaItems + sumaChequesOP, form.monto_total, items.length > 0, pagoACuentaNum);
-
   // T1.12 — sumaChequesOP: total de cobertura de cheques en moneda OP.
   // Los cheques son valores como las NCs: descuentan del efectivo necesario.
   // Cross-moneda: se convierte por TC de la OP (igual que NC cross-moneda).
@@ -794,6 +789,11 @@ export default function ModalOrdenPagoNueva({
     else if (form.moneda === 'USD' && ch.moneda === 'ARS') convertido = montoNum / tcNumLive;
     return acc + Math.round(convertido * 100) / 100;
   }, 0);
+
+  // modoImputacion: cobertura específica = items (net) + cheques (también con pedido_id).
+  // monto_total ahora incluye la obligación completa (net + cheques), así que la suma
+  // específica también debe incluir cheques para detectar correctamente "especifica" vs "mixta".
+  const modoImputacion = derivarModoImputacion(sumaItems + sumaChequesOP, form.monto_total, items.length > 0, pagoACuentaNum);
 
   // sumaNCsOP / sumaDAC: kept for the informational summary row ONLY.
   // They are NOT balance terms in the net-item model — NCs and DAC are
