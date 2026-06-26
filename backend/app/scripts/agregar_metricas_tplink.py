@@ -33,6 +33,7 @@ from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.item_cost_list_history import ItemCostListHistory
+from app.models.item_cost_list import ItemCostList
 from app.models.producto import ProductoERP
 from app.models.tipo_cambio import TipoCambio
 from app.services.pricing_calculator import (
@@ -78,7 +79,9 @@ def obtener_costo_item(
     Priority:
     1. Cost history (item_cost_list_history, coslis_id=8) before or on sale date.
     2. Current cost from history (coslis_id=8, no date filter).
-    3. Product cost fallback (productos_erp.costo).
+    3. Current cost list (tb_item_cost_list, coslis_id=8) — where list 8 actually
+       lives until history accumulates.
+    4. Product cost fallback (productos_erp.costo).
 
     NEVER falls back to coslis_id=1. Missing-cost counter incremented when
     no list-8 cost is found and costo=0 is returned.
@@ -122,7 +125,23 @@ def obtener_costo_item(
         moneda = "USD" if cost_actual.curr_id == 2 else "ARS"
         return (costo_total, moneda)
 
-    # 3. Last fallback: product cost (productos_erp.costo)
+    # 3. Current cost list (tb_item_cost_list, coslis_id=8). List 8 lives in the
+    #    CURRENT cost table, not (yet) in the history table — the history-only
+    #    lookups above miss it. The live operaciones detail also reads both. Money
+    #    is detected by curr_id (2=USD), the caller converts USD→ARS.
+    cost_current = (
+        db.query(ItemCostList)
+        .filter(and_(ItemCostList.item_id == item_id, ItemCostList.coslis_id == TPLINK_COSLIS_ID))
+        .first()
+    )
+
+    if cost_current and cost_current.coslis_price and float(cost_current.coslis_price) > 0:
+        costo_unitario = float(cost_current.coslis_price)
+        costo_total = costo_unitario * cantidad
+        moneda = "USD" if cost_current.curr_id == 2 else "ARS"
+        return (costo_total, moneda)
+
+    # 4. Last fallback: product cost (productos_erp.costo)
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
 
     if producto and producto.costo and float(producto.costo) > 0:
