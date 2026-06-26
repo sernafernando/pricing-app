@@ -508,12 +508,12 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
 def main() -> None:
     parser = argparse.ArgumentParser(description="Agregar metricas TP-Link (store 2645, coslis_id=8)")
     parser.add_argument("--from-date", required=True, help="Fecha inicio YYYY-MM-DD")
-    parser.add_argument("--to-date", required=True, help="Fecha fin YYYY-MM-DD")
+    parser.add_argument("--to-date", default=None, help="Fecha fin YYYY-MM-DD (default: hoy)")
     parser.add_argument("--batch-size", type=int, default=100)
     args = parser.parse_args()
 
     from_date = datetime.strptime(args.from_date, "%Y-%m-%d").date()
-    to_date = datetime.strptime(args.to_date, "%Y-%m-%d").date()
+    to_date = datetime.strptime(args.to_date, "%Y-%m-%d").date() if args.to_date else date.today()
 
     asyncio.run(agregar_metricas_rango(from_date, to_date, args.batch_size))
 
