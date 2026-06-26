@@ -173,6 +173,7 @@ from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 
 # Tesorería — Módulo de Cheques (Slice 1)
 from app.models.cheque import Chequera, Cheque, OrdenPagoCheque, ChequeEvento
+from app.models.tplink_venta_metrica import TplinkVentaMetrica
 
 __all__ = [
     "ProductoERP",
@@ -358,4 +359,6 @@ __all__ = [
     "Cheque",
     "OrdenPagoCheque",
     "ChequeEvento",
+    # TP-Link metrics
+    "TplinkVentaMetrica",
 ]
