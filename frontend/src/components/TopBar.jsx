@@ -15,7 +15,7 @@ import { toLocalDateString } from '../utils/dateUtils';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
-export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
+export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);
   const { highContrast, toggleHighContrast } = useTheme();
   const navigate = useNavigate();
@@ -85,9 +85,10 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
   };
 
   return (
-    <header 
+    <header
       className={styles.topbar}
       data-sidebar-expanded={sidebarExpanded}
+      data-sidebar-hidden={sidebarHidden}
     >
       {/* Left: Hamburguesa (mobile) + Logo */}
       <div className={styles.left}>

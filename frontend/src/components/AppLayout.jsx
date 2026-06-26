@@ -190,13 +190,14 @@ function AppLayoutInner() {
         data-sidebar-expanded={sidebarExpanded}
         data-sidebar-hidden={isBrandOnly}
       >
-        <TopBar 
+        <TopBar
           sidebarExpanded={sidebarExpanded}
+          sidebarHidden={isBrandOnly}
           onMobileMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         
         {/* Alert Banners - Sistema de rotación */}
-        <AlertBannerContainer sidebarExpanded={sidebarExpanded}>
+        <AlertBannerContainer sidebarExpanded={sidebarExpanded} sidebarHidden={isBrandOnly}>
           {alertasVisibles.map((alerta) => (
             <AlertBanner
               key={alerta.id}
