@@ -18,6 +18,11 @@
   left: var(--cf-sidebar-width-collapsed);
 }
 
+/* Brand-only users have no sidebar: the topbar spans the full width. */
+.topbar[data-sidebar-hidden="true"] {
+  left: 0;
+}
+
 /* Left Section */
 .left {
   display: flex;
