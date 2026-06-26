@@ -22,6 +22,7 @@ import pytest
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.permiso import Permiso
 from app.models.rol import Rol
@@ -257,10 +258,52 @@ def superadmin_user(db, superadmin_rol) -> Usuario:
     return user
 
 
+_tplink_mirror_counter = 0
+
+
 @pytest.fixture()
 def tplink_venta(db) -> MLVentaMetrica:
-    """One sale row for store 2645."""
-    return _make_venta(db, store_id=TPLINK_STORE_ID, ganancia=2000.0, costo_total_sin_iva=6000.0)
+    """One sale row for store 2645.
+
+    Seeds both MLVentaMetrica (for the ML-side / store-lock isolation tests that
+    still use the ML table) AND TplinkVentaMetrica (for the TP-Link aggregation
+    endpoints, which now read from tplink_ventas_metricas after the PR2 cutover).
+    """
+    global _tplink_mirror_counter
+    _tplink_mirror_counter += 1
+
+    ml_row = _make_venta(db, store_id=TPLINK_STORE_ID, ganancia=2000.0, costo_total_sin_iva=6000.0)
+
+    # Mirror the same data into TplinkVentaMetrica so aggregation endpoints
+    # (which now read tplink_ventas_metricas) return matching values.
+    tp_row = TplinkVentaMetrica(
+        id_operacion=800_000 + _tplink_mirror_counter,
+        mla_id=str(800_000 + _tplink_mirror_counter),
+        item_id=ml_row.item_id,
+        codigo=ml_row.codigo,
+        descripcion=ml_row.descripcion,
+        marca=ml_row.marca,
+        categoria=ml_row.categoria,
+        fecha_venta=ml_row.fecha_venta,
+        cantidad=ml_row.cantidad,
+        monto_unitario=ml_row.monto_unitario,
+        monto_total=ml_row.monto_total,
+        costo_unitario_sin_iva=ml_row.costo_unitario_sin_iva,
+        costo_total_sin_iva=ml_row.costo_total_sin_iva,
+        comision_ml=ml_row.comision_ml,
+        costo_envio_ml=ml_row.costo_envio_ml,
+        tipo_logistica=ml_row.tipo_logistica,
+        monto_limpio=ml_row.monto_limpio,
+        costo_total=ml_row.costo_total,
+        ganancia=ml_row.ganancia,
+        markup_porcentaje=ml_row.markup_porcentaje,
+        mlp_official_store_id=TPLINK_STORE_ID,
+        is_cancelled=False,
+    )
+    db.add(tp_row)
+    db.flush()
+
+    return ml_row
 
 
 @pytest.fixture()
