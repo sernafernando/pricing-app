@@ -296,10 +296,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     missing_count = sum(1 for row in rows if not row.costo_sin_iva or float(row.costo_sin_iva) == 0)
     if missing_count > 0:
         sample_codes = [row.codigo for row in rows if not row.costo_sin_iva or float(row.costo_sin_iva) == 0][:10]
-        print(
-            f"  AVISO: {missing_count} items sin costo lista {TPLINK_COSLIS_ID}. "
-            f"Muestra codigos: {sample_codes}"
-        )
+        print(f"  AVISO: {missing_count} items sin costo lista {TPLINK_COSLIS_ID}. Muestra codigos: {sample_codes}")
 
     return rows
 
@@ -386,9 +383,7 @@ def process_and_insert(db: Session, rows) -> tuple[int, int, int]:
 
     for row in rows:
         try:
-            existente = (
-                db.query(TplinkVentaMetrica).filter(TplinkVentaMetrica.id_operacion == row.id_operacion).first()
-            )
+            existente = db.query(TplinkVentaMetrica).filter(TplinkVentaMetrica.id_operacion == row.id_operacion).first()
 
             count_per_pack = pack_counts.get(row.pack_id, 1)
             metricas = calcular_metricas_adicionales(row, count_per_pack, db)
