@@ -45,11 +45,8 @@ export function useProductosOffsets() {
     }
   };
 
-  // Bootstrap on mount
-  useEffect(() => {
-    cargarOffsetsVigentes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Bootstrap on mount — run once only
+  useEffect(() => { cargarOffsetsVigentes(); }, []);
 
   const getMarkupColor = (markup) => {
     if (markup === null || markup === undefined) return 'var(--text-tertiary)';

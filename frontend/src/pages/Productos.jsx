@@ -22,6 +22,7 @@ import './Productos.css';
 import { FILTER_VALUES, COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { formatearFechaGMT3, isValidNumericInput, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
+import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -36,8 +37,6 @@ export default function Productos() {
   const [filtroPrecio, setFiltroPrecio] = useState("todos");
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  const [auditoriaVisible, setAuditoriaVisible] = useState(false);
-  const [auditoriaData, setAuditoriaData] = useState([]);
   const [editandoRebate, setEditandoRebate] = useState(null);
   const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
@@ -52,8 +51,6 @@ export default function Productos() {
   const [subcategorias, setSubcategorias] = useState([]);
   const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
-  const [usuarios, setUsuarios] = useState([]);
-  const [tiposAccion, setTiposAccion] = useState([]);
   const [filtrosAuditoria, setFiltrosAuditoria] = useState({
     usuarios: [],
     tipos_accion: [],
@@ -132,7 +129,8 @@ export default function Productos() {
 
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
-  const { offsetsVigentes, offsetGrupoFiltros, tipoCambioUSD, calcularMarkupConOffset, getMarkupColor } = useProductosOffsets();
+  const { calcularMarkupConOffset, getMarkupColor } = useProductosOffsets();
+  const { auditoriaVisible, setAuditoriaVisible, auditoriaData, usuarios, tiposAccion, verAuditoria } = useProductosAuditoria({ showToast });
 
   // Permisos granulares de edición
   const puedeEditarPrecioClasica = tienePermiso('productos.editar_precio_clasica');
@@ -444,8 +442,6 @@ export default function Productos() {
 
 
   useEffect(() => {
-    cargarUsuariosAuditoria();
-    cargarTiposAccion();
     cargarPMs();
     // solo al montar — funciones de carga estables para este ciclo de vida
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -897,19 +893,6 @@ export default function Productos() {
     // Limpiar también la URL
     setSearchParams({}, { replace: true });
   };
-
-  const verAuditoria = async (productoId) => {
-    try {
-      const response = await api.get(
-        `/productos/${productoId}/auditoria`
-      );
-      setAuditoriaData(response.data);
-      setAuditoriaVisible(true);
-    } catch {
-      showToast('Error al cargar el historial', 'error');
-    }
-  };
-
 
   // Función para consultar el markup sin guardar (usando el endpoint del backend)
   const consultarMarkup = async (itemId, precio, listaTipo = 'web', pricelistId = null) => {
@@ -1594,24 +1577,6 @@ export default function Productos() {
         ? producto.porcentaje_rebate 
         : 3.8
     });
-  };
-
-  const cargarUsuariosAuditoria = async () => {
-    try {
-      const response = await api.get('/auditoria/usuarios');
-      setUsuarios(response.data.usuarios);
-    } catch {
-      showToast('Error al cargar usuarios', 'error');
-    }
-  };
-
-  const cargarTiposAccion = async () => {
-    try {
-      const response = await api.get('/auditoria/tipos-accion');
-      setTiposAccion(response.data.tipos);
-    } catch {
-      showToast('Error al cargar tipos de acción', 'error');
-    }
   };
 
   const cargarPMs = async () => {
