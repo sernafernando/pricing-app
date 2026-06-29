@@ -38,7 +38,7 @@
 
 .toggleActive {
   background: var(--cf-accent-blue);
-  color: #ffffff;
+  color: var(--text-inverse);
   font-weight: var(--font-medium);
 }
 
@@ -96,9 +96,9 @@
 
 /* Error alert */
 .errorBanner {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: var(--cf-accent-red);
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  color: var(--error-text);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md) var(--spacing-lg);
   font-size: var(--font-sm);

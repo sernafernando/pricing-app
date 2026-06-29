@@ -20,9 +20,9 @@
 .stateError {
   text-align: center;
   padding: var(--spacing-xl);
-  color: var(--cf-accent-red);
+  color: var(--error-text);
   font-size: var(--font-sm);
-  background: rgba(239, 68, 68, 0.05);
+  background: var(--error-bg);
   border-radius: var(--radius-lg);
 }
 

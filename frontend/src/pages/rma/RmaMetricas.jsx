@@ -42,13 +42,23 @@ const DIMENSION_LABELS = {
   proveedor: 'Proveedor',
 };
 
+// Format a Date as YYYY-MM-DD using LOCAL components (not UTC). Using
+// toISOString() here would shift the date in UTC-3 (e.g. local June 1 midnight
+// serializes to May 31), breaking the default range near midnight.
+function formatLocalDate(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function getFirstDayOfCurrentMonth() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
 }
 
 function getTodayString() {
-  return new Date().toISOString().split('T')[0];
+  return formatLocalDate(new Date());
 }
 
 /**
@@ -83,6 +93,9 @@ export default function RmaMetricas() {
           },
         })
         .then((r) => r.data),
+    // Keep the previous dataset visible during refetch (paired with an
+    // "Actualizando..." label) to avoid a flash-to-empty when the date range
+    // changes — intentional UX override of the "no stale data" spec line.
     placeholderData: keepPreviousData,
   });
 
