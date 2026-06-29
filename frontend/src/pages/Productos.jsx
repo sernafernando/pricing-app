@@ -21,6 +21,7 @@ import './Productos.css';
 
 import { FILTER_VALUES, COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { formatearFechaGMT3, isValidNumericInput, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
+import { useProductosOffsets } from '../hooks/useProductosOffsets';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -81,11 +82,6 @@ export default function Productos() {
   const [marcasPorPM, setMarcasPorPM] = useState([]); // Marcas filtradas por PMs seleccionados
   const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]); // Subcategorías filtradas por PMs seleccionados
 
-  // Offsets de ganancia (sin límite) para mostrar markup ajustado
-  const [offsetsVigentes, setOffsetsVigentes] = useState([]);
-  const [offsetGrupoFiltros, setOffsetGrupoFiltros] = useState({}); // { grupo_id: [filtros] }
-  const [tipoCambioUSD, setTipoCambioUSD] = useState(null);
-
   // Estados para navegación por teclado
   const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
   const [modoNavegacion, setModoNavegacion] = useState(false);
@@ -136,6 +132,7 @@ export default function Productos() {
 
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
+  const { offsetsVigentes, offsetGrupoFiltros, tipoCambioUSD, calcularMarkupConOffset, getMarkupColor } = useProductosOffsets();
 
   // Permisos granulares de edición
   const puedeEditarPrecioClasica = tienePermiso('productos.editar_precio_clasica');
@@ -450,46 +447,9 @@ export default function Productos() {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
-    cargarOffsetsVigentes();
     // solo al montar — funciones de carga estables para este ciclo de vida
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Cargar offsets vigentes sin límite de unidades/monto + tipo de cambio
-  const cargarOffsetsVigentes = async () => {
-    try {
-      const [offsetsRes, tcRes] = await Promise.all([
-        api.get('/offsets-ganancia', { params: { solo_vigentes: true } }),
-        api.get('/tipo-cambio-hoy')
-      ]);
-
-      const tc = tcRes.data.tipo_cambio || 1000;
-      setTipoCambioUSD(tc);
-
-      // Filtrar: solo offsets sin límite Y tipo porcentaje_costo o monto_por_unidad (NO monto_fijo)
-      const sinLimite = (offsetsRes.data || []).filter(o =>
-        !o.max_unidades && !o.max_monto_usd &&
-        (o.tipo_offset === 'porcentaje_costo' || o.tipo_offset === 'monto_por_unidad')
-      );
-      setOffsetsVigentes(sinLimite);
-
-      // Para offsets de grupo, traer los filtros
-      const grupoIds = [...new Set(sinLimite.filter(o => o.grupo_id).map(o => o.grupo_id))];
-      if (grupoIds.length > 0) {
-        const filtrosPromises = grupoIds.map(gId =>
-          api.get(`/offset-grupos/${gId}/filtros`)
-        );
-        const filtrosRes = await Promise.all(filtrosPromises);
-        const filtrosMap = {};
-        grupoIds.forEach((gId, idx) => {
-          filtrosMap[gId] = filtrosRes[idx].data || [];
-        });
-        setOffsetGrupoFiltros(filtrosMap);
-      }
-    } catch {
-      // Error silencioso - no afecta funcionalidad principal
-    }
-  };
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
   useEffect(() => {
@@ -950,84 +910,6 @@ export default function Productos() {
     }
   };
 
-  const getMarkupColor = (markup) => {
-    if (markup === null || markup === undefined) return 'var(--text-tertiary)';
-    if (markup < 0) return 'var(--error)';
-    if (markup < 1) return 'var(--warning)';
-    return 'var(--success)';
-  };
-
-  // Calcula el markup con offset aplicado para un producto
-  // Retorna null si no hay offsets aplicables o no se puede calcular
-  const calcularMarkupConOffset = (producto) => {
-    if (!producto.markup && producto.markup !== 0) return null;
-    if (!producto.costo || producto.costo <= 0) return null;
-    if (offsetsVigentes.length === 0) return null;
-
-    // Convertir costo a ARS si es necesario
-    const costoARS = producto.moneda_costo === 'USD' && tipoCambioUSD
-      ? producto.costo * tipoCambioUSD
-      : producto.costo;
-
-    // Encontrar offsets que aplican a este producto
-    let totalDescuentoCosto = 0;
-    let tieneOffset = false;
-
-    for (const offset of offsetsVigentes) {
-      let aplica = false;
-
-      if (offset.grupo_id) {
-        // Offset de grupo: verificar contra filtros del grupo
-        const filtros = offsetGrupoFiltros[offset.grupo_id] || [];
-        if (filtros.length > 0) {
-          // Matchea si cumple AL MENOS UN filtro
-          aplica = filtros.some(f => {
-            let match = true;
-            if (f.marca && f.marca !== producto.marca) match = false;
-            if (f.categoria && f.categoria !== producto.categoria) match = false;
-            if (f.subcategoria_id && f.subcategoria_id !== producto.subcategoria_id) match = false;
-            if (f.item_id && f.item_id !== producto.item_id) match = false;
-            return match;
-          });
-        }
-      } else {
-        // Offset individual: matchear por nivel
-        if (offset.item_id && offset.item_id === producto.item_id) aplica = true;
-        else if (offset.subcategoria_id && offset.subcategoria_id === producto.subcategoria_id) aplica = true;
-        else if (offset.categoria && offset.categoria === producto.categoria) aplica = true;
-        else if (offset.marca && offset.marca === producto.marca) aplica = true;
-      }
-
-      if (!aplica) continue;
-
-      tieneOffset = true;
-
-      if (offset.tipo_offset === 'porcentaje_costo') {
-        // Restar porcentaje del costo
-        totalDescuentoCosto += costoARS * ((offset.porcentaje || 0) / 100);
-      } else if (offset.tipo_offset === 'monto_por_unidad') {
-        // Restar monto por unidad (convertir moneda si es USD)
-        const montoARS = offset.moneda === 'USD' && tipoCambioUSD
-          ? (offset.monto || 0) * tipoCambioUSD
-          : (offset.monto || 0);
-        totalDescuentoCosto += montoARS;
-      }
-    }
-
-    if (!tieneOffset || totalDescuentoCosto === 0) return null;
-
-    // Costo ajustado = costo original - descuento de offsets
-    const costoAjustado = costoARS - totalDescuentoCosto;
-    if (costoAjustado <= 0) return null;
-
-    // Recalcular markup: limpio = (markup/100 + 1) * costoOriginal
-    // markup_nuevo = (limpio / costoAjustado - 1) * 100
-    const markupDecimal = producto.markup / 100;
-    const limpio = (markupDecimal + 1) * costoARS;
-    const markupNuevo = ((limpio / costoAjustado) - 1) * 100;
-
-    return Math.round(markupNuevo * 100) / 100;
-  };
 
   // Función para consultar el markup sin guardar (usando el endpoint del backend)
   const consultarMarkup = async (itemId, precio, listaTipo = 'web', pricelistId = null) => {
