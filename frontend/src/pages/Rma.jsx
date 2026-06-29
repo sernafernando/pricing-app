@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -10,13 +10,17 @@ import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
 import RmaEnviosCliente from '../components/RmaEnviosCliente';
 import Toast from '../components/Toast';
-import { Plus, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown } from 'lucide-react';
+import { Plus, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown, BarChart2 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
 import styles from './Rma.module.css';
 
+// Lazy-load the Métricas feature (pulls in recharts ~100kb gz only when the tab is opened)
+const RmaMetricas = lazy(() => import('./rma/RmaMetricas'));
+
 export default function Rma() {
   const { tienePermiso } = usePermisos();
+  const puedeVerMetricas = tienePermiso('rma.ver');
   const puedeGestionar = tienePermiso('rma.gestionar');
   const puedeAdminOpciones = tienePermiso('rma.admin_opciones');
   const puedeImprimir = tienePermiso('documentos.imprimir');
@@ -244,6 +248,15 @@ export default function Rma() {
             Envios a Cliente
           </button>
         )}
+        {puedeVerMetricas && (
+          <button
+            className={`${styles.tab} ${activeTab === 'metricas' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('metricas')}
+          >
+            <BarChart2 size={15} />
+            Métricas
+          </button>
+        )}
       </div>
 
       {/* Tab: Casos */}
@@ -383,6 +396,13 @@ export default function Rma() {
       {/* Tab: Envios a Cliente */}
       {activeTab === 'envios_cliente' && puedeGestionar && (
         <RmaEnviosCliente />
+      )}
+
+      {/* Tab: Métricas — lazy-loaded (recharts stays out of the main bundle) */}
+      {activeTab === 'metricas' && puedeVerMetricas && (
+        <Suspense fallback={<div style={{ padding: '32px', textAlign: 'center', color: 'var(--cf-text-secondary)' }}>Cargando métricas...</div>}>
+          <RmaMetricas />
+        </Suspense>
       )}
 
       {/* Modal */}
