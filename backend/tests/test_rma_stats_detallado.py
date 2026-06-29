@@ -495,6 +495,7 @@ class TestDrilldownHappyPath:
             assert "ean" in eq
             assert "producto_desc" in eq
             assert "numero_caso" in eq
+            assert "caso_id" in eq
             assert "timeline" in eq
             # Each item has 1 historial row
             assert len(eq["timeline"]) >= 1
@@ -511,38 +512,7 @@ class TestDrilldownHappyPath:
 
 
 class TestDrilldownSinClasificar:
-    def test_drilldown_sin_clasificar_bucket(
-        self,
-        client_rma_ver,
-        rma_caso_factory,
-        rma_item_factory,
-    ):
-        """T-16 (RED→GREEN via T-19): valor=sin_clasificar returns items with NULL causa_devolucion_id."""
-        fecha = date(2026, 1, 15)
-
-        # 3 items with NULL causa_devolucion_id
-        for _ in range(3):
-            caso = rma_caso_factory(activo=True, fecha_caso=fecha)
-            rma_item_factory(caso_id=caso.id, causa_devolucion_id=None)
-
-        # 2 items with a NON-NULL causa_devolucion_id (should not appear)
-        from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
-
-        opc = RmaSeguimientoOpcion(categoria="causa_devolucion", valor="Defecto", orden=1)
-        db_session = rma_caso_factory.__closure__  # can't access db this way, use fixture
-
-        resp = _drilldown(
-            client_rma_ver,
-            dimension="causa_devolucion",
-            valor="sin_clasificar",
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["equipos"]) == 3
-
-
-class TestDrilldownSinClasificarV2:
-    """Alternative fixture-based test for NULL bucket drill-down (avoids closure issue)."""
+    """Fixture-based test for NULL bucket drill-down."""
 
     def test_drilldown_sin_clasificar_null_fk(
         self,
