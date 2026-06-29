@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './store/authStore';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PermisosProvider } from './contexts/PermisosContext';
@@ -70,6 +71,15 @@ import './styles/modals-tesla.css';
 import './styles/table-tesla.css';
 import './styles/theme.css';
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 30_000, // 30 s — avoids redundant refetches on tab switches
+    },
+  },
+});
+
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   return isAuthenticated ? children : <Navigate to="/login" />;
@@ -101,6 +111,7 @@ function App() {
   }, [isAuthenticated]);
 
   return (
+    <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <PwaUpdatePrompt />
       <PermisosProvider>
@@ -381,6 +392,7 @@ function App() {
         </BrowserRouter>
       </PermisosProvider>
     </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
