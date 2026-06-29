@@ -25,6 +25,7 @@ import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
 import { useProductosToggles } from '../hooks/useProductosToggles';
+import { useProductosInlineEditing } from '../hooks/useProductosInlineEditing';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -33,8 +34,6 @@ export default function Productos() {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
-  const [editandoPrecio, setEditandoPrecio] = useState(null);
-  const [precioTemp, setPrecioTemp] = useState('');
   const [filtroStock, setFiltroStock] = useState("todos");
   const [filtroPrecio, setFiltroPrecio] = useState("todos");
   const [totalProductos, setTotalProductos] = useState(0);
@@ -81,15 +80,6 @@ export default function Productos() {
   const [modoNavegacion, setModoNavegacion] = useState(false);
   const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
 
-  // Estados para vista de cuotas
-  const [modoVista, setModoVista] = useState('normal'); // 'normal', 'cuotas', 'pvp'
-  const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
-    // Leer del localStorage, por defecto true
-    const saved = localStorage.getItem('recalcularCuotasAuto');
-    return saved === null ? true : JSON.parse(saved);
-  });
-  const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
-  const [cuotaTemp, setCuotaTemp] = useState('');
 
   // Selección múltiple
 
@@ -105,8 +95,6 @@ export default function Productos() {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfo, setProductoInfo] = useState(null);
 
-  // Recálculo masivo de cuotas
-  const [recalculandoCuotasMasivo, setRecalculandoCuotasMasivo] = useState(false);
 
   // Toast notification
   const { toast, showToast, hideToast } = useToast();
@@ -118,9 +106,6 @@ export default function Productos() {
   const [palabraObjetivo, setPalabraObjetivo] = useState('');
   const [motivoBan, setMotivoBan] = useState('');
 
-  // Modal de confirmación markup negativo
-  const [mostrarModalMarkupNegativo, setMostrarModalMarkupNegativo] = useState(false);
-  const [datosGuardadoPendiente, setDatosGuardadoPendiente] = useState(null);
 
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
@@ -147,14 +132,6 @@ export default function Productos() {
   );
   const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
-  // Columnas navegables según la vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
-  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
-  const columnasNavegablesPVP = ['precio_pvp', 'pvp_cuotas_3', 'pvp_cuotas_6', 'pvp_cuotas_9', 'pvp_cuotas_12'];
-  const columnasEditables = 
-    modoVista === 'cuotas' ? columnasNavegablesCuotas :
-    modoVista === 'pvp' ? columnasNavegablesPVP :
-    columnasNavegablesNormal;
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -465,116 +442,6 @@ export default function Productos() {
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria, pmsSeleccionados]);
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
-      let accion = null;
-
-      // Ctrl+F1/F2/F3 (con o sin Shift)
-      if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
-        accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
-      }
-      // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
-      // Soporta layouts: en_US, es_AR, es_ES
-      // - en_US: Shift+1=!, Shift+2=@, Shift+3=#
-      // - es_AR/es_ES: Shift+1=!, Shift+2=", Shift+3=·
-      // - e.code es independiente del layout (Digit1/2/3)
-      if (e.ctrlKey && e.shiftKey) {
-        if (e.key === '!' || e.code === 'Digit1') {
-          accion = 1;
-        }
-        if (e.key === '"' || e.key === '@' || e.code === 'Digit2') {
-          accion = 2;
-        }
-        if (e.key === '·' || e.key === '#' || e.code === 'Digit3') {
-          accion = 3;
-        }
-      }
-
-      if (accion) {
-        // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
-        const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
-        const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
-
-        if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
-          return;
-        }
-
-        // Obtener el producto activo
-        let producto = null;
-
-        if (enModoEdicion) {
-          // Si está editando, buscar por item_id
-          let itemId = null;
-          if (editandoPrecio) itemId = editandoPrecio;
-          else if (editandoRebate) itemId = editandoRebate;
-          else if (editandoWebTransf) itemId = editandoWebTransf;
-          else if (editandoCuota) itemId = editandoCuota.item_id;
-
-          if (itemId) {
-            producto = productos.find(p => p.item_id === itemId);
-          }
-        } else if (hayProductoSeleccionado) {
-          // Si está navegando, buscar por índice de fila
-          producto = productos[celdaActiva.rowIndex];
-        }
-
-        if (!producto) {
-          showToast('Producto no encontrado', 'error');
-          return;
-        }
-
-        if (!producto.codigo) {
-          showToast('El producto no tiene código asignado', 'error');
-          return;
-        }
-
-        const itemCode = producto.codigo;
-
-        // Acción 1: copiar solo el código
-        if (accion === 1) {
-          navigator.clipboard.writeText(itemCode).then(() => {
-            showToast(`✅ Código copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-
-        // Acción 2: primer enlace
-        if (accion === 2) {
-          const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 1 copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-
-        // Acción 3: segundo enlace
-        if (accion === 3) {
-          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=${itemCode}&sort=lowest_price`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 2 copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-      }
-    };
-
-    // Usar capture: true para interceptar el evento antes que otros listeners
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva, showToast]);
-
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
   useEffect(() => {
     if (panelFiltroActivo === 'marcas' || panelFiltroActivo === 'subcategorias') {
@@ -588,10 +455,6 @@ export default function Productos() {
     }
   }, [panelFiltroActivo]);
 
-  // Guardar preferencia de recalcular cuotas en localStorage
-  useEffect(() => {
-    localStorage.setItem('recalcularCuotasAuto', JSON.stringify(recalcularCuotasAuto));
-  }, [recalcularCuotasAuto]);
 
   const handleOrdenar = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -852,32 +715,6 @@ export default function Productos() {
     setSearchParams({}, { replace: true });
   };
 
-  // Función para consultar el markup sin guardar (usando el endpoint del backend)
-  const consultarMarkup = async (itemId, precio, listaTipo = 'web', pricelistId = null) => {
-    try {
-      // Si no se especifica pricelistId, usar el de clásica por defecto
-      const pricelist_id = pricelistId || (listaTipo === 'pvp' ? 12 : 4);
-      
-      const response = await api.get(
-        '/precios/calcular-markup',
-        {
-          params: {
-            item_id: itemId,
-            precio: precio,
-            pricelist_id: pricelist_id
-          }
-        }
-      );
-      
-      return response.data;
-    } catch {
-      // Si hay error al calcular markup, NO bloquear el guardado
-      // pero mostrar un toast de advertencia
-      showToast('No se pudo validar el markup. Revisa la consola.', 'error');
-      return null;
-    }
-  };
-
   const abrirModalBan = (producto) => {
     // Obtener palabras de la descripción (filtrar palabras de más de 3 caracteres)
     const palabras = producto.descripcion
@@ -929,245 +766,6 @@ export default function Productos() {
     } catch (error) {
       
       showToast(`Error: ${error.response?.data?.detail || error.message}`, 'error');
-    }
-  };
-
-  const confirmarGuardadoMarkupNegativo = async () => {
-    if (!datosGuardadoPendiente) return;
-
-    // Cerrar modal
-    setMostrarModalMarkupNegativo(false);
-    
-    // Verificar si es cuota o precio clásica
-    if (datosGuardadoPendiente.esCuota) {
-      // Guardar cuota con forzar=true
-      await guardarCuota(
-        datosGuardadoPendiente.itemId, 
-        datosGuardadoPendiente.tipo, 
-        datosGuardadoPendiente.esPVP,
-        true // forzar
-      );
-    } else {
-      // Guardar precio clásica con forzar=true
-      await guardarPrecio(datosGuardadoPendiente.itemId, true);
-    }
-    
-    // Limpiar datos pendientes
-    setDatosGuardadoPendiente(null);
-  };
-
-  const iniciarEdicion = (producto) => {
-    setEditandoPrecio(producto.item_id);
-    // Si estamos en modo PVP, usar precio_pvp, sino precio_lista_ml
-    const precioInicial = modoVista === 'pvp' ? (producto.precio_pvp || '') : (producto.precio_lista_ml || '');
-    setPrecioTemp(precioInicial);
-  };
-
-  const iniciarEdicionCuota = (producto, tipo) => {
-    setEditandoCuota({ item_id: producto.item_id, tipo });
-    const campoPrecio = `precio_${tipo}_cuotas`;
-    setCuotaTemp(producto[campoPrecio] || '');
-  };
-
-  const guardarCuota = async (itemId, tipo, esPVP = false, forzar = false) => {
-    try {
-      const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
-
-      // Si NO es forzado Y el precio es mayor a 0, verificar markup antes de guardar
-      // (No validar si precio es 0 o inválido)
-      if (!forzar && precioNormalizado > 0) {
-        // Mapeo de tipo de cuota a pricelist_id
-        const pricelistMap = {
-          'web': { '3': 17, '6': 14, '9': 13, '12': 23 },
-          'pvp': { '3': 18, '6': 19, '9': 20, '12': 21 }
-        };
-        const listaTipo = esPVP ? 'pvp' : 'web';
-        const pricelistId = pricelistMap[listaTipo][tipo];
-
-        if (pricelistId) {
-          const markupData = await consultarMarkup(itemId, precioNormalizado, listaTipo, pricelistId);
-          
-          if (markupData && markupData.markup < 0) {
-            // Markup negativo: mostrar modal de confirmación
-            const producto = productos.find(p => p.item_id === itemId);
-            setDatosGuardadoPendiente({
-              itemId,
-              tipo,
-              esPVP,
-              precio: precioNormalizado,
-              producto,
-              markup: markupData.markup,
-              listaTipo,
-              esCuota: true // Flag para identificar que es cuota, no precio clasica
-            });
-            setMostrarModalMarkupNegativo(true);
-            return; // No continuar hasta que el usuario confirme
-          }
-        }
-      }
-
-      const response = await api.post(
-        '/precios/set-cuota',
-        null,
-        {
-          params: {
-            item_id: itemId,
-            tipo_cuota: tipo,
-            precio: precioNormalizado,
-            lista_tipo: esPVP ? 'pvp' : 'web'  // ← NUEVO: distinguir web/pvp
-          }
-        }
-      );
-
-      // Determinar nombres de campos según si es PVP o Web
-      let campoPrecio, campoMarkup;
-      if (esPVP) {
-        campoPrecio = tipo === 'clasica' ? 'precio_pvp' : `precio_pvp_${tipo}_cuotas`;
-        campoMarkup = tipo === 'clasica' ? 'markup_pvp' : `markup_pvp_${tipo}_cuotas`;
-      } else {
-        campoPrecio = tipo === 'clasica' ? 'precio_lista_ml' : `precio_${tipo}_cuotas`;
-        campoMarkup = tipo === 'clasica' ? 'markup' : `markup_${tipo}_cuotas`;
-      }
-
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              [campoPrecio]: precioNormalizado,
-              [campoMarkup]: response.data[campoMarkup]
-            }
-          : p
-      ));
-
-      setEditandoCuota(null);
-      cargarStats();
-    } catch (error) {
-      
-      showToast('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message), 'error');
-    }
-  };
-
-  const recalcularCuotasDesdeClasica = async (producto, listaTipo) => {
-    const precioBase = listaTipo === 'pvp' ? producto.precio_pvp : producto.precio_lista_ml;
-    
-    if (!precioBase || Number(precioBase) <= 0) {
-      showToast(`Este producto no tiene Precio ${listaTipo === 'pvp' ? 'PVP' : 'Web'} para recalcular cuotas`, 'error');
-      return;
-    }
-
-    try {
-      const response = await api.post(
-        '/precios/recalcular-cuotas',
-        null,
-        {
-          params: {
-            item_id: producto.item_id,
-            lista_tipo: listaTipo
-          }
-        }
-      );
-
-      // Actualizar precios y markups en el estado
-      if (listaTipo === 'pvp') {
-        setProductos((prods) => prods.map((p) =>
-          p.item_id === producto.item_id
-            ? {
-                ...p,
-                precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas,
-                precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas,
-                precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas,
-                precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas,
-                markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas,
-                markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas,
-                markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas,
-                markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas
-              }
-            : p
-        ));
-      } else {
-        setProductos((prods) => prods.map((p) =>
-          p.item_id === producto.item_id
-            ? {
-                ...p,
-                precio_3_cuotas: response.data.precio_3_cuotas,
-                precio_6_cuotas: response.data.precio_6_cuotas,
-                precio_9_cuotas: response.data.precio_9_cuotas,
-                precio_12_cuotas: response.data.precio_12_cuotas,
-                markup_3_cuotas: response.data.markup_3_cuotas,
-                markup_6_cuotas: response.data.markup_6_cuotas,
-                markup_9_cuotas: response.data.markup_9_cuotas,
-                markup_12_cuotas: response.data.markup_12_cuotas
-              }
-            : p
-        ));
-      }
-
-      showToast(`Cuotas ${listaTipo === 'pvp' ? 'PVP' : 'Web'} recalculadas`, 'success');
-      cargarStats();
-    } catch (error) {
-      showToast(`Error al recalcular cuotas: ${error.response?.data?.detail || error.message}`, 'error');
-    }
-  };
-
-  // Recálculo masivo de cuotas (todas las que matchean filtros)
-  const recalcularCuotasMasivo = async () => {
-    const listaTipo = modoVista === 'pvp' ? 'pvp' : 'web';
-
-    // Construir filtros activos (misma lógica que CalcularPVPModal)
-    const hayFiltros = debouncedSearch || filtroStock !== 'todos' || filtroPrecio !== 'todos' ||
-      marcasSeleccionadas.length > 0 || subcategoriasSeleccionadas.length > 0 ||
-      pmsSeleccionados.length > 0 || filtroRebate || filtroOferta || filtroWebTransf ||
-      filtroTiendaNube || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta ||
-      filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 ||
-      filtroMLA || filtroEstadoMLA || filtroNuevos;
-
-    setRecalculandoCuotasMasivo(true);
-    try {
-      const body = { lista_tipo: listaTipo };
-
-      if (hayFiltros) {
-        body.filtros = {};
-        if (debouncedSearch) body.filtros.search = debouncedSearch;
-        if (filtroStock === 'con_stock') body.filtros.con_stock = true;
-        if (filtroStock === 'sin_stock') body.filtros.con_stock = false;
-        if (filtroPrecio === 'con_precio') body.filtros.con_precio = true;
-        if (filtroPrecio === 'sin_precio') body.filtros.con_precio = false;
-        if (marcasSeleccionadas.length > 0) body.filtros.marcas = marcasSeleccionadas.join(',');
-        if (subcategoriasSeleccionadas.length > 0) body.filtros.subcategorias = subcategoriasSeleccionadas.join(',');
-        if (filtroRebate === 'con_rebate') body.filtros.con_rebate = true;
-        if (filtroRebate === 'sin_rebate') body.filtros.con_rebate = false;
-        if (filtroOferta === 'con_oferta') body.filtros.con_oferta = true;
-        if (filtroOferta === 'sin_oferta') body.filtros.con_oferta = false;
-        if (filtroWebTransf === 'con_web_transf') body.filtros.con_web_transf = true;
-        if (filtroWebTransf === 'sin_web_transf') body.filtros.con_web_transf = false;
-        if (filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
-        if (filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
-        if (filtroMarkupClasica === 'positivo') body.filtros.markup_clasica_positivo = true;
-        if (filtroMarkupClasica === 'negativo') body.filtros.markup_clasica_positivo = false;
-        if (coloresSeleccionados.length > 0) body.filtros.colores = coloresSeleccionados.join(',');
-        if (pmsSeleccionados.length > 0) body.filtros.pms = pmsSeleccionados.join(',');
-        if (filtroMLA === 'con_mla') body.filtros.con_mla = true;
-        if (filtroMLA === 'sin_mla') body.filtros.con_mla = false;
-        if (filtroEstadoMLA === 'activa') body.filtros.estado_mla = 'activa';
-        if (filtroEstadoMLA === 'pausada') body.filtros.estado_mla = 'pausada';
-        if (filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
-      }
-
-      const response = await api.post('/productos/recalcular-cuotas-masivo', body);
-
-      const { procesados, errores } = response.data;
-      const mensajeErrores = errores > 0 ? ` (${errores} con errores)` : '';
-      showToast(
-        `Cuotas ${listaTipo.toUpperCase()} recalculadas: ${procesados} productos${mensajeErrores}`,
-        errores > 0 ? 'warning' : 'success'
-      );
-
-      cargarProductos();
-      cargarStats();
-    } catch (error) {
-      showToast(`Error al recalcular cuotas masivamente: ${error.response?.data?.detail || error.message}`, 'error');
-    } finally {
-      setRecalculandoCuotasMasivo(false);
     }
   };
 
@@ -1226,180 +824,163 @@ export default function Productos() {
     }
   };
 
-  const guardarPrecio = async (itemId, forzar = false) => {
-    try {
-      // Normalizar: reemplazar coma por punto
-      const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
-      
-      // Validar que sea un número válido (permitir 0 para borrar)
-      if (!isValidNumericInput(precioNormalizado) || precioNormalizado < 0) {
-        showToast('El precio debe ser un número válido mayor o igual a 0', 'error');
-        return;
+  const {
+    editandoPrecio, setEditandoPrecio, precioTemp, setPrecioTemp,
+    editandoCuota, setEditandoCuota, cuotaTemp, setCuotaTemp,
+    modoVista, setModoVista, recalcularCuotasAuto, setRecalcularCuotasAuto,
+    mostrarModalMarkupNegativo, setMostrarModalMarkupNegativo,
+    datosGuardadoPendiente, setDatosGuardadoPendiente,
+    recalculandoCuotasMasivo,
+    consultarMarkup, iniciarEdicion, iniciarEdicionCuota,
+    guardarCuota, guardarPrecio, recalcularCuotasDesdeClasica, recalcularCuotasMasivo,
+    confirmarGuardadoMarkupNegativo, cancelarMarkupNegativo,
+  } = useProductosInlineEditing({
+    productos,
+    setProductos,
+    cargarProductos,
+    cargarStats,
+    showToast,
+    filtros: {
+      debouncedSearch,
+      filtroStock,
+      filtroPrecio,
+      marcasSeleccionadas,
+      subcategoriasSeleccionadas,
+      pmsSeleccionados,
+      filtroRebate,
+      filtroOferta,
+      filtroWebTransf,
+      filtroTiendaNube,
+      filtroMarkupClasica,
+      filtroMarkupRebate,
+      filtroMarkupOferta,
+      filtroMarkupWebTransf,
+      filtroOutOfCards,
+      coloresSeleccionados,
+      filtroMLA,
+      filtroEstadoMLA,
+      filtroNuevos,
+    },
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
+      let accion = null;
+
+      // Ctrl+F1/F2/F3 (con o sin Shift)
+      if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
+        accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
+      }
+      // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
+      // Soporta layouts: en_US, es_AR, es_ES
+      // - en_US: Shift+1=!, Shift+2=@, Shift+3=#
+      // - es_AR/es_ES: Shift+1=!, Shift+2=", Shift+3=·
+      // - e.code es independiente del layout (Digit1/2/3)
+      if (e.ctrlKey && e.shiftKey) {
+        if (e.key === '!' || e.code === 'Digit1') {
+          accion = 1;
+        }
+        if (e.key === '"' || e.key === '@' || e.code === 'Digit2') {
+          accion = 2;
+        }
+        if (e.key === '·' || e.key === '#' || e.code === 'Digit3') {
+          accion = 3;
+        }
       }
 
-      // Determinar si recalcular cuotas: primero verificar configuración individual del producto
-      const producto = productos.find(p => p.item_id === itemId);
-      const shouldRecalcularCuotas = producto?.recalcular_cuotas_auto !== null 
-        ? producto.recalcular_cuotas_auto 
-        : recalcularCuotasAuto;
+      if (accion) {
+        // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
+        e.preventDefault();
+        e.stopPropagation();
 
-      // Si NO es forzado Y el precio es mayor a 0, verificar markup antes de guardar
-      // (No validar si precio es 0 porque es para borrar precios)
-      if (!forzar && precioNormalizado > 0) {
-        const markupData = await consultarMarkup(itemId, precioNormalizado, modoVista === 'pvp' ? 'pvp' : 'web');
-        
-        if (markupData && markupData.markup < 0) {
-          // Markup negativo: mostrar modal de confirmación
-          setDatosGuardadoPendiente({
-            itemId,
-            precio: precioNormalizado,
-            producto,
-            markup: markupData.markup,
-            listaTipo: modoVista === 'pvp' ? 'pvp' : 'web'
+        // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
+        const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
+        const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
+
+        if (!enModoEdicion && !hayProductoSeleccionado) {
+          showToast('Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
+          return;
+        }
+
+        // Obtener el producto activo
+        let producto = null;
+
+        if (enModoEdicion) {
+          // Si está editando, buscar por item_id
+          let itemId = null;
+          if (editandoPrecio) itemId = editandoPrecio;
+          else if (editandoRebate) itemId = editandoRebate;
+          else if (editandoWebTransf) itemId = editandoWebTransf;
+          else if (editandoCuota) itemId = editandoCuota.item_id;
+
+          if (itemId) {
+            producto = productos.find(p => p.item_id === itemId);
+          }
+        } else if (hayProductoSeleccionado) {
+          // Si está navegando, buscar por índice de fila
+          producto = productos[celdaActiva.rowIndex];
+        }
+
+        if (!producto) {
+          showToast('Producto no encontrado', 'error');
+          return;
+        }
+
+        if (!producto.codigo) {
+          showToast('El producto no tiene código asignado', 'error');
+          return;
+        }
+
+        const itemCode = producto.codigo;
+
+        // Acción 1: copiar solo el código
+        if (accion === 1) {
+          navigator.clipboard.writeText(itemCode).then(() => {
+            showToast(`✅ Código copiado: ${itemCode}`);
+          }).catch(() => {
+            showToast('❌ Error al copiar al portapapeles', 'error');
+            
           });
-          setMostrarModalMarkupNegativo(true);
-          return; // No continuar hasta que el usuario confirme
-        }
-      }
-
-      // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
-      if (modoVista === 'pvp') {
-        const response = await api.post(
-          '/precios/set-rapido',
-          null,
-          {
-            params: {
-              item_id: itemId,
-              precio: precioNormalizado,
-              recalcular_cuotas: shouldRecalcularCuotas,  // Respetar config individual o global
-              lista_tipo: 'pvp'
-            }
-          }
-        );
-
-        // Si se borraron precios PVP (precio = 0)
-        if (response.data.precios_borrados) {
-          setProductos(prods => prods.map(p =>
-            p.item_id === itemId
-              ? {
-                  ...p,
-                  // Limpiar solo precios PVP
-                  precio_pvp: null,
-                  markup_pvp: null,
-                  precio_pvp_3_cuotas: null,
-                  precio_pvp_6_cuotas: null,
-                  precio_pvp_9_cuotas: null,
-                  precio_pvp_12_cuotas: null,
-                  markup_pvp_3_cuotas: null,
-                  markup_pvp_6_cuotas: null,
-                  markup_pvp_9_cuotas: null,
-                  markup_pvp_12_cuotas: null
-                }
-              : p
-          ));
-          showToast('Precios PVP borrados', 'success');
-        } else {
-          // Actualización normal de precios
-          setProductos(prods => prods.map(p =>
-            p.item_id === itemId
-              ? {
-                  ...p,
-                  precio_pvp: precioNormalizado,
-                  markup_pvp: response.data.markup_pvp,
-                  // Actualizar cuotas PVP recalculadas
-                  precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas || p.precio_pvp_3_cuotas,
-                  precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas || p.precio_pvp_6_cuotas,
-                  precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas || p.precio_pvp_9_cuotas,
-                  precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas || p.precio_pvp_12_cuotas,
-                  // Actualizar markups de cuotas PVP si vienen en la respuesta
-                  markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas !== undefined ? response.data.markup_pvp_3_cuotas : p.markup_pvp_3_cuotas,
-                  markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas !== undefined ? response.data.markup_pvp_6_cuotas : p.markup_pvp_6_cuotas,
-                  markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas !== undefined ? response.data.markup_pvp_9_cuotas : p.markup_pvp_9_cuotas,
-                  markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas !== undefined ? response.data.markup_pvp_12_cuotas : p.markup_pvp_12_cuotas,
-                  tiene_precio: true
-                }
-              : p
-          ));
         }
 
-        setEditandoPrecio(null);
-        cargarStats();
-        return;
-      }
-
-      // Modo web (comportamiento original)
-      const response = await api.post(
-        '/precios/set-rapido',
-        null,  // No body needed, all params go in URL
-        {
-          params: {
-            item_id: itemId,
-            precio: precioNormalizado,
-            recalcular_cuotas: shouldRecalcularCuotas  // Respetar config individual o global
-          }
+        // Acción 2: primer enlace
+        if (accion === 2) {
+          const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
+          navigator.clipboard.writeText(url).then(() => {
+            showToast(`✅ Enlace 1 copiado: ${itemCode}`);
+          }).catch(() => {
+            showToast('❌ Error al copiar al portapapeles', 'error');
+            
+          });
         }
-      );
 
-      // Si se borraron precios Web (precio = 0)
-      if (response.data.precios_borrados) {
-        setProductos(prods => prods.map(p =>
-          p.item_id === itemId
-            ? {
-                ...p,
-                // Limpiar solo precios Web
-                precio_lista_ml: null,
-                markup: null,
-                precio_3_cuotas: null,
-                precio_6_cuotas: null,
-                precio_9_cuotas: null,
-                precio_12_cuotas: null,
-                markup_3_cuotas: null,
-                markup_6_cuotas: null,
-                markup_9_cuotas: null,
-                markup_12_cuotas: null,
-                precio_web_transferencia: null,
-                markup_web_real: null,
-                precio_rebate: null,
-                markup_rebate: null,
-                markup_oferta: null
-              }
-            : p
-        ));
-        showToast('Precios Web borrados', 'success');
-      } else {
-        // Actualización normal de precios
-        setProductos(prods => prods.map(p =>
-          p.item_id === itemId
-            ? {
-                ...p,
-                precio_lista_ml: precioNormalizado,
-                markup: response.data.markup,
-                // Actualizar precios de cuotas si vienen en la respuesta
-                precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
-                precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
-                precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
-                precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas,
-                // Actualizar markups de cuotas si vienen en la respuesta
-                markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
-                markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
-                markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
-                markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas,
-                // Actualizar rebate y web transferencia si vienen en la respuesta
-                precio_rebate: response.data.precio_rebate !== null && response.data.precio_rebate !== undefined ? response.data.precio_rebate : p.precio_rebate,
-                precio_web_transferencia: response.data.precio_web_transferencia !== null && response.data.precio_web_transferencia !== undefined ? response.data.precio_web_transferencia : p.precio_web_transferencia,
-                markup_web_real: response.data.markup_web_real !== null && response.data.markup_web_real !== undefined ? response.data.markup_web_real : p.markup_web_real,
-                tiene_precio: true
-              }
-            : p
-        ));
+        // Acción 3: segundo enlace
+        if (accion === 3) {
+          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=${itemCode}&sort=lowest_price`;
+          navigator.clipboard.writeText(url).then(() => {
+            showToast(`✅ Enlace 2 copiado: ${itemCode}`);
+          }).catch(() => {
+            showToast('❌ Error al copiar al portapapeles', 'error');
+            
+          });
+        }
       }
+    };
 
-      setEditandoPrecio(null);
-      cargarStats();
-    } catch {
-      showToast('Error al guardar precio', 'error');
-    }
-  };
+    // Usar capture: true para interceptar el evento antes que otros listeners
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva, showToast]);
+
+  // Columnas navegables según la vista activa
+  const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
+  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
+  const columnasNavegablesPVP = ['precio_pvp', 'pvp_cuotas_3', 'pvp_cuotas_6', 'pvp_cuotas_9', 'pvp_cuotas_12'];
+  const columnasEditables = 
+    modoVista === 'cuotas' ? columnasNavegablesCuotas :
+    modoVista === 'pvp' ? columnasNavegablesPVP :
+    columnasNavegablesNormal;
 
   const cargarPMs = async () => {
     try {
