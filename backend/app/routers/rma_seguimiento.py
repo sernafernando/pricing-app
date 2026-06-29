@@ -213,6 +213,14 @@ class CasoCreate(BaseModel):
 class CasoUpdate(BaseModel):
     estado: Optional[str] = None  # legacy — still accepted but ignored if estado_caso_id is set
     estado_caso_id: Optional[int] = None
+    # Datos del cliente (editables tras la creación — antes se descartaban en silencio)
+    cust_id: Optional[int] = None
+    cliente_nombre: Optional[str] = None
+    cliente_dni: Optional[str] = None
+    cliente_numero: Optional[int] = None
+    # Datos del pedido
+    ml_id: Optional[str] = None
+    origen: Optional[str] = None
     # Flag proceso
     marcado_borrar_pedido: Optional[bool] = None
     # Reclamo ML
