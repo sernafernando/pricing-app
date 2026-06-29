@@ -122,6 +122,16 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 // ---------------------------------------------------------------------------
+// Stub Element.prototype.scrollIntoView (jsdom doesn't implement it).
+// The keyboard nav scroll-follow effect calls filaActiva.scrollIntoView(...)
+// when a row becomes active. Without this stub, jsdom throws TypeError and
+// crashes the keyboard-nav tests (CS-6a, CS-6b).
+// ---------------------------------------------------------------------------
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn();
+}
+
+// ---------------------------------------------------------------------------
 // Stub window.matchMedia (jsdom doesn't implement it — ThemeContext needs it)
 // ---------------------------------------------------------------------------
 Object.defineProperty(window, 'matchMedia', {
@@ -139,20 +149,26 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // ---------------------------------------------------------------------------
-// Suppress specific React act() warnings that fire on async mock resolves
+// Suppress only known-safe, non-informative console.error patterns.
+//
+// INTENTIONALLY NARROW: act() and "not wrapped in act" warnings are NOT
+// suppressed here. During hook extraction, those warnings are signal —
+// they indicate async state updates happening outside React's control and
+// should be visible so we can fix them.
+//
+// Only suppress messages that are permanently irrelevant to this codebase
+// (e.g. ReactDOM.render deprecation from testing-library internals that
+//  we cannot control and that carry zero signal for hook refactors).
 // ---------------------------------------------------------------------------
+const KNOWN_SAFE_SUPPRESSION_PATTERNS = [
+  'Warning: ReactDOM.render is deprecated',
+];
+
 const originalError = console.error;
 beforeEach(() => {
   console.error = (...args) => {
-    const msg = args[0];
-    if (
-      typeof msg === 'string' &&
-      (msg.includes('act(') ||
-        msg.includes('Warning: ReactDOM.render') ||
-        msg.includes('not wrapped in act'))
-    ) {
-      return;
-    }
+    const msg = typeof args[0] === 'string' ? args[0] : '';
+    if (KNOWN_SAFE_SUPPRESSION_PATTERNS.some((p) => msg.includes(p))) return;
     originalError.call(console, ...args);
   };
 });
