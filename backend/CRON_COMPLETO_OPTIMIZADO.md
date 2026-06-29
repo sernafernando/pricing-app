@@ -78,6 +78,9 @@
 # ML Métricas - incremental cada 5 minutos
 */5 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/agregar_metricas_ml_incremental.py >> /var/log/pricing-app/ml_metricas_incremental.log 2>&1
 
+# TP-Link Métricas - incremental cada 5 minutos
+*/5 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/agregar_metricas_tplink_incremental.py >> /var/log/pricing-app/tplink_metricas_incremental.log 2>&1
+
 # ML Métricas - diario cada 30 minutos
 */30 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/agregar_metricas_ml_diario.py >> /var/log/pricing-app/ml_metricas_diario.log 2>&1
 
@@ -97,6 +100,9 @@
 # Fuera ML Métricas - Mes actual completo (5:30 AM diario)
 30 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 30 >> /var/log/pricing-app/fuera_ml_metricas_backfill_30d.log 2>&1
 
+# TP-Link Métricas - Últimos 30 días (5:45 AM diario)
+45 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '30 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_30d.log 2>&1
+
 # BACKFILL TRIMESTRAL - Domingos a las 4:00 AM
 # Reprocesa métricas de los últimos 3 meses (histórico largo para reportes anuales)
 
@@ -108,6 +114,9 @@
 
 # Fuera ML Métricas - Últimos 90 días (Domingos 4:40 AM)
 40 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 90 >> /var/log/pricing-app/fuera_ml_metricas_backfill_90d.log 2>&1
+
+# TP-Link Métricas - Últimos 90 días (Domingos 4:50 AM)
+50 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '90 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_90d.log 2>&1
 
 # ============================================
 # TIENDA NUBE
