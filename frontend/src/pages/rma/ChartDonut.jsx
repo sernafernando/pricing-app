@@ -14,7 +14,7 @@
  *   onSegmentClick {Function}  Called with the BucketOut when a segment is clicked.
  */
 import { memo } from 'react';
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getColorForBucket, SEGMENT_LABEL_COLOR } from './metricsColors';
 import styles from './ChartDonut.module.css';
 
@@ -54,6 +54,43 @@ function DonutTooltip({ active, payload }) {
         {entry.value.toLocaleString('es-AR')}
       </span>
     </div>
+  );
+}
+
+/**
+ * CustomLegend renders a clickable list of segment labels below the chart.
+ * Each item fires the same onSegmentClick handler as a pie slice click,
+ * making small segments accessible even when they are too thin to click.
+ */
+function CustomLegend({ items, onItemClick }) {
+  const handleKeyDown = (e, bucket) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onItemClick(bucket);
+    }
+  };
+
+  return (
+    <ul className={styles.legend} role="list">
+      {items.map((entry, index) => (
+        <li
+          key={`legend-${index}`}
+          className={`${styles.legendItem} ${onItemClick ? styles.legendItemClickable : ''}`}
+          role={onItemClick ? 'button' : undefined}
+          tabIndex={onItemClick ? 0 : undefined}
+          aria-label={`Ver detalle de ${entry.name}`}
+          onClick={onItemClick ? () => onItemClick(entry.bucket) : undefined}
+          onKeyDown={onItemClick ? (e) => handleKeyDown(e, entry.bucket) : undefined}
+        >
+          <span
+            className={styles.legendDot}
+            style={{ backgroundColor: entry.fill }}
+            aria-hidden="true"
+          />
+          <span className={styles.legendLabel}>{entry.name}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -104,14 +141,9 @@ function ChartDonut({ title, buckets = [], onSegmentClick }) {
                 ))}
               </Pie>
               <Tooltip content={<DonutTooltip />} />
-              <Legend
-                formatter={(value) => (
-                  <span className={styles.legendLabel}>{value}</span>
-                )}
-                wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }}
-              />
             </PieChart>
           </ResponsiveContainer>
+          <CustomLegend items={chartData} onItemClick={onSegmentClick || null} />
         </>
       )}
     </div>
