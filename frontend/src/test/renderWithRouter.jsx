@@ -2,47 +2,26 @@
  * Test helper — wraps the component under test with the minimal providers
  * required by Productos.jsx:
  *   1. MemoryRouter — so useSearchParams works in jsdom
- *   2. Permissive PermisosContext stub — all tienePermiso() calls return true
  *
- * useAuthStore reads from zustand (in-memory) — no wrapper needed; we set a
- * fake token in localStorage so the auth guard passes without a real JWT.
+ * NOTE: PermisosContext and authStore are both mocked globally in setup.js.
+ *   - usePermisos() → vi.mock('../contexts/PermisosContext') → tienePermiso always true
+ *   - useAuthStore() → vi.mock('../store/authStore') → token: 'test-token', user stub
+ * No additional provider wrappers are needed here.
  */
 
-import { createContext, useContext } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { render } from '@testing-library/react';
 
-// ---------------------------------------------------------------------------
-// Stub PermisosContext: grants every permission, no API calls made
-// ---------------------------------------------------------------------------
-const PermisosContext = createContext();
-
-// eslint-disable-next-line react-refresh/only-export-components
-export const usePermisos = () => useContext(PermisosContext);
-
-function PermisosProviderStub({ children }) {
-  return (
-    <PermisosContext.Provider
-      value={{
-        permisos: [],
-        tienePermiso: () => true,
-        cargandoPermisos: false,
-      }}
-    >
-      {children}
-    </PermisosContext.Provider>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// renderWithRouter — call this instead of RTL's render() in all CS-* tests
-// ---------------------------------------------------------------------------
+/**
+ * Render a component inside a MemoryRouter so useSearchParams works in jsdom.
+ *
+ * @param {React.ReactElement} ui - Component to render
+ * @param {{ initialEntries?: string[] }} opts
+ */
 export function renderWithRouter(ui, { initialEntries = ['/'] } = {}) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
-      <PermisosProviderStub>
-        {ui}
-      </PermisosProviderStub>
+      {ui}
     </MemoryRouter>
   );
 }
