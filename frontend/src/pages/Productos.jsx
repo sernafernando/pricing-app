@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
@@ -23,6 +23,7 @@ import { FILTER_VALUES, COLORES_DISPONIBLES } from '../utils/productosConstants'
 import { formatearFechaGMT3, isValidNumericInput, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
+import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -72,7 +73,6 @@ export default function Productos() {
   const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
   const [filtroTiendaOficial, setFiltroTiendaOficial] = useState(null); // '57997', '2645', '144', '191942'
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
-  const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [pms, setPms] = useState([]);
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
@@ -95,8 +95,6 @@ export default function Productos() {
   const [cuotaTemp, setCuotaTemp] = useState('');
 
   // Selección múltiple
-  const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
-  const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
 
   // Modal de configuración individual
   const [mostrarModalConfig, setMostrarModalConfig] = useState(false);
@@ -389,7 +387,7 @@ export default function Productos() {
     cargarDatosPorPM();
   }, [pmsSeleccionados]);
 
-  const cargarStats = async () => {
+  const cargarStats = useCallback(async () => {
     try {
       // Construir parámetros con todos los filtros activos (igual que cargarProductos)
       const params = {};
@@ -438,7 +436,9 @@ export default function Productos() {
     } catch {
       // Error silencioso, no afecta funcionalidad principal
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast]); // interim: reads filter states inline; migrates to useProductosData
+  const { productosSeleccionados, ultimoSeleccionado, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
 
 
   useEffect(() => {
@@ -920,29 +920,6 @@ export default function Productos() {
     }
   };
 
-  const cambiarColorProducto = async (itemId, color) => {
-    try {
-      await api.patch(
-        `/productos/${itemId}/color`,
-        { color }
-      );
-      
-      // Actualizar estado local en lugar de recargar
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? { ...p, color_marcado: color }
-          : p
-      ));
-      
-      setColorDropdownAbierto(null);
-      
-      // Recargar stats para reflejar cambios en contadores
-      cargarStats();
-    } catch {
-      showToast('Error al cambiar el color', 'error');
-    }
-  };
-
   const abrirModalBan = (producto) => {
     // Obtener palabras de la descripción (filtrar palabras de más de 3 caracteres)
     const palabras = producto.descripcion
@@ -1233,71 +1210,6 @@ export default function Productos() {
       showToast(`Error al recalcular cuotas masivamente: ${error.response?.data?.detail || error.message}`, 'error');
     } finally {
       setRecalculandoCuotasMasivo(false);
-    }
-  };
-
-  // Funciones de selección múltiple
-  const toggleSeleccion = (itemId, shiftKey) => {
-    const nuevaSeleccion = new Set(productosSeleccionados);
-
-    if (shiftKey && ultimoSeleccionado !== null) {
-      // Selección con Shift: seleccionar rango
-      const indices = productos.map(p => p.item_id);
-      const indiceActual = indices.indexOf(itemId);
-      const indiceUltimo = indices.indexOf(ultimoSeleccionado);
-
-      const inicio = Math.min(indiceActual, indiceUltimo);
-      const fin = Math.max(indiceActual, indiceUltimo);
-
-      for (let i = inicio; i <= fin; i++) {
-        nuevaSeleccion.add(indices[i]);
-      }
-    } else {
-      // Toggle individual
-      if (nuevaSeleccion.has(itemId)) {
-        nuevaSeleccion.delete(itemId);
-      } else {
-        nuevaSeleccion.add(itemId);
-      }
-    }
-
-    setProductosSeleccionados(nuevaSeleccion);
-    setUltimoSeleccionado(itemId);
-  };
-
-  const seleccionarTodos = () => {
-    if (productosSeleccionados.size === productos.length) {
-      setProductosSeleccionados(new Set());
-    } else {
-      setProductosSeleccionados(new Set(productos.map(p => p.item_id)));
-    }
-  };
-
-  const limpiarSeleccion = () => {
-    setProductosSeleccionados(new Set());
-    setUltimoSeleccionado(null);
-  };
-
-  const pintarLote = async (color) => {
-    try {
-      await api.post(
-        '/productos/actualizar-color-lote',
-        {
-          item_ids: Array.from(productosSeleccionados),
-          color: color
-        }
-      );
-
-      setProductos(prods => prods.map(p =>
-        productosSeleccionados.has(p.item_id)
-          ? { ...p, color_marcado: color }
-          : p
-      ));
-
-      limpiarSeleccion();
-      cargarStats();
-    } catch {
-      showToast('Error al actualizar colores en lote', 'error');
     }
   };
 
@@ -2053,27 +1965,6 @@ export default function Productos() {
       iniciarEdicionCuota(producto, '9');
     } else if (columna === 'cuotas_12') {
       iniciarEdicionCuota(producto, '12');
-    }
-  };
-
-  const cambiarColorRapido = async (itemId, color) => {
-    try {
-      await api.patch(
-        `/productos/${itemId}/color`,
-        { color }
-      );
-      
-      // Actualizar estado local en lugar de recargar
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? { ...p, color_marcado: color }
-          : p
-      ));
-      
-      // Recargar stats para reflejar cambios en contadores
-      cargarStats();
-    } catch {
-      // silenced
     }
   };
 
