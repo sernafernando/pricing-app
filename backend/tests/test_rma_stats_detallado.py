@@ -608,3 +608,106 @@ class TestDrilldownNoNPlusOne:
             f"Too many DB queries ({query_count[0]}): suspected N+1. "
             f"With {n_items} items, N+1 would be >{n_items + 4} queries."
         )
+
+
+# ---------------------------------------------------------------------------
+# T-NEW-1/T-NEW-2: Timeline resolves raw option IDs to human-readable labels
+# ---------------------------------------------------------------------------
+
+
+class TestTimelineLabelResolution:
+    """Timeline events must show option labels, not raw numeric IDs."""
+
+    def test_timeline_resolves_valor_nuevo_id_to_label(
+        self,
+        client_rma_ver,
+        db,
+        rma_caso_factory,
+        rma_item_factory,
+        rma_opcion_factory,
+        rma_historial_factory,
+        rma_superadmin_user,
+    ):
+        """T-NEW-1 (RED→GREEN): valor_nuevo stored as str(opc.id) resolves to opc.valor label.
+
+        The historial row is written with the raw option id (e.g. "3").
+        The drill-down endpoint must resolve that to the human label (e.g. "Dañado Leve").
+        valor_anterior=None must remain None.
+        """
+        fecha = date(2026, 1, 15)
+        opc = rma_opcion_factory("estado_recepcion", "Dañado Leve", orden=1, color="orange")
+
+        caso = rma_caso_factory(activo=True, fecha_caso=fecha)
+        item = rma_item_factory(caso_id=caso.id, estado_recepcion_id=opc.id)
+        rma_historial_factory(
+            caso_id=caso.id,
+            caso_item_id=item.id,
+            campo="estado_recepcion_id",
+            valor_anterior=None,
+            valor_nuevo=str(opc.id),
+            usuario_id=rma_superadmin_user.id,
+        )
+
+        resp = _drilldown(
+            client_rma_ver,
+            dimension="estado_recepcion",
+            valor=str(opc.id),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert len(data["equipos"]) == 1
+        timeline = data["equipos"][0]["timeline"]
+        assert len(timeline) == 1
+        evt = timeline[0]
+
+        # Must be the label, not the raw integer ID
+        assert evt["valor_nuevo"] == "Dañado Leve", f"Expected label 'Dañado Leve', got '{evt['valor_nuevo']}'"
+        assert evt["valor_anterior"] is None
+
+    def test_timeline_resolves_transition_both_ids_to_labels(
+        self,
+        client_rma_ver,
+        db,
+        rma_caso_factory,
+        rma_item_factory,
+        rma_opcion_factory,
+        rma_historial_factory,
+        rma_superadmin_user,
+    ):
+        """T-NEW-2 (RED→GREEN): valor_anterior and valor_nuevo stored as option IDs both resolve to labels.
+
+        Simulates a status transition: "No Apto" → "Apto para Venta" stored as raw IDs.
+        The timeline must return human-readable labels for both ends of the transition.
+        """
+        fecha = date(2026, 1, 15)
+        opc_a = rma_opcion_factory("apto_venta", "No Apto", orden=1, color="red")
+        opc_b = rma_opcion_factory("apto_venta", "Apto para Venta", orden=2, color="green")
+
+        caso = rma_caso_factory(activo=True, fecha_caso=fecha)
+        item = rma_item_factory(caso_id=caso.id, apto_venta_id=opc_b.id)
+        rma_historial_factory(
+            caso_id=caso.id,
+            caso_item_id=item.id,
+            campo="apto_venta_id",
+            valor_anterior=str(opc_a.id),
+            valor_nuevo=str(opc_b.id),
+            usuario_id=rma_superadmin_user.id,
+        )
+
+        resp = _drilldown(
+            client_rma_ver,
+            dimension="apto_venta",
+            valor=str(opc_b.id),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert len(data["equipos"]) == 1
+        timeline = data["equipos"][0]["timeline"]
+        assert len(timeline) == 1
+        evt = timeline[0]
+
+        # Both IDs must resolve to their human labels
+        assert evt["valor_anterior"] == "No Apto", f"Expected 'No Apto', got '{evt['valor_anterior']}'"
+        assert evt["valor_nuevo"] == "Apto para Venta", f"Expected 'Apto para Venta', got '{evt['valor_nuevo']}'"

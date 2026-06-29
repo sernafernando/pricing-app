@@ -1,6 +1,9 @@
 .modal {
-  width: 90vw;
-  max-width: 900px;
+  /* Wider than the default lg (896 px) to fit the 4-column equipos table
+     comfortably without horizontal cramping.
+     min(1100px, 95vw) keeps it responsive and away from viewport edges. */
+  width: 95vw;
+  max-width: min(1100px, 95vw);
 }
 
 .bucketLabel {
