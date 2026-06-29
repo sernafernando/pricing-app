@@ -1,0 +1,161 @@
+.container {
+  padding: var(--spacing-md) 0;
+}
+
+/* Controls bar */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+/* fecha_caso / recepcion_fecha segmented toggle */
+.dateToggle {
+  display: flex;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.toggleBtn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150) var(--ease-in-out),
+              color var(--duration-150) var(--ease-in-out);
+}
+
+.toggleBtn:hover {
+  color: var(--cf-text-primary);
+}
+
+.toggleActive {
+  background: var(--cf-accent-blue);
+  color: #ffffff;
+  font-weight: var(--font-medium);
+}
+
+/* Date range */
+.dateRange {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xs) var(--spacing-md);
+  flex-shrink: 0;
+}
+
+.calIcon {
+  color: var(--cf-text-muted);
+  flex-shrink: 0;
+}
+
+.dateLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+  white-space: nowrap;
+}
+
+.dateInput {
+  background: transparent;
+  border: none;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+}
+
+.dateSep {
+  color: var(--cf-text-muted);
+}
+
+.fetchingLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+  font-style: italic;
+}
+
+/* recepcion_fecha note */
+.caveat {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+  margin: 0 0 var(--spacing-md) 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-left: 2px solid var(--cf-accent-orange);
+}
+
+/* Error alert */
+.errorBanner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+/* Indicator cards row */
+.metricsRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+@media (max-width: 900px) {
+  .metricsRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .metricsRow {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Initial loading state */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl, 48px) 0;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.loadingIcon {
+  color: var(--cf-accent-blue);
+  opacity: 0.45;
+}
+
+/* Charts grid: 3 columns desktop, 2 tablet, 1 mobile */
+.chartsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 1100px) {
+  .chartsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .chartsGrid {
+    grid-template-columns: 1fr;
+  }
+}
