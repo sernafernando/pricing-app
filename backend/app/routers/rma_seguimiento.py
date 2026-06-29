@@ -1224,13 +1224,31 @@ STATUS_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _resolve_option_label(value: Optional[str], option_map: dict[int, str]) -> Optional[str]:
+    """Resolve a stringified option ID to its human label.
+
+    If the value is a digit string and the integer maps to a known option,
+    return the label. Otherwise return the raw string (defensive fallback
+    for non-option fields or deleted options).
+    """
+    if value is None:
+        return None
+    if value.isdigit():
+        label = option_map.get(int(value))
+        if label is not None:
+            return label
+    return value
+
+
 def _status_timeline(
     db: Session,
     caso_ids: list[int],
 ) -> dict[tuple[int, Optional[int]], list[TimelineEventOut]]:
     """Bulk-fetch all status-transition rows for a set of casos.
 
-    ONE query for all caso_ids → no N+1.
+    TWO queries total (no N+1):
+      1. All historial rows for the given caso_ids.
+      2. All option labels from rma_seguimiento_opciones (table is small).
     Returns a dict keyed by (caso_id, caso_item_id).
     - caso_item_id is None for caso-level transitions.
     - caso_item_id is an int for item-level transitions.
@@ -1253,6 +1271,10 @@ def _status_timeline(
         .all()
     )
 
+    # Bulk-load option id→label map in ONE query (table is small; no N+1).
+    option_rows = db.query(RmaSeguimientoOpcion.id, RmaSeguimientoOpcion.valor).all()
+    option_map: dict[int, str] = {row.id: row.valor for row in option_rows}
+
     result: dict[tuple[int, Optional[int]], list[TimelineEventOut]] = {}
     for r in registros:
         key: tuple[int, Optional[int]] = (r.caso_id, r.caso_item_id)
@@ -1261,8 +1283,8 @@ def _status_timeline(
         result[key].append(
             TimelineEventOut(
                 campo=r.campo,
-                valor_anterior=r.valor_anterior,
-                valor_nuevo=r.valor_nuevo,
+                valor_anterior=_resolve_option_label(r.valor_anterior, option_map),
+                valor_nuevo=_resolve_option_label(r.valor_nuevo, option_map),
                 usuario_nombre=r.usuario.nombre if r.usuario else None,
                 created_at=r.created_at.isoformat() if r.created_at else None,
             )
