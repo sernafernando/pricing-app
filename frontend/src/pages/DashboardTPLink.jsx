@@ -9,7 +9,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
-import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw } from 'lucide-react';
 
 const TPLINK_API_BASE = '/dashboard-tplink';
 
@@ -67,6 +67,8 @@ export default function DashboardTPLink() {
   const [topLimit, setTopLimit] = useState(10);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
   const [busquedaCategoria, setBusquedaCategoria] = useState('');
+  const [stockData, setStockData] = useState([]);
+  const [stockLoading, setStockLoading] = useState(false);
 
   const { toast, showToast, hideToast } = useToast();
 
@@ -130,12 +132,30 @@ export default function DashboardTPLink() {
     }
   }, [fechaDesde, fechaHasta, categoriasSeleccionadas, showToast]);
 
+  const cargarStock = useCallback(async () => {
+    setStockLoading(true);
+    try {
+      const res = await api.get(`${TPLINK_API_BASE}/stock`);
+      setStockData(res.data || []);
+    } catch {
+      showToast('Error al cargar el stock TP-Link', 'error');
+    } finally {
+      setStockLoading(false);
+    }
+  }, [showToast]);
+
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarDashboard();
       cargarCategoriasDisponibles();
     }
   }, [fechaDesde, fechaHasta, cargarDashboard, cargarCategoriasDisponibles]);
+
+  useEffect(() => {
+    if (tabActivo === 'stock') {
+      cargarStock();
+    }
+  }, [tabActivo, cargarStock]);
 
   const formatearMoneda = (monto) => {
     return new Intl.NumberFormat('es-AR', {
@@ -250,6 +270,12 @@ export default function DashboardTPLink() {
           >
             <ClipboardList size={14} /> Detalle de Operaciones
           </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'stock' ? styles.tabActivo : ''}`}
+            onClick={() => updateFilters({ tab: 'stock' })}
+          >
+            <Boxes size={14} /> Stock
+          </button>
         </div>
 
         {/* Quick date filters + reload */}
@@ -305,9 +331,9 @@ export default function DashboardTPLink() {
           </div>
 
           <button
-            onClick={tabActivo === 'resumen' ? cargarDashboard : pagination.reset}
+            onClick={tabActivo === 'resumen' ? cargarDashboard : tabActivo === 'stock' ? cargarStock : pagination.reset}
             className={styles.btnRecargar}
-            disabled={pagination.loading}
+            disabled={pagination.loading || stockLoading}
             title="Recargar"
           >
             <RefreshCw size={16} />
@@ -363,8 +389,42 @@ export default function DashboardTPLink() {
         </div>
       </div>
 
-      {(loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1)) ? (
+      {(loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1) || (tabActivo === 'stock' && stockLoading)) ? (
         <div className={styles.loading}>Cargando...</div>
+      ) : tabActivo === 'stock' ? (
+        <div className={styles.timelineCard}>
+          <h3 className={styles.chartTitle}><Boxes size={16} /> Stock TP-Link</h3>
+          {stockData.length === 0 ? (
+            <div className={styles.noData}>No hay productos con stock disponible</div>
+          ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Descripción</th>
+                    <th className={styles.centrado}>Stock</th>
+                    {puedeVerGanancia && <th className={styles.monto}>Costo Lista 8</th>}
+                    {puedeVerGanancia && <th className={styles.centrado}>Moneda</th>}
+                    {puedeVerGanancia && <th className={styles.monto}>Cotización</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{item.codigo || '-'}</td>
+                      <td className={styles.descripcion}>{item.descripcion || '-'}</td>
+                      <td className={styles.centrado}>{item.stock}</td>
+                      {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.costo_lista8)}</td>}
+                      {puedeVerGanancia && <td className={styles.centrado}>{item.moneda_original || '-'}</td>}
+                      {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.cotizacion)}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : tabActivo === 'operaciones' ? (
         <div className={styles.operacionesContainer}>
           <PaginationControls

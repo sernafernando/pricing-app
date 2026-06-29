@@ -28,6 +28,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
+from app.models.item_cost_list import ItemCostList
+from app.models.producto import ProductoERP
+from app.models.tipo_cambio import TipoCambio
 from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -616,3 +619,85 @@ def get_operaciones_tplink(
         return row
 
     return [_build_row(op) for op in operaciones]
+
+
+# ---------------------------------------------------------------------------
+# Stock response model
+# ---------------------------------------------------------------------------
+
+
+class StockTPLinkResponse(BaseModel):
+    """Per-item stock snapshot for the TP-Link brand — Stock tab.
+
+    Margin fields (costo_lista8, moneda_original, cotizacion) are Optional;
+    they are omitted from the JSON when the caller lacks
+    `dashboard_tplink.ver_ganancia` (`response_model_exclude_none=True`).
+    """
+
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    stock: int
+
+    # Margin-gated fields
+    costo_lista8: Optional[Decimal] = None
+    moneda_original: Optional[str] = None
+    cotizacion: Optional[Decimal] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/dashboard-tplink/stock",
+    dependencies=[Depends(require_permiso("dashboard_tplink.ver"))],
+    response_model=List[StockTPLinkResponse],
+    response_model_exclude_none=True,
+    tags=["dashboard-tplink"],
+)
+def get_stock_tplink(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[StockTPLinkResponse]:
+    """
+    TP-Link brand stock list — Stock tab.
+
+    Returns all TP-Link items (coslis_id=8, stock > 0) with their current
+    stock. Cost fields (costo_lista8, moneda_original, cotizacion) are only
+    included when the caller has `dashboard_tplink.ver_ganancia`.
+    No date filter: stock is a point-in-time snapshot.
+    """
+    # Latest USD exchange rate
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    cotizacion_val = Decimal(str(round(tc.venta, 2))) if tc else Decimal("1.0")
+
+    rows = (
+        db.query(ItemCostList, ProductoERP)
+        .join(ProductoERP, ProductoERP.item_id == ItemCostList.item_id)
+        .filter(
+            ItemCostList.coslis_id == 8,
+            ItemCostList.coslis_price > 0,
+            ProductoERP.stock > 0,
+        )
+        .order_by(ProductoERP.descripcion)
+        .all()
+    )
+
+    has_ganancia = _has_ganancia(current_user, db)
+    result: List[StockTPLinkResponse] = []
+    for cost, prod in rows:
+        moneda_original = "USD" if cost.curr_id == 2 else "ARS"
+        costo_ars = (
+            Decimal(str(round(float(cost.coslis_price) * float(cotizacion_val), 2)))
+            if cost.curr_id == 2
+            else Decimal(str(round(float(cost.coslis_price), 2)))
+        )
+        item = StockTPLinkResponse(
+            codigo=prod.codigo,
+            descripcion=prod.descripcion,
+            stock=prod.stock,
+        )
+        if has_ganancia:
+            item.costo_lista8 = costo_ars
+            item.moneda_original = moneda_original
+            item.cotizacion = cotizacion_val
+        result.append(item)
+    return result
