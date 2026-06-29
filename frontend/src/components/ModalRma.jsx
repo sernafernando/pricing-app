@@ -319,6 +319,12 @@ export default function ModalRma({ caso, onClose }) {
     setGuardando(true);
     try {
       await api.put(`/rma-seguimiento/${caso.id}`, {
+        cust_id: casoData.cust_id,
+        cliente_nombre: casoData.cliente_nombre,
+        cliente_dni: casoData.cliente_dni,
+        cliente_numero: casoData.cliente_numero,
+        ml_id: casoData.ml_id,
+        origen: casoData.origen,
         estado_caso_id: casoData.estado_caso_id,
         marcado_borrar_pedido: casoData.marcado_borrar_pedido,
         estado_reclamo_ml_id: casoData.estado_reclamo_ml_id,
