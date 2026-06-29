@@ -7,7 +7,7 @@ All tests are written BEFORE the implementation (RED phase).
 Tests fail until T-13 (detallado) and T-19 (drill-down) are implemented.
 """
 
-from datetime import date, datetime, UTC
+from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -358,9 +358,7 @@ class TestDetalladoEmptyRange:
             assert len(sin_cls) == 1, (
                 f"Dimension '{dim_name}' must have exactly one 'Sin clasificar' bucket; got {dim['buckets']}"
             )
-            assert sin_cls[0]["cantidad"] == 0, (
-                f"'Sin clasificar' in '{dim_name}' must have cantidad 0 for empty range"
-            )
+            assert sin_cls[0]["cantidad"] == 0, f"'Sin clasificar' in '{dim_name}' must have cantidad 0 for empty range"
 
 
 # ---------------------------------------------------------------------------

@@ -1190,9 +1190,7 @@ def _dimension_counts(
             # in edge cases; summing keeps the invariant sum(buckets)==total_items intact).
             sin_clasificar_count += cantidad or 0
         else:
-            regular_with_orden.append(
-                (orden or 0, BucketOut(id=opc_id, valor=valor, color=color, cantidad=cantidad))
-            )
+            regular_with_orden.append((orden or 0, BucketOut(id=opc_id, valor=valor, color=color, cantidad=cantidad)))
 
     # Sort non-null buckets by RmaSeguimientoOpcion.orden ASC
     regular_with_orden.sort(key=lambda x: x[0])
@@ -1205,15 +1203,17 @@ def _dimension_counts(
 
 # ── Bulk historial helper for drill-down (T-18) ──
 
-STATUS_FIELDS: frozenset[str] = frozenset({
-    "estado_recepcion_id",
-    "causa_devolucion_id",
-    "apto_venta_id",
-    "estado_revision_id",
-    "estado_proceso_id",
-    "estado_proveedor_id",
-    "estado_caso_id",
-})
+STATUS_FIELDS: frozenset[str] = frozenset(
+    {
+        "estado_recepcion_id",
+        "causa_devolucion_id",
+        "apto_venta_id",
+        "estado_revision_id",
+        "estado_proceso_id",
+        "estado_proveedor_id",
+        "estado_caso_id",
+    }
+)
 
 
 def _status_timeline(
@@ -1410,9 +1410,7 @@ def obtener_stats_detallado(
 @router.get("/stats/drill-down", response_model=DrilldownOut)
 def obtener_stats_drill_down(
     dimension: str = Query(..., description="Una de las 6 dimensiones del dashboard"),
-    valor: str = Query(
-        ..., description="ID numérico (str) | 'sin_clasificar' | 'otros' (sólo proveedor)"
-    ),
+    valor: str = Query(..., description="ID numérico (str) | 'sin_clasificar' | 'otros' (sólo proveedor)"),
     date_field: Literal["fecha_caso", "recepcion_fecha"] = Query("fecha_caso"),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
