@@ -19,7 +19,7 @@ import PrearmadaBadge from '../components/PrearmadaBadge';
 import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
-import { FILTER_VALUES, COLORES_DISPONIBLES } from '../utils/productosConstants';
+import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { formatearFechaGMT3, isValidNumericInput, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
@@ -436,8 +436,13 @@ export default function Productos() {
     } catch {
       // Error silencioso, no afecta funcionalidad principal
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showToast]); // interim: reads filter states inline; migrates to useProductosData
+  }, [
+    showToast, debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas,
+    filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
+    filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
+    filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
+    coloresSeleccionados, pmsSeleccionados,
+  ]); // interim: migrates to useProductosData (will use construirFiltrosParams)
   const { productosSeleccionados, ultimoSeleccionado, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
 
 

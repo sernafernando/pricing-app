@@ -664,3 +664,63 @@ describe('CS-7: batch selection + color paint', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// CS-6c — Out-of-cards toggle -> rebate state cross-write
+//
+// Oracle: toggleOutOfCardsRapido (keyboard 'o') on a product without out_of_cards
+// activates out_of_cards AND opens rebate edit mode (editandoRebate side-effect).
+// This cross-write is the coupling that stays INTERNAL to useProductosToggles.
+//
+// Mutation-verify target: setEditandoRebate(producto.item_id) in toggleOutOfCardsRapido.
+// Removing that call: .rebate-edit never renders -> test goes RED.
+// ---------------------------------------------------------------------------
+describe('CS-6c: out-of-cards toggle -> rebate state cross-write', () => {
+  it('pressing o activates out-of-cards AND opens rebate edit mode (internal cross-write)', async () => {
+    const producto = makeProducto({
+      item_id: 'OC1',
+      out_of_cards: false,
+      participa_rebate: false,
+      porcentaje_rebate: null,
+    });
+    setupApiMocks({ productos: [producto], total: 1 });
+    // api.patch returns valid data for both calls (rebate activation + out-of-cards)
+    api.patch.mockResolvedValue({
+      data: { out_of_cards: true, precio_rebate: 95, markup_rebate: 3.5 },
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    // Activate keyboard navigation
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    // Press 'o' to trigger toggleOutOfCardsRapido
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', bubbles: true }));
+    });
+
+    // Primary assertion: out-of-cards was activated via API
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith(
+        '/productos/OC1/out-of-cards',
+        expect.objectContaining({ out_of_cards: true })
+      );
+    });
+
+    // Cross-write oracle: rebate edit mode opened (editandoRebate === 'OC1')
+    // If setEditandoRebate is removed from toggleOutOfCardsRapido, this goes RED.
+    await waitFor(() => {
+      expect(document.querySelector('.rebate-edit')).toBeInTheDocument();
+    });
+  });
+});
