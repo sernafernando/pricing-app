@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { productosAPI } from '../services/api';
+import { useState, useEffect, useMemo } from 'react';
 import PricingModalTesla from '../components/PricingModalTesla';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
@@ -18,7 +17,7 @@ import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
-import { formatearFechaGMT3, isValidNumericInput, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
+import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
@@ -28,6 +27,7 @@ import { useProductosInlineEditing } from '../hooks/useProductosInlineEditing';
 import { useProductosFilters } from '../hooks/useProductosFilters';
 
 import { useProductosData } from '../hooks/useProductosData';
+import { useProductosKeyboard } from '../hooks/useProductosKeyboard';
 
 export default function Productos() {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -37,10 +37,6 @@ export default function Productos() {
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
 
-  // Estados para navegación por teclado
-  const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
-  const [modoNavegacion, setModoNavegacion] = useState(false);
-  const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
 
 
   // Selección múltiple
@@ -336,592 +332,46 @@ export default function Productos() {
     },
   });
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
-      let accion = null;
-
-      // Ctrl+F1/F2/F3 (con o sin Shift)
-      if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
-        accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
-      }
-      // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
-      // Soporta layouts: en_US, es_AR, es_ES
-      // - en_US: Shift+1=!, Shift+2=@, Shift+3=#
-      // - es_AR/es_ES: Shift+1=!, Shift+2=", Shift+3=·
-      // - e.code es independiente del layout (Digit1/2/3)
-      if (e.ctrlKey && e.shiftKey) {
-        if (e.key === '!' || e.code === 'Digit1') {
-          accion = 1;
-        }
-        if (e.key === '"' || e.key === '@' || e.code === 'Digit2') {
-          accion = 2;
-        }
-        if (e.key === '·' || e.key === '#' || e.code === 'Digit3') {
-          accion = 3;
-        }
-      }
-
-      if (accion) {
-        // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
-        const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
-        const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
-
-        if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
-          return;
-        }
-
-        // Obtener el producto activo
-        let producto = null;
-
-        if (enModoEdicion) {
-          // Si está editando, buscar por item_id
-          let itemId = null;
-          if (editandoPrecio) itemId = editandoPrecio;
-          else if (editandoRebate) itemId = editandoRebate;
-          else if (editandoWebTransf) itemId = editandoWebTransf;
-          else if (editandoCuota) itemId = editandoCuota.item_id;
-
-          if (itemId) {
-            producto = productos.find(p => p.item_id === itemId);
-          }
-        } else if (hayProductoSeleccionado) {
-          // Si está navegando, buscar por índice de fila
-          producto = productos[celdaActiva.rowIndex];
-        }
-
-        if (!producto) {
-          showToast('Producto no encontrado', 'error');
-          return;
-        }
-
-        if (!producto.codigo) {
-          showToast('El producto no tiene código asignado', 'error');
-          return;
-        }
-
-        const itemCode = producto.codigo;
-
-        // Acción 1: copiar solo el código
-        if (accion === 1) {
-          navigator.clipboard.writeText(itemCode).then(() => {
-            showToast(`✅ Código copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-
-        // Acción 2: primer enlace
-        if (accion === 2) {
-          const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 1 copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-
-        // Acción 3: segundo enlace
-        if (accion === 3) {
-          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=${itemCode}&sort=lowest_price`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 2 copiado: ${itemCode}`);
-          }).catch(() => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-            
-          });
-        }
-      }
-    };
-
-    // Usar capture: true para interceptar el evento antes que otros listeners
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva, showToast]);
-
-  // Columnas navegables según la vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
-  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
-  const columnasNavegablesPVP = ['precio_pvp', 'pvp_cuotas_3', 'pvp_cuotas_6', 'pvp_cuotas_9', 'pvp_cuotas_12'];
-  const columnasEditables = 
-    modoVista === 'cuotas' ? columnasNavegablesCuotas :
-    modoVista === 'pvp' ? columnasNavegablesPVP :
-    columnasNavegablesNormal;
-
-  // Sistema de navegación por teclado
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      // Si hay un modal abierto, NO procesar shortcuts de la página
-      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarCalcularPVPModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
-
-      if (hayModalAbierto) {
-        // NO hacer preventDefault - dejar que el modal maneje sus eventos
-        // Solo ignorar el evento en este handler
-        return;
-      }
-
-      // ESC: Salir de edición o modo navegación (solo si NO hay modal)
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Si estamos editando, salir de edición
-        if (editandoPrecio || editandoRebate || editandoWebTransf) {
-          setEditandoPrecio(null);
-          setEditandoRebate(null);
-          setEditandoWebTransf(null);
-          return;
-        }
-        // Salir del modo navegación
-        setCeldaActiva(null);
-        setModoNavegacion(false);
-        setPanelFiltroActivo(null);
-        setColorDropdownAbierto(null);
-        return;
-      }
-
-      // Si estamos editando una celda
-      if (editandoPrecio || editandoRebate || editandoWebTransf) {
-        // Interceptar Tab para evitar que escape del formulario
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          e.stopPropagation();
-
-          // Encontrar el contenedor de edición activo buscando desde el elemento activo
-          let editContainer = document.activeElement?.closest('.inline-edit, .rebate-edit, .web-transf-edit');
-
-          // Si no hay elemento activo en un contenedor, buscar el contenedor visible
-          if (!editContainer) {
-            if (editandoPrecio) {
-              editContainer = document.querySelector('.inline-edit');
-            } else if (editandoRebate) {
-              editContainer = document.querySelector('.rebate-edit');
-            } else if (editandoWebTransf) {
-              editContainer = document.querySelector('.web-transf-edit');
-            }
-          }
-
-          if (editContainer) {
-            const focusable = Array.from(editContainer.querySelectorAll('input, button')).filter(el => {
-              // Filtrar solo elementos visibles y no disabled
-              return el.offsetParent !== null && !el.disabled;
-            });
-            const currentIndex = focusable.indexOf(document.activeElement);
-
-            if (e.shiftKey) {
-              // Tab + Shift: ir hacia atrás
-              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
-              focusable[prevIndex]?.focus();
-            } else {
-              // Tab: ir hacia adelante
-              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
-              focusable[nextIndex]?.focus();
-            }
-          }
-          return;
-        }
-        // Dejar pasar otras teclas (arrows, enter, etc) para que funcionen en los inputs
-        return;
-      }
-
-      // Mostrar ayuda de shortcuts (?)
-      if (e.key === '?' && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        setMostrarShortcutsHelp(!mostrarShortcutsHelp);
-        return;
-      }
-
-      // Ctrl+F: Focus en búsqueda
-      if (e.ctrlKey && e.key === 'f') {
-        e.preventDefault();
-        document.querySelector('.search-bar input')?.focus();
-        return;
-      }
-
-      // Ctrl+I: Abrir info del producto seleccionado
-      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
-        e.preventDefault();
-        if (celdaActiva && productos[celdaActiva.rowIndex]) {
-          const producto = productos[celdaActiva.rowIndex];
-          setProductoInfo(producto.item_id);
-          setMostrarModalInfo(true);
-        }
-        return;
-      }
-
-      // Alt+M: Toggle filtro de marcas
-      if (e.altKey && e.key === 'm') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas');
-        return;
-      }
-
-      // Alt+S: Toggle filtro de subcategorías
-      if (e.altKey && e.key === 's') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias');
-        return;
-      }
-
-      // Alt+A: Toggle filtro de auditoría
-      if (e.altKey && e.key === 'a') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria');
-        return;
-      }
-
-      // Alt+P: Toggle filtro de PMs
-      if (e.altKey && e.key === 'p') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms');
-        return;
-      }
-
-      // Alt+C: Toggle filtros avanzados (donde está el filtro de colores)
-      if (e.altKey && e.key === 'c') {
-        e.preventDefault();
-        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
-        return;
-      }
-
-      // Alt+F: Toggle filtros avanzados
-      if (e.altKey && e.key === 'f') {
-        e.preventDefault();
-        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
-        return;
-      }
-
-      // Alt+V: Ciclar entre vistas (Normal → Cuotas → PVP → Normal)
-      if (e.altKey && e.key === 'v') {
-        e.preventDefault();
-        const siguienteModo = 
-          modoVista === 'normal' ? 'cuotas' :
-          modoVista === 'cuotas' ? 'pvp' :
-          'normal';
-        setModoVista(siguienteModo);
-        // Resetear columna activa para evitar ir a columnas ocultas
-        if (celdaActiva) {
-          setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-        }
-        return;
-      }
-
-      // Alt+P: Ir directo a Vista PVP (o volver a Normal si ya está en PVP)
-      if (e.altKey && e.key === 'p') {
-        e.preventDefault();
-        setModoVista(modoVista === 'pvp' ? 'normal' : 'pvp');
-        // Resetear columna activa para evitar ir a columnas ocultas
-        if (celdaActiva) {
-          setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-        }
-        return;
-      }
-
-      // Alt+R: Toggle Auto-recalcular cuotas
-      if (e.altKey && e.key === 'r') {
-        e.preventDefault();
-        const nuevoValor = !recalcularCuotasAuto;
-        setRecalcularCuotasAuto(nuevoValor);
-        localStorage.setItem('recalcularCuotasAuto', JSON.stringify(nuevoValor));
-        return;
-      }
-
-      // Ctrl+E: Abrir modal de export
-      if (e.ctrlKey && e.key === 'e') {
-        e.preventDefault();
-        setMostrarExportModal(true);
-        return;
-      }
-
-      // Ctrl+K: Abrir modal de calcular web (requiere permiso)
-      if (e.ctrlKey && e.key === 'k' && puedeCalcularWebMasivo) {
-        e.preventDefault();
-        setMostrarCalcularWebModal(true);
-        return;
-      }
-
-      // Ctrl+Shift+P: Abrir modal de calcular PVP (requiere permiso)
-      if (e.ctrlKey && e.shiftKey && e.key === 'P' && puedeCalcularPVPMasivo) {
-        e.preventDefault();
-        setMostrarCalcularPVPModal(true);
-        return;
-      }
-
-      // Enter: Activar modo navegación en la tabla
-      if (e.key === 'Enter' && !modoNavegacion && productos.length > 0) {
-        e.preventDefault();
-        setModoNavegacion(true);
-        setCeldaActiva({ rowIndex: 0, colIndex: 0 });
-        return;
-      }
-
-      // Navegación en modo tabla
-      if (modoNavegacion && celdaActiva) {
-        const { rowIndex, colIndex } = celdaActiva;
-
-        // Enter: Editar celda activa (igual que Espacio)
-        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          const columna = columnasEditables[colIndex];
-          iniciarEdicionDesdeTeclado(producto, columna);
-          return;
-        }
-
-        // Flechas: Navegación por celdas (solo si NO estamos editando)
-        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (colIndex < columnasEditables.length - 1) {
-            setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (colIndex > 0) {
-            setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            // Shift+ArrowDown: Seleccionar siguiente fila
-            if (rowIndex < productos.length - 1) {
-              const siguienteItemId = productos[rowIndex + 1].item_id;
-              toggleSeleccion(siguienteItemId, true);
-              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-            }
-          } else if (e.ctrlKey || e.metaKey) {
-            // Ctrl+ArrowDown: Navegar sin perder selección
-            if (rowIndex < productos.length - 1) {
-              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-            }
-          } else if (rowIndex < productos.length - 1) {
-            setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            // Shift+ArrowUp: Seleccionar fila anterior
-            if (rowIndex > 0) {
-              const anteriorItemId = productos[rowIndex - 1].item_id;
-              toggleSeleccion(anteriorItemId, true);
-              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-            }
-          } else if (e.ctrlKey || e.metaKey) {
-            // Ctrl+ArrowUp: Navegar sin perder selección
-            if (rowIndex > 0) {
-              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-            }
-          } else if (rowIndex > 0) {
-            setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-          }
-          return;
-        }
-
-        // PageUp: Subir 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          const newRow = Math.max(0, rowIndex - 10);
-          setCeldaActiva({ rowIndex: newRow, colIndex });
-          return;
-        }
-
-        // PageDown: Bajar 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          const newRow = Math.min(productos.length - 1, rowIndex + 10);
-          setCeldaActiva({ rowIndex: newRow, colIndex });
-          return;
-        }
-
-        // Home: Ir a primera columna (solo si NO estamos editando)
-        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          setCeldaActiva({ rowIndex, colIndex: 0 });
-          return;
-        }
-
-        // End: Ir a última columna (solo si NO estamos editando)
-        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
-          return;
-        }
-
-        // Espacio: Editar precio en celda activa (solo si NO estamos editando nada)
-        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          const columna = columnasEditables[colIndex];
-          iniciarEdicionDesdeTeclado(producto, columna);
-          return;
-        }
-
-        // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada y no estamos en un input)
-        const activeElement = document.activeElement;
-        const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (puedeMarcarColor && productos[rowIndex]) {
-            // Colores válidos según el backend
-            const colores = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
-            const colorIndex = parseInt(e.key);
-            if (colorIndex < colores.length) {
-              const producto = productos[rowIndex];
-              const colorSeleccionado = colores[colorIndex];
-              
-              cambiarColorRapido(producto.item_id, colorSeleccionado);
-            }
-          }
-          return;
-        }
-
-        // R: Toggle rebate
-        if (e.key === 'r' && !editandoPrecio && !editandoWebTransf && puedeToggleRebate) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          
-          // Si ya estamos editando este producto, desactivar rebate y cerrar edición
-          if (editandoRebate === producto.item_id) {
-            await api.patch(
-              `/productos/${producto.item_id}/rebate`,
-              {
-                participa_rebate: false,
-                porcentaje_rebate: producto.porcentaje_rebate || 3.8
-              }
-            );
-            
-            // Actualizar estado local en lugar de recargar
-            setProductos(prods => prods.map(p =>
-              p.item_id === producto.item_id
-                ? {
-                    ...p,
-                    participa_rebate: false,
-                    precio_rebate: null,
-                    markup_rebate: null
-                  }
-                : p
-            ));
-            
-            setEditandoRebate(null);
-            
-            // Recargar stats para reflejar cambios en contadores
-            cargarStats();
-          } else {
-            // Si no estamos editando, toggle normal
-            toggleRebateRapido(producto);
-          }
-          return;
-        }
-
-        // W: Toggle web transferencia (solo si NO estamos editando nada)
-        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleWebTransf) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          toggleWebTransfRapido(producto);
-          return;
-        }
-
-        // O: Toggle out of cards
-        if (e.key === 'o' && !editandoPrecio && !editandoWebTransf && puedeToggleOutOfCards) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          
-          // Si ya estamos editando Y el producto tiene out_of_cards, desactivarlo
-          if (editandoRebate === producto.item_id && producto.out_of_cards) {
-            await api.patch(
-              `/productos/${producto.item_id}/out-of-cards`,
-              { out_of_cards: false }
-            );
-            
-            // Actualizar estado local en lugar de recargar
-            setProductos(prods => prods.map(p =>
-              p.item_id === producto.item_id
-                ? { ...p, out_of_cards: false }
-                : p
-            ));
-            
-            setEditandoRebate(null);
-            
-            // Recargar stats para reflejar cambios en contadores
-            cargarStats();
-          } else {
-            // Toggle normal
-            toggleOutOfCardsRapido(producto);
-          }
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-    // funciones de acción (toggles/cargarStats/etc.) se recrean cada render — incluirlas re-engancharía el listener en cada render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, puedeCalcularPVPMasivo, mostrarFiltrosAvanzados, modoVista, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarCalcularPVPModal, mostrarModalConfig, mostrarModalInfo]);
-
-  // Scroll automático para seguir la celda activa
-  useEffect(() => {
-    if (modoNavegacion && celdaActiva) {
-      // Buscar la fila activa en el DOM
-      const tbody = document.querySelector('.table-tesla-body');
-      if (tbody) {
-        const filas = tbody.querySelectorAll('tr');
-        const filaActiva = filas[celdaActiva.rowIndex];
-        if (filaActiva) {
-          // Usar behavior: 'auto' (instantáneo) en vez de 'smooth'
-          // Esto evita acumulación de animaciones cuando se mantiene presionada la flecha
-          // y mantiene la fila siempre visible sin tirones
-          filaActiva.scrollIntoView({
-            behavior: 'auto',
-            block: 'nearest',
-            inline: 'nearest'
-          });
-        }
-      }
-    }
-  }, [celdaActiva, modoNavegacion]);
-
-  // Funciones de edición rápida desde teclado
-  const iniciarEdicionDesdeTeclado = (producto, columna) => {
-    if (columna === 'precio_clasica') {
-      setEditandoPrecio(producto.item_id);
-      setPrecioTemp(producto.precio_lista_ml || '');
-    } else if (columna === 'precio_rebate') {
-      setEditandoRebate(producto.item_id);
-      setRebateTemp({
-        participa: producto.participa_rebate || false,
-        porcentaje: producto.porcentaje_rebate || 3.8
-      });
-    } else if (columna === 'precio_web_transf') {
-      setEditandoWebTransf(producto.item_id);
-      setWebTransfTemp({
-        participa: producto.participa_web_transferencia || false,
-        porcentaje: producto.porcentaje_markup_web || 6.0
-      });
-    } else if (columna === 'cuotas_3') {
-      iniciarEdicionCuota(producto, '3');
-    } else if (columna === 'cuotas_6') {
-      iniciarEdicionCuota(producto, '6');
-    } else if (columna === 'cuotas_9') {
-      iniciarEdicionCuota(producto, '9');
-    } else if (columna === 'cuotas_12') {
-      iniciarEdicionCuota(producto, '12');
-    }
-  };
+  const {
+    celdaActiva, setCeldaActiva,
+    modoNavegacion, setModoNavegacion,
+    mostrarShortcutsHelp, setMostrarShortcutsHelp,
+    columnasEditables,
+  } = useProductosKeyboard({
+    data: { productos, setProductos, cargarStats },
+    editing: {
+      editandoPrecio, setEditandoPrecio, precioTemp, setPrecioTemp,
+      editandoCuota, setEditandoCuota,
+      iniciarEdicionCuota,
+      modoVista, setModoVista,
+      recalcularCuotasAuto, setRecalcularCuotasAuto,
+    },
+    toggles: {
+      editandoRebate, setEditandoRebate, rebateTemp, setRebateTemp,
+      editandoWebTransf, setEditandoWebTransf, webTransfTemp, setWebTransfTemp,
+      toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
+    },
+    seleccion: { toggleSeleccion, cambiarColorRapido, setColorDropdownAbierto },
+    ui: {
+      mostrarExportModal, setMostrarExportModal,
+      mostrarCalcularWebModal, setMostrarCalcularWebModal,
+      mostrarCalcularPVPModal, setMostrarCalcularPVPModal,
+      mostrarModalConfig,
+      mostrarModalInfo, setMostrarModalInfo, setProductoInfo,
+      mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
+      panelFiltroActivo, setPanelFiltroActivo,
+    },
+    permissions: {
+      puedeEditar,
+      puedeMarcarColor,
+      puedeToggleRebate,
+      puedeToggleWebTransf,
+      puedeToggleOutOfCards,
+      puedeCalcularWebMasivo,
+      puedeCalcularPVPMasivo,
+    },
+    showToast,
+  });
 
   return (
     <div className="productos-container">
