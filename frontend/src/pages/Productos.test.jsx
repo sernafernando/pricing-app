@@ -766,10 +766,13 @@ describe('CS-8: keyboard navigation smoke', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     });
 
-    // After ArrowDown the active row is now row index 1 (KB2).
-    // The active row still has the keyboard-row-active class — just a different tr.
+    // After ArrowDown celdaActiva.rowIndex must be 1, not still 0.
+    // Assert the ONLY keyboard-row-active tr contains KB2 text (proves the move —
+    // if ArrowDown is a no-op the active row still shows KB1 and this fails RED).
     await waitFor(() => {
-      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+      const activeRows = document.querySelectorAll('tr.keyboard-row-active');
+      expect(activeRows.length).toBe(1);
+      expect(activeRows[0].textContent).toContain('Producto KB2');
     });
 
     // --- Step 3: Space triggers iniciarEdicionDesdeTeclado (precio_clasica col) ---
