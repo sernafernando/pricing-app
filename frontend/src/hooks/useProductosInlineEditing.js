@@ -130,7 +130,6 @@ export function useProductosInlineEditing({
     } catch (error) {
       showToast('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message), 'error');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cuotaTemp, productos, consultarMarkup, setProductos, cargarStats, showToast]);
 
   const recalcularCuotasDesdeClasica = useCallback(async (producto, listaTipo) => {
@@ -274,7 +273,6 @@ export function useProductosInlineEditing({
     } finally {
       setRecalculandoCuotasMasivo(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modoVista, filtros, cargarProductos, cargarStats, showToast]);
 
   const guardarPrecio = useCallback(async (itemId, forzar = false) => {
@@ -432,7 +430,6 @@ export function useProductosInlineEditing({
     } catch {
       showToast('Error al guardar precio', 'error');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [precioTemp, productos, recalcularCuotasAuto, modoVista, consultarMarkup, setProductos, cargarStats, showToast]);
 
   const confirmarGuardadoMarkupNegativo = useCallback(async () => {

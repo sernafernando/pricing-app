@@ -76,7 +76,7 @@ export default function Productos() {
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
-    ordenColumnas, setOrdenColumnas,
+    ordenColumnas,
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
@@ -145,7 +145,7 @@ export default function Productos() {
 
 
 
-  const { productosSeleccionados, ultimoSeleccionado, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
+  const { productosSeleccionados, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
   const { editandoRebate, setEditandoRebate, rebateTemp, setRebateTemp, editandoWebTransf, setEditandoWebTransf, webTransfTemp, setWebTransfTemp, iniciarEdicionRebate, guardarRebate, iniciarEdicionWebTransf, guardarWebTransf, toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido } = useProductosToggles({ setProductos, cargarStats, showToast });
 
 
@@ -300,9 +300,9 @@ export default function Productos() {
     mostrarModalMarkupNegativo, setMostrarModalMarkupNegativo,
     datosGuardadoPendiente, setDatosGuardadoPendiente,
     recalculandoCuotasMasivo,
-    consultarMarkup, iniciarEdicion, iniciarEdicionCuota,
+    iniciarEdicion, iniciarEdicionCuota,
     guardarCuota, guardarPrecio, recalcularCuotasDesdeClasica, recalcularCuotasMasivo,
-    confirmarGuardadoMarkupNegativo, cancelarMarkupNegativo,
+    confirmarGuardadoMarkupNegativo,
   } = useProductosInlineEditing({
     productos,
     setProductos,
@@ -334,9 +334,8 @@ export default function Productos() {
 
   const {
     celdaActiva, setCeldaActiva,
-    modoNavegacion, setModoNavegacion,
+    modoNavegacion,
     mostrarShortcutsHelp, setMostrarShortcutsHelp,
-    columnasEditables,
   } = useProductosKeyboard({
     data: { productos, setProductos, cargarStats },
     editing: {

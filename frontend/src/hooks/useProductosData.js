@@ -48,10 +48,6 @@ export function useProductosData({
     filtroMarkupOferta,
     filtroMarkupWebTransf,
     filtroOutOfCards,
-    filtroMLA,
-    filtroEstadoMLA,
-    filtroNuevos,
-    filtroTiendaOficial,
     coloresSeleccionados,
     pmsSeleccionados,
     filtrosAuditoria,
@@ -80,7 +76,7 @@ export function useProductosData({
     } catch {
       // Error silencioso, no afecta funcionalidad principal
     }
-  }, [construirFiltrosParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [construirFiltrosParams]);
 
   /**
    * cargarProductos — uses construirFiltrosParams() + pagination + ordering.
@@ -147,7 +143,6 @@ export function useProductosData({
       showToast('Error al cargar marcas', 'error');
     }
   }, [
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas,
     filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
@@ -197,7 +192,6 @@ export function useProductosData({
       showToast('Error al cargar subcategorías', 'error');
     }
   }, [
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas,
     filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
@@ -216,32 +210,26 @@ export function useProductosData({
   // Cargar PMs al montar
   useEffect(() => {
     cargarPMs();
-    // solo al montar — funciones de carga estables para este ciclo de vida
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cargarPMs]);
 
   // Cargar productos cuando cambian filtros / paginación
   useEffect(() => {
     cargarProductos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargarProductos]);
 
   // Cargar stats dinámicos cuando cambian filtros
   useEffect(() => {
     cargarStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargarStats]);
 
   // Cargar marcas cuando cambian filtros (excepto marcasSeleccionadas)
   useEffect(() => {
     cargarMarcas();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargarMarcas]);
 
   // Cargar subcategorías cuando cambian filtros (excepto subcategoriasSeleccionadas)
   useEffect(() => {
     cargarSubcategorias();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargarSubcategorias]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
