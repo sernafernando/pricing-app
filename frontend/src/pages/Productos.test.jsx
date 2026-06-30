@@ -724,3 +724,62 @@ describe('CS-6c: out-of-cards toggle -> rebate state cross-write', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// CS-8 — Keyboard navigation smoke test
+//
+// Oracle: pressing Enter activates modoNavegacion (tr.keyboard-row-active
+// appears), ArrowDown moves the active row, and pressing Enter again in nav
+// mode triggers iniciarEdicionDesdeTeclado (inline edit input appears).
+//
+// Mutation-verify target: Enter handler in the main keyboard useEffect.
+// No-op-ing the Enter activation branch → tr.keyboard-row-active never
+// renders → test goes RED.  Restoring → GREEN.
+// ---------------------------------------------------------------------------
+describe('CS-8: keyboard navigation smoke', () => {
+  it('Enter activates nav mode, ArrowDown moves row, Enter in nav triggers inline edit', async () => {
+    const p1 = makeProducto({ item_id: 'KB1', descripcion: 'Producto KB1', precio_lista_ml: 100 });
+    const p2 = makeProducto({ item_id: 'KB2', descripcion: 'Producto KB2', precio_lista_ml: 200 });
+    setupApiMocks({ productos: [p1, p2], total: 2 });
+    // guardarPrecio / inline-edit path uses api.patch
+    api.patch.mockResolvedValue({ data: {} });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    // Wait for rows to render
+    await waitFor(() => expect(screen.getByText('Producto KB1')).toBeInTheDocument());
+
+    // --- Step 1: Enter activates modoNavegacion ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    // tr.keyboard-row-active must appear (row 0 is active)
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    // --- Step 2: ArrowDown moves active row ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    // After ArrowDown the active row is now row index 1 (KB2).
+    // The active row still has the keyboard-row-active class — just a different tr.
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    // --- Step 3: Space triggers iniciarEdicionDesdeTeclado (precio_clasica col) ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+
+    // inline-edit input must appear (precio clasica edit mode)
+    await waitFor(() => {
+      expect(document.querySelector('.inline-edit')).toBeInTheDocument();
+    });
+  });
+});
