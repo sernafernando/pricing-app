@@ -27,22 +27,15 @@ import { useProductosInlineEditing } from '../hooks/useProductosInlineEditing';
 
 import { useProductosFilters } from '../hooks/useProductosFilters';
 
+import { useProductosData } from '../hooks/useProductosData';
+
 export default function Productos() {
-  const [productos, setProductos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  const [totalProductos, setTotalProductos] = useState(0);
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
   const [mostrarCalcularPVPModal, setMostrarCalcularPVPModal] = useState(false);
-  const [marcas, setMarcas] = useState([]);
   const [busquedaMarca, setBusquedaMarca] = useState('');
-  const [subcategorias, setSubcategorias] = useState([]);
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
-  const [pms, setPms] = useState([]);
-  const [marcasPorPM, setMarcasPorPM] = useState([]); // Marcas filtradas por PMs seleccionados
-  const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]); // Subcategorías filtradas por PMs seleccionados
 
   // Estados para navegación por teclado
   const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
@@ -91,6 +84,35 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
+  const {
+    productos,
+    setProductos,
+    loading,
+    stats,
+    totalProductos,
+    marcas,
+    subcategorias,
+    pms,
+    marcasPorPM,
+    subcategoriasPorPM,
+    cargarProductos,
+    cargarStats,
+  } = useProductosData({
+    construirFiltrosParams,
+    page,
+    pageSize,
+    ordenColumnas,
+    filters: {
+      debouncedSearch,
+      filtroStock, filtroPrecio,
+      marcasSeleccionadas, subcategoriasSeleccionadas,
+      filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
+      filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
+      filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
+      coloresSeleccionados, pmsSeleccionados, filtrosAuditoria,
+    },
+    showToast,
+  });
 
   // Modal de ban
   const [mostrarModalBan, setMostrarModalBan] = useState(false);
@@ -127,121 +149,10 @@ export default function Productos() {
 
 
 
-  useEffect(() => {
-    cargarProductos();
-    // cargarProductos se recrea cada render — recargar solo cuando cambian paginación/filtros
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
-
-  // Cargar stats dinámicos cada vez que cambian los filtros
-  useEffect(() => {
-    cargarStats();
-    // cargarStats se recrea cada render — recargar solo cuando cambian los filtros
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
-
-  // Cargar marcas y subcategorías cuando se seleccionan PMs
-  useEffect(() => {
-    const cargarDatosPorPM = async () => {
-      if (pmsSeleccionados.length > 0) {
-        try {
-          const [marcasRes, subcatsRes] = await Promise.all([
-            productosAPI.obtenerMarcasPorPMs(pmsSeleccionados.join(',')),
-            productosAPI.obtenerSubcategoriasPorPMs(pmsSeleccionados.join(','))
-          ]);
-          setMarcasPorPM(marcasRes.data.marcas);
-          setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
-        } catch {
-          setMarcasPorPM([]);
-          setSubcategoriasPorPM([]);
-        }
-      } else {
-        setMarcasPorPM([]);
-        setSubcategoriasPorPM([]);
-      }
-    };
-    cargarDatosPorPM();
-  }, [pmsSeleccionados]);
-
-  const cargarStats = useCallback(async () => {
-    try {
-      // Construir parámetros con todos los filtros activos (igual que cargarProductos)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      // Cargar estadísticas dinámicas según filtros aplicados
-      const statsRes = await productosAPI.statsDinamicos(params);
-      setStats(statsRes.data);
-    } catch {
-      // Error silencioso, no afecta funcionalidad principal
-    }
-  }, [
-    showToast, debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas,
-    filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
-    filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
-    filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
-    coloresSeleccionados, pmsSeleccionados,
-  ]); // interim: migrates to useProductosData (will use construirFiltrosParams)
   const { productosSeleccionados, ultimoSeleccionado, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
   const { editandoRebate, setEditandoRebate, rebateTemp, setRebateTemp, editandoWebTransf, setEditandoWebTransf, webTransfTemp, setWebTransfTemp, iniciarEdicionRebate, guardarRebate, iniciarEdicionWebTransf, guardarWebTransf, toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido } = useProductosToggles({ setProductos, cargarStats, showToast });
 
 
-  useEffect(() => {
-    cargarPMs();
-    // solo al montar — funciones de carga estables para este ciclo de vida
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
-  useEffect(() => {
-    cargarMarcas();
-    // cargarMarcas se recrea cada render — recargar solo cuando cambian los filtros listados
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria, pmsSeleccionados]);
-
-  // Recargar subcategorías cuando cambien filtros (excepto subcategoriasSeleccionadas)
-  useEffect(() => {
-    cargarSubcategorias();
-    // cargarSubcategorias se recrea cada render — recargar solo cuando cambian los filtros listados
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria, pmsSeleccionados]);
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
@@ -276,174 +187,6 @@ export default function Productos() {
 
     return matchBusqueda;
   });
-
-  const cargarMarcas = async () => {
-    try {
-      // Construir params con filtros activos (excluyendo marcas)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      const response = await productosAPI.marcas(params);
-      setMarcas(response.data.marcas);
-    } catch {
-      showToast('Error al cargar marcas', 'error');
-    }
-  };
-
-  const cargarProductos = async () => {
-    setLoading(true);
-    try {
-      const params = { page, page_size: pageSize };
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) {
-        params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      }
-      if (filtrosAuditoria.tipos_accion.length > 0) {
-        params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      }
-      if (filtrosAuditoria.fecha_desde) {
-        params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      }
-      if (filtrosAuditoria.fecha_hasta) {
-        params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      }
-
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-
-      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
-
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      if (ordenColumnas.length > 0) {
-        params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
-        params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
-      }
-
-      if (ordenColumnas.length > 0) {
-        params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
-        params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
-      }
-
-      const productosRes = await productosAPI.listar(params);
-      setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
-      setProductos(productosRes.data.productos);
-
-    } catch {
-      showToast('Error al cargar productos', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const cargarSubcategorias = async () => {
-    try {
-      // Construir params con filtros activos (excluyendo subcategorías)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      const response = await productosAPI.subcategorias(params);
-      setSubcategorias(response.data.categorias);
-    } catch {
-      showToast('Error al cargar subcategorías', 'error');
-    }
-  };
 
   const abrirModalBan = (producto) => {
     // Obtener palabras de la descripción (filtrar palabras de más de 3 caracteres)
@@ -711,15 +454,6 @@ export default function Productos() {
     modoVista === 'cuotas' ? columnasNavegablesCuotas :
     modoVista === 'pvp' ? columnasNavegablesPVP :
     columnasNavegablesNormal;
-
-  const cargarPMs = async () => {
-    try {
-      const response = await api.get('/usuarios/pms?solo_con_marcas=true');
-      setPms(response.data);
-    } catch {
-      showToast('Error al cargar PMs', 'error');
-    }
-  };
 
   // Sistema de navegación por teclado
   useEffect(() => {
