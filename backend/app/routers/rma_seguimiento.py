@@ -10,13 +10,13 @@ Endpoints:
 - Generación automática de número de caso
 """
 
-from datetime import date, datetime, UTC
-from typing import Optional
+from datetime import date, datetime, timedelta, UTC
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -1003,8 +1003,6 @@ def obtener_resumen(
     total = base.scalar()
 
     # Dynamic per-state counts
-    from sqlalchemy.orm import aliased
-
     EstadoOpc = aliased(RmaSeguimientoOpcion)
     por_estado = (
         db.query(
@@ -1049,6 +1047,511 @@ def obtener_resumen(
         "por_estado": [{"id": r.id, "valor": r.valor, "color": r.color, "cantidad": r.cantidad} for r in por_estado],
         "top_causas_devolucion": [{"causa": r[0], "cantidad": r[1]} for r in top_causas],
     }
+
+
+# ──────────────────────────────────────────────
+# MÉTRICAS DASHBOARD — Stats detallado + drill-down
+# ──────────────────────────────────────────────
+
+# ── Pydantic v2 schemas (T-11) ────────────────
+
+
+class BucketOut(BaseModel):
+    """One segment in a dimension (e.g., a single estado_recepcion value)."""
+
+    id: Optional[int] = None
+    valor: str
+    color: Optional[str] = None
+    cantidad: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DimensionOut(BaseModel):
+    """Aggregated counts for one dimension (e.g., estado_recepcion)."""
+
+    categoria: str
+    total: int
+    buckets: list[BucketOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TotalesOut(BaseModel):
+    """Top-level item and case counts for the requested date range."""
+
+    items: int
+    casos: int
+    abiertos: int
+    cerrados: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StatsDetalladoOut(BaseModel):
+    """Full aggregation payload: totales + 6 dimensions."""
+
+    date_field: str
+    date_from: date
+    date_to: date
+    totales: TotalesOut
+    dimensiones: dict[str, DimensionOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TimelineEventOut(BaseModel):
+    """One status-transition event from rma_caso_historial."""
+
+    campo: str
+    valor_anterior: Optional[str] = None
+    valor_nuevo: Optional[str] = None
+    usuario_nombre: Optional[str] = None
+    created_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DrilldownItemOut(BaseModel):
+    """One equipo (item) in the drill-down response, with its status timeline."""
+
+    item_id: int
+    caso_id: int
+    numero_caso: str
+    serial_number: Optional[str] = None
+    ean: Optional[str] = None
+    producto_desc: Optional[str] = None
+    timeline: list[TimelineEventOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DrilldownOut(BaseModel):
+    """Drill-down response: all equipos behind a specific bucket."""
+
+    dimension: str
+    valor: str
+    equipos: list[DrilldownItemOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Private helpers (T-12) ────────────────────
+
+
+def _apply_date_filter(query: object, date_field: str, date_from: date, date_to: date) -> object:
+    """Apply date range filter to an item-level query using the chosen date column.
+
+    For fecha_caso (Date column): inclusive comparison works directly.
+    For recepcion_fecha (DateTime column): use exclusive upper bound (date_to + 1 day)
+    so that timestamps on the boundary day are included regardless of their time component.
+    """
+    if date_field == "fecha_caso":
+        return query.filter(RmaCaso.fecha_caso >= date_from, RmaCaso.fecha_caso <= date_to)
+    else:
+        date_to_exclusive = date_to + timedelta(days=1)
+        return query.filter(
+            RmaCasoItem.recepcion_fecha >= date_from,
+            RmaCasoItem.recepcion_fecha < date_to_exclusive,
+        )
+
+
+def _dimension_counts(
+    db: Session,
+    item_dim_col: object,
+    categoria: str,
+    date_field: str,
+    date_from: date,
+    date_to: date,
+) -> list[BucketOut]:
+    """Count items per opcion bucket for one dimension using a LEFT JOIN.
+
+    CRITICAL: the `categoria` predicate is in the JOIN ON clause — NOT in WHERE.
+    Placing it in WHERE would silently convert the LEFT JOIN into an INNER JOIN,
+    dropping items whose FK is NULL (the "Sin clasificar" group would disappear).
+    See T-5 for the regression test that guards this invariant.
+    """
+    Opc = aliased(RmaSeguimientoOpcion)
+    q = (
+        db.query(
+            Opc.id,
+            Opc.valor,
+            Opc.color,
+            Opc.orden,
+            func.count(RmaCasoItem.id).label("cantidad"),
+        )
+        .select_from(RmaCasoItem)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .outerjoin(Opc, (item_dim_col == Opc.id) & (Opc.categoria == categoria))
+        .filter(RmaCaso.activo.is_(True))
+        .group_by(Opc.id, Opc.valor, Opc.color, Opc.orden)
+    )
+    q = _apply_date_filter(q, date_field, date_from, date_to)
+    rows = q.all()
+
+    regular_with_orden: list[tuple[int, BucketOut]] = []
+    sin_clasificar_count: int = 0
+
+    for opc_id, valor, color, orden, cantidad in rows:
+        if opc_id is None:
+            # NULL FK → coalesce into one "Sin clasificar" bucket (may be multiple NULL groups
+            # in edge cases; summing keeps the invariant sum(buckets)==total_items intact).
+            sin_clasificar_count += cantidad or 0
+        else:
+            regular_with_orden.append((orden or 0, BucketOut(id=opc_id, valor=valor, color=color, cantidad=cantidad)))
+
+    # Sort non-null buckets by RmaSeguimientoOpcion.orden ASC
+    regular_with_orden.sort(key=lambda x: x[0])
+    buckets: list[BucketOut] = [b for _, b in regular_with_orden]
+
+    # "Sin clasificar" always appended last (even with cantidad == 0 when range is empty)
+    buckets.append(BucketOut(id=None, valor="Sin clasificar", color=None, cantidad=sin_clasificar_count))
+    return buckets
+
+
+# ── Bulk historial helper for drill-down (T-18) ──
+
+STATUS_FIELDS: frozenset[str] = frozenset(
+    {
+        "estado_recepcion_id",
+        "causa_devolucion_id",
+        "apto_venta_id",
+        "estado_revision_id",
+        "estado_proceso_id",
+        "estado_proveedor_id",
+        "estado_caso_id",
+    }
+)
+
+
+def _resolve_option_label(value: Optional[str], option_map: dict[int, str]) -> Optional[str]:
+    """Resolve a stringified option ID to its human label.
+
+    If the value is a digit string and the integer maps to a known option,
+    return the label. Otherwise return the raw string (defensive fallback
+    for non-option fields or deleted options).
+    """
+    if value is None:
+        return None
+    if value.isdigit():
+        label = option_map.get(int(value))
+        if label is not None:
+            return label
+    return value
+
+
+def _status_timeline(
+    db: Session,
+    caso_ids: list[int],
+) -> dict[tuple[int, Optional[int]], list[TimelineEventOut]]:
+    """Bulk-fetch all status-transition rows for a set of casos.
+
+    TWO queries total (no N+1):
+      1. All historial rows for the given caso_ids.
+      2. All option labels from rma_seguimiento_opciones (table is small).
+    Returns a dict keyed by (caso_id, caso_item_id).
+    - caso_item_id is None for caso-level transitions.
+    - caso_item_id is an int for item-level transitions.
+    """
+    if not caso_ids:
+        return {}
+
+    registros = (
+        db.query(RmaCasoHistorial)
+        .options(selectinload(RmaCasoHistorial.usuario))
+        .filter(
+            RmaCasoHistorial.caso_id.in_(caso_ids),
+            RmaCasoHistorial.campo.in_(STATUS_FIELDS),
+        )
+        .order_by(
+            RmaCasoHistorial.caso_id,
+            RmaCasoHistorial.caso_item_id,
+            RmaCasoHistorial.created_at,
+        )
+        .all()
+    )
+
+    # Bulk-load option id→label map in ONE query (table is small; no N+1).
+    option_rows = db.query(RmaSeguimientoOpcion.id, RmaSeguimientoOpcion.valor).all()
+    option_map: dict[int, str] = {row.id: row.valor for row in option_rows}
+
+    result: dict[tuple[int, Optional[int]], list[TimelineEventOut]] = {}
+    for r in registros:
+        key: tuple[int, Optional[int]] = (r.caso_id, r.caso_item_id)
+        if key not in result:
+            result[key] = []
+        result[key].append(
+            TimelineEventOut(
+                campo=r.campo,
+                valor_anterior=_resolve_option_label(r.valor_anterior, option_map),
+                valor_nuevo=_resolve_option_label(r.valor_nuevo, option_map),
+                usuario_nombre=r.usuario.nombre if r.usuario else None,
+                created_at=r.created_at.isoformat() if r.created_at else None,
+            )
+        )
+    return result
+
+
+# ── Endpoints (T-13, T-19) ────────────────────
+
+# Dimension → RmaCasoItem FK column mapping for drill-down
+_DIMENSION_FK_COLUMNS: dict[str, object] = {
+    "estado_recepcion": RmaCasoItem.estado_recepcion_id,
+    "causa_devolucion": RmaCasoItem.causa_devolucion_id,
+    "apto_venta": RmaCasoItem.apto_venta_id,
+    "estado_proceso": RmaCasoItem.estado_proceso_id,
+    "estado_proveedor": RmaCasoItem.estado_proveedor_id,
+}
+
+
+@router.get("/stats/detallado", response_model=StatsDetalladoOut)
+def obtener_stats_detallado(
+    date_field: Literal["fecha_caso", "recepcion_fecha"] = Query(
+        "fecha_caso", description="Campo de fecha para filtrar items"
+    ),
+    date_from: Optional[date] = Query(None, description="Fecha desde (inclusive); default = 1ro del mes actual"),
+    date_to: Optional[date] = Query(None, description="Fecha hasta (inclusive); default = hoy"),
+    proveedor_top_n: int = Query(8, ge=1, description="Top-N proveedores; el resto se agrupa en 'Otros'"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> StatsDetalladoOut:
+    """Dashboard de métricas RMA: 6 dimensiones + totales por rango de fechas.
+
+    Requiere permiso rma.ver.
+    - totales.items / totales.casos siguen el toggle date_field.
+    - totales.abiertos / totales.cerrados SIEMPRE filtran por fecha_caso (nivel caso).
+    - Counts EXCLUYEN casos con activo=False y todos sus items.
+    - Items con FK NULL aparecen en el bucket 'Sin clasificar' (LEFT JOIN con predicado de
+      categoría en el ON clause para preservar NULLs).
+    """
+    _check_permiso(db, current_user, "rma.ver")
+
+    # Default date range: first day of current month → today
+    today = datetime.now(UTC).date()
+    if date_from is None:
+        date_from = today.replace(day=1)
+    if date_to is None:
+        date_to = today
+
+    # ── 1. Item-level totals (follow the date_field toggle) ─────────────────
+    totals_q = (
+        db.query(
+            func.count(RmaCasoItem.id).label("total_items"),
+            func.count(func.distinct(RmaCasoItem.caso_id)).label("total_casos"),
+        )
+        .select_from(RmaCasoItem)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(RmaCaso.activo.is_(True))
+    )
+    totals_q = _apply_date_filter(totals_q, date_field, date_from, date_to)
+    totals_result = totals_q.one()
+    total_items: int = totals_result.total_items or 0
+    total_casos: int = totals_result.total_casos or 0
+
+    # ── 2. Caso-level abiertos/cerrados (ALWAYS fecha_caso) ─────────────────
+    EstadoCasoOpc = aliased(RmaSeguimientoOpcion)
+    caso_counts = (
+        db.query(EstadoCasoOpc.valor, func.count(RmaCaso.id).label("cantidad"))
+        .outerjoin(
+            EstadoCasoOpc,
+            (RmaCaso.estado_caso_id == EstadoCasoOpc.id) & (EstadoCasoOpc.categoria == "estado_caso"),
+        )
+        .filter(
+            RmaCaso.activo.is_(True),
+            RmaCaso.fecha_caso >= date_from,
+            RmaCaso.fecha_caso <= date_to,
+        )
+        .group_by(EstadoCasoOpc.valor)
+        .all()
+    )
+    abiertos: int = sum(r.cantidad for r in caso_counts if r.valor == "Abierto")
+    cerrados: int = sum(r.cantidad for r in caso_counts if r.valor == "Cerrado")
+
+    # ── 3. Five opcion dimensions (item-level, follow date_field) ───────────
+    opcion_dimensions: list[tuple[str, object]] = [
+        ("estado_recepcion", RmaCasoItem.estado_recepcion_id),
+        ("causa_devolucion", RmaCasoItem.causa_devolucion_id),
+        ("apto_venta", RmaCasoItem.apto_venta_id),
+        ("estado_proceso", RmaCasoItem.estado_proceso_id),
+        ("estado_proveedor", RmaCasoItem.estado_proveedor_id),
+    ]
+
+    dimensiones: dict[str, DimensionOut] = {}
+    for dim_name, dim_col in opcion_dimensions:
+        buckets = _dimension_counts(db, dim_col, dim_name, date_field, date_from, date_to)
+        dimensiones[dim_name] = DimensionOut(categoria=dim_name, total=total_items, buckets=buckets)
+
+    # ── 4. Proveedor dimension (denormalized, top-N + Otros) ─────────────────
+    prov_q = (
+        db.query(
+            RmaCasoItem.supp_id,
+            RmaCasoItem.proveedor_nombre,
+            func.count(RmaCasoItem.id).label("cantidad"),
+        )
+        .select_from(RmaCasoItem)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(RmaCaso.activo.is_(True))
+    )
+    prov_q = _apply_date_filter(prov_q, date_field, date_from, date_to)
+    prov_rows = (
+        prov_q.group_by(RmaCasoItem.supp_id, RmaCasoItem.proveedor_nombre)
+        .order_by(func.count(RmaCasoItem.id).desc())
+        .all()
+    )
+
+    sin_clasificar_prov: int = 0
+    named_providers: list[BucketOut] = []
+    for supp_id, nombre, cantidad in prov_rows:
+        if supp_id is None:
+            sin_clasificar_prov += cantidad or 0
+        else:
+            named_providers.append(
+                BucketOut(
+                    id=supp_id,
+                    valor=nombre or f"Proveedor {supp_id}",
+                    color=None,
+                    cantidad=cantidad,
+                )
+            )
+
+    top_n = named_providers[:proveedor_top_n]
+    otros_count: int = sum(b.cantidad for b in named_providers[proveedor_top_n:])
+
+    prov_buckets: list[BucketOut] = list(top_n)
+    prov_buckets.append(BucketOut(id=None, valor="Otros", color=None, cantidad=otros_count))
+    prov_buckets.append(BucketOut(id=None, valor="Sin clasificar", color=None, cantidad=sin_clasificar_prov))
+
+    dimensiones["proveedor"] = DimensionOut(categoria="proveedor", total=total_items, buckets=prov_buckets)
+
+    return StatsDetalladoOut(
+        date_field=date_field,
+        date_from=date_from,
+        date_to=date_to,
+        totales=TotalesOut(
+            items=total_items,
+            casos=total_casos,
+            abiertos=abiertos,
+            cerrados=cerrados,
+        ),
+        dimensiones=dimensiones,
+    )
+
+
+@router.get("/stats/drill-down", response_model=DrilldownOut)
+def obtener_stats_drill_down(
+    dimension: str = Query(..., description="Una de las 6 dimensiones del dashboard"),
+    valor: str = Query(..., description="ID numérico (str) | 'sin_clasificar' | 'otros' (sólo proveedor)"),
+    date_field: Literal["fecha_caso", "recepcion_fecha"] = Query("fecha_caso"),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    proveedor_top_n: int = Query(8, ge=1, description="Necesario sólo para valor='otros' en proveedor"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DrilldownOut:
+    """Equipos (items) detrás de un bucket del dashboard + timeline de transiciones de estado.
+
+    Requiere permiso rma.ver.
+    La timeline se construye con UNA query bulk sobre rma_caso_historial (sin N+1).
+    """
+    _check_permiso(db, current_user, "rma.ver")
+
+    today = datetime.now(UTC).date()
+    if date_from is None:
+        date_from = today.replace(day=1)
+    if date_to is None:
+        date_to = today
+
+    valid_dimensions = set(_DIMENSION_FK_COLUMNS) | {"proveedor"}
+    if dimension not in valid_dimensions:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Dimensión inválida: '{dimension}'. Válidas: {sorted(valid_dimensions)}",
+        )
+
+    # ── Base query: items from active casos in date range ───────────────────
+    base_q = (
+        db.query(RmaCasoItem, RmaCaso.numero_caso)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(RmaCaso.activo.is_(True))
+    )
+    base_q = _apply_date_filter(base_q, date_field, date_from, date_to)
+
+    # ── Apply dimension + valor filter ───────────────────────────────────────
+    if dimension == "proveedor":
+        if valor == "sin_clasificar":
+            base_q = base_q.filter(RmaCasoItem.supp_id.is_(None))
+        elif valor == "otros":
+            # Resolve top-N supp_ids then exclude them
+            top_n_q = (
+                db.query(RmaCasoItem.supp_id, func.count(RmaCasoItem.id).label("cnt"))
+                .select_from(RmaCasoItem)
+                .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+                .filter(RmaCaso.activo.is_(True), RmaCasoItem.supp_id.isnot(None))
+            )
+            top_n_q = _apply_date_filter(top_n_q, date_field, date_from, date_to)
+            top_n_ids: list[int] = [
+                r.supp_id
+                for r in top_n_q.group_by(RmaCasoItem.supp_id)
+                .order_by(func.count(RmaCasoItem.id).desc())
+                .limit(proveedor_top_n)
+                .all()
+            ]
+            base_q = base_q.filter(
+                RmaCasoItem.supp_id.isnot(None),
+                ~RmaCasoItem.supp_id.in_(top_n_ids) if top_n_ids else True,
+            )
+        else:
+            try:
+                supp_id_val = int(valor)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Valor inválido para dimension proveedor: '{valor}'",
+                ) from exc
+            base_q = base_q.filter(RmaCasoItem.supp_id == supp_id_val)
+    else:
+        dim_col = _DIMENSION_FK_COLUMNS[dimension]
+        if valor == "sin_clasificar":
+            base_q = base_q.filter(dim_col.is_(None))
+        elif valor == "otros":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="'otros' sólo es válido para dimension=proveedor",
+            )
+        else:
+            try:
+                id_val = int(valor)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Valor inválido: '{valor}' (se esperaba id numérico o 'sin_clasificar')",
+                ) from exc
+            base_q = base_q.filter(dim_col == id_val)
+
+    rows: list[tuple[RmaCasoItem, str]] = base_q.all()
+
+    # ── Bulk timeline fetch (single query, no N+1) ───────────────────────────
+    caso_ids: list[int] = list({item.caso_id for item, _ in rows})
+    timeline_map = _status_timeline(db, caso_ids)
+
+    equipos: list[DrilldownItemOut] = []
+    for item, numero_caso in rows:
+        item_events = timeline_map.get((item.caso_id, item.id), [])
+        caso_events = timeline_map.get((item.caso_id, None), [])
+        combined = sorted(item_events + caso_events, key=lambda e: e.created_at or "")
+        equipos.append(
+            DrilldownItemOut(
+                item_id=item.id,
+                caso_id=item.caso_id,
+                numero_caso=numero_caso,
+                serial_number=item.serial_number,
+                ean=item.ean,
+                producto_desc=item.producto_desc,
+                timeline=combined,
+            )
+        )
+
+    return DrilldownOut(dimension=dimension, valor=valor, equipos=equipos)
 
 
 # ──────────────────────────────────────────────

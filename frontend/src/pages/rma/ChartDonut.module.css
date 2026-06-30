@@ -1,0 +1,111 @@
+.wrapper {
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-height: 280px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.totalBadge {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-sm);
+  color: var(--cf-text-muted);
+}
+
+/* Custom recharts tooltip */
+.tooltip {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+  box-shadow: var(--cf-shadow-card);
+}
+
+.tooltipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.tooltipLabel {
+  flex: 1;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tooltipValue {
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom legend list */
+.legend {
+  list-style: none;
+  margin: var(--spacing-xs) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 3px var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-150, 150ms) ease;
+}
+
+.legendItemClickable {
+  cursor: pointer;
+}
+
+.legendItemClickable:hover {
+  background: var(--cf-bg-hover);
+}
+
+.legendItemClickable:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.legendDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+/* Legend item label */
+.legendLabel {
+  color: var(--cf-text-secondary);
+  font-size: 11px;
+}
