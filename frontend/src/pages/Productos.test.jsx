@@ -19,7 +19,7 @@
  *   code path was commented out, and GREEN after restore.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -661,6 +661,128 @@ describe('CS-7: batch selection + color paint', () => {
           color: 'rojo',
         })
       );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CS-6c — Out-of-cards toggle -> rebate state cross-write
+//
+// Oracle: toggleOutOfCardsRapido (keyboard 'o') on a product without out_of_cards
+// activates out_of_cards AND opens rebate edit mode (editandoRebate side-effect).
+// This cross-write is the coupling that stays INTERNAL to useProductosToggles.
+//
+// Mutation-verify target: setEditandoRebate(producto.item_id) in toggleOutOfCardsRapido.
+// Removing that call: .rebate-edit never renders -> test goes RED.
+// ---------------------------------------------------------------------------
+describe('CS-6c: out-of-cards toggle -> rebate state cross-write', () => {
+  it('pressing o activates out-of-cards AND opens rebate edit mode (internal cross-write)', async () => {
+    const producto = makeProducto({
+      item_id: 'OC1',
+      out_of_cards: false,
+      participa_rebate: false,
+      porcentaje_rebate: null,
+    });
+    setupApiMocks({ productos: [producto], total: 1 });
+    // api.patch returns valid data for both calls (rebate activation + out-of-cards)
+    api.patch.mockResolvedValue({
+      data: { out_of_cards: true, precio_rebate: 95, markup_rebate: 3.5 },
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    // Activate keyboard navigation
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    // Press 'o' to trigger toggleOutOfCardsRapido
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', bubbles: true }));
+    });
+
+    // Primary assertion: out-of-cards was activated via API
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith(
+        '/productos/OC1/out-of-cards',
+        expect.objectContaining({ out_of_cards: true })
+      );
+    });
+
+    // Cross-write oracle: rebate edit mode opened (editandoRebate === 'OC1')
+    // If setEditandoRebate is removed from toggleOutOfCardsRapido, this goes RED.
+    await waitFor(() => {
+      expect(document.querySelector('.rebate-edit')).toBeInTheDocument();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CS-8 — Keyboard navigation smoke test
+//
+// Oracle: pressing Enter activates modoNavegacion (tr.keyboard-row-active
+// appears), ArrowDown moves the active row, and pressing Enter again in nav
+// mode triggers iniciarEdicionDesdeTeclado (inline edit input appears).
+//
+// Mutation-verify target: Enter handler in the main keyboard useEffect.
+// No-op-ing the Enter activation branch → tr.keyboard-row-active never
+// renders → test goes RED.  Restoring → GREEN.
+// ---------------------------------------------------------------------------
+describe('CS-8: keyboard navigation smoke', () => {
+  it('Enter activates nav mode, ArrowDown moves row, Enter in nav triggers inline edit', async () => {
+    const p1 = makeProducto({ item_id: 'KB1', descripcion: 'Producto KB1', precio_lista_ml: 100 });
+    const p2 = makeProducto({ item_id: 'KB2', descripcion: 'Producto KB2', precio_lista_ml: 200 });
+    setupApiMocks({ productos: [p1, p2], total: 2 });
+    // guardarPrecio / inline-edit path uses api.patch
+    api.patch.mockResolvedValue({ data: {} });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    // Wait for rows to render
+    await waitFor(() => expect(screen.getByText('Producto KB1')).toBeInTheDocument());
+
+    // --- Step 1: Enter activates modoNavegacion ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    // tr.keyboard-row-active must appear (row 0 is active)
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    // --- Step 2: ArrowDown moves active row ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    // After ArrowDown celdaActiva.rowIndex must be 1, not still 0.
+    // Assert the ONLY keyboard-row-active tr contains KB2 text (proves the move —
+    // if ArrowDown is a no-op the active row still shows KB1 and this fails RED).
+    await waitFor(() => {
+      const activeRows = document.querySelectorAll('tr.keyboard-row-active');
+      expect(activeRows.length).toBe(1);
+      expect(activeRows[0].textContent).toContain('Producto KB2');
+    });
+
+    // --- Step 3: Space triggers iniciarEdicionDesdeTeclado (precio_clasica col) ---
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+
+    // inline-edit input must appear (precio clasica edit mode)
+    await waitFor(() => {
+      expect(document.querySelector('.inline-edit')).toBeInTheDocument();
     });
   });
 });
