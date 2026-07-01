@@ -17,7 +17,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, case, cast, desc, func, Numeric
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 
 
 # ── Permission helpers ───────────────────────────────────────────────
+
+
+def _normalizar_texto_opcional(value: Optional[str]) -> Optional[str]:
+    """Normaliza string vacío o solo espacios a None."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
@@ -591,6 +599,7 @@ class EtiquetaEnvioResponse(BaseModel):
     manual_cust_id: Optional[int] = None
     manual_comment: Optional[str] = None
     manual_phone: Optional[str] = None
+    deposito_mensaje: Optional[str] = None  # Nota interna para depósito (NO se imprime en la etiqueta)
 
     # Outlet (título de item contiene "outlet")
     es_outlet: bool = False
@@ -731,7 +740,15 @@ class CrearEnvioManualRequest(BaseModel):
     transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     phone: Optional[str] = Field(None, max_length=100, description="Teléfono del destinatario")
+    deposito_mensaje: Optional[str] = Field(
+        None, max_length=1000, description="Mensaje interno para depósito (NO se imprime en la etiqueta)"
+    )
     operador_id: int = Field(description="Operador autenticado con PIN")
+
+    @field_validator("deposito_mensaje")
+    @classmethod
+    def _normalizar_deposito_mensaje(cls, v: Optional[str]) -> Optional[str]:
+        return _normalizar_texto_opcional(v)
 
 
 class CrearEnvioManualResponse(BaseModel):
@@ -760,6 +777,9 @@ class CrearDesdePedidoRequest(BaseModel):
     city_name: str = Field(max_length=500, description="Ciudad / Localidad")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     phone: Optional[str] = Field(None, max_length=100, description="Teléfono del destinatario")
+    deposito_mensaje: Optional[str] = Field(
+        None, max_length=1000, description="Mensaje interno para depósito (NO se imprime en la etiqueta)"
+    )
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
     transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     cust_id: Optional[int] = Field(None, description="ID cliente ERP (si no hay pedido)")
@@ -768,6 +788,11 @@ class CrearDesdePedidoRequest(BaseModel):
         description="Estado del envío (default: ready_to_ship)",
         pattern="^(ready_to_ship|shipped|delivered)$",
     )
+
+    @field_validator("deposito_mensaje")
+    @classmethod
+    def _normalizar_deposito_mensaje(cls, v: Optional[str]) -> Optional[str]:
+        return _normalizar_texto_opcional(v)
 
 
 class AsignarMasivoRequest(BaseModel):
