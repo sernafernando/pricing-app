@@ -5,7 +5,7 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight,
+  Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight, MessageCircle,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
@@ -284,6 +284,7 @@ export default function TabEnviosFlex({ operador = null }) {
     logistica_id: '',
     transporte_id: '',
     comment: '',
+    depositoMensaje: '',
     fecha_envio: todayStr(),
   });
   const [editandoManualId, setEditandoManualId] = useState(null);
@@ -1025,6 +1026,7 @@ export default function TabEnviosFlex({ operador = null }) {
           logistica_id: etiqueta.logistica_id || null,
           transporte_id: val,
           comment: etiqueta.manual_comment || null,
+          deposito_mensaje: etiqueta.deposito_mensaje || null,
           operador_id: operador?.operadorActivo?.id,
         });
       }
@@ -1578,6 +1580,7 @@ export default function TabEnviosFlex({ operador = null }) {
       logistica_id: '',
       transporte_id: '',
       comment: '',
+      depositoMensaje: '',
       fecha_envio: todayStr(),
     });
     setManualEnvioCordon(null);
@@ -1611,6 +1614,7 @@ export default function TabEnviosFlex({ operador = null }) {
       logistica_id: envio.logistica_id || '',
       transporte_id: envio.transporte_id || '',
       comment: envio.manual_comment || '',
+      depositoMensaje: envio.deposito_mensaje || '',
       phone: envio.manual_phone || '',
       fecha_envio: envio.fecha_envio || todayStr(),
     });
@@ -1762,6 +1766,7 @@ export default function TabEnviosFlex({ operador = null }) {
         logistica_id: manualEnvio.logistica_id ? parseInt(manualEnvio.logistica_id, 10) : null,
         transporte_id: manualEnvio.transporte_id ? parseInt(manualEnvio.transporte_id, 10) : null,
         comment: manualEnvio.comment.trim() || null,
+        deposito_mensaje: manualEnvio.depositoMensaje.trim() || null,
         phone: manualEnvio.phone.trim() || null,
         operador_id: operador?.operadorActivo?.id,
       };
@@ -2581,6 +2586,16 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.manual_comment && (
                         <div className={styles.manualComment} title={e.manual_comment}>
                           {e.manual_comment}
+                        </div>
+                      )}
+                      {e.deposito_mensaje && (
+                        <div
+                          className={styles.depositoMensaje}
+                          title={e.deposito_mensaje}
+                          role="img"
+                          aria-label={`Mensaje para depósito: ${e.deposito_mensaje}`}
+                        >
+                          <MessageCircle size={12} />
                         </div>
                       )}
                     </td>
@@ -3845,6 +3860,19 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.comment}
                     onChange={(ev) => handleManualEnvioChange('comment', ev.target.value)}
                     placeholder="Notas o instrucciones adicionales (opcional)"
+                    rows={2}
+                    className={styles.textarea}
+                  />
+                </div>
+
+                {/* Fila 8: Mensaje para depósito (span 2 cols) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="me-deposito-mensaje">Mensaje para depósito</label>
+                  <textarea
+                    id="me-deposito-mensaje"
+                    value={manualEnvio.depositoMensaje}
+                    onChange={(ev) => handleManualEnvioChange('depositoMensaje', ev.target.value)}
+                    placeholder="Nota interna para el depósito (no se imprime en la etiqueta)"
                     rows={2}
                     className={styles.textarea}
                   />

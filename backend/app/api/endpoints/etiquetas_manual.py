@@ -197,6 +197,7 @@ def crear_envio_desde_pedido(
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
         manual_phone=payload.phone,
+        manual_deposito_mensaje=payload.deposito_mensaje,
         logistica_id=payload.logistica_id,
         transporte_id=payload.transporte_id,
         nombre_archivo="desde_pedido",
@@ -342,6 +343,7 @@ def crear_envio_manual(
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
         manual_phone=payload.phone,
+        manual_deposito_mensaje=payload.deposito_mensaje,
         nombre_archivo="envio_manual",
     )
     db.add(etiqueta)
@@ -366,6 +368,7 @@ def crear_envio_manual(
             "logistica_id": payload.logistica_id,
             "transporte_id": payload.transporte_id,
             "comment": payload.comment,
+            "deposito_mensaje": payload.deposito_mensaje,
         },
     )
     db.add(actividad)
@@ -505,6 +508,7 @@ def editar_envio_manual(
         "soh_id": etiqueta.manual_soh_id,
         "comment": etiqueta.manual_comment,
         "phone": etiqueta.manual_phone,
+        "deposito_mensaje": etiqueta.manual_deposito_mensaje,
     }
 
     # Si la dirección cambió, limpiar coords viejas para forzar re-geocoding
@@ -525,6 +529,7 @@ def editar_envio_manual(
     etiqueta.manual_soh_id = payload.soh_id
     etiqueta.manual_comment = payload.comment
     etiqueta.manual_phone = payload.phone
+    etiqueta.manual_deposito_mensaje = payload.deposito_mensaje
     etiqueta.logistica_id = payload.logistica_id
     etiqueta.transporte_id = payload.transporte_id
 
@@ -551,6 +556,7 @@ def editar_envio_manual(
                 "soh_id": payload.soh_id,
                 "comment": payload.comment,
                 "phone": payload.phone,
+                "deposito_mensaje": payload.deposito_mensaje,
             },
         },
     )
