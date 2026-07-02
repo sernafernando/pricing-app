@@ -101,7 +101,6 @@ export default function TabCheques() {
 
   // ── Filters (propios) ──
   const [filtroEstado, setFiltroEstado] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState('');
   const [filtroMoneda, setFiltroMoneda] = useState('');
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
@@ -180,9 +179,9 @@ export default function TabCheques() {
     const params = {
       page,
       page_size: PAGE_SIZE,
+      tipo: 'propio',
     };
     if (filtroEstado) params.estado = filtroEstado;
-    if (filtroTipo) params.tipo = filtroTipo;
     if (filtroMoneda) params.moneda = filtroMoneda;
     if (filtroDesde) params.desde = filtroDesde;
     if (filtroHasta) params.hasta = filtroHasta;
@@ -196,7 +195,7 @@ export default function TabCheques() {
       setCheques([]);
       setTotalItems(0);
     }
-  }, [listar, page, vista, filtroEstado, filtroTipo, filtroMoneda, filtroDesde, filtroHasta, filtroEstadoCartera, filtroMonedaCartera]);
+  }, [listar, page, vista, filtroEstado, filtroMoneda, filtroDesde, filtroHasta, filtroEstadoCartera, filtroMonedaCartera]);
 
   useEffect(() => {
     if (vista !== VISTAS.REPORTE) fetchCheques();
@@ -428,17 +427,6 @@ export default function TabCheques() {
 
           <select
             className={styles.filterSelect}
-            value={filtroTipo}
-            onChange={(e) => handleFiltroChange(setFiltroTipo)(e.target.value)}
-            aria-label="Filtrar por tipo"
-          >
-            <option value="">Todos los tipos</option>
-            <option value="propio">Propios</option>
-            <option value="tercero">Terceros</option>
-          </select>
-
-          <select
-            className={styles.filterSelect}
             value={filtroMoneda}
             onChange={(e) => handleFiltroChange(setFiltroMoneda)(e.target.value)}
             aria-label="Filtrar por moneda"
@@ -465,13 +453,12 @@ export default function TabCheques() {
             title="Fecha hasta"
           />
 
-          {(filtroEstado || filtroTipo || filtroMoneda || filtroDesde || filtroHasta) && (
+          {(filtroEstado || filtroMoneda || filtroDesde || filtroHasta) && (
             <button
               type="button"
               className={styles.btnClearFilters}
               onClick={() => {
                 setFiltroEstado('');
-                setFiltroTipo('');
                 setFiltroMoneda('');
                 setFiltroDesde('');
                 setFiltroHasta('');

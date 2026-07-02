@@ -17,21 +17,24 @@ Security guarantees on every endpoint:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
-from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.item_cost_list import ItemCostList
+from app.models.producto import ProductoERP
+from app.models.tipo_cambio import TipoCambio
+from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
-from app.api.endpoints.dashboard_ml import aplicar_filtros_comunes
+from app.api.endpoints.ventas_ml import fetch_operaciones_con_metricas
 from zoneinfo import ZoneInfo
 
 router = APIRouter()
@@ -130,14 +133,39 @@ class TopProductoTPLinkResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _apply_store_lock(query):
-    """Filter to TP-Link store 2645 using the direct column on MLVentaMetrica.
+def _aplicar_filtros_tplink_tabla(
+    query,
+    fecha_desde: Optional[str],
+    fecha_hasta: Optional[str],
+    categorias: Optional[str],
+    db: Session,
+) -> object:
+    """Apply date, category, and cancellation filters directly on TplinkVentaMetrica.
 
-    Using `mlp_official_store_id` directly (denormalized column on the metrics
-    table) is simpler and testable without joining MercadoLibreItemPublicado.
-    This is a stronger lock: the column is on the same table as the data.
+    No store subquery is needed: the tplink_ventas_metricas table is already
+    scoped to store 2645 by the ingestion job (agregar_metricas_tplink.py).
+
+    Date semantics match dashboard_ml.py:
+    - fecha_desde  → TplinkVentaMetrica.fecha_venta >= 00:00:00 Argentina TZ
+    - fecha_hasta  → TplinkVentaMetrica.fecha_venta <  next day 00:00:00 Argentina TZ
     """
-    return query.filter(MLVentaMetrica.mlp_official_store_id == TPLINK_OFFICIAL_STORE_ID)
+    if fecha_desde:
+        fecha_desde_dt = datetime.fromisoformat(fecha_desde).replace(tzinfo=ARGENTINA_TZ)
+        query = query.filter(TplinkVentaMetrica.fecha_venta >= fecha_desde_dt)
+
+    if fecha_hasta:
+        fecha_hasta_dt = datetime.fromisoformat(fecha_hasta).replace(tzinfo=ARGENTINA_TZ) + timedelta(days=1)
+        query = query.filter(TplinkVentaMetrica.fecha_venta < fecha_hasta_dt)
+
+    if categorias:
+        categorias_list = [c.strip() for c in categorias.split(",") if c.strip()]
+        if categorias_list:
+            query = query.filter(TplinkVentaMetrica.categoria.in_(categorias_list))
+
+    # Exclude cancelled sales (reconciled by ml_cancelacion_reconciliacion_service)
+    query = query.filter(TplinkVentaMetrica.is_cancelled.is_(False))
+
+    return query
 
 
 def _has_ganancia(current_user: Usuario, db: Session) -> bool:
@@ -173,21 +201,18 @@ def get_metricas_generales_tplink(
     No offset fields in response.
     """
     query = db.query(
-        func.sum(MLVentaMetrica.monto_total).label("total_ventas_ml"),
-        func.sum(MLVentaMetrica.monto_limpio).label("total_limpio"),
-        func.sum(MLVentaMetrica.ganancia).label("total_ganancia"),
-        func.sum(MLVentaMetrica.costo_total_sin_iva).label("total_costo"),
-        func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
-        func.sum(MLVentaMetrica.cantidad).label("cantidad_unidades"),
-        func.sum(MLVentaMetrica.comision_ml).label("total_comisiones"),
-        func.sum(MLVentaMetrica.costo_envio_ml).label("total_envios"),
+        func.sum(TplinkVentaMetrica.monto_total).label("total_ventas_ml"),
+        func.sum(TplinkVentaMetrica.monto_limpio).label("total_limpio"),
+        func.sum(TplinkVentaMetrica.ganancia).label("total_ganancia"),
+        func.sum(TplinkVentaMetrica.costo_total_sin_iva).label("total_costo"),
+        func.count(TplinkVentaMetrica.id).label("cantidad_operaciones"),
+        func.sum(TplinkVentaMetrica.cantidad).label("cantidad_unidades"),
+        func.sum(TplinkVentaMetrica.comision_ml).label("total_comisiones"),
+        func.sum(TplinkVentaMetrica.costo_envio_ml).label("total_envios"),
     )
 
-    # Store lock — never from request params
-    query = _apply_store_lock(query)
-
-    # Common filters: date range + categoría only (no marcas, no store params from client)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    # ML's exact filters, store hard-locked to TP-Link (2645)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, categorias, db)
 
     result = query.first()
 
@@ -244,18 +269,17 @@ def get_ventas_por_categoria_tplink(
     Store locked to 2645. Margin fields gated by .ver_ganancia.
     """
     query = db.query(
-        MLVentaMetrica.categoria,
-        func.sum(MLVentaMetrica.monto_total).label("total_ventas"),
-        func.sum(MLVentaMetrica.monto_limpio).label("total_limpio"),
-        func.sum(MLVentaMetrica.ganancia).label("total_ganancia"),
-        func.sum(MLVentaMetrica.costo_total_sin_iva).label("total_costo"),
-        func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
-    ).filter(MLVentaMetrica.categoria.isnot(None))
+        TplinkVentaMetrica.categoria,
+        func.sum(TplinkVentaMetrica.monto_total).label("total_ventas"),
+        func.sum(TplinkVentaMetrica.monto_limpio).label("total_limpio"),
+        func.sum(TplinkVentaMetrica.ganancia).label("total_ganancia"),
+        func.sum(TplinkVentaMetrica.costo_total_sin_iva).label("total_costo"),
+        func.count(TplinkVentaMetrica.id).label("cantidad_operaciones"),
+    ).filter(TplinkVentaMetrica.categoria.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, None, None, db)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, None, db)
 
-    resultados = query.group_by(MLVentaMetrica.categoria).order_by(desc("total_ventas")).all()
+    resultados = query.group_by(TplinkVentaMetrica.categoria).order_by(desc("total_ventas")).all()
 
     show_ganancia = _has_ganancia(current_user, db)
 
@@ -297,16 +321,15 @@ def get_ventas_por_logistica_tplink(
     Store locked to 2645. No offset fields in response.
     """
     query = db.query(
-        MLVentaMetrica.tipo_logistica,
-        func.sum(MLVentaMetrica.monto_total).label("total_ventas"),
-        func.sum(MLVentaMetrica.costo_envio_ml).label("total_envios"),
-        func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
-    ).filter(MLVentaMetrica.tipo_logistica.isnot(None))
+        TplinkVentaMetrica.tipo_logistica,
+        func.sum(TplinkVentaMetrica.monto_total).label("total_ventas"),
+        func.sum(TplinkVentaMetrica.costo_envio_ml).label("total_envios"),
+        func.count(TplinkVentaMetrica.id).label("cantidad_operaciones"),
+    ).filter(TplinkVentaMetrica.tipo_logistica.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, categorias, db)
 
-    resultados = query.group_by(MLVentaMetrica.tipo_logistica).order_by(desc("total_ventas")).all()
+    resultados = query.group_by(TplinkVentaMetrica.tipo_logistica).order_by(desc("total_ventas")).all()
 
     return [
         VentaPorLogisticaTPLinkResponse(
@@ -337,18 +360,17 @@ def get_ventas_por_dia_tplink(
     Daily sales aggregation for the TP-Link brand.
     Store locked to 2645. Margin ganancia gated by .ver_ganancia.
     """
-    fecha_truncada = func.date(func.timezone("America/Argentina/Buenos_Aires", MLVentaMetrica.fecha_venta))
+    fecha_truncada = func.date(func.timezone("America/Argentina/Buenos_Aires", TplinkVentaMetrica.fecha_venta))
 
     query = db.query(
         fecha_truncada.label("fecha"),
-        func.sum(MLVentaMetrica.monto_total).label("total_ventas"),
-        func.sum(MLVentaMetrica.monto_limpio).label("total_limpio"),
-        func.sum(MLVentaMetrica.ganancia).label("total_ganancia"),
-        func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
+        func.sum(TplinkVentaMetrica.monto_total).label("total_ventas"),
+        func.sum(TplinkVentaMetrica.monto_limpio).label("total_limpio"),
+        func.sum(TplinkVentaMetrica.ganancia).label("total_ganancia"),
+        func.count(TplinkVentaMetrica.id).label("cantidad_operaciones"),
     )
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, categorias, db)
 
     resultados = query.group_by(fecha_truncada).order_by(fecha_truncada).all()
 
@@ -387,27 +409,26 @@ def get_top_productos_tplink(
     Store locked to 2645. Margin fields gated by .ver_ganancia.
     """
     query = db.query(
-        MLVentaMetrica.item_id,
-        MLVentaMetrica.codigo,
-        MLVentaMetrica.descripcion,
-        MLVentaMetrica.marca,
-        func.sum(MLVentaMetrica.monto_total).label("total_ventas"),
-        func.sum(MLVentaMetrica.ganancia).label("total_ganancia"),
-        func.sum(MLVentaMetrica.costo_total_sin_iva).label("total_costo"),
-        func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
-        func.sum(MLVentaMetrica.cantidad).label("cantidad_unidades"),
-    ).filter(MLVentaMetrica.item_id.isnot(None))
+        TplinkVentaMetrica.item_id,
+        TplinkVentaMetrica.codigo,
+        TplinkVentaMetrica.descripcion,
+        TplinkVentaMetrica.marca,
+        func.sum(TplinkVentaMetrica.monto_total).label("total_ventas"),
+        func.sum(TplinkVentaMetrica.ganancia).label("total_ganancia"),
+        func.sum(TplinkVentaMetrica.costo_total_sin_iva).label("total_costo"),
+        func.count(TplinkVentaMetrica.id).label("cantidad_operaciones"),
+        func.sum(TplinkVentaMetrica.cantidad).label("cantidad_unidades"),
+    ).filter(TplinkVentaMetrica.item_id.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, categorias, db)
 
     order_column = "total_ventas" if orden == "facturacion" else "cantidad_unidades"
     resultados = (
         query.group_by(
-            MLVentaMetrica.item_id,
-            MLVentaMetrica.codigo,
-            MLVentaMetrica.descripcion,
-            MLVentaMetrica.marca,
+            TplinkVentaMetrica.item_id,
+            TplinkVentaMetrica.codigo,
+            TplinkVentaMetrica.descripcion,
+            TplinkVentaMetrica.marca,
         )
         .order_by(desc(order_column))
         .limit(limit)
@@ -455,12 +476,11 @@ def get_categorias_disponibles_tplink(
     Used to populate the categoría filter dropdown.
     Store locked to 2645.
     """
-    query = db.query(MLVentaMetrica.categoria).filter(MLVentaMetrica.categoria.isnot(None))
+    query = db.query(TplinkVentaMetrica.categoria).filter(TplinkVentaMetrica.categoria.isnot(None))
 
-    query = _apply_store_lock(query)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, None, None, db)
+    query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, None, db)
 
-    categorias = query.distinct().order_by(MLVentaMetrica.categoria).all()
+    categorias = query.distinct().order_by(TplinkVentaMetrica.categoria).all()
     return [c[0] for c in categorias]
 
 
@@ -472,7 +492,8 @@ def get_categorias_disponibles_tplink(
 class OperacionTPLinkResponse(BaseModel):
     """Per-row operations response for the TP-Link Detalle de Operaciones tab.
 
-    Reads directly from `ml_ventas_metricas` (pre-calculated fields).
+    Computed LIVE from raw ERP tables via the shared ML core
+    `fetch_operaciones_con_metricas` (store hard-locked to 2645).
     No offset_flex field by construction.
     Margin-related fields (costo_sin_iva, costo_total, comision_porcentaje,
     comision_pesos, markup_porcentaje, ganancia) are Optional — omitted when
@@ -519,8 +540,11 @@ class OperacionTPLinkResponse(BaseModel):
     tags=["dashboard-tplink"],
 )
 def get_operaciones_tplink(
-    fecha_desde: Optional[str] = Query(None, description="Date from (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Date to (YYYY-MM-DD)"),
+    # Param names are from_date/to_date (NOT fecha_desde/hasta): the frontend's
+    # useServerPagination sends from_date/to_date. The live query requires real
+    # dates — a name mismatch leaves them None and crashes on `to_date + ...`.
+    from_date: Optional[str] = Query(None, description="Date from (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="Date to (YYYY-MM-DD)"),
     categorias: Optional[str] = Query(None, description="Filter by categories (comma-separated)"),
     limit: int = Query(1000, le=50000, description="Max results"),
     offset_page: int = Query(0, alias="offset", description="Pagination offset"),
@@ -530,49 +554,150 @@ def get_operaciones_tplink(
     """
     TP-Link Detalle de Operaciones — individual sales rows.
 
-    Reads from ml_ventas_metricas (pre-calculated). Store is hard-locked to 2645.
-    Client cannot supply tiendas_oficiales, pm_ids, or marcas — they are not in
-    the signature. No offset_flex field. Margin fields omitted unless caller has
-    `dashboard_tplink.ver_ganancia`.
+    Computes everything LIVE from the raw ERP tables via the shared core
+    `fetch_operaciones_con_metricas` (the same query that powers the ML
+    "operaciones-con-metricas" report): real cost from tb_item_cost_list /
+    tb_item_cost_list_history, real commission, real ml_id. This fixes the old
+    detail that read pre-calculated `ml_ventas_metricas` with cost=0 and a wrong
+    identifier for some TP-Link rows.
+
+    Store is hard-locked to 2645 (never read from the client). Client cannot
+    supply tiendas_oficiales, pm_ids, or marcas — they are not in the signature.
+    PM/marca filtering is bypassed (`pares_usuario=None`): brand users have no
+    MarcaPM rows. No offset_flex field. Margin fields are omitted unless the
+    caller has `dashboard_tplink.ver_ganancia`.
     """
-    query = db.query(MLVentaMetrica).filter(MLVentaMetrica.is_cancelled.isnot(None))
+    # The live query requires a real date range (the SQL uses BETWEEN and builds
+    # `to_date + " 23:59:59"`). Reject missing dates with a clean 422 instead of a
+    # 500. The permission gate already ran (decorator dependency), so this never
+    # masks the 403 path.
+    if not from_date or not to_date:
+        raise HTTPException(status_code=422, detail="from_date y to_date son requeridos")
 
-    # Store lock
-    query = _apply_store_lock(query)
-
-    # Date and category filters only (no marca, no store from client)
-    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, None, db)
-
-    # Order newest first, paginate
-    resultados = query.order_by(MLVentaMetrica.fecha_venta.desc()).offset(offset_page).limit(limit).all()
+    operaciones = fetch_operaciones_con_metricas(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        categorias=categorias,
+        # Store hard-locked to TP-Link (2645); never read from the client request.
+        tiendas_oficiales=str(TPLINK_OFFICIAL_STORE_ID),
+        # PM/marca bypass — brand users have no MarcaPM; None = no per-pair filter.
+        pares_usuario=None,
+        # Cost list id. TP-Link uses its own cost list (coslis_id=8).
+        coslis_id=8,
+        limit=limit,
+        offset=offset_page,
+    )
 
     show_ganancia = _has_ganancia(current_user, db)
 
-    def _build_row(r: MLVentaMetrica) -> OperacionTPLinkResponse:
+    def _build_row(op: dict) -> OperacionTPLinkResponse:
         row = OperacionTPLinkResponse(
-            id_operacion=r.id_operacion,
-            ml_id=r.mla_id,
-            fecha_venta=r.fecha_venta,
-            item_id=r.item_id,
-            codigo=r.codigo,
-            descripcion=r.descripcion,
-            categoria=r.categoria,
-            marca=r.marca,
-            cantidad=r.cantidad,
-            monto_unitario=r.monto_unitario or Decimal("0"),
-            monto_total=r.monto_total or Decimal("0"),
-            monto_limpio=r.monto_limpio or Decimal("0"),
-            costo_envio=r.costo_envio_ml or Decimal("0"),
-            tipo_logistica=r.tipo_logistica,
-            is_cancelled=r.is_cancelled if r.is_cancelled is not None else False,
+            id_operacion=op["id_operacion"],
+            ml_id=str(op["ml_id"]) if op.get("ml_id") is not None else None,
+            fecha_venta=op["fecha_venta"],
+            item_id=op.get("item_id"),
+            codigo=op.get("codigo"),
+            descripcion=op.get("descripcion"),
+            categoria=op.get("categoria"),
+            marca=op.get("marca"),
+            cantidad=int(op["cantidad"] or 0),
+            monto_unitario=op["monto_unitario"] or Decimal("0"),
+            monto_total=op["monto_total"] or Decimal("0"),
+            monto_limpio=op["monto_limpio"] or Decimal("0"),
+            costo_envio=op["costo_envio"] or Decimal("0"),
+            tipo_logistica=op.get("ml_logistic_type"),
+            is_cancelled=bool(op.get("is_cancelled")),
         )
         if show_ganancia:
-            row.costo_sin_iva = r.costo_total_sin_iva or Decimal("0")
-            row.costo_total = r.costo_total or Decimal("0")
-            row.comision_porcentaje = r.porcentaje_comision_ml or Decimal("0")
-            row.comision_pesos = r.comision_ml or Decimal("0")
-            row.markup_porcentaje = r.markup_porcentaje or Decimal("0")
-            row.ganancia = r.ganancia or Decimal("0")
+            row.costo_sin_iva = op["costo_sin_iva"] or Decimal("0")
+            row.costo_total = op["costo_total"] or Decimal("0")
+            row.comision_porcentaje = op["comision_porcentaje"] or Decimal("0")
+            row.comision_pesos = op["comision_pesos"] or Decimal("0")
+            row.markup_porcentaje = op["markup_porcentaje"] or Decimal("0")
+            row.ganancia = op["ganancia"] or Decimal("0")
         return row
 
-    return [_build_row(r) for r in resultados]
+    return [_build_row(op) for op in operaciones]
+
+
+# ---------------------------------------------------------------------------
+# Stock response model
+# ---------------------------------------------------------------------------
+
+
+class StockTPLinkResponse(BaseModel):
+    """Per-item stock snapshot for the TP-Link brand — Stock tab.
+
+    Margin fields (costo_lista8, moneda_original, cotizacion) are Optional;
+    they are omitted from the JSON when the caller lacks
+    `dashboard_tplink.ver_ganancia` (`response_model_exclude_none=True`).
+    """
+
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    stock: int
+
+    # Margin-gated fields
+    costo_lista8: Optional[Decimal] = None
+    moneda_original: Optional[str] = None
+    cotizacion: Optional[Decimal] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/dashboard-tplink/stock",
+    dependencies=[Depends(require_permiso("dashboard_tplink.ver"))],
+    response_model=List[StockTPLinkResponse],
+    response_model_exclude_none=True,
+    tags=["dashboard-tplink"],
+)
+def get_stock_tplink(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[StockTPLinkResponse]:
+    """
+    TP-Link brand stock list — Stock tab.
+
+    Returns all TP-Link items (coslis_id=8, stock > 0) with their current
+    stock. Cost fields (costo_lista8, moneda_original, cotizacion) are only
+    included when the caller has `dashboard_tplink.ver_ganancia`.
+    No date filter: stock is a point-in-time snapshot.
+    """
+    # Latest USD exchange rate
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    cotizacion_val = Decimal(str(round(tc.venta, 2))) if tc else Decimal("1.0")
+
+    rows = (
+        db.query(ItemCostList, ProductoERP)
+        .join(ProductoERP, ProductoERP.item_id == ItemCostList.item_id)
+        .filter(
+            ItemCostList.coslis_id == 8,
+            ItemCostList.coslis_price > 0,
+            ProductoERP.stock > 0,
+        )
+        .order_by(ProductoERP.descripcion)
+        .all()
+    )
+
+    has_ganancia = _has_ganancia(current_user, db)
+    result: List[StockTPLinkResponse] = []
+    for cost, prod in rows:
+        moneda_original = "USD" if cost.curr_id == 2 else "ARS"
+        costo_ars = (
+            Decimal(str(round(float(cost.coslis_price) * float(cotizacion_val), 2)))
+            if cost.curr_id == 2
+            else Decimal(str(round(float(cost.coslis_price), 2)))
+        )
+        item = StockTPLinkResponse(
+            codigo=prod.codigo,
+            descripcion=prod.descripcion,
+            stock=prod.stock,
+        )
+        if has_ganancia:
+            item.costo_lista8 = costo_ars
+            item.moneda_original = moneda_original
+            item.cotizacion = cotizacion_val
+        result.append(item)
+    return result

@@ -57,6 +57,9 @@ Reprocesa métricas de los últimos **30 días** cada noche.
 
 # Fuera ML Métricas - Mes actual completo (5:30 AM diario)
 30 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 30 >> /var/log/pricing-app/fuera_ml_metricas_backfill_30d.log 2>&1
+
+# TP-Link Métricas - Últimos 30 días (5:45 AM diario)
+45 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '30 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_30d.log 2>&1
 ```
 
 **¿Por qué 30 días?**
@@ -77,6 +80,9 @@ Reprocesa métricas de los últimos **90 días** cada domingo.
 
 # Fuera ML Métricas - Últimos 90 días (Domingos 4:40 AM)
 40 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 90 >> /var/log/pricing-app/fuera_ml_metricas_backfill_90d.log 2>&1
+
+# TP-Link Métricas - Últimos 90 días (Domingos 4:50 AM)
+50 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '90 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_90d.log 2>&1
 ```
 
 **¿Por qué 90 días?**
@@ -119,6 +125,9 @@ Buscar la sección de **MÉTRICAS** y agregar después de las líneas existentes
 # Fuera ML Métricas - Mes actual completo (5:30 AM diario)
 30 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 30 >> /var/log/pricing-app/fuera_ml_metricas_backfill_30d.log 2>&1
 
+# TP-Link Métricas - Últimos 30 días (5:45 AM diario)
+45 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '30 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_30d.log 2>&1
+
 # BACKFILL TRIMESTRAL - Domingos a las 4:00 AM
 # Reprocesa métricas de los últimos 3 meses (histórico largo para reportes anuales)
 
@@ -130,6 +139,9 @@ Buscar la sección de **MÉTRICAS** y agregar después de las líneas existentes
 
 # Fuera ML Métricas - Últimos 90 días (Domingos 4:40 AM)
 40 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 90 >> /var/log/pricing-app/fuera_ml_metricas_backfill_90d.log 2>&1
+
+# TP-Link Métricas - Últimos 90 días (Domingos 4:50 AM)
+50 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tplink --from-date $(date -d '90 days ago' +\%Y-\%m-\%d) >> /var/log/pricing-app/tplink_metricas_backfill_90d.log 2>&1
 ```
 
 ### **Paso 4: Guardar y salir**

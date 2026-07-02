@@ -85,11 +85,12 @@ export default function AlertBanner({
  * AlertBannerContainer - Wrapper para múltiples banners
  * Se posiciona debajo del TopBar
  */
-export function AlertBannerContainer({ children, sidebarExpanded = true }) {
+export function AlertBannerContainer({ children, sidebarExpanded = true, sidebarHidden = false }) {
   return (
-    <div 
+    <div
       className={styles.container}
       data-sidebar-expanded={sidebarExpanded}
+      data-sidebar-hidden={sidebarHidden}
     >
       {children}
     </div>

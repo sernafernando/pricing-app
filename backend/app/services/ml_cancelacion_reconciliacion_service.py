@@ -17,6 +17,8 @@ sin polling masivo a ML) y:
      (ventas_ml.py, agregar_metricas_*) empiezan a funcionar solos.
   B. Marca ml_ventas_metricas.is_cancelled = TRUE + fecha_cancelacion (el dashboard
      filtra is_cancelled = False).
+  B2. Marca tplink_ventas_metricas.is_cancelled = TRUE + fecha_cancelacion (additive,
+      parallel UPDATE; the ML UPDATE block above is byte-for-byte unchanged).
   C. Revierte el consumo de offsets (grupo + individual) de esas operaciones.
 
 Clave de cruce: ml_cancelled_orders.order_id (BIGINT, el número de orden de ML) ↔
@@ -89,7 +91,7 @@ def reconciliar_cancelaciones(
 
     Returns:
         Dict con contadores: leidas, headers_actualizados, metricas_marcadas,
-        offsets_grupo_revertidos, offsets_individual_revertidos.
+        tplink_metricas_marcadas, offsets_grupo_revertidos, offsets_individual_revertidos.
     """
     if since is None and lookback_days is not None:
         since = datetime.now() - timedelta(days=lookback_days)
@@ -100,6 +102,7 @@ def reconciliar_cancelaciones(
         "leidas": len(canceladas),
         "headers_actualizados": 0,
         "metricas_marcadas": 0,
+        "tplink_metricas_marcadas": 0,
         "offsets_grupo_revertidos": 0,
         "offsets_individual_revertidos": 0,
     }
@@ -126,7 +129,7 @@ def reconciliar_cancelaciones(
         )
         stats["headers_actualizados"] += res_header.rowcount or 0
 
-        # B. Marcar métricas + recolectar id_operacion de las que recién se cancelan
+        # B. Marcar métricas ML + recolectar id_operacion de las que recién se cancelan
         ops = db.execute(
             text("""
                 UPDATE ml_ventas_metricas
@@ -140,6 +143,19 @@ def reconciliar_cancelaciones(
 
         ids_operacion = [r[0] for r in ops]
         stats["metricas_marcadas"] += len(ids_operacion)
+
+        # B2. Marcar métricas TP-Link (parallel UPDATE — ML block above is unchanged)
+        tplink_ops = db.execute(
+            text("""
+                UPDATE tplink_ventas_metricas
+                SET is_cancelled = TRUE, fecha_cancelacion = :fecha
+                WHERE ml_order_id = :ml_order_id
+                  AND is_cancelled = FALSE
+                RETURNING id_operacion
+            """),
+            {"ml_order_id": ml_order_id, "fecha": fecha_cancelacion},
+        ).fetchall()
+        stats["tplink_metricas_marcadas"] += len(tplink_ops)
 
         # C. Revertir offsets de las operaciones recién canceladas
         for id_operacion in ids_operacion:

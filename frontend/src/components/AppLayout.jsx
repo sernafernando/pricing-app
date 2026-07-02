@@ -7,6 +7,7 @@ import { SSEProvider } from '../contexts/SSEContext';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
 import { useAuthStore } from '../store/authStore';
+import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import styles from './AppLayout.module.css';
 
@@ -33,6 +34,15 @@ function AppLayoutInner() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const user = useAuthStore((state) => state.user);
+
+  // Brand-only users (every permission lives under the dashboard_tplink.*
+  // namespace) get a focused, chrome-free view: no sidebar. SUPERADMIN and
+  // users still loading permissions keep the full layout.
+  const { permisos, rol } = usePermisos();
+  const isBrandOnly = rol !== 'SUPERADMIN'
+    && permisos.length > 0
+    && permisos.every((codigo) => codigo.startsWith('dashboard_tplink.'));
+
   const [todasLasAlertas, setTodasLasAlertas] = useState([]);
   const [alertasVisibles, setAlertasVisibles] = useState([]);
   const [indiceRotacion, setIndiceRotacion] = useState(0);
@@ -168,22 +178,26 @@ function AppLayoutInner() {
 
   return (
     <div className={styles.appLayout}>
-      <Sidebar 
-        mobileOpen={mobileMenuOpen} 
-        onMobileClose={() => setMobileMenuOpen(false)} 
-      />
-      
-      <div 
+      {!isBrandOnly && (
+        <Sidebar
+          mobileOpen={mobileMenuOpen}
+          onMobileClose={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      <div
         className={styles.mainWrapper}
         data-sidebar-expanded={sidebarExpanded}
+        data-sidebar-hidden={isBrandOnly}
       >
-        <TopBar 
+        <TopBar
           sidebarExpanded={sidebarExpanded}
+          sidebarHidden={isBrandOnly}
           onMobileMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         
         {/* Alert Banners - Sistema de rotación */}
-        <AlertBannerContainer sidebarExpanded={sidebarExpanded}>
+        <AlertBannerContainer sidebarExpanded={sidebarExpanded} sidebarHidden={isBrandOnly}>
           {alertasVisibles.map((alerta) => (
             <AlertBanner
               key={alerta.id}

@@ -48,6 +48,7 @@ export default function TabPedidosExport() {
     soh_id: '',
     bra_id: '',
     receiver_name: '',
+    phone: '',
     street_name: '',
     street_number: '',
     zip_code: '',
@@ -56,6 +57,7 @@ export default function TabPedidosExport() {
     transporte_id: '',
     cust_id: '',
     comment: '',
+    depositoMensaje: '',
   });
   const [flexLoading, setFlexLoading] = useState(false);
   const [flexCordon, setFlexCordon] = useState(null);
@@ -541,6 +543,7 @@ export default function TabPedidosExport() {
       setFlexForm(prev => ({
         ...prev,
         receiver_name: data.cust_name || prev.receiver_name,
+        phone: data.cust_phone || prev.phone,
         street_name: streetName || prev.street_name,
         street_number: streetNumber || prev.street_number,
         zip_code: data.cust_zip || prev.zip_code,
@@ -578,6 +581,7 @@ export default function TabPedidosExport() {
       setFlexForm(prev => ({
         ...prev,
         receiver_name: data.cust_name || prev.receiver_name,
+        phone: data.cust_phone || prev.phone,
         street_name: streetName || prev.street_name,
         street_number: streetNumber || prev.street_number,
         zip_code: data.cust_zip || prev.zip_code,
@@ -613,6 +617,7 @@ export default function TabPedidosExport() {
         soh_id: pedido.soh_id || '',
         bra_id: pedido.bra_id || '',
         receiver_name: dir.destinatario || pedido.nombre_cliente || '',
+        phone: dir.telefono || '',
         street_name: streetName,
         street_number: streetNumber,
         zip_code: dir.codigo_postal || '',
@@ -621,6 +626,7 @@ export default function TabPedidosExport() {
         transporte_id: '',
         cust_id: pedido.cust_id || '',
         comment: '',
+        depositoMensaje: '',
       });
 
       if (dir.codigo_postal) {
@@ -635,6 +641,7 @@ export default function TabPedidosExport() {
         soh_id: '',
         bra_id: '',
         receiver_name: '',
+        phone: '',
         street_name: '',
         street_number: '',
         zip_code: '',
@@ -643,6 +650,7 @@ export default function TabPedidosExport() {
         transporte_id: '',
         cust_id: '',
         comment: '',
+        depositoMensaje: '',
       });
       setFlexCordon(null);
     }
@@ -691,11 +699,13 @@ export default function TabPedidosExport() {
       const payload = {
         fecha_envio: flexForm.fecha_envio,
         receiver_name: flexForm.receiver_name.trim(),
+        phone: flexForm.phone.trim() || null,
         street_name: flexForm.street_name.trim() || 'S/N',
         street_number: flexForm.street_number.trim() || 'S/N',
         zip_code: flexForm.zip_code.trim(),
         city_name: flexForm.city_name.trim() || 'Sin ciudad',
         comment: flexForm.comment.trim() || null,
+        deposito_mensaje: flexForm.depositoMensaje.trim() || null,
         logistica_id: flexForm.logistica_id ? parseInt(flexForm.logistica_id, 10) : null,
         transporte_id: flexForm.transporte_id ? parseInt(flexForm.transporte_id, 10) : null,
         cust_id: flexForm.cust_id ? parseInt(flexForm.cust_id, 10) : null,
@@ -1762,8 +1772,8 @@ export default function TabPedidosExport() {
                   })()}
                 </div>
 
-                {/* Fila 3: Destinatario (span 2) */}
-                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                {/* Fila 3: Destinatario + Teléfono */}
+                <div className={styles.formField}>
                   <label htmlFor="flex-receiver">Destinatario *</label>
                   <input
                     id="flex-receiver"
@@ -1772,6 +1782,18 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('receiver_name', e.target.value)}
                     className={styles.formInput}
                     placeholder="Nombre del destinatario"
+                    autoComplete="one-time-code"
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="flex-phone">Teléfono</label>
+                  <input
+                    id="flex-phone"
+                    type="tel"
+                    value={flexForm.phone}
+                    onChange={(e) => handleFlexFormChange('phone', e.target.value)}
+                    className={styles.formInput}
+                    placeholder="Ej: 11 1234-5678"
                     autoComplete="one-time-code"
                   />
                 </div>
@@ -1870,6 +1892,19 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('comment', e.target.value)}
                     className={`${styles.formInput} ${styles.textarea}`}
                     placeholder="Notas o instrucciones adicionales (opcional)"
+                    rows={2}
+                  />
+                </div>
+
+                {/* Fila 8: Mensaje para depósito (span 2) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="flex-deposito-mensaje">Mensaje para depósito</label>
+                  <textarea
+                    id="flex-deposito-mensaje"
+                    value={flexForm.depositoMensaje}
+                    onChange={(e) => handleFlexFormChange('depositoMensaje', e.target.value)}
+                    className={`${styles.formInput} ${styles.textarea}`}
+                    placeholder="Nota interna para el depósito (no se imprime en la etiqueta)"
                     rows={2}
                   />
                 </div>

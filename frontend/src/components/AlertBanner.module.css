@@ -12,6 +12,11 @@
   left: var(--cf-sidebar-width-collapsed);
 }
 
+/* Brand-only users have no sidebar: banners span the full width. */
+.container[data-sidebar-hidden="true"] {
+  left: 0;
+}
+
 /* Banner base */
 .banner {
   display: flex;

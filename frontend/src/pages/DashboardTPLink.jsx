@@ -9,7 +9,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
-import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Package, Truck, X, Star, RefreshCw } from 'lucide-react';
 
 const TPLINK_API_BASE = '/dashboard-tplink';
 
@@ -67,6 +67,8 @@ export default function DashboardTPLink() {
   const [topLimit, setTopLimit] = useState(10);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
   const [busquedaCategoria, setBusquedaCategoria] = useState('');
+  const [stockData, setStockData] = useState([]);
+  const [stockLoading, setStockLoading] = useState(false);
 
   const { toast, showToast, hideToast } = useToast();
 
@@ -130,12 +132,30 @@ export default function DashboardTPLink() {
     }
   }, [fechaDesde, fechaHasta, categoriasSeleccionadas, showToast]);
 
+  const cargarStock = useCallback(async () => {
+    setStockLoading(true);
+    try {
+      const res = await api.get(`${TPLINK_API_BASE}/stock`);
+      setStockData(res.data || []);
+    } catch {
+      showToast('Error al cargar el stock TP-Link', 'error');
+    } finally {
+      setStockLoading(false);
+    }
+  }, [showToast]);
+
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarDashboard();
       cargarCategoriasDisponibles();
     }
   }, [fechaDesde, fechaHasta, cargarDashboard, cargarCategoriasDisponibles]);
+
+  useEffect(() => {
+    if (tabActivo === 'stock') {
+      cargarStock();
+    }
+  }, [tabActivo, cargarStock]);
 
   const formatearMoneda = (monto) => {
     return new Intl.NumberFormat('es-AR', {
@@ -211,15 +231,14 @@ export default function DashboardTPLink() {
 
   const operacionesFiltradas = pagination.data;
 
-  // Helper: render masked value when user lacks ver_ganancia
+  // Profit-related figures are hidden entirely (column/card removed) when the
+  // user lacks ver_ganancia, so these helpers only format the visible values.
   const renderGanancia = (value) => {
-    if (!puedeVerGanancia) return '***';
     if (value === undefined || value === null) return '—';
     return formatearMoneda(value);
   };
 
   const renderMarkup = (value) => {
-    if (!puedeVerGanancia) return '***';
     if (value === undefined || value === null) return '—';
     return formatearPorcentaje(value);
   };
@@ -250,6 +269,12 @@ export default function DashboardTPLink() {
             onClick={() => updateFilters({ tab: 'operaciones' })}
           >
             <ClipboardList size={14} /> Detalle de Operaciones
+          </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'stock' ? styles.tabActivo : ''}`}
+            onClick={() => updateFilters({ tab: 'stock' })}
+          >
+            <Boxes size={14} /> Stock
           </button>
         </div>
 
@@ -306,9 +331,9 @@ export default function DashboardTPLink() {
           </div>
 
           <button
-            onClick={tabActivo === 'resumen' ? cargarDashboard : pagination.reset}
+            onClick={tabActivo === 'resumen' ? cargarDashboard : tabActivo === 'stock' ? cargarStock : pagination.reset}
             className={styles.btnRecargar}
-            disabled={pagination.loading}
+            disabled={pagination.loading || stockLoading}
             title="Recargar"
           >
             <RefreshCw size={16} />
@@ -364,8 +389,42 @@ export default function DashboardTPLink() {
         </div>
       </div>
 
-      {(loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1)) ? (
+      {(loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1) || (tabActivo === 'stock' && stockLoading)) ? (
         <div className={styles.loading}>Cargando...</div>
+      ) : tabActivo === 'stock' ? (
+        <div className={styles.timelineCard}>
+          <h3 className={styles.chartTitle}><Boxes size={16} /> Stock TP-Link</h3>
+          {stockData.length === 0 ? (
+            <div className={styles.noData}>No hay productos con stock disponible</div>
+          ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Descripción</th>
+                    <th className={styles.centrado}>Stock</th>
+                    {puedeVerGanancia && <th className={styles.monto}>Costo Lista 8</th>}
+                    {puedeVerGanancia && <th className={styles.centrado}>Moneda</th>}
+                    {puedeVerGanancia && <th className={styles.monto}>Cotización</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{item.codigo || '-'}</td>
+                      <td className={styles.descripcion}>{item.descripcion || '-'}</td>
+                      <td className={styles.centrado}>{item.stock}</td>
+                      {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.costo_lista8)}</td>}
+                      {puedeVerGanancia && <td className={styles.centrado}>{item.moneda_original || '-'}</td>}
+                      {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.cotizacion)}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : tabActivo === 'operaciones' ? (
         <div className={styles.operacionesContainer}>
           <PaginationControls
@@ -409,13 +468,13 @@ export default function DashboardTPLink() {
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>Total</th>
-                  <th>Costo Unit</th>
-                  <th>Costo Total</th>
-                  <th>Comisión%</th>
-                  <th>Comisión $</th>
+                  {puedeVerGanancia && <th>Costo Unit</th>}
+                  {puedeVerGanancia && <th>Costo Total</th>}
+                  {puedeVerGanancia && <th>Comisión%</th>}
+                  {puedeVerGanancia && <th>Comisión $</th>}
                   <th>Envío</th>
                   <th>Limpio</th>
-                  <th>Markup%</th>
+                  {puedeVerGanancia && <th>Markup%</th>}
                   <th>Logística</th>
                 </tr>
               </thead>
@@ -436,15 +495,17 @@ export default function DashboardTPLink() {
                     <td className={styles.centrado}>{op.cantidad}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_unitario)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
-                    <td className={styles.monto}>{renderGanancia(op.costo_sin_iva)}</td>
-                    <td className={styles.monto}>{renderGanancia(op.costo_total)}</td>
-                    <td className={styles.centrado}>{renderMarkup(op.comision_porcentaje)}</td>
-                    <td className={styles.monto}>{renderGanancia(op.comision_pesos)}</td>
+                    {puedeVerGanancia && <td className={styles.monto}>{renderGanancia(op.costo_sin_iva)}</td>}
+                    {puedeVerGanancia && <td className={styles.monto}>{renderGanancia(op.costo_total)}</td>}
+                    {puedeVerGanancia && <td className={styles.centrado}>{renderMarkup(op.comision_porcentaje)}</td>}
+                    {puedeVerGanancia && <td className={styles.monto}>{renderGanancia(op.comision_pesos)}</td>}
                     <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
-                    <td className={`${styles.centrado} ${puedeVerGanancia && parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
-                      {renderMarkup(op.markup_porcentaje)}
-                    </td>
+                    {puedeVerGanancia && (
+                      <td className={`${styles.centrado} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
+                        {renderMarkup(op.markup_porcentaje)}
+                      </td>
+                    )}
                     <td>{getTipoLogistica(op.tipo_logistica) || '-'}</td>
                   </tr>
                 ))}
@@ -476,22 +537,24 @@ export default function DashboardTPLink() {
               </div>
             </div>
 
-            <div className={`${styles.kpiCard} ${styles.kpiGanancia}`}>
-              <div className={styles.kpiIcon}><TrendingUp size={20} /></div>
-              <div className={styles.kpiContent}>
-                <div className={styles.kpiLabel}>Ganancia Neta</div>
-                <div className={styles.kpiValue}>
-                  {puedeVerGanancia ? formatearMoneda(metricasGenerales.total_ganancia) : '***'}
-                </div>
-                <div className={styles.kpiStats}>
-                  <span className={styles.kpiHighlight}>
-                    {renderMarkup(metricasGenerales.markup_porcentaje)} markup
-                  </span>
-                  <span className={styles.kpiDivider}>•</span>
-                  <span>Costo: {renderGanancia(metricasGenerales.total_costo)}</span>
+            {puedeVerGanancia && (
+              <div className={`${styles.kpiCard} ${styles.kpiGanancia}`}>
+                <div className={styles.kpiIcon}><TrendingUp size={20} /></div>
+                <div className={styles.kpiContent}>
+                  <div className={styles.kpiLabel}>Ganancia Neta</div>
+                  <div className={styles.kpiValue}>
+                    {formatearMoneda(metricasGenerales.total_ganancia)}
+                  </div>
+                  <div className={styles.kpiStats}>
+                    <span className={styles.kpiHighlight}>
+                      {renderMarkup(metricasGenerales.markup_porcentaje)} markup
+                    </span>
+                    <span className={styles.kpiDivider}>•</span>
+                    <span>Costo: {renderGanancia(metricasGenerales.total_costo)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className={`${styles.kpiCard} ${styles.kpiLimpio}`}>
               <div className={styles.kpiIcon}><Sparkles size={20} /></div>
@@ -515,31 +578,31 @@ export default function DashboardTPLink() {
                 {formatearMoneda(metricasGenerales.total_ventas_ml / (metricasGenerales.cantidad_operaciones || 1))}
               </span>
             </div>
-            <div className={styles.metricMini}>
-              <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
-              <span className={styles.metricMiniValue}>
-                {puedeVerGanancia
-                  ? formatearMoneda(metricasGenerales.total_ganancia / (metricasGenerales.cantidad_operaciones || 1))
-                  : '***'}
-              </span>
-            </div>
+            {puedeVerGanancia && (
+              <div className={styles.metricMini}>
+                <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
+                <span className={styles.metricMiniValue}>
+                  {formatearMoneda(metricasGenerales.total_ganancia / (metricasGenerales.cantidad_operaciones || 1))}
+                </span>
+              </div>
+            )}
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Unids/Venta</span>
               <span className={styles.metricMiniValue}>
                 {(metricasGenerales.cantidad_unidades / (metricasGenerales.cantidad_operaciones || 1)).toFixed(1)}
               </span>
             </div>
-            <div className={styles.metricMini}>
-              <span className={styles.metricMiniLabel}>Comisiones ML</span>
-              <span className={`${styles.metricMiniValue} ${styles.negativo}`}>
-                {puedeVerGanancia ? `-${formatearMoneda(metricasGenerales.total_comisiones)}` : '***'}
-              </span>
-              {puedeVerGanancia && (
+            {puedeVerGanancia && (
+              <div className={styles.metricMini}>
+                <span className={styles.metricMiniLabel}>Comisiones ML</span>
+                <span className={`${styles.metricMiniValue} ${styles.negativo}`}>
+                  {`-${formatearMoneda(metricasGenerales.total_comisiones)}`}
+                </span>
                 <span className={styles.metricMiniPercent}>
                   {formatearPorcentaje((metricasGenerales.total_comisiones / (metricasGenerales.total_ventas_ml || 1)) * 100)}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Envíos</span>
               <span className={`${styles.metricMiniValue} ${styles.negativo}`}>
@@ -615,16 +678,16 @@ export default function DashboardTPLink() {
                             style={{ width: `${(item.total_ventas / maxVenta) * 100}%` }}
                           />
                         </div>
-                        <div className={styles.rankingMeta}>
-                          <span>Ganancia: {puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</span>
-                          <span className={
-                            puedeVerGanancia
-                              ? (parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 0 ? styles.markupRegular : styles.markupMalo)
-                              : ''
-                          }>
-                            {renderMarkup(item.markup_porcentaje)} mkp
-                          </span>
-                        </div>
+                        {puedeVerGanancia && (
+                          <div className={styles.rankingMeta}>
+                            <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
+                            <span className={
+                              parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 0 ? styles.markupRegular : styles.markupMalo
+                            }>
+                              {renderMarkup(item.markup_porcentaje)} mkp
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ));
@@ -671,8 +734,8 @@ export default function DashboardTPLink() {
                       <th>Código</th>
                       <th>Descripción</th>
                       <th>Ventas</th>
-                      <th>Ganancia</th>
-                      <th>Markup</th>
+                      {puedeVerGanancia && <th>Ganancia</th>}
+                      {puedeVerGanancia && <th>Markup</th>}
                       <th>Unids</th>
                     </tr>
                   </thead>
@@ -682,8 +745,8 @@ export default function DashboardTPLink() {
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</td>
-                        <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>
+                        {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
+                        {puedeVerGanancia && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>
                     ))}
@@ -711,8 +774,8 @@ export default function DashboardTPLink() {
                       <th>Código</th>
                       <th>Descripción</th>
                       <th>Ventas</th>
-                      <th>Ganancia</th>
-                      <th>Markup</th>
+                      {puedeVerGanancia && <th>Ganancia</th>}
+                      {puedeVerGanancia && <th>Markup</th>}
                       <th>Unids</th>
                     </tr>
                   </thead>
@@ -722,8 +785,8 @@ export default function DashboardTPLink() {
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</td>
-                        <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>
+                        {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
+                        {puedeVerGanancia && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>
                     ))}

@@ -606,6 +606,13 @@
   white-space: nowrap;
 }
 
+.depositoMensaje {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  color: var(--cf-accent-blue);
+}
+
 .cpLink {
   display: inline-flex;
   align-items: center;
