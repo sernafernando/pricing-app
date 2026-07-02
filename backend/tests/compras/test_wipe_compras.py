@@ -31,15 +31,16 @@ from app.models.compras_papelera import ComprasPapelera
 BASE = "/api/administracion/compras"
 
 # ──────────────────────────────────────────────────────────────────────────
-# Env decision (Work Unit 1.1 / design §10.2):
+# Env decision (Work Unit 1.1 / design §10.2; amended 2026-07-02 review):
 #
-# The test process default `settings.ENVIRONMENT` is "development"
-# (backend/.env:16 sets ENVIRONMENT=development, and pydantic-settings loads
-# .env by default — see config.py `model_config = SettingsConfigDict(env_file=".env", ...)`).
-# This is Option (b): existing tests below are unaffected by the new
-# route-level 404 gate (they run with the gate open) — only the new
-# `test_wipe_returns_404_outside_development` test overrides `ENVIRONMENT`
-# to "production" via monkeypatch.
+# Local runs default `settings.ENVIRONMENT` to "development" (backend/.env
+# sets ENVIRONMENT=development, loaded via pydantic-settings' `env_file`).
+# CI runs with `ENVIRONMENT=testing` (.github/workflows/ci.yml). Both values
+# are members of `DEV_LIKE_ENVIRONMENTS` (app.core.config), so the gate stays
+# open for both — that's why the legacy 401/403/422/200 tests below pass
+# unchanged in both environments. Only `settings.ENVIRONMENT == "production"`
+# closes the gate; `test_wipe_returns_404_outside_development` below
+# overrides `ENVIRONMENT` to "production" via monkeypatch to exercise that.
 # ──────────────────────────────────────────────────────────────────────────
 
 

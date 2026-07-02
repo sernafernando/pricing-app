@@ -1,6 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
+# Environments where testing affordances (docs, testing-only endpoints) are
+# allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
+# runs ENVIRONMENT=development (backend/.env). Production is never in here.
+DEV_LIKE_ENVIRONMENTS: tuple[str, ...] = ("development", "testing")
+
 
 class Settings(BaseSettings):
     # Database
@@ -24,6 +29,17 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = "production"
+
+    @property
+    def is_dev_or_test(self) -> bool:
+        """Whether the current environment allows testing affordances.
+
+        Gates docs exposure and testing-only endpoints. CI runs with
+        ENVIRONMENT=testing (see .github/workflows/ci.yml), while local
+        development uses ENVIRONMENT=development (backend/.env) — both need
+        these affordances enabled. This is NEVER true in production.
+        """
+        return self.ENVIRONMENT in DEV_LIKE_ENVIRONMENTS
 
     # CORS — comma-separated origins, e.g. "https://app.example.com,https://admin.example.com"
     # Leave empty to use defaults: permissive in development, restrictive in production.

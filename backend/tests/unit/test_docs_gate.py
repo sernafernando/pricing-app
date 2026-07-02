@@ -21,3 +21,12 @@ def test_docs_enabled_in_development() -> None:
     assert urls["docs_url"] == "/api/docs"
     assert urls["redoc_url"] == "/api/redoc"
     assert urls["openapi_url"] == "/api/openapi.json"
+
+
+def test_docs_enabled_in_testing() -> None:
+    """CI runs ENVIRONMENT=testing (.github/workflows/ci.yml) — docs must
+    stay reachable there too, not just in "development"."""
+    urls = _docs_urls("testing")
+    assert urls["docs_url"] == "/api/docs"
+    assert urls["redoc_url"] == "/api/redoc"
+    assert urls["openapi_url"] == "/api/openapi.json"

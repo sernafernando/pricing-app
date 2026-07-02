@@ -98,7 +98,7 @@ from app.tickets.api.endpoints import (
     sectores as sectores_ep,
     workflows as workflows_ep,
 )
-from app.core.config import settings
+from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
 
@@ -206,12 +206,14 @@ async def lifespan(app: FastAPI):
 
 
 def _docs_urls(environment: str) -> dict[str, str | None]:
-    """Return docs/redoc/openapi URL kwargs, disabled outside development.
+    """Return docs/redoc/openapi URL kwargs, disabled outside dev-like envs.
 
     Passing None to FastAPI disables the corresponding route entirely. One flag
     gates all three because Swagger UI and ReDoc both fetch openapi_url.
+    Enabled for `DEV_LIKE_ENVIRONMENTS` ("development", "testing") — CI runs
+    with ENVIRONMENT=testing and still needs the docs affordances reachable.
     """
-    if environment == "development":
+    if environment in DEV_LIKE_ENVIRONMENTS:
         return {
             "docs_url": "/api/docs",
             "redoc_url": "/api/redoc",

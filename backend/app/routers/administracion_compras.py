@@ -36,7 +36,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user, require_permiso
+from app.api.deps import get_current_user, require_dev_or_test, require_permiso
 from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
@@ -4723,24 +4723,13 @@ def listar_adjuntos_nc_local(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _require_development_env() -> None:
-    """Env-gate-404: hide testing-only routes outside development.
-
-    Raises a bare 404 (no custom detail) so the response is byte-identical to
-    the framework's response for a nonexistent route — production clients
-    cannot tell this endpoint exists. Defense-in-depth: layered ON TOP OF the
-    permission guard, which is retained.
-    """
-    if settings.ENVIRONMENT != "development":
-        raise HTTPException(status_code=404)
-
-
+# ponytail: method-probe (GET->405) still reveals this route's existence outside dev; revisit if moved to conditional route registration
 @router.post(
     "/testing/wipe-compras",
     response_model=WipeComprasResponse,
     summary="[TESTING] Limpiar todas las tablas del módulo compras",
     tags=["Testing"],
-    dependencies=[Depends(_require_development_env)],  # ← env-gate-404, runs FIRST
+    dependencies=[Depends(require_dev_or_test)],  # ← env-gate-404, runs FIRST
 )
 def wipe_compras_endpoint(
     body: WipeComprasRequest,
