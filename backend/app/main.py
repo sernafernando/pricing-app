@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import UTC, datetime
 import asyncio
@@ -227,8 +228,13 @@ app = FastAPI(
     **_docs_urls(settings.ENVIRONMENT),
 )
 
-# Global error handler — ensures all errors follow the standard envelope
-app.add_exception_handler(HTTPException, http_exception_handler)
+# Global error handler — ensures all errors follow the standard envelope.
+# Registered on Starlette's base HTTPException (not just FastAPI's subclass) so
+# genuinely-unmatched routes (raised by Starlette's own routing, which uses the
+# base class) are normalized identically to explicit `HTTPException` raises in
+# handlers — required for env-gated 404s (e.g. wipe-compras) to be
+# byte-indistinguishable from a nonexistent route.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,

@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.models.dinero_a_cuenta import DineroACuenta
 from app.models.empresa import Empresa
 from app.models.etiqueta_envio import EtiquetaEnvio
@@ -28,6 +29,18 @@ from app.models.compras_papelera import ComprasPapelera
 
 
 BASE = "/api/administracion/compras"
+
+# ──────────────────────────────────────────────────────────────────────────
+# Env decision (Work Unit 1.1 / design §10.2):
+#
+# The test process default `settings.ENVIRONMENT` is "development"
+# (backend/.env:16 sets ENVIRONMENT=development, and pydantic-settings loads
+# .env by default — see config.py `model_config = SettingsConfigDict(env_file=".env", ...)`).
+# This is Option (b): existing tests below are unaffected by the new
+# route-level 404 gate (they run with the gate open) — only the new
+# `test_wipe_returns_404_outside_development` test overrides `ENVIRONMENT`
+# to "production" via monkeypatch.
+# ──────────────────────────────────────────────────────────────────────────
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -356,3 +369,22 @@ def test_wipe_fk_regression_dinero_a_cuenta_y_etiqueta(
     ).fetchone()
     assert tipo_row is not None
     assert tipo_row[0] == "cliente", "etiqueta_envio.tipo_envio debe ser 'cliente' tras el wipe (constraint coherencia)"
+
+
+def test_wipe_returns_404_outside_development(client, admin_auth_headers, con_permiso_wipe, monkeypatch) -> None:
+    """Fuera de development el endpoint debe ser indistinguible de una ruta inexistente (404)."""
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+
+    response = client.post(
+        f"{BASE}/testing/wipe-compras",
+        json={"confirmacion": "WIPE", "incluir_caja_banco": False},
+        headers=admin_auth_headers,
+    )
+
+    assert response.status_code == 404
+
+    # Indistinguishability: byte-equal to a genuinely unknown route.
+    control = client.post("/api/this-route-does-not-exist-xyz", json={})
+    assert response.status_code == control.status_code
+    assert response.json() == control.json()
+    assert response.headers.get("content-type") == control.headers.get("content-type")
