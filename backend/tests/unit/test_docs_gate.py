@@ -1,7 +1,8 @@
 """Unit tests for `_docs_urls`, the environment-gate helper for OpenAPI docs.
 
 Covers spec Requirement 2: `/api/docs`, `/api/redoc`, `/api/openapi.json`
-must be reachable only when `settings.ENVIRONMENT == "development"`.
+must be reachable only when `settings.ENVIRONMENT` is a member of
+`DEV_LIKE_ENVIRONMENTS` (`"development"` or `"testing"`).
 
 Tests the pure helper directly (not via TestClient) because the FastAPI app
 freezes `docs_url`/`redoc_url`/`openapi_url` at import time — a monkeypatch
