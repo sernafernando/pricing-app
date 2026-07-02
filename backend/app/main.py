@@ -204,14 +204,27 @@ async def lifespan(app: FastAPI):
         bg_lock_fd.close()
 
 
+def _docs_urls(environment: str) -> dict[str, str | None]:
+    """Return docs/redoc/openapi URL kwargs, disabled outside development.
+
+    Passing None to FastAPI disables the corresponding route entirely. One flag
+    gates all three because Swagger UI and ReDoc both fetch openapi_url.
+    """
+    if environment == "development":
+        return {
+            "docs_url": "/api/docs",
+            "redoc_url": "/api/redoc",
+            "openapi_url": "/api/openapi.json",
+        }
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
 app = FastAPI(
     title="Pricing API",
     description="API para gestión de precios de productos",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
     lifespan=lifespan,
+    **_docs_urls(settings.ENVIRONMENT),
 )
 
 # Global error handler — ensures all errors follow the standard envelope
