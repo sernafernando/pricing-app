@@ -12,10 +12,13 @@ Usage:
         assert response.status_code == 200
 """
 
+import re
+from contextlib import contextmanager
 from datetime import date
 from typing import Optional
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, BigInteger, Integer, JSON, String
 from sqlalchemy.orm import sessionmaker
@@ -117,6 +120,69 @@ def client(db):
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Query counting fixture (shared across suites)
+# ---------------------------------------------------------------------------
+
+
+class _QueryCounter:
+    """Records SQL statements executed on a connection during a `with` block."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    @property
+    def total(self) -> int:
+        return len(self.statements)
+
+    def matching(self, needle: str) -> int:
+        """Count executed statements that SELECT/JOIN the table named `needle`.
+
+        Uses a precise `\\b(from|join)\\s+<table>\\b` regex instead of a bare
+        substring match. A plain substring match over-counts: e.g. matching
+        "offsets_ganancia" against raw SQL text would also match unrelated
+        occurrences (column names, other tables sharing a prefix, etc.), which
+        silently pads the observed count and can mask the difference between
+        "genuinely bounded" and "grows with N" queries. Requiring the table
+        name to appear right after `FROM`/`JOIN` (word-bounded) ties the count
+        to actual query targets against that table.
+        """
+        pattern = re.compile(rf"\b(from|join)\s+{re.escape(needle.lower())}\b")
+        return sum(1 for s in self.statements if pattern.search(s))
+
+
+@pytest.fixture()
+def query_counter(db):
+    """
+    Count SQL statements on the test connection.
+
+    Usage:
+        with query_counter() as counter:
+            client.get("/api/offset-grupos-resumen", headers=auth_headers)
+        assert counter.matching("offset_grupo_resumen") <= 1
+
+    The listener is attached to `db.connection()`, the same connection the
+    `client` fixture's `get_db` override yields, so it observes every query
+    the endpoint runs during the request.
+    """
+    conn = db.connection()
+
+    @contextmanager
+    def _run():
+        counter = _QueryCounter()
+
+        def _listen(conn_inner, cursor, statement, parameters, context, executemany):
+            counter.statements.append(statement.lower())
+
+        sa.event.listen(conn, "before_cursor_execute", _listen)
+        try:
+            yield counter
+        finally:
+            sa.event.remove(conn, "before_cursor_execute", _listen)
+
+    return _run
 
 
 # ---------------------------------------------------------------------------
@@ -397,5 +463,118 @@ def rma_historial_factory(db):
         db.add(historial)
         db.flush()
         return historial
+
+    return factory
+
+
+# ---------------------------------------------------------------------------
+# Offset factories (dashboard-batch-prefetch — shared by unit + integration tests)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def offset_grupo_factory(db):
+    """Factory to create OffsetGrupo records."""
+    from app.models.offset_grupo import OffsetGrupo
+
+    _seq = [0]
+
+    def factory(nombre: Optional[str] = None):
+        _seq[0] += 1
+        g = OffsetGrupo(nombre=nombre or f"Grupo {_seq[0]}")
+        db.add(g)
+        db.flush()
+        return g
+
+    return factory
+
+
+@pytest.fixture()
+def offset_ganancia_factory(db):
+    """Factory to create OffsetGanancia records."""
+    from app.models.offset_ganancia import OffsetGanancia
+
+    def factory(
+        *,
+        grupo_id: Optional[int] = None,
+        item_id: Optional[int] = None,
+        max_unidades: Optional[int] = None,
+        max_monto_usd: Optional[float] = None,
+        tipo_offset: str = "monto_fijo",
+        monto: float = 100.0,
+        moneda: str = "ARS",
+        fecha_desde: date = date(2026, 1, 1),
+    ):
+        o = OffsetGanancia(
+            grupo_id=grupo_id,
+            item_id=item_id,
+            max_unidades=max_unidades,
+            max_monto_usd=max_monto_usd,
+            tipo_offset=tipo_offset,
+            monto=monto,
+            moneda=moneda,
+            fecha_desde=fecha_desde,
+        )
+        db.add(o)
+        db.flush()
+        return o
+
+    return factory
+
+
+@pytest.fixture()
+def offset_grupo_resumen_factory(db):
+    """Factory to create OffsetGrupoResumen records."""
+    from app.models.offset_grupo_consumo import OffsetGrupoResumen
+
+    def factory(
+        *,
+        grupo_id: int,
+        total_unidades: int = 0,
+        total_monto_ars: float = 0,
+        total_monto_usd: float = 0,
+        cantidad_ventas: int = 0,
+        limite_alcanzado: Optional[str] = None,
+    ):
+        r = OffsetGrupoResumen(
+            grupo_id=grupo_id,
+            total_unidades=total_unidades,
+            total_monto_ars=total_monto_ars,
+            total_monto_usd=total_monto_usd,
+            cantidad_ventas=cantidad_ventas,
+            limite_alcanzado=limite_alcanzado,
+        )
+        db.add(r)
+        db.flush()
+        return r
+
+    return factory
+
+
+@pytest.fixture()
+def offset_individual_resumen_factory(db):
+    """Factory to create OffsetIndividualResumen records."""
+    from app.models.offset_individual_consumo import OffsetIndividualResumen
+
+    def factory(
+        *,
+        offset_id: int,
+        total_unidades: int = 0,
+        total_monto_ars: float = 0,
+        total_monto_usd: float = 0,
+        cantidad_ventas: int = 0,
+        limite_alcanzado: Optional[str] = None,
+    ):
+        r = OffsetIndividualResumen(
+            offset_id=offset_id,
+            total_unidades=total_unidades,
+            total_monto_ars=total_monto_ars,
+            total_monto_usd=total_monto_usd,
+            cantidad_ventas=cantidad_ventas,
+            limite_alcanzado=limite_alcanzado,
+        )
+        db.add(r)
+        db.flush()
+        return r
 
     return factory
