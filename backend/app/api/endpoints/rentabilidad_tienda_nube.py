@@ -13,12 +13,16 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
-from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
-from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo
+from app.models.offset_individual_consumo import OffsetIndividualConsumo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pricing_constants import PricingConstants
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.offset_resumen_service import (
+    fetch_resumenes_grupo,
+    fetch_resumenes_individuales,
+)
 
 router = APIRouter()
 
@@ -322,6 +326,10 @@ def obtener_rentabilidad_tienda_nube(
     # Pre-calcular offsets de grupo con límites
     offsets_grupo_calculados = {}
 
+    # Prefetch de resúmenes de grupo en UNA sola query (evita N+1 en el loop de abajo)
+    _grupo_ids = {o.grupo_id for o in offsets if o.grupo_id}
+    _resumenes_grupo = fetch_resumenes_grupo(db, _grupo_ids)
+
     for offset in offsets:
         if not offset.grupo_id:
             continue
@@ -329,7 +337,7 @@ def obtener_rentabilidad_tienda_nube(
         if offset.grupo_id not in offsets_grupo_calculados:
             tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
-            resumen = db.query(OffsetGrupoResumen).filter(OffsetGrupoResumen.grupo_id == offset.grupo_id).first()
+            resumen = _resumenes_grupo.get(offset.grupo_id)
 
             offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 
@@ -405,6 +413,10 @@ def obtener_rentabilidad_tienda_nube(
     # Pre-calcular offsets individuales con límites
     offsets_individuales_calculados = {}
 
+    # Prefetch de resúmenes individuales en UNA sola query (evita N+1 en el loop de abajo)
+    _offset_ids_individuales = {o.id for o in offsets if o.grupo_id is None and (o.max_unidades or o.max_monto_usd)}
+    _resumenes_individuales = fetch_resumenes_individuales(db, _offset_ids_individuales)
+
     for offset in offsets:
         if offset.grupo_id is not None:
             continue
@@ -413,7 +425,7 @@ def obtener_rentabilidad_tienda_nube(
 
         tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
-        resumen = db.query(OffsetIndividualResumen).filter(OffsetIndividualResumen.offset_id == offset.id).first()
+        resumen = _resumenes_individuales.get(offset.id)
 
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 

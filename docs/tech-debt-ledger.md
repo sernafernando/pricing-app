@@ -18,10 +18,9 @@ Deliberate shortcuts marked with `ponytail:` in the codebase, harvested here so 
 |-----------|----------|--------------|-------|
 | `backend/app/routers/administracion_compras.py` (wipe-compras route decorator) | Env-gate dependency only runs after the HTTP method matches, so `GET /testing/wipe-compras` outside dev/testing returns 405 instead of 404 — reveals the route exists via method-probing | If the route is moved to conditional registration (only mounted when `settings.is_dev_or_test`) | 2026-07-02 |
 | `backend/app/api/endpoints/auth.py` (`login` route) | Malformed-body (422) login requests bypass the rate limiter — FastAPI validates the request body before the slowapi-wrapped endpoint runs, so an attacker sending unparseable bodies is never counted | If login abuse via malformed bodies is observed (would need a middleware-level limiter that runs before body validation) | 2026-07-03 |
-| `backend/app/api/endpoints/offsets_ganancia/_consumo_individual.py:58` (`obtener_resumen_offsets_individuales`) | Per-offset `OffsetIndividualResumen.filter(offset_id == x).first()` inside a loop over `offsets_con_limites` (materialized at ~L29-36) — the 11th N+1 site found during `dashboard-batch-prefetch` PR1 adversarial review, not in the original 10-site inventory; left unbatched in PR1 to keep it focused | When PR2 of `dashboard-batch-prefetch` lands (Task 4) — trivial reuse of the already-imported `fetch_resumenes_individuales` | 2026-07-03 |
 
 ## Resolved
 
 | File:Line | Shortcut | Resolved |
 |-----------|----------|----------|
-| _(none yet)_ | | |
+| `backend/app/api/endpoints/offsets_ganancia/_consumo_individual.py:58` (`obtener_resumen_offsets_individuales`) | Per-offset `OffsetIndividualResumen.filter(offset_id == x).first()` inside a loop over `offsets_con_limites` — the 11th N+1 site found during `dashboard-batch-prefetch` PR1 adversarial review | 2026-07-03 (PR2 of `dashboard-batch-prefetch`, Task 4 — batched via `fetch_resumenes_individuales`) |

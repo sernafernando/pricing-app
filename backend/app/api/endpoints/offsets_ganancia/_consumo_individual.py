@@ -35,6 +35,10 @@ def obtener_resumen_offsets_individuales(
         .all()
     )
 
+    # Prefetch de resúmenes individuales en UNA sola query (evita N+1 en el loop de abajo)
+    _offset_ids = [o.id for o in offsets_con_limites]
+    _resumenes = fetch_resumenes_individuales(db, _offset_ids)
+
     resultado = []
     for offset in offsets_con_limites:
         # Determinar nivel del offset
@@ -54,14 +58,8 @@ def obtener_resumen_offsets_individuales(
             nivel = "otro"
             nombre = "Offset"
 
-        # ponytail: N+1 — per-offset .first() inside this loop (11th site
-        # found in dashboard-batch-prefetch PR1 adversarial review, out of
-        # PR1 scope). PR2 will batch this via the already-imported
-        # fetch_resumenes_individuales, same pattern as the other 10 sites.
-        # See openspec/changes/dashboard-batch-prefetch/tasks.md Task 4 and
-        # docs/tech-debt-ledger.md.
-        # Obtener resumen si existe
-        resumen = db.query(OffsetIndividualResumen).filter(OffsetIndividualResumen.offset_id == offset.id).first()
+        # Obtener resumen si existe (prefetched above — O(1), not per-offset)
+        resumen = _resumenes.get(offset.id)
 
         if resumen:
             total_unidades = resumen.total_unidades or 0

@@ -442,3 +442,141 @@ class TestConsumoIndividualByteIdentical:
         assert individuales_by_id[o_sin_resumen.id] == expected_individual_sin
         assert body["totales"] == expected_totales
         assert set(body.keys()) == {"grupos", "individuales", "totales"}
+
+
+# ---------------------------------------------------------------------------
+# /api/offset-individuales-resumen
+# (_consumo_individual.py::obtener_resumen_offsets_individuales — 11th site,
+#  PR2 scope of dashboard-batch-prefetch, Task 4)
+# ---------------------------------------------------------------------------
+
+
+class TestOffsetIndividualesResumenQueryCount:
+    def _seed_and_count(
+        self,
+        n_new,
+        expected_total,
+        db,
+        client,
+        auth_headers,
+        query_counter,
+        offset_ganancia_factory,
+        offset_individual_resumen_factory,
+    ):
+        for _ in range(n_new):
+            o = offset_ganancia_factory(grupo_id=None, max_unidades=5)
+            offset_individual_resumen_factory(offset_id=o.id, total_unidades=1)
+
+        with query_counter() as counter:
+            resp = client.get("/api/offset-individuales-resumen", headers=auth_headers)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == expected_total
+        return counter
+
+    def test_resumen_query_count_is_flat_as_n_grows(
+        self,
+        db,
+        client,
+        auth_headers,
+        query_counter,
+        offset_ganancia_factory,
+        offset_individual_resumen_factory,
+    ):
+        """Load-bearing assertion for Spec Requirement 1 (O(1) query count) on
+        the 11th site: `offset_individual_resumen` query count at N=1 must be
+        EXACTLY EQUAL to the count at N=5 (not `C * N`)."""
+        counter_n1 = self._seed_and_count(
+            1,
+            1,
+            db,
+            client,
+            auth_headers,
+            query_counter,
+            offset_ganancia_factory,
+            offset_individual_resumen_factory,
+        )
+        n1_resumen_individual = counter_n1.matching("offset_individual_resumen")
+
+        counter_n5 = self._seed_and_count(
+            4,
+            5,
+            db,
+            client,
+            auth_headers,
+            query_counter,
+            offset_ganancia_factory,
+            offset_individual_resumen_factory,
+        )
+        n5_resumen_individual = counter_n5.matching("offset_individual_resumen")
+
+        assert n5_resumen_individual == n1_resumen_individual, (
+            f"offset_individual_resumen query count grew with N: "
+            f"N=1 -> {n1_resumen_individual}, N=5 -> {n5_resumen_individual}"
+        )
+        assert n1_resumen_individual <= 1
+
+
+class TestOffsetIndividualesResumenByteIdentical:
+    def test_response_matches_expected_structure_for_mixed_fixture(
+        self,
+        db,
+        client,
+        auth_headers,
+        offset_ganancia_factory,
+        offset_individual_resumen_factory,
+    ):
+        o_con_resumen = offset_ganancia_factory(grupo_id=None, max_unidades=20)
+        offset_individual_resumen_factory(
+            offset_id=o_con_resumen.id,
+            total_unidades=5,
+            total_monto_ars=1000,
+            total_monto_usd=10,
+            cantidad_ventas=3,
+            limite_alcanzado="unidades",
+        )
+
+        o_sin_resumen = offset_ganancia_factory(grupo_id=None, max_unidades=15)
+
+        resp = client.get("/api/offset-individuales-resumen", headers=auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        by_offset_id = {row["offset_id"]: row for row in body}
+
+        expected_con = {
+            "offset_id": o_con_resumen.id,
+            "descripcion": "Offset",
+            "nivel": "otro",
+            "nombre_nivel": "Offset",
+            "total_unidades": 5,
+            "total_monto_ars": 1000.0,
+            "total_monto_usd": 10.0,
+            "cantidad_ventas": 3,
+            "limite_alcanzado": "unidades",
+            "fecha_limite_alcanzado": None,
+            "max_unidades": 20,
+            "max_monto_usd": None,
+            "porcentaje_consumido_unidades": 25.0,
+            "porcentaje_consumido_monto": None,
+        }
+        expected_sin = {
+            "offset_id": o_sin_resumen.id,
+            "descripcion": "Offset",
+            "nivel": "otro",
+            "nombre_nivel": "Offset",
+            "total_unidades": 0,
+            "total_monto_ars": 0,
+            "total_monto_usd": 0,
+            "cantidad_ventas": 0,
+            "limite_alcanzado": None,
+            "fecha_limite_alcanzado": None,
+            "max_unidades": 15,
+            "max_monto_usd": None,
+            "porcentaje_consumido_unidades": 0.0,
+            "porcentaje_consumido_monto": None,
+        }
+
+        assert by_offset_id[o_con_resumen.id] == expected_con
+        assert by_offset_id[o_sin_resumen.id] == expected_sin
