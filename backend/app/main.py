@@ -238,6 +238,14 @@ app = FastAPI(
 # byte-indistinguishable from a nonexistent route.
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi.middleware import SlowAPIMiddleware  # noqa: E402
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

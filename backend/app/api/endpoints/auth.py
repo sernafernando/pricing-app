@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -14,6 +14,7 @@ from app.core.security import (
     decode_token,
 )
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.usuario import Usuario, AuthProvider
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rol import Rol
@@ -45,8 +46,18 @@ class RegisterRequest(BaseModel):
     nombre: str
 
 
-@router.post("/auth/login", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})
-def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+@router.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    responses={401: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+)
+@limiter.limit(settings.LOGIN_RATE_LIMIT)
+def login(
+    request: Request,
+    response: Response,
+    credentials: LoginRequest,
+    db: Session = Depends(get_db),
+):
     """Login con username o email (detecta automáticamente por presencia de @)"""
 
     # Detectar si es email o username por la presencia de @

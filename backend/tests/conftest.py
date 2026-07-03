@@ -12,6 +12,13 @@ Usage:
         assert response.status_code == 200
 """
 
+import os
+
+# Must be set before `from app.main import app` below, since app.core.rate_limit
+# reads RATE_LIMIT_STORAGE_URI at import time (design §9). Tests never hit a
+# real Redis; in-memory storage keeps limiter tests deterministic and isolated.
+os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "memory://")
+
 from datetime import date
 from typing import Optional
 
