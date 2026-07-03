@@ -5,12 +5,17 @@ from sqlalchemy import or_, text
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
-from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.cur_exch_history import CurExchHistory
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
+from app.services.offset_resumen_service import (
+    fetch_offsets_limite_por_grupo,
+    fetch_resumenes_grupo,
+    fetch_resumenes_individuales,
+)
 
 router = APIRouter()
 
@@ -381,17 +386,18 @@ def obtener_resumen_todos_offsets_con_limites(
         .all()
     )
 
-    for grupo in grupos_con_limites:
-        resumen = db.query(OffsetGrupoResumen).filter(OffsetGrupoResumen.grupo_id == grupo.id).first()
+    # Prefetch resumenes y offsets-con-límite en dos queries bounded (una por
+    # tipo), en vez de resolverlos por-grupo dentro del loop.
+    _grupo_ids = [g.id for g in grupos_con_limites]
+    _resumenes_grupo = fetch_resumenes_grupo(db, _grupo_ids)
+    # Tie-break determinístico: el offset de menor id gana (antes era .first()
+    # sin ORDER BY -> no determinístico). Ver design.md §4.
+    _offsets_limite_grupo = fetch_offsets_limite_por_grupo(db, _grupo_ids)
 
-        offset_limite = (
-            db.query(OffsetGanancia)
-            .filter(
-                OffsetGanancia.grupo_id == grupo.id,
-                or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)),
-            )
-            .first()
-        )
+    for grupo in grupos_con_limites:
+        resumen = _resumenes_grupo.get(grupo.id)
+
+        offset_limite = _offsets_limite_grupo.get(grupo.id)
 
         grupo_info = {
             "tipo": "grupo",
@@ -422,8 +428,11 @@ def obtener_resumen_todos_offsets_con_limites(
         .all()
     )
 
+    _offset_ids = [o.id for o in offsets_individuales]
+    _resumenes_individuales = fetch_resumenes_individuales(db, _offset_ids)
+
     for offset in offsets_individuales:
-        resumen = db.query(OffsetIndividualResumen).filter(OffsetIndividualResumen.offset_id == offset.id).first()
+        resumen = _resumenes_individuales.get(offset.id)
 
         # Determinar nivel
         if offset.item_id:
