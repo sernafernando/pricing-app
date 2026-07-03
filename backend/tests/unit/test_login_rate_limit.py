@@ -8,8 +8,6 @@ import app`, so the limiter in this test process binds to in-memory storage
 import logging
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.core.rate_limit import client_ip_key
 
 
@@ -33,15 +31,6 @@ class TestClientIpKey:
         request.headers = {"X-Forwarded-For": "6.6.6.6"}
         request.client = MagicMock(host="10.0.0.5")
         assert client_ip_key(request) == "10.0.0.5"
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limiter():
-    from app.main import app
-
-    app.state.limiter.reset()
-    yield
-    app.state.limiter.reset()
 
 
 class TestLoginRateLimitEndpoint:
@@ -99,6 +88,29 @@ class TestLoginRateLimitEndpoint:
             assert resp.status_code != 429
         finally:
             route_limiter._limiter.storage = original_storage
+
+
+class TestStorageSocketTimeout:
+    """Design (see design.md §7/§9, FIX 1): bound the Redis wait so a black-hole
+    Redis raises quickly instead of blocking a threadpool worker for the OS
+    default (which can be minutes). swallow_errors only fails open AFTER the
+    call returns/raises — an unbounded socket timeout defeats fail-open.
+    """
+
+    def test_redis_storage_has_bounded_socket_timeout(self):
+        from limits.storage import storage_from_string
+        from app.core.rate_limit import REDIS_STORAGE_OPTIONS
+
+        # Build a throwaway redis-backed storage with the exact options the
+        # app passes to `Limiter(storage_options=...)`, to inspect the
+        # connection kwargs actually reaching redis-py.
+        storage = storage_from_string("redis://127.0.0.1:6399/0", **REDIS_STORAGE_OPTIONS)
+        redis_client = storage.storage
+        kwargs = redis_client.connection_pool.connection_kwargs
+        assert kwargs.get("socket_timeout") is not None
+        assert kwargs["socket_timeout"] <= 1
+        assert kwargs.get("socket_connect_timeout") is not None
+        assert kwargs["socket_connect_timeout"] <= 1
 
 
 class TestNonGoalsGuard:

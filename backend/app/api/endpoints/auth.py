@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -51,10 +51,14 @@ class RegisterRequest(BaseModel):
     response_model=TokenResponse,
     responses={401: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
 )
+# ponytail: malformed-body (422) login requests bypass the rate limiter —
+# FastAPI validates the request body before this slowapi-wrapped endpoint
+# runs, so an attacker sending unparseable bodies is never counted. Revisit
+# if login abuse via malformed bodies is observed in practice (would need a
+# middleware-level limiter that runs before body validation).
 @limiter.limit(settings.LOGIN_RATE_LIMIT)
 def login(
     request: Request,
-    response: Response,
     credentials: LoginRequest,
     db: Session = Depends(get_db),
 ):
