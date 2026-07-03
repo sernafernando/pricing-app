@@ -24,6 +24,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "@turf/turf": "^7.3.4",
     "axios": "^1.14.0",
+    "dompurify": "^3.3.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.563.0",
     "prop-types": "^15.8.1",
