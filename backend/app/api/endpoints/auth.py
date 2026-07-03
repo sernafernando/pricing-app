@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -14,6 +14,7 @@ from app.core.security import (
     decode_token,
 )
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.usuario import Usuario, AuthProvider
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rol import Rol
@@ -45,17 +46,31 @@ class RegisterRequest(BaseModel):
     nombre: str
 
 
-@router.post("/auth/login", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+@router.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    responses={401: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+)
+# ponytail: malformed-body (422) login requests bypass the rate limiter —
+# FastAPI validates the request body before this slowapi-wrapped endpoint
+# runs, so an attacker sending unparseable bodies is never counted. Revisit
+# if login abuse via malformed bodies is observed in practice (would need a
+# middleware-level limiter that runs before body validation).
+@limiter.limit(settings.LOGIN_RATE_LIMIT)
+def login(
+    request: Request,
+    credentials: LoginRequest,
+    db: Session = Depends(get_db),
+):
     """Login con username o email (detecta automáticamente por presencia de @)"""
 
     # Detectar si es email o username por la presencia de @
-    if "@" in request.username:
+    if "@" in credentials.username:
         # Es un email
-        usuario = db.query(Usuario).filter(Usuario.email == request.username).first()
+        usuario = db.query(Usuario).filter(Usuario.email == credentials.username).first()
     else:
         # Es un username
-        usuario = db.query(Usuario).filter(Usuario.username == request.username).first()
+        usuario = db.query(Usuario).filter(Usuario.username == credentials.username).first()
 
     if not usuario:
         raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
@@ -63,7 +78,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
 
-    if not verify_password(request.password, usuario.password_hash):
+    if not verify_password(credentials.password, usuario.password_hash):
         raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
 
     # Crear tokens (access + refresh) usando username
