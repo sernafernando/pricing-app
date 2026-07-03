@@ -4,6 +4,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import UTC, datetime
 import asyncio
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.api.endpoints import (
     sync,
     productos,
@@ -101,6 +103,7 @@ from app.tickets.api.endpoints import (
 from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Importar `app.events.rrhh_he_hooks` dispara los `@event.listens_for` que
 # detectan modificaciones de fichadas / cambios de turno y generan alertas
@@ -143,6 +146,18 @@ async def lifespan(app: FastAPI):
 
     logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
     logger.info("CORS allowed origins: %s", settings.cors_origins)
+
+    # ── Login rate-limit storage reachability probe (best-effort) ──
+    # Fail-open by design (see openspec/changes/security-quick-wins/design.md,
+    # ADR-5): if this storage is unreachable, login rate limiting is silently
+    # disabled. This check never blocks startup — it only gives ops a signal
+    # that brute-force protection is armed or not. Bounded by the same
+    # 250ms socket timeouts the limiter itself uses (FIX 1).
+    try:
+        limiter._storage.check()
+        logger.info("✅ Login rate-limit storage reachable — brute-force protection is armed")
+    except Exception:
+        logger.warning("⚠️ Rate-limit storage unreachable at startup — login brute-force protection is FAIL-OPEN")
 
     # ── Redis for SSE pub/sub (best-effort — app works without it) ─
     redis = None
@@ -237,10 +252,6 @@ app = FastAPI(
 # handlers — required for env-gated 404s (e.g. wipe-compras) to be
 # byte-indistinguishable from a nonexistent route.
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-
-from app.core.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
-from slowapi.errors import RateLimitExceeded  # noqa: E402
-from slowapi.middleware import SlowAPIMiddleware  # noqa: E402
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)

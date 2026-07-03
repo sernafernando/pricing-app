@@ -109,6 +109,22 @@ def db(engine):
     connection.close()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Reset the login rate limiter's in-memory counters before/after each test.
+
+    `memory://` storage (see RATE_LIMIT_STORAGE_URI above) persists across
+    tests within the same process, so without this reset, login attempts made
+    by one test file (e.g. test_login_rate_limit.py) leak quota into any other
+    test that also calls POST /api/auth/login (test_auth_flows.py,
+    test_error_contract.py), causing flaky 429s unrelated to what's being
+    tested. Function-scoped + autouse so no test file needs to opt in.
+    """
+    app.state.limiter.reset()
+    yield
+    app.state.limiter.reset()
+
+
 @pytest.fixture()
 def client(db):
     """FastAPI TestClient using the test database session."""
