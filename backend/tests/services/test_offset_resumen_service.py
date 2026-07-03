@@ -93,17 +93,35 @@ class TestFetchOffsetsLimitePorGrupo:
         assert result[g1.id].id == o1.id
         assert result[g1.id].max_unidades == 50
 
-    def test_tie_break_selects_lowest_id_row(self, db, offset_grupo_factory, offset_ganancia_factory):
+    def test_tie_break_selects_lowest_id_row(self, db, offset_grupo_factory, offset_ganancia_factory, query_counter):
         """Spec Requirement 3: two OffsetGanancia rows in the same grupo — the
-        lowest-id row wins, regardless of DB row-return order."""
+        lowest-id row wins, regardless of DB row-return order.
+
+        NOTE on why this test also pins the ORDER BY clause directly: on
+        SQLite, `offsets_ganancia.id` is an INTEGER PRIMARY KEY, which SQLite
+        aliases to the table's internal rowid. A plain (unindexed) table scan
+        over such a table is returned in rowid order — i.e. id-ascending —
+        REGARDLESS of insertion order or ORDER BY. That means no amount of
+        fixture data reordering can make SQLite return this query's rows out
+        of id order, so a purely data-driven tie-break assertion cannot
+        falsify a removed `.order_by(...)` on this backend. The only backend-
+        independent way to prove the ORDER BY clause is actually present (and
+        therefore that the tie-break is a genuine, engineered guarantee, not
+        an artifact of SQLite's scan order) is to inspect the emitted SQL
+        text via `query_counter` and assert the ORDER BY clause is there.
+        """
         g1 = offset_grupo_factory()
         low = offset_ganancia_factory(grupo_id=g1.id, max_unidades=100)  # created first -> lower id
         offset_ganancia_factory(grupo_id=g1.id, max_unidades=999)  # created second -> higher id
 
-        result = fetch_offsets_limite_por_grupo(db, [g1.id])
+        with query_counter() as counter:
+            result = fetch_offsets_limite_por_grupo(db, [g1.id])
 
         assert result[g1.id].id == low.id
         assert result[g1.id].max_unidades == 100
+        assert any("offsets_ganancia" in s and "order by" in s and "grupo_id" in s for s in counter.statements), (
+            f"expected an ORDER BY clause on offsets_ganancia.grupo_id, got: {counter.statements}"
+        )
 
     def test_no_matching_rows_absent_from_dict(self, db, offset_grupo_factory):
         g1 = offset_grupo_factory()  # no offsets at all

@@ -12,6 +12,7 @@ Usage:
         assert response.status_code == 200
 """
 
+import re
 from contextlib import contextmanager
 from datetime import date
 from typing import Optional
@@ -137,9 +138,19 @@ class _QueryCounter:
         return len(self.statements)
 
     def matching(self, needle: str) -> int:
-        """Count executed statements whose SQL text contains `needle` (case-insensitive)."""
-        n = needle.lower()
-        return sum(1 for s in self.statements if n in s)
+        """Count executed statements that SELECT/JOIN the table named `needle`.
+
+        Uses a precise `\\b(from|join)\\s+<table>\\b` regex instead of a bare
+        substring match. A plain substring match over-counts: e.g. matching
+        "offsets_ganancia" against raw SQL text would also match unrelated
+        occurrences (column names, other tables sharing a prefix, etc.), which
+        silently pads the observed count and can mask the difference between
+        "genuinely bounded" and "grows with N" queries. Requiring the table
+        name to appear right after `FROM`/`JOIN` (word-bounded) ties the count
+        to actual query targets against that table.
+        """
+        pattern = re.compile(rf"\b(from|join)\s+{re.escape(needle.lower())}\b")
+        return sum(1 for s in self.statements if pattern.search(s))
 
 
 @pytest.fixture()
