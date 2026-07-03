@@ -90,7 +90,10 @@ export const useAuthStore = create((set, get) => {
 
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.response?.data?.detail || 'Error al iniciar sesión' };
+        return {
+          success: false,
+          error: error.response?.data?.error?.message || error.response?.data?.detail || 'Error al iniciar sesión',
+        };
       }
     },
 

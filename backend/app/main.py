@@ -153,10 +153,18 @@ async def lifespan(app: FastAPI):
     # disabled. This check never blocks startup — it only gives ops a signal
     # that brute-force protection is armed or not. Bounded by the same
     # 250ms socket timeouts the limiter itself uses (FIX 1).
+    # NOTE: `check()` returns bool, it does NOT raise on failure (see
+    # limits.storage.redis.RedisStorage.check — it swallows the connection
+    # error internally and returns False). The try/except below only guards
+    # against a future `limits` version that behaves differently.
     try:
-        limiter._storage.check()
-        logger.info("✅ Login rate-limit storage reachable — brute-force protection is armed")
+        storage_reachable = limiter._storage.check()
     except Exception:
+        storage_reachable = False
+
+    if storage_reachable:
+        logger.info("✅ Login rate-limit storage reachable — brute-force protection is armed")
+    else:
         logger.warning("⚠️ Rate-limit storage unreachable at startup — login brute-force protection is FAIL-OPEN")
 
     # ── Redis for SSE pub/sub (best-effort — app works without it) ─

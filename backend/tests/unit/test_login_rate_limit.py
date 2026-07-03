@@ -113,6 +113,24 @@ class TestStorageSocketTimeout:
         assert kwargs["socket_connect_timeout"] <= 1
 
 
+class TestStorageReachabilityProbeSemantics:
+    """`limits.storage.redis.RedisStorage.check()` does NOT raise on failure —
+    it swallows the connection error internally and returns False. The FIX 4
+    boot-time probe in main.py's lifespan must check the *return value*, not
+    rely on an exception, or a dead Redis at startup would be logged as
+    "armed" (inverted signal — worse than no probe at all).
+    """
+
+    def test_check_returns_bool_and_does_not_raise_when_unreachable(self):
+        from limits.storage import storage_from_string
+        from app.core.rate_limit import REDIS_STORAGE_OPTIONS
+
+        # Port 1 is a well-known reserved/unreachable port — connection is
+        # refused immediately, no need to wait out the socket timeout.
+        storage = storage_from_string("redis://127.0.0.1:1/0", **REDIS_STORAGE_OPTIONS)
+        assert storage.check() is False
+
+
 class TestNonGoalsGuard:
     """Requirement 5: /refresh and /register are not touched by this change."""
 
