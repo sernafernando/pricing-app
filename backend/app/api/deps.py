@@ -1,8 +1,9 @@
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
+from app.core.config import settings
 from app.core.database import get_async_db, get_background_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
@@ -89,6 +90,16 @@ async def get_current_user_transient(
         db.expunge(usuario)
 
     return usuario
+
+
+def require_dev_or_test() -> None:
+    """Env-gate-404: hide testing-only routes outside development/testing.
+
+    Raises a bare 404 (no detail) so the response is byte-identical to the
+    framework's unmatched-route response — clients cannot tell the route exists.
+    """
+    if not settings.is_dev_or_test:
+        raise HTTPException(status_code=404)
 
 
 def require_role(allowed_roles: list[RolUsuario]):

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import UTC, datetime
 import asyncio
@@ -97,7 +98,7 @@ from app.tickets.api.endpoints import (
     sectores as sectores_ep,
     workflows as workflows_ep,
 )
-from app.core.config import settings
+from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
 
@@ -204,18 +205,38 @@ async def lifespan(app: FastAPI):
         bg_lock_fd.close()
 
 
+def _docs_urls(environment: str) -> dict[str, str | None]:
+    """Return docs/redoc/openapi URL kwargs, disabled outside dev-like envs.
+
+    Passing None to FastAPI disables the corresponding route entirely. One flag
+    gates all three because Swagger UI and ReDoc both fetch openapi_url.
+    Enabled for `DEV_LIKE_ENVIRONMENTS` ("development", "testing") — CI runs
+    with ENVIRONMENT=testing and still needs the docs affordances reachable.
+    """
+    if environment in DEV_LIKE_ENVIRONMENTS:
+        return {
+            "docs_url": "/api/docs",
+            "redoc_url": "/api/redoc",
+            "openapi_url": "/api/openapi.json",
+        }
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
 app = FastAPI(
     title="Pricing API",
     description="API para gestión de precios de productos",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
     lifespan=lifespan,
+    **_docs_urls(settings.ENVIRONMENT),
 )
 
-# Global error handler — ensures all errors follow the standard envelope
-app.add_exception_handler(HTTPException, http_exception_handler)
+# Global error handler — ensures all errors follow the standard envelope.
+# Registered on Starlette's base HTTPException (not just FastAPI's subclass) so
+# genuinely-unmatched routes (raised by Starlette's own routing, which uses the
+# base class) are normalized identically to explicit `HTTPException` raises in
+# handlers — required for env-gated 404s (e.g. wipe-compras) to be
+# byte-indistinguishable from a nonexistent route.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,

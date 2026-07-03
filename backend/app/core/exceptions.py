@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ class ErrorCode:
     # Server
     INTERNAL_ERROR = "INTERNAL_ERROR"
     REGISTRATION_DISABLED = "REGISTRATION_DISABLED"
+    METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +111,7 @@ def api_error(
 # ---------------------------------------------------------------------------
 
 
-def http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
+def http_exception_handler(_request, exc: StarletteHTTPException) -> JSONResponse:
     """
     Normalize all HTTPException responses to the standard error shape.
 
@@ -149,7 +151,11 @@ def http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
     # cuando el dict lleva tipos no-JSON nativos (ej: duplicados del ERP con
     # ct_date: datetime y ct_total: Decimal). Antes el fallback `str(detail)`
     # tapaba el problema — ahora que preservamos el dict, hay que codificarlo.
-    return JSONResponse(status_code=exc.status_code, content=jsonable_encoder(body))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=jsonable_encoder(body),
+        headers=getattr(exc, "headers", None),
+    )
 
 
 def _status_to_code(status_code: int) -> str:
@@ -159,6 +165,7 @@ def _status_to_code(status_code: int) -> str:
         401: ErrorCode.INVALID_TOKEN,
         403: ErrorCode.INSUFFICIENT_PERMISSIONS,
         404: ErrorCode.NOT_FOUND,
+        405: ErrorCode.METHOD_NOT_ALLOWED,
         409: ErrorCode.ALREADY_EXISTS,
         422: ErrorCode.VALIDATION_ERROR,
     }
