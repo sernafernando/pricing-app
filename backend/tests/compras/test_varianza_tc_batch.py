@@ -396,7 +396,7 @@ class TestThresholdEdge:
 class TestQueryCount:
     """AC6: batch issues at most 5 queries regardless of N."""
 
-    def test_bounded_queries_for_50_pedidos(self, db, empresa, proveedor, user):
+    def test_bounded_queries_for_50_pedidos(self, db, empresa, proveedor, user, query_counter):
         """For 50 pedido ids, query count must be <= 5."""
         import sqlalchemy as sa
 
@@ -420,20 +420,10 @@ class TestQueryCount:
             ).all()
         ]
 
-        query_count = 0
-        conn = db.connection()
-
-        def _count(conn_inner, cursor, statement, parameters, context, executemany):
-            nonlocal query_count
-            query_count += 1
-
-        sa.event.listen(conn, "before_cursor_execute", _count)
-        try:
+        with query_counter() as counter:
             calcular_varianza_tc_batch(db, pedido_ids)
-        finally:
-            sa.event.remove(conn, "before_cursor_execute", _count)
 
-        assert query_count <= 5, f"Expected ≤5 queries, got {query_count}"
+        assert counter.total <= 5, f"Expected ≤5 queries, got {counter.total}"
 
 
 # ---------------------------------------------------------------------------
