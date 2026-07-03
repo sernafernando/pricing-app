@@ -453,6 +453,8 @@ def rma_historial_factory(db):
         db.flush()
         return historial
 
+    return factory
+
 
 # ---------------------------------------------------------------------------
 # Offset factories (dashboard-batch-prefetch — shared by unit + integration tests)
@@ -563,7 +565,5 @@ def offset_individual_resumen_factory(db):
         db.add(r)
         db.flush()
         return r
-
-    return factory
 
     return factory
