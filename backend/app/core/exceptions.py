@@ -56,6 +56,7 @@ class ErrorCode:
     INTERNAL_ERROR = "INTERNAL_ERROR"
     REGISTRATION_DISABLED = "REGISTRATION_DISABLED"
     METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 # ---------------------------------------------------------------------------
@@ -168,5 +169,6 @@ def _status_to_code(status_code: int) -> str:
         405: ErrorCode.METHOD_NOT_ALLOWED,
         409: ErrorCode.ALREADY_EXISTS,
         422: ErrorCode.VALIDATION_ERROR,
+        429: ErrorCode.RATE_LIMITED,
     }
     return mapping.get(status_code, ErrorCode.INTERNAL_ERROR)

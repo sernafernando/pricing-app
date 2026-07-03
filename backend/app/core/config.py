@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     SSE_HEARTBEAT_SECONDS: int = 30
     SSE_MAX_CONNECTIONS: int = 100
 
+    # Rate limiting (login brute-force friction)
+    LOGIN_RATE_LIMIT: str = "10/minute"
+    # Storage for rate-limit counters. Defaults to REDIS_URL (shared across the
+    # uvicorn workers -> one global counter). Tests override to "memory://".
+    RATE_LIMIT_STORAGE_URI: Optional[str] = None
+
     # GBP (ERP SOAP credentials)
     GBP_USERNAME: Optional[str] = None
     GBP_PASSWORD: Optional[str] = None
