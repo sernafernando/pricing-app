@@ -46,16 +46,16 @@ class RegisterRequest(BaseModel):
 
 
 @router.post("/auth/login", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     """Login con username o email (detecta automáticamente por presencia de @)"""
 
     # Detectar si es email o username por la presencia de @
-    if "@" in request.username:
+    if "@" in credentials.username:
         # Es un email
-        usuario = db.query(Usuario).filter(Usuario.email == request.username).first()
+        usuario = db.query(Usuario).filter(Usuario.email == credentials.username).first()
     else:
         # Es un username
-        usuario = db.query(Usuario).filter(Usuario.username == request.username).first()
+        usuario = db.query(Usuario).filter(Usuario.username == credentials.username).first()
 
     if not usuario:
         raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
@@ -63,7 +63,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
 
-    if not verify_password(request.password, usuario.password_hash):
+    if not verify_password(credentials.password, usuario.password_hash):
         raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
 
     # Crear tokens (access + refresh) usando username
