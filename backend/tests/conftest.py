@@ -23,6 +23,7 @@ os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "memory://")
 from datetime import date
 from typing import Optional
 
+import fakeredis
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
@@ -33,6 +34,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
 from app.core.database import Base, get_async_db, get_db
 from app.core.security import get_password_hash, create_access_token, create_refresh_token
+from app.core import token_revocation
 from app.main import app
 from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_historial import RmaCasoHistorial
@@ -40,6 +42,26 @@ from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.models.rol import Rol
+
+# ---------------------------------------------------------------------------
+# Token revocation test seam
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _fake_revocation_redis():
+    """Back the token denylist with an in-memory fakeredis for every test.
+
+    Raw redis-py can't use memory:// (that's a limits-lib scheme used by the
+    rate limiter), so we inject a FakeRedis instead. Fresh instance per test
+    => no cross-test leakage of revoked jtis. Reset to None afterwards so
+    nothing holds a stale client.
+    """
+    fake = fakeredis.FakeStrictRedis()
+    token_revocation._set_client_for_tests(fake)
+    yield fake
+    token_revocation._set_client_for_tests(None)
+
 
 # ---------------------------------------------------------------------------
 # Database fixtures
