@@ -377,7 +377,7 @@ def listar_fichadas(
     fecha_hasta: Optional[date] = None,
     tipo: Optional[str] = None,
     origen: Optional[str] = None,
-    orden: str = Query("desc", regex="^(asc|desc)$", description="Orden por timestamp: asc o desc"),
+    orden: str = Query("desc", pattern="^(asc|desc)$", description="Orden por timestamp: asc o desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
