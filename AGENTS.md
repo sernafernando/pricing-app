@@ -19,14 +19,8 @@ Use these skills for detailed patterns on-demand:
 |-------|-------------|-----|
 | `typescript` | Const types, flat interfaces, utility types | [SKILL.md](skills/typescript/SKILL.md) |
 | `react-19` | No useMemo/useCallback, React Compiler | [SKILL.md](skills/react-19/SKILL.md) |
-| `nextjs-15` | App Router, Server Actions, streaming | [SKILL.md](skills/nextjs-15/SKILL.md) |
-| `tailwind-4` | cn() utility, no var() in className | [SKILL.md](skills/tailwind-4/SKILL.md) |
-| `playwright` | Page Object Model, MCP workflow, selectors | [SKILL.md](skills/playwright/SKILL.md) |
 | `pytest` | Fixtures, mocking, markers, parametrize | [SKILL.md](skills/pytest/SKILL.md) |
-| `django-drf` | ViewSets, Serializers, Filters | [SKILL.md](skills/django-drf/SKILL.md) |
-| `zod-4` | New API (z.email(), z.uuid()) | [SKILL.md](skills/zod-4/SKILL.md) |
 | `zustand-5` | Persist, selectors, slices | [SKILL.md](skills/zustand-5/SKILL.md) |
-| `ai-sdk-5` | UIMessage, streaming, LangChain | [SKILL.md](skills/ai-sdk-5/SKILL.md) |
 
 ### Pricing App-Specific Skills
 
@@ -37,6 +31,9 @@ Use these skills for detailed patterns on-demand:
 | `pricing-app-ml-integration` | MercadoLibre API - OAuth, webhooks, item sync | [SKILL.md](skills/pricing-app-ml-integration/SKILL.md) |
 | `pricing-app-pricing-logic` | Pricing calculations - markup, fees, tiers, currency | [SKILL.md](skills/pricing-app-pricing-logic/SKILL.md) |
 | `pricing-app-permissions` | Hybrid permission system - roles + overrides | [SKILL.md](skills/pricing-app-permissions/SKILL.md) |
+| `pricing-app-auth-security` | JWT/refresh tokens, CORS, endpoint exposure | [SKILL.md](skills/pricing-app-auth-security/SKILL.md) |
+| `pricing-app-testing-ci` | CI pipelines, regression tests, coverage patterns | [SKILL.md](skills/pricing-app-testing-ci/SKILL.md) |
+| `pricing-app-design` | Design tokens, CSS composition, Tesla Design System | [SKILL.md](skills/pricing-app-design/SKILL.md) |
 
 ### Auto-invoke Skills
 
@@ -63,7 +60,7 @@ Pricing App is an internal ERP/pricing management system for e-commerce operatio
 | Component | Location | Tech Stack |
 |-----------|----------|------------|
 | Backend | `backend/` | FastAPI, SQLAlchemy, Alembic, PostgreSQL |
-| Frontend | `frontend/` | React 18, Vite, Zustand, CSS Modules |
+| Frontend | `frontend/` | React 18, Vite, Zustand, CSS Modules (primary), Tailwind 4 utilities (select components/pages) |
 
 ---
 
@@ -83,8 +80,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 alembic revision --autogenerate -m "description"
 alembic upgrade head
 
-# Code quality
-# (pending: add pre-commit hooks, black, flake8)
+# Code quality (ruff already in place; no pre-commit hooks configured yet)
+ruff format --check app/
+ruff format app/           # to fix
 ```
 
 **See**: [`backend/AGENTS.md`](backend/AGENTS.md) for detailed backend rules.
@@ -96,17 +94,21 @@ alembic upgrade head
 ```bash
 # Setup
 cd frontend
-npm install
+pnpm install
 
 # Development
-npm run dev
+pnpm run dev
 
 # Build
-npm run build
-npm run preview
+pnpm run build
+pnpm run preview
 
 # Linting
-npm run lint
+pnpm run lint
+
+# Tests
+pnpm test          # vitest run
+pnpm test:watch    # vitest watch mode
 ```
 
 **See**: [`frontend/AGENTS.md`](frontend/AGENTS.md) for detailed frontend rules.
@@ -141,26 +143,28 @@ Before creating a PR:
 ```
 backend/
 ├── app/
-│   ├── main.py              # FastAPI app initialization
-│   ├── api/                 # (legacy - being migrated to routers/)
-│   ├── routers/             # Route handlers (NEW pattern)
-│   │   ├── auth.py
-│   │   ├── productos.py
-│   │   ├── ventas.py
-│   │   └── ...
+│   ├── main.py              # FastAPI app initialization, router registration
+│   ├── api/
+│   │   ├── deps.py          # Shared FastAPI dependencies (get_current_user, etc.)
+│   │   └── endpoints/       # Core route handlers: auth.py, productos.py,
+│   │                        # ventas_ml.py, pricing.py, rentabilidad.py, and most
+│   │                        # other domain endpoints (~90 modules)
+│   ├── routers/             # Additional route handlers, mostly newer/adjacent
+│   │                        # domains: administracion_*, rrhh_*, rma_*, seriales_*,
+│   │                        # alertas.py, weather.py, sse.py, prearmado.py, etc.
 │   ├── models/              # SQLAlchemy models
 │   │   ├── user.py
 │   │   ├── producto.py
 │   │   └── ...
+│   ├── schemas/             # Pydantic schemas not colocated with endpoints
+│   │                        # (compras, cheques, alertas, prearmado, etc.)
+│   ├── events/               # Domain event hooks (e.g. rrhh_he_hooks.py)
 │   ├── services/            # Business logic
 │   │   ├── pricing_service.py
 │   │   ├── ml_service.py
 │   │   └── ...
-│   ├── core/                # Config, security, database
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── security.py
-│   │   └── deps.py
+│   ├── core/                # config.py, database.py, security.py,
+│   │                        # rate_limit.py, sse.py
 │   ├── utils/               # Helper functions
 │   ├── scripts/             # Cron jobs, data sync
 │   └── tickets/             # Ticketing system
