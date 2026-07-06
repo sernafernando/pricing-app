@@ -1,0 +1,27 @@
+# Normalize line endings: text files are stored as LF in the repo and checked
+# out as LF (this project's dev + deploy are Linux). Prevents the recurring
+# CRLF churn that appeared on edits to files with legacy CRLF endings.
+#
+# Renormalization is incremental: existing CRLF-committed files convert to LF
+# the first time they are `git add`ed with these rules active. A full one-time
+# `git add --renormalize .` is deferred until in-flight refactor branches merge,
+# to avoid mass merge conflicts.
+
+* text=auto eol=lf
+
+# Binary assets — never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.xlsx binary
+*.xls binary
+*.zip binary
