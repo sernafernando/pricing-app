@@ -12,7 +12,9 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    remaining_ttl_seconds,
 )
+from app.core.token_revocation import revoke_jti, is_revoked
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.models.usuario import Usuario, AuthProvider
@@ -37,6 +39,12 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str  # rotated token — clients MUST persist it
+    token_type: str
 
 
 class RegisterRequest(BaseModel):
@@ -179,11 +187,16 @@ def get_me(
     }
 
 
-@router.post("/auth/refresh", responses={401: {"model": ErrorResponse}})
+@router.post(
+    "/auth/refresh",
+    response_model=RefreshResponse,
+    responses={401: {"model": ErrorResponse}},
+)
 def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
     """
-    Renueva el access_token usando un refresh_token válido.
-    Devuelve un nuevo access_token (el refresh_token sigue siendo el mismo hasta que expire).
+    Rota los tokens: valida el refresh_token, lo revoca, y emite un nuevo par
+    access + refresh. Un refresh_token ya revocado (rotado o deslogueado)
+    se rechaza con 401.
     """
     payload = decode_token(request.refresh_token)
     if payload is None:
@@ -192,6 +205,11 @@ def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db))
     # Verificar que sea un refresh token (no un access token reutilizado)
     if payload.get("type") != "refresh":
         raise api_error(401, ErrorCode.INVALID_TOKEN_TYPE, "Token no es un refresh token")
+
+    # Rechazar un refresh_token ya revocado (rotación / logout previo).
+    old_jti = payload.get("jti")
+    if old_jti and is_revoked(old_jti):
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token revocado")
 
     username: str = payload.get("sub")
     if username is None:
@@ -203,11 +221,41 @@ def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db))
     if usuario is None or not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario no encontrado o inactivo")
 
-    # Generar nuevo access token
+    # Rotar: revocar el refresh_token presentado, emitir un par nuevo.
+    if old_jti:
+        revoke_jti(old_jti, remaining_ttl_seconds(payload))  # best-effort, fail-open
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token_data = {"sub": usuario.username}
     new_access_token = create_access_token(
-        data={"sub": usuario.username},
+        data=token_data,
         expires_delta=access_token_expires,
     )
+    new_refresh_token = create_refresh_token(data=token_data)
 
-    return {"access_token": new_access_token, "token_type": "bearer"}
+    return RefreshResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+    )
+
+
+@router.post("/auth/logout", responses={401: {"model": ErrorResponse}})
+def logout(request: RefreshRequest):
+    """
+    Revoca el jti del refresh_token presentado, de modo que ya no pueda usarse
+    para refrescar. Deliberadamente NO requiere un access_token válido, para que
+    un usuario cuyo access_token ya expiró pueda igualmente cerrar su sesión.
+    """
+    payload = decode_token(request.refresh_token)
+    if payload is None:
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token inválido o expirado")
+
+    if payload.get("type") != "refresh":
+        raise api_error(401, ErrorCode.INVALID_TOKEN_TYPE, "Token no es un refresh token")
+
+    jti = payload.get("jti")
+    if jti:  # tokens in-flight (sin jti) son no-ops sin revocación posible
+        revoke_jti(jti, remaining_ttl_seconds(payload))  # best-effort, fail-open
+
+    return {"detail": "Sesión cerrada"}

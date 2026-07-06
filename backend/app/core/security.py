@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, UTC
 from typing import Optional
+from uuid import uuid4
 import jwt
 from jwt.exceptions import PyJWTError
 from passlib.context import CryptContext
@@ -32,6 +33,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             "exp": expire,
             "iss": "pricing-app",
             "aud": "pricing-app-api",
+            "jti": str(uuid4()),
         }
     )
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -49,6 +51,7 @@ def create_refresh_token(data: dict) -> str:
             "iss": "pricing-app",
             "aud": "pricing-app-api",
             "type": "refresh",
+            "jti": str(uuid4()),
         }
     )
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -68,3 +71,17 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except PyJWTError:
         return None
+
+
+def remaining_ttl_seconds(payload: dict) -> int:
+    """Seconds until this token's `exp`, clamped to >= 0.
+
+    `exp` is a Unix timestamp (int/float) after PyJWT decoding. Used to set the
+    denylist key TTL so the revocation record auto-expires exactly when the
+    token would have expired anyway (no cleanup job, no unbounded growth).
+    """
+    exp = payload.get("exp")
+    if exp is None:
+        return 0
+    remaining = int(exp - datetime.now(UTC).timestamp())
+    return max(remaining, 0)
