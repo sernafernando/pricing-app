@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     # JWT
     SECRET_KEY: str
+    # Dedicated signing key for refresh tokens (audit M-2 — isolate refresh
+    # blast radius from access tokens). When unset, falls back to SECRET_KEY
+    # via the refresh_secret_key property, so CI/dev behave exactly as before.
+    REFRESH_SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 días
@@ -40,6 +44,17 @@ class Settings(BaseSettings):
         these affordances enabled. This is NEVER true in production.
         """
         return self.ENVIRONMENT in DEV_LIKE_ENVIRONMENTS
+
+    @property
+    def refresh_secret_key(self) -> str:
+        """Signing/verification key for refresh tokens.
+
+        Returns the dedicated REFRESH_SECRET_KEY when configured; otherwise
+        falls back to SECRET_KEY so environments that only set SECRET_KEY
+        (CI, dev) keep signing and validating refresh tokens exactly as today.
+        Removing this fallback is a scheduled follow-up.
+        """
+        return self.REFRESH_SECRET_KEY or self.SECRET_KEY
 
     # CORS — comma-separated origins, e.g. "https://app.example.com,https://admin.example.com"
     # Leave empty to use defaults: permissive in development, restrictive in production.
