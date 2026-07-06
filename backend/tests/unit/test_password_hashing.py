@@ -8,32 +8,23 @@ a broken verify would lock every user out.
 
 from app.core.security import get_password_hash, verify_password
 
-
-def _old_passlib_hash(password: str) -> str:
-    """Generate a hash the OLD way (passlib's bcrypt handler) for compat tests.
-
-    Imported lazily so the test suite does not require passlib once it is
-    removed from requirements.txt in CI environments that install strictly
-    from the lockfile. If passlib is not installed, the test is skipped
-    (the historical hash string fallback below still covers the compat
-    guarantee).
-    """
-    from passlib.context import CryptContext
-
-    ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    return ctx.hash(password)
+# Real hashes generated ONCE by the OLD passlib CryptContext (schemes=["bcrypt"])
+# and hardcoded here. They are standard $2b$ bcrypt hashes — identical in format
+# to what lives in the production DB. Hardcoding them proves the compat guarantee
+# WITHOUT requiring passlib at test-run time (passlib was removed from
+# requirements.txt in this migration; importing it in CI would ModuleNotFoundError).
+PASSLIB_HASH_SOMEPASSWORD123 = "$2b$12$RbMX8gCxdoDYZDmgCc4U0.tloNrznQu4UipocRCdXd4r3ZgRVchrS"
+PASSLIB_HASH_C_TIMES_80 = "$2b$12$.pKhrsd8DObKdjAYZtlIkOWyS3pawRE7chV4KIFXBPZbjuboCdhay"
 
 
 class TestPasslibCompat:
     """Existing DB hashes (produced by passlib) must keep verifying."""
 
     def test_passlib_hash_verifies_with_new_implementation(self) -> None:
-        old_hash = _old_passlib_hash("somepassword123")
-        assert verify_password("somepassword123", old_hash) is True
+        assert verify_password("somepassword123", PASSLIB_HASH_SOMEPASSWORD123) is True
 
     def test_passlib_hash_rejects_wrong_password(self) -> None:
-        old_hash = _old_passlib_hash("somepassword123")
-        assert verify_password("wrongpassword", old_hash) is False
+        assert verify_password("wrongpassword", PASSLIB_HASH_SOMEPASSWORD123) is False
 
     def test_known_bcrypt_hash_string_verifies(self) -> None:
         # A fixed $2b$ hash generated once (offline) with passlib's
@@ -82,9 +73,9 @@ class TestSeventyTwoByteTruncation:
         assert verify_password(truncated_password, hashed) is True
 
     def test_old_passlib_hash_of_long_password_verifies_with_new_code(self) -> None:
-        long_password = "c" * 80
-        old_hash = _old_passlib_hash(long_password)
-        assert verify_password(long_password, old_hash) is True
+        # PASSLIB_HASH_C_TIMES_80 was produced by passlib for "c" * 80 (which it
+        # truncated to 72 bytes). The new code must verify it identically.
+        assert verify_password("c" * 80, PASSLIB_HASH_C_TIMES_80) is True
 
 
 class TestUnicodePasswords:
