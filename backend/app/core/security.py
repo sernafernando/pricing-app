@@ -54,7 +54,7 @@ def create_refresh_token(data: dict) -> str:
             "jti": str(uuid4()),
         }
     )
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.refresh_secret_key, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 
@@ -71,6 +71,34 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except PyJWTError:
         return None
+
+
+def decode_refresh_token(token: str) -> Optional[dict]:
+    """Decode and validate a refresh token, tolerating the key transition.
+
+    Tries the dedicated refresh key first, then falls back to SECRET_KEY so a
+    refresh token minted just before this change deployed (signed with the old
+    SECRET_KEY) still validates — no forced mass logout during the migration
+    window. Same algorithm/audience/issuer constraints as decode_token.
+
+    Returns the payload on the first key that validates, or None if no key does.
+    The SECRET_KEY fallback is scheduled for removal once all pre-deploy
+    SECRET_KEY-signed refresh tokens have expired.
+    """
+    # dict.fromkeys preserves order and de-duplicates: when REFRESH_SECRET_KEY
+    # is unset, refresh_secret_key == SECRET_KEY, so we avoid decoding twice.
+    for key in dict.fromkeys((settings.refresh_secret_key, settings.SECRET_KEY)):
+        try:
+            return jwt.decode(
+                token,
+                key,
+                algorithms=[settings.ALGORITHM],
+                audience="pricing-app-api",
+                issuer="pricing-app",
+            )
+        except PyJWTError:
+            continue
+    return None
 
 
 def remaining_ttl_seconds(payload: dict) -> int:
