@@ -64,7 +64,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 ## TECH STACK
 
-FastAPI 0.100+ | SQLAlchemy 2.0+ | Alembic 1.12+ | Python 3.9+ | PostgreSQL | bcrypt | PyJWT
+FastAPI 0.100+ | SQLAlchemy 2.0+ | Alembic 1.12+ | Python 3.11+ (ruff target; local venv runs 3.14.5) | PostgreSQL | bcrypt | PyJWT
 
 ---
 
@@ -74,10 +74,15 @@ FastAPI 0.100+ | SQLAlchemy 2.0+ | Alembic 1.12+ | Python 3.9+ | PostgreSQL | bc
 backend/
 ├── app/
 │   ├── main.py              # FastAPI app
-│   ├── routers/             # Route handlers (NEW)
+│   ├── api/
+│   │   ├── deps.py          # Shared dependencies (get_current_user, etc.)
+│   │   └── endpoints/       # Core route handlers (auth, productos, ventas_ml, pricing, ...)
+│   ├── routers/             # Additional route handlers (administracion_*, rrhh_*, rma_*, seriales_*, ...)
 │   ├── models/              # SQLAlchemy models
+│   ├── schemas/             # Standalone Pydantic schemas
+│   ├── events/              # Domain event hooks
 │   ├── services/            # Business logic
-│   ├── core/                # Config, DB, security
+│   ├── core/                # Config, DB, security, rate limiting, SSE
 │   └── utils/               # Helpers
 ├── alembic/versions/        # Migrations
 └── scripts/                 # Cron jobs
@@ -119,6 +124,11 @@ ruff format app/            # Fix
 
 # Dependencies
 pip install -r requirements.txt
+
+# Tests (run from backend/, venv activated)
+pytest tests/ -v                # full suite
+pytest tests/integration -q     # a single suite: unit, integration, smoke,
+pytest tests/unit -q            # services, compras, rentabilidad, tickets, offsets
 ```
 
 ---
