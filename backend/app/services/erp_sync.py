@@ -280,6 +280,21 @@ async def sincronizar_erp(db: Session) -> Dict:
         for i in range(0, len(productos_unicos), batch_size):
             batch = productos_unicos[i : i + batch_size]
 
+            # Prefetch: mirror the loop's per-row key derivation (below) EXACTLY
+            # so the prefetch key set equals the set of item_ids the loop will
+            # look up. The loop derives item_id via convertir_a_entero(...) and
+            # `continue`s on falsy — so we apply the same convert + skip-falsy
+            # filter here. Dedup via set() is harmless (productos_unicos is
+            # already deduped by item_id).
+            batch_ids = {iid for producto_data in batch if (iid := convertir_a_entero(producto_data.get("Item_ID")))}
+
+            productos_dict = {
+                p.item_id: p for p in db.query(ProductoERP).filter(ProductoERP.item_id.in_(batch_ids)).all()
+            }
+            pricing_dict = {
+                pr.item_id: pr for pr in db.query(ProductoPricing).filter(ProductoPricing.item_id.in_(batch_ids)).all()
+            }
+
             for producto_data in batch:
                 try:
                     item_id = convertir_a_entero(producto_data.get("Item_ID"))
@@ -295,7 +310,7 @@ async def sincronizar_erp(db: Session) -> Dict:
                     producto_data["Descripción"] = decode_html_entities(producto_data.get("Descripción"))
                     hash_nuevo = calcular_hash(producto_data)
 
-                    producto_existente = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+                    producto_existente = productos_dict.get(item_id)
 
                     codigo = str(producto_data.get("Código", "")).replace('"', "")
                     costo = convertir_a_numero(producto_data.get("coslis_price", 0))
@@ -344,7 +359,7 @@ async def sincronizar_erp(db: Session) -> Dict:
 
                     # SINCRONIZAR PRECIO si viene del ERP
                     if precio_publicado and precio_publicado > 0:
-                        pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+                        pricing = pricing_dict.get(item_id)
 
                         # SOLO actualizar si NO existe o NO tiene precio
                         if not pricing or pricing.precio_lista_ml is None:
