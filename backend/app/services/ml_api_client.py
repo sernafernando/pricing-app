@@ -6,6 +6,7 @@ import logging
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import get_mlwebhook_engine
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,7 @@ class MercadoLibreAPIClient:
         token_data = _load_token_from_mlwebhook()
         if not token_data or not token_data.get("access_token"):
             raise RuntimeError(
-                "No se pudo obtener access_token de mlwebhook DB. "
-                "Re-autenticar en https://ml-webhook.gaussonline.com.ar/auth"
+                f"No se pudo obtener access_token de mlwebhook DB. Re-autenticar en {settings.ML_WEBHOOK_BASE_URL}/auth"
             )
 
         self._cached_token = token_data["access_token"]

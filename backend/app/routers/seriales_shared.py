@@ -11,9 +11,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-ML_WEBHOOK_RENDER_URL = "https://ml-webhook.gaussonline.com.ar/api/ml/render"
+ML_WEBHOOK_RENDER_URL = f"{settings.ML_WEBHOOK_BASE_URL}/api/ml/render"
 _HTTPX_TIMEOUT = 10.0  # seconds per request to ML webhook proxy
 _GBP_TIMEOUT = 10.0
 

@@ -94,6 +94,9 @@ class Settings(BaseSettings):
 
     # ML Webhook Database (para consultar ml_previews directamente)
     ML_WEBHOOK_DB_URL: Optional[str] = None
+    # Base host of the internal ml-webhook microservice (render/preview API).
+    # Extracted from three hardcoded call sites (audit M-3). Override per env.
+    ML_WEBHOOK_BASE_URL: str = "https://ml-webhook.gaussonline.com.ar"
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
