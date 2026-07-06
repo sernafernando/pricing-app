@@ -85,6 +85,9 @@ def decode_refresh_token(token: str) -> Optional[dict]:
     The SECRET_KEY fallback is scheduled for removal once all pre-deploy
     SECRET_KEY-signed refresh tokens have expired.
     """
+    # ponytail: drop the settings.SECRET_KEY fallback below (validate against
+    # refresh_secret_key only) once the migration window has closed — see the
+    # matching marker on Settings.REFRESH_SECRET_KEY in config.py.
     # dict.fromkeys preserves order and de-duplicates: when REFRESH_SECRET_KEY
     # is unset, refresh_secret_key == SECRET_KEY, so we avoid decoding twice.
     for key in dict.fromkeys((settings.refresh_secret_key, settings.SECRET_KEY)):

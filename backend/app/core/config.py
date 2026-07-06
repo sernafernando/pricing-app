@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Dedicated signing key for refresh tokens (audit M-2 — isolate refresh
     # blast radius from access tokens). When unset, falls back to SECRET_KEY
     # via the refresh_secret_key property, so CI/dev behave exactly as before.
+    # ponytail: remove the SECRET_KEY fallback (make this required, drop
+    # Optional/default) >=7 days after deploy, once pre-deploy SECRET_KEY-signed
+    # refresh tokens (REFRESH_TOKEN_EXPIRE_MINUTES window) have all expired.
     REFRESH_SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
