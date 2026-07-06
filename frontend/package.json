@@ -57,7 +57,8 @@
     "terser": "^5.46.1",
     "vite": "^7.3.2",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "workbox-window": "7.4.0"
   },
   "overrides": {
     "react": "^18.2.0",
