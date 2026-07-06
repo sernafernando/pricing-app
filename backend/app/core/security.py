@@ -1,22 +1,38 @@
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 from uuid import uuid4
+import bcrypt
 import jwt
 from jwt.exceptions import PyJWTError
-from passlib.context import CryptContext
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt only considers the first 72 bytes of the input. passlib's bcrypt
+# handler silently truncated passwords to this limit before hashing; we
+# replicate that exact truncation here so hashes created by the old passlib
+# implementation keep verifying correctly (audit M-6: passlib is unmaintained
+# since 2020, migrated to direct bcrypt).
+_BCRYPT_MAX_BYTES = 72
+
+
+def _truncate_password(password: str) -> bytes:
+    """Encode a password to UTF-8 and truncate to bcrypt's 72-byte limit.
+
+    Matches passlib's historical bcrypt truncation behavior so existing
+    password hashes remain verifiable after the migration away from passlib.
+    """
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica que el password coincida con el hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    password_bytes = _truncate_password(plain_password)
+    return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
 
 
 def get_password_hash(password: str) -> str:
     """Genera hash del password"""
-    return pwd_context.hash(password)
+    password_bytes = _truncate_password(password)
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
