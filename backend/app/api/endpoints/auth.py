@@ -11,7 +11,7 @@ from app.core.security import (
     get_password_hash,
     create_access_token,
     create_refresh_token,
-    decode_token,
+    decode_refresh_token,
     remaining_ttl_seconds,
 )
 from app.core.token_revocation import revoke_jti, is_revoked
@@ -198,7 +198,7 @@ def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db))
     access + refresh. Un refresh_token ya revocado (rotado o deslogueado)
     se rechaza con 401.
     """
-    payload = decode_token(request.refresh_token)
+    payload = decode_refresh_token(request.refresh_token)
     if payload is None:
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token inválido o expirado")
 
@@ -247,7 +247,7 @@ def logout(request: RefreshRequest):
     para refrescar. Deliberadamente NO requiere un access_token válido, para que
     un usuario cuyo access_token ya expiró pueda igualmente cerrar su sesión.
     """
-    payload = decode_token(request.refresh_token)
+    payload = decode_refresh_token(request.refresh_token)
     if payload is None:
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token inválido o expirado")
 

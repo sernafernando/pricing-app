@@ -408,3 +408,96 @@ class TestFailOpen:
             assert any("revocation" in r.message.lower() for r in caplog.records)
         finally:
             app_logger.propagate = False
+
+
+class TestRefreshKeyIsolation:
+    """M-2: refresh token signed with the dedicated REFRESH_SECRET_KEY validates.
+
+    RED gate: on current code /auth/refresh decodes with SECRET_KEY only, so a
+    token signed with a distinct refresh key is rejected (401). After the change
+    decode_refresh_token tries the refresh key first and accepts it (200).
+    """
+
+    def test_refresh_signed_with_distinct_refresh_key_succeeds(self, client, active_user, monkeypatch):
+        import jwt as pyjwt
+        from datetime import UTC, datetime, timedelta
+        from app.core.config import settings
+
+        distinct_key = "a-distinct-refresh-key-not-equal-to-secret-key"
+        # Per-test only: pytest reverts at teardown; does NOT touch fakeredis /
+        # rate-limiter autouse fixtures. raising=False so it also runs on code
+        # where the attribute does not yet exist (RED phase).
+        monkeypatch.setattr(settings, "REFRESH_SECRET_KEY", distinct_key, raising=False)
+
+        payload = {
+            "sub": active_user.username,
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+            "iss": "pricing-app",
+            "aud": "pricing-app-api",
+            "type": "refresh",
+            "jti": "isolation-red-gate-jti",
+        }
+        refresh = pyjwt.encode(payload, distinct_key, algorithm=settings.ALGORITHM)
+
+        response = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert response.status_code == 200
+
+    def test_refresh_signed_with_secret_key_still_validates_via_fallback(self, client, active_user, monkeypatch):
+        import jwt as pyjwt
+        from datetime import UTC, datetime, timedelta
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "REFRESH_SECRET_KEY", "a-distinct-refresh-key", raising=False)
+        # Signed with SECRET_KEY (the OLD/in-flight key), NOT the refresh key.
+        payload = {
+            "sub": active_user.username,
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+            "iss": "pricing-app",
+            "aud": "pricing-app-api",
+            "type": "refresh",
+            "jti": "fallback-jti",
+        }
+        legacy = pyjwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+        response = client.post("/api/auth/refresh", json={"refresh_token": legacy})
+        assert response.status_code == 200
+
+    def test_refresh_signed_with_wrong_key_rejected(self, client, active_user, monkeypatch):
+        import jwt as pyjwt
+        from datetime import UTC, datetime, timedelta
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "REFRESH_SECRET_KEY", "the-real-refresh-key", raising=False)
+        payload = {
+            "sub": active_user.username,
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+            "iss": "pricing-app",
+            "aud": "pricing-app-api",
+            "type": "refresh",
+            "jti": "wrong-key-jti",
+        }
+        # Signed with neither the refresh key nor SECRET_KEY.
+        forged = pyjwt.encode(payload, "a-totally-unrelated-key", algorithm=settings.ALGORITHM)
+
+        response = client.post("/api/auth/refresh", json={"refresh_token": forged})
+        assert response.status_code == 401
+
+    def test_rotation_and_revocation_intact_with_distinct_refresh_key(self, client, active_user, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "REFRESH_SECRET_KEY", "a-distinct-refresh-key", raising=False)
+        # make_refresh_token now signs with the distinct refresh key.
+        refresh = make_refresh_token(active_user)
+
+        first = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert first.status_code == 200
+        new_refresh = first.json()["refresh_token"]
+        assert new_refresh != refresh
+
+        # Old token revoked by rotation -> rejected.
+        reused = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert reused.status_code == 401
+
+        # New (distinct-key-signed) token works.
+        again = client.post("/api/auth/refresh", json={"refresh_token": new_refresh})
+        assert again.status_code == 200
