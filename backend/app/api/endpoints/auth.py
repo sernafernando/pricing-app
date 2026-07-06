@@ -241,7 +241,7 @@ def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db))
 
 
 @router.post("/auth/logout", responses={401: {"model": ErrorResponse}})
-def logout(request: RefreshRequest, db: Session = Depends(get_db)):
+def logout(request: RefreshRequest):
     """
     Revoca el jti del refresh_token presentado, de modo que ya no pueda usarse
     para refrescar. Deliberadamente NO requiere un access_token válido, para que

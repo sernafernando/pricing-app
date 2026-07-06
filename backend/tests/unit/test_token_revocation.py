@@ -20,7 +20,7 @@ def test_is_revoked_false_for_unknown_jti():
     assert token_revocation.is_revoked("never-revoked-jti") is False
 
 
-def test_revoke_respects_ttl(monkeypatch):
+def test_revoke_respects_ttl():
     """The denylist key's TTL should reflect the ttl_seconds argument."""
     token_revocation.revoke_jti("jti-ttl", 120)
     client = token_revocation._get_client()
