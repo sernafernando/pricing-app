@@ -63,26 +63,31 @@ def _extract_question_id(resource: str) -> Optional[int]:
     return int(match.group(1))
 
 
-def _parse_cursor(raw: Optional[str]) -> tuple[Optional[str], int]:
+def _parse_cursor(raw: Optional[str]) -> tuple[Optional[str], str]:
     """Parse the persisted `ingest_cursor_ts` value into `(since_ts,
     since_id)`. The cursor is stored as a composite "ISO_TS|webhook_id"
     string (WARNING fix: `webhook_id` is a tie-breaker for same-timestamp
-    rows straddling a batch boundary). Backward-compat: a legacy scalar
-    cursor (no "|" separator, from before this fix) is treated as
-    `(ts, 0)` so it keeps working across the upgrade without a migration.
-    None/empty = no cursor yet -> `(None, 0)`."""
+    rows straddling a batch boundary). `webhook_id` is mlwebhook's `TEXT`
+    column (nullable, populated from ML's raw payload) — NOT numeric, so it
+    is parsed/carried as `str`, never coerced to `int`. Backward-compat: a
+    legacy scalar cursor (no "|" separator, from before this fix) is
+    treated as `(ts, "")` so it keeps working across the upgrade without a
+    migration. None/empty = no cursor yet -> `(None, "")`.
+
+    Partitioning uses `str.partition` from the LEFT: the timestamp segment
+    is always `datetime.isoformat()`, which never contains "|", so the
+    first "|" found is guaranteed to be the ts/id separator. This assumes
+    ML's webhook ids never contain "|" themselves (true for all observed
+    ML id formats)."""
     if not raw:
-        return None, 0
+        return None, ""
     if "|" in raw:
         ts_part, _, id_part = raw.partition("|")
-        try:
-            return (ts_part or None), int(id_part)
-        except ValueError:
-            return (ts_part or None), 0
-    return raw, 0
+        return (ts_part or None), id_part
+    return raw, ""
 
 
-def _format_cursor(received_at: datetime, webhook_id: int) -> str:
+def _format_cursor(received_at: datetime, webhook_id: str) -> str:
     """Serialize a composite cursor for persistence in `ml_bot_config`."""
     return f"{received_at.isoformat()}|{webhook_id}"
 
@@ -111,8 +116,17 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
     engine = get_mlwebhook_engine()
     since_ts, since_id = _parse_cursor(since)
 
+    # `webhook_id` is mlwebhook's `TEXT` column (nullable). `COALESCE(...,
+    # '')` in both the WHERE tie-breaker and the ORDER BY gives NULL rows a
+    # deterministic position (treated as the empty string) and keeps the
+    # two expressions consistent — keyset pagination requires the WHERE
+    # comparison and the ORDER BY to agree on the same total order, not on
+    # numeric monotonicity (TEXT lexicographic order is fine here).
     if since_ts:
-        where_clause = "WHERE topic = 'questions' AND (received_at > :since_ts OR (received_at = :since_ts AND webhook_id > :since_id))"
+        where_clause = (
+            "WHERE topic = 'questions' AND (received_at > :since_ts "
+            "OR (received_at = :since_ts AND COALESCE(webhook_id, '') > :since_id))"
+        )
         params: Dict[str, Any] = {"since_ts": since_ts, "since_id": since_id, "limit": limit}
     else:
         where_clause = "WHERE topic = 'questions'"
@@ -124,7 +138,7 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
                 SELECT resource, topic, webhook_id, received_at
                 FROM webhooks
                 {where_clause}
-                ORDER BY received_at ASC, webhook_id ASC
+                ORDER BY received_at ASC, COALESCE(webhook_id, '') ASC
                 LIMIT :limit
             """),
             params,
@@ -203,7 +217,7 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     # skip over the still-unresolved row on the next tick's `received_at >
     # cursor` filter).
     max_received_at = None
-    max_webhook_id = 0
+    max_webhook_id = ""
 
     # Bounded-retry state for a row stuck at the current cursor position
     # (e.g. a permanently-transient condition like an expired token, which
@@ -212,8 +226,9 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     # hasn't moved since the last tick that hit this position.
     #
     # CRITICAL fix: the stuck/attempts machinery applies ONLY to the FIRST
-    # row of the tick (index 0) — i.e. the row sitting right at the
-    # persisted cursor position. Rows are fetched in `received_at ASC,
+    # row of the tick (index 0) — i.e. the row sitting immediately AFTER the
+    # persisted cursor position (never AT it — the cursor marks the last
+    # resolved row, not an unresolved one). Rows are fetched in `received_at ASC,
     # webhook_id ASC` order, so index 0 is always the oldest unprocessed
     # row (documented choice — cleaner than tracking row identity). Any
     # OTHER row failing transiently in the same tick keeps today's
@@ -226,7 +241,7 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
 
     for index, row in enumerate(webhook_rows):
         received_at = row["received_at"]
-        webhook_id = row["webhook_id"]
+        webhook_id = str(row["webhook_id"]) if row["webhook_id"] is not None else ""
 
         question_id = _extract_question_id(row["resource"])
         if question_id is None:

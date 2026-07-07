@@ -65,11 +65,14 @@ def _seed_cursor(db, value: str = "") -> None:
     db.flush()
 
 
-def _webhook_row(resource: str, received_at: datetime) -> dict:
+def _webhook_row(resource: str, received_at: datetime, webhook_id: object = "wh-111") -> dict:
+    """`webhook_id` defaults to a TEXT id (mlwebhook's `webhook_id` column is
+    `TEXT`, nullable) — pass an explicit distinct id per row in multi-row
+    tests, or `None` to exercise the nullable case."""
     return {
         "resource": resource,
         "topic": "questions",
-        "webhook_id": 111,
+        "webhook_id": webhook_id,
         "received_at": received_at,
     }
 
@@ -187,8 +190,8 @@ class TestIngestNewQuestions:
                 ingestion_service,
                 "fetch_new_webhook_rows",
                 return_value=[
-                    _webhook_row("/questions/558", earlier),
-                    _webhook_row("/questions/559", later),
+                    _webhook_row("/questions/558", earlier, webhook_id="wh-aaa"),
+                    _webhook_row("/questions/559", later, webhook_id="wh-bbb"),
                 ],
             ),
             patch.object(
@@ -200,7 +203,8 @@ class TestIngestNewQuestions:
             asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
 
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
-        assert cursor_row.valor == f"{later.isoformat()}|111"  # composite cursor (WARNING fix)
+        # cursor carries the LAST-resolved row's id ("wh-bbb"), not the first row's
+        assert cursor_row.valor == f"{later.isoformat()}|wh-bbb"  # composite cursor (WARNING fix)
 
     def test_get_question_failure_does_not_advance_cursor(self, db) -> None:
         """CRITICAL regression guard: `ml_client.get_question()` returns None
@@ -287,7 +291,7 @@ class TestIngestNewQuestions:
 
         assert stats["ingested"] == 0
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
-        assert cursor_row.valor == f"{received.isoformat()}|111"
+        assert cursor_row.valor == f"{received.isoformat()}|wh-111"
         assert db.query(MlBotQuestion).filter_by(ml_question_id=561).first() is None
 
     def test_404_then_subsequent_row_ingests_same_tick(self, db) -> None:
@@ -302,8 +306,8 @@ class TestIngestNewQuestions:
                 ingestion_service,
                 "fetch_new_webhook_rows",
                 return_value=[
-                    _webhook_row("/questions/562", earlier),
-                    _webhook_row("/questions/563", later),
+                    _webhook_row("/questions/562", earlier, webhook_id="wh-ccc"),
+                    _webhook_row("/questions/563", later, webhook_id="wh-ddd"),
                 ],
             ),
             patch.object(
@@ -316,7 +320,8 @@ class TestIngestNewQuestions:
 
         assert stats["ingested"] == 1
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
-        assert cursor_row.valor == f"{later.isoformat()}|111"
+        # cursor carries the LAST-resolved row's id ("wh-ddd"), not the 404'd row's
+        assert cursor_row.valor == f"{later.isoformat()}|wh-ddd"
         assert db.query(MlBotQuestion).filter_by(ml_question_id=563).one().status == "received"
 
     def test_stuck_row_gives_up_after_max_attempts(self, db) -> None:
@@ -343,7 +348,7 @@ class TestIngestNewQuestions:
                 stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
 
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
-        assert cursor_row.valor == f"{received.isoformat()}|111"
+        assert cursor_row.valor == f"{received.isoformat()}|wh-111"
         assert stats["ingested"] == 0
         assert db.query(MlBotQuestion).filter_by(ml_question_id=564).first() is None
 
@@ -526,24 +531,24 @@ class TestCompositeCursor:
     def test_parse_cursor_old_scalar_format_backward_compat(self) -> None:
         ts, wid = ingestion_service._parse_cursor("2026-07-06T22:00:00+00:00")
         assert ts == "2026-07-06T22:00:00+00:00"
-        assert wid == 0
+        assert wid == ""
 
     def test_parse_cursor_composite_format(self) -> None:
-        ts, wid = ingestion_service._parse_cursor("2026-07-06T22:00:00+00:00|555")
+        ts, wid = ingestion_service._parse_cursor("2026-07-06T22:00:00+00:00|wh-555")
         assert ts == "2026-07-06T22:00:00+00:00"
-        assert wid == 555
+        assert wid == "wh-555"
 
     def test_parse_cursor_empty_or_none(self) -> None:
-        assert ingestion_service._parse_cursor(None) == (None, 0)
-        assert ingestion_service._parse_cursor("") == (None, 0)
+        assert ingestion_service._parse_cursor(None) == (None, "")
+        assert ingestion_service._parse_cursor("") == (None, "")
 
     def test_format_cursor_round_trip(self) -> None:
         received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
-        formatted = ingestion_service._format_cursor(received, 42)
-        assert formatted == f"{received.isoformat()}|42"
+        formatted = ingestion_service._format_cursor(received, "wh-42")
+        assert formatted == f"{received.isoformat()}|wh-42"
         ts, wid = ingestion_service._parse_cursor(formatted)
         assert ts == received.isoformat()
-        assert wid == 42
+        assert wid == "wh-42"
 
     def test_fetch_query_uses_webhook_id_tiebreaker(self) -> None:
         mock_conn = AsyncMock() if False else None
@@ -555,18 +560,18 @@ class TestCompositeCursor:
             mock_conn = mock_engine.connect.return_value.__enter__.return_value
             mock_conn.execute.return_value.fetchall.return_value = []
 
-            ingestion_service.fetch_new_webhook_rows(since="2026-07-06T22:00:00+00:00|111", limit=50)
+            ingestion_service.fetch_new_webhook_rows(since="2026-07-06T22:00:00+00:00|wh-111", limit=50)
 
             _, kwargs_or_params = mock_conn.execute.call_args
             sql_text = str(mock_conn.execute.call_args[0][0])
             params = mock_conn.execute.call_args[0][1]
 
-        assert "webhook_id > :since_id" in sql_text
-        assert "ORDER BY received_at ASC, webhook_id ASC" in sql_text
+        assert "COALESCE(webhook_id, '') > :since_id" in sql_text
+        assert "ORDER BY received_at ASC, COALESCE(webhook_id, '') ASC" in sql_text
         assert params["since_ts"] == "2026-07-06T22:00:00+00:00"
-        assert params["since_id"] == 111
+        assert params["since_id"] == "wh-111"
 
-    def test_fetch_query_old_format_cursor_defaults_since_id_zero(self) -> None:
+    def test_fetch_query_old_format_cursor_defaults_since_id_empty_string(self) -> None:
         with patch("app.services.ml_questions.ingestion_service.get_mlwebhook_engine") as mock_engine_fn:
             from unittest.mock import MagicMock
 
@@ -580,7 +585,58 @@ class TestCompositeCursor:
             params = mock_conn.execute.call_args[0][1]
 
         assert params["since_ts"] == "2026-07-06T22:00:00+00:00"
-        assert params["since_id"] == 0
+        assert params["since_id"] == ""
+
+    def test_null_webhook_id_row_ingests_and_cursor_stores_empty_string(self, db) -> None:
+        """A row with `webhook_id=None` (mlwebhook's TEXT column is nullable)
+        must be ingested without error and the persisted composite cursor
+        stores "" for its id segment, never `None`/`"None"`."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/590", received, webhook_id=None)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(590)),
+            ),
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 1
+        cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert cursor_row.valor == f"{received.isoformat()}|"
+
+    def test_same_timestamp_text_ids_paginate_across_tiebreaker(self) -> None:
+        """Same-timestamp rows with TEXT ids ("abc", "abd") must be ordered
+        and filtered lexicographically by the tie-breaker, consistently
+        between WHERE and ORDER BY."""
+        with patch("app.services.ml_questions.ingestion_service.get_mlwebhook_engine") as mock_engine_fn:
+            from unittest.mock import MagicMock
+
+            mock_engine = MagicMock()
+            mock_engine_fn.return_value = mock_engine
+            mock_conn = mock_engine.connect.return_value.__enter__.return_value
+            mock_conn.execute.return_value.fetchall.return_value = []
+
+            ingestion_service.fetch_new_webhook_rows(since="2026-07-06T22:00:00+00:00|abc", limit=50)
+
+            params = mock_conn.execute.call_args[0][1]
+
+        # "abc" < "abd" lexicographically — the next row after cursor "abc"
+        # at the same timestamp would be "abd", filtered in by `> :since_id`.
+        assert params["since_id"] == "abc"
+        assert "abc" < "abd"
+
+    def test_parse_cursor_legacy_scalar_still_parses_to_empty_id(self) -> None:
+        ts, wid = ingestion_service._parse_cursor("2026-07-06T22:00:00+00:00")
+        assert (ts, wid) == ("2026-07-06T22:00:00+00:00", "")
 
     def test_cursor_persisted_in_composite_format_after_ingest(self, db) -> None:
         _seed_cursor(db)
@@ -602,7 +658,7 @@ class TestCompositeCursor:
             asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
 
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
-        assert cursor_row.valor == f"{received.isoformat()}|111"  # webhook_id from _webhook_row
+        assert cursor_row.valor == f"{received.isoformat()}|wh-111"  # webhook_id from _webhook_row
 
 
 class TestParseQuestionDate:
