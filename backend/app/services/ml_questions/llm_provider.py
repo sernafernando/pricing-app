@@ -76,30 +76,41 @@ class LlmProvider(Protocol):
         ...
 
 
-class GroqProvider:
-    """`LlmProvider` implementation backed by the Groq chat-completions API
-    (OpenAI-compatible surface), via `httpx`. Design §6 stage 4 / §11."""
+class OpenAICompatProvider:
+    """`LlmProvider` implementation for any OpenAI-compatible chat-completions
+    API (Groq, Cerebras, OpenRouter, ...), via `httpx`. Design §6 stage 4 /
+    §11; generalized for the multi-provider rotation follow-up
+    (sdd/ml-questions-ai/provider-rotation) — all hardened behavior (retry
+    w/ backoff on 5xx/timeout, 256KB cap, strict error contract) is shared
+    across providers, only `name`/`base_url`/`api_key`/`model` vary.
+    """
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        name: str,
+        api_key: Optional[str],
+        base_url: str,
         model: str = _DEFAULT_MODEL,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        self._api_key = api_key if api_key is not None else settings.GROQ_API_KEY
-        self._base_url = base_url or settings.GROQ_BASE_URL
+        self._name = name
+        self._api_key = api_key
+        self._base_url = base_url
         self._model = model
         self._timeout_seconds = timeout_seconds
 
+    @property
+    def name(self) -> str:
+        return self._name
+
     def is_configured(self) -> bool:
-        """GROQ_API_KEY absent/empty -> provider unavailable. Drafting must
+        """API key absent/empty -> provider unavailable. Drafting must
         report failure (route to fallback) instead of crashing (constraint)."""
         return bool(self._api_key and self._api_key.strip())
 
     async def complete(self, system_prompt: str, user_payload: str) -> str:
         if not self.is_configured():
-            raise LlmProviderError("GroqProvider is not configured (missing GROQ_API_KEY)")
+            raise LlmProviderError(f"{self._name} provider is not configured (missing API key)")
 
         payload = {
             "model": self._model,
@@ -123,9 +134,10 @@ class GroqProvider:
                     )
 
                 if response.status_code >= 500:
-                    last_error = LlmProviderError(f"Groq server error: {response.status_code}")
+                    last_error = LlmProviderError(f"{self._name} server error: {response.status_code}")
                     logger.warning(
-                        "GroqProvider transient error (attempt %d/%d): %s",
+                        "%s provider transient error (attempt %d/%d): %s",
+                        self._name,
                         attempt + 1,
                         _MAX_RETRIES + 1,
                         response.status_code,
@@ -135,24 +147,27 @@ class GroqProvider:
                     continue
 
                 if response.status_code >= 400:
-                    raise LlmProviderError(f"Groq client error: {response.status_code}")
+                    raise LlmProviderError(f"{self._name} client error: {response.status_code}")
 
                 if len(response.content) > _MAX_RESPONSE_BYTES:
-                    raise LlmProviderError(f"Groq response body exceeds max size of {_MAX_RESPONSE_BYTES} bytes")
+                    raise LlmProviderError(
+                        f"{self._name} response body exceeds max size of {_MAX_RESPONSE_BYTES} bytes"
+                    )
 
-                return _extract_content(response)
+                return _extract_content(response, self._name)
 
             except httpx.TimeoutException as exc:
-                last_error = LlmProviderError(f"Groq request timed out: {exc}")
-                logger.warning("GroqProvider timeout (attempt %d/%d)", attempt + 1, _MAX_RETRIES + 1)
+                last_error = LlmProviderError(f"{self._name} request timed out: {exc}")
+                logger.warning("%s provider timeout (attempt %d/%d)", self._name, attempt + 1, _MAX_RETRIES + 1)
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(min(2**attempt, 4))
                 continue
             except httpx.HTTPError as exc:
                 # Network-level failure (connection refused, DNS, etc.) — transient.
-                last_error = LlmProviderError(f"Groq network error: {exc}")
+                last_error = LlmProviderError(f"{self._name} network error: {exc}")
                 logger.warning(
-                    "GroqProvider network error (attempt %d/%d): %s",
+                    "%s provider network error (attempt %d/%d): %s",
+                    self._name,
                     attempt + 1,
                     _MAX_RETRIES + 1,
                     exc,
@@ -165,7 +180,28 @@ class GroqProvider:
         raise last_error
 
 
-def _extract_content(response: httpx.Response) -> str:
+class GroqProvider(OpenAICompatProvider):
+    """Thin `OpenAICompatProvider` alias preserving the original Groq-only
+    constructor shape (Slice D1) — kept so existing call sites/tests that
+    build a Groq client directly don't need to pass `name`/`base_url`."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: str = _DEFAULT_MODEL,
+        timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        super().__init__(
+            name="groq",
+            api_key=api_key if api_key is not None else settings.GROQ_API_KEY,
+            base_url=base_url or settings.GROQ_BASE_URL,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _extract_content(response: httpx.Response, provider_name: str = "provider") -> str:
     """Parse a 200 response body and extract `choices[0].message.content`.
 
     A 200 status does NOT guarantee a well-formed body (moderation shape,
@@ -177,10 +213,10 @@ def _extract_content(response: httpx.Response) -> str:
         data = response.json()
         content = data["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as exc:
-        raise LlmProviderError(f"Groq response body is malformed: {type(exc).__name__}") from exc
+        raise LlmProviderError(f"{provider_name} response body is malformed: {type(exc).__name__}") from exc
 
     if not isinstance(content, str) or not content.strip():
-        raise LlmProviderError("Groq response 'content' must be a non-empty string")
+        raise LlmProviderError(f"{provider_name} response 'content' must be a non-empty string")
 
     return content
 
