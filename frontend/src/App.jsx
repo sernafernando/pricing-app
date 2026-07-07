@@ -47,6 +47,7 @@ const ConfigOperaciones = lazy(() => import('./pages/ConfigOperaciones'));
 const Rma = lazy(() => import('./pages/Rma'));
 const ControlDeposito = lazy(() => import('./pages/ControlDeposito'));
 const ClaimsDashboard = lazy(() => import('./pages/ClaimsDashboard'));
+const MLQuestions = lazy(() => import('./pages/MLQuestions'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
 const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
@@ -130,6 +131,7 @@ const protectedRoutes = [
   { path: '/rma', component: Rma, permiso: 'rma.ver' },
   { path: '/control-deposito', component: ControlDeposito, permiso: 'rma.control_deposito' },
   { path: '/claims', component: ClaimsDashboard, permiso: 'rma.ver' },
+  { path: '/ml-preguntas', component: MLQuestions, permiso: 'ml_bot.ver' },
   { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
   { path: '/traza', component: Traza, permiso: 'traza.ver' },
   { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },

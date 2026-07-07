@@ -162,6 +162,12 @@ class Settings(BaseSettings):
     AFIP_CERT: Optional[str] = None
     AFIP_KEY: Optional[str] = None
 
+    # Groq LLM (ml-bot Slice D — drafting pipeline, design §11/ADR-4/ADR-6).
+    # Only the secret lives in .env; model name/behavioral knobs live in
+    # `ml_bot_config` (panel-editable, no redeploy).
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000
