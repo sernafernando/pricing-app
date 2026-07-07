@@ -1456,6 +1456,11 @@ class TestLlmDebugLogging:
         target_logger = logging.getLogger("app.services.ml_questions.drafting_service")
         target_logger.addHandler(caplog.handler)
         target_logger.setLevel(logging.INFO)
+        # Block propagation so the record is captured exactly once via the
+        # directly-attached handler, immune to any other test leaving an
+        # ancestor logger's `propagate=True` (which would double-capture).
+        original_propagate = target_logger.propagate
+        target_logger.propagate = False
         try:
             with (
                 _patch_db(db),
@@ -1467,6 +1472,7 @@ class TestLlmDebugLogging:
                 asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
         finally:
             target_logger.removeHandler(caplog.handler)
+            target_logger.propagate = original_propagate
 
         assert not any("ml-bot llm-debug" in record.getMessage() for record in caplog.records)
 
@@ -1479,6 +1485,11 @@ class TestLlmDebugLogging:
         target_logger = logging.getLogger("app.services.ml_questions.drafting_service")
         target_logger.addHandler(caplog.handler)
         target_logger.setLevel(logging.INFO)
+        # Block propagation so the record is captured exactly once via the
+        # directly-attached handler, immune to any other test leaving an
+        # ancestor logger's `propagate=True` (which would double-capture).
+        original_propagate = target_logger.propagate
+        target_logger.propagate = False
         try:
             with (
                 _patch_db(db),
@@ -1494,6 +1505,7 @@ class TestLlmDebugLogging:
                 )
         finally:
             target_logger.removeHandler(caplog.handler)
+            target_logger.propagate = original_propagate
 
         debug_lines = [r.getMessage() for r in caplog.records if "ml-bot llm-debug" in r.getMessage()]
         assert len(debug_lines) == 1

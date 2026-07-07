@@ -204,8 +204,8 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     # pipeline with stale questions. This is a QUERY-window default only;
     # the persisted `ingest_cursor_ts` itself is only ever written from an
     # actually-processed row's `received_at` below, same as before.
-    effective_since = cursor if cursor is not None else _format_cursor(
-        datetime.now(timezone.utc) - timedelta(hours=48), ""
+    effective_since = (
+        cursor if cursor is not None else _format_cursor(datetime.now(timezone.utc) - timedelta(hours=48), "")
     )
 
     try:

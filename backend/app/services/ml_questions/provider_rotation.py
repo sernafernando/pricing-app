@@ -154,9 +154,7 @@ def _load_roster_entries(db: Any) -> List[dict]:
         model = item.get("model") if isinstance(item.get("model"), str) else None
         variant_key = (name, model)
         if variant_key in seen_variants:
-            logger.warning(
-                "ml-bot provider roster: skipping duplicate entry for provider '%s' model=%r", name, model
-            )
+            logger.warning("ml-bot provider roster: skipping duplicate entry for provider '%s' model=%r", name, model)
             continue
         seen_variants.add(variant_key)
 
@@ -316,16 +314,13 @@ def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None
         with get_background_db() as db:
             if covered_by:
                 names_to_notify = [
-                    name
-                    for name in failed_names
-                    if not _is_throttled(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
+                    name for name in failed_names if not _is_throttled(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
                 ]
                 if not names_to_notify:
                     return  # every failed provider is within its own throttle window
 
                 mensaje = (
-                    f"Bot ML: el proveedor LLM '{', '.join(names_to_notify)}' falló — "
-                    f"failover activo a '{covered_by}'."
+                    f"Bot ML: el proveedor LLM '{', '.join(names_to_notify)}' falló — failover activo a '{covered_by}'."
                 )
 
                 crear_notificaciones_para_permisos(
