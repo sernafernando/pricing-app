@@ -87,36 +87,76 @@ Audience: On-call / solo developer
 Pipeline: ingest → draft → publish, one MercadoLibre account per env.
 
 - **Ingest**: `ingestion_service.py` polls the ML questions webhook DB
-  cross-database and creates `ml_bot_question` rows (state `pending`).
+  cross-database and creates `ml_bot_question` rows (state `received`).
 - **Draft**: `drafting_service.py` builds context (`context_builder.py`),
-  calls the LLM via `llm_provider.py` (`GroqProvider`, `LlmProvider` protocol),
-  applies the soft denylist, and moves the row to `waiting`
-  (or `failed` on parse/provider error).
+  calls the LLM via `llm_provider.py` (`OpenAICompatProvider`, `LlmProvider`
+  protocol) rotated across a roster by `provider_rotation.py`, applies the
+  soft denylist, and moves the row to `waiting` (a provider/parse error
+  routes to the `waiting` fallback message, `answer_source=fallback`;
+  `failed` is reserved for unexpected errors after exhausting retries).
 - **Publish**: `publisher_service.py` runs a wait-window background loop,
-  claims `waiting` rows (CAS on `updated_at`), and publishes the answer via
-  `ml_api_client.py`, moving the row to `published` or `failed`.
+  claims `waiting` rows (CAS on `status`, `waiting -> publishing`), and
+  publishes the answer via `ml_api_client.py`, moving the row to
+  `published` or `failed`.
 - **API**: `routers/ml_bot.py` under `/api/ml-bot` — questions
   list/take-over/answer/publish-now/hold, config CRUD, toggle, few-shot
-  examples CRUD. SSE channel `ml_bot:questions` fires a reload hint on every
-  state transition (`routers/sse.py`).
+  examples CRUD. SSE channel `ml_bot:questions` fires a reload hint on
+  terminal state transitions only (intermediate retries deliberately do not
+  emit, see `publisher_service.py` docstring) (`routers/sse.py`).
 - **Panel**: `/ml-preguntas` (`frontend/src/pages/MLQuestions.jsx`).
 
 ### Enabling the Bot
 
 1. Set `GROQ_API_KEY` in the environment (`backend/app/core/config.py`).
-2. Seed `ml_bot_config` (one row) with the account/provider settings.
+2. The DB migration seeds `ml_bot_config` with its default clave/valor rows
+   automatically — no manual seeding needed. Provider secrets live in
+   `.env`, never in `ml_bot_config`.
 3. Toggle the bot on from the panel (`ml_bot.on_off` permission) or via
-   `PUT /api/ml-bot/config` (`enabled=true`).
+   `POST /api/ml-bot/toggle` (`{"enabled": true}`).
+
+### LLM Provider Rotation
+
+The bot rotates draft requests across multiple OpenAI-compatible free-tier
+APIs so no single provider takes 100% of the traffic, with per-question
+failover if one is rate-limited/down (`provider_rotation.py`).
+
+1. Env keys (`.env`, secrets only — never in `ml_bot_config`):
+   `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`. A provider is
+   only used if its key is set AND it's `enabled` in the roster.
+2. Roster: `ml_bot_config` key `llm_providers`, a JSON list, panel-editable
+   via `PUT /api/ml-bot/config/{clave}`:
+   ```json
+   [
+     {"name": "groq", "enabled": true},
+     {"name": "cerebras", "enabled": true},
+     {"name": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "enabled": true}
+   ]
+   ```
+   `model` is optional per entry (falls back to each provider's default:
+   Groq `llama-3.3-70b-versatile`, Cerebras `llama-3.3-70b`, OpenRouter
+   `meta-llama/llama-3.3-70b-instruct:free` — panel-changeable). Unknown
+   `name`s are skipped with a warning; missing/malformed JSON fails safe to
+   a Groq-only roster (the pre-rotation MVP behavior).
+3. Rotation cursor: `ml_bot_config` key `llm_rotation_cursor` (int,
+   auto-managed) — round-robin, advances once per drafted question.
+4. Failover: if the chosen provider raises, the next available provider in
+   rotation order is tried (at most one full cycle) before routing to the
+   warm fallback. Which provider answered is logged (`drafting_service`
+   logs, `INFO` level) — no DB column added for this (logging only, MVP).
 
 ### Permissions
 
-`ml_bot.responder` (act on questions), `ml_bot.on_off` (toggle),
-`ml_bot.config` (config + examples CRUD).
+`ml_bot.ver` (view the panel / `GET /questions`), `ml_bot.responder` (act on
+questions), `ml_bot.on_off` (toggle), `ml_bot.config` (config + examples
+CRUD).
 
 ### Interpreting Failed Rows
 
-- `failed` at drafting: LLM/provider error or schema parse failure — check
-  drafting_service logs, retry is manual (edit + publish-now from the panel).
+- `failed` at drafting: an unexpected error (bug, DB error) after exhausting
+  the bounded retry budget — check drafting_service logs, retry is manual
+  (edit + publish-now from the panel). An LLM/provider or schema-parse
+  error does NOT produce `failed` — it routes to the `waiting` warm
+  fallback message instead (`answer_source=fallback`).
 - `failed` at publish: CAS conflict or ML API error — the panel's
   publish-now action re-runs the publish pipeline for that row.
 - `taken_over` / `pending_morning`: awaiting a human operator, not a bug.

@@ -719,39 +719,36 @@ class TestRepeatBuyerWindowBound:
 
 
 class TestConfigurableLlmModel:
-    """Judgment Day fix: `llm_model` in `ml_bot_config` is seeded/documented
-    as panel-editable but was never actually read — the provider always used
-    `GroqProvider`'s hardcoded default model."""
+    """Judgment Day fix (Slice D2): `llm_model` in `ml_bot_config` is
+    seeded/documented as panel-editable but was never actually read.
 
-    def test_configured_model_is_used_to_build_the_default_provider(self, db) -> None:
+    Provider-rotation follow-up: `_build_default_provider` now returns a
+    `RotatingProvider` (resolves the roster/model per question, see
+    test_ml_bot_provider_rotation.py for the full roster/rotation/failover
+    coverage). This class only asserts the factory wiring + the legacy
+    `llm_model` key still applies through the fail-safe Groq-only default
+    roster — resolution details are covered in the rotation module's own
+    tests."""
+
+    def test_build_default_provider_returns_rotating_provider(self, db) -> None:
+        from app.services.ml_questions.provider_rotation import RotatingProvider
+
+        provider = drafting_service._build_default_provider()
+
+        assert isinstance(provider, RotatingProvider)
+
+    def test_configured_model_is_used_via_legacy_llm_model_key(self, db, monkeypatch) -> None:
+        from app.services.ml_questions import provider_rotation
+
+        monkeypatch.setattr(provider_rotation.settings, "GROQ_API_KEY", "sk-test")
         _seed_config(db, "llm_model", "llama-3.3-70b-versatile-custom")
         db.commit()
 
-        with _patch_db(db):
-            provider = drafting_service._build_default_provider()
+        with patch("app.services.ml_questions.provider_rotation.get_background_db", return_value=_ctx(db)):
+            order = provider_rotation.build_rotation_order()
 
-        assert provider._model == "llama-3.3-70b-versatile-custom"
-
-    def test_missing_model_config_falls_back_to_provider_default(self, db) -> None:
-        db.commit()
-
-        with _patch_db(db):
-            provider = drafting_service._build_default_provider()
-
-        from app.services.ml_questions.llm_provider import _DEFAULT_MODEL
-
-        assert provider._model == _DEFAULT_MODEL
-
-    def test_empty_model_config_falls_back_to_provider_default(self, db) -> None:
-        _seed_config(db, "llm_model", "")
-        db.commit()
-
-        with _patch_db(db):
-            provider = drafting_service._build_default_provider()
-
-        from app.services.ml_questions.llm_provider import _DEFAULT_MODEL
-
-        assert provider._model == _DEFAULT_MODEL
+        assert len(order) == 1
+        assert order[0]._model == "llama-3.3-70b-versatile-custom"
 
 
 class TestFewShotSeedUsage:

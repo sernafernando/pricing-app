@@ -162,11 +162,16 @@ class Settings(BaseSettings):
     AFIP_CERT: Optional[str] = None
     AFIP_KEY: Optional[str] = None
 
-    # Groq LLM (ml-bot Slice D — drafting pipeline, design §11/ADR-4/ADR-6).
-    # Only the secret lives in .env; model name/behavioral knobs live in
-    # `ml_bot_config` (panel-editable, no redeploy).
+    # LLM providers (ml-bot Slice D — drafting pipeline, design §11/ADR-4/ADR-6;
+    # provider rotation follow-up, sdd/ml-questions-ai/provider-rotation).
+    # Only secrets/base URLs live in .env; roster/model/order live in
+    # `ml_bot_config` (panel-editable, no redeploy) — see provider_rotation.py.
     GROQ_API_KEY: Optional[str] = None
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    CEREBRAS_API_KEY: Optional[str] = None
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15

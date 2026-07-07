@@ -63,7 +63,8 @@ from app.core.sse import sse_publish_bg
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import ml_client
 from app.services.ml_questions import context_builder, policy
-from app.services.ml_questions.llm_provider import GroqProvider, LlmProvider, LlmProviderError, parse_llm_output
+from app.services.ml_questions.llm_provider import LlmProvider, LlmProviderError, parse_llm_output
+from app.services.ml_questions.provider_rotation import RotatingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -97,17 +98,18 @@ _DEFAULT_FALLBACK_TEMPLATE = (
 
 
 def _build_default_provider() -> LlmProvider:
-    """Build the default `LlmProvider` for a cycle (ADR-6), reading the
-    panel-editable `llm_model` config live (ADR-4/§11) — Judgment Day fix:
-    `llm_model` was seeded/documented as editable but never actually read,
-    so a panel edit silently did nothing. Read in a short-lived DB session
-    (ADR-5) once per cycle, at provider-construction time, NOT per HTTP call.
+    """Build the default `LlmProvider` for a cycle (ADR-6).
+
+    Provider-rotation follow-up (sdd/ml-questions-ai/provider-rotation):
+    returns a `RotatingProvider`, which resolves the panel-editable roster
+    (`llm_providers`) + rotation cursor (`llm_rotation_cursor`) fresh on
+    EVERY `.complete()` call — i.e. rotation/failover happens per question,
+    not once per cycle, even though this factory itself is only called once
+    per cycle by `run_ml_questions_draft_cycle`. When `llm_providers` is
+    unset, the roster fails safe to a single Groq entry honoring the legacy
+    `llm_model` config key, preserving the pre-rotation Slice D2 behavior.
     """
-    with get_background_db() as db:
-        model = policy.get_config(db, "llm_model", cast=str, default=None)
-    if not model:
-        return GroqProvider()
-    return GroqProvider(model=model)
+    return RotatingProvider()
 
 
 def _build_fallback_message(db: Any) -> str:
