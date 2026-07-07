@@ -1,0 +1,333 @@
+"""
+Drafting orchestration service for the ML questions bot (Slice D2).
+
+Implements design §6 (LLM pipeline stages 1-7) + §7's "success" hand-off
+into `waiting`, wired against the policy/context_builder/llm_provider
+modules built in Slices B/D1. This module does NOT publish anything to
+ML — that is Slice E's `publisher_service.py`. It only takes a `received`
+row all the way to `waiting` / `pending_morning` / `failed`.
+
+Pipeline per question (design §6):
+1. Claim: CAS UPDATE `received -> drafting` (guards concurrent draft ticks).
+2. Eligibility gate (`policy.is_eligible_for_bot`) is checked BEFORE the
+   claim, at the batch level — ineligible questions are left untouched in
+   `received` for humans (no state transition at all, per R-201 scenario 1).
+3. Manipulation-signal detector (R-503): a match skips the LLM call
+   entirely and routes straight to fallback, with `injection_flag=True`.
+4. Otherwise: build a `ScopedContext` (short DB session), assemble the
+   prompt, call the provider OUTSIDE any DB session (ADR-5), parse the
+   closed-schema output, then run the denylist validator (R-502) on the
+   answer.
+5. Decision: can_answer + confidence>=min_confidence + clean denylist ->
+   success (`waiting`, answer_source=bot). Anything else (including a
+   provider/parse failure) -> fallback.
+6. Fallback routing (R-601/R-602): normally routes to the warm business-
+   hours message, still queued through `waiting` so a human can intercept
+   it; EXCEPT the repeat-buyer-after-midnight case, which goes to
+   `pending_morning` with no auto-publish wait window.
+7. Unexpected errors (bugs, DB errors, etc.) never leave a row stuck in
+   `drafting` — they increment `attempts` and either put the row back in
+   `received` for a retry or, past `_MAX_ATTEMPTS`, mark it `failed`.
+
+Session discipline (ADR-5, QueuePool-incident regression guard): every DB
+read/write is its own short `get_background_db()` block. The Groq HTTP call
+in stage 4 NEVER happens while a DB session from this module is open.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from sqlalchemy import update
+
+from app.core.database import get_background_db
+from app.models.ml_bot_question import MlBotQuestion
+from app.services.ml_api_client import ml_client
+from app.services.ml_questions import context_builder, policy
+from app.services.ml_questions.llm_provider import GroqProvider, LlmProvider, LlmProviderError, parse_llm_output
+
+logger = logging.getLogger(__name__)
+
+_BATCH_LIMIT = 20
+_MAX_ATTEMPTS = 3
+
+# Statuses that count as "the buyer's prior question was already handled by
+# the bot" for the R-602 repeat-buyer-after-midnight exception. Deliberately
+# excludes `received`/`drafting`/`failed` (not yet resolved) and
+# `pending_morning` (that one is explicitly NOT auto-answered).
+_HANDLED_STATUSES = frozenset({"waiting", "published", "taken_over"})
+
+_DEFAULT_MIN_CONFIDENCE = 0.6
+_DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
+_DEFAULT_BUSINESS_HOURS_START = "09:00"
+_DEFAULT_BUSINESS_HOURS_END = "18:00"
+_DEFAULT_FALLBACK_TEMPLATE = (
+    "¡Hola! Gracias por tu consulta. Nuestro horario de atención es de "
+    "{business_hours_start} a {business_hours_end}. Te respondemos apenas "
+    "abramos. ¡Gracias por tu paciencia!"
+)
+
+# Module-level default provider (ADR-6). Callers (background task, tests)
+# may inject a different `LlmProvider` implementation/mock.
+_default_provider: LlmProvider = GroqProvider()
+
+
+def _build_fallback_message(db: Any) -> str:
+    """R-601: the warm business-hours fallback message, templated from live
+    `ml_bot_config` values (never hardcoded, so a panel edit applies on the
+    next tick)."""
+    template = policy.get_config(db, "warm_fallback_template", cast=str, default=_DEFAULT_FALLBACK_TEMPLATE)
+    start = policy.get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
+    end = policy.get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
+    try:
+        return template.format(business_hours_start=start, business_hours_end=end)
+    except (KeyError, IndexError):
+        # A custom panel-edited template with unexpected placeholders must
+        # never crash the pipeline — fall back to the raw template text.
+        return template
+
+
+def _is_repeat_buyer_after_midnight(
+    db: Any, buyer_id: Optional[int], question_id: int, question_date: datetime
+) -> bool:
+    """R-602 exception check.
+
+    Documented interpretation: "arrives after 00:00 local time" is read as
+    the early-morning portion of the nightly off-hours window — local
+    time-of-day in `[00:00, business_hours_start)` — which distinguishes a
+    just-past-midnight follow-up from an evening (pre-midnight) question.
+    Combined with: the same buyer already has at least one OTHER
+    `ml_bot_questions` row that reached a handled state (`waiting`,
+    `published`, `taken_over`) with an earlier `question_date` (R-602
+    scenario 3: "handled", not only "fallback", counts).
+
+    A missing `buyer_id` (anonymous/unavailable) never qualifies — fails
+    toward the safer default (normal fallback, not `pending_morning`), same
+    direction as `policy.is_within_business_hours`'s fail-safe convention.
+    """
+    if buyer_id is None:
+        return False
+
+    tz_name = policy.get_config(db, "timezone", cast=str, default=_DEFAULT_TIMEZONE)
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return False
+
+    localized = question_date.astimezone(tz) if question_date.tzinfo else question_date.replace(tzinfo=tz)
+
+    start_raw = policy.get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
+    try:
+        start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
+    except ValueError:
+        return False
+
+    if not ((0, 0) <= (localized.hour, localized.minute) < (start_hour, start_minute)):
+        return False
+
+    prior = (
+        db.query(MlBotQuestion)
+        .filter(
+            MlBotQuestion.buyer_id == buyer_id,
+            MlBotQuestion.id != question_id,
+            MlBotQuestion.status.in_(_HANDLED_STATUSES),
+            MlBotQuestion.question_date < question_date,
+        )
+        .first()
+    )
+    return prior is not None
+
+
+def _resolve_fallback(
+    question_id: int,
+    buyer_id: Optional[int],
+    question_date: datetime,
+    *,
+    injection_flag: bool,
+) -> None:
+    """R-601/R-602: finalize a question that could not be (or must not be)
+    answered by the LLM. Chooses between the warm auto-publish fallback and
+    the repeat-buyer-after-midnight `pending_morning` hold."""
+    with get_background_db() as db:
+        row = (
+            db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
+        )
+        if row is None:
+            return
+
+        if _is_repeat_buyer_after_midnight(db, buyer_id, question_id, question_date):
+            row.status = "pending_morning"
+            row.injection_flag = row.injection_flag or injection_flag
+            return
+
+        wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
+        row.status = "waiting"
+        row.drafted_answer = _build_fallback_message(db)
+        row.answer_source = "fallback"
+        row.fallback_used = True
+        row.injection_flag = row.injection_flag or injection_flag
+        row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+
+
+def _resolve_success(question_id: int, answer: str, confidence: float, category: str) -> None:
+    """Successful bot answer (design §6 stage 7 happy path) -> `waiting`."""
+    with get_background_db() as db:
+        row = (
+            db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
+        )
+        if row is None:
+            return
+        wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
+        row.status = "waiting"
+        row.drafted_answer = answer
+        row.confidence = confidence
+        row.category = category
+        row.answer_source = "bot"
+        row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+
+
+def _mark_failed_or_retry(question_id: int, attempts: int, error_message: str) -> None:
+    """Unexpected-error path: never leave a row stuck in `drafting`. Bounded
+    retries via `attempts`; past `_MAX_ATTEMPTS` the row becomes `failed`
+    (panel-retryable, per design §2 `failed -> {waiting|published}`)."""
+    new_attempts = attempts + 1
+    with get_background_db() as db:
+        row = (
+            db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
+        )
+        if row is None:
+            return
+        row.attempts = new_attempts
+        row.last_error = error_message[:2000]
+        row.status = "failed" if new_attempts >= _MAX_ATTEMPTS else "received"
+
+
+def _claim_for_drafting(question_id: int) -> bool:
+    """CAS transition `received -> drafting`. Returns True only if THIS call
+    won the claim (guards concurrent draft-cycle ticks, design §6 stage 1)."""
+    with get_background_db() as db:
+        result = db.execute(
+            update(MlBotQuestion)
+            .where(MlBotQuestion.id == question_id, MlBotQuestion.status == "received")
+            .values(status="drafting")
+        )
+        return result.rowcount == 1
+
+
+def _load_question(question_id: int) -> Optional[Dict[str, Any]]:
+    """Read the claimed row's plain data (short session) — nothing ORM-bound
+    is held across the LLM call downstream (ADR-5)."""
+    with get_background_db() as db:
+        row = db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id).first()
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "item_id": row.item_id,
+            "buyer_id": row.buyer_id,
+            "question_text": row.question_text,
+            "question_date": row.question_date,
+            "attempts": row.attempts,
+        }
+
+
+async def _draft_one(question_id: int, provider: LlmProvider) -> str:
+    """Orchestrate a single claimed question through stages 2-7. Returns an
+    outcome key for the caller's stats dict."""
+    if not _claim_for_drafting(question_id):
+        return "skipped_claimed_elsewhere"
+
+    question = _load_question(question_id)
+    if question is None:
+        return "skipped_claimed_elsewhere"
+
+    attempts = question["attempts"]
+
+    try:
+        if policy.detect_manipulation_signal(question["question_text"]):
+            # R-503: manipulation signal -> fallback WITHOUT any LLM call.
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=True)
+            return "injection_flagged"
+
+        item_payload = await ml_client.get_item(question["item_id"])
+
+        with get_background_db() as db:
+            context = context_builder.build_scoped_context(db, question["question_text"], item_payload)
+            min_confidence = policy.get_config(db, "min_confidence", cast=float, default=_DEFAULT_MIN_CONFIDENCE)
+
+        system_prompt, user_payload = context_builder.build_prompt(context)
+
+        try:
+            # Groq call happens here — no DB session is open at this point.
+            raw = await provider.complete(system_prompt, user_payload)
+            parsed = parse_llm_output(raw)
+        except LlmProviderError as exc:
+            logger.warning("ml-bot drafting: provider/parse failure for question %s: %s", question_id, exc)
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=False)
+            return "fallback"
+
+        if not parsed.can_answer or parsed.confidence < min_confidence or policy.violates_denylist(parsed.answer):
+            denylist_hit = policy.violates_denylist(parsed.answer)
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=denylist_hit)
+            return "fallback"
+
+        _resolve_success(question_id, parsed.answer, parsed.confidence, parsed.category)
+        return "drafted"
+
+    except Exception as exc:  # noqa: BLE001 — must never crash the loop.
+        logger.error("ml-bot drafting: unexpected error drafting question %s: %s", question_id, exc, exc_info=True)
+        _mark_failed_or_retry(question_id, attempts, str(exc))
+        return "failed"
+
+
+def _fetch_pending_ids(now: datetime) -> Optional[List[int]]:
+    """Batch-level eligibility gate (R-201): if the bot isn't eligible right
+    now (disabled, or in-hours under `off_hours_only`), the whole tick is a
+    no-op — `received` rows are left untouched for humans. Returns None when
+    not eligible, else the list of candidate ids ordered oldest-first."""
+    with get_background_db() as db:
+        if not policy.is_eligible_for_bot(db, now):
+            return None
+        return [
+            row.id
+            for row in db.query(MlBotQuestion)
+            .filter(MlBotQuestion.status == "received")
+            .order_by(MlBotQuestion.question_date.asc())
+            .limit(_BATCH_LIMIT)
+            .all()
+        ]
+
+
+async def run_ml_questions_draft_cycle(provider: Optional[LlmProvider] = None) -> Dict[str, Any]:
+    """One drafting tick: gate -> claim+draft each eligible `received` row.
+
+    Never raises — every per-question failure is caught and routed to
+    fallback/failed inside `_draft_one`; this function only aggregates
+    stats for the caller's background-task loop (mirrors
+    `run_ml_questions_ingest_cycle`'s resilience contract).
+    """
+    stats: Dict[str, Any] = {
+        "drafted": 0,
+        "fallback": 0,
+        "injection_flagged": 0,
+        "failed": 0,
+        "skipped_claimed_elsewhere": 0,
+        "not_eligible": False,
+    }
+
+    now = datetime.now(timezone.utc)
+    pending_ids = _fetch_pending_ids(now)
+    if pending_ids is None:
+        stats["not_eligible"] = True
+        return stats
+
+    active_provider = provider or _default_provider
+
+    for question_id in pending_ids:
+        outcome = await _draft_one(question_id, active_provider)
+        stats[outcome] = stats.get(outcome, 0) + 1
+
+    return stats

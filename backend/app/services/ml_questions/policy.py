@@ -280,7 +280,7 @@ _MANIPULATION_PATTERNS = [
         r"olvid[aáeí]\w*\W+(?:\w+\W+){0,4}?(instruc|anterior|previo|regla|prompt)",
         re.IGNORECASE,
     ),
-    re.compile(r"forget\s+(your|all|previous)\s+instruc", re.IGNORECASE),
+    re.compile(r"forget\s+(?:\w+\s+){0,3}instruc", re.IGNORECASE),
     re.compile(r"olvidate\s+de\s+tus\s+reglas", re.IGNORECASE),
     re.compile(r"you\s+are\s+now\s+an?\s+unrestricted", re.IGNORECASE),
     re.compile(r"actu[aá]\s+como\s+un\s+asistente\s+sin\s+restric", re.IGNORECASE),

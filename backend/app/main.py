@@ -200,6 +200,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(free_shipping_auto_fix_task()),
             asyncio.create_task(sync_sale_orders_task()),
             asyncio.create_task(ml_questions_ingest_task()),
+            asyncio.create_task(ml_questions_draft_task()),
         ]
     else:
         import os
@@ -448,6 +449,31 @@ async def ml_questions_ingest_task():
                 logger.info("ML questions ingest stats: %s", stats)
         except Exception as e:
             logger.error("ML questions ingest failed: %s", e, exc_info=True)
+
+        # Esperar 30 segundos
+        await asyncio.sleep(30)
+
+
+async def ml_questions_draft_task():
+    """
+    Tarea de background que orquesta el drafting de preguntas nuevas
+    (status='received') vía el pipeline LLM (Slice D2): claim CAS,
+    manipulation-signal check, contexto escopeado + Groq, denylist,
+    y ruteo a waiting/pending_morning/failed.
+    """
+    from app.services.ml_questions.drafting_service import run_ml_questions_draft_cycle
+
+    # Esperar 90 segundos para que ingesta (60s) ya haya corrido al menos una vez.
+    await asyncio.sleep(90)
+    logger.info("Background task started: ml_questions_draft (interval=30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_draft_cycle()
+            if not stats.get("not_eligible"):
+                logger.info("ML questions draft stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions draft failed: %s", e, exc_info=True)
 
         # Esperar 30 segundos
         await asyncio.sleep(30)
