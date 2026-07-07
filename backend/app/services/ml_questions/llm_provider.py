@@ -103,6 +103,13 @@ class OpenAICompatProvider:
     def name(self) -> str:
         return self._name
 
+    @property
+    def model(self) -> str:
+        """Exposed publicly (PR de pulido item #2/#4) so callers can label
+        WHICH model answered (`RotatingProvider.last_used_provider`) and so
+        roster variant dedupe can compare resolved models."""
+        return self._model
+
     def is_configured(self) -> bool:
         """API key absent/empty -> provider unavailable. Drafting must
         report failure (route to fallback) instead of crashing (constraint)."""
