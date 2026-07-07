@@ -22,12 +22,28 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
+import pytest
 
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_questions import drafting_service
 from app.services.ml_questions.llm_provider import LlmProviderError
+
+
+@pytest.fixture(autouse=True)
+def _default_get_item_description():
+    """context-enrichment: `get_item_description` is called unconditionally
+    in the drafting pipeline (outside any DB session, ADR-5), same as
+    `get_item`. Default every test to a fetch-failure equivalent (`None`) so
+    pre-existing tests that only care about `get_item` behavior are
+    unaffected; tests exercising the new description flow override this
+    patch explicitly."""
+    with patch(
+        "app.services.ml_questions.drafting_service.ml_client.get_item_description",
+        new=AsyncMock(return_value=None),
+    ) as mock:
+        yield mock
 
 
 class _ctx:
@@ -1049,6 +1065,128 @@ class TestFewShotSeedUsage:
         assert "¡Sí, tenemos!" in captured["system_prompt"]
         db.refresh(row)
         assert row.status == "waiting"
+
+
+class TestContextEnrichment:
+    """sdd/ml-questions-ai/context-enrichment: item title (from `get_item`,
+    already fetched) and item description (new `get_item_description` call)
+    flow into the scoped context and the system prompt."""
+
+    def test_title_from_item_payload_reaches_prompt(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        captured = {}
+
+        class _CapturingProvider(_FakeProvider):
+            async def complete(self, system_prompt: str, user_payload: str) -> str:
+                captured["system_prompt"] = system_prompt
+                return await super().complete(system_prompt, user_payload)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(
+                    return_value={
+                        "available_quantity": 1,
+                        "attributes": [],
+                        "title": "Notebook Lenovo con Windows 11",
+                    }
+                ),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_CapturingProvider(_VALID_RAW)))
+
+        assert "Notebook Lenovo con Windows 11" in captured["system_prompt"]
+        db.refresh(row)
+        assert row.status == "waiting"
+
+    def test_description_from_get_item_description_reaches_prompt(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        captured = {}
+
+        class _CapturingProvider(_FakeProvider):
+            async def complete(self, system_prompt: str, user_payload: str) -> str:
+                captured["system_prompt"] = system_prompt
+                return await super().complete(system_prompt, user_payload)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item_description",
+                new=AsyncMock(return_value="Viene con Windows 11 preinstalado de fábrica."),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_CapturingProvider(_VALID_RAW)))
+
+        assert "Viene con Windows 11 preinstalado de fábrica." in captured["system_prompt"]
+        db.refresh(row)
+        assert row.status == "waiting"
+
+    def test_description_fetch_failure_still_drafts(self, db) -> None:
+        """Fetch failure (`None`, mirrors get_item_description's own
+        fail-safe contract) -> draft proceeds without a description, never
+        routed to fallback/failed for that reason alone."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item_description",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        assert stats["drafted"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.answer_source == "bot"
+
+    def test_description_max_chars_config_truncates_before_prompt(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "description_max_chars", "150", tipo="int")
+        _seed_question(db)
+        db.commit()
+
+        captured = {}
+
+        class _CapturingProvider(_FakeProvider):
+            async def complete(self, system_prompt: str, user_payload: str) -> str:
+                captured["system_prompt"] = system_prompt
+                return await super().complete(system_prompt, user_payload)
+
+        long_description = "x" * 500
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item_description",
+                new=AsyncMock(return_value=long_description),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_CapturingProvider(_VALID_RAW)))
+
+        assert "x" * 500 not in captured["system_prompt"]
+        assert "x" * 150 in captured["system_prompt"]
 
 
 class TestAnswerShaping:
