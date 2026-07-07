@@ -164,6 +164,8 @@ class TestComplete:
             asyncio.run(provider.complete("system", "user"))
 
     def test_retry_backoff_sleeps_between_attempts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services.ml_questions import llm_provider as llm_provider_module
+
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(503, json={"error": "unavailable"})
 
@@ -178,7 +180,20 @@ class TestComplete:
         provider = GroqProvider(api_key="sk-test-123")
         with pytest.raises(LlmProviderError):
             asyncio.run(provider.complete("system", "user"))
-        assert len(sleep_calls) >= 1
+        # Exactly _MAX_RETRIES sleeps — one between each retry, never after
+        # the final (last) attempt.
+        assert len(sleep_calls) == llm_provider_module._MAX_RETRIES
+        expected = [min(2**attempt, 4) for attempt in range(llm_provider_module._MAX_RETRIES)]
+        assert sleep_calls == expected
+
+    def test_invalid_utf16_bom_body_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"\xff\xfe\x00\x01invalid")
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
 
     def test_oversized_response_body_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.services.ml_questions import llm_provider as llm_provider_module

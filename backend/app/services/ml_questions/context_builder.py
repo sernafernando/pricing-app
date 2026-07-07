@@ -229,7 +229,7 @@ def _context_to_json(context: ScopedContext) -> str:
     )
 
 
-_BUYER_QUESTION_TAG_PATTERN = re.compile(r"<\s*/?\s*buyer_question\s*>", re.IGNORECASE)
+_BUYER_QUESTION_TAG_PATTERN = re.compile(r"<\s*/?\s*buyer_question\b[^>]*>", re.IGNORECASE)
 
 
 def _few_shot_to_text(examples: List[FewShotExample]) -> str:

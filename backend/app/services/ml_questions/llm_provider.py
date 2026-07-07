@@ -167,7 +167,7 @@ def _extract_content(response: httpx.Response) -> str:
     try:
         data = response.json()
         content = data["choices"][0]["message"]["content"]
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise LlmProviderError(f"Groq response body is malformed: {type(exc).__name__}") from exc
 
     if not isinstance(content, str) or not content.strip():
