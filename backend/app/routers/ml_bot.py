@@ -63,6 +63,7 @@ from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.usuario import Usuario
 from app.services.ml_questions import publisher_service
+from app.services.ml_questions.policy import get_config, is_auto_publish_enabled
 from app.services.permisos_service import PermisosService
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,11 @@ class ToggleRequest(BaseModel):
 
 class ToggleResponse(BaseModel):
     bot_enabled: bool
+
+
+class StatusResponse(BaseModel):
+    bot_enabled: bool
+    auto_publish_enabled: bool
 
 
 class ExampleResponse(BaseModel):
@@ -406,6 +412,26 @@ def retener_pregunta(
 
     _emit_reload_hint()
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
+
+
+@router.get("/status", response_model=StatusResponse)
+def obtener_status(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> StatusResponse:
+    """Estado del bot visible para CUALQUIER usuario con `ml_bot.ver` (el
+    permiso más bajo de los cuatro `ml_bot.*`) — `bot_enabled` y
+    `auto_publish_enabled` son booleanos no sensibles (a diferencia de
+    `GET /config`, que expone la configuración de negocio completa y sigue
+    reservado a `ml_bot.config`). Esto cierra dos hallazgos de Judgment Day:
+    el badge de modo supervisado (y el de bot on/off) eran invisibles para
+    operadores con solo `ml_bot.ver`/`ml_bot.responder`, y el frontend
+    parseaba `valor === 'true'` en vez de reusar el `_cast_bool` real del
+    backend (ver `policy.py`)."""
+    _check_permiso(db, current_user, "ml_bot.ver")
+    bot_enabled = get_config(db, "bot_enabled", cast=bool, default=False)
+    auto_publish_enabled = is_auto_publish_enabled(db)
+    return StatusResponse(bot_enabled=bot_enabled, auto_publish_enabled=auto_publish_enabled)
 
 
 # =============================================================================

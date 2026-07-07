@@ -84,6 +84,18 @@ it is portable to the project's SQLite test suite.
 Session discipline (ADR-5, QueuePool-incident regression guard): every DB
 read/write here is its own short `get_background_db()` block.
 
+Supervised mode (trial-period hardening, `policy.is_auto_publish_enabled`):
+`run_ml_questions_publish_cycle` skips the automatic due-row selection
+entirely when `auto_publish_enabled` does not cast truthy via the shared
+`_cast_bool` convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`,
+case-insensitive, trimmed — anything else, including absent/empty, is
+supervised) — fail-safe default is disabled (supervised), no migration
+needed (absent key = FALSE, same story as `bot_enabled`). The gate applies
+ONLY to the automatic path:
+stale-claim reclaim (recovery, not publishing) always runs first, and
+`publish_question_now` (the panel's explicit human-approval action) always
+bypasses this gate and reuses `_publish_one` directly.
+
 SSE emission scope (Judgment Day adjudication): intermediate retry/revert
 transitions where `status` stays `waiting` (`_revert_to_waiting`, the
 retry branch of `_mark_failed_or_retry`) intentionally do NOT emit the
@@ -111,6 +123,7 @@ from app.services.ml_api_client import (
     QuestionNotFoundError,
     ml_client,
 )
+from app.services.ml_questions.policy import is_auto_publish_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +444,21 @@ async def run_ml_questions_publish_cycle() -> Dict[str, Any]:
     }
 
     now = datetime.now(timezone.utc)
+    # Stale-claim reclaim is recovery, not publishing — it runs regardless
+    # of the supervised-mode gate below.
     _reclaim_stale_publishing_claims(now)
+
+    with get_background_db() as db:
+        auto_publish = is_auto_publish_enabled(db)
+
+    if not auto_publish:
+        # Supervised mode (trial period): the automatic due-row selection
+        # is skipped entirely. `publish_question_now` (the panel's explicit
+        # human action) is unaffected — this gate applies ONLY to the
+        # automatic path selected via `_fetch_due_ids`.
+        logger.debug("ml-bot publisher: supervised mode active — skipping automatic due-row selection")
+        stats["supervised_skip"] = True
+        return stats
 
     due_ids, exhausted_count = _fetch_due_ids(now)
     stats["failed"] += exhausted_count

@@ -194,6 +194,18 @@ def is_eligible_for_bot(db: Session, now: datetime) -> bool:
     return not is_within_business_hours(db, now)
 
 
+def is_auto_publish_enabled(db: Session) -> bool:
+    """Supervised-mode gate (trial-period hardening): whether the automatic
+    due-row publish path may run. Cast via the shared `_cast_bool` truthy
+    convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`, case-insensitive,
+    trimmed) — missing row, empty string, or any other value (including a
+    malformed one) is treated as DISABLED (fail-safe: the bot never
+    auto-publishes unless explicitly enabled) — mirrors `bot_enabled`'s
+    kill-switch pattern, including its migration-free story: no seed row is
+    required, an absent key is simply "supervised"."""
+    return get_config(db, "auto_publish_enabled", cast=bool, default=False)
+
+
 def resolve_wait_minutes(db: Session, now: datetime) -> int:
     """Wait-window selection (R-203).
 

@@ -114,6 +114,40 @@ Pipeline: ingest → draft → publish, one MercadoLibre account per env.
 3. Toggle the bot on from the panel (`ml_bot.on_off` permission) or via
    `POST /api/ml-bot/toggle` (`{"enabled": true}`).
 
+### Supervised Mode (Trial Period)
+
+`ml_bot_config` key `auto_publish_enabled` gates the bot's automatic
+publish path (`publisher_service.run_ml_questions_publish_cycle`). No
+migration seeds this key — the value is cast via the shared `_cast_bool`
+truthy convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`, case-insensitive,
+trimmed); **absent, empty, or anything else (any other value) is treated
+as `false` (supervised)**, the same fail-safe pattern as `bot_enabled`: the
+bot never auto-publishes unless explicitly enabled.
+
+- **Supervised (default)**: the background publish loop skips the
+  automatic due-row selection entirely (logged at `debug`,
+  `stats["supervised_skip"] = True`). Drafts still land in `waiting` as
+  normal — an operator reviews them on the panel and clicks
+  "Publicar ahora" (`POST /api/ml-bot/questions/{id}/publish-now`), which
+  reuses the same publish pipeline and is **unaffected** by this gate.
+  Stale-claim reclaim (crash recovery, not publishing) also always runs.
+- **Auto (production)**: set `auto_publish_enabled=true` from the panel's
+  config tab (`ml_bot.config` permission) or
+  `PUT /api/ml-bot/config/auto_publish_enabled` (`{"valor": "true", "tipo": "bool"}`)
+  to let due `waiting` rows publish automatically again.
+
+**Trial workflow**: deploy → turn the bot on (`bot_enabled=true`) with
+`auto_publish_enabled` left absent/false → operators review and approve
+every drafted answer from the panel (edit if needed, then publish-now) →
+once confident in draft quality, flip `auto_publish_enabled=true` from the
+panel to let the bot publish unattended.
+
+The panel shows a badge next to the bot toggle ("Publicación automática:
+ON/OFF — modo supervisado") for `ml_bot.config` holders, and while
+supervised, `waiting` rows show "esperando aprobación" instead of a
+countdown (same config-tab-only visibility limitation as the existing
+bot-status badge).
+
 ### LLM Provider Rotation
 
 The bot rotates draft requests across multiple OpenAI-compatible free-tier
