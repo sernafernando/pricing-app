@@ -8,7 +8,7 @@
  * this page only hides/disables UI, it never trusts itself for authz.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
@@ -118,6 +118,20 @@ export default function MLQuestions() {
   // Bot toggle
   const [toggling, setToggling] = useState(false);
 
+  // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
+  // Judgment Day fix: the on/off + supervised-mode badges were previously
+  // invisible to operators who only had ml_bot.ver/ml_bot.responder).
+  const [status, setStatus] = useState(null);
+
+  const cargarStatus = useCallback(async () => {
+    try {
+      const { data } = await api.get('/ml-bot/status');
+      setStatus(data);
+    } catch {
+      setStatus(null);
+    }
+  }, []);
+
   const cargarPreguntas = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -165,8 +179,11 @@ export default function MLQuestions() {
   }, [puedeConfigurar]);
 
   useEffect(() => {
-    if (puedeVer) cargarPreguntas();
-  }, [cargarPreguntas, puedeVer]);
+    if (puedeVer) {
+      cargarPreguntas();
+      cargarStatus();
+    }
+  }, [cargarPreguntas, cargarStatus, puedeVer]);
 
   useEffect(() => {
     if (activeTab === 'config') {
@@ -177,12 +194,15 @@ export default function MLQuestions() {
 
   // SSE-driven reload: instant panel update on any bot state transition.
   const reloadFromSSE = useCallback(() => {
-    if (puedeVer) cargarPreguntas();
+    if (puedeVer) {
+      cargarPreguntas();
+      cargarStatus();
+    }
     if (activeTab === 'config') {
       cargarConfig();
       cargarExamples();
     }
-  }, [puedeVer, cargarPreguntas, activeTab, cargarConfig, cargarExamples]);
+  }, [puedeVer, cargarPreguntas, cargarStatus, activeTab, cargarConfig, cargarExamples]);
 
   useSSEChannel('ml_bot:questions', reloadFromSSE);
 
@@ -193,25 +213,18 @@ export default function MLQuestions() {
     return () => clearInterval(id);
   }, []);
 
-  const botEnabledItem = useMemo(
-    () => configItems.find((item) => item.clave === 'bot_enabled'),
-    [configItems],
-  );
-
-  // Supervised-mode indicator (trial period): `auto_publish_enabled` is
-  // absent/empty/malformed => supervised (fail-safe default), mirroring the
-  // backend's fail-safe read. Same visibility limitation as botEnabledItem
-  // above — only ml_bot.config holders get the config list at all.
-  const autoPublishItem = useMemo(
-    () => configItems.find((item) => item.clave === 'auto_publish_enabled'),
-    [configItems],
-  );
-  const autoPublishEnabled = autoPublishItem?.valor === 'true';
+  // Bot on/off + supervised-mode booleans come straight from GET /status
+  // (visible to every ml_bot.ver holder) — no more string-parsing a config
+  // item's raw `valor` (Judgment Day fix: the old `valor === 'true'` check
+  // didn't match the backend's real truthy convention, `_cast_bool`).
+  const botEnabled = status?.bot_enabled ?? false;
+  const autoPublishEnabled = status?.auto_publish_enabled ?? false;
 
   const handleToggle = async (enabled) => {
     setToggling(true);
     try {
       await api.post('/ml-bot/toggle', { enabled });
+      cargarStatus();
       if (puedeConfigurar) cargarConfig();
     } catch {
       setError('Error al cambiar el estado del bot');
@@ -332,22 +345,22 @@ export default function MLQuestions() {
           <h1>Bot de Preguntas ML</h1>
         </div>
         <div className={styles.headerActions}>
+          {status && (
+            <>
+              <span className={botEnabled ? styles.botOn : styles.botOff}>
+                <Power size={14} />
+                {botEnabled ? 'Bot activo' : 'Bot apagado'}
+              </span>
+              <span className={autoPublishEnabled ? styles.botOn : styles.botOff}>
+                <ShieldAlert size={14} />
+                {autoPublishEnabled
+                  ? 'Publicación automática: ON'
+                  : 'Publicación automática: OFF — modo supervisado'}
+              </span>
+            </>
+          )}
           {puedeEncenderApagar && (
             <>
-              {puedeConfigurar && botEnabledItem && (
-                <span className={botEnabledItem.valor === 'true' ? styles.botOn : styles.botOff}>
-                  <Power size={14} />
-                  {botEnabledItem.valor === 'true' ? 'Bot activo' : 'Bot apagado'}
-                </span>
-              )}
-              {puedeConfigurar && (
-                <span className={autoPublishEnabled ? styles.botOn : styles.botOff}>
-                  <ShieldAlert size={14} />
-                  {autoPublishEnabled
-                    ? 'Publicación automática: ON'
-                    : 'Publicación automática: OFF — modo supervisado'}
-                </span>
-              )}
               <button
                 className="btn-tesla outline-subtle-primary sm"
                 onClick={() => handleToggle(true)}
@@ -475,7 +488,7 @@ export default function MLQuestions() {
                         </td>
                         <td className={styles.cellCenter}>
                           {q.status === 'waiting' ? (
-                            puedeConfigurar && !autoPublishEnabled ? (
+                            !autoPublishEnabled ? (
                               <span className={styles.countdown}>
                                 <ShieldAlert size={12} />
                                 esperando aprobación

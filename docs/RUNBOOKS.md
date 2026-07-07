@@ -118,9 +118,11 @@ Pipeline: ingest → draft → publish, one MercadoLibre account per env.
 
 `ml_bot_config` key `auto_publish_enabled` gates the bot's automatic
 publish path (`publisher_service.run_ml_questions_publish_cycle`). No
-migration seeds this key — **absent, empty, or any non-`"true"` value is
-treated as `false` (supervised)**, the same fail-safe pattern as
-`bot_enabled`: the bot never auto-publishes unless explicitly enabled.
+migration seeds this key — the value is cast via the shared `_cast_bool`
+truthy convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`, case-insensitive,
+trimmed); **absent, empty, or anything else (any other value) is treated
+as `false` (supervised)**, the same fail-safe pattern as `bot_enabled`: the
+bot never auto-publishes unless explicitly enabled.
 
 - **Supervised (default)**: the background publish loop skips the
   automatic due-row selection entirely (logged at `debug`,

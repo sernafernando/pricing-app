@@ -196,8 +196,10 @@ def is_eligible_for_bot(db: Session, now: datetime) -> bool:
 
 def is_auto_publish_enabled(db: Session) -> bool:
     """Supervised-mode gate (trial-period hardening): whether the automatic
-    due-row publish path may run. Missing row, empty string, or any
-    malformed value is treated as DISABLED (fail-safe: the bot never
+    due-row publish path may run. Cast via the shared `_cast_bool` truthy
+    convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`, case-insensitive,
+    trimmed) — missing row, empty string, or any other value (including a
+    malformed one) is treated as DISABLED (fail-safe: the bot never
     auto-publishes unless explicitly enabled) — mirrors `bot_enabled`'s
     kill-switch pattern, including its migration-free story: no seed row is
     required, an absent key is simply "supervised"."""

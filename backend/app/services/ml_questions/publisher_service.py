@@ -86,9 +86,12 @@ read/write here is its own short `get_background_db()` block.
 
 Supervised mode (trial-period hardening, `policy.is_auto_publish_enabled`):
 `run_ml_questions_publish_cycle` skips the automatic due-row selection
-entirely when `auto_publish_enabled` is not exactly `"true"` — fail-safe
-default is disabled (supervised), no migration needed (absent key = FALSE,
-same story as `bot_enabled`). The gate applies ONLY to the automatic path:
+entirely when `auto_publish_enabled` does not cast truthy via the shared
+`_cast_bool` convention (`"true"`/`"1"`/`"yes"`/`"si"`/`"sí"`,
+case-insensitive, trimmed — anything else, including absent/empty, is
+supervised) — fail-safe default is disabled (supervised), no migration
+needed (absent key = FALSE, same story as `bot_enabled`). The gate applies
+ONLY to the automatic path:
 stale-claim reclaim (recovery, not publishing) always runs first, and
 `publish_question_now` (the panel's explicit human-approval action) always
 bypasses this gate and reuses `_publish_one` directly.

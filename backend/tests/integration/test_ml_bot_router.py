@@ -560,6 +560,47 @@ class TestSseEmission:
 
 
 # ==========================================================================
+# GET /status
+# ==========================================================================
+
+
+class TestStatus:
+    def test_sin_permiso_ver_403(self, client, auth_headers, sin_permisos) -> None:
+        r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 403
+
+    def test_con_permiso_ver_bot_y_auto_publish_habilitados(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        db.add(MlBotConfig(clave="bot_enabled", valor="true", tipo="bool"))
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+        db.commit()
+        r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json() == {"bot_enabled": True, "auto_publish_enabled": True}
+
+    def test_con_permiso_ver_bot_apagado_y_supervisado(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        db.add(MlBotConfig(clave="bot_enabled", valor="false", tipo="bool"))
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="false", tipo="bool"))
+        db.commit()
+        r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json() == {"bot_enabled": False, "auto_publish_enabled": False}
+
+    def test_config_ausente_defaultea_a_false(self, client, auth_headers, con_todos_los_permisos) -> None:
+        r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json() == {"bot_enabled": False, "auto_publish_enabled": False}
+
+    def test_solo_ver_alcanza_200(self, client, auth_headers) -> None:
+        with _permiso_solo("ml_bot.ver"):
+            r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 200
+
+
+# ==========================================================================
 # GET/PUT /config
 # ==========================================================================
 
