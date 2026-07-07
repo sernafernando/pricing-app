@@ -328,6 +328,11 @@ Record harvested items in [`docs/tech-debt-ledger.md`](docs/tech-debt-ledger.md)
 - Context-based permissions (PermisosContext in frontend)
 - Granular permissions: config, ventas, productos, reportes, usuarios
 
+### ML Questions Bot
+- Auto-responds MercadoLibre questions: ingest → LLM draft (Groq) → wait-window publish
+- Panel at `/ml-preguntas`, permissions `ml_bot.responder` / `ml_bot.on_off` / `ml_bot.config`
+- See [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md#3-ml-questions-bot-auto-responder) for the runbook
+
 ### Dark Mode
 - Full dark mode support via ThemeContext
 - Design tokens for consistent theming
