@@ -130,6 +130,10 @@
   margin-bottom: var(--spacing-md);
 }
 
+.errorBar button {
+  margin-left: auto;
+}
+
 .loadingCell,
 .emptyCell {
   text-align: center;

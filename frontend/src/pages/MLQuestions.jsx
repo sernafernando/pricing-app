@@ -99,7 +99,7 @@ export default function MLQuestions() {
   // Edit modal
   const [editQuestion, setEditQuestion] = useState(null);
   const [editText, setEditText] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
   const [actionError, setActionError] = useState(null);
 
   // Config editor
@@ -222,41 +222,43 @@ export default function MLQuestions() {
     setActionError(null);
   };
 
-  const runAction = async (fn) => {
-    setActionLoading(true);
+  const runAction = async (fn, questionId) => {
+    setActionLoadingId(questionId);
     setActionError(null);
     try {
       await fn();
-      await cargarPreguntas();
     } catch (err) {
       setActionError(err?.response?.data?.detail || 'No se pudo completar la acción');
     } finally {
-      setActionLoading(false);
+      // Always resync — an action can fail with a 409 (operator race) after
+      // partially mutating server state, so we re-fetch regardless of outcome.
+      await cargarPreguntas();
+      setActionLoadingId(null);
     }
   };
 
   const handleTakeOver = (question) => runAction(async () => {
     await api.post(`/ml-bot/questions/${question.id}/take-over`);
-  });
+  }, question.id);
 
   const handleHold = (question) => runAction(async () => {
     await api.post(`/ml-bot/questions/${question.id}/hold`);
-  });
+  }, question.id);
 
   const handleSaveAnswer = () => runAction(async () => {
     await api.put(`/ml-bot/questions/${editQuestion.id}/answer`, { drafted_answer: editText });
-  });
+  }, editQuestion.id);
 
   const handlePublishNow = (question) => runAction(async () => {
     await api.post(`/ml-bot/questions/${question.id}/publish-now`);
     if (editQuestion?.id === question.id) closeEdit();
-  });
+  }, question.id);
 
   const handleSaveAndPublish = () => runAction(async () => {
     await api.put(`/ml-bot/questions/${editQuestion.id}/answer`, { drafted_answer: editText });
     await api.post(`/ml-bot/questions/${editQuestion.id}/publish-now`);
     closeEdit();
-  });
+  }, editQuestion.id);
 
   const handleConfigSave = async (clave) => {
     setSavingClave(clave);
@@ -394,6 +396,21 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {actionError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {actionError}
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={() => setActionError(null)}
+                aria-label="Descartar error"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           <div className="table-container-tesla">
             <table className="table-tesla striped">
               <thead className="table-tesla-head">
@@ -453,8 +470,9 @@ export default function MLQuestions() {
                                 <button
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleTakeOver(q)}
-                                  disabled={actionLoading}
+                                  disabled={actionLoadingId === q.id}
                                   title="Tomar la pregunta"
+                                  aria-label="Tomar la pregunta"
                                 >
                                   <UserCheck size={14} />
                                 </button>
@@ -463,7 +481,7 @@ export default function MLQuestions() {
                                 <button
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => openEdit(q)}
-                                  disabled={actionLoading}
+                                  disabled={actionLoadingId === q.id}
                                 >
                                   Editar
                                 </button>
@@ -472,8 +490,9 @@ export default function MLQuestions() {
                                 <button
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => handlePublishNow(q)}
-                                  disabled={actionLoading || !q.drafted_answer}
-                                  title="Publicar ahora"
+                                  disabled={actionLoadingId === q.id || !q.drafted_answer}
+                                  title={q.status === 'failed' ? 'Reintentar publicación' : 'Publicar ahora'}
+                                  aria-label={q.status === 'failed' ? 'Reintentar publicación' : 'Publicar ahora'}
                                 >
                                   {q.status === 'failed' ? <RotateCcw size={14} /> : <Send size={14} />}
                                 </button>
@@ -482,8 +501,9 @@ export default function MLQuestions() {
                                 <button
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleHold(q)}
-                                  disabled={actionLoading}
+                                  disabled={actionLoadingId === q.id}
                                   title="Retener para la mañana"
+                                  aria-label="Retener para la mañana"
                                 >
                                   <PauseCircle size={14} />
                                 </button>
@@ -576,7 +596,7 @@ export default function MLQuestions() {
                         <td className={styles.cellMotivo}>{ex.answer_example}</td>
                         <td>{ex.category || '—'}</td>
                         <td>
-                          <button className="btn-tesla ghost sm" onClick={() => handleDeleteExample(ex.id)} title="Eliminar">
+                          <button className="btn-tesla ghost sm" onClick={() => handleDeleteExample(ex.id)} title="Eliminar" aria-label="Eliminar ejemplo">
                             <Trash2 size={14} />
                           </button>
                         </td>
@@ -652,20 +672,20 @@ export default function MLQuestions() {
               </div>
             )}
             <div className={styles.editActions}>
-              <button className="btn-tesla ghost sm" onClick={closeEdit} disabled={actionLoading}>
+              <button className="btn-tesla ghost sm" onClick={closeEdit} disabled={actionLoadingId === editQuestion.id}>
                 Cancelar
               </button>
               <button
                 className="btn-tesla outline-subtle-primary sm"
                 onClick={handleSaveAnswer}
-                disabled={actionLoading || !editText.trim()}
+                disabled={actionLoadingId === editQuestion.id || !editText.trim()}
               >
                 Guardar borrador
               </button>
               <button
                 className="btn-tesla sm"
                 onClick={handleSaveAndPublish}
-                disabled={actionLoading || !editText.trim()}
+                disabled={actionLoadingId === editQuestion.id || !editText.trim()}
               >
                 <Send size={14} />
                 Guardar y publicar
