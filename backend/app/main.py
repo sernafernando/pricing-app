@@ -430,6 +430,25 @@ async def sync_sale_orders_task():
         await asyncio.sleep(600)
 
 
+async def _resolve_ml_bot_poll_interval_seconds() -> int:
+    """Judgment Day fix: `poll_interval_seconds` is seeded/documented as the
+    panel-editable interval for the ml-bot ingest/draft loops below, but was
+    never actually read — both loops hardcoded `asyncio.sleep(30)`. Read live
+    from a short-lived DB session (ADR-5) each tick; any failure (DB error,
+    malformed value already handled inside `resolve_poll_interval_seconds`)
+    falls back to the same default so a bad read can never crash the loop.
+    """
+    from app.core.database import get_background_db
+    from app.services.ml_questions import policy
+
+    try:
+        with get_background_db() as db:
+            return policy.resolve_poll_interval_seconds(db)
+    except Exception as exc:
+        logger.warning("ml-bot: failed to resolve poll_interval_seconds, using default=30s: %s", exc)
+        return 30
+
+
 async def ml_questions_ingest_task():
     """
     Tarea de background que ingesta preguntas nuevas de MercadoLibre
@@ -440,7 +459,7 @@ async def ml_questions_ingest_task():
 
     # Esperar 60 segundos para que todo esté listo (DB, ML client, etc.)
     await asyncio.sleep(60)
-    logger.info("Background task started: ml_questions_ingest (interval=30s)")
+    logger.info("Background task started: ml_questions_ingest (interval=poll_interval_seconds, default 30s)")
 
     while True:
         try:
@@ -450,8 +469,8 @@ async def ml_questions_ingest_task():
         except Exception as e:
             logger.error("ML questions ingest failed: %s", e, exc_info=True)
 
-        # Esperar 30 segundos
-        await asyncio.sleep(30)
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
 
 
 async def ml_questions_draft_task():
@@ -465,7 +484,7 @@ async def ml_questions_draft_task():
 
     # Esperar 90 segundos para que ingesta (60s) ya haya corrido al menos una vez.
     await asyncio.sleep(90)
-    logger.info("Background task started: ml_questions_draft (interval=30s)")
+    logger.info("Background task started: ml_questions_draft (interval=poll_interval_seconds, default 30s)")
 
     while True:
         try:
@@ -475,8 +494,8 @@ async def ml_questions_draft_task():
         except Exception as e:
             logger.error("ML questions draft failed: %s", e, exc_info=True)
 
-        # Esperar 30 segundos
-        await asyncio.sleep(30)
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
 
 
 async def free_shipping_auto_fix_task():

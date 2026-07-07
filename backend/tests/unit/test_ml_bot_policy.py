@@ -202,6 +202,42 @@ class TestResolveWaitMinutes:
         assert policy.resolve_wait_minutes(db, now) == 0
 
 
+class TestResolvePollIntervalSeconds:
+    """Judgment Day fix: `poll_interval_seconds` is seeded/documented as a
+    panel-editable interval for the ingest/draft background loops, but was
+    never read — both loops hardcoded `asyncio.sleep(30)`. Fail-safe like
+    every other config read: missing/empty/malformed -> default; a typo like
+    "0" must not hot-loop, so results are clamped to a sane floor."""
+
+    def test_missing_config_returns_default(self, db) -> None:
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_valid_config_is_used(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="45", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 45
+
+    def test_malformed_config_falls_back_to_default_without_crashing(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="not-a-number", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_empty_config_falls_back_to_default(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_below_floor_is_clamped_to_floor(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="0", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 5
+
+    def test_negative_value_is_clamped_to_floor(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="-10", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 5
+
+
 class TestMalformedConfigFailsSafe:
     """Fix 4: malformed config values must not crash the gate; they must fail
     SAFE (treated as within business hours -> bot NOT eligible in

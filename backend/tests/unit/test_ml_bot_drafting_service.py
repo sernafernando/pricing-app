@@ -352,6 +352,191 @@ class TestUnexpectedErrorRetry:
         assert row.attempts == 1
 
 
+class TestStuckDraftingRegression:
+    """Judgment Day fix: an error after the CAS claim must never leave a row
+    stuck in `drafting` forever, and one bad row must not abort the rest of
+    the batch."""
+
+    def test_load_failure_after_claim_does_not_stick_in_drafting(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch.object(drafting_service, "_load_question", side_effect=RuntimeError("db exploded")),
+        ):
+            outcome = asyncio.run(drafting_service._draft_one(row.id, _FakeProvider(_VALID_RAW)))
+
+        assert outcome == "failed"
+        db.refresh(row)
+        assert row.status != "drafting"
+        assert row.status == "received"
+        assert row.attempts == 1
+
+    def test_one_bad_row_does_not_abort_the_rest_of_the_batch(self, db) -> None:
+        _seed_bot_enabled(db)
+        bad_row = _seed_question(db)
+        good_row = _seed_question(db)
+        db.commit()
+
+        real_claim = drafting_service._claim_for_drafting
+
+        def _claim_side_effect(question_id: int) -> bool:
+            if question_id == bad_row.id:
+                raise RuntimeError("claim exploded")
+            return real_claim(question_id)
+
+        item_payload = {"available_quantity": 5, "attributes": []}
+        with (
+            _patch_db(db),
+            patch.object(drafting_service, "_claim_for_drafting", side_effect=_claim_side_effect),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=item_payload),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        assert stats["drafted"] == 1
+        db.refresh(good_row)
+        assert good_row.status == "waiting"
+
+    def test_stale_drafting_claim_is_reclaimed_to_received(self, db) -> None:
+        from sqlalchemy import update as sa_update
+
+        row = _seed_question(db, status="drafting")
+        db.commit()
+        stale_ts = datetime.now(timezone.utc) - drafting_service.timedelta(
+            minutes=drafting_service._DRAFTING_STALE_MINUTES + 1
+        )
+        db.execute(sa_update(MlBotQuestion).where(MlBotQuestion.id == row.id).values(updated_at=stale_ts))
+        db.commit()
+
+        _seed_bot_enabled(db)
+        db.commit()
+
+        with _patch_db(db):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        db.refresh(row)
+        assert row.status in {"received", "waiting"}
+        assert row.status != "drafting"
+
+    def test_fresh_drafting_claim_is_not_reclaimed(self, db) -> None:
+        row = _seed_question(db, status="drafting")
+        db.commit()
+        _seed_bot_enabled(db)
+        db.commit()
+
+        with _patch_db(db):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        db.refresh(row)
+        assert row.status == "drafting"
+
+
+class TestRepeatBuyerWindowBound:
+    """Judgment Day fix (R-602): the prior-question lookup must be bounded to
+    the CURRENT off-hours window, not any historical handled question."""
+
+    def test_prior_question_from_last_week_does_not_trigger_pending_morning(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "UTC")
+        _seed_config(db, "business_hours_start", "09:00")
+        _seed_config(db, "business_hours_end", "18:00")
+
+        last_week = datetime(2026, 6, 29, 12, 0, tzinfo=timezone.utc)
+        prior = _seed_question(db, question_date=last_week, buyer_id=999, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        later = datetime(2026, 7, 7, 0, 20, tzinfo=timezone.utc)
+        row = _seed_question(db, question_date=later, buyer_id=999)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.wait_until is not None
+
+    def test_prior_question_yesterday_business_hours_does_not_count(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "UTC")
+        _seed_config(db, "business_hours_start", "09:00")
+        _seed_config(db, "business_hours_end", "18:00")
+
+        yesterday_business_hours = datetime(2026, 7, 6, 14, 0, tzinfo=timezone.utc)
+        prior = _seed_question(db, question_date=yesterday_business_hours, buyer_id=444, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        later = datetime(2026, 7, 7, 0, 20, tzinfo=timezone.utc)
+        row = _seed_question(db, question_date=later, buyer_id=444)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.wait_until is not None
+
+
+class TestConfigurableLlmModel:
+    """Judgment Day fix: `llm_model` in `ml_bot_config` is seeded/documented
+    as panel-editable but was never actually read — the provider always used
+    `GroqProvider`'s hardcoded default model."""
+
+    def test_configured_model_is_used_to_build_the_default_provider(self, db) -> None:
+        _seed_config(db, "llm_model", "llama-3.3-70b-versatile-custom")
+        db.commit()
+
+        with _patch_db(db):
+            provider = drafting_service._build_default_provider()
+
+        assert provider._model == "llama-3.3-70b-versatile-custom"
+
+    def test_missing_model_config_falls_back_to_provider_default(self, db) -> None:
+        db.commit()
+
+        with _patch_db(db):
+            provider = drafting_service._build_default_provider()
+
+        from app.services.ml_questions.llm_provider import _DEFAULT_MODEL
+
+        assert provider._model == _DEFAULT_MODEL
+
+    def test_empty_model_config_falls_back_to_provider_default(self, db) -> None:
+        _seed_config(db, "llm_model", "")
+        db.commit()
+
+        with _patch_db(db):
+            provider = drafting_service._build_default_provider()
+
+        from app.services.ml_questions.llm_provider import _DEFAULT_MODEL
+
+        assert provider._model == _DEFAULT_MODEL
+
+
 class TestFewShotSeedUsage:
     def test_active_few_shot_examples_are_used_in_prompt(self, db) -> None:
         _seed_bot_enabled(db)

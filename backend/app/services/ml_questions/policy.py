@@ -46,6 +46,8 @@ _DEFAULT_BUSINESS_HOURS_START = "09:00"
 _DEFAULT_BUSINESS_HOURS_END = "18:00"
 _DEFAULT_BUSINESS_DAYS = "[1,2,3,4,5]"
 _DEFAULT_WAIT_MINUTES = 5
+_DEFAULT_POLL_INTERVAL_SECONDS = 30
+_MIN_POLL_INTERVAL_SECONDS = 5
 
 
 def _cast_bool(valor: str) -> bool:
@@ -226,6 +228,31 @@ def resolve_wait_minutes(db: Session, now: datetime) -> int:
     return standard_wait
 
 
+def resolve_poll_interval_seconds(db: Session) -> int:
+    """Judgment Day fix: `poll_interval_seconds` was seeded/documented as the
+    panel-editable interval for the ingest/draft background loops, but was
+    never actually read — both loops hardcoded `asyncio.sleep(30)`.
+
+    Fail-safe like every other config read here: a missing row, empty
+    string, or malformed (non-int) value falls back to
+    `_DEFAULT_POLL_INTERVAL_SECONDS` without crashing the loop. Clamped to a
+    floor of `_MIN_POLL_INTERVAL_SECONDS` so a panel typo like "0" (or a
+    negative value) can't turn the background loop into a hot-loop.
+    """
+    raw = get_config(db, "poll_interval_seconds", cast=str, default=str(_DEFAULT_POLL_INTERVAL_SECONDS))
+    try:
+        interval = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed poll_interval_seconds=%r; falling back to default=%d",
+            raw,
+            _DEFAULT_POLL_INTERVAL_SECONDS,
+        )
+        interval = _DEFAULT_POLL_INTERVAL_SECONDS
+
+    return max(interval, _MIN_POLL_INTERVAL_SECONDS)
+
+
 # ---------------------------------------------------------------------------
 # Denylist validator (R-502) + manipulation-signal detector (R-503/R-504)
 # ---------------------------------------------------------------------------
@@ -280,7 +307,13 @@ _MANIPULATION_PATTERNS = [
         r"olvid[aáeí]\w*\W+(?:\w+\W+){0,4}?(instruc|anterior|previo|regla|prompt)",
         re.IGNORECASE,
     ),
-    re.compile(r"forget\s+(?:\w+\s+){0,3}instruc", re.IGNORECASE),
+    # Judgment Day fix: requires a manipulation qualifier directly after
+    # "forget" (your/all/previous/these/those/the above/any prior) so casual
+    # uses like "forget to include the instructions" or "forget the assembly
+    # instructions" don't false-positive. Deliberately excludes bare "the"
+    # (only "the above" qualifies) — otherwise "forget the <anything>
+    # instructions" would still match.
+    re.compile(r"forget\s+(?:your|all|previous|these|those|the\s+above|any\s+prior)\b.{0,20}instruc", re.IGNORECASE),
     re.compile(r"olvidate\s+de\s+tus\s+reglas", re.IGNORECASE),
     re.compile(r"you\s+are\s+now\s+an?\s+unrestricted", re.IGNORECASE),
     re.compile(r"actu[aá]\s+como\s+un\s+asistente\s+sin\s+restric", re.IGNORECASE),

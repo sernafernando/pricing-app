@@ -27,7 +27,13 @@ Pipeline per question (design §6):
    `pending_morning` with no auto-publish wait window.
 7. Unexpected errors (bugs, DB errors, etc.) never leave a row stuck in
    `drafting` — they increment `attempts` and either put the row back in
-   `received` for a retry or, past `_MAX_ATTEMPTS`, mark it `failed`.
+   `received` for a retry or, past `_MAX_ATTEMPTS`, mark it `failed`. This is
+   an addition to design §2's state table: `drafting -> received` (bounded
+   retry, under `_MAX_ATTEMPTS`) alongside the documented
+   `drafting -> {waiting | pending_morning | failed}`. A stale-claim reclaim
+   (rows still `drafting` past `_DRAFTING_STALE_MINUTES`) also reverts to
+   `received` at the start of every cycle, covering the SIGKILL-between-
+   claim-and-terminal-write case.
 
 Session discipline (ADR-5, QueuePool-incident regression guard): every DB
 read/write is its own short `get_background_db()` block. The Groq HTTP call
@@ -54,6 +60,15 @@ logger = logging.getLogger(__name__)
 _BATCH_LIMIT = 20
 _MAX_ATTEMPTS = 3
 
+# Judgment Day fix: rows CAS-claimed into `drafting` (design §6 stage 1) that
+# never reach a terminal write (SIGKILL between claim and terminal write, or a
+# DB error immediately after the claim) would otherwise stay stuck forever —
+# nothing else ever re-selects `drafting` rows. Any row still `drafting` after
+# this many minutes (measured off `updated_at`, the only timestamp the model
+# maintains) is CAS-reverted to `received` at the start of each cycle so a
+# later tick retries it.
+_DRAFTING_STALE_MINUTES = 15
+
 # Statuses that count as "the buyer's prior question was already handled by
 # the bot" for the R-602 repeat-buyer-after-midnight exception. Deliberately
 # excludes `received`/`drafting`/`failed` (not yet resolved) and
@@ -70,9 +85,19 @@ _DEFAULT_FALLBACK_TEMPLATE = (
     "abramos. ¡Gracias por tu paciencia!"
 )
 
-# Module-level default provider (ADR-6). Callers (background task, tests)
-# may inject a different `LlmProvider` implementation/mock.
-_default_provider: LlmProvider = GroqProvider()
+
+def _build_default_provider() -> LlmProvider:
+    """Build the default `LlmProvider` for a cycle (ADR-6), reading the
+    panel-editable `llm_model` config live (ADR-4/§11) — Judgment Day fix:
+    `llm_model` was seeded/documented as editable but never actually read,
+    so a panel edit silently did nothing. Read in a short-lived DB session
+    (ADR-5) once per cycle, at provider-construction time, NOT per HTTP call.
+    """
+    with get_background_db() as db:
+        model = policy.get_config(db, "llm_model", cast=str, default=None)
+    if not model:
+        return GroqProvider()
+    return GroqProvider(model=model)
 
 
 def _build_fallback_message(db: Any) -> str:
@@ -128,6 +153,21 @@ def _is_repeat_buyer_after_midnight(
     if not ((0, 0) <= (localized.hour, localized.minute) < (start_hour, start_minute)):
         return False
 
+    # Judgment Day fix (R-602): bound the prior-question lookup to the
+    # CURRENT off-hours window instead of "ever" — an unbounded lookup makes
+    # ANY historical handled question trigger `pending_morning` forever for
+    # that buyer. Since we're in the `[00:00, business_hours_start)` slice,
+    # the current off-hours window started at YESTERDAY's business_hours_end
+    # (the window runs from close-of-business through the next morning's
+    # open). Anything before that boundary belongs to a previous cycle.
+    end_raw = policy.get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
+    try:
+        end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
+    except ValueError:
+        return False
+
+    window_start = localized.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0) - timedelta(days=1)
+
     prior = (
         db.query(MlBotQuestion)
         .filter(
@@ -135,6 +175,7 @@ def _is_repeat_buyer_after_midnight(
             MlBotQuestion.id != question_id,
             MlBotQuestion.status.in_(_HANDLED_STATUSES),
             MlBotQuestion.question_date < question_date,
+            MlBotQuestion.question_date >= window_start,
         )
         .first()
     )
@@ -236,17 +277,25 @@ def _load_question(question_id: int) -> Optional[Dict[str, Any]]:
 
 async def _draft_one(question_id: int, provider: LlmProvider) -> str:
     """Orchestrate a single claimed question through stages 2-7. Returns an
-    outcome key for the caller's stats dict."""
+    outcome key for the caller's stats dict.
+
+    Judgment Day fix: everything that happens AFTER a successful claim (the
+    load included) is inside the same error handling that routes to
+    `_mark_failed_or_retry` — a DB error while loading the just-claimed row
+    must never leave it stuck in `drafting` any more than a provider error
+    downstream would.
+    """
     if not _claim_for_drafting(question_id):
         return "skipped_claimed_elsewhere"
 
-    question = _load_question(question_id)
-    if question is None:
-        return "skipped_claimed_elsewhere"
-
-    attempts = question["attempts"]
-
+    attempts = 0
     try:
+        question = _load_question(question_id)
+        if question is None:
+            return "skipped_claimed_elsewhere"
+
+        attempts = question["attempts"]
+
         if policy.detect_manipulation_signal(question["question_text"]):
             # R-503: manipulation signal -> fallback WITHOUT any LLM call.
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=True)
@@ -281,6 +330,28 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
         logger.error("ml-bot drafting: unexpected error drafting question %s: %s", question_id, exc, exc_info=True)
         _mark_failed_or_retry(question_id, attempts, str(exc))
         return "failed"
+
+
+def _reclaim_stale_drafting_claims(now: datetime) -> int:
+    """Judgment Day fix: CAS-revert any row still `drafting` past
+    `_DRAFTING_STALE_MINUTES` back to `received` so it gets retried on a
+    later tick, instead of staying stuck forever (see module docstring)."""
+    threshold = now - timedelta(minutes=_DRAFTING_STALE_MINUTES)
+    with get_background_db() as db:
+        result = db.execute(
+            update(MlBotQuestion)
+            .where(MlBotQuestion.status == "drafting", MlBotQuestion.updated_at < threshold)
+            .values(status="received")
+        )
+        reclaimed = result.rowcount
+
+    if reclaimed:
+        logger.warning(
+            "ml-bot drafting: reclaimed %d stale 'drafting' row(s) older than %d minutes",
+            reclaimed,
+            _DRAFTING_STALE_MINUTES,
+        )
+    return reclaimed
 
 
 def _fetch_pending_ids(now: datetime) -> Optional[List[int]]:
@@ -319,15 +390,26 @@ async def run_ml_questions_draft_cycle(provider: Optional[LlmProvider] = None) -
     }
 
     now = datetime.now(timezone.utc)
+    _reclaim_stale_drafting_claims(now)
+
     pending_ids = _fetch_pending_ids(now)
     if pending_ids is None:
         stats["not_eligible"] = True
         return stats
 
-    active_provider = provider or _default_provider
+    active_provider = provider or _build_default_provider()
 
     for question_id in pending_ids:
-        outcome = await _draft_one(question_id, active_provider)
+        try:
+            outcome = await _draft_one(question_id, active_provider)
+        except Exception as exc:  # noqa: BLE001 — one bad row must not abort the batch.
+            logger.error(
+                "ml-bot drafting: unexpected error in tick for question %s: %s",
+                question_id,
+                exc,
+                exc_info=True,
+            )
+            outcome = "failed"
         stats[outcome] = stats.get(outcome, 0) + 1
 
     return stats
