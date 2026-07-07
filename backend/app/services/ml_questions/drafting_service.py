@@ -493,9 +493,15 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
             return "injection_flagged"
 
         item_payload = await ml_client.get_item(question["item_id"])
+        # context-enrichment (sdd/ml-questions-ai/context-enrichment): the
+        # item description is fetched here, OUTSIDE any DB session (ADR-5),
+        # same as `get_item` above. `get_item_description` never raises —
+        # a fetch failure (404, transient error, unexpected payload) yields
+        # `None`, and the draft proceeds without a description.
+        description = await ml_client.get_item_description(question["item_id"])
 
         with get_background_db() as db:
-            context = context_builder.build_scoped_context(db, question["question_text"], item_payload)
+            context = context_builder.build_scoped_context(db, question["question_text"], item_payload, description)
             min_confidence = policy.get_config(db, "min_confidence", cast=float, default=_DEFAULT_MIN_CONFIDENCE)
             answer_max_chars = answer_shaping.get_answer_max_chars(db)
             debug_logging = policy.get_config(db, _LLM_DEBUG_LOGGING_KEY, cast=bool, default=False) or False
