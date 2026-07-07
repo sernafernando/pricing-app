@@ -148,6 +148,43 @@ class MercadoLibreAPIClient:
             logger.error(f"Error obteniendo item {item_id} de ML: {e}")
             return None
 
+    async def get_item_description(self, item_id: str) -> Optional[str]:
+        """Obtiene la descripción de un item de ML (context-enrichment,
+        sdd/ml-questions-ai/context-enrichment).
+
+        Mirrors `get_item`'s error conventions: any failure (404, other
+        4xx/5xx, network error, unexpected payload shape) is non-fatal and
+        returns `None` — never raises. Callers treat a `None` description as
+        "proceed without it", never as a reason to fail the whole draft.
+
+        Args:
+            item_id: El ID del item (MLA, MLB, etc.)
+
+        Returns:
+            El texto plano de la descripción (`plain_text`) o `None` si no
+            está disponible o hay error.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/items/{item_id}/description", headers={"Authorization": f"Bearer {token}"}
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Descripción del item {item_id} no encontrada en ML")
+                    return None
+
+                response.raise_for_status()
+                data = response.json()
+                plain_text = data.get("plain_text")
+                return plain_text if isinstance(plain_text, str) else None
+
+        except Exception as e:
+            logger.error(f"Error obteniendo descripción del item {item_id} de ML: {e}")
+            return None
+
     async def get_question(self, question_id: int) -> Optional[Dict]:
         """Obtiene el detalle completo de una pregunta de ML (ml-bot Slice C, R-101).
 
