@@ -23,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -34,19 +35,20 @@ class MlBotQuestion(Base):
 
     __tablename__ = "ml_bot_questions"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
 
-    # Idempotency key from ML (design §3/§4, R-101).
-    ml_question_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    # Idempotency key from ML (design §3/§4, R-101). Uniqueness enforced by
+    # the named constraint in __table_args__ (matches the migration).
+    ml_question_id = Column(BigInteger, nullable=False)
 
-    item_id = Column(String(32), nullable=False, index=True)
+    item_id = Column(String(32), nullable=False)
     buyer_id = Column(BigInteger, nullable=True)
     buyer_nickname = Column(String(255), nullable=True)
 
     question_text = Column(Text, nullable=False)
-    question_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    question_date = Column(DateTime(timezone=True), nullable=False)
 
-    status = Column(String(20), nullable=False, default="received", server_default="received", index=True)
+    status = Column(String(20), nullable=False, default="received", server_default="received")
 
     drafted_answer = Column(Text, nullable=True)
     answer_source = Column(String(10), nullable=True)  # bot | human | fallback
@@ -68,6 +70,7 @@ class MlBotQuestion(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        UniqueConstraint("ml_question_id", name="uq_ml_bot_questions_ml_question_id"),
         Index("idx_ml_bot_questions_status", "status"),
         Index("idx_ml_bot_questions_item_id", "item_id"),
         Index("idx_ml_bot_questions_question_date", "question_date"),
