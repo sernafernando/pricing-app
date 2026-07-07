@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(sync_pedidos_preparacion_task()),
             asyncio.create_task(free_shipping_auto_fix_task()),
             asyncio.create_task(sync_sale_orders_task()),
+            asyncio.create_task(ml_questions_ingest_task()),
         ]
     else:
         import os
@@ -426,6 +427,30 @@ async def sync_sale_orders_task():
 
         # Esperar 10 minutos
         await asyncio.sleep(600)
+
+
+async def ml_questions_ingest_task():
+    """
+    Tarea de background que ingesta preguntas nuevas de MercadoLibre
+    (topic='questions') desde la BD mlwebhook hacia ml_bot_questions
+    (Slice C — solo ingesta, sin drafting ni publicación).
+    """
+    from app.services.ml_questions.ingestion_service import run_ml_questions_ingest_cycle
+
+    # Esperar 60 segundos para que todo esté listo (DB, ML client, etc.)
+    await asyncio.sleep(60)
+    logger.info("Background task started: ml_questions_ingest (interval=30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_ingest_cycle()
+            if stats["ingested"] or stats["duplicates"] or stats["skipped_answered"]:
+                logger.info("ML questions ingest stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions ingest failed: %s", e, exc_info=True)
+
+        # Esperar 30 segundos
+        await asyncio.sleep(30)
 
 
 async def free_shipping_auto_fix_task():

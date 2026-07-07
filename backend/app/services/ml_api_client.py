@@ -90,6 +90,39 @@ class MercadoLibreAPIClient:
             logger.error(f"Error obteniendo item {item_id} de ML: {e}")
             return None
 
+    async def get_question(self, question_id: int) -> Optional[Dict]:
+        """Obtiene el detalle completo de una pregunta de ML (ml-bot Slice C, R-101).
+
+        El webhook de mlwebhook solo trae el resource id; el texto de la
+        pregunta, comprador, item y estado se obtienen con un GET puntual acá.
+
+        Args:
+            question_id: El id numérico de la pregunta ML.
+
+        Returns:
+            Dict con la pregunta (incluye "status", "text", "date_created",
+            "item_id", "from") o None si no se pudo obtener.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/questions/{question_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Pregunta {question_id} no encontrada en ML")
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo pregunta {question_id} de ML: {e}")
+            return None
+
     async def get_items_batch(self, item_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch
 
