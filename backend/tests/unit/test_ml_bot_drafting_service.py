@@ -646,6 +646,101 @@ class TestAttentionHoursFallbackPlaceholder:
         assert row.status != "failed"
         assert "de 9 a 18 {promo" in row.drafted_answer
 
+    def test_placeholder_removal_collapses_multiple_surrounding_spaces(self, db) -> None:
+        """Judgment Day fix (round 2): a placeholder surrounded by extra
+        whitespace on both sides must not leave space runs behind."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Texto   {attention_hours}   fin")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.drafted_answer == "Texto fin"
+
+    def test_placeholder_removal_preserves_newlines(self, db) -> None:
+        """Judgment Day fix (round 2): only the space character is collapsed
+        during cleanup — intentional line breaks in a panel-edited template
+        must survive."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Linea uno\n{attention_hours}\nLinea dos")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "\n" in row.drafted_answer
+        assert "{attention_hours}" not in row.drafted_answer
+
+    def test_placeholder_appearing_twice_both_removed(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "Hola {attention_hours} y de nuevo {attention_hours} gracias",
+        )
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "{attention_hours}" not in row.drafted_answer
+        assert row.drafted_answer == "Hola y de nuevo gracias"
+
+    def test_malformed_template_itself_falls_back_to_raw_text(self, db) -> None:
+        """Judgment Day fix (round 2, Judge A): unlike the escaped-braces
+        test above (which proves `attention_hours_text` escaping works but
+        never actually raises inside `.format()`), this test makes the
+        `warm_fallback_template` ITSELF malformed — an unclosed `{` with no
+        `attention_hours` placeholder at all — so `.format()` genuinely
+        raises `ValueError`/`KeyError` and the except branch must return the
+        raw (post-substitution) template instead of failing the question."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Hola {oops sin cerrar")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status != "failed"
+        assert row.drafted_answer == "Hola {oops sin cerrar"
+
 
 class TestClaimGuard:
     def test_row_not_in_received_is_skipped(self, db) -> None:

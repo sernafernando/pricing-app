@@ -103,10 +103,18 @@ _DEFAULT_FALLBACK_TEMPLATE = (
 # absent/empty config value can be cleanly removed instead of crashing or
 # rendering the literal "{attention_hours}" text.
 _ATTENTION_HOURS_PLACEHOLDER = "{attention_hours}"
-# Matches the placeholder plus a single leading whitespace char, so removing
-# it when unset doesn't leave a double space behind (e.g. "es {attention_hours}."
-# -> "es." not "es .").
-_ATTENTION_HOURS_PLACEHOLDER_RE = re.compile(r"\s*\{attention_hours\}")
+# Strips whitespace on BOTH sides of the placeholder so removal never
+# leaves a lone leading/trailing space behind, regardless of which side of
+# the template it sits on (e.g. "es {attention_hours}." -> "es." and
+# "Texto   {attention_hours}   fin" -> "Texto fin" after the space-run
+# collapse below).
+_ATTENTION_HOURS_PLACEHOLDER_RE = re.compile(r" *\{attention_hours\} *")
+# Collapses runs of the space character (NOT newlines, so intentional
+# line breaks in a panel-edited template survive cleanup).
+_SPACE_RUN_RE = re.compile(r" {2,}")
+# A leftover space directly before closing punctuation reads as a typo
+# once the placeholder is gone (e.g. "Horario ." -> "Horario.").
+_SPACE_BEFORE_PUNCT_RE = re.compile(r" ([.,;:!?)])")
 
 
 def _build_default_provider() -> LlmProvider:
@@ -147,11 +155,21 @@ def _build_fallback_message(db: Any) -> str:
         escaped = attention_hours.replace("{", "{{").replace("}", "}}")
         template = template.replace(_ATTENTION_HOURS_PLACEHOLDER, escaped)
     else:
-        # Judgment Day fix: cleanly strip the placeholder AND its immediate
-        # leading whitespace (regex, not a plain string replace) so removal
-        # doesn't leave a double space / orphaned " ." behind.
-        template = _ATTENTION_HOURS_PLACEHOLDER_RE.sub("", template)
-        template = template.replace("  ", " ").replace(" .", ".").replace(" ,", ",")
+        # Judgment Day fix (round 2): strip the placeholder AND whitespace on
+        # BOTH sides, reinsert a single space so words on either side don't
+        # collide ("Texto {attention_hours} fin" -> "Texto fin", not
+        # "Textofin"), then collapse any remaining space runs and fix
+        # space-before-punctuation artifacts. Newlines are deliberately left
+        # untouched (only the space character is collapsed) so intentional
+        # line breaks in a panel-edited template survive cleanup. A
+        # placeholder immediately abutting a colon (e.g. "Horario:
+        # {attention_hours}.") can still leave a documented "Horario:."
+        # artifact — admins are expected to write self-contained clauses
+        # around the placeholder (see module docstring / runbook).
+        template = _ATTENTION_HOURS_PLACEHOLDER_RE.sub(" ", template)
+        template = _SPACE_RUN_RE.sub(" ", template)
+        template = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", template)
+        template = template.strip()
 
     try:
         return template.format(business_hours_start=start, business_hours_end=end)
