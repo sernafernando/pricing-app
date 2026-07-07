@@ -515,11 +515,11 @@ class TestSseEmission:
                 new_callable=AsyncMock,
                 return_value="published",
             ),
-            patch("app.routers.ml_bot.sse_publish", new_callable=AsyncMock) as mock_sse,
+            patch("app.routers.ml_bot.sse_publish_bg") as mock_sse,
         ):
             r = client.post(f"{BASE}/questions/{q.id}/publish-now", headers=auth_headers)
         assert r.status_code == 200
-        mock_sse.assert_awaited_once_with("ml_bot:questions", {"hint": "reload"})
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
 
     def test_hold_emits_reload_hint(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         q = _seed_question(db, status="waiting")
@@ -534,6 +534,29 @@ class TestSseEmission:
             r = client.post(f"{BASE}/toggle", json={"enabled": True}, headers=auth_headers)
         assert r.status_code == 200
         mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_put_config_emits_reload_hint(self, client, auth_headers, con_todos_los_permisos) -> None:
+        with patch("app.routers.ml_bot.sse_publish_bg") as mock_sse:
+            r = client.put(
+                f"{BASE}/config/wait_minutes",
+                json={"valor": "10", "tipo": "int"},
+                headers=auth_headers,
+            )
+        assert r.status_code == 200
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_take_over_returns_200_when_sse_emission_raises(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """SSE emission must never break a panel mutation — `sse_publish_bg`
+        is documented never-raise, but this guards future refactors."""
+        q = _seed_question(db, status="waiting")
+        db.commit()
+        with patch("app.routers.ml_bot.sse_publish_bg", side_effect=RuntimeError("redis down")):
+            r = client.post(f"{BASE}/questions/{q.id}/take-over", headers=auth_headers)
+        assert r.status_code == 200
+        db.refresh(q)
+        assert q.status == "taken_over"
 
 
 # ==========================================================================

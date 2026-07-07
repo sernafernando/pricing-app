@@ -83,6 +83,15 @@ it is portable to the project's SQLite test suite.
 
 Session discipline (ADR-5, QueuePool-incident regression guard): every DB
 read/write here is its own short `get_background_db()` block.
+
+SSE emission scope (Judgment Day adjudication): intermediate retry/revert
+transitions where `status` stays `waiting` (`_revert_to_waiting`, the
+retry branch of `_mark_failed_or_retry`) intentionally do NOT emit the
+`ml_bot:questions` reload hint — they are internal pipeline retries, not a
+panel-visible state change. Emission is TERMINAL-STATES-ONLY
+(`published`, `failed`) plus panel mutations in `routers/ml_bot.py`.
+`drafting_service.py` follows the same rule for its own retry-to-`received`
+branch in `_mark_failed_or_retry`.
 """
 
 from __future__ import annotations

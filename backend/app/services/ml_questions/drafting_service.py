@@ -192,6 +192,17 @@ def _is_repeat_buyer_after_midnight(
     return prior is not None
 
 
+def _emit_reload_hint() -> None:
+    """Fire the `ml_bot:questions` reload-hint SSE event (ADR-8). `sse_publish_bg`
+    is documented never-raise, but this defensive guard ensures a future
+    refactor there can never take down a drafting-pipeline state transition
+    that already committed its DB write."""
+    try:
+        sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    except Exception:  # noqa: BLE001 — SSE is best-effort, must never break the pipeline.
+        logger.warning("ml-bot drafting: sse_publish_bg raised while emitting reload hint", exc_info=True)
+
+
 def _resolve_fallback(
     question_id: int,
     buyer_id: Optional[int],
@@ -212,27 +223,30 @@ def _resolve_fallback(
         if _is_repeat_buyer_after_midnight(db, buyer_id, question_id, question_date):
             row.status = "pending_morning"
             row.injection_flag = row.injection_flag or injection_flag
-            sse_publish_bg("ml_bot:questions", {"hint": "reload"})
-            return
-
-        wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
-        row.status = "waiting"
-        row.drafted_answer = _build_fallback_message(db)
-        row.answer_source = "fallback"
-        row.fallback_used = True
-        row.injection_flag = row.injection_flag or injection_flag
-        row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
-        # Judgment Day fix (round 3): `attempts` is a PER-STAGE counter —
-        # drafting counts drafting retries (`_mark_failed_or_retry`), but the
-        # publisher reuses the SAME column as its claim counter
-        # (`_claim_for_publishing`). Without resetting here, a row that
-        # burned 1-2 drafting retries would enter `waiting` with a non-zero
-        # `attempts`, silently shrinking its publish retry budget and
-        # tripping the publisher's `attempts > 1` re-post-verification gate
-        # on what is actually its FIRST publish claim. Reset on every
-        # transition INTO `waiting` so the publisher always starts from 0.
-        row.attempts = 0
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+            # Judgment Day fix: emit AFTER the `with` block closes (mirrors
+            # every other call site in this module and
+            # `publisher_service`'s is_failed-flag pattern) instead of while
+            # the session is still open.
+        else:
+            wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
+            row.status = "waiting"
+            row.drafted_answer = _build_fallback_message(db)
+            row.answer_source = "fallback"
+            row.fallback_used = True
+            row.injection_flag = row.injection_flag or injection_flag
+            row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+            # Judgment Day fix (round 3): `attempts` is a PER-STAGE counter —
+            # drafting counts drafting retries (`_mark_failed_or_retry`), but
+            # the publisher reuses the SAME column as its claim counter
+            # (`_claim_for_publishing`). Without resetting here, a row that
+            # burned 1-2 drafting retries would enter `waiting` with a
+            # non-zero `attempts`, silently shrinking its publish retry
+            # budget and tripping the publisher's `attempts > 1` re-post-
+            # verification gate on what is actually its FIRST publish claim.
+            # Reset on every transition INTO `waiting` so the publisher
+            # always starts from 0.
+            row.attempts = 0
+    _emit_reload_hint()
 
 
 def _resolve_success(question_id: int, answer: str, confidence: float, category: str) -> None:
@@ -254,7 +268,7 @@ def _resolve_success(question_id: int, answer: str, confidence: float, category:
         # per-stage `attempts` counter on every `drafting -> waiting`
         # transition so the publisher's claim-counter budget starts fresh.
         row.attempts = 0
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
 
 
 def _mark_failed_or_retry(question_id: int, error_message: str) -> None:
@@ -278,7 +292,15 @@ def _mark_failed_or_retry(question_id: int, error_message: str) -> None:
         new_attempts = row.attempts + 1
         row.attempts = new_attempts
         row.last_error = error_message[:2000]
-        row.status = "failed" if new_attempts >= _MAX_ATTEMPTS else "received"
+        is_failed = new_attempts >= _MAX_ATTEMPTS
+        row.status = "failed" if is_failed else "received"
+    if is_failed:
+        # Judgment Day fix: only the terminal FAILED transition emits — the
+        # bounded retry-to-`received` branch is an internal pipeline detail,
+        # not a panel-visible state change, mirroring
+        # `publisher_service._mark_failed_or_retry`'s is_failed-flag pattern
+        # (emit-after-`with`-block, terminal-states-only).
+        _emit_reload_hint()
 
 
 def _claim_for_drafting(question_id: int) -> bool:

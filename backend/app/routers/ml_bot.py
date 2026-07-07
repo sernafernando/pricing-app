@@ -46,6 +46,7 @@ prior slices):
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -56,13 +57,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.core.sse import sse_publish, sse_publish_bg
+from app.core.sse import sse_publish_bg
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.usuario import Usuario
 from app.services.ml_questions import publisher_service
 from app.services.permisos_service import PermisosService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/ml-bot",
@@ -181,6 +184,17 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Sin permiso: {permiso}")
 
 
+def _emit_reload_hint() -> None:
+    """Fire the `ml_bot:questions` reload-hint SSE event (ADR-8). `sse_publish_bg`
+    is documented never-raise, but this defensive guard ensures a future
+    refactor there can never take down a panel mutation that already
+    committed its DB write."""
+    try:
+        sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    except Exception:  # noqa: BLE001 — SSE is best-effort, must never break a mutation.
+        logger.warning("ml-bot router: sse_publish_bg raised while emitting reload hint", exc_info=True)
+
+
 def _get_question_or_404(db: Session, question_id: int) -> MlBotQuestion:
     q = db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id).first()
     if q is None:
@@ -271,7 +285,7 @@ def tomar_pregunta(
             detail="La pregunta ya no está en un estado tomable (puede estar publicándose o ya resuelta)",
         )
 
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -304,7 +318,7 @@ def editar_respuesta(
     q.answer_source = "human"
     db.commit()
     db.refresh(q)
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
     return QuestionResponse.model_validate(q)
 
 
@@ -363,7 +377,7 @@ async def publicar_ahora(
 
     await publisher_service.publish_question_now(question_id)
 
-    await sse_publish("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -390,7 +404,7 @@ def retener_pregunta(
             detail="La pregunta ya no está en un estado retenible",
         )
 
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -440,6 +454,7 @@ def actualizar_config(
 
     db.commit()
     db.refresh(row)
+    _emit_reload_hint()
     return ConfigItemResponse.model_validate(row)
 
 
@@ -462,7 +477,7 @@ def alternar_bot(
         row.tipo = "bool"
 
     db.commit()
-    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+    _emit_reload_hint()
     return ToggleResponse(bot_enabled=data.enabled)
 
 

@@ -201,6 +201,105 @@ class TestSseEmission:
 
         mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
 
+    def test_pending_morning_resolution_emits_reload_hint(self, db) -> None:
+        """R-602 repeat-buyer-after-midnight early-return branch must also
+        emit — Judgment Day fix: previously fired INSIDE the
+        `get_background_db()` block instead of after it, unlike every other
+        call site in this module."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "UTC")
+        _seed_config(db, "business_hours_start", "09:00")
+
+        earlier = datetime(2026, 7, 6, 23, 10, tzinfo=timezone.utc)
+        prior = _seed_question(db, question_date=earlier, buyer_id=777, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        later = datetime(2026, 7, 7, 0, 20, tzinfo=timezone.utc)
+        _seed_question(db, question_date=later, buyer_id=777)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+            patch("app.services.ml_questions.drafting_service.sse_publish_bg") as mock_sse,
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_unexpected_error_failed_terminal_emits_reload_hint(self, db) -> None:
+        """`_mark_failed_or_retry`'s FAILED branch (terminal state) must
+        emit; the retry-to-`received` branch must NOT — mirrors
+        `publisher_service._mark_failed_or_retry`'s is_failed-flag pattern."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        row.attempts = drafting_service._MAX_ATTEMPTS - 1
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(side_effect=RuntimeError("network exploded")),
+            ),
+            patch("app.services.ml_questions.drafting_service.sse_publish_bg") as mock_sse,
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        db.refresh(row)
+        assert row.status == "failed"
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_unexpected_error_retry_branch_does_not_emit(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(side_effect=RuntimeError("transient")),
+            ),
+            patch("app.services.ml_questions.drafting_service.sse_publish_bg") as mock_sse,
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        db.refresh(row)
+        assert row.status == "received"
+        mock_sse.assert_not_called()
+
+    def test_success_resolution_succeeds_when_sse_emission_raises(self, db) -> None:
+        """SSE emission must never break the drafting pipeline transition —
+        `sse_publish_bg` is documented never-raise, but this guards future
+        refactors."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        item_payload = {"available_quantity": 5, "attributes": []}
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=item_payload),
+            ),
+            patch(
+                "app.services.ml_questions.drafting_service.sse_publish_bg",
+                side_effect=RuntimeError("redis down"),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        assert stats["drafted"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+
 
 class TestManipulationSignal:
     def test_injection_pattern_skips_llm_call(self, db) -> None:
