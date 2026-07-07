@@ -63,26 +63,60 @@ def _extract_question_id(resource: str) -> Optional[int]:
     return int(match.group(1))
 
 
+def _parse_cursor(raw: Optional[str]) -> tuple[Optional[str], int]:
+    """Parse the persisted `ingest_cursor_ts` value into `(since_ts,
+    since_id)`. The cursor is stored as a composite "ISO_TS|webhook_id"
+    string (WARNING fix: `webhook_id` is a tie-breaker for same-timestamp
+    rows straddling a batch boundary). Backward-compat: a legacy scalar
+    cursor (no "|" separator, from before this fix) is treated as
+    `(ts, 0)` so it keeps working across the upgrade without a migration.
+    None/empty = no cursor yet -> `(None, 0)`."""
+    if not raw:
+        return None, 0
+    if "|" in raw:
+        ts_part, _, id_part = raw.partition("|")
+        try:
+            return (ts_part or None), int(id_part)
+        except ValueError:
+            return (ts_part or None), 0
+    return raw, 0
+
+
+def _format_cursor(received_at: datetime, webhook_id: int) -> str:
+    """Serialize a composite cursor for persistence in `ml_bot_config`."""
+    return f"{received_at.isoformat()}|{webhook_id}"
+
+
 def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIMIT) -> List[Dict[str, Any]]:
     """Read new `questions`-topic rows from mlwebhook's `webhooks` table.
 
     Args:
-        since: ISO cursor string (`ingest_cursor_ts`); rows with
-            `received_at > since` are returned. None/empty = read from the
-            beginning (first run / cursor never advanced).
+        since: persisted composite cursor string (`ingest_cursor_ts`,
+            "ISO_TS|webhook_id" — see `_parse_cursor`). Rows with
+            `received_at > since_ts`, OR `received_at == since_ts AND
+            webhook_id > since_id`, are returned (WARNING fix: `webhook_id`
+            tie-breaker prevents stranding same-timestamp rows at the batch
+            boundary). None/empty = read from the beginning (first run /
+            cursor never advanced).
         limit: batch size cap.
 
     Returns:
         List of dicts with keys: resource, topic, webhook_id, received_at —
-        ordered by `received_at` ascending.
+        ordered by `received_at` ascending, `webhook_id` ascending.
 
     Raises:
         RuntimeError: if `ML_WEBHOOK_DB_URL` isn't configured — propagated to
         the caller, which treats it as a transient failure (log + skip tick).
     """
     engine = get_mlwebhook_engine()
+    since_ts, since_id = _parse_cursor(since)
 
-    where_clause = "WHERE topic = 'questions' AND received_at > :since" if since else "WHERE topic = 'questions'"
+    if since_ts:
+        where_clause = "WHERE topic = 'questions' AND (received_at > :since_ts OR (received_at = :since_ts AND webhook_id > :since_id))"
+        params: Dict[str, Any] = {"since_ts": since_ts, "since_id": since_id, "limit": limit}
+    else:
+        where_clause = "WHERE topic = 'questions'"
+        params = {"limit": limit}
 
     with engine.connect() as conn:
         rows = conn.execute(
@@ -90,10 +124,10 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
                 SELECT resource, topic, webhook_id, received_at
                 FROM webhooks
                 {where_clause}
-                ORDER BY received_at ASC
+                ORDER BY received_at ASC, webhook_id ASC
                 LIMIT :limit
             """),
-            {"since": since, "limit": limit} if since else {"limit": limit},
+            params,
         ).fetchall()
 
     return [
@@ -169,23 +203,36 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     # skip over the still-unresolved row on the next tick's `received_at >
     # cursor` filter).
     max_received_at = None
+    max_webhook_id = 0
 
     # Bounded-retry state for a row stuck at the current cursor position
     # (e.g. a permanently-transient condition like an expired token, which
     # would otherwise stall ingestion forever). `stuck_cursor`/`stuck_attempts`
     # are persisted in `ml_bot_config` and only relevant while the cursor
     # hasn't moved since the last tick that hit this position.
+    #
+    # CRITICAL fix: the stuck/attempts machinery applies ONLY to the FIRST
+    # row of the tick (index 0) — i.e. the row sitting right at the
+    # persisted cursor position. Rows are fetched in `received_at ASC,
+    # webhook_id ASC` order, so index 0 is always the oldest unprocessed
+    # row (documented choice — cleaner than tracking row identity). Any
+    # OTHER row failing transiently in the same tick keeps today's
+    # behavior: stop the tick (break) without advancing past it, so it
+    # becomes the stuck candidate NEXT tick, starting fresh from attempt 1
+    # — it must never inherit an already-poisoned counter from a different
+    # row that gave up earlier in this same tick.
     normalized_cursor = cursor if cursor else _UNSET_CURSOR_MARKER
     attempts_at_cursor = stuck_attempts if stuck_cursor == normalized_cursor else 0
 
-    for row in webhook_rows:
+    for index, row in enumerate(webhook_rows):
         received_at = row["received_at"]
+        webhook_id = row["webhook_id"]
 
         question_id = _extract_question_id(row["resource"])
         if question_id is None:
             logger.warning("ml-bot ingestion: could not parse question id from resource=%r", row["resource"])
-            if max_received_at is None or received_at > max_received_at:
-                max_received_at = received_at
+            max_received_at = received_at
+            max_webhook_id = webhook_id
             continue
 
         try:
@@ -198,8 +245,8 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
                 "ml-bot ingestion: question %s not found in ML (404) — skipping row, cursor advances",
                 question_id,
             )
-            if max_received_at is None or received_at > max_received_at:
-                max_received_at = received_at
+            max_received_at = received_at
+            max_webhook_id = webhook_id
             continue
         except Exception as e:
             logger.error("ml-bot ingestion: error fetching question %s: %s", question_id, e, exc_info=True)
@@ -209,28 +256,33 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
         if not ml_question:
             # Transient failure (network/timeout/5xx/auth) — `get_question`
             # returns None. Fail safe: stop advancing the cursor so this row
-            # gets retried, UNLESS it has already failed `_MAX_STUCK_ATTEMPTS`
-            # times at this same cursor position, in which case a permanently
-            # -transient condition (e.g. an expired token) must not be allowed
-            # to stall ingestion forever — give up and skip the row.
-            attempts_at_cursor += 1
-            if attempts_at_cursor >= _MAX_STUCK_ATTEMPTS:
-                logger.error(
-                    "ml-bot ingestion: giving up after %d attempts fetching question %s — skipping row, cursor advances",
-                    attempts_at_cursor,
-                    question_id,
-                )
-                if max_received_at is None or received_at > max_received_at:
+            # gets retried, UNLESS it's the first row of the tick AND it has
+            # already failed `_MAX_STUCK_ATTEMPTS` times at this same cursor
+            # position, in which case a permanently-transient condition
+            # (e.g. an expired token) must not be allowed to stall ingestion
+            # forever — give up and skip the row.
+            if index == 0:
+                attempts_at_cursor += 1
+                if attempts_at_cursor >= _MAX_STUCK_ATTEMPTS:
+                    logger.error(
+                        "ml-bot ingestion: giving up after %d attempts fetching question %s — skipping row, cursor advances",
+                        attempts_at_cursor,
+                        question_id,
+                    )
                     max_received_at = received_at
-                stats["error"] = True
-                continue
+                    max_webhook_id = webhook_id
+                    stats["error"] = True
+                    # BREAK (not continue): the poisoned attempts counter
+                    # must not carry over to any later row in this tick —
+                    # they get resumed cleanly next tick with a fresh count.
+                    break
 
             logger.warning("ml-bot ingestion: get_question(%s) returned no data — will retry next tick", question_id)
             stats["error"] = True
             break
 
-        if max_received_at is None or received_at > max_received_at:
-            max_received_at = received_at
+        max_received_at = received_at
+        max_webhook_id = webhook_id
 
         if ml_question.get("status") != _UNANSWERED_STATUS:
             stats["skipped_answered"] += 1
@@ -266,7 +318,7 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
         # Cursor advanced this tick — reset the stuck-row counter, it no
         # longer applies to the new position.
         with get_background_db() as db:
-            _upsert_config(db, _CURSOR_KEY, max_received_at.isoformat())
+            _upsert_config(db, _CURSOR_KEY, _format_cursor(max_received_at, max_webhook_id))
             _upsert_config(db, _STUCK_CURSOR_KEY, _UNSET_CURSOR_MARKER)
             _upsert_config(db, _STUCK_ATTEMPTS_KEY, "0")
     elif attempts_at_cursor > 0:
