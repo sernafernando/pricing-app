@@ -198,6 +198,16 @@ export default function MLQuestions() {
     [configItems],
   );
 
+  // Supervised-mode indicator (trial period): `auto_publish_enabled` is
+  // absent/empty/malformed => supervised (fail-safe default), mirroring the
+  // backend's fail-safe read. Same visibility limitation as botEnabledItem
+  // above — only ml_bot.config holders get the config list at all.
+  const autoPublishItem = useMemo(
+    () => configItems.find((item) => item.clave === 'auto_publish_enabled'),
+    [configItems],
+  );
+  const autoPublishEnabled = autoPublishItem?.valor === 'true';
+
   const handleToggle = async (enabled) => {
     setToggling(true);
     try {
@@ -330,6 +340,14 @@ export default function MLQuestions() {
                   {botEnabledItem.valor === 'true' ? 'Bot activo' : 'Bot apagado'}
                 </span>
               )}
+              {puedeConfigurar && (
+                <span className={autoPublishEnabled ? styles.botOn : styles.botOff}>
+                  <ShieldAlert size={14} />
+                  {autoPublishEnabled
+                    ? 'Publicación automática: ON'
+                    : 'Publicación automática: OFF — modo supervisado'}
+                </span>
+              )}
               <button
                 className="btn-tesla outline-subtle-primary sm"
                 onClick={() => handleToggle(true)}
@@ -457,10 +475,17 @@ export default function MLQuestions() {
                         </td>
                         <td className={styles.cellCenter}>
                           {q.status === 'waiting' ? (
-                            <span className={styles.countdown}>
-                              <Clock size={12} />
-                              {formatCountdown(remaining)}
-                            </span>
+                            puedeConfigurar && !autoPublishEnabled ? (
+                              <span className={styles.countdown}>
+                                <ShieldAlert size={12} />
+                                esperando aprobación
+                              </span>
+                            ) : (
+                              <span className={styles.countdown}>
+                                <Clock size={12} />
+                                {formatCountdown(remaining)}
+                              </span>
+                            )
                           ) : '—'}
                         </td>
                         <td>
