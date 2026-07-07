@@ -86,6 +86,33 @@ class TestViolatesDenylist:
         address cue."""
         assert policy.violates_denylist(answer) is False
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "Nuestro local: Rivadavia 1234",
+            "Podés retirarlo en depósito, Rivadavia 1234",
+        ],
+    )
+    def test_flags_address_cue_with_colon_or_comma_phrasing(self, answer: str) -> None:
+        """Judgment Day follow-up: the address cue pattern only matched a cue
+        word immediately followed by whitespace ("en"/"queda en"/etc.); it
+        missed cues followed by a colon or comma before the address (e.g.
+        "Nuestro local: Rivadavia 1234", "...en depósito, Rivadavia 1234")."""
+        assert policy.violates_denylist(answer) is True
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "Tenemos el Galaxy 5000 disponible",
+            "El Motorola Edge 40 es compatible",
+            "Viene con Windows 11",
+        ],
+    )
+    def test_widened_address_pattern_still_passes_product_names(self, answer: str) -> None:
+        """Regression guard: widening the address cue to allow colon/comma
+        separators must not reintroduce false positives on product names."""
+        assert policy.violates_denylist(answer) is False
+
 
 class TestDetectManipulationSignal:
     """R-503/R-504: pre-drafting buyer-question scan (adversarial cases).

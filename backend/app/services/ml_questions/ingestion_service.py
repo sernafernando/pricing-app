@@ -153,26 +153,46 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     if not webhook_rows:
         return stats
 
+    # `max_received_at` only ever advances past rows that were PERMANENTLY
+    # resolved this tick (ingested, duplicate, skipped-answered, or an
+    # unparseable resource). A row whose `ml_client.get_question()` fetch
+    # failed (network error, expired token, etc.) is a TRANSIENT failure —
+    # advancing the cursor past it would silently drop that buyer question
+    # forever, since the poller never re-reads rows before the cursor. On the
+    # first transient failure we stop advancing (and stop processing further
+    # rows this tick, since they're newer and would otherwise let the cursor
+    # skip over the still-unresolved row on the next tick's `received_at >
+    # cursor` filter).
     max_received_at = None
 
     for row in webhook_rows:
         received_at = row["received_at"]
-        if max_received_at is None or received_at > max_received_at:
-            max_received_at = received_at
 
         question_id = _extract_question_id(row["resource"])
         if question_id is None:
             logger.warning("ml-bot ingestion: could not parse question id from resource=%r", row["resource"])
+            if max_received_at is None or received_at > max_received_at:
+                max_received_at = received_at
             continue
 
         try:
             ml_question = await ml_client.get_question(question_id)
         except Exception as e:
             logger.error("ml-bot ingestion: error fetching question %s: %s", question_id, e, exc_info=True)
-            continue
+            stats["error"] = True
+            break
 
         if not ml_question:
-            continue
+            # `ml_client.get_question` swallows its own exceptions and
+            # returns None for both a permanent 404 and a transient error —
+            # it can't be distinguished here. Fail safe: treat as transient
+            # and stop advancing the cursor, so this row gets retried.
+            logger.warning("ml-bot ingestion: get_question(%s) returned no data — will retry next tick", question_id)
+            stats["error"] = True
+            break
+
+        if max_received_at is None or received_at > max_received_at:
+            max_received_at = received_at
 
         if ml_question.get("status") != _UNANSWERED_STATUS:
             stats["skipped_answered"] += 1

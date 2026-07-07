@@ -202,6 +202,34 @@ class TestIngestNewQuestions:
         cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
         assert cursor_row.valor == later.isoformat()
 
+    def test_get_question_failure_does_not_advance_cursor(self, db) -> None:
+        """CRITICAL regression guard: `ml_client.get_question()` returns None
+        for both a permanent 404 and a transient error (it can't tell them
+        apart) — the cursor must NOT advance past a row whose fetch failed,
+        or that buyer question is silently lost forever (never retried)."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/560", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 0
+        assert stats["error"] is True
+        cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert cursor_row.valor == ""  # cursor NOT advanced
+
     def test_mlwebhook_unreachable_logs_and_returns(self, db, caplog) -> None:
         _seed_cursor(db)
 

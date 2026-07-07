@@ -118,7 +118,9 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
         )
         return True
 
-    if not isinstance(business_days, list) or not all(isinstance(day, int) for day in business_days):
+    if not isinstance(business_days, list) or not all(
+        isinstance(day, int) and not isinstance(day, bool) for day in business_days
+    ):
         logger.warning(
             "ml_bot_config: malformed business_days=%r (not a list of ints); failing safe (treated as in-hours)",
             business_days_raw,
@@ -251,8 +253,8 @@ _STOCK_QUANTITY_PATTERNS = [
 _ADDRESS_PATTERNS = [
     re.compile(r"\b(av\.?|avenida|calle)\s+[a-záéíóúñ0-9\s]+\d{2,5}\b", re.IGNORECASE),
     re.compile(
-        r"\b(?i:en|queda\s+en|ubicad[oa]s?\s+en|estamos\s+en|direcci[oó]n\W+(?:es\s+)?)"
-        r"\s*(?i:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*(?:\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*)*\s+\d{2,5}\b"
+        r"\b(?i:en|queda\s+en|ubicad[oa]s?\s+en|estamos\s+en|direcci[oó]n\W+(?:es\s+)?|local\s*:|dep[oó]sito\s*,)"
+        r"\s*(?:[:,]\s*)?(?i:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*(?:\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*)*\s+\d{2,5}\b"
     ),
 ]
 

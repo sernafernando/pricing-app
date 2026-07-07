@@ -328,3 +328,32 @@ class TestResolveWaitMinutesHardening:
             result = policy.resolve_wait_minutes(db, now)
         assert result == 5  # falls back to standard wait_minutes
         assert any("wait_minutes_business_hours" in record.getMessage() for record in caplog.records)
+
+
+class TestBusinessDaysBooleanElementsFailSafe:
+    """Judgment Day follow-up: `business_days` elements must reject booleans.
+    In Python, `isinstance(True, int)` is True, so `[true, false]` parses as
+    valid JSON, passes the old `isinstance(day, int)` element check, and
+    silently behaves as `[1, 0]` instead of failing safe."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_boolean_business_days_elements_fail_safe(self, db, caplog) -> None:
+        _seed_config(db, business_days="[true, false]")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True  # fail-safe: treated as in-hours
+        assert any("business_days" in record.getMessage() for record in caplog.records)
