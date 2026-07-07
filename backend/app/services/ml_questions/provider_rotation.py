@@ -56,9 +56,11 @@ ROSTER_CONFIG_KEY = "llm_providers"
 CURSOR_CONFIG_KEY = "llm_rotation_cursor"
 
 # Item #3 (PR de pulido): failover notification throttle — at most one
-# notification per FAILED provider per hour, tracked as an ISO timestamp in
-# `ml_bot_config` under this key prefix (fail-safe: a malformed/unreadable
-# timestamp is treated as "never notified", never as a crash).
+# notification per FAILED provider per hour (partial failover), or one per
+# hour for the whole outage under key suffix "ALL" (total outage, rotation
+# cursor-independent) — tracked as an ISO timestamp in `ml_bot_config` under
+# this key prefix (fail-safe: a malformed/unreadable timestamp is treated as
+# "never notified", never as a crash).
 _FAILOVER_NOTIF_KEY_PREFIX = "llm_failover_notified_"
 _FAILOVER_NOTIF_THROTTLE = timedelta(hours=1)
 
@@ -247,13 +249,52 @@ def build_rotation_order() -> List[OpenAICompatProvider]:
     return providers[cursor:] + providers[:cursor]
 
 
+def _is_throttled(db: Any, throttle_key: str, now: datetime) -> bool:
+    """Fail-safe throttle check: a malformed/unreadable timestamp is treated
+    as "never notified" (never as a crash) — logs a warning and returns
+    not-throttled."""
+    last_raw = policy.get_config(db, throttle_key, cast=str, default=None)
+    if not last_raw:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last_raw)
+        return (now - last_dt) < _FAILOVER_NOTIF_THROTTLE
+    except ValueError:
+        logger.warning(
+            "ml-bot failover notification: malformed throttle timestamp %r for '%s', notifying anyway",
+            last_raw,
+            throttle_key,
+        )
+        return False
+
+
+def _record_notified(db: Any, throttle_key: str, now: datetime) -> None:
+    row = db.query(MlBotConfig).filter_by(clave=throttle_key).first()
+    if row is None:
+        db.add(MlBotConfig(clave=throttle_key, valor=now.isoformat(), tipo="string"))
+    else:
+        row.valor = now.isoformat()
+
+
 def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None:
     """Item #3 (PR de pulido): create a notification via pricing's EXISTING
     notification system (`crear_notificaciones_para_permisos`, mirrors the
     compras/matching pattern) when the rotation falls over between
-    providers, or when ALL providers fail. Throttled to at most one
-    notification per FAILED provider per hour (simple `ml_bot_config`
-    timestamp guard).
+    providers, or when ALL providers fail.
+
+    Throttle keying (fix for the rotation-dependent `failed_names[0]` bug —
+    `build_rotation_order` advances the cursor per question, so
+    `failed_names[0]` is NOT stable across calls and can't be used as a
+    throttle key on its own):
+
+    - Partial failover (`covered_by` is set): throttled PER FAILED
+      PROVIDER, independently — each provider name has its own
+      `llm_failover_notified_{name}` key/budget. Only the providers that are
+      NOT currently throttled are named in the (single) notification sent,
+      and only THOSE get their timestamp recorded.
+    - Total outage (`covered_by` is None): a single rotation-independent key
+      `llm_failover_notified_ALL` throttles the whole outage as one unit
+      (1/h), regardless of which provider happened to be tried first.
 
     Fail-safe: this is best-effort observability, never allowed to break
     the drafting pipeline — any exception here is caught and logged, never
@@ -270,46 +311,52 @@ def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None
         from app.models.notificacion import SeveridadNotificacion  # noqa: PLC0415
         from app.services.notificacion_service import crear_notificaciones_para_permisos  # noqa: PLC0415
 
-        throttle_key = f"{_FAILOVER_NOTIF_KEY_PREFIX}{failed_names[0]}"
         now = datetime.now(timezone.utc)
 
         with get_background_db() as db:
-            last_raw = policy.get_config(db, throttle_key, cast=str, default=None)
-            if last_raw:
-                try:
-                    last_dt = datetime.fromisoformat(last_raw)
-                    if (now - last_dt) < _FAILOVER_NOTIF_THROTTLE:
-                        return  # throttled — already notified within the last hour
-                except ValueError:
-                    logger.warning(
-                        "ml-bot failover notification: malformed throttle timestamp %r for '%s', notifying anyway",
-                        last_raw,
-                        throttle_key,
-                    )
-
             if covered_by:
+                names_to_notify = [
+                    name
+                    for name in failed_names
+                    if not _is_throttled(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
+                ]
+                if not names_to_notify:
+                    return  # every failed provider is within its own throttle window
+
                 mensaje = (
-                    f"Bot ML: el proveedor LLM '{failed_names[-1]}' falló — failover activo a '{covered_by}'."
+                    f"Bot ML: el proveedor LLM '{', '.join(names_to_notify)}' falló — "
+                    f"failover activo a '{covered_by}'."
                 )
+
+                crear_notificaciones_para_permisos(
+                    db,
+                    permisos_requeridos=["ml_bot.config"],
+                    tipo="ml_bot.llm_failover",
+                    mensaje=mensaje,
+                    severidad=SeveridadNotificacion.WARNING,
+                )
+
+                for name in names_to_notify:
+                    _record_notified(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
             else:
+                throttle_key = f"{_FAILOVER_NOTIF_KEY_PREFIX}ALL"
+                if _is_throttled(db, throttle_key, now):
+                    return  # throttled — total outage already notified within the last hour
+
                 mensaje = (
-                    f"Bot ML: TODOS los proveedores LLM fallaron ({', '.join(failed_names)}) "
+                    f"Bot ML: TODOS los proveedores LLM fallaron ({', '.join(sorted(failed_names))}) "
                     "— las preguntas están recibiendo la respuesta de fallback."
                 )
 
-            crear_notificaciones_para_permisos(
-                db,
-                permisos_requeridos=["ml_bot.config"],
-                tipo="ml_bot.llm_failover",
-                mensaje=mensaje,
-                severidad=SeveridadNotificacion.WARNING,
-            )
+                crear_notificaciones_para_permisos(
+                    db,
+                    permisos_requeridos=["ml_bot.config"],
+                    tipo="ml_bot.llm_failover",
+                    mensaje=mensaje,
+                    severidad=SeveridadNotificacion.WARNING,
+                )
 
-            row = db.query(MlBotConfig).filter_by(clave=throttle_key).first()
-            if row is None:
-                db.add(MlBotConfig(clave=throttle_key, valor=now.isoformat(), tipo="string"))
-            else:
-                row.valor = now.isoformat()
+                _record_notified(db, throttle_key, now)
     except Exception:  # noqa: BLE001 — notification is best-effort, must never break drafting.
         logger.warning("ml-bot failover notification: failed to create/throttle notification", exc_info=True)
 
