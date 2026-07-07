@@ -60,13 +60,31 @@ class TestViolatesDenylist:
     @pytest.mark.parametrize(
         "answer",
         [
-            "StreetName 1234",
-            "Rivadavia 5678",
+            "Estamos en Rivadavia 1500",
+            "La dirección es Corrientes 348",
+            "Quedamos ubicados en San Martín 2050",
         ],
     )
-    def test_flags_bare_street_and_number_address(self, answer: str) -> None:
-        """Fix 6: bare capitalized-word(s) + number, no av./calle prefix required."""
+    def test_flags_address_cue_plus_capitalized_name_and_number(self, answer: str) -> None:
+        """Fix 2/WARNING: address-cue-anchored pattern still flags real
+        addresses even without an av./calle prefix, as long as an address
+        cue word (en/queda en/ubicados en/dirección) precedes the name."""
         assert policy.violates_denylist(answer) is True
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "Tenemos el Galaxy 5000 disponible",
+            "El Motorola Edge 40 es compatible",
+            "Viene con Windows 11",
+            "Nike Air Max 90",
+        ],
+    )
+    def test_does_not_flag_product_names_with_numbers(self, answer: str) -> None:
+        """Fix 2/WARNING: the previous bare `Capitalized+ \\d{2,5}` pattern
+        false-positived on product names; must not flag these without an
+        address cue."""
+        assert policy.violates_denylist(answer) is False
 
 
 class TestDetectManipulationSignal:

@@ -262,3 +262,69 @@ class TestMalformedConfigFailsSafe:
         now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
         # Must not raise any exception.
         policy.is_within_business_hours(db, now)
+
+    @pytest.mark.parametrize("bad_business_days", ["5", "true", "null", '"mon"'])
+    def test_valid_json_non_list_business_days_fails_safe(self, db, caplog, bad_business_days: str) -> None:
+        """Fix 1/CRITICAL: business_days that parses as valid JSON but is not a
+        list (e.g. a bare number, bool, null, or string) must not reach
+        `isoweekday() not in business_days` — that raises an uncaught
+        TypeError for non-container types. Must fail safe instead."""
+        _seed_config(db, business_days=bad_business_days)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_days" in record.getMessage() for record in caplog.records)
+
+    @pytest.mark.parametrize("bad_hour", ["25:00", "09:99"])
+    def test_out_of_range_hour_or_minute_fails_safe(self, db, caplog, bad_hour: str) -> None:
+        """Fix 4/INFO: "25:00" or "09:99" parse as ints fine but are out of
+        range for hour/minute and must fail safe rather than silently
+        producing wrong boundaries."""
+        _seed_config(db, business_hours_start=bad_hour)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_hours_start" in record.getMessage() for record in caplog.records)
+
+
+class TestResolveWaitMinutesHardening:
+    """Fix 3/WARNING: non-numeric wait_minutes / wait_minutes_business_hours
+    must not crash `resolve_wait_minutes` — same class as the round-1 config
+    fix for empty-string handling in `get_config`."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_malformed_wait_minutes_falls_back_to_default(self, db, caplog) -> None:
+        _seed_config(db, operating_mode="off_hours_only", wait_minutes="five")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.resolve_wait_minutes(db, now)
+        assert result == policy._DEFAULT_WAIT_MINUTES
+        assert any("wait_minutes" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_wait_minutes_business_hours_treated_as_unset(self, db, caplog) -> None:
+        _seed_config(
+            db,
+            operating_mode="always_on",
+            wait_minutes="5",
+            wait_minutes_business_hours="5m",
+        )
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)  # in-hours
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.resolve_wait_minutes(db, now)
+        assert result == 5  # falls back to standard wait_minutes
+        assert any("wait_minutes_business_hours" in record.getMessage() for record in caplog.records)

@@ -118,6 +118,13 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
         )
         return True
 
+    if not isinstance(business_days, list) or not all(isinstance(day, int) for day in business_days):
+        logger.warning(
+            "ml_bot_config: malformed business_days=%r (not a list of ints); failing safe (treated as in-hours)",
+            business_days_raw,
+        )
+        return True
+
     if localized.isoweekday() not in business_days:
         return False
 
@@ -125,6 +132,8 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
     end_raw = get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
     try:
         start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
+        if not (0 <= start_hour < 24 and 0 <= start_minute < 60):
+            raise ValueError("hour/minute out of range")
     except ValueError:
         logger.warning(
             "ml_bot_config: malformed business_hours_start=%r; failing safe (treated as in-hours)",
@@ -133,6 +142,8 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
         return True
     try:
         end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
+        if not (0 <= end_hour < 24 and 0 <= end_minute < 60):
+            raise ValueError("hour/minute out of range")
     except ValueError:
         logger.warning(
             "ml_bot_config: malformed business_hours_end=%r; failing safe (treated as in-hours)",
@@ -187,13 +198,28 @@ def resolve_wait_minutes(db: Session, now: datetime) -> int:
     `off_hours_only` mode, or the override is unset) use the standard
     `wait_minutes` value.
     """
-    standard_wait = get_config(db, "wait_minutes", cast=int, default=_DEFAULT_WAIT_MINUTES)
+    wait_minutes_raw = get_config(db, "wait_minutes", cast=str, default=str(_DEFAULT_WAIT_MINUTES))
+    try:
+        standard_wait = int(wait_minutes_raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed wait_minutes=%r; falling back to default=%d",
+            wait_minutes_raw,
+            _DEFAULT_WAIT_MINUTES,
+        )
+        standard_wait = _DEFAULT_WAIT_MINUTES
 
     mode = get_operating_mode(db)
     if mode == _ALWAYS_ON and is_within_business_hours(db, now):
-        override = get_config(db, "wait_minutes_business_hours", cast=int, default=None)
-        if override is not None:
-            return override
+        override_raw = get_config(db, "wait_minutes_business_hours", cast=str, default=None)
+        if override_raw is not None:
+            try:
+                return int(override_raw)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "ml_bot_config: malformed wait_minutes_business_hours=%r; treated as unset",
+                    override_raw,
+                )
 
     return standard_wait
 
@@ -219,12 +245,15 @@ _STOCK_QUANTITY_PATTERNS = [
 ]
 
 # Exact-address patterns: street name + number (Av./calle + digits), or a
-# bare "StreetName 1234" (capitalized word(s) + a 2-5 digit number). The bare
-# form accepts a wider false-positive rate since a hit only routes to the
-# warm fallback answer, not to a hard failure.
+# capitalized-name + number pattern anchored to an address cue word/phrase
+# (en/queda en/ubicados en/dirección) immediately before it, so product names
+# with model numbers (e.g. "Galaxy 5000", "Windows 11") don't false-positive.
 _ADDRESS_PATTERNS = [
     re.compile(r"\b(av\.?|avenida|calle)\s+[a-záéíóúñ0-9\s]+\d{2,5}\b", re.IGNORECASE),
-    re.compile(r"\b[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]*)*\s+\d{2,5}\b"),
+    re.compile(
+        r"\b(?i:en|queda\s+en|ubicad[oa]s?\s+en|estamos\s+en|direcci[oó]n\W+(?:es\s+)?)"
+        r"\s*(?i:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*(?:\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*)*\s+\d{2,5}\b"
+    ),
 ]
 
 _DENYLIST_PATTERNS = _PRICE_PATTERNS + _STOCK_QUANTITY_PATTERNS + _ADDRESS_PATTERNS
