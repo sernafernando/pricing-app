@@ -250,6 +250,9 @@ def upgrade() -> None:
         ["wait_until"],
         postgresql_where=sa.text("status = 'waiting'"),
     )
+    op.create_index(
+        "idx_ml_bot_questions_taken_over_by", "ml_bot_questions", ["taken_over_by"]
+    )
 
     op.create_table(
         "ml_bot_config",
@@ -337,6 +340,7 @@ def downgrade() -> None:
     op.drop_table("ml_bot_answer_examples")
     op.drop_table("ml_bot_config")
 
+    op.drop_index("idx_ml_bot_questions_taken_over_by", table_name="ml_bot_questions")
     op.drop_index("idx_ml_bot_questions_wait_until_waiting", table_name="ml_bot_questions")
     op.drop_index("idx_ml_bot_questions_question_date", table_name="ml_bot_questions")
     op.drop_index("idx_ml_bot_questions_item_id", table_name="ml_bot_questions")

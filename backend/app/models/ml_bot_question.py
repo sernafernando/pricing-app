@@ -79,6 +79,7 @@ class MlBotQuestion(Base):
             "wait_until",
             postgresql_where="status = 'waiting'",
         ),
+        Index("idx_ml_bot_questions_taken_over_by", "taken_over_by"),
     )
 
     def __repr__(self) -> str:
