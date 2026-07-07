@@ -61,6 +61,12 @@ class MlBotQuestion(Base):
     confidence = Column(Numeric(4, 3), nullable=True)
     category = Column(String(40), nullable=True)
 
+    # PR de pulido item #2: "provider/model" that produced this draft (e.g.
+    # "groq/llama-3.3-70b-versatile"). Nullable — NULL for rows drafted
+    # before this column existed, human-authored answers, or fallback-only
+    # rows that never called an LLM.
+    llm_provider = Column(String(100), nullable=True)
+
     injection_flag = Column(Boolean, nullable=False, default=False, server_default="false")
     fallback_used = Column(Boolean, nullable=False, default=False, server_default="false")
 

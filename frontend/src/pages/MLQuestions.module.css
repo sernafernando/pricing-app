@@ -273,6 +273,36 @@
   font-size: 0.82rem;
 }
 
+.rosterEditor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.rosterRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rosterSelect {
+  padding: 6px 10px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-primary);
+  font-size: 0.82rem;
+}
+
+.rosterEnabledLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+}
+
 .newExampleForm {
   display: flex;
   gap: var(--spacing-sm);

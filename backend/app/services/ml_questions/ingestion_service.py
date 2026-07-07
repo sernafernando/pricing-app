@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -197,8 +197,19 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
         stuck_cursor = policy.get_config(db, _STUCK_CURSOR_KEY, cast=str, default=_UNSET_CURSOR_MARKER)
         stuck_attempts = policy.get_config(db, _STUCK_ATTEMPTS_KEY, cast=int, default=0) or 0
 
+    # Item #6 (PR de pulido): when NO cursor has ever been persisted
+    # (fresh install / cursor never advanced), default the query window to
+    # the last 48h instead of the beginning of mlwebhook's `webhooks` table
+    # — a full-history backfill on first boot would flood the drafting
+    # pipeline with stale questions. This is a QUERY-window default only;
+    # the persisted `ingest_cursor_ts` itself is only ever written from an
+    # actually-processed row's `received_at` below, same as before.
+    effective_since = cursor if cursor is not None else _format_cursor(
+        datetime.now(timezone.utc) - timedelta(hours=48), ""
+    )
+
     try:
-        webhook_rows = fetch_new_webhook_rows(since=cursor)
+        webhook_rows = fetch_new_webhook_rows(since=effective_since)
     except RuntimeError as e:
         logger.warning("ml-bot ingestion: mlwebhook unreachable (%s) — skipping tick", e)
         stats["error"] = True
@@ -261,7 +272,12 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
             # Terminal outcome: ML confirms the question no longer exists.
             # Skip the row (terminally resolved) and advance the cursor past
             # it — retrying a deleted question would stall ingestion forever.
-            logger.error(
+            # Item #7 (PR de pulido): an ML question disappearing (deleted /
+            # buyer removed it) is an EXPECTED, terminal, non-actionable
+            # outcome for a poller — not an operational error. Downgraded
+            # from ERROR to WARNING so alerting on ERROR-level ingestion
+            # logs doesn't page on-call for routine ML-side deletions.
+            logger.warning(
                 "ml-bot ingestion: question %s not found in ML (404) — skipping row, cursor advances",
                 question_id,
             )
@@ -375,12 +391,31 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
             row.valor = valor
 
     if max_received_at is not None:
-        # Cursor advanced this tick — reset the stuck-row counter, it no
-        # longer applies to the new position.
+        # Item #8 (PR de pulido): before writing the end-of-tick cursor,
+        # re-read the CURRENT persisted value IN THE SAME short session —
+        # if it changed from what this tick started with (an admin manually
+        # UPDATE'd `ingest_cursor_ts` mid-tick, e.g. to skip a poison-pill
+        # row or rewind), do NOT overwrite it with this tick's stale
+        # computation. Log and skip the write; the next tick picks up the
+        # manual value and re-reads from there. Single `get_background_db()`
+        # block (ADR-5) — the read-then-conditionally-write is atomic within
+        # one short session, same as every other write in this module.
         with get_background_db() as db:
-            _upsert_config(db, _CURSOR_KEY, _format_cursor(max_received_at, max_webhook_id))
-            _upsert_config(db, _STUCK_CURSOR_KEY, _UNSET_CURSOR_MARKER)
-            _upsert_config(db, _STUCK_ATTEMPTS_KEY, "0")
+            current = policy.get_config(db, _CURSOR_KEY, cast=str, default=None)
+            if current != cursor:
+                logger.warning(
+                    "ml-bot ingestion: cursor changed manually mid-tick (started=%r, now=%r) — "
+                    "skipping this tick's cursor write to respect the manual adjustment",
+                    cursor,
+                    current,
+                )
+            else:
+                # Cursor unchanged this tick — safe to advance it, and reset
+                # the stuck-row counter (it no longer applies to the new
+                # position).
+                _upsert_config(db, _CURSOR_KEY, _format_cursor(max_received_at, max_webhook_id))
+                _upsert_config(db, _STUCK_CURSOR_KEY, _UNSET_CURSOR_MARKER)
+                _upsert_config(db, _STUCK_ATTEMPTS_KEY, "0")
     elif attempts_at_cursor > 0:
         # Still stuck at the same cursor position — persist the updated
         # attempts counter so it survives across ticks.

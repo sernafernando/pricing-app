@@ -114,6 +114,7 @@ class QuestionResponse(BaseModel):
     answer_source: Optional[str] = None
     confidence: Optional[float] = None
     category: Optional[str] = None
+    llm_provider: Optional[str] = None
     injection_flag: bool
     fallback_used: bool
     wait_until: Optional[datetime] = None

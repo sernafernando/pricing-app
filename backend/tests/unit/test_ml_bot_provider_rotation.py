@@ -241,6 +241,24 @@ class TestRosterParsing:
         assert [p.name for p in providers] == ["groq"]
         assert any("duplicate" in record.getMessage().lower() for record in caplog.records)
 
+    def test_same_provider_different_model_not_deduped(self, db, monkeypatch) -> None:
+        """Item #4 (PR de pulido): dedupe key is (name, model) — the SAME
+        provider with DIFFERENT models is a valid roster variant, not a
+        duplicate (fairness/fallback chain: groq-70b -> groq-8b)."""
+        _all_keys_configured(monkeypatch)
+        roster = [
+            {"name": "groq", "model": "llama-3.3-70b-versatile", "enabled": True},
+            {"name": "groq", "model": "llama-3.1-8b-instant", "enabled": True},
+        ]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        with _patch_db(db):
+            providers = provider_rotation.available_providers(db)
+
+        assert [p.name for p in providers] == ["groq", "groq"]
+        assert [p.model for p in providers] == ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
 
 class TestRotationCursor:
     def test_round_robin_across_n_questions(self, db, monkeypatch) -> None:
@@ -370,6 +388,204 @@ class TestFailover:
             asyncio.run(rotating.complete("system", "user"))
 
         assert calls["count"] == len(providers)
+
+
+class TestFailoverNotification:
+    """Item #3 (PR de pulido): failover between providers (or all failing)
+    creates a notification via the existing notification system.
+
+    Throttle keying is per-FAILED-PROVIDER for partial failover, and a
+    single rotation-cursor-independent "ALL" key for total outages — NOT
+    keyed on `failed_names[0]`, since `build_rotation_order` advances the
+    cursor per call and `failed_names[0]` is therefore not stable across
+    consecutive questions (the bug this suite guards against)."""
+
+    def test_failover_creates_notification(self, db, monkeypatch) -> None:
+        # Pre-seed the throttle row (an old timestamp -> not throttled) so
+        # the write below is an UPDATE, not a fresh INSERT — avoids a
+        # SAVEPOINT+RETURNING interaction with this test harness's
+        # nested-transaction stub that otherwise corrupts the OUTER test
+        # transaction's rollback (see ingestion test suite for the same
+        # documented workaround).
+        _seed_config(db, "llm_failover_notified_groq", "2020-01-01T00:00:00+00:00")
+        providers = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers)
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        created = {}
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            created["permisos_requeridos"] = permisos_requeridos
+            created["tipo"] = tipo
+            created["mensaje"] = mensaje
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert created["tipo"] == "ml_bot.llm_failover"
+        assert "groq" in created["mensaje"]
+        assert "cerebras" in created["mensaje"]
+        assert created["permisos_requeridos"] == ["ml_bot.config"]
+
+        row = db.query(MlBotConfig).filter_by(clave="llm_failover_notified_groq").first()
+        assert row is not None
+        assert row.valor != "2020-01-01T00:00:00+00:00"
+
+    def test_all_fail_creates_notification_without_coverage(self, db, monkeypatch) -> None:
+        # Total outage uses the single rotation-independent "ALL" key, not
+        # a per-provider key.
+        _seed_config(db, "llm_failover_notified_ALL", "2020-01-01T00:00:00+00:00")
+        providers = [_FakeFailingProvider("groq"), _FakeFailingProvider("cerebras")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers)
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        created = {}
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            created["mensaje"] = mensaje
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert "TODOS los proveedores" in created["mensaje"]
+
+    def test_throttled_within_the_hour(self, db, monkeypatch) -> None:
+        """A second failover for the SAME failed provider within an hour
+        does not create a second notification."""
+        _seed_config(db, "llm_failover_notified_groq", "2020-01-01T00:00:00+00:00")
+        providers = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers)
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        call_count = {"n": 0}
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            call_count["n"] += 1
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert call_count["n"] == 1
+
+    def test_total_outage_notifies_once_across_calls_with_real_rotation(self, db, monkeypatch) -> None:
+        """Regression test for the round-1 blind spot: with the REAL
+        `build_rotation_order` (cursor advances per call, so `failed_names[0]`
+        differs between consecutive calls), a total outage across two
+        consecutive `complete()` calls must fire exactly ONE notification —
+        not one per call — because the throttle key for total outage is the
+        rotation-independent "ALL" key."""
+        _all_keys_configured(monkeypatch)
+        _seed_config(db, "llm_failover_notified_ALL", "2020-01-01T00:00:00+00:00")
+        roster = [{"name": "groq", "enabled": True}, {"name": "cerebras", "enabled": True}]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        call_count = {"n": 0}
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            call_count["n"] += 1
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        _real_build_rotation_order = provider_rotation.build_rotation_order
+
+        def _always_failing_providers() -> list:
+            # Reuses the REAL rotation order (cursor advances each call) but
+            # swaps in always-failing fakes preserving the provider names,
+            # so `failed_names[0]` differs between the two `complete()`
+            # calls below — exactly the scenario that broke the old
+            # `failed_names[0]`-keyed throttle.
+            with _patch_db(db):
+                real_order = _real_build_rotation_order()
+            return [_FakeFailingProvider(p.name) for p in real_order]
+
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", _always_failing_providers)
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert call_count["n"] == 1
+
+    def test_partial_failover_throttles_per_provider_independently(self, db, monkeypatch) -> None:
+        """Provider A fails (B covers) -> notification recorded for A. Then
+        B fails (A covers) within the hour -> B gets its OWN notification
+        (independent budget), A is not renotified because A is still within
+        its own throttle window."""
+        _seed_config(db, "llm_failover_notified_groq", "2020-01-01T00:00:00+00:00")
+        _seed_config(db, "llm_failover_notified_cerebras", "2020-01-01T00:00:00+00:00")
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        mensajes = []
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            mensajes.append(mensaje)
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        # Call 1: groq fails, cerebras covers.
+        providers_1 = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers_1)
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        # Call 2: cerebras fails, groq covers — different failed provider,
+        # so it gets its own notification even though within the same hour.
+        providers_2 = [_FakeFailingProvider("cerebras"), _FakeOkProvider("groq", "hola de nuevo")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers_2)
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert len(mensajes) == 2
+        assert "groq" in mensajes[0]
+        assert "cerebras" in mensajes[1]
+
+        row_groq = db.query(MlBotConfig).filter_by(clave="llm_failover_notified_groq").first()
+        row_cerebras = db.query(MlBotConfig).filter_by(clave="llm_failover_notified_cerebras").first()
+        assert row_groq.valor != "2020-01-01T00:00:00+00:00"
+        assert row_cerebras.valor != "2020-01-01T00:00:00+00:00"
+
+    def test_same_provider_failing_twice_within_hour_throttled(self, db, monkeypatch) -> None:
+        _seed_config(db, "llm_failover_notified_groq", "2020-01-01T00:00:00+00:00")
+        monkeypatch.setattr(provider_rotation, "get_background_db", lambda: _ctx(db))
+
+        call_count = {"n": 0}
+
+        def _fake_crear(session, *, permisos_requeridos, tipo, mensaje, severidad):
+            call_count["n"] += 1
+            return []
+
+        monkeypatch.setattr(
+            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
+        )
+
+        providers = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
+        monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers)
+
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+        asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
+
+        assert call_count["n"] == 1
 
 
 class TestRotatingProviderIsConfigured:

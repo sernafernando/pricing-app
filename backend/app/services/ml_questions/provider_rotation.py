@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
 from app.core.config import settings
@@ -53,6 +54,15 @@ logger = logging.getLogger(__name__)
 
 ROSTER_CONFIG_KEY = "llm_providers"
 CURSOR_CONFIG_KEY = "llm_rotation_cursor"
+
+# Item #3 (PR de pulido): failover notification throttle — at most one
+# notification per FAILED provider per hour (partial failover), or one per
+# hour for the whole outage under key suffix "ALL" (total outage, rotation
+# cursor-independent) — tracked as an ISO timestamp in `ml_bot_config` under
+# this key prefix (fail-safe: a malformed/unreadable timestamp is treated as
+# "never notified", never as a crash).
+_FAILOVER_NOTIF_KEY_PREFIX = "llm_failover_notified_"
+_FAILOVER_NOTIF_THROTTLE = timedelta(hours=1)
 
 # Legacy single-provider config key (Slice D2) — only consulted for the
 # fail-safe/default Groq-only roster, to preserve the pre-rotation behavior
@@ -123,7 +133,13 @@ def _load_roster_entries(db: Any) -> List[dict]:
         return _default_roster_entries(db)
 
     entries: List[dict] = []
-    seen_names: set = set()
+    # Dedupe key is (name, model) — not name alone (item #4, PR de pulido) —
+    # so the SAME provider can appear multiple times with DIFFERENT models
+    # (e.g. groq/llama-3.3-70b-versatile then groq/llama-3.1-8b-instant as a
+    # separate fallback entry, for per-model rate-limit fairness). Two
+    # entries for the same provider AND the same model (including two
+    # entries both leaving `model` unset/None) are still a true duplicate.
+    seen_variants: set = set()
     for item in parsed:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
             logger.warning("ml-bot provider roster: skipping malformed entry %r", item)
@@ -135,15 +151,19 @@ def _load_roster_entries(db: Any) -> List[dict]:
             continue
 
         name = item["name"].strip()
-        if name in seen_names:
-            logger.warning("ml-bot provider roster: skipping duplicate entry for provider '%s'", name)
+        model = item.get("model") if isinstance(item.get("model"), str) else None
+        variant_key = (name, model)
+        if variant_key in seen_variants:
+            logger.warning(
+                "ml-bot provider roster: skipping duplicate entry for provider '%s' model=%r", name, model
+            )
             continue
-        seen_names.add(name)
+        seen_variants.add(variant_key)
 
         entries.append(
             {
                 "name": name,
-                "model": item.get("model") if isinstance(item.get("model"), str) else None,
+                "model": model,
                 "enabled": enabled_raw,
             }
         )
@@ -229,12 +249,132 @@ def build_rotation_order() -> List[OpenAICompatProvider]:
     return providers[cursor:] + providers[:cursor]
 
 
+def _is_throttled(db: Any, throttle_key: str, now: datetime) -> bool:
+    """Fail-safe throttle check: a malformed/unreadable timestamp is treated
+    as "never notified" (never as a crash) — logs a warning and returns
+    not-throttled."""
+    last_raw = policy.get_config(db, throttle_key, cast=str, default=None)
+    if not last_raw:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last_raw)
+        return (now - last_dt) < _FAILOVER_NOTIF_THROTTLE
+    except ValueError:
+        logger.warning(
+            "ml-bot failover notification: malformed throttle timestamp %r for '%s', notifying anyway",
+            last_raw,
+            throttle_key,
+        )
+        return False
+
+
+def _record_notified(db: Any, throttle_key: str, now: datetime) -> None:
+    row = db.query(MlBotConfig).filter_by(clave=throttle_key).first()
+    if row is None:
+        db.add(MlBotConfig(clave=throttle_key, valor=now.isoformat(), tipo="string"))
+    else:
+        row.valor = now.isoformat()
+
+
+def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None:
+    """Item #3 (PR de pulido): create a notification via pricing's EXISTING
+    notification system (`crear_notificaciones_para_permisos`, mirrors the
+    compras/matching pattern) when the rotation falls over between
+    providers, or when ALL providers fail.
+
+    Throttle keying (fix for the rotation-dependent `failed_names[0]` bug —
+    `build_rotation_order` advances the cursor per question, so
+    `failed_names[0]` is NOT stable across calls and can't be used as a
+    throttle key on its own):
+
+    - Partial failover (`covered_by` is set): throttled PER FAILED
+      PROVIDER, independently — each provider name has its own
+      `llm_failover_notified_{name}` key/budget. Only the providers that are
+      NOT currently throttled are named in the (single) notification sent,
+      and only THOSE get their timestamp recorded.
+    - Total outage (`covered_by` is None): a single rotation-independent key
+      `llm_failover_notified_ALL` throttles the whole outage as one unit
+      (1/h), regardless of which provider happened to be tried first.
+
+    Fail-safe: this is best-effort observability, never allowed to break
+    the drafting pipeline — any exception here is caught and logged, never
+    re-raised (the caller already has its own successful/failed outcome to
+    return regardless of whether this notification fires).
+    """
+    if not failed_names:
+        return
+    try:
+        # Imported locally to avoid a notification-module import at module
+        # load time for a code path that only runs on the (hopefully rare)
+        # failover branch — mirrors `resolver_usuarios_con_algun_permiso`'s
+        # own local import of `PermisosService`.
+        from app.models.notificacion import SeveridadNotificacion  # noqa: PLC0415
+        from app.services.notificacion_service import crear_notificaciones_para_permisos  # noqa: PLC0415
+
+        now = datetime.now(timezone.utc)
+
+        with get_background_db() as db:
+            if covered_by:
+                names_to_notify = [
+                    name
+                    for name in failed_names
+                    if not _is_throttled(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
+                ]
+                if not names_to_notify:
+                    return  # every failed provider is within its own throttle window
+
+                mensaje = (
+                    f"Bot ML: el proveedor LLM '{', '.join(names_to_notify)}' falló — "
+                    f"failover activo a '{covered_by}'."
+                )
+
+                crear_notificaciones_para_permisos(
+                    db,
+                    permisos_requeridos=["ml_bot.config"],
+                    tipo="ml_bot.llm_failover",
+                    mensaje=mensaje,
+                    severidad=SeveridadNotificacion.WARNING,
+                )
+
+                for name in names_to_notify:
+                    _record_notified(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
+            else:
+                throttle_key = f"{_FAILOVER_NOTIF_KEY_PREFIX}ALL"
+                if _is_throttled(db, throttle_key, now):
+                    return  # throttled — total outage already notified within the last hour
+
+                mensaje = (
+                    f"Bot ML: TODOS los proveedores LLM fallaron ({', '.join(sorted(failed_names))}) "
+                    "— las preguntas están recibiendo la respuesta de fallback."
+                )
+
+                crear_notificaciones_para_permisos(
+                    db,
+                    permisos_requeridos=["ml_bot.config"],
+                    tipo="ml_bot.llm_failover",
+                    mensaje=mensaje,
+                    severidad=SeveridadNotificacion.WARNING,
+                )
+
+                _record_notified(db, throttle_key, now)
+    except Exception:  # noqa: BLE001 — notification is best-effort, must never break drafting.
+        logger.warning("ml-bot failover notification: failed to create/throttle notification", exc_info=True)
+
+
 class RotatingProvider:
     """`LlmProvider`-shaped (duck-typed) wrapper that resolves the roster +
     rotation cursor fresh on every `complete()` call — i.e. rotation/failover
     happens PER QUESTION, not once per drafting cycle (design requirement).
     Built once per cycle by `drafting_service._build_default_provider`, but
     each `.complete()` call independently re-reads the roster/cursor."""
+
+    def __init__(self) -> None:
+        # Item #2 (PR de pulido): which roster entry actually produced the
+        # LAST successful `complete()` call, as "provider/model" — read by
+        # `drafting_service._resolve_provider_label` right after a successful
+        # draft to populate `ml_bot_questions.llm_provider`. `None` until the
+        # first successful call.
+        self.last_used_provider: Optional[str] = None
 
     def is_configured(self) -> bool:
         with get_background_db() as db:
@@ -246,13 +386,19 @@ class RotatingProvider:
             raise LlmProviderError("no configured LLM provider available in the roster")
 
         last_error: Optional[LlmProviderError] = None
+        failed_names: List[str] = []
         for provider in providers:
             try:
                 result = await provider.complete(system_prompt, user_payload)
                 logger.info("ml-bot drafting: provider '%s' answered", provider.name)
+                provider_model = getattr(provider, "model", None)
+                self.last_used_provider = f"{provider.name}/{provider_model}" if provider_model else provider.name
+                if failed_names:
+                    _notify_failover(failed_names, covered_by=provider.name)
                 return result
             except LlmProviderError as exc:
                 last_error = exc
+                failed_names.append(provider.name)
                 logger.warning(
                     "ml-bot drafting: provider '%s' failed, trying next in rotation: %s",
                     provider.name,
@@ -260,5 +406,6 @@ class RotatingProvider:
                 )
                 continue
 
+        _notify_failover(failed_names, covered_by=None)
         assert last_error is not None
         raise last_error

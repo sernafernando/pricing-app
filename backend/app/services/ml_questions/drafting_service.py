@@ -87,6 +87,8 @@ _DRAFTING_STALE_MINUTES = 15
 # `pending_morning` (that one is explicitly NOT auto-answered).
 _HANDLED_STATUSES = frozenset({"waiting", "published", "taken_over"})
 
+_LLM_DEBUG_LOGGING_KEY = "llm_debug_logging"
+
 _DEFAULT_MIN_CONFIDENCE = 0.6
 _DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
 _DEFAULT_BUSINESS_HOURS_START = "09:00"
@@ -115,6 +117,54 @@ _SPACE_RUN_RE = re.compile(r" {2,}")
 # A leftover space directly before closing punctuation reads as a typo
 # once the placeholder is gone (e.g. "Horario ." -> "Horario.").
 _SPACE_BEFORE_PUNCT_RE = re.compile(r" ([.,;:!?)])")
+
+
+def _resolve_provider_label(provider: LlmProvider) -> Optional[str]:
+    """Item #2 (PR de pulido): "provider/model" label for the LLM that
+    produced a draft, stored in `ml_bot_questions.llm_provider`.
+
+    `RotatingProvider` (the real default) tracks the roster entry that
+    actually answered on `last_used_provider`; any other `LlmProvider`
+    implementation (tests, future single-provider callers) falls back to a
+    plain `name` attribute if present, else `None` (column stays nullable)."""
+    last_used = getattr(provider, "last_used_provider", None)
+    if last_used:
+        return last_used
+    name = getattr(provider, "name", None)
+    return str(name) if name else None
+
+
+def _log_llm_debug(
+    question_id: int,
+    system_prompt: str,
+    user_payload: str,
+    provider: LlmProvider,
+    *,
+    raw: Optional[str],
+    parsed: Any,
+    error: Optional[str],
+) -> None:
+    """Item #1 (PR de pulido): opt-in, grepable full-prompt/response logging
+    for debugging drafting quality. Gated by the `llm_debug_logging`
+    `ml_bot_config` key (default off) — when off, this function is never
+    called and zero new log lines are emitted. INFO level, prefixed
+    "ml-bot llm-debug" so it's trivially greppable and separable from the
+    normal WARNING/ERROR operational logs."""
+    outcome = error if error is not None else (
+        f"can_answer={parsed.can_answer} confidence={parsed.confidence} "
+        f"category={parsed.category!r} denylist_hit={policy.violates_denylist(parsed.answer)}"
+        if parsed is not None
+        else "unknown"
+    )
+    logger.info(
+        "ml-bot llm-debug question=%s provider=%s system_prompt=%r user_payload=%r raw_response=%r outcome=%s",
+        question_id,
+        _resolve_provider_label(provider),
+        system_prompt,
+        user_payload,
+        raw,
+        outcome,
+    )
 
 
 def _build_default_provider() -> LlmProvider:
@@ -312,6 +362,7 @@ def _resolve_success(
     confidence: float,
     category: str,
     official_store_id: Optional[int],
+    provider_label: Optional[str] = None,
 ) -> None:
     """Successful bot answer (design §6 stage 7 happy path) -> `waiting`.
 
@@ -348,6 +399,7 @@ def _resolve_success(
         row.confidence = confidence
         row.category = category
         row.answer_source = "bot"
+        row.llm_provider = provider_label
         row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
         # Judgment Day fix (round 3): see `_resolve_fallback` — reset the
         # per-stage `attempts` counter on every `drafting -> waiting`
@@ -446,6 +498,7 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
             context = context_builder.build_scoped_context(db, question["question_text"], item_payload)
             min_confidence = policy.get_config(db, "min_confidence", cast=float, default=_DEFAULT_MIN_CONFIDENCE)
             answer_max_chars = answer_shaping.get_answer_max_chars(db)
+            debug_logging = policy.get_config(db, _LLM_DEBUG_LOGGING_KEY, cast=bool, default=False) or False
 
         system_prompt, user_payload = context_builder.build_prompt(context, answer_max_chars)
 
@@ -454,16 +507,30 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
             raw = await provider.complete(system_prompt, user_payload)
             parsed = parse_llm_output(raw, max_chars=answer_max_chars)
         except LlmProviderError as exc:
+            if debug_logging:
+                _log_llm_debug(
+                    question_id, system_prompt, user_payload, provider, raw=None, parsed=None, error=str(exc)
+                )
             logger.warning("ml-bot drafting: provider/parse failure for question %s: %s", question_id, exc)
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=False)
             return "fallback"
+
+        if debug_logging:
+            _log_llm_debug(question_id, system_prompt, user_payload, provider, raw=raw, parsed=parsed, error=None)
 
         if not parsed.can_answer or parsed.confidence < min_confidence or policy.violates_denylist(parsed.answer):
             denylist_hit = policy.violates_denylist(parsed.answer)
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=denylist_hit)
             return "fallback"
 
-        _resolve_success(question_id, parsed.answer, parsed.confidence, parsed.category, context.official_store_id)
+        _resolve_success(
+            question_id,
+            parsed.answer,
+            parsed.confidence,
+            parsed.category,
+            context.official_store_id,
+            provider_label=_resolve_provider_label(provider),
+        )
         return "drafted"
 
     except Exception as exc:  # noqa: BLE001 — must never crash the loop.

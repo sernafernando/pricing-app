@@ -50,6 +50,24 @@ function buildFallbackItemLink(itemId) {
   return `https://articulo.mercadolibre.com.ar/${match[1]}-${match[2]}`;
 }
 
+// Item #5 (PR de pulido): curated model list per provider for the
+// `llm_providers` roster editor's dropdown, so operators pick a known-good
+// model instead of typing free text. Kept as a frontend constant — the
+// roster JSON in `ml_bot_config` remains the source of truth; a free-text
+// escape hatch (`__custom__`) always covers a model not in this list.
+const LLM_PROVIDER_MODELS = {
+  groq: [
+    'llama-3.3-70b-versatile',
+    'qwen/qwen3-32b',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
+  ],
+  cerebras: ['llama-3.3-70b', 'llama3.1-8b'],
+  openrouter: ['meta-llama/llama-3.3-70b-instruct:free'],
+};
+const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
+const CUSTOM_MODEL_OPTION = '__custom__';
+
 const STATUS_LABELS = {
   received: 'Recibida',
   drafting: 'Redactando',
@@ -60,6 +78,99 @@ const STATUS_LABELS = {
   pending_morning: 'Para la mañana',
   failed: 'Fallida',
 };
+
+// Item #5 (PR de pulido): structured editor for the `llm_providers` roster
+// key — a small picker UI over the same JSON the panel already round-trips
+// through the generic config text input. Falls back gracefully to an empty
+// roster on unparseable JSON (never throws — matches the backend's own
+// fail-safe roster parsing in `provider_rotation.py`).
+function LlmProviderRosterEditor({ value, onChange }) {
+  let entries;
+  try {
+    const parsed = JSON.parse(value || '[]');
+    entries = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    entries = [];
+  }
+
+  const commit = (next) => onChange(JSON.stringify(next));
+
+  const updateEntry = (index, patch) => {
+    commit(entries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
+  };
+
+  const removeEntry = (index) => {
+    commit(entries.filter((_, i) => i !== index));
+  };
+
+  const addEntry = () => {
+    commit([...entries, { name: 'groq', model: LLM_PROVIDER_MODELS.groq[0], enabled: true }]);
+  };
+
+  return (
+    <div className={styles.rosterEditor}>
+      {entries.map((entry, index) => {
+        const curated = LLM_PROVIDER_MODELS[entry.name] || [];
+        const isCustomModel = !entry.model || !curated.includes(entry.model);
+        return (
+          <div key={index} className={styles.rosterRow}>
+            <select
+              className={styles.rosterSelect}
+              value={entry.name || ''}
+              onChange={(e) => updateEntry(index, { name: e.target.value, model: '' })}
+            >
+              {Object.keys(LLM_PROVIDER_MODELS).map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value="">otro (personalizado)</option>
+            </select>
+            <select
+              className={styles.rosterSelect}
+              value={isCustomModel ? CUSTOM_MODEL_OPTION : entry.model}
+              onChange={(e) => {
+                const next = e.target.value;
+                updateEntry(index, { model: next === CUSTOM_MODEL_OPTION ? '' : next });
+              }}
+            >
+              {curated.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+              <option value={CUSTOM_MODEL_OPTION}>personalizado…</option>
+            </select>
+            {isCustomModel && (
+              <input
+                type="text"
+                className={styles.configInput}
+                placeholder="modelo personalizado"
+                value={entry.model || ''}
+                onChange={(e) => updateEntry(index, { model: e.target.value })}
+              />
+            )}
+            <label className={styles.rosterEnabledLabel}>
+              <input
+                type="checkbox"
+                checked={entry.enabled !== false}
+                onChange={(e) => updateEntry(index, { enabled: e.target.checked })}
+              />
+              activo
+            </label>
+            <button
+              type="button"
+              className="btn-tesla outline-subtle-danger sm"
+              onClick={() => removeEntry(index)}
+              aria-label="Quitar proveedor"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        );
+      })}
+      <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={addEntry}>
+        <Plus size={14} /> Agregar variante
+      </button>
+    </div>
+  );
+}
 
 const STATUS_BADGE_CLASS = {
   received: 'badgeNeutral',
@@ -461,6 +572,12 @@ export default function MLQuestions() {
                   <strong>Respuesta (borrador)</strong>
                   <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
                 </div>
+                {q.answer_source === 'bot' && (
+                  <div>
+                    <strong>Proveedor LLM</strong>
+                    <p className={styles.detailText}>{q.llm_provider || '—'}</p>
+                  </div>
+                )}
                 <div>
                   <strong>Publicación</strong>
                   <p>
@@ -828,12 +945,19 @@ export default function MLQuestions() {
                     <tr key={item.clave}>
                       <td className={styles.cellClave}>{item.clave}</td>
                       <td>
-                        <input
-                          type="text"
-                          className={styles.configInput}
-                          value={configDrafts[item.clave] ?? ''}
-                          onChange={(e) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: e.target.value }))}
-                        />
+                        {item.clave === LLM_ROSTER_CONFIG_KEY ? (
+                          <LlmProviderRosterEditor
+                            value={configDrafts[item.clave] ?? ''}
+                            onChange={(next) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: next }))}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            className={styles.configInput}
+                            value={configDrafts[item.clave] ?? ''}
+                            onChange={(e) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: e.target.value }))}
+                          />
+                        )}
                       </td>
                       <td className={styles.cellDescripcion}>{item.descripcion || '—'}</td>
                       <td>

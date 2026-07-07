@@ -24,8 +24,11 @@ No pytest-asyncio in this project (see tests/unit/test_sync_stock_por_deposito.p
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
@@ -713,6 +716,118 @@ class TestIngestNewQuestions:
         attempts_row = db.query(MlBotConfig).filter_by(clave="ingest_stuck_attempts").one()
         assert attempts_row.valor == "1"  # fresh cycle, not given up immediately
         assert db.query(MlBotQuestion).filter_by(ml_question_id=573).first() is None
+
+
+class TestPolishItems:
+    """PR de pulido: cursor default when absent (item #6), expected-404
+    downgraded to WARNING (item #7), respecting manual cursor adjustments
+    mid-tick (item #8)."""
+
+    def test_absent_cursor_defaults_to_last_48h_window(self, db) -> None:
+        """No `ingest_cursor_ts` row at all (fresh install) -> the query
+        window passed to `fetch_new_webhook_rows` is "now - 48h", not an
+        unbounded full-history read.
+
+        Seeds an EMPTY-string cursor row (not a missing row) so the
+        end-of-tick write below is an UPDATE like every other test in this
+        module — `get_config` already treats empty-string `valor` as unset
+        (see its docstring), so this doesn't change what's under test."""
+        _seed_cursor(db, value="")
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/601", received)],
+            ) as mock_fetch,
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(601)),
+            ),
+        ):
+            asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        since_arg = mock_fetch.call_args.kwargs["since"]
+        assert since_arg is not None
+        since_ts, _ = ingestion_service._parse_cursor(since_arg)
+        parsed_since = datetime.fromisoformat(since_ts)
+        assert (datetime.now(timezone.utc) - parsed_since).total_seconds() == pytest.approx(48 * 3600, abs=60)
+
+    def test_404_logs_warning_not_error(self, db, caplog) -> None:
+        """Item #7: a deleted-in-ML question (404) is an EXPECTED terminal
+        outcome for a poller, downgraded from ERROR to WARNING."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        target_logger = logging.getLogger("app.services.ml_questions.ingestion_service")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.WARNING)
+        try:
+            with (
+                patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+                patch.object(
+                    ingestion_service,
+                    "fetch_new_webhook_rows",
+                    return_value=[_webhook_row("/questions/602", received)],
+                ),
+                patch.object(
+                    ingestion_service.ml_client,
+                    "get_question",
+                    new=AsyncMock(side_effect=QuestionNotFoundError("gone")),
+                ),
+            ):
+                asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+        assert any("not found in ML" in record.getMessage() for record in caplog.records)
+
+    def test_manual_cursor_change_mid_tick_is_respected(self, db, caplog) -> None:
+        """Item #8: if the persisted cursor changed (an admin manually
+        UPDATE'd it) between the tick's read and its end-of-tick write, the
+        tick must NOT overwrite the manual value."""
+        _seed_cursor(db, value="2026-07-01T00:00:00+00:00|")
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        async def _get_question_and_mutate_cursor(question_id: int) -> dict:
+            # Simulate a concurrent manual edit landing mid-tick — uses the
+            # same SAVEPOINT-per-call convention as `get_background_db()`
+            # itself, so it doesn't disturb the outer test transaction's
+            # nesting (which a bare `db.flush()` outside any nested block
+            # would).
+            with _ctx(db) as inner_db:
+                row = inner_db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+                row.valor = "2026-07-05T00:00:00+00:00|manual"
+            return _ml_question(question_id)
+
+        target_logger = logging.getLogger("app.services.ml_questions.ingestion_service")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.WARNING)
+        try:
+            with (
+                patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+                patch.object(
+                    ingestion_service,
+                    "fetch_new_webhook_rows",
+                    return_value=[_webhook_row("/questions/603", received)],
+                ),
+                patch.object(
+                    ingestion_service.ml_client,
+                    "get_question",
+                    new=AsyncMock(side_effect=_get_question_and_mutate_cursor),
+                ),
+            ):
+                asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert row.valor == "2026-07-05T00:00:00+00:00|manual"  # NOT overwritten by the tick
+        assert any("cursor changed manually" in record.getMessage() for record in caplog.records)
 
 
 class TestCompositeCursor:
