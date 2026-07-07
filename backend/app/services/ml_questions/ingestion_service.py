@@ -309,9 +309,48 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
             continue
 
         buyer = ml_question.get("from") or {}
+        item_id = ml_question.get("item_id") or ""
+
+        # Item enrichment (panel-v2 requirement #2, ADR-5): best-effort only
+        # — a failure here (network/404/etc.) must never block ingestion of
+        # the question itself. No DB session is open across this call.
+        item_title: Optional[str] = None
+        item_permalink: Optional[str] = None
+        if item_id:
+            try:
+                item_payload = await ml_client.get_item(item_id)
+            except Exception as e:  # noqa: BLE001 — enrichment is non-fatal.
+                logger.warning("ml-bot ingestion: enrichment failed for item %s: %s", item_id, e)
+                item_payload = None
+            if item_payload:
+                # Defensive truncation to the column widths (String(200) /
+                # String(500)) — ML titles are normally far shorter, but a
+                # DataError here (unlike IntegrityError) would NOT be caught
+                # below and would break the "enrichment never blocks
+                # ingestion" invariant.
+                raw_title = item_payload.get("title")
+                raw_permalink = item_payload.get("permalink")
+                item_title = raw_title[:200] if raw_title else None
+                # Scheme validation: ML always serves item permalinks over
+                # https — anything else (javascript:, data:, http:, etc.)
+                # is rejected and never stored, since this value is later
+                # rendered as an href in the frontend without further checks.
+                if raw_permalink and raw_permalink.startswith("https://"):
+                    item_permalink = raw_permalink[:500]
+                else:
+                    if raw_permalink:
+                        logger.warning(
+                            "ml-bot ingestion: rejected item permalink with invalid scheme for item %s: %s",
+                            item_id,
+                            raw_permalink[:100],
+                        )
+                    item_permalink = None
+
         new_row = MlBotQuestion(
             ml_question_id=question_id,
-            item_id=ml_question.get("item_id") or "",
+            item_id=item_id,
+            item_title=item_title,
+            item_permalink=item_permalink,
             buyer_id=buyer.get("id"),
             buyer_nickname=buyer.get("nickname"),
             question_text=ml_question.get("text") or "",

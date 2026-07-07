@@ -45,6 +45,12 @@ class MlBotQuestion(Base):
     buyer_id = Column(BigInteger, nullable=True)
     buyer_nickname = Column(String(255), nullable=True)
 
+    # Item enrichment (panel-v2 requirement #2) — populated best-effort by
+    # ingestion via `ml_client.get_item()`; NULL when enrichment failed or
+    # for rows ingested before this column existed. Never blocks ingestion.
+    item_title = Column(String(200), nullable=True)
+    item_permalink = Column(String(500), nullable=True)
+
     question_text = Column(Text, nullable=False)
     question_date = Column(DateTime(timezone=True), nullable=False)
 
@@ -74,6 +80,9 @@ class MlBotQuestion(Base):
         Index("idx_ml_bot_questions_status", "status"),
         Index("idx_ml_bot_questions_item_id", "item_id"),
         Index("idx_ml_bot_questions_question_date", "question_date"),
+        # Backs GET /questions/{id}/buyer-history (panel-v2 requirement #3),
+        # which filters by buyer_id.
+        Index("idx_ml_bot_questions_buyer_id", "buyer_id"),
         Index(
             "idx_ml_bot_questions_wait_until_waiting",
             "wait_until",

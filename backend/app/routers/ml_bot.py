@@ -9,10 +9,20 @@ H). Every endpoint enforces one of the four `ml_bot.*` permission codes
 State-machine notes (design §2, carried from Judgment Day adjudications on
 prior slices):
 - `take-over` CAS-transitions only from pre-terminal states that a human can
-  legitimately intervene on: `waiting`, `pending_morning`, `failed`. It
-  never matches `publishing` — a row claimed by the background publisher for
-  an in-flight POST can never be stolen mid-publish (CAS on the current
-  status makes this a no-op 404, not a race).
+  legitimately intervene on: `received`, `waiting`, `pending_morning`,
+  `failed`. It never matches `publishing` — a row claimed by the background
+  publisher for an in-flight POST can never be stolen mid-publish (CAS on
+  the current status makes this a no-op 409, not a race). `received` was
+  added in panel-v2 (see engram sdd/ml-questions-ai/panel-v2 requirement
+  #1): with the bot OFF, rows sit in `received` forever with no panel
+  action available — a human must be able to take over immediately. This
+  is race-safe against `drafting_service._claim_for_drafting`, which only
+  claims `status == "received"` in its own CAS: whichever of the two CAS
+  UPDATEs commits first wins the row (moves it out of `received`), so the
+  other one's `WHERE status IN (...)` / `WHERE status == 'received'`
+  simply matches zero rows and reports its own well-defined "lost the
+  race" outcome (409 for take-over, `skipped_claimed_elsewhere` for
+  drafting) — never a double-claim.
 - `publish-now` accepts `waiting`, `taken_over`, `pending_morning`, or
   `failed` as sources. It CAS-transitions the row into `waiting`
   (wait_until=now, so the semantics match "due immediately") in the SAME
@@ -75,7 +85,7 @@ router = APIRouter(
 
 # Source states each panel action may legally CAS out of (design §2 + the
 # Judgment Day notes above).
-_TAKE_OVER_SOURCE_STATES = ("waiting", "pending_morning", "failed")
+_TAKE_OVER_SOURCE_STATES = ("received", "waiting", "pending_morning", "failed")
 _HOLD_SOURCE_STATES = ("waiting", "taken_over")
 _PUBLISH_NOW_SOURCE_STATES = ("waiting", "taken_over", "pending_morning", "failed")
 # Sources whose retry-from-failed history means the next claim must verify
@@ -93,6 +103,8 @@ class QuestionResponse(BaseModel):
     id: int
     ml_question_id: int
     item_id: str
+    item_title: Optional[str] = None
+    item_permalink: Optional[str] = None
     buyer_id: Optional[int] = None
     buyer_nickname: Optional[str] = None
     question_text: str
@@ -118,6 +130,23 @@ class QuestionResponse(BaseModel):
 class QuestionListResponse(BaseModel):
     questions: list[QuestionResponse]
     total: int
+
+
+class BuyerHistoryItem(BaseModel):
+    id: int
+    question_date: datetime
+    question_text: str
+    status: str
+    drafted_answer: Optional[str] = None
+    published_at: Optional[datetime] = None
+    item_title: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BuyerHistoryResponse(BaseModel):
+    buyer_id: Optional[int] = None
+    questions: list[BuyerHistoryItem]
 
 
 class AnswerUpdate(BaseModel):
@@ -270,9 +299,10 @@ def tomar_pregunta(
 ) -> QuestionResponse:
     """Un humano toma una pregunta pendiente/held/failed. Requiere `ml_bot.responder`.
 
-    CAS desde `waiting`/`pending_morning`/`failed` -> `taken_over`; nunca
-    puede robar una fila que el publisher tiene en `publishing` (fuera del
-    conjunto de estados fuente).
+    CAS desde `received`/`waiting`/`pending_morning`/`failed` -> `taken_over`;
+    nunca puede robar una fila que el publisher tiene en `publishing` (fuera
+    del conjunto de estados fuente), ni una que `drafting_service` ya haya
+    empezado a procesar (fuera de `received`).
     """
     _check_permiso(db, current_user, "ml_bot.responder")
     _get_question_or_404(db, question_id)
@@ -412,6 +442,44 @@ def retener_pregunta(
 
     _emit_reload_hint()
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
+
+
+@router.get("/questions/{question_id}/buyer-history", response_model=BuyerHistoryResponse)
+def historial_comprador(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> BuyerHistoryResponse:
+    """Historial de OTRAS preguntas del mismo comprador (panel-v2 requisito
+    #3) — hasta 20 filas de `ml_bot_questions` con el mismo `buyer_id`, más
+    recientes primero, EXCLUYENDO la pregunta actual por id (no por fecha:
+    si el comprador tiene una pregunta más nueva que la consultada, también
+    aparece — da todo el contexto disponible del comprador, no solo el
+    pasado). Requiere `ml_bot.ver`.
+
+    404 si la pregunta no existe; lista vacía si `buyer_id` es null (no hay
+    forma de correlacionar comprador).
+    """
+    _check_permiso(db, current_user, "ml_bot.ver")
+    question = _get_question_or_404(db, question_id)
+
+    if question.buyer_id is None:
+        return BuyerHistoryResponse(buyer_id=None, questions=[])
+
+    rows = (
+        db.query(MlBotQuestion)
+        .filter(
+            MlBotQuestion.buyer_id == question.buyer_id,
+            MlBotQuestion.id != question_id,
+        )
+        .order_by(MlBotQuestion.question_date.desc())
+        .limit(20)
+        .all()
+    )
+    return BuyerHistoryResponse(
+        buyer_id=question.buyer_id,
+        questions=[BuyerHistoryItem.model_validate(r) for r in rows],
+    )
 
 
 @router.get("/status", response_model=StatusResponse)
