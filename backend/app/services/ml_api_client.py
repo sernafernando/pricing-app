@@ -35,6 +35,27 @@ class QuestionAlreadyAnsweredError(Exception):
         super().__init__(f"Question {question_id} was already answered in ML")
 
 
+class AnswerPostPermanentError(Exception):
+    """Raised by `post_answer` when ML rejects the answer with a non-
+    already-answered 4xx (e.g. 401/403/404/422, or a 400 that is not a
+    known already-answered signal) — a PERMANENT failure (ml-bot Slice E
+    Judgment Day fix). The caller must not burn bounded retries on these:
+    the request is malformed/unauthorized/rejected, not transiently
+    unavailable, so retrying will not help."""
+
+    def __init__(self, question_id: int, status_code: int, message: str) -> None:
+        self.question_id = question_id
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Question {question_id}: ML rejected answer permanently (HTTP {status_code}): {message}")
+
+
+# Narrow phrase fallback checked ONLY against the structured `message` field
+# (never the whole raw body) — kept intentionally small to avoid false
+# positives on unrelated validation errors.
+_ALREADY_ANSWERED_PHRASES = ("already answered", "already has an answer", "already been answered")
+
+
 def _load_token_from_mlwebhook() -> Optional[Dict]:
     """Lee access_token y expires_at de la tabla ml_tokens en la DB del ml-webhook."""
     try:
@@ -169,9 +190,12 @@ class MercadoLibreAPIClient:
             QuestionAlreadyAnsweredError: si ML indica explícitamente (4xx)
                 que la pregunta ya fue respondida — tratado como
                 éxito-equivalente por el caller (idempotencia).
+            AnswerPostPermanentError: si ML rechaza la respuesta con un 4xx
+                que NO es "ya respondida" (401/403/404/422/etc, o un 400 sin
+                señal de idempotencia) — falla PERMANENTE, no reintentable.
 
-        Returns None for other failures (network/timeout/5xx/auth/unknown
-        4xx) — callers should retry these (bounded).
+        Returns None for transient failures (network/timeout/5xx) — callers
+        should retry these (bounded).
         """
         try:
             token = await self.get_access_token()
@@ -183,20 +207,70 @@ class MercadoLibreAPIClient:
                     json={"question_id": question_id, "text": text},
                 )
 
-                if response.status_code == 400:
-                    body_text = response.text.lower()
-                    if "already" in body_text or "answered" in body_text or "responded" in body_text:
-                        logger.warning(f"Pregunta {question_id} ya estaba respondida en ML (400): {response.text}")
-                        raise QuestionAlreadyAnsweredError(question_id)
+                if 200 <= response.status_code < 300:
+                    return response.json()
+
+                if 400 <= response.status_code < 500:
+                    self._classify_post_answer_client_error(question_id, response)
+                    # _classify_post_answer_client_error always raises.
 
                 response.raise_for_status()
                 return response.json()
 
-        except QuestionAlreadyAnsweredError:
+        except (QuestionAlreadyAnsweredError, AnswerPostPermanentError):
             raise
         except Exception as e:
             logger.error(f"Error publicando respuesta a pregunta {question_id} en ML: {e}")
             return None
+
+    def _classify_post_answer_client_error(self, question_id: int, response: httpx.Response) -> None:
+        """Classify a 4xx `post_answer` response and raise the matching
+        exception. Never returns normally.
+
+        Prefers structured matching over the previous brittle
+        whole-body substring check: parses ML's JSON error shape
+        (`{"message": ..., "error": ..., "status": ..., "cause": [...]}`)
+        and inspects only the `message`/`error`/`cause[].message` fields for
+        known already-answered signals. Falls back to a narrow phrase check
+        on `message` alone. Logs a WARNING with a truncated body when a 400
+        matches neither — a signal of ML contract drift.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            logger.warning(
+                "ml-bot post_answer: 400 body from ML is not JSON (possible contract drift) for question %s: %s",
+                question_id,
+                response.text[:500],
+            )
+            raise AnswerPostPermanentError(question_id, response.status_code, response.text[:500])
+
+        if not isinstance(body, dict):
+            logger.warning(
+                "ml-bot post_answer: 400 body from ML is not a JSON object (possible contract drift) "
+                "for question %s: %s",
+                question_id,
+                str(body)[:500],
+            )
+            raise AnswerPostPermanentError(question_id, response.status_code, str(body)[:500])
+
+        message = str(body.get("message") or "")
+        error_field = str(body.get("error") or "")
+        cause = body.get("cause") or []
+        cause_messages = " ".join(str(c.get("message", "")) for c in cause if isinstance(c, dict))
+        combined = " ".join([message, error_field, cause_messages]).lower()
+
+        if any(phrase in combined for phrase in _ALREADY_ANSWERED_PHRASES):
+            logger.warning(f"Pregunta {question_id} ya estaba respondida en ML ({response.status_code}): {message}")
+            raise QuestionAlreadyAnsweredError(question_id)
+
+        # Narrow fallback, message field only.
+        message_lower = message.lower()
+        if "already" in message_lower or "answered" in message_lower:
+            logger.warning(f"Pregunta {question_id} ya estaba respondida en ML ({response.status_code}): {message}")
+            raise QuestionAlreadyAnsweredError(question_id)
+
+        raise AnswerPostPermanentError(question_id, response.status_code, message or str(body)[:500])
 
     async def get_items_batch(self, item_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch

@@ -62,11 +62,16 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 
 from app.core.database import get_background_db
 from app.models.ml_bot_question import MlBotQuestion
-from app.services.ml_api_client import QuestionAlreadyAnsweredError, ml_client
+from app.services.ml_api_client import (
+    AnswerPostPermanentError,
+    QuestionAlreadyAnsweredError,
+    QuestionNotFoundError,
+    ml_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +128,7 @@ def _claim_for_publishing(question_id: int) -> bool:
         result = db.execute(
             update(MlBotQuestion)
             .where(MlBotQuestion.id == question_id, MlBotQuestion.status == "waiting")
-            .values(status="publishing")
+            .values(status="publishing", updated_at=func.now())
         )
         return result.rowcount == 1
 
@@ -139,6 +144,7 @@ def _load_question(question_id: int) -> Optional[Dict[str, Any]]:
             "id": row.id,
             "ml_question_id": row.ml_question_id,
             "drafted_answer": row.drafted_answer,
+            "attempts": row.attempts,
         }
 
 
@@ -154,6 +160,49 @@ def _mark_published(question_id: int) -> None:
             return
         row.status = "published"
         row.published_at = datetime.now(timezone.utc)
+
+
+def _revert_to_waiting_without_penalty(question_id: int) -> None:
+    """CAS-revert a claimed row back to `waiting` WITHOUT touching
+    `attempts`/`last_error` — used when a retry-verification `get_question`
+    call fails transiently (Judgment Day fix 1b): no POST was attempted, so
+    this is not a failed publish attempt and must not burn the bounded
+    retry budget."""
+    with get_background_db() as db:
+        db.execute(
+            update(MlBotQuestion)
+            .where(MlBotQuestion.id == question_id, MlBotQuestion.status == "publishing")
+            .values(status="waiting")
+        )
+
+
+def _mark_failed_permanent(question_id: int, error_message: str) -> str:
+    """PERMANENT failure (Judgment Day fix 2) — a non-already-answered 4xx
+    from `post_answer` (401/403/404/422/etc). Marks the row `failed`
+    immediately WITHOUT incrementing `attempts`: retrying a request ML has
+    permanently rejected would never succeed, so the bounded retry budget
+    must not be burned on it."""
+    with get_background_db() as db:
+        row = (
+            db.query(MlBotQuestion)
+            .filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "publishing")
+            .first()
+        )
+        if row is None:
+            return "skipped_claimed_elsewhere"
+        row.last_error = error_message[:2000]
+        row.status = "failed"
+    return "failed"
+
+
+def _is_ml_question_answered(question: Dict[str, Any]) -> bool:
+    """True if ML's `get_question` payload indicates the question already
+    has an answer (used by the retry-verification check, Judgment Day fix
+    1b)."""
+    status = str(question.get("status") or "").upper()
+    if status == "ANSWERED":
+        return True
+    return bool(question.get("answer"))
 
 
 def _mark_failed_or_retry(question_id: int, error_message: str) -> str:
@@ -201,6 +250,31 @@ async def _publish_one(question_id: int) -> str:
         if question is None:
             return "skipped_claimed_elsewhere"
 
+        # Judgment Day fix 1b: a RETRY (attempts > 0) may already have
+        # posted successfully to ML before a crash prevented the terminal
+        # DB write. Verify independently via `get_question` BEFORE
+        # re-posting — never post blind on a retry.
+        if question["attempts"] > 0:
+            try:
+                verification = await ml_client.get_question(question["ml_question_id"])
+            except QuestionNotFoundError:
+                # Terminal-but-ambiguous: play it safe, do not post blind.
+                verification = None
+
+            if verification is None:
+                # Transient GET failure — do not post, leave for next
+                # retry WITHOUT burning the attempts budget.
+                _revert_to_waiting_without_penalty(question_id)
+                return "retry"
+
+            if _is_ml_question_answered(verification):
+                logger.info(
+                    "ml-bot publisher: question %s already answered on ML, marking published without re-posting",
+                    question_id,
+                )
+                _mark_published(question_id)
+                return "published"
+
         try:
             # ML POST happens here — no DB session is open at this point.
             result = await ml_client.post_answer(question["ml_question_id"], question["drafted_answer"])
@@ -211,10 +285,20 @@ async def _publish_one(question_id: int) -> str:
             )
             _mark_published(question_id)
             return "published"
+        except AnswerPostPermanentError as exc:
+            logger.warning(
+                "ml-bot publisher: question %s permanently rejected by ML (HTTP %s) — marking failed without retry: %s",
+                question_id,
+                exc.status_code,
+                exc.message,
+            )
+            return _mark_failed_permanent(
+                question_id, f"ML post_answer permanent error (HTTP {exc.status_code}): {exc.message}"
+            )
 
         if result is None:
             # `post_answer`'s own contract: None means a transient failure
-            # (network/timeout/5xx/auth/unknown 4xx) already logged there.
+            # (network/timeout/5xx) already logged there.
             return _mark_failed_or_retry(question_id, "ML post_answer failed (see logs for details)")
 
         _mark_published(question_id)

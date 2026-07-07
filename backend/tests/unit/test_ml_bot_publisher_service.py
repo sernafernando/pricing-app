@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from app.models.ml_bot_question import MlBotQuestion
+from app.services.ml_api_client import AnswerPostPermanentError
 from app.services.ml_questions import publisher_service
 
 
@@ -119,6 +120,19 @@ class TestDueSelection:
         db.refresh(row)
         assert row.status == "taken_over"
 
+    def test_pending_morning_row_is_never_published(self, db) -> None:
+        row = _seed_question(db, status="pending_morning")
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 0
+        post_answer.assert_not_called()
+        db.refresh(row)
+        assert row.status == "pending_morning"
+
 
 class TestHappyPath:
     def test_publish_success_sets_published_at(self, db) -> None:
@@ -175,6 +189,113 @@ class TestTransientFailure:
         row = _seed_question(db, attempts=publisher_service._MAX_ATTEMPTS - 1)
         db.commit()
         post_answer = AsyncMock(return_value=None)
+        # attempts > 0 -> the publisher verifies via get_question BEFORE
+        # re-posting (Judgment Day fix 1b); unanswered means it proceeds.
+        get_question = AsyncMock(return_value={"status": "UNANSWERED"})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["failed"] == 1
+        db.refresh(row)
+        assert row.status == "failed"
+        assert row.attempts == publisher_service._MAX_ATTEMPTS
+
+
+class TestRetryVerificationBeforeRepost:
+    """Judgment Day slice E round 1, fix 1(b): a row whose `attempts > 0` may
+    have already been posted successfully to ML before a crash prevented the
+    terminal DB write. Before re-posting, the publisher must verify via
+    `get_question` first."""
+
+    def test_crash_after_success_is_detected_and_marked_published_without_repost(self, db) -> None:
+        row = _seed_question(db, attempts=1)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value={"status": "ANSWERED", "answer": {"text": "ya respondida"}})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        post_answer.assert_not_called()
+        get_question.assert_awaited_once_with(row.ml_question_id)
+        db.refresh(row)
+        assert row.status == "published"
+
+    def test_retry_with_unanswered_verification_posts_normally(self, db) -> None:
+        row = _seed_question(db, attempts=1)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value={"status": "UNANSWERED"})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        post_answer.assert_awaited_once()
+        db.refresh(row)
+        assert row.status == "published"
+
+    def test_retry_with_transient_verification_failure_does_not_post_and_is_retried(self, db) -> None:
+        row = _seed_question(db, attempts=1)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value=None)
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        db.refresh(row)
+        assert row.status == "waiting"
+        # No penalty for a verification GET failure — this is not a failed
+        # POST attempt, so the retry counter must not be burned.
+        assert row.attempts == 1
+
+    def test_first_attempt_never_calls_get_question(self, db) -> None:
+        row = _seed_question(db, attempts=0)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value=None)
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        get_question.assert_not_called()
+        assert stats["published"] == 1
+        db.refresh(row)
+        assert row.status == "published"
+
+
+class TestErrorTaxonomy:
+    """Judgment Day slice E round 1, fix 2: permanent 4xx errors must not
+    burn bounded retries — the row goes straight to `failed`."""
+
+    def test_permanent_error_marks_failed_immediately_without_burning_attempts(self, db) -> None:
+        row = _seed_question(db, attempts=0)
+        db.commit()
+        post_answer = AsyncMock(side_effect=AnswerPostPermanentError(row.ml_question_id, 403, "forbidden"))
 
         with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
             stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
@@ -182,7 +303,38 @@ class TestTransientFailure:
         assert stats["failed"] == 1
         db.refresh(row)
         assert row.status == "failed"
-        assert row.attempts == publisher_service._MAX_ATTEMPTS
+        assert "403" in row.last_error
+        assert row.attempts < publisher_service._MAX_ATTEMPTS
+
+    def test_transient_5xx_is_retried_not_marked_failed(self, db) -> None:
+        row = _seed_question(db, attempts=0)
+        db.commit()
+        post_answer = AsyncMock(return_value=None)
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["retry"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+
+
+class TestClaimBumpsUpdatedAt:
+    def test_claim_bumps_updated_at(self, db) -> None:
+        stale_updated_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+        row = _seed_question(db, updated_at=stale_updated_at)
+        db.commit()
+        before_claim = datetime.now(timezone.utc)
+
+        with _patch_db(db):
+            claimed = publisher_service._claim_for_publishing(row.id)
+
+        assert claimed is True
+        db.refresh(row)
+        updated_at = row.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        assert updated_at >= before_claim - timedelta(seconds=5)
 
 
 class TestStaleClaimReclaim:
