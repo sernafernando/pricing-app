@@ -271,8 +271,14 @@ text it tells buyers:
      real bot answer can reference it naturally.
    - The `{attention_hours}` placeholder inside `warm_fallback_template`,
      resolved at fallback-render time (`drafting_service._build_fallback_message`):
-     replaced with the configured text when set; cleanly removed (never a
-     literal `"{attention_hours}"`, never a crash) when absent/empty.
+     replaced with the configured text when set; cleanly removed — along with
+     its immediate surrounding whitespace, never a double space or an orphan
+     `" ."` — (never a literal `"{attention_hours}"`, never a crash) when
+     absent/empty. Braces inside the configured text itself (e.g. a stray
+     `"{"` from a typo) are escaped before substitution and never crash
+     rendering. Recommended: write the template so the placeholder forms a
+     self-contained clause (e.g. `"Escribinos {attention_hours} y te
+     respondemos."`) so it still reads naturally when the value is unset.
 
 ### Permissions
 

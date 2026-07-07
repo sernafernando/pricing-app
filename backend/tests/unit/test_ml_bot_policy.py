@@ -231,6 +231,18 @@ class TestResolveLastWorkingDayEnd:
         result = policy.resolve_last_working_day_end(db, before)
         assert result == datetime(2026, 7, 6, 18, 0, 0, tzinfo=self.tz)  # Monday 18:00
 
+    def test_saturday_after_close_resolves_to_todays_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 11, 14, 0, 0, tzinfo=self.tz)  # Saturday 14:00 (past 13:00 close)
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00 (today)
+
+    def test_saturday_mid_day_walks_back_to_friday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 11, 12, 0, 0, tzinfo=self.tz)  # Saturday 12:00 (before 13:00 close)
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 10, 18, 0, 0, tzinfo=self.tz)  # Friday 18:00
+
 
 class TestOperatingModeGate:
     """T-B3: operating-mode gate — R-201."""

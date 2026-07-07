@@ -52,6 +52,7 @@ gate on a row's first-ever publish claim.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -102,6 +103,10 @@ _DEFAULT_FALLBACK_TEMPLATE = (
 # absent/empty config value can be cleanly removed instead of crashing or
 # rendering the literal "{attention_hours}" text.
 _ATTENTION_HOURS_PLACEHOLDER = "{attention_hours}"
+# Matches the placeholder plus a single leading whitespace char, so removing
+# it when unset doesn't leave a double space behind (e.g. "es {attention_hours}."
+# -> "es." not "es .").
+_ATTENTION_HOURS_PLACEHOLDER_RE = re.compile(r"\s*\{attention_hours\}")
 
 
 def _build_default_provider() -> LlmProvider:
@@ -133,13 +138,27 @@ def _build_fallback_message(db: Any) -> str:
     # rather than crashing `.format()` on an unsupplied kwarg or rendering
     # the literal placeholder text.
     attention_hours = policy.get_config(db, "attention_hours_text", cast=str, default="")
-    template = template.replace(_ATTENTION_HOURS_PLACEHOLDER, attention_hours or "")
+    if attention_hours:
+        # Judgment Day fix: the substituted value is free admin-editable text
+        # that flows into `.format()` right after — an unbalanced brace in it
+        # (e.g. "de 9 a 18 {promo") would otherwise raise inside `.format()`
+        # below, escaping the local except and sending the whole question to
+        # `failed` instead of the graceful raw-template fallback path.
+        escaped = attention_hours.replace("{", "{{").replace("}", "}}")
+        template = template.replace(_ATTENTION_HOURS_PLACEHOLDER, escaped)
+    else:
+        # Judgment Day fix: cleanly strip the placeholder AND its immediate
+        # leading whitespace (regex, not a plain string replace) so removal
+        # doesn't leave a double space / orphaned " ." behind.
+        template = _ATTENTION_HOURS_PLACEHOLDER_RE.sub("", template)
+        template = template.replace("  ", " ").replace(" .", ".").replace(" ,", ",")
 
     try:
         return template.format(business_hours_start=start, business_hours_end=end)
-    except (KeyError, IndexError):
-        # A custom panel-edited template with unexpected placeholders must
-        # never crash the pipeline — fall back to the raw template text.
+    except (KeyError, IndexError, ValueError):
+        # A custom panel-edited template with unexpected placeholders (or
+        # residual unbalanced braces from free text) must never crash the
+        # pipeline — fall back to the raw template text.
         return template
 
 

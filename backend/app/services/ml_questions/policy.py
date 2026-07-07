@@ -211,11 +211,20 @@ def get_business_hours_for_day(db: Session, isoweekday: int) -> Optional[tuple[i
 
 
 def resolve_last_working_day_end(db: Session, before: datetime) -> Optional[datetime]:
-    """R-602 generalization (schedules-v2): return the localized end-of-day
-    timestamp of the MOST RECENT working day strictly before `before`'s
-    calendar date, per `work_schedule` (or the legacy fallback) — e.g. with
-    a Mon-Fri 09-18 + Sat 09-13 schedule, the working-day end for a Sunday or
-    Monday `before` is Saturday 13:00, not "yesterday 18:00".
+    """R-602 generalization (schedules-v2): return the most recent working-day
+    END at or before `before` (localized), per `work_schedule` (or the legacy
+    fallback) — e.g. with a Mon-Fri 09-18 + Sat 09-13 schedule:
+    - a Sunday or Monday `before` resolves to Saturday 13:00 ("yesterday" logic
+      would wrongly say "Saturday 18:00" or skip Saturday entirely);
+    - a Saturday 14:00 `before` (already past TODAY's 13:00 close) resolves to
+      TODAY (Saturday) 13:00, since today's own working day already ended;
+    - a Saturday 12:00 `before` (still mid-day, today NOT ended yet) walks
+      back to Friday 18:00.
+
+    Judgment Day fix: TODAY is checked FIRST (delta=0) before walking
+    backwards — the original implementation only ever considered days
+    STRICTLY before `before`'s calendar date, so a `before` timestamp landing
+    after today's own close was silently treated as if today never happened.
 
     Searches back up to 7 calendar days. Returns `None` if the configured
     timezone is malformed, or no working day is found in that window (e.g.
@@ -227,6 +236,12 @@ def resolve_last_working_day_end(db: Session, before: datetime) -> Optional[date
         return None
 
     localized = before.astimezone(tz) if before.tzinfo else before.replace(tzinfo=tz)
+
+    today_times = get_business_hours_for_day(db, localized.isoweekday())
+    if today_times is not None:
+        _, _, today_end_hour, today_end_minute = today_times
+        if (localized.hour, localized.minute) >= (today_end_hour, today_end_minute):
+            return localized.replace(hour=today_end_hour, minute=today_end_minute, second=0, microsecond=0)
 
     for delta in range(1, 8):
         candidate = localized - timedelta(days=delta)

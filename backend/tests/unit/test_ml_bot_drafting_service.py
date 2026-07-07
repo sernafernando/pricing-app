@@ -595,7 +595,7 @@ class TestAttentionHoursFallbackPlaceholder:
         _seed_config(
             db,
             "warm_fallback_template",
-            "¡Hola! Nuestro horario es {attention_hours}. Te respondemos pronto.",
+            "¡Hola! Escribinos {attention_hours} y te respondemos.",
         )
         row = _seed_question(db)
         db.commit()
@@ -612,7 +612,39 @@ class TestAttentionHoursFallbackPlaceholder:
 
         db.refresh(row)
         assert "{attention_hours}" not in row.drafted_answer
-        assert row.drafted_answer == "¡Hola! Nuestro horario es . Te respondemos pronto."
+        assert "  " not in row.drafted_answer
+        assert " ." not in row.drafted_answer
+        assert row.drafted_answer == "¡Hola! Escribinos y te respondemos."
+
+    def test_unbalanced_braces_in_attention_hours_text_do_not_fail_question(self, db) -> None:
+        """Judgment Day fix: `attention_hours_text` is admin-editable free
+        text substituted into the template BEFORE `.format()` runs — an
+        unbalanced brace in it must not raise inside `.format()` and escape
+        the local except, which would otherwise route the question to
+        `failed` instead of the graceful raw-template fallback."""
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "¡Hola! Nuestro horario es {attention_hours}. Te respondemos pronto.",
+        )
+        _seed_config(db, "attention_hours_text", "de 9 a 18 {promo")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status != "failed"
+        assert "de 9 a 18 {promo" in row.drafted_answer
 
 
 class TestClaimGuard:
