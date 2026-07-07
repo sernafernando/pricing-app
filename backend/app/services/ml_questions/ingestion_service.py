@@ -68,9 +68,11 @@ def _parse_cursor(raw: Optional[str]) -> tuple[Optional[str], str]:
     """Parse the persisted `ingest_cursor_ts` value into `(since_ts,
     since_id)`. The cursor is stored as a composite "ISO_TS|webhook_id"
     string (WARNING fix: `webhook_id` is a tie-breaker for same-timestamp
-    rows straddling a batch boundary). `webhook_id` is mlwebhook's `TEXT`
-    column (nullable, populated from ML's raw payload) — NOT numeric, so it
-    is parsed/carried as `str`, never coerced to `int`. Backward-compat: a
+    rows straddling a batch boundary). `webhook_id`'s column type varies by
+    deployment (UUID in production's `webhooks` table, TEXT in
+    `webhook_latest`) — we always compare it as text via an explicit
+    `::text` cast, so it is parsed/carried as `str`, never coerced to `int`.
+    Lexicographic order is fine for a tie-breaker. Backward-compat: a
     legacy scalar cursor (no "|" separator, from before this fix) is
     treated as `(ts, "")` so it keeps working across the upgrade without a
     migration. None/empty = no cursor yet -> `(None, "")`.
@@ -117,16 +119,18 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
     engine = get_mlwebhook_engine()
     since_ts, since_id = _parse_cursor(since)
 
-    # `webhook_id` is mlwebhook's `TEXT` column (nullable). `COALESCE(...,
-    # '')` in both the WHERE tie-breaker and the ORDER BY gives NULL rows a
-    # deterministic position (treated as the empty string) and keeps the
-    # two expressions consistent — keyset pagination requires the WHERE
-    # comparison and the ORDER BY to agree on the same total order, not on
-    # numeric monotonicity (TEXT lexicographic order is fine here).
+    # `webhook_id`'s column type varies by deployment (UUID in production's
+    # `webhooks` table, TEXT in `webhook_latest`). `COALESCE(webhook_id::text,
+    # '')` in both the WHERE tie-breaker and the ORDER BY casts to text first
+    # (a bare COALESCE with a uuid column fails to cast against '') and gives
+    # NULL rows a deterministic position (treated as the empty string) —
+    # keyset pagination requires the WHERE comparison and the ORDER BY to
+    # agree on the same total order, not on numeric monotonicity (TEXT
+    # lexicographic order is fine here).
     if since_ts:
         where_clause = (
             "WHERE topic = 'questions' AND (received_at > :since_ts "
-            "OR (received_at = :since_ts AND COALESCE(webhook_id, '') > :since_id))"
+            "OR (received_at = :since_ts AND COALESCE(webhook_id::text, '') > :since_id))"
         )
         params: Dict[str, Any] = {"since_ts": since_ts, "since_id": since_id, "limit": limit}
     else:
@@ -139,7 +143,7 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
                 SELECT resource, topic, webhook_id, received_at
                 FROM webhooks
                 {where_clause}
-                ORDER BY received_at ASC, COALESCE(webhook_id, '') ASC
+                ORDER BY received_at ASC, COALESCE(webhook_id::text, '') ASC
                 LIMIT :limit
             """),
             params,
