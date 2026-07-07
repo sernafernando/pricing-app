@@ -12,7 +12,7 @@ prior slices):
   legitimately intervene on: `received`, `waiting`, `pending_morning`,
   `failed`. It never matches `publishing` — a row claimed by the background
   publisher for an in-flight POST can never be stolen mid-publish (CAS on
-  the current status makes this a no-op 404, not a race). `received` was
+  the current status makes this a no-op 409, not a race). `received` was
   added in panel-v2 (see engram sdd/ml-questions-ai/panel-v2 requirement
   #1): with the bot OFF, rows sit in `received` forever with no panel
   action available — a human must be able to take over immediately. This

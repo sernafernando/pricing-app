@@ -323,8 +323,15 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
                 logger.warning("ml-bot ingestion: enrichment failed for item %s: %s", item_id, e)
                 item_payload = None
             if item_payload:
-                item_title = item_payload.get("title")
-                item_permalink = item_payload.get("permalink")
+                # Defensive truncation to the column widths (String(200) /
+                # String(500)) — ML titles are normally far shorter, but a
+                # DataError here (unlike IntegrityError) would NOT be caught
+                # below and would break the "enrichment never blocks
+                # ingestion" invariant.
+                raw_title = item_payload.get("title")
+                raw_permalink = item_payload.get("permalink")
+                item_title = raw_title[:200] if raw_title else None
+                item_permalink = raw_permalink[:500] if raw_permalink else None
 
         new_row = MlBotQuestion(
             ml_question_id=question_id,

@@ -29,8 +29,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("ml_bot_questions", sa.Column("item_title", sa.String(200), nullable=True))
     op.add_column("ml_bot_questions", sa.Column("item_permalink", sa.String(500), nullable=True))
+    # Backs GET /questions/{id}/buyer-history (panel-v2 requirement #3).
+    op.create_index("idx_ml_bot_questions_buyer_id", "ml_bot_questions", ["buyer_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("idx_ml_bot_questions_buyer_id", table_name="ml_bot_questions")
     op.drop_column("ml_bot_questions", "item_permalink")
     op.drop_column("ml_bot_questions", "item_title")

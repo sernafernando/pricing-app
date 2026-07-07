@@ -187,6 +187,39 @@ class TestIngestNewQuestions:
         assert row.item_title is None
         assert row.item_permalink is None
 
+    def test_enrichment_truncates_oversized_title_and_permalink(self, db) -> None:
+        """Defensive truncation guard: an oversized `title`/`permalink` from
+        ML must not raise a DataError on flush (which would escape the
+        IntegrityError-only except and break the ingestion-never-blocked
+        invariant)."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/573", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(573)),
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_item",
+                new=AsyncMock(return_value={"title": "x" * 300, "permalink": "y" * 600}),
+            ),
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 1
+        row = db.query(MlBotQuestion).filter_by(ml_question_id=573).one()
+        assert len(row.item_title) == 200
+        assert len(row.item_permalink) == 500
+
     def test_enrichment_none_result_leaves_nulls(self, db) -> None:
         """`get_item()` returning None (e.g. 404) is also non-fatal."""
         _seed_cursor(db)
