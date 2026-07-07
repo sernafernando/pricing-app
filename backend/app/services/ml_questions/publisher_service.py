@@ -56,6 +56,12 @@ happens — the counter advances. This closes two holes in the previous
 `_mark_failed_or_retry` no longer increments `attempts` (the claim already
 did) — it only reads the current value to decide retry vs `failed`.
 
+`attempts` is a PER-STAGE counter (Judgment Day round 3 fix): drafting
+counts drafting retries; this module counts publish claims, always starting
+from 0 — `drafting_service.py`'s `_resolve_success`/`_resolve_fallback`
+reset `attempts = 0` on every transition INTO `waiting`, so a row's publish
+claim count here is never inflated by leftover drafting retries.
+
 Adjudicated invariant (carried over from the D2 Judgment Day round-2 note):
 this reclaim, and the claim/terminal-write CAS transitions in general, are
 safe ONLY because the publish cycle runs strictly sequentially in a single

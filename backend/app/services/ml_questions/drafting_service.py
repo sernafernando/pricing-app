@@ -38,6 +38,15 @@ Pipeline per question (design §6):
 Session discipline (ADR-5, QueuePool-incident regression guard): every DB
 read/write is its own short `get_background_db()` block. The Groq HTTP call
 in stage 4 NEVER happens while a DB session from this module is open.
+
+`attempts` is a PER-STAGE counter (Judgment Day round 3 fix): in this module
+it counts DRAFTING retries (`_mark_failed_or_retry`, bounded by
+`_MAX_ATTEMPTS`). `publisher_service.py` reuses the SAME `attempts` column as
+its own claim counter, so every write that transitions a row INTO `waiting`
+(`_resolve_success`, `_resolve_fallback`) resets `attempts = 0` in the same
+UPDATE — otherwise leftover drafting retries would silently shrink the
+publisher's retry budget and misfire its `attempts > 1` re-post-verification
+gate on a row's first-ever publish claim.
 """
 
 from __future__ import annotations
@@ -211,6 +220,16 @@ def _resolve_fallback(
         row.fallback_used = True
         row.injection_flag = row.injection_flag or injection_flag
         row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+        # Judgment Day fix (round 3): `attempts` is a PER-STAGE counter —
+        # drafting counts drafting retries (`_mark_failed_or_retry`), but the
+        # publisher reuses the SAME column as its claim counter
+        # (`_claim_for_publishing`). Without resetting here, a row that
+        # burned 1-2 drafting retries would enter `waiting` with a non-zero
+        # `attempts`, silently shrinking its publish retry budget and
+        # tripping the publisher's `attempts > 1` re-post-verification gate
+        # on what is actually its FIRST publish claim. Reset on every
+        # transition INTO `waiting` so the publisher always starts from 0.
+        row.attempts = 0
 
 
 def _resolve_success(question_id: int, answer: str, confidence: float, category: str) -> None:
@@ -228,6 +247,10 @@ def _resolve_success(question_id: int, answer: str, confidence: float, category:
         row.category = category
         row.answer_source = "bot"
         row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+        # Judgment Day fix (round 3): see `_resolve_fallback` — reset the
+        # per-stage `attempts` counter on every `drafting -> waiting`
+        # transition so the publisher's claim-counter budget starts fresh.
+        row.attempts = 0
 
 
 def _mark_failed_or_retry(question_id: int, error_message: str) -> None:

@@ -72,6 +72,7 @@ def _seed_question(
     status: str = "received",
     buyer_id: int = 555,
     question_date: datetime | None = None,
+    attempts: int = 0,
 ) -> MlBotQuestion:
     row = MlBotQuestion(
         ml_question_id=next(_next_ml_question_id),
@@ -81,6 +82,7 @@ def _seed_question(
         question_text=question_text,
         question_date=question_date or datetime.now(timezone.utc),
         status=status,
+        attempts=attempts,
     )
     db.add(row)
     db.flush()
@@ -142,6 +144,30 @@ class TestBatchEligibilityGate:
         assert row.answer_source == "bot"
         assert row.wait_until is not None
 
+    def test_success_resolution_resets_attempts_entering_waiting(self, db) -> None:
+        """Judgment Day fix: `attempts` is a PER-STAGE counter. A row that
+        burned drafting retries must enter `waiting` with attempts=0 so the
+        publisher (which reuses the same column as its claim counter) always
+        starts from a fresh budget."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db, attempts=2)
+        db.commit()
+
+        item_payload = {"available_quantity": 5, "attributes": []}
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=item_payload),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        assert stats["drafted"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.attempts == 0
+
 
 class TestManipulationSignal:
     def test_injection_pattern_skips_llm_call(self, db) -> None:
@@ -182,6 +208,28 @@ class TestFallbackRouting:
         assert row.status == "waiting"
         assert row.answer_source == "fallback"
         assert row.fallback_used is True
+
+    def test_fallback_resolution_resets_attempts_entering_waiting(self, db) -> None:
+        """Same reset must apply on the fallback resolution path (not just
+        the success path) — both are `drafting -> waiting` transitions."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db, attempts=2)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.attempts == 0
 
     def test_low_confidence_routes_to_fallback(self, db) -> None:
         _seed_bot_enabled(db)

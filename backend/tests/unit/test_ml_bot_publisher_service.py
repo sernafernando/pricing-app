@@ -185,6 +185,45 @@ class TestTransientFailure:
         assert row.attempts == 1
         assert row.last_error is not None
 
+    def test_row_that_burned_drafting_retries_gets_full_publish_budget(self, db) -> None:
+        """Judgment Day fix: a row that reset `attempts` to 0 upon entering
+        `waiting` (regardless of how many drafting retries it burned) must
+        get the FULL `_MAX_ATTEMPTS` publish claim budget — survive two
+        transient failures and still allow a third claim/post attempt."""
+        row = _seed_question(db, attempts=0)
+        db.commit()
+        post_answer = AsyncMock(return_value=None)
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+        assert stats["retry"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.attempts == 1
+
+        get_question = AsyncMock(return_value={"status": "UNANSWERED"})
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+        assert stats["retry"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.attempts == 2
+
+        post_answer_success = AsyncMock(return_value={"id": 999})
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer_success),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+        assert stats["published"] == 1
+        db.refresh(row)
+        assert row.status == "published"
+
     def test_exhausted_retries_marks_failed(self, db) -> None:
         row = _seed_question(db, attempts=publisher_service._MAX_ATTEMPTS - 1)
         db.commit()
