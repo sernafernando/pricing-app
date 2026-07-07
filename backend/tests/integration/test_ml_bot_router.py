@@ -192,6 +192,28 @@ class TestTakeOver:
         r = client.post(f"{BASE}/questions/{q.id}/take-over", headers=auth_headers)
         assert r.status_code == 200
 
+    def test_toma_desde_received_200(self, client, auth_headers, db, active_user, con_todos_los_permisos) -> None:
+        """panel-v2 requirement #1: a `received` row (bot OFF, never
+        drafted) must be actionable from the panel."""
+        q = _seed_question(db, status="received")
+        db.commit()
+        r = client.post(f"{BASE}/questions/{q.id}/take-over", headers=auth_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "taken_over"
+        assert body["taken_over_by"] == active_user.id
+
+    def test_no_puede_robar_drafting_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """Race-safety: once `drafting_service._claim_for_drafting` has
+        already CAS-transitioned a row out of `received` into `drafting`,
+        take-over's own CAS (which requires the row still be in one of its
+        source states, `drafting` is not among them) must lose the race
+        cleanly (409), never double-claim the row."""
+        q = _seed_question(db, status="drafting")
+        db.commit()
+        r = client.post(f"{BASE}/questions/{q.id}/take-over", headers=auth_headers)
+        assert r.status_code == 409
+
     def test_no_puede_robar_publishing_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         """CAS never matches `publishing` — a row the background publisher
         has claimed mid-POST can never be stolen by a panel take-over."""
@@ -479,6 +501,65 @@ class TestHold:
         db.commit()
         r = client.post(f"{BASE}/questions/{q.id}/hold", headers=auth_headers)
         assert r.status_code == 409
+
+
+# ==========================================================================
+# GET /questions/{id}/buyer-history (panel-v2 requirement #3)
+# ==========================================================================
+
+
+class TestBuyerHistory:
+    def test_sin_permiso_ver_403(self, client, auth_headers, db, sin_permisos) -> None:
+        q = _seed_question(db, status="waiting", buyer_id=42)
+        db.commit()
+        r = client.get(f"{BASE}/questions/{q.id}/buyer-history", headers=auth_headers)
+        assert r.status_code == 403
+
+    def test_inexistente_404(self, client, auth_headers, con_todos_los_permisos) -> None:
+        r = client.get(f"{BASE}/questions/999999/buyer-history", headers=auth_headers)
+        assert r.status_code == 404
+
+    def test_buyer_id_null_lista_vacia(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        q = _seed_question(db, status="waiting", buyer_id=None)
+        db.commit()
+        r = client.get(f"{BASE}/questions/{q.id}/buyer-history", headers=auth_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["buyer_id"] is None
+        assert body["questions"] == []
+
+    def test_historial_correcto_orden_y_exclusion(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        now = datetime.now(timezone.utc)
+        older = _seed_question(
+            db, status="published", buyer_id=99, question_date=now - timedelta(days=2)
+        )
+        newer = _seed_question(
+            db, status="published", buyer_id=99, question_date=now - timedelta(days=1)
+        )
+        current = _seed_question(db, status="waiting", buyer_id=99, question_date=now)
+        other_buyer = _seed_question(db, status="waiting", buyer_id=1, question_date=now)
+        db.commit()
+
+        r = client.get(f"{BASE}/questions/{current.id}/buyer-history", headers=auth_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["buyer_id"] == 99
+        returned_ids = [item["id"] for item in body["questions"]]
+        # newest first, excludes the current question, excludes other buyers
+        assert returned_ids == [newer.id, older.id]
+        assert current.id not in returned_ids
+        assert other_buyer.id not in returned_ids
+
+    def test_limita_a_20(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        now = datetime.now(timezone.utc)
+        current = _seed_question(db, status="waiting", buyer_id=55, question_date=now)
+        for i in range(25):
+            _seed_question(db, status="published", buyer_id=55, question_date=now - timedelta(days=i + 1))
+        db.commit()
+
+        r = client.get(f"{BASE}/questions/{current.id}/buyer-history", headers=auth_headers)
+        assert r.status_code == 200
+        assert len(r.json()["questions"]) == 20
 
 
 # ==========================================================================
