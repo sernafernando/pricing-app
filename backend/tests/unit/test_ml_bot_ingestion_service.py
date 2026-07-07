@@ -593,8 +593,8 @@ class TestCompositeCursor:
             sql_text = str(mock_conn.execute.call_args[0][0])
             params = mock_conn.execute.call_args[0][1]
 
-        assert "COALESCE(webhook_id, '') > :since_id" in sql_text
-        assert "ORDER BY received_at ASC, COALESCE(webhook_id, '') ASC" in sql_text
+        assert "COALESCE(webhook_id::text, '') > :since_id" in sql_text
+        assert "ORDER BY received_at ASC, COALESCE(webhook_id::text, '') ASC" in sql_text
         assert params["since_ts"] == "2026-07-06T22:00:00+00:00"
         assert params["since_id"] == "wh-111"
 
