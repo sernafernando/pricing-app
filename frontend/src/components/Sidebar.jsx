@@ -104,6 +104,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'RMA Seguimiento', path: '/rma', permiso: 'rma.ver' },
         { label: 'Control Depósito', path: '/control-deposito', permiso: 'rma.control_deposito' },
         { label: 'Reclamos ML', path: '/claims', permiso: 'rma.ver' },
+        { label: 'Bot de Preguntas ML', path: '/ml-preguntas', permiso: 'ml_bot.ver' },
       ],
     },
     {

@@ -1,0 +1,326 @@
+/* MLQuestions — ML Bot preguntas panel */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.headerLeft h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.headerLeft svg {
+  color: var(--cf-accent-orange);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.botOn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-accent-green);
+}
+
+.botOff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Tabs */
+.tabBar {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--cf-text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--cf-text-primary);
+}
+
+.tabActive {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+}
+
+/* Filters bar */
+.filtersBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.select {
+  padding: 8px 12px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* Error / loading / empty */
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.loadingCell,
+.emptyCell {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--cf-text-tertiary);
+  font-size: 0.85rem;
+}
+
+/* Table cells */
+.cellQuestion {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.buyerNick {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+}
+
+.cellItem {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.cellAnswer {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  color: var(--cf-text-secondary);
+}
+
+.cellCenter {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cellClave {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.cellDescripcion,
+.cellMotivo {
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+  max-width: 320px;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.badgeNeutral {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.badgeInfo {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.badgeWarning {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.badgeSuccess {
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.badgeDanger {
+  background: color-mix(in srgb, var(--cf-accent-red) 15%, transparent);
+  color: var(--cf-accent-red);
+}
+
+.injectionFlag {
+  display: inline-flex;
+  margin-left: 6px;
+  color: var(--cf-accent-red);
+  vertical-align: middle;
+}
+
+.countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-accent-orange);
+}
+
+.actionsCell {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+/* Config section */
+.configSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: var(--spacing-sm) 0 0;
+}
+
+.configInput {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-primary);
+  font-size: 0.82rem;
+}
+
+.newExampleForm {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.newExampleForm .configInput {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* Edit modal */
+.editBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.editQuestionText {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  font-style: italic;
+  margin: 0;
+}
+
+.editTextarea {
+  width: 100%;
+  padding: 10px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: 0.85rem;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.softWarning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--cf-accent-orange) 10%, transparent);
+  color: var(--cf-accent-orange);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
