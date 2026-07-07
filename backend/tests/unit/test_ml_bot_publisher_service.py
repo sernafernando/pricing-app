@@ -154,6 +154,42 @@ class TestHappyPath:
         assert row.published_at is not None
 
 
+class TestSseEmission:
+    """Slice G: terminal transitions fire a lightweight `ml_bot:questions`
+    reload-hint event (ADR-8). Failure to publish must never break the
+    pipeline, so `sse_publish_bg` is asserted only for its call, not awaited."""
+
+    def test_publish_success_emits_reload_hint(self, db) -> None:
+        _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.sse_publish_bg") as mock_sse,
+        ):
+            asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_permanent_failure_emits_reload_hint(self, db) -> None:
+        row = _seed_question(db)
+        db.commit()
+        post_answer = AsyncMock(side_effect=AnswerPostPermanentError(row.ml_question_id, 422, "rejected"))
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.sse_publish_bg") as mock_sse,
+        ):
+            asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+
 class TestAlreadyAnswered:
     def test_already_answered_error_treated_as_success(self, db) -> None:
         from app.services.ml_api_client import QuestionAlreadyAnsweredError

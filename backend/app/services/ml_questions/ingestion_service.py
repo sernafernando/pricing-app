@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import get_background_db, get_mlwebhook_engine
+from app.core.sse import sse_publish
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import QuestionNotFoundError, ml_client
@@ -319,6 +320,7 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
                 db.add(new_row)
                 db.flush()
             stats["ingested"] += 1
+            await sse_publish("ml_bot:questions", {"hint": "reload"})
         except IntegrityError:
             stats["duplicates"] += 1
 

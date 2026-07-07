@@ -123,6 +123,33 @@ class TestIngestNewQuestions:
         assert row.item_id == "MLA123"
         assert row.buyer_nickname == "comprador1"
 
+    def test_ingest_emits_reload_hint(self, db) -> None:
+        """Slice G: a new ingested question fires the `ml_bot:questions`
+        reload-hint SSE event (ADR-8)."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/561", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(561)),
+            ),
+            patch(
+                "app.services.ml_questions.ingestion_service.sse_publish",
+                new=AsyncMock(),
+            ) as mock_sse,
+        ):
+            asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        mock_sse.assert_awaited_once_with("ml_bot:questions", {"hint": "reload"})
+
     def test_skips_answered_elsewhere(self, db) -> None:
         _seed_cursor(db)
         received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)

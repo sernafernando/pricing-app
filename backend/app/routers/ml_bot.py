@@ -56,6 +56,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.sse import sse_publish, sse_publish_bg
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
@@ -270,6 +271,7 @@ def tomar_pregunta(
             detail="La pregunta ya no está en un estado tomable (puede estar publicándose o ya resuelta)",
         )
 
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -302,6 +304,7 @@ def editar_respuesta(
     q.answer_source = "human"
     db.commit()
     db.refresh(q)
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
     return QuestionResponse.model_validate(q)
 
 
@@ -360,6 +363,7 @@ async def publicar_ahora(
 
     await publisher_service.publish_question_now(question_id)
 
+    await sse_publish("ml_bot:questions", {"hint": "reload"})
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -386,6 +390,7 @@ def retener_pregunta(
             detail="La pregunta ya no está en un estado retenible",
         )
 
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
     return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
 
 
@@ -457,6 +462,7 @@ def alternar_bot(
         row.tipo = "bool"
 
     db.commit()
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
     return ToggleResponse(bot_enabled=data.enabled)
 
 

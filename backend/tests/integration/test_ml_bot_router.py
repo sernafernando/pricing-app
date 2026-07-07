@@ -482,6 +482,61 @@ class TestHold:
 
 
 # ==========================================================================
+# SSE emission (Slice G, ADR-8)
+# ==========================================================================
+
+
+class TestSseEmission:
+    """Every panel mutation fires a lightweight `ml_bot:questions`
+    reload-hint event so the frontend refetches via REST (ADR-8)."""
+
+    def test_take_over_emits_reload_hint(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        q = _seed_question(db, status="waiting")
+        db.commit()
+        with patch("app.routers.ml_bot.sse_publish_bg") as mock_sse:
+            r = client.post(f"{BASE}/questions/{q.id}/take-over", headers=auth_headers)
+        assert r.status_code == 200
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_edit_answer_emits_reload_hint(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        q = _seed_question(db, status="taken_over")
+        db.commit()
+        with patch("app.routers.ml_bot.sse_publish_bg") as mock_sse:
+            r = client.put(f"{BASE}/questions/{q.id}/answer", json={"drafted_answer": "Editado"}, headers=auth_headers)
+        assert r.status_code == 200
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_publish_now_emits_reload_hint(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        q = _seed_question(db, status="waiting")
+        db.commit()
+        with (
+            patch(
+                "app.services.ml_questions.publisher_service.publish_question_now",
+                new_callable=AsyncMock,
+                return_value="published",
+            ),
+            patch("app.routers.ml_bot.sse_publish", new_callable=AsyncMock) as mock_sse,
+        ):
+            r = client.post(f"{BASE}/questions/{q.id}/publish-now", headers=auth_headers)
+        assert r.status_code == 200
+        mock_sse.assert_awaited_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_hold_emits_reload_hint(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        q = _seed_question(db, status="waiting")
+        db.commit()
+        with patch("app.routers.ml_bot.sse_publish_bg") as mock_sse:
+            r = client.post(f"{BASE}/questions/{q.id}/hold", headers=auth_headers)
+        assert r.status_code == 200
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+    def test_toggle_emits_reload_hint(self, client, auth_headers, con_todos_los_permisos) -> None:
+        with patch("app.routers.ml_bot.sse_publish_bg") as mock_sse:
+            r = client.post(f"{BASE}/toggle", json={"enabled": True}, headers=auth_headers)
+        assert r.status_code == 200
+        mock_sse.assert_called_once_with("ml_bot:questions", {"hint": "reload"})
+
+
+# ==========================================================================
 # GET/PUT /config
 # ==========================================================================
 

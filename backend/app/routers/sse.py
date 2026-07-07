@@ -36,6 +36,7 @@ VALID_CHANNELS = {
     "shipments:webhook",
     "tickets:badge",
     "tickets:changed",
+    "ml_bot:questions",
 }
 
 

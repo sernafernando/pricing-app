@@ -59,6 +59,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import update
 
 from app.core.database import get_background_db
+from app.core.sse import sse_publish_bg
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import ml_client
 from app.services.ml_questions import context_builder, policy
@@ -211,6 +212,7 @@ def _resolve_fallback(
         if _is_repeat_buyer_after_midnight(db, buyer_id, question_id, question_date):
             row.status = "pending_morning"
             row.injection_flag = row.injection_flag or injection_flag
+            sse_publish_bg("ml_bot:questions", {"hint": "reload"})
             return
 
         wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
@@ -230,6 +232,7 @@ def _resolve_fallback(
         # on what is actually its FIRST publish claim. Reset on every
         # transition INTO `waiting` so the publisher always starts from 0.
         row.attempts = 0
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
 
 
 def _resolve_success(question_id: int, answer: str, confidence: float, category: str) -> None:
@@ -251,6 +254,7 @@ def _resolve_success(question_id: int, answer: str, confidence: float, category:
         # per-stage `attempts` counter on every `drafting -> waiting`
         # transition so the publisher's claim-counter budget starts fresh.
         row.attempts = 0
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
 
 
 def _mark_failed_or_retry(question_id: int, error_message: str) -> None:

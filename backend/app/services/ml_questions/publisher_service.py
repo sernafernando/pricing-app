@@ -94,6 +94,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, update
 
 from app.core.database import get_background_db
+from app.core.sse import sse_publish_bg
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import (
     AnswerPostPermanentError,
@@ -211,6 +212,7 @@ def _mark_published(question_id: int) -> None:
             return
         row.status = "published"
         row.published_at = datetime.now(timezone.utc)
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
 
 
 def _revert_to_waiting(question_id: int) -> None:
@@ -245,6 +247,7 @@ def _mark_failed_permanent(question_id: int, error_message: str) -> str:
             return "skipped_claimed_elsewhere"
         row.last_error = error_message[:2000]
         row.status = "failed"
+    sse_publish_bg("ml_bot:questions", {"hint": "reload"})
     return "failed"
 
 
@@ -282,9 +285,14 @@ def _mark_failed_or_retry(question_id: int, error_message: str) -> str:
         row.last_error = error_message[:2000]
         if row.attempts >= _MAX_ATTEMPTS:
             row.status = "failed"
-            return "failed"
-        row.status = "waiting"
-        return "retry"
+            is_failed = True
+        else:
+            row.status = "waiting"
+            is_failed = False
+    if is_failed:
+        sse_publish_bg("ml_bot:questions", {"hint": "reload"})
+        return "failed"
+    return "retry"
 
 
 async def _publish_one(question_id: int) -> str:
