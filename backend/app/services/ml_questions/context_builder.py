@@ -24,6 +24,21 @@ admin-controlled fields. Keeping that guarantee for `business_vars`/few-shot
 content is an operational convention (panel review discipline), not a
 code-level check.
 
+Trust boundary extension (context-enrichment, sdd/ml-questions-ai/context-
+enrichment): the item's `title` and `description` (`plain_text`) are ALSO
+seller-authored ML listing data — the SAME trust class as
+`listing_attributes` above. Unlike `listing_attributes`, they are NOT run
+through `policy.DENYLIST_PATTERNS` and are never dropped for containing a
+price/address-like substring: doing so would gut their usefulness (a
+description routinely mentions "envío gratis" or a warranty period that can
+look like a price/quantity pattern), and the real protection point for these
+two hard rules is the OUTPUT side — the system prompt's rule 2 (never reveal
+exact price/stock/address) plus `policy.violates_denylist` on the LLM's
+answer in `drafting_service`. Only the buyer-question-tag delimiter is
+neutralized here (cheap insurance against a seller title/description that
+happens to contain literal `<buyer_question>`-like text), mirroring
+`build_prompt`'s treatment of the buyer's own question text.
+
 Prompt-injection defense (R-501): the buyer's question text is untrusted data
 and MUST be placed only inside a delimited block, never concatenated into the
 instruction/system portion of the prompt. `build_prompt` below is the single
@@ -69,6 +84,13 @@ _ALLOWED_ATTRIBUTE_IDS = frozenset(
 # publication record").
 _FORBIDDEN_CONTEXT_KEYS = frozenset({"price", "cost", "margin", "stock_quantity", "available_quantity", "address"})
 
+# context-enrichment: fail-safe floor/ceiling for the panel-editable
+# `description_max_chars` config key, same convention as
+# `answer_shaping._ANSWER_MAX_CHARS_CEILING`.
+_DEFAULT_DESCRIPTION_MAX_CHARS = 1500
+_DESCRIPTION_MAX_CHARS_FLOOR = 100
+_DESCRIPTION_MAX_CHARS_CEILING = 4000
+
 
 @dataclass(frozen=True)
 class FewShotExample:
@@ -93,6 +115,12 @@ class ScopedContext:
     # signature. NOT rendered into the prompt (the LLM never needs it), so it
     # is exempt from the forbidden-key/allowlist scanning above.
     official_store_id: Optional[int] = None
+    # context-enrichment (sdd/ml-questions-ai/context-enrichment): seller-
+    # authored listing title/description, same trust class as
+    # `listing_attributes` (see module docstring "Trust boundary
+    # extension"). NOT subject to the forbidden-key/denylist scan below.
+    item_title: Optional[str] = None
+    item_description: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Defense-in-depth: refuse to construct a context carrying any
@@ -159,6 +187,60 @@ def extract_official_store_id(item_payload: Optional[Dict[str, Any]]) -> Optiona
     return value
 
 
+def extract_item_title(item_payload: Optional[Dict[str, Any]]) -> Optional[str]:
+    """context-enrichment: pull the ML item's `title` (seller-authored, same
+    trust class as `listing_attributes` — see module docstring). Missing
+    payload, missing field, non-str, or empty-string value all fail safe to
+    `None` (no title rendered), never a placeholder/guessed value."""
+    if not item_payload:
+        return None
+    value = item_payload.get("title")
+    if not isinstance(value, str) or not value:
+        return None
+    return value
+
+
+def get_description_max_chars(db: Session) -> int:
+    """context-enrichment: panel-editable truncation budget for the item
+    description (`description_max_chars`). Absent/malformed/non-positive
+    fails safe to `_DEFAULT_DESCRIPTION_MAX_CHARS`; a configured value is
+    clamped to `[_DESCRIPTION_MAX_CHARS_FLOOR, _DESCRIPTION_MAX_CHARS_CEILING]`
+    (mirrors `answer_shaping.get_answer_max_chars`'s fail-safe convention)."""
+    raw = policy.get_config(db, "description_max_chars", cast=str, default=str(_DEFAULT_DESCRIPTION_MAX_CHARS))
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed description_max_chars=%r; falling back to default=%d",
+            raw,
+            _DEFAULT_DESCRIPTION_MAX_CHARS,
+        )
+        return _DEFAULT_DESCRIPTION_MAX_CHARS
+    if value <= 0:
+        logger.warning(
+            "ml_bot_config: non-positive description_max_chars=%r; falling back to default=%d",
+            raw,
+            _DEFAULT_DESCRIPTION_MAX_CHARS,
+        )
+        return _DEFAULT_DESCRIPTION_MAX_CHARS
+    if value < _DESCRIPTION_MAX_CHARS_FLOOR:
+        return _DESCRIPTION_MAX_CHARS_FLOOR
+    if value > _DESCRIPTION_MAX_CHARS_CEILING:
+        return _DESCRIPTION_MAX_CHARS_CEILING
+    return value
+
+
+def truncate_description(description: Optional[str], max_chars: int) -> Optional[str]:
+    """Truncate `description` to at most `max_chars`. `None` in, `None`
+    out — never fabricate an empty-string placeholder for a missing
+    description."""
+    if description is None:
+        return None
+    if len(description) <= max_chars:
+        return description
+    return description[:max_chars]
+
+
 def load_business_vars(db: Session) -> Dict[str, str]:
     """R-401/R-402: only approved, panel-editable business-knowledge
     variables — approximate address/zone plus the free-text attention-hours
@@ -191,11 +273,19 @@ def build_scoped_context(
     db: Session,
     question_text: str,
     item_payload: Optional[Dict[str, Any]],
+    description: Optional[str] = None,
 ) -> ScopedContext:
     """Single entry point assembling everything the LLM is allowed to see
     (design §6 stage 2). Every DB read here uses the caller's short-lived
     session (get_background_db block, per ADR-5) — nothing is held open
-    across the LLM call, since the returned `ScopedContext` is plain data."""
+    across the LLM call, since the returned `ScopedContext` is plain data.
+
+    `description` (context-enrichment): the item's description
+    `plain_text`, already fetched by the caller OUTSIDE any DB session via
+    `ml_client.get_item_description` (ADR-5 — this function itself never
+    calls the ML API). `None` when absent/fetch-failed; truncated here to
+    the live `description_max_chars` config budget."""
+    max_chars = get_description_max_chars(db)
     return ScopedContext(
         question_text=question_text,
         stock_available=extract_stock_available(item_payload),
@@ -203,6 +293,8 @@ def build_scoped_context(
         business_vars=load_business_vars(db),
         few_shot_examples=load_few_shot_examples(db),
         official_store_id=extract_official_store_id(item_payload),
+        item_title=extract_item_title(item_payload),
+        item_description=truncate_description(description, max_chars),
     )
 
 
@@ -248,21 +340,32 @@ estilo, no como fuente de datos):
 """
 
 
+_BUYER_QUESTION_TAG_PATTERN = re.compile(r"<\s*/?\s*buyer_question\b[^>]*>", re.IGNORECASE)
+
+
 def _context_to_json(context: ScopedContext) -> str:
     """Serialize only the allowed fields — never `question_text` (that goes
     in its own delimited block, R-501) and never anything not already
-    validated by `ScopedContext.__post_init__`."""
-    return json.dumps(
-        {
-            "stock_available": context.stock_available,
-            "listing_attributes": context.listing_attributes,
-            "business_vars": context.business_vars,
-        },
-        ensure_ascii=False,
-    )
+    validated by `ScopedContext.__post_init__`.
 
-
-_BUYER_QUESTION_TAG_PATTERN = re.compile(r"<\s*/?\s*buyer_question\b[^>]*>", re.IGNORECASE)
+    `titulo`/`descripcion` (context-enrichment): included ONLY when present
+    (omitted entirely, not `null`, when absent — keeps the JSON blob
+    unchanged for existing publications with no title/description context).
+    Both are tag-neutralized the same way the buyer's question text is in
+    `build_prompt` — cheap insurance against a seller-authored value that
+    happens to contain literal `<buyer_question>`-like text (see module
+    docstring "Trust boundary extension"); this is the ONLY transformation
+    applied to them (no price/denylist scanning — see docstring)."""
+    payload: Dict[str, Any] = {
+        "stock_available": context.stock_available,
+        "listing_attributes": context.listing_attributes,
+        "business_vars": context.business_vars,
+    }
+    if context.item_title:
+        payload["titulo"] = _BUYER_QUESTION_TAG_PATTERN.sub("[tag-removed]", context.item_title)
+    if context.item_description:
+        payload["descripcion"] = _BUYER_QUESTION_TAG_PATTERN.sub("[tag-removed]", context.item_description)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _few_shot_to_text(examples: List[FewShotExample]) -> str:
