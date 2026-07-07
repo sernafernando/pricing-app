@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ANSWER_MAX_CHARS = 300
 _ML_HARD_CHAR_LIMIT = 2000
+# Judgment Day fix: an operator-set `answer_max_chars` close to the 2000 hard
+# ML cap leaves almost no room for the closing/signature appended downstream
+# in `assemble_final_answer`, risking mid-signature truncation. Clamp any
+# configured value above this ceiling down to it (still generous — well
+# beyond the default) rather than trusting the panel value unbounded.
+_ANSWER_MAX_CHARS_CEILING = 1500
 
 
 def get_answer_max_chars(db: Session) -> int:
@@ -68,6 +74,13 @@ def get_answer_max_chars(db: Session) -> int:
             _DEFAULT_ANSWER_MAX_CHARS,
         )
         return _DEFAULT_ANSWER_MAX_CHARS
+    if value > _ANSWER_MAX_CHARS_CEILING:
+        logger.warning(
+            "ml_bot_config: answer_max_chars=%d exceeds ceiling=%d; clamping",
+            value,
+            _ANSWER_MAX_CHARS_CEILING,
+        )
+        return _ANSWER_MAX_CHARS_CEILING
     return value
 
 
@@ -131,13 +144,49 @@ def resolve_signature(db: Session, official_store_id: Optional[int]) -> str:
 def assemble_final_answer(answer: str, closing: str, signature: str) -> str:
     """Deterministic post-LLM append, applied ONLY to real bot answers
     (never the warm fallback). Order: answer, then closing (if any), then
-    signature (if any). Hard-capped at `_ML_HARD_CHAR_LIMIT` regardless of
-    config, since ML itself rejects longer answers."""
+    signature (if any).
+
+    Judgment Day fix: a naive `text[:_ML_HARD_CHAR_LIMIT]` slice can chop a
+    component mid-string (e.g. ship "Somos Gauss On" if the signature
+    happened to cross the 2000-char boundary). Instead, each optional
+    component is appended ONLY if the running total (component included)
+    still fits within `_ML_HARD_CHAR_LIMIT`; otherwise that whole component
+    is dropped (never partially appended), and assembly continues to the
+    next one. The raw `answer` itself is already bounded well under the cap
+    by `get_answer_max_chars`'s ceiling (<= 1500) plus LLM-side enforcement,
+    so it always fits on its own. The final `[:_ML_HARD_CHAR_LIMIT]` slice
+    below is an unreachable defensive last resort — if it ever triggers, the
+    invariant above was violated somewhere upstream, hence the loud
+    `logger.error`."""
     text = answer
+
     if closing:
-        text = f"{text}\n\n{closing}"
+        candidate = f"{text}\n\n{closing}"
+        if len(candidate) <= _ML_HARD_CHAR_LIMIT:
+            text = candidate
+        else:
+            logger.warning(
+                "answer_shaping: dropped closing text — assembled answer+closing would exceed %d chars",
+                _ML_HARD_CHAR_LIMIT,
+            )
+
     if signature:
-        text = f"{text}\n{signature}"
+        candidate = f"{text}\n{signature}"
+        if len(candidate) <= _ML_HARD_CHAR_LIMIT:
+            text = candidate
+        else:
+            logger.warning(
+                "answer_shaping: dropped signature — assembled answer(+closing)+signature would exceed %d chars",
+                _ML_HARD_CHAR_LIMIT,
+            )
+
     if len(text) > _ML_HARD_CHAR_LIMIT:
+        logger.error(
+            "answer_shaping: unreachable defensive slice triggered — assembled text (%d chars) exceeded %d "
+            "despite per-component guards; this indicates an upstream invariant was violated",
+            len(text),
+            _ML_HARD_CHAR_LIMIT,
+        )
         text = text[:_ML_HARD_CHAR_LIMIT]
+
     return text

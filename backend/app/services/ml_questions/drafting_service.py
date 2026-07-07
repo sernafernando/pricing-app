@@ -275,6 +275,19 @@ def _resolve_success(
         closing = answer_shaping.resolve_closing_text(db)
         signature = answer_shaping.resolve_signature(db, official_store_id)
         final_answer = answer_shaping.assemble_final_answer(answer, closing, signature)
+        # Judgment Day fix (observability): `official_store_id` drives which
+        # signature path is used, but it comes from ML's item payload — if
+        # ML ever renames/drops the field, `extract_official_store_id` fails
+        # safe to `None` SILENTLY (default-signature path). Log the resolved
+        # id + path so a real-world field absence/rename is visible in logs
+        # instead of a silent all-None degradation.
+        signature_path = "none" if official_store_id is None else "per-store"
+        logger.info(
+            "ml-bot drafting: question %s official_store_id=%r signature_path=%s",
+            question_id,
+            official_store_id,
+            signature_path,
+        )
         row.status = "waiting"
         row.drafted_answer = final_answer
         row.confidence = confidence

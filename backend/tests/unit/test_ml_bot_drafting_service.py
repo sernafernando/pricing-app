@@ -938,7 +938,10 @@ class TestAnswerShaping:
         db.refresh(row)
         assert "Somos Gauss Online" in row.drafted_answer
 
-    def test_total_length_capped_at_2000_regardless_of_config(self, db) -> None:
+    def test_total_length_never_exceeds_2000_regardless_of_config(self, db) -> None:
+        """Judgment Day fix: drop-not-truncate — components that don't fit
+        within the 2000-char ML cap are dropped whole (never sliced), so the
+        assembled answer never ends mid-word/mid-component."""
         _seed_bot_enabled(db)
         _seed_config(db, "answer_closing_text", "b" * 1000)
         _seed_config(db, "answer_company_signature", "c" * 1000)
@@ -955,7 +958,16 @@ class TestAnswerShaping:
             asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
 
         db.refresh(row)
-        assert len(row.drafted_answer) == 2000
+        assert len(row.drafted_answer) <= 2000
+        # The 1000-char closing fits alongside the short LLM answer, but the
+        # signature no longer fits once the closing is added -> dropped
+        # whole. The result must be exactly "answer + closing", never a
+        # sliced fragment of the signature.
+        closing = "b" * 1000
+        signature = "c" * 1000
+        assert row.drafted_answer.startswith("¡Hola!")
+        assert row.drafted_answer.endswith(closing)
+        assert signature not in row.drafted_answer
 
     def test_absent_keys_leave_current_behavior_unchanged(self, db) -> None:
         _seed_bot_enabled(db)

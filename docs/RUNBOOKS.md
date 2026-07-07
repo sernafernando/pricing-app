@@ -223,8 +223,13 @@ published:
    non-official items.
 
 Assembly order: `LLM answer` + `"\n\n" + closing` (if any) + `"\n" +
-signature` (if any). The final text is hard-capped at 2000 characters
-(ML's own limit) regardless of how generous the config knobs above are.
+signature` (if any). `answer_max_chars` values above 1500 are clamped to
+1500 (with a warning logged) so closing/signature always have room; each
+optional component is appended only if it fits within the 2000-char ML
+cap, otherwise it is dropped WHOLE (never sliced mid-text) — the assembled
+text never ends mid-component. Verify signature discrimination against a
+real official-store item during the trial (check the drafting log line —
+`ml-bot drafting: question <id> official_store_id=... signature_path=...`).
 
 ### Permissions
 
