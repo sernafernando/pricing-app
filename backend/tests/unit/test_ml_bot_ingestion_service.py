@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
+from app.services.ml_api_client import QuestionNotFoundError
 from app.services.ml_questions import ingestion_service
 
 
@@ -70,7 +71,6 @@ def _webhook_row(resource: str, received_at: datetime) -> dict:
         "topic": "questions",
         "webhook_id": 111,
         "received_at": received_at,
-        "payload": {},
     }
 
 
@@ -246,27 +246,157 @@ class TestIngestNewQuestions:
         assert stats["ingested"] == 0
         assert stats["error"] is True
 
-    def test_uses_aware_datetime_for_policy_eligibility_check(self, db) -> None:
-        """Integration gotcha: policy.is_within_business_hours/is_eligible_for_bot
-        treat a naive datetime as LOCAL wall-clock — the ingestion loop must
-        always pass a timezone-aware `now`."""
+    def test_does_not_call_eligibility_check(self, db) -> None:
+        """WARNING fix: `run_ml_questions_ingest_cycle` never called `policy`
+        for anything meaningful — this slice never drafts, so the dead
+        `is_eligible_for_bot` call (result discarded) is removed entirely."""
         _seed_cursor(db)
-
-        captured = {}
-
-        def _fake_eligible(db_arg, now_arg):
-            captured["now"] = now_arg
-            return False
 
         with (
             patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
             patch.object(ingestion_service, "fetch_new_webhook_rows", return_value=[]),
             patch(
                 "app.services.ml_questions.ingestion_service.policy.is_eligible_for_bot",
-                side_effect=_fake_eligible,
+            ) as mock_eligible,
+        ):
+            asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        mock_eligible.assert_not_called()
+
+    def test_404_skips_row_and_advances_cursor(self, db) -> None:
+        """CRITICAL fix: a deleted question (404) must not stall ingestion —
+        it's a terminal outcome, the row is skipped and the cursor advances
+        past it, logging loudly."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/561", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(side_effect=QuestionNotFoundError(561)),
+            ),
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 0
+        cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert cursor_row.valor == received.isoformat()
+        assert db.query(MlBotQuestion).filter_by(ml_question_id=561).first() is None
+
+    def test_404_then_subsequent_row_ingests_same_tick(self, db) -> None:
+        """A 404'd row must not block subsequent, newer rows in the same tick."""
+        _seed_cursor(db)
+        earlier = datetime(2026, 7, 6, 21, 0, tzinfo=timezone.utc)
+        later = datetime(2026, 7, 6, 23, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[
+                    _webhook_row("/questions/562", earlier),
+                    _webhook_row("/questions/563", later),
+                ],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(side_effect=[QuestionNotFoundError(562), _ml_question(563)]),
+            ),
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 1
+        cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert cursor_row.valor == later.isoformat()
+        assert db.query(MlBotQuestion).filter_by(ml_question_id=563).one().status == "received"
+
+    def test_stuck_row_gives_up_after_max_attempts(self, db) -> None:
+        """A permanently-transient failure (e.g. expired token) at the same
+        cursor position must not stall ingestion forever — after
+        `_MAX_STUCK_ATTEMPTS` ticks it's skipped with a loud give-up log."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/564", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            for tick in range(1, ingestion_service._MAX_STUCK_ATTEMPTS + 1):
+                stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        cursor_row = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts").one()
+        assert cursor_row.valor == received.isoformat()
+        assert stats["ingested"] == 0
+        assert db.query(MlBotQuestion).filter_by(ml_question_id=564).first() is None
+
+        attempts_row = db.query(MlBotConfig).filter_by(clave="ingest_stuck_attempts").one()
+        assert attempts_row.valor == "0"
+
+    def test_stuck_counter_resets_when_cursor_advances_normally(self, db) -> None:
+        """A stuck counter accumulated at one cursor position must not carry
+        over once a tick successfully advances the cursor."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/565", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+            asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        attempts_row = db.query(MlBotConfig).filter_by(clave="ingest_stuck_attempts").one()
+        assert attempts_row.valor == "2"
+
+        later = datetime(2026, 7, 6, 23, 0, tzinfo=timezone.utc)
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/565", later)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(565)),
             ),
         ):
             asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
 
-        assert "now" in captured
-        assert captured["now"].tzinfo is not None
+        attempts_row = db.query(MlBotConfig).filter_by(clave="ingest_stuck_attempts").one()
+        assert attempts_row.valor == "0"
+
+
+class TestParseQuestionDate:
+    def test_naive_iso_input_stored_as_aware_utc(self) -> None:
+        parsed = ingestion_service._parse_question_date("2026-07-06T22:00:00")
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset().total_seconds() == 0

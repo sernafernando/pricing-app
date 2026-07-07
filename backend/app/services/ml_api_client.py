@@ -12,6 +12,17 @@ from app.core.database import get_mlwebhook_engine
 logger = logging.getLogger(__name__)
 
 
+class QuestionNotFoundError(Exception):
+    """Raised by `get_question` when ML confirms the question no longer
+    exists (HTTP 404) — a terminal, non-retryable outcome. Distinguishes this
+    case from a transient failure (network/timeout/5xx/auth), which still
+    returns None so callers can retry."""
+
+    def __init__(self, question_id: int) -> None:
+        self.question_id = question_id
+        super().__init__(f"Question {question_id} not found in ML (404)")
+
+
 def _load_token_from_mlwebhook() -> Optional[Dict]:
     """Lee access_token y expires_at de la tabla ml_tokens en la DB del ml-webhook."""
     try:
@@ -101,7 +112,14 @@ class MercadoLibreAPIClient:
 
         Returns:
             Dict con la pregunta (incluye "status", "text", "date_created",
-            "item_id", "from") o None si no se pudo obtener.
+            "item_id", "from") si tuvo éxito.
+
+        Raises:
+            QuestionNotFoundError: si ML devuelve 404 (la pregunta ya no
+                existe — resultado terminal, no reintentable).
+
+        Returns None for transient failures (network/timeout/5xx/auth) —
+        callers should retry these.
         """
         try:
             token = await self.get_access_token()
@@ -114,11 +132,13 @@ class MercadoLibreAPIClient:
 
                 if response.status_code == 404:
                     logger.warning(f"Pregunta {question_id} no encontrada en ML")
-                    return None
+                    raise QuestionNotFoundError(question_id)
 
                 response.raise_for_status()
                 return response.json()
 
+        except QuestionNotFoundError:
+            raise
         except Exception as e:
             logger.error(f"Error obteniendo pregunta {question_id} de ML: {e}")
             return None

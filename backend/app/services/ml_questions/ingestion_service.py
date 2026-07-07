@@ -30,14 +30,23 @@ from sqlalchemy.exc import IntegrityError
 from app.core.database import get_background_db, get_mlwebhook_engine
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
-from app.services.ml_api_client import ml_client
+from app.services.ml_api_client import QuestionNotFoundError, ml_client
 from app.services.ml_questions import policy
 
 logger = logging.getLogger(__name__)
 
 _CURSOR_KEY = "ingest_cursor_ts"
+_STUCK_CURSOR_KEY = "ingest_stuck_cursor"
+_STUCK_ATTEMPTS_KEY = "ingest_stuck_attempts"
 _DEFAULT_BATCH_LIMIT = 100
 _UNANSWERED_STATUS = "UNANSWERED"
+_MAX_STUCK_ATTEMPTS = 10
+# `get_config` treats an empty-string `valor` as "unset" (ADR-4/policy
+# convention) and falls back to `default` — so a real "no cursor yet" state
+# (empty/None cursor) can't be stored as "" for the stuck-cursor tracking
+# key, since it would round-trip back as unset instead of matching. Use a
+# non-empty marker instead.
+_UNSET_CURSOR_MARKER = "__unset__"
 
 _QUESTION_ID_RE = re.compile(r"/questions/(\d+)\s*$")
 
@@ -64,8 +73,8 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
         limit: batch size cap.
 
     Returns:
-        List of dicts with keys: resource, topic, webhook_id, received_at,
-        payload — ordered by `received_at` ascending.
+        List of dicts with keys: resource, topic, webhook_id, received_at —
+        ordered by `received_at` ascending.
 
     Raises:
         RuntimeError: if `ML_WEBHOOK_DB_URL` isn't configured — propagated to
@@ -78,7 +87,7 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT resource, topic, webhook_id, received_at, payload
+                SELECT resource, topic, webhook_id, received_at
                 FROM webhooks
                 {where_clause}
                 ORDER BY received_at ASC
@@ -93,7 +102,6 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
             "topic": row[1],
             "webhook_id": row[2],
             "received_at": row[3],
-            "payload": row[4],
         }
         for row in rows
     ]
@@ -105,9 +113,13 @@ def _parse_question_date(raw: Optional[str]) -> datetime:
     bad date on one question must not abort the whole ingest batch."""
     if raw:
         try:
-            return datetime.fromisoformat(raw)
+            parsed = datetime.fromisoformat(raw)
         except ValueError:
             logger.warning("ml-bot ingestion: malformed date_created=%r; using now(UTC)", raw)
+        else:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
     return datetime.now(timezone.utc)
 
 
@@ -127,17 +139,10 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
         "error": False,
     }
 
-    now = datetime.now(timezone.utc)
-
     with get_background_db() as db:
         cursor = policy.get_config(db, _CURSOR_KEY, cast=str, default=None)
-        # Forward-looking eligibility hint (logged only — this slice never
-        # drafts). MUST pass an aware datetime: policy treats naive as local
-        # wall-clock (integration gotcha).
-        try:
-            policy.is_eligible_for_bot(db, now)
-        except Exception as e:  # pragma: no cover - defensive, policy is pure
-            logger.warning("ml-bot ingestion: eligibility check failed: %s", e)
+        stuck_cursor = policy.get_config(db, _STUCK_CURSOR_KEY, cast=str, default=_UNSET_CURSOR_MARKER)
+        stuck_attempts = policy.get_config(db, _STUCK_ATTEMPTS_KEY, cast=int, default=0) or 0
 
     try:
         webhook_rows = fetch_new_webhook_rows(since=cursor)
@@ -165,6 +170,14 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
     # cursor` filter).
     max_received_at = None
 
+    # Bounded-retry state for a row stuck at the current cursor position
+    # (e.g. a permanently-transient condition like an expired token, which
+    # would otherwise stall ingestion forever). `stuck_cursor`/`stuck_attempts`
+    # are persisted in `ml_bot_config` and only relevant while the cursor
+    # hasn't moved since the last tick that hit this position.
+    normalized_cursor = cursor if cursor else _UNSET_CURSOR_MARKER
+    attempts_at_cursor = stuck_attempts if stuck_cursor == normalized_cursor else 0
+
     for row in webhook_rows:
         received_at = row["received_at"]
 
@@ -177,16 +190,41 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
 
         try:
             ml_question = await ml_client.get_question(question_id)
+        except QuestionNotFoundError:
+            # Terminal outcome: ML confirms the question no longer exists.
+            # Skip the row (terminally resolved) and advance the cursor past
+            # it — retrying a deleted question would stall ingestion forever.
+            logger.error(
+                "ml-bot ingestion: question %s not found in ML (404) — skipping row, cursor advances",
+                question_id,
+            )
+            if max_received_at is None or received_at > max_received_at:
+                max_received_at = received_at
+            continue
         except Exception as e:
             logger.error("ml-bot ingestion: error fetching question %s: %s", question_id, e, exc_info=True)
             stats["error"] = True
             break
 
         if not ml_question:
-            # `ml_client.get_question` swallows its own exceptions and
-            # returns None for both a permanent 404 and a transient error —
-            # it can't be distinguished here. Fail safe: treat as transient
-            # and stop advancing the cursor, so this row gets retried.
+            # Transient failure (network/timeout/5xx/auth) — `get_question`
+            # returns None. Fail safe: stop advancing the cursor so this row
+            # gets retried, UNLESS it has already failed `_MAX_STUCK_ATTEMPTS`
+            # times at this same cursor position, in which case a permanently
+            # -transient condition (e.g. an expired token) must not be allowed
+            # to stall ingestion forever — give up and skip the row.
+            attempts_at_cursor += 1
+            if attempts_at_cursor >= _MAX_STUCK_ATTEMPTS:
+                logger.error(
+                    "ml-bot ingestion: giving up after %d attempts fetching question %s — skipping row, cursor advances",
+                    attempts_at_cursor,
+                    question_id,
+                )
+                if max_received_at is None or received_at > max_received_at:
+                    max_received_at = received_at
+                stats["error"] = True
+                continue
+
             logger.warning("ml-bot ingestion: get_question(%s) returned no data — will retry next tick", question_id)
             stats["error"] = True
             break
@@ -217,13 +255,25 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
         except IntegrityError:
             stats["duplicates"] += 1
 
+    def _upsert_config(db: Any, clave: str, valor: str) -> None:
+        row = db.query(MlBotConfig).filter_by(clave=clave).first()
+        if row is None:
+            db.add(MlBotConfig(clave=clave, valor=valor, tipo="string"))
+        else:
+            row.valor = valor
+
     if max_received_at is not None:
+        # Cursor advanced this tick — reset the stuck-row counter, it no
+        # longer applies to the new position.
         with get_background_db() as db:
-            cursor_row = db.query(MlBotConfig).filter_by(clave=_CURSOR_KEY).first()
-            new_value = max_received_at.isoformat()
-            if cursor_row is None:
-                db.add(MlBotConfig(clave=_CURSOR_KEY, valor=new_value, tipo="string"))
-            else:
-                cursor_row.valor = new_value
+            _upsert_config(db, _CURSOR_KEY, max_received_at.isoformat())
+            _upsert_config(db, _STUCK_CURSOR_KEY, _UNSET_CURSOR_MARKER)
+            _upsert_config(db, _STUCK_ATTEMPTS_KEY, "0")
+    elif attempts_at_cursor > 0:
+        # Still stuck at the same cursor position — persist the updated
+        # attempts counter so it survives across ticks.
+        with get_background_db() as db:
+            _upsert_config(db, _STUCK_CURSOR_KEY, normalized_cursor)
+            _upsert_config(db, _STUCK_ATTEMPTS_KEY, str(attempts_at_cursor))
 
     return stats
