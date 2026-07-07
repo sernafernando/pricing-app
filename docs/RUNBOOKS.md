@@ -77,4 +77,62 @@ Audience: On-call / solo developer
 ### Escalation
 
 - Owner: Integration maintainer.
+
+---
+
+## 3) ML Questions Bot (Auto-Responder)
+
+### Overview
+
+Pipeline: ingest → draft → publish, one MercadoLibre account per env.
+
+- **Ingest**: `ingestion_service.py` polls the ML questions webhook DB
+  cross-database and creates `ml_bot_question` rows (state `pending`).
+- **Draft**: `drafting_service.py` builds context (`context_builder.py`),
+  calls the LLM via `llm_provider.py` (`GroqProvider`, `LlmProvider` protocol),
+  applies the soft denylist, and moves the row to `waiting`
+  (or `failed` on parse/provider error).
+- **Publish**: `publisher_service.py` runs a wait-window background loop,
+  claims `waiting` rows (CAS on `updated_at`), and publishes the answer via
+  `ml_api_client.py`, moving the row to `published` or `failed`.
+- **API**: `routers/ml_bot.py` under `/api/ml-bot` — questions
+  list/take-over/answer/publish-now/hold, config CRUD, toggle, few-shot
+  examples CRUD. SSE channel `ml_bot:questions` fires a reload hint on every
+  state transition (`routers/sse.py`).
+- **Panel**: `/ml-preguntas` (`frontend/src/pages/MLQuestions.jsx`).
+
+### Enabling the Bot
+
+1. Set `GROQ_API_KEY` in the environment (`backend/app/core/config.py`).
+2. Seed `ml_bot_config` (one row) with the account/provider settings.
+3. Toggle the bot on from the panel (`ml_bot.on_off` permission) or via
+   `PUT /api/ml-bot/config` (`enabled=true`).
+
+### Permissions
+
+`ml_bot.responder` (act on questions), `ml_bot.on_off` (toggle),
+`ml_bot.config` (config + examples CRUD).
+
+### Interpreting Failed Rows
+
+- `failed` at drafting: LLM/provider error or schema parse failure — check
+  drafting_service logs, retry is manual (edit + publish-now from the panel).
+- `failed` at publish: CAS conflict or ML API error — the panel's
+  publish-now action re-runs the publish pipeline for that row.
+- `taken_over` / `pending_morning`: awaiting a human operator, not a bug.
+
+### Known Limitations (accepted, tracked as follow-ups)
+
+- Cursor tracking uses `NULL`/`''` interchangeably in one ingestion path —
+  low-risk collision, not yet unified.
+- Single ML account per environment (no multi-account support).
+- No standalone `GET /toggle-status`; reading bot on/off currently requires
+  `ml_bot.config` in addition to `ml_bot.on_off`.
+- Panel status filter accepts a single value (no multi-status/OR filter).
+- The soft denylist warning on manual edits does not block human-authored
+  content — it is advisory only, by design.
+
+### Escalation
+
+- Owner: ML Bot maintainer.
 - Escalate if data mismatch persists after one controlled backfill.
