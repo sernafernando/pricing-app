@@ -23,6 +23,18 @@ class QuestionNotFoundError(Exception):
         super().__init__(f"Question {question_id} not found in ML (404)")
 
 
+class QuestionAlreadyAnsweredError(Exception):
+    """Raised by `post_answer` when ML confirms the question was already
+    answered (a 4xx explicitly indicating that) — a success-equivalent
+    outcome for idempotency (ml-bot Slice E, ADR-5 double-publish defense):
+    a retried publish attempt (e.g. after a crash between the ML POST and
+    the terminal DB write) must not be treated as a failure."""
+
+    def __init__(self, question_id: int) -> None:
+        self.question_id = question_id
+        super().__init__(f"Question {question_id} was already answered in ML")
+
+
 def _load_token_from_mlwebhook() -> Optional[Dict]:
     """Lee access_token y expires_at de la tabla ml_tokens en la DB del ml-webhook."""
     try:
@@ -141,6 +153,49 @@ class MercadoLibreAPIClient:
             raise
         except Exception as e:
             logger.error(f"Error obteniendo pregunta {question_id} de ML: {e}")
+            return None
+
+    async def post_answer(self, question_id: int, text: str) -> Optional[Dict]:
+        """Publica la respuesta de una pregunta en ML (ml-bot Slice E, ADR-5).
+
+        Args:
+            question_id: El id numérico de la pregunta ML.
+            text: El texto de la respuesta a publicar.
+
+        Returns:
+            Dict con la respuesta de ML si tuvo éxito.
+
+        Raises:
+            QuestionAlreadyAnsweredError: si ML indica explícitamente (4xx)
+                que la pregunta ya fue respondida — tratado como
+                éxito-equivalente por el caller (idempotencia).
+
+        Returns None for other failures (network/timeout/5xx/auth/unknown
+        4xx) — callers should retry these (bounded).
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/answers",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"question_id": question_id, "text": text},
+                )
+
+                if response.status_code == 400:
+                    body_text = response.text.lower()
+                    if "already" in body_text or "answered" in body_text or "responded" in body_text:
+                        logger.warning(f"Pregunta {question_id} ya estaba respondida en ML (400): {response.text}")
+                        raise QuestionAlreadyAnsweredError(question_id)
+
+                response.raise_for_status()
+                return response.json()
+
+        except QuestionAlreadyAnsweredError:
+            raise
+        except Exception as e:
+            logger.error(f"Error publicando respuesta a pregunta {question_id} en ML: {e}")
             return None
 
     async def get_items_batch(self, item_ids: List[str]) -> Dict[str, Dict]:

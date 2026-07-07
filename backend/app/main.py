@@ -201,6 +201,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(sync_sale_orders_task()),
             asyncio.create_task(ml_questions_ingest_task()),
             asyncio.create_task(ml_questions_draft_task()),
+            asyncio.create_task(ml_questions_publish_task()),
         ]
     else:
         import os
@@ -468,6 +469,31 @@ async def ml_questions_ingest_task():
                 logger.info("ML questions ingest stats: %s", stats)
         except Exception as e:
             logger.error("ML questions ingest failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def ml_questions_publish_task():
+    """
+    Tarea de background que publica en ML las preguntas cuyo wait_until ya
+    venció (Slice E — wait-window publisher): claim CAS, POST /answers fuera
+    de cualquier sesión de DB, y ruteo a published/waiting(retry)/failed.
+    """
+    from app.services.ml_questions.publisher_service import run_ml_questions_publish_cycle
+
+    # Esperar 120 segundos para que ingesta (60s) y drafting (90s) ya hayan
+    # corrido al menos una vez y existan filas 'waiting' para publicar.
+    await asyncio.sleep(120)
+    logger.info("Background task started: ml_questions_publish (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_publish_cycle()
+            if stats["published"] or stats["retry"] or stats["failed"]:
+                logger.info("ML questions publish stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions publish failed: %s", e, exc_info=True)
 
         # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
         await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
