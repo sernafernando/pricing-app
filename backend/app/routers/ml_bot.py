@@ -450,9 +450,12 @@ def historial_comprador(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> BuyerHistoryResponse:
-    """Historial de preguntas previas del mismo comprador (panel-v2
-    requisito #3) — hasta 20 preguntas anteriores, más recientes primero,
-    EXCLUYENDO la pregunta actual. Requiere `ml_bot.ver`.
+    """Historial de OTRAS preguntas del mismo comprador (panel-v2 requisito
+    #3) — hasta 20 filas de `ml_bot_questions` con el mismo `buyer_id`, más
+    recientes primero, EXCLUYENDO la pregunta actual por id (no por fecha:
+    si el comprador tiene una pregunta más nueva que la consultada, también
+    aparece — da todo el contexto disponible del comprador, no solo el
+    pasado). Requiere `ml_bot.ver`.
 
     404 si la pregunta no existe; lista vacía si `buyer_id` es null (no hay
     forma de correlacionar comprador).
