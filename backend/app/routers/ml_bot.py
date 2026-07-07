@@ -17,7 +17,11 @@ prior slices):
   `failed` as sources. It CAS-transitions the row into `waiting`
   (wait_until=now, so the semantics match "due immediately") in the SAME
   UPDATE, but the `attempts` reset is SOURCE-STATE-DEPENDENT (Judgment Day
-  fix — blind-repost prevention):
+  fix — blind-repost prevention). The decision is computed INSIDE the same
+  atomic UPDATE via a SQL `CASE` on the row's actual status at UPDATE time
+  (never pre-read in Python), so a concurrent transition between two
+  in-tuple source states between the read and the write can never apply a
+  stale reset value (Judgment Day round 2 fix — TOCTOU):
   - `waiting` / `taken_over` / `pending_morning` -> `attempts = 0` (fresh
     publish budget: these rows never had a real prior publish attempt on
     this cycle, exactly like `drafting_service._resolve_success` /
@@ -47,7 +51,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import update
+from sqlalchemy import case, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -311,7 +315,9 @@ async def publicar_ahora(
 
     CAS desde `waiting`/`taken_over`/`pending_morning`/`failed` -> `waiting`
     con `wait_until=now`. El reset de `attempts` depende del estado de
-    origen (ver docstring del módulo): `failed` -> `attempts=1` (esta fila
+    origen y se calcula ATÓMICAMENTE dentro del mismo UPDATE vía SQL `CASE`
+    sobre el status real de la fila (ver docstring del módulo — evita TOCTOU
+    entre la lectura previa y el UPDATE): `failed` -> `attempts=1` (esta fila
     tuvo intentos de publicación reales; el próximo claim del publisher lo
     sube a 2, lo que fuerza el gate de verificación-antes-de-repostear de
     `_publish_one` y evita un repost ciego de una pregunta que ML ya pudo
@@ -333,8 +339,6 @@ async def publicar_ahora(
     if not q.drafted_answer:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay respuesta cargada para publicar")
 
-    reset_attempts = _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS if q.status == "failed" else 0
-
     now = datetime.now(timezone.utc)
     ok = _cas_transition(
         db,
@@ -342,7 +346,10 @@ async def publicar_ahora(
         _PUBLISH_NOW_SOURCE_STATES,
         status="waiting",
         wait_until=now,
-        attempts=reset_attempts,
+        attempts=case(
+            (MlBotQuestion.status == "failed", _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS),
+            else_=0,
+        ),
         updated_at=now,
     )
     if not ok:

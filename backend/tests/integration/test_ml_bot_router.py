@@ -277,6 +277,51 @@ class TestPublishNow:
         assert r.status_code == 200
         mock_publish.assert_awaited_once_with(q.id)
 
+    def test_publica_desde_waiting_resetea_attempts_a_cero(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """Judgment Day round 2 fix (TOCTOU): the `attempts` reset is now
+        computed atomically inside the CAS UPDATE via a SQL `CASE` on the
+        row's actual status, never from a pre-read Python value. Assert
+        each source state still gets its correct reset through the real
+        endpoint — `waiting` -> 0."""
+        q = _seed_question(db, status="waiting", attempts=5)
+        db.commit()
+        q_id = q.id
+
+        with patch(
+            "app.services.ml_questions.publisher_service.publish_question_now",
+            new_callable=AsyncMock,
+            return_value="published",
+        ):
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        db.expire_all()
+        refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
+        assert refreshed.attempts == 0
+
+    def test_publica_desde_taken_over_resetea_attempts_a_cero(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """Judgment Day round 2 fix (TOCTOU): `taken_over` -> attempts=0
+        through the real CAS-in-UPDATE path (see test above)."""
+        q = _seed_question(db, status="taken_over", attempts=5)
+        db.commit()
+        q_id = q.id
+
+        with patch(
+            "app.services.ml_questions.publisher_service.publish_question_now",
+            new_callable=AsyncMock,
+            return_value="published",
+        ):
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        db.expire_all()
+        refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
+        assert refreshed.attempts == 0
+
     def test_retry_de_failed_resetea_attempts_a_uno(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         """Judgment Day fix: retrying a `failed` row (failed -> waiting)
         MUST reset attempts=1 (not 0) — a `failed` row had real prior

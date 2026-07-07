@@ -379,10 +379,15 @@ async def publish_question_now(question_id: int) -> str:
     manual path share identical ML-post + idempotency code").
 
     The router is responsible for CAS-transitioning the row into `waiting`
-    (with `wait_until` set to now and `attempts` reset to 0, per the
-    fresh-publish-budget convention — see `routers/ml_bot.py`) BEFORE
-    calling this function; this function only performs the claim + POST +
-    terminal-write pipeline exactly as the background publish cycle does.
+    (with `wait_until` set to now) BEFORE calling this function; the
+    `attempts` reset is source-state-dependent, not unconditionally 0: a
+    fresh source (`waiting`/`taken_over`/`pending_morning`) resets to 0
+    (fresh publish budget), while a `failed` source resets to 1 so the next
+    claim's bump lands on 2 and forces `_publish_one`'s verify-before-repost
+    gate (blind-repost prevention) — see `routers/ml_bot.py`'s module
+    docstring for the full rationale. This function only performs the
+    claim + POST + terminal-write pipeline exactly as the background
+    publish cycle does.
     """
     return await _publish_one(question_id)
 
