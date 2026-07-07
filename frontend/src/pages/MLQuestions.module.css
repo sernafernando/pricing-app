@@ -328,3 +328,48 @@
   gap: var(--spacing-sm);
   margin-top: var(--spacing-sm);
 }
+
+/* Expandable row detail panel (panel-v2 requirements #3 + #5) */
+.detailRow td {
+  background: var(--cf-bg-secondary, rgba(128, 128, 128, 0.05));
+  padding: 0;
+}
+
+.detailPanel {
+  padding: var(--spacing-md);
+}
+
+.detailTabBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border, rgba(128, 128, 128, 0.2));
+}
+
+.detailTab {
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  border-bottom: 2px solid transparent;
+}
+
+.detailTabActive {
+  color: var(--cf-accent-orange);
+  border-bottom-color: var(--cf-accent-orange);
+  font-weight: 600;
+}
+
+.detailContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.detailText {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 0;
+}
