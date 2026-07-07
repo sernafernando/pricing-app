@@ -125,6 +125,76 @@ class TestComplete:
         with pytest.raises(LlmProviderError):
             asyncio.run(provider.complete("system", "user"))
 
+    def test_malformed_200_body_non_json_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"<html>not json</html>")
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+
+    def test_malformed_200_body_empty_choices_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": []})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+
+    def test_malformed_200_body_missing_message_content_raises_llm_provider_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": [{"message": {}}]})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+
+    def test_malformed_200_body_null_content_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": [{"message": {"content": None}}]})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+
+    def test_retry_backoff_sleeps_between_attempts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, json={"error": "unavailable"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+        assert len(sleep_calls) >= 1
+
+    def test_oversized_response_body_raises_llm_provider_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services.ml_questions import llm_provider as llm_provider_module
+
+        oversized = json.dumps(
+            {"choices": [{"message": {"content": "x" * (llm_provider_module._MAX_RESPONSE_BYTES + 1)}}]}
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=oversized.encode("utf-8"))
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        provider = GroqProvider(api_key="sk-test-123")
+        with pytest.raises(LlmProviderError):
+            asyncio.run(provider.complete("system", "user"))
+
 
 class TestParseLlmOutput:
     def test_valid_output_parses(self) -> None:

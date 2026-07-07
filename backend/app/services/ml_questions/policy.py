@@ -260,6 +260,10 @@ _ADDRESS_PATTERNS = [
 
 _DENYLIST_PATTERNS = _PRICE_PATTERNS + _STOCK_QUANTITY_PATTERNS + _ADDRESS_PATTERNS
 
+# Public alias so other modules (e.g. context_builder's attribute-value scan)
+# can reuse the same denylist patterns without duplicating them.
+DENYLIST_PATTERNS = _DENYLIST_PATTERNS
+
 # Known manipulation/injection signal phrases (R-503), covering direct
 # instruction override, jailbreak/role-play framing, and exfiltration probes
 # (R-504 adversarial coverage: EN + es-AR variants).

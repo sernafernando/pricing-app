@@ -12,6 +12,7 @@ a pre-scoped `ScopedContext` (see `context_builder.py`).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ _REQUIRED_FIELDS = frozenset({"answer", "confidence", "category", "can_answer"})
 _DEFAULT_MODEL = "llama-3.3-70b-versatile"
 _DEFAULT_TIMEOUT_SECONDS = 15.0
 _MAX_RETRIES = 2  # retries on transient 5xx/network errors only
+_MAX_RESPONSE_BYTES = 256 * 1024  # 256 KB cap on the raw response body
 
 
 class LlmProviderError(Exception):
@@ -119,17 +121,23 @@ class GroqProvider:
                         _MAX_RETRIES + 1,
                         response.status_code,
                     )
+                    if attempt < _MAX_RETRIES:
+                        await asyncio.sleep(min(2**attempt, 4))
                     continue
 
                 if response.status_code >= 400:
                     raise LlmProviderError(f"Groq client error: {response.status_code}")
 
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
+                if len(response.content) > _MAX_RESPONSE_BYTES:
+                    raise LlmProviderError(f"Groq response body exceeds max size of {_MAX_RESPONSE_BYTES} bytes")
+
+                return _extract_content(response)
 
             except httpx.TimeoutException as exc:
                 last_error = LlmProviderError(f"Groq request timed out: {exc}")
                 logger.warning("GroqProvider timeout (attempt %d/%d)", attempt + 1, _MAX_RETRIES + 1)
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(min(2**attempt, 4))
                 continue
             except httpx.HTTPError as exc:
                 # Network-level failure (connection refused, DNS, etc.) — transient.
@@ -140,10 +148,32 @@ class GroqProvider:
                     _MAX_RETRIES + 1,
                     exc,
                 )
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(min(2**attempt, 4))
                 continue
 
         assert last_error is not None
         raise last_error
+
+
+def _extract_content(response: httpx.Response) -> str:
+    """Parse a 200 response body and extract `choices[0].message.content`.
+
+    A 200 status does NOT guarantee a well-formed body (moderation shape,
+    HTML error page, empty `choices`, etc.) — any parse/extraction failure
+    is normalized to `LlmProviderError` so callers only ever need to catch
+    that single exception type (per this module's docstring contract).
+    """
+    try:
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise LlmProviderError(f"Groq response body is malformed: {type(exc).__name__}") from exc
+
+    if not isinstance(content, str) or not content.strip():
+        raise LlmProviderError("Groq response 'content' must be a non-empty string")
+
+    return content
 
 
 def parse_llm_output(raw: str) -> LlmAnswer:

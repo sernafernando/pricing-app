@@ -14,6 +14,16 @@ Data-scoping rules (R-401/R-402/R-403, hard constraints):
   config, e.g. approximate address/zone) — never freeform DB rows.
 - Few-shot examples come only from `ml_bot_answer_examples` (active rows).
 
+Trust boundary (accepted, documented — not code-enforced): `business_vars`
+(including `approx_address`) and the few-shot examples are panel-edited by
+admins holding the `ml_bot.config` permission. They are TRUSTED BY DESIGN.
+The "never reveal an exact address/price" guarantee in the system prompt
+applies to LLM-generated output and to seller-controlled ML listing data
+(scanned defensively below); it is NOT re-validated against these
+admin-controlled fields. Keeping that guarantee for `business_vars`/few-shot
+content is an operational convention (panel review discipline), not a
+code-level check.
+
 Prompt-injection defense (R-501): the buyer's question text is untrusted data
 and MUST be placed only inside a delimited block, never concatenated into the
 instruction/system portion of the prompt. `build_prompt` below is the single
@@ -24,6 +34,8 @@ go through it rather than hand-rolling prompt strings.
 from __future__ import annotations
 
 import json
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +43,8 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.services.ml_questions import policy
+
+logger = logging.getLogger(__name__)
 
 # Attributes we allow to pass through from the ML listing's own attribute
 # list (R-402). Anything not on this allowlist is dropped, even if present
@@ -107,8 +121,22 @@ def extract_listing_attributes(item_payload: Optional[Dict[str, Any]]) -> Dict[s
     for attribute in item_payload.get("attributes") or []:
         attr_id = attribute.get("id")
         value = attribute.get("value_name")
-        if attr_id in _ALLOWED_ATTRIBUTE_IDS and value:
-            result[attr_id] = str(value)
+        if attr_id not in _ALLOWED_ATTRIBUTE_IDS or not value:
+            continue
+        value_str = str(value)
+        # Defense-in-depth: seller-controlled free-text values can still smuggle
+        # price/stock-quantity/address content even on an allowlisted attribute
+        # id (e.g. WARRANTY_TIME = "12 meses - retirás en Av. Falsa 123, precio
+        # $999999"). Reuse policy's denylist patterns rather than duplicating
+        # them, and fail safe by dropping the whole attribute on a hit.
+        if any(pattern.search(value_str) for pattern in policy.DENYLIST_PATTERNS):
+            logger.warning(
+                "extract_listing_attributes: dropped attribute %r (denylisted value content): %r",
+                attr_id,
+                value_str[:50],
+            )
+            continue
+        result[attr_id] = value_str
     return result
 
 
@@ -201,6 +229,9 @@ def _context_to_json(context: ScopedContext) -> str:
     )
 
 
+_BUYER_QUESTION_TAG_PATTERN = re.compile(r"<\s*/?\s*buyer_question\s*>", re.IGNORECASE)
+
+
 def _few_shot_to_text(examples: List[FewShotExample]) -> str:
     if not examples:
         return "(sin ejemplos configurados)"
@@ -223,9 +254,10 @@ def build_prompt(context: ScopedContext) -> tuple[str, str]:
         context_json=_context_to_json(context),
         few_shot_block=_few_shot_to_text(context.few_shot_examples),
     )
-    # The buyer text is escaped for the delimiter itself (closing tag
-    # injection) — a buyer cannot prematurely close the block by including
-    # the literal closing tag text.
-    escaped_question = context.question_text.replace("</buyer_question>", "&lt;/buyer_question&gt;")
+    # The buyer text is neutralized against the delimiter itself (opening AND
+    # closing tag injection, case-insensitive, whitespace-tolerant) — a buyer
+    # cannot prematurely close the block or open a fake one by including any
+    # variant of the literal tag text (e.g. `</BUYER_QUESTION>`, `</ buyer_question >`).
+    escaped_question = _BUYER_QUESTION_TAG_PATTERN.sub("[tag-removed]", context.question_text)
     user_payload = f"<buyer_question>{escaped_question}</buyer_question>"
     return system_prompt, user_payload
