@@ -26,8 +26,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
-from typing import Callable, Optional, TypeVar
+from datetime import datetime, timedelta
+from typing import Callable, Dict, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
@@ -78,6 +78,166 @@ def get_config(
     return cast(row.valor)
 
 
+def get_work_schedule(db: Session) -> Optional[Dict[int, tuple[int, int, int, int]]]:
+    """Parse the panel-editable `work_schedule` config (JSON, schedules-v2)
+    into `{isoweekday: (start_hour, start_minute, end_hour, end_minute)}`.
+
+    isoweekday keys are "1" (Monday) through "7" (Sunday); an absent day
+    means non-working. Returns `None` when the key is absent/empty OR when
+    ANY validation step fails (bad JSON, not an object, bad day key, bad
+    time string, start >= end) — logging a warning in the malformed case so
+    callers can fall back to the legacy `business_days` +
+    `business_hours_start`/`business_hours_end` keys (schedules-v2 fail-safe
+    cascade). This makes existing deployments without `work_schedule` behave
+    exactly as before it existed.
+    """
+    raw = get_config(db, "work_schedule", cast=str, default=None)
+    if raw is None:
+        return None
+
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed work_schedule=%r (invalid JSON); falling back to legacy keys",
+            raw,
+        )
+        return None
+
+    if not isinstance(data, dict):
+        logger.warning(
+            "ml_bot_config: malformed work_schedule=%r (not a JSON object); falling back to legacy keys",
+            raw,
+        )
+        return None
+
+    schedule: Dict[int, tuple[int, int, int, int]] = {}
+    for day_key, times in data.items():
+        try:
+            day = int(day_key)
+        except (TypeError, ValueError):
+            logger.warning(
+                "ml_bot_config: malformed work_schedule day key=%r; falling back to legacy keys",
+                day_key,
+            )
+            return None
+        if not (1 <= day <= 7):
+            logger.warning(
+                "ml_bot_config: malformed work_schedule day key=%r (must be 1-7); falling back to legacy keys",
+                day_key,
+            )
+            return None
+
+        if not isinstance(times, list) or len(times) != 2:
+            logger.warning(
+                "ml_bot_config: malformed work_schedule value for day %r=%r; falling back to legacy keys",
+                day_key,
+                times,
+            )
+            return None
+
+        start_raw, end_raw = times
+        try:
+            start_hour, start_minute = (int(part) for part in str(start_raw).split(":")[:2])
+            if not (0 <= start_hour < 24 and 0 <= start_minute < 60):
+                raise ValueError("hour/minute out of range")
+        except ValueError:
+            logger.warning(
+                "ml_bot_config: malformed work_schedule start time for day %r=%r; falling back to legacy keys",
+                day_key,
+                start_raw,
+            )
+            return None
+        try:
+            end_hour, end_minute = (int(part) for part in str(end_raw).split(":")[:2])
+            if not (0 <= end_hour < 24 and 0 <= end_minute < 60):
+                raise ValueError("hour/minute out of range")
+        except ValueError:
+            logger.warning(
+                "ml_bot_config: malformed work_schedule end time for day %r=%r; falling back to legacy keys",
+                day_key,
+                end_raw,
+            )
+            return None
+
+        if (start_hour, start_minute) >= (end_hour, end_minute):
+            logger.warning(
+                "ml_bot_config: malformed work_schedule day %r start>=end (%r >= %r); falling back to legacy keys",
+                day_key,
+                start_raw,
+                end_raw,
+            )
+            return None
+
+        schedule[day] = (start_hour, start_minute, end_hour, end_minute)
+
+    return schedule
+
+
+def get_business_hours_for_day(db: Session, isoweekday: int) -> Optional[tuple[int, int, int, int]]:
+    """Return `(start_hour, start_minute, end_hour, end_minute)` for a given
+    ISO weekday (1=Monday .. 7=Sunday), sourced from `work_schedule` if
+    present and valid, else the legacy `business_days` +
+    `business_hours_start`/`business_hours_end` keys. `None` means the day
+    is non-working (per whichever source is in effect)."""
+    schedule = get_work_schedule(db)
+    if schedule is not None:
+        return schedule.get(isoweekday)
+
+    business_days_raw = get_config(db, "business_days", cast=str, default=_DEFAULT_BUSINESS_DAYS)
+    try:
+        business_days = json.loads(business_days_raw)
+        if not isinstance(business_days, list) or not all(
+            isinstance(day, int) and not isinstance(day, bool) for day in business_days
+        ):
+            raise ValueError("business_days not a list of ints")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        business_days = [1, 2, 3, 4, 5]
+
+    if isoweekday not in business_days:
+        return None
+
+    start_raw = get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
+    end_raw = get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
+    try:
+        start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
+        end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
+        if not (0 <= start_hour < 24 and 0 <= start_minute < 60 and 0 <= end_hour < 24 and 0 <= end_minute < 60):
+            raise ValueError("hour/minute out of range")
+    except ValueError:
+        return None
+
+    return (start_hour, start_minute, end_hour, end_minute)
+
+
+def resolve_last_working_day_end(db: Session, before: datetime) -> Optional[datetime]:
+    """R-602 generalization (schedules-v2): return the localized end-of-day
+    timestamp of the MOST RECENT working day strictly before `before`'s
+    calendar date, per `work_schedule` (or the legacy fallback) — e.g. with
+    a Mon-Fri 09-18 + Sat 09-13 schedule, the working-day end for a Sunday or
+    Monday `before` is Saturday 13:00, not "yesterday 18:00".
+
+    Searches back up to 7 calendar days. Returns `None` if the configured
+    timezone is malformed, or no working day is found in that window (e.g.
+    a legacy `business_days` config with every day disabled)."""
+    tz_name = get_config(db, "timezone", cast=str, default=_DEFAULT_TIMEZONE)
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return None
+
+    localized = before.astimezone(tz) if before.tzinfo else before.replace(tzinfo=tz)
+
+    for delta in range(1, 8):
+        candidate = localized - timedelta(days=delta)
+        day_times = get_business_hours_for_day(db, candidate.isoweekday())
+        if day_times is not None:
+            _, _, end_hour, end_minute = day_times
+            return candidate.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+
+    return None
+
+
 def is_within_business_hours(db: Session, now: datetime) -> bool:
     """Return True if `now` falls within configured business hours/days.
 
@@ -109,6 +269,17 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
         localized = now.replace(tzinfo=tz)
     else:
         localized = now.astimezone(tz)
+
+    schedule = get_work_schedule(db)
+    if schedule is not None:
+        day_times = schedule.get(localized.isoweekday())
+        if day_times is None:
+            return False
+        start_hour, start_minute, end_hour, end_minute = day_times
+        start_minutes = start_hour * 60 + start_minute
+        end_minutes = end_hour * 60 + end_minute
+        now_minutes = localized.hour * 60 + localized.minute
+        return start_minutes <= now_minutes < end_minutes
 
     business_days_raw = get_config(db, "business_days", cast=str, default=_DEFAULT_BUSINESS_DAYS)
     try:

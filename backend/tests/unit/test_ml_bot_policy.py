@@ -36,6 +36,8 @@ def _seed_config(db, **overrides: str) -> None:
         "wait_minutes_business_hours": ("", "int"),
         "min_confidence": ("0.6", "string"),
         "ingest_cursor_ts": ("", "string"),
+        "work_schedule": ("", "json"),
+        "attention_hours_text": ("", "string"),
     }
     for clave, (valor, tipo) in defaults.items():
         actual_valor = overrides.get(clave, valor)
@@ -115,6 +117,119 @@ class TestIsWithinBusinessHours:
         _seed_config(db)
         now = datetime(2026, 7, 7, 14, 0, 0)  # naive
         assert policy.is_within_business_hours(db, now) is True
+
+
+_USER_WORK_SCHEDULE = (
+    '{"1": ["09:00", "18:00"], "2": ["09:00", "18:00"], "3": ["09:00", "18:00"], '
+    '"4": ["09:00", "18:00"], "5": ["09:00", "18:00"], "6": ["09:00", "13:00"]}'
+)
+
+
+class TestPerDayWorkSchedule:
+    """schedules-v2: `work_schedule` (JSON, per-isoweekday hours) takes
+    priority over the legacy `business_days` + `business_hours_start/end`
+    keys when present and valid. Real example: Mon-Fri 09-18, Sat 09-13."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        """See `TestMalformedConfigFailsSafe._allow_log_propagation` — the
+        `app` root logger sets propagate=False; re-enable it so caplog can
+        observe warnings from `policy.logger`."""
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_saturday_in_hours_before_closing(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 12, 59, 0, tzinfo=self.tz)  # Saturday 12:59
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_saturday_off_hours_after_closing(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 13, 1, 0, tzinfo=self.tz)  # Saturday 13:01
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_saturday_end_boundary_is_out_of_hours(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00 exactly
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_sunday_is_off_all_day(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 12, 12, 0, 0, tzinfo=self.tz)  # Sunday
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_weekday_start_boundary_is_in_hours(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 7, 9, 0, 0, tzinfo=self.tz)  # Tuesday 09:00
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_malformed_json_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule="{not valid json", business_hours_start="09:00", business_hours_end="18:00")
+        now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=self.tz)  # Saturday, not in legacy business_days [1..5]
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is False  # legacy path: Saturday not a business day
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_non_dict_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule="[1,2,3]")
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            policy.get_work_schedule(db)
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_bad_day_key_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule='{"8": ["09:00", "18:00"]}')
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.get_work_schedule(db)
+        assert result is None
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_start_after_end_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule='{"1": ["18:00", "09:00"]}')
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.get_work_schedule(db)
+        assert result is None
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_absent_work_schedule_uses_legacy_path(self, db) -> None:
+        _seed_config(db)  # no work_schedule seeded
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is True
+        assert policy.get_work_schedule(db) is None
+
+
+class TestResolveLastWorkingDayEnd:
+    """schedules-v2: R-602 generalization — most recent working day's END,
+    per-day-aware (not simply "yesterday")."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_monday_early_morning_resolves_to_saturday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 13, 0, 30, 0, tzinfo=self.tz)  # Monday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00
+
+    def test_tuesday_early_morning_resolves_to_monday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 7, 0, 30, 0, tzinfo=self.tz)  # Tuesday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 6, 18, 0, 0, tzinfo=self.tz)  # Monday 18:00
+
+    def test_legacy_path_when_no_work_schedule(self, db) -> None:
+        _seed_config(db, business_hours_start="09:00", business_hours_end="18:00")
+        before = datetime(2026, 7, 7, 0, 30, 0, tzinfo=self.tz)  # Tuesday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 6, 18, 0, 0, tzinfo=self.tz)  # Monday 18:00
 
 
 class TestOperatingModeGate:
