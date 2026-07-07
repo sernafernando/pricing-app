@@ -24,14 +24,17 @@ seeded as an empty string `""` (unset sentinel) by the Slice A migration.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Callable, Optional, TypeVar
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
 from app.models.ml_bot_config import MlBotConfig
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -82,9 +85,23 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
     A naive `now` is localized to the configured timezone (assumed to already
     represent local wall-clock time) rather than treated as UTC, since callers
     in this pipeline (ingestion/drafting loops) work with local business time.
+
+    Fail-safe direction (Judgment Day fix): if any config value is malformed
+    (bad timezone, bad "HH:MM" format, invalid business_days JSON), this
+    function does NOT raise — it logs a warning and returns True (treated as
+    within business hours). That makes the bot NOT eligible in
+    `off_hours_only` mode, which is the safer failure direction than silently
+    allowing the bot to run on malformed config.
     """
     tz_name = get_config(db, "timezone", cast=str, default=_DEFAULT_TIMEZONE)
-    tz = ZoneInfo(tz_name)
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "ml_bot_config: malformed timezone=%r; failing safe (treated as in-hours)",
+            tz_name,
+        )
+        return True
 
     if now.tzinfo is None:
         localized = now.replace(tzinfo=tz)
@@ -92,14 +109,36 @@ def is_within_business_hours(db: Session, now: datetime) -> bool:
         localized = now.astimezone(tz)
 
     business_days_raw = get_config(db, "business_days", cast=str, default=_DEFAULT_BUSINESS_DAYS)
-    business_days = json.loads(business_days_raw)
+    try:
+        business_days = json.loads(business_days_raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed business_days=%r; failing safe (treated as in-hours)",
+            business_days_raw,
+        )
+        return True
+
     if localized.isoweekday() not in business_days:
         return False
 
     start_raw = get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
     end_raw = get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
-    start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
-    end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
+    try:
+        start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
+    except ValueError:
+        logger.warning(
+            "ml_bot_config: malformed business_hours_start=%r; failing safe (treated as in-hours)",
+            start_raw,
+        )
+        return True
+    try:
+        end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
+    except ValueError:
+        logger.warning(
+            "ml_bot_config: malformed business_hours_end=%r; failing safe (treated as in-hours)",
+            end_raw,
+        )
+        return True
 
     start_minutes = start_hour * 60 + start_minute
     end_minutes = end_hour * 60 + end_minute
@@ -119,14 +158,21 @@ def get_operating_mode(db: Session) -> str:
 
 
 def is_eligible_for_bot(db: Session, now: datetime) -> bool:
-    """Operating-mode gate (R-201): decides whether the bot may handle a
-    question arriving at `now` at all, BEFORE any drafting/publishing logic
-    runs.
+    """Single source of truth for bot eligibility (kill switch + operating
+    mode gate, R-201): decides whether the bot may handle a question arriving
+    at `now` at all, BEFORE any drafting/publishing logic runs.
 
+    - `bot_enabled` (kill switch): read live from `ml_bot_config`. Missing or
+      empty-string is treated as disabled (fail safe). If disabled, the bot is
+      never eligible regardless of mode/time.
     - `off_hours_only` (default): eligible only when `now` is off-hours.
     - `always_on`: always eligible — business hours no longer hard-block the
       bot; they only affect the wait-window override (see `resolve_wait_minutes`).
     """
+    bot_enabled = get_config(db, "bot_enabled", cast=bool, default=False)
+    if not bot_enabled:
+        return False
+
     mode = get_operating_mode(db)
     if mode == _ALWAYS_ON:
         return True
@@ -161,20 +207,24 @@ _PRICE_PATTERNS = [
     re.compile(r"\$\s?\d"),
     re.compile(r"\b(ars|usd)\s?\$?\s?\d", re.IGNORECASE),
     re.compile(r"\d[\d.,]*\s*pesos\b", re.IGNORECASE),
-    re.compile(r"\bcuesta\b.*\d", re.IGNORECASE),
-    re.compile(r"\bsale\b.*\d", re.IGNORECASE),
+    re.compile(r"\bcuesta\b\D{0,15}\d", re.IGNORECASE),
+    re.compile(r"\bsale\b\s*(?:a|por)?\s*\$\s*\d", re.IGNORECASE),
 ]
 
 # Stock-quantity-like numeric claims: a number followed by unit words.
 _STOCK_QUANTITY_PATTERNS = [
     re.compile(r"\b\d+\s+unidades\b", re.IGNORECASE),
     re.compile(r"\bquedan\s+\d+\b", re.IGNORECASE),
-    re.compile(r"\btenemos\s+\d+\b", re.IGNORECASE),
+    re.compile(r"\btenemos\s+\d+\s+(unidades|en\s+stock|disponibles\s+en\s+stock|u\.)", re.IGNORECASE),
 ]
 
-# Exact-address patterns: street name + number (Av./calle + digits).
+# Exact-address patterns: street name + number (Av./calle + digits), or a
+# bare "StreetName 1234" (capitalized word(s) + a 2-5 digit number). The bare
+# form accepts a wider false-positive rate since a hit only routes to the
+# warm fallback answer, not to a hard failure.
 _ADDRESS_PATTERNS = [
     re.compile(r"\b(av\.?|avenida|calle)\s+[a-záéíóúñ0-9\s]+\d{2,5}\b", re.IGNORECASE),
+    re.compile(r"\b[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]*)*\s+\d{2,5}\b"),
 ]
 
 _DENYLIST_PATTERNS = _PRICE_PATTERNS + _STOCK_QUANTITY_PATTERNS + _ADDRESS_PATTERNS
@@ -183,13 +233,28 @@ _DENYLIST_PATTERNS = _PRICE_PATTERNS + _STOCK_QUANTITY_PATTERNS + _ADDRESS_PATTE
 # instruction override, jailbreak/role-play framing, and exfiltration probes
 # (R-504 adversarial coverage: EN + es-AR variants).
 _MANIPULATION_PATTERNS = [
-    re.compile(r"ignor[ae]?\s?(a|á)?\s?(all\s)?(previous\s)?instruc", re.IGNORECASE),
+    # EN: "ignore (all/previous) instructions"
+    re.compile(r"ignore\s+(?:all\s+|previous\s+)*instruc", re.IGNORECASE),
+    # es-AR: tolerant of intervening words between "ignor*" and its target,
+    # e.g. "Ignorá las instrucciones anteriores", "Ignorá todo lo anterior".
+    re.compile(
+        r"ignor[aáe]\w*\W+(?:\w+\W+){0,4}?(instruc|anterior|previo|previous|prompt)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"olvid[aáeí]\w*\W+(?:\w+\W+){0,4}?(instruc|anterior|previo|regla|prompt)",
+        re.IGNORECASE,
+    ),
     re.compile(r"forget\s+(your|all|previous)\s+instruc", re.IGNORECASE),
     re.compile(r"olvidate\s+de\s+tus\s+reglas", re.IGNORECASE),
     re.compile(r"you\s+are\s+now\s+an?\s+unrestricted", re.IGNORECASE),
     re.compile(r"actu[aá]\s+como\s+un\s+asistente\s+sin\s+restric", re.IGNORECASE),
     re.compile(r"system\s?prompt", re.IGNORECASE),
-    re.compile(r"reveal|revel[aá]", re.IGNORECASE),
+    # "reveal"/"revelá" bounded to injection context (prompt/instructions/
+    # system/config) so casual questions like "¿Me revelás si hay descuento?"
+    # do not false-positive.
+    re.compile(r"reveal\w*\W+(?:\w+\W+){0,3}?(prompt|instruc|system|config)", re.IGNORECASE),
+    re.compile(r"revel[aá]\w*\W+(?:\w+\W+){0,3}?(prompt|instruc|sistema|system|config)", re.IGNORECASE),
     re.compile(r"actual\s+(price|quantity)", re.IGNORECASE),
     re.compile(r"precio\s+exacto", re.IGNORECASE),
     re.compile(r"direcci[oó]n\s+exacta", re.IGNORECASE),

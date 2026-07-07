@@ -13,8 +13,11 @@ via a `ml_bot_config` SQLite-backed `db` fixture, read live (no indefinite cache
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from app.models.ml_bot_config import MlBotConfig
 from app.services.ml_questions import policy
@@ -120,29 +123,51 @@ class TestOperatingModeGate:
     tz = ZoneInfo("America/Argentina/Buenos_Aires")
 
     def test_off_hours_only_blocks_bot_during_business_hours(self, db) -> None:
-        _seed_config(db, operating_mode="off_hours_only")
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
         now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # Tuesday in-hours
         assert policy.is_eligible_for_bot(db, now) is False
 
     def test_off_hours_only_allows_bot_off_hours(self, db) -> None:
-        _seed_config(db, operating_mode="off_hours_only")
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
         now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours
         assert policy.is_eligible_for_bot(db, now) is True
 
     def test_always_on_allows_bot_during_business_hours(self, db) -> None:
-        _seed_config(db, operating_mode="always_on")
+        _seed_config(db, bot_enabled="true", operating_mode="always_on")
         now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # in-hours
         assert policy.is_eligible_for_bot(db, now) is True
 
     def test_always_on_allows_bot_off_hours_too(self, db) -> None:
-        _seed_config(db, operating_mode="always_on")
+        _seed_config(db, bot_enabled="true", operating_mode="always_on")
         now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
         assert policy.is_eligible_for_bot(db, now) is True
 
     def test_unknown_operating_mode_defaults_to_off_hours_only_behavior(self, db) -> None:
-        _seed_config(db, operating_mode="bogus_mode")
+        _seed_config(db, bot_enabled="true", operating_mode="bogus_mode")
         now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # in-hours
         assert policy.is_eligible_for_bot(db, now) is False
+
+
+class TestBotEnabledKillSwitch:
+    """Fix 5: `is_eligible_for_bot` must itself check `bot_enabled` (single
+    source of truth for the kill switch), regardless of mode/time."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_bot_enabled_false_blocks_regardless_of_mode_and_time(self, db) -> None:
+        _seed_config(db, bot_enabled="false", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours, always_on -> would be True
+        assert policy.is_eligible_for_bot(db, now) is False
+
+    def test_bot_enabled_missing_defaults_to_disabled(self, db) -> None:
+        _seed_config(db, bot_enabled="", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.is_eligible_for_bot(db, now) is False
+
+    def test_bot_enabled_true_preserves_existing_truth_table(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours -> eligible
+        assert policy.is_eligible_for_bot(db, now) is True
 
 
 class TestResolveWaitMinutes:
@@ -169,3 +194,71 @@ class TestResolveWaitMinutes:
         _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="15")
         now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
         assert policy.resolve_wait_minutes(db, now) == 5
+
+    def test_wait_minutes_business_hours_zero_returns_zero(self, db) -> None:
+        """Fix 8/INFO: explicit "0" override means instant publish, not unset."""
+        _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="0")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 0
+
+
+class TestMalformedConfigFailsSafe:
+    """Fix 4: malformed config values must not crash the gate; they must fail
+    SAFE (treated as within business hours -> bot NOT eligible in
+    off_hours_only mode) and log a warning."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        """The `app` root logger sets propagate=False (app/core/logging.py) to
+        avoid duplicate logs under uvicorn; re-enable propagation for the
+        duration of these tests so caplog (which attaches to the root logger)
+        can observe the warning emitted by `policy.logger`."""
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_malformed_business_hours_start_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_hours_start="930")  # missing colon
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True  # fail-safe: treated as in-hours
+        assert any("business_hours_start" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_business_hours_end_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_hours_end="not-a-time")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_hours_end" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_business_days_json_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_days="1,2,3,4,5")  # invalid JSON (no brackets)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_days" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_timezone_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, timezone="Not/A_Real_Zone")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("timezone" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_config_does_not_raise(self, db) -> None:
+        _seed_config(db, business_hours_start="930", business_days="bogus", timezone="Bogus/Zone")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        # Must not raise any exception.
+        policy.is_within_business_hours(db, now)
