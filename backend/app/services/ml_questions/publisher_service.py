@@ -373,6 +373,20 @@ async def _publish_one(question_id: int) -> str:
         return _mark_failed_or_retry(question_id, str(exc))
 
 
+async def publish_question_now(question_id: int) -> str:
+    """Public wrapper around `_publish_one` (Slice F, design §9: "Publish-now
+    endpoint reuses `publisher_service.publish_one()` so the wait-loop and
+    manual path share identical ML-post + idempotency code").
+
+    The router is responsible for CAS-transitioning the row into `waiting`
+    (with `wait_until` set to now and `attempts` reset to 0, per the
+    fresh-publish-budget convention — see `routers/ml_bot.py`) BEFORE
+    calling this function; this function only performs the claim + POST +
+    terminal-write pipeline exactly as the background publish cycle does.
+    """
+    return await _publish_one(question_id)
+
+
 async def run_ml_questions_publish_cycle() -> Dict[str, Any]:
     """One publish tick: reclaim stale claims -> select due rows -> claim
     and publish each.

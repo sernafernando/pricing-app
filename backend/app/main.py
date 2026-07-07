@@ -65,6 +65,7 @@ from app.api.endpoints import (
 )
 from app.routers import (
     consultas,
+    ml_bot,
     administracion_bancos,
     administracion_caja,
     administracion_cheques,
@@ -364,6 +365,9 @@ app.include_router(sse.router, prefix="/api", tags=["SSE"])
 
 # ── Módulo Consultas ───────────────────────────────────────────────
 app.include_router(consultas.router, prefix="/api")
+
+# ── ML Bot - Preguntas (Slice F) ──────────────────────────────────
+app.include_router(ml_bot.router, prefix="/api")
 
 # ── Módulo Administración (sector empresa) ────────────────────────
 app.include_router(empresas.router, prefix="/api", tags=["admin-empresas"])
