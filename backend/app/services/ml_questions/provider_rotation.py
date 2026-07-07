@@ -123,15 +123,28 @@ def _load_roster_entries(db: Any) -> List[dict]:
         return _default_roster_entries(db)
 
     entries: List[dict] = []
+    seen_names: set = set()
     for item in parsed:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
             logger.warning("ml-bot provider roster: skipping malformed entry %r", item)
             continue
+
+        enabled_raw = item.get("enabled", True)
+        if not isinstance(enabled_raw, bool):
+            logger.warning("ml-bot provider roster: skipping entry %r with non-boolean 'enabled'", item)
+            continue
+
+        name = item["name"].strip()
+        if name in seen_names:
+            logger.warning("ml-bot provider roster: skipping duplicate entry for provider '%s'", name)
+            continue
+        seen_names.add(name)
+
         entries.append(
             {
-                "name": item["name"].strip(),
+                "name": name,
                 "model": item.get("model") if isinstance(item.get("model"), str) else None,
-                "enabled": bool(item.get("enabled", True)),
+                "enabled": enabled_raw,
             }
         )
 

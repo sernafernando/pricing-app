@@ -124,7 +124,7 @@ failover if one is rate-limited/down (`provider_rotation.py`).
    `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`. A provider is
    only used if its key is set AND it's `enabled` in the roster.
 2. Roster: `ml_bot_config` key `llm_providers`, a JSON list, panel-editable
-   via `PUT /api/ml-bot/config`:
+   via `PUT /api/ml-bot/config/{clave}`:
    ```json
    [
      {"name": "groq", "enabled": true},

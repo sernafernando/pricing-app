@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 from unittest.mock import patch
@@ -170,6 +171,75 @@ class TestRosterParsing:
             providers = provider_rotation.available_providers(db)
 
         assert providers == []
+
+    def test_string_enabled_false_treated_as_malformed_and_skipped(self, db, monkeypatch, caplog) -> None:
+        _all_keys_configured(monkeypatch)
+        roster = [
+            {"name": "groq", "enabled": "false"},
+            {"name": "cerebras", "enabled": True},
+        ]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        target_logger = logging.getLogger("app.services.ml_questions.provider_rotation")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.WARNING)
+
+        try:
+            with _patch_db(db):
+                providers = provider_rotation.available_providers(db)
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        assert [p.name for p in providers] == ["cerebras"]
+        assert any("groq" in record.getMessage() for record in caplog.records)
+
+    def test_enabled_json_false_excludes_provider(self, db, monkeypatch) -> None:
+        _all_keys_configured(monkeypatch)
+        roster = [
+            {"name": "groq", "enabled": False},
+            {"name": "cerebras", "enabled": True},
+        ]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        with _patch_db(db):
+            providers = provider_rotation.available_providers(db)
+
+        assert [p.name for p in providers] == ["cerebras"]
+
+    def test_enabled_absent_defaults_to_true(self, db, monkeypatch) -> None:
+        _all_keys_configured(monkeypatch)
+        roster = [{"name": "groq"}]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        with _patch_db(db):
+            providers = provider_rotation.available_providers(db)
+
+        assert [p.name for p in providers] == ["groq"]
+
+    def test_duplicate_roster_names_deduped(self, db, monkeypatch, caplog) -> None:
+        _all_keys_configured(monkeypatch)
+        roster = [
+            {"name": "groq", "enabled": True},
+            {"name": "groq", "enabled": True},
+        ]
+        _seed_config(db, provider_rotation.ROSTER_CONFIG_KEY, json.dumps(roster))
+        db.commit()
+
+        target_logger = logging.getLogger("app.services.ml_questions.provider_rotation")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.WARNING)
+
+        try:
+            with _patch_db(db):
+                providers = provider_rotation.available_providers(db)
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        assert [p.name for p in providers] == ["groq"]
+        assert any("duplicate" in record.getMessage().lower() for record in caplog.records)
 
 
 class TestRotationCursor:
