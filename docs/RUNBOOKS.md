@@ -178,6 +178,54 @@ failover if one is rate-limited/down (`provider_rotation.py`).
    warm fallback. Which provider answered is logged (`drafting_service`
    logs, `INFO` level) — no DB column added for this (logging only, MVP).
 
+### Answer Shaping (Concision, Closing, Company Signature)
+
+`answer_shaping.py` post-processes every REAL bot answer (never the warm
+fallback) with four panel-editable `ml_bot_config` keys, all applied
+deterministically AFTER the LLM call — never inside the prompt's own JSON
+output — so `drafted_answer` always shows the operator exactly what will be
+published:
+
+1. `answer_max_chars` (int, default `300` when absent/malformed/non-positive):
+   injected dynamically into the system prompt ("Respondé en menos de N
+   caracteres...") AND enforced fail-closed at parse time
+   (`llm_provider.parse_llm_output`) — an answer over the limit is rejected
+   like any other schema violation and routes to the warm fallback, never
+   published over-limit.
+   ```
+   PUT /api/ml-bot/config/answer_max_chars
+   {"valor": "250", "tipo": "int"}
+   ```
+2. `answer_closing_text` (string, absent/empty = off): a closing greeting
+   appended to real answers only.
+   ```
+   PUT /api/ml-bot/config/answer_closing_text
+   {"valor": "¡Gracias por tu consulta!", "tipo": "string"}
+   ```
+3. `answer_company_signature` (string, DEFAULT signature): used ONLY for
+   publications WITHOUT an official store (`item.official_store_id` absent).
+   ```
+   PUT /api/ml-bot/config/answer_company_signature
+   {"valor": "Somos Gauss Online", "tipo": "string"}
+   ```
+4. `answer_signatures_by_store` (JSON object, per-store override): applies
+   ONLY to publications WITH an official store — the default signature is
+   never used for these. Key = `official_store_id` as a string, value = the
+   signature text (`""` = explicitly no signature for that store).
+   ```
+   PUT /api/ml-bot/config/answer_signatures_by_store
+   {"valor": "{\"2645\": \"Somos la tienda oficial TP-Link\"}", "tipo": "json"}
+   ```
+   **Fail-safe rules**: an official-store item with NO entry in this map
+   gets NO signature at all (better unsigned than signed with the wrong
+   store's text); malformed JSON disables per-store signatures entirely
+   (logged warning) without affecting the default signature for
+   non-official items.
+
+Assembly order: `LLM answer` + `"\n\n" + closing` (if any) + `"\n" +
+signature` (if any). The final text is hard-capped at 2000 characters
+(ML's own limit) regardless of how generous the config knobs above are.
+
 ### Permissions
 
 `ml_bot.ver` (view the panel / `GET /questions`), `ml_bot.responder` (act on
