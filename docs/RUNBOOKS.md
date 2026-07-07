@@ -231,6 +231,49 @@ text never ends mid-component. Verify signature discrimination against a
 real official-store item during the trial (check the drafting log line —
 `ml-bot drafting: question <id> official_store_id=... signature_path=...`).
 
+### Business Hours vs Attention Hours (schedules-v2)
+
+Two separate, independently-editable `ml_bot_config` keys — the bot's
+WORKING schedule (gates eligibility) is not the same as the ATTENTION hours
+text it tells buyers:
+
+1. **`work_schedule`** (JSON, per-day, panel-editable): governs
+   `policy.is_within_business_hours` (the bot-eligibility gate, R-201/R-202)
+   and the R-602 repeat-buyer-after-midnight window
+   (`policy.resolve_last_working_day_end`). Keys are ISO weekdays `"1"`
+   (Monday) through `"7"` (Sunday); an absent day means non-working. Example
+   matching a Mon-Fri 09-18 + Saturday 09-13 real-world schedule:
+   ```
+   PUT /api/ml-bot/config/work_schedule
+   {
+     "valor": "{\"1\": [\"09:00\", \"18:00\"], \"2\": [\"09:00\", \"18:00\"], \"3\": [\"09:00\", \"18:00\"], \"4\": [\"09:00\", \"18:00\"], \"5\": [\"09:00\", \"18:00\"], \"6\": [\"09:00\", \"13:00\"]}",
+     "tipo": "json"
+   }
+   ```
+   Boundary semantics are unchanged: `[start, end)` per day (start counts as
+   in-hours, end does not). **Fail-safe cascade**: if `work_schedule` is
+   absent/empty, or malformed in any way (invalid JSON, not a JSON object,
+   a day key outside `1`-`7`, a bad `"HH:MM"` time, or `start >= end` for a
+   day), the bot logs a warning and falls back to the legacy
+   `business_days` (JSON list of ISO weekdays) + `business_hours_start` /
+   `business_hours_end` (single `"HH:MM"` pair, same hours every business
+   day) keys — full backward compatibility for deployments that never set
+   `work_schedule`.
+2. **`attention_hours_text`** (free text, panel-editable): what the bot
+   TELLS buyers about when they'll get a human response — independent of
+   the gate above, so it can read naturally even for an irregular schedule:
+   ```
+   PUT /api/ml-bot/config/attention_hours_text
+   {"valor": "de lunes a viernes de 9 a 18hs y sábados de 9 a 13hs", "tipo": "string"}
+   ```
+   Flows into two places:
+   - The LLM's `business_vars` (`context_builder.load_business_vars`), so a
+     real bot answer can reference it naturally.
+   - The `{attention_hours}` placeholder inside `warm_fallback_template`,
+     resolved at fallback-render time (`drafting_service._build_fallback_message`):
+     replaced with the configured text when set; cleanly removed (never a
+     literal `"{attention_hours}"`, never a crash) when absent/empty.
+
 ### Permissions
 
 `ml_bot.ver` (view the panel / `GET /questions`), `ml_bot.responder` (act on
