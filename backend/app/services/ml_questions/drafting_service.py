@@ -62,7 +62,7 @@ from app.core.database import get_background_db
 from app.core.sse import sse_publish_bg
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import ml_client
-from app.services.ml_questions import context_builder, policy
+from app.services.ml_questions import answer_shaping, context_builder, policy
 from app.services.ml_questions.llm_provider import LlmProvider, LlmProviderError, parse_llm_output
 from app.services.ml_questions.provider_rotation import RotatingProvider
 
@@ -251,8 +251,20 @@ def _resolve_fallback(
     _emit_reload_hint()
 
 
-def _resolve_success(question_id: int, answer: str, confidence: float, category: str) -> None:
-    """Successful bot answer (design §6 stage 7 happy path) -> `waiting`."""
+def _resolve_success(
+    question_id: int,
+    answer: str,
+    confidence: float,
+    category: str,
+    official_store_id: Optional[int],
+) -> None:
+    """Successful bot answer (design §6 stage 7 happy path) -> `waiting`.
+
+    Answer-shaping (sdd/ml-questions-ai/answer-shaping): the closing
+    greeting + company signature are appended HERE, deterministically, on
+    top of the raw LLM answer — never inside the LLM call itself — and the
+    FULL assembled text is what gets stored in `drafted_answer` (what the
+    operator sees/approves in the panel is exactly what ships)."""
     with get_background_db() as db:
         row = (
             db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
@@ -260,8 +272,24 @@ def _resolve_success(question_id: int, answer: str, confidence: float, category:
         if row is None:
             return
         wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
+        closing = answer_shaping.resolve_closing_text(db)
+        signature = answer_shaping.resolve_signature(db, official_store_id)
+        final_answer = answer_shaping.assemble_final_answer(answer, closing, signature)
+        # Judgment Day fix (observability): `official_store_id` drives which
+        # signature path is used, but it comes from ML's item payload — if
+        # ML ever renames/drops the field, `extract_official_store_id` fails
+        # safe to `None` SILENTLY (default-signature path). Log the resolved
+        # id + path so a real-world field absence/rename is visible in logs
+        # instead of a silent all-None degradation.
+        signature_path = "none" if official_store_id is None else "per-store"
+        logger.info(
+            "ml-bot drafting: question %s official_store_id=%r signature_path=%s",
+            question_id,
+            official_store_id,
+            signature_path,
+        )
         row.status = "waiting"
-        row.drafted_answer = answer
+        row.drafted_answer = final_answer
         row.confidence = confidence
         row.category = category
         row.answer_source = "bot"
@@ -362,13 +390,14 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
         with get_background_db() as db:
             context = context_builder.build_scoped_context(db, question["question_text"], item_payload)
             min_confidence = policy.get_config(db, "min_confidence", cast=float, default=_DEFAULT_MIN_CONFIDENCE)
+            answer_max_chars = answer_shaping.get_answer_max_chars(db)
 
-        system_prompt, user_payload = context_builder.build_prompt(context)
+        system_prompt, user_payload = context_builder.build_prompt(context, answer_max_chars)
 
         try:
             # Groq call happens here — no DB session is open at this point.
             raw = await provider.complete(system_prompt, user_payload)
-            parsed = parse_llm_output(raw)
+            parsed = parse_llm_output(raw, max_chars=answer_max_chars)
         except LlmProviderError as exc:
             logger.warning("ml-bot drafting: provider/parse failure for question %s: %s", question_id, exc)
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=False)
@@ -379,7 +408,7 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=denylist_hit)
             return "fallback"
 
-        _resolve_success(question_id, parsed.answer, parsed.confidence, parsed.category)
+        _resolve_success(question_id, parsed.answer, parsed.confidence, parsed.category, context.official_store_id)
         return "drafted"
 
     except Exception as exc:  # noqa: BLE001 — must never crash the loop.

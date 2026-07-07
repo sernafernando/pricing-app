@@ -289,3 +289,27 @@ class TestParseLlmOutput:
         raw = json.dumps({"answer": "hola", "confidence": 0.9, "category": category, "can_answer": True})
         with pytest.raises(LlmProviderError):
             parse_llm_output(raw)
+
+
+class TestParseLlmOutputMaxChars:
+    """Answer-shaping (sdd/ml-questions-ai/answer-shaping): fail-closed
+    enforcement of the panel-editable `answer_max_chars` budget."""
+
+    def _raw(self, answer: str) -> str:
+        return json.dumps({"answer": answer, "confidence": 0.9, "category": "stock", "can_answer": True})
+
+    def test_answer_within_max_chars_accepted(self) -> None:
+        result = parse_llm_output(self._raw("Hola, sí tenemos stock."), max_chars=300)
+        assert result.answer == "Hola, sí tenemos stock."
+
+    def test_answer_over_max_chars_rejected(self) -> None:
+        with pytest.raises(LlmProviderError):
+            parse_llm_output(self._raw("x" * 301), max_chars=300)
+
+    def test_answer_exactly_at_max_chars_accepted(self) -> None:
+        result = parse_llm_output(self._raw("x" * 300), max_chars=300)
+        assert len(result.answer) == 300
+
+    def test_no_max_chars_disables_check(self) -> None:
+        result = parse_llm_output(self._raw("x" * 5000))
+        assert len(result.answer) == 5000

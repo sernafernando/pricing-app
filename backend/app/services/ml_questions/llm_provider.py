@@ -221,7 +221,7 @@ def _extract_content(response: httpx.Response, provider_name: str = "provider") 
     return content
 
 
-def parse_llm_output(raw: str) -> LlmAnswer:
+def parse_llm_output(raw: str, max_chars: Optional[int] = None) -> LlmAnswer:
     """Strict closed-schema parser (R-302, design §6 stage 5).
 
     Accepts ONLY a JSON object with exactly the fields `answer` (str),
@@ -229,6 +229,14 @@ def parse_llm_output(raw: str) -> LlmAnswer:
     no less. Malformed JSON, missing fields, extra fields, or wrong types
     all raise `LlmProviderError` so the caller routes to fallback; this
     function never returns free-text or a partially-filled object.
+
+    `max_chars` (answer-shaping, `sdd/ml-questions-ai/answer-shaping`):
+    when provided, fail-closed enforcement of the panel-editable concision
+    budget — an `answer` longer than `max_chars` raises `LlmProviderError`
+    just like any other schema violation, routing the caller to the warm
+    fallback rather than publishing an over-long answer. `None`/absent
+    disables the check (kept optional so existing callers/tests that don't
+    care about length are unaffected).
     """
     try:
         data = json.loads(raw)
@@ -249,6 +257,8 @@ def parse_llm_output(raw: str) -> LlmAnswer:
 
     if not isinstance(answer, str) or not answer.strip():
         raise LlmProviderError("LLM output 'answer' must be a non-empty string")
+    if max_chars is not None and len(answer) > max_chars:
+        raise LlmProviderError(f"LLM output 'answer' exceeds max_chars={max_chars} (len={len(answer)})")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise LlmProviderError("LLM output 'confidence' must be a number")
     if not (0.0 <= float(confidence) <= 1.0):
