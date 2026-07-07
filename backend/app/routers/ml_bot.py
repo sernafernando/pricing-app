@@ -13,16 +13,27 @@ prior slices):
   never matches `publishing` — a row claimed by the background publisher for
   an in-flight POST can never be stolen mid-publish (CAS on the current
   status makes this a no-op 404, not a race).
-- `publish-now` accepts `waiting`, `taken_over`, or `failed` as sources. It
-  CAS-transitions the row into `waiting` (wait_until=now, so the semantics
-  match "due immediately") in the SAME UPDATE that resets `attempts = 0` —
-  entering `waiting` always means a fresh publish budget, exactly like
-  `drafting_service._resolve_success`/`_resolve_fallback` do when a draft
-  first reaches `waiting`. This is also what satisfies the panel's "retry a
-  failed row" action per design §2's `failed -> waiting` (manual retry)
-  transition. It then delegates to
-  `publisher_service.publish_question_now()` so the wait-loop and the
-  manual path share identical ML-post + idempotency code (design §9).
+- `publish-now` accepts `waiting`, `taken_over`, `pending_morning`, or
+  `failed` as sources. It CAS-transitions the row into `waiting`
+  (wait_until=now, so the semantics match "due immediately") in the SAME
+  UPDATE, but the `attempts` reset is SOURCE-STATE-DEPENDENT (Judgment Day
+  fix — blind-repost prevention):
+  - `waiting` / `taken_over` / `pending_morning` -> `attempts = 0` (fresh
+    publish budget: these rows never had a real prior publish attempt on
+    this cycle, exactly like `drafting_service._resolve_success` /
+    `_resolve_fallback` do when a draft first reaches `waiting`).
+  - `failed` -> `attempts = 1`. A `failed` row DID have real prior publish
+    attempts (that's how it got here); `attempts` is the publisher's CLAIM
+    counter (see `publisher_service._claim_for_publishing`), and the very
+    first thing `_claim_for_publishing` does on the next claim is bump it
+    again, landing at `attempts == 2`. That guarantees `_publish_one`'s
+    verify-before-repost gate (`attempts > 1`) ALWAYS fires on a manual
+    retry from `failed`, so the panel can never blindly re-POST a question
+    ML may have already answered. This is the panel's "retry a failed row"
+    action per design §2's `failed -> waiting` (manual retry) transition.
+  It then delegates to `publisher_service.publish_question_now()` so the
+  wait-loop and the manual path share identical ML-post + idempotency code
+  (design §9).
 - `hold` CAS-transitions `waiting`/`taken_over` -> `pending_morning`.
 - `answer` (PUT) only edits `drafted_answer` on a `taken_over` row — a
   human must explicitly take over before editing, so the bot's own draft
@@ -57,7 +68,11 @@ router = APIRouter(
 # Judgment Day notes above).
 _TAKE_OVER_SOURCE_STATES = ("waiting", "pending_morning", "failed")
 _HOLD_SOURCE_STATES = ("waiting", "taken_over")
-_PUBLISH_NOW_SOURCE_STATES = ("waiting", "taken_over", "failed")
+_PUBLISH_NOW_SOURCE_STATES = ("waiting", "taken_over", "pending_morning", "failed")
+# Sources whose retry-from-failed history means the next claim must verify
+# before re-posting (Judgment Day fix — see module docstring). Every other
+# source in `_PUBLISH_NOW_SOURCE_STATES` resets to a fresh `attempts = 0`.
+_PUBLISH_NOW_FAILED_RETRY_ATTEMPTS = 1
 
 
 # =============================================================================
@@ -202,7 +217,12 @@ def listar_preguntas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> QuestionListResponse:
-    """Lista preguntas del bot (paginado, filtrable por status). Requiere `ml_bot.ver`."""
+    """Lista preguntas del bot (paginado, filtrable por status). Requiere `ml_bot.ver`.
+
+    Nota adjudicada (Judgment Day): `last_error` se expone intencionalmente
+    acá — es visible para cualquiera con `ml_bot.ver` (personal interno),
+    no es información sensible de cara al comprador.
+    """
     _check_permiso(db, current_user, "ml_bot.ver")
 
     query = db.query(MlBotQuestion)
@@ -256,7 +276,15 @@ def editar_respuesta(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> QuestionResponse:
-    """Edita el borrador de una pregunta ya tomada por un humano. Requiere `ml_bot.responder`."""
+    """Edita el borrador de una pregunta ya tomada por un humano. Requiere `ml_bot.responder`.
+
+    Nota adjudicada (Judgment Day): el contenido escrito acá por un humano
+    queda intencionalmente EXENTO de la denylist del bot (R-502 aplica solo
+    a contenido generado por el bot). Un operador con `ml_bot.responder` es
+    responsable de lo que escribe manualmente, igual que si respondiera
+    directamente en ML — no hay validación de contenido adicional sobre
+    `drafted_answer` en este endpoint.
+    """
     _check_permiso(db, current_user, "ml_bot.responder")
     q = _get_question_or_404(db, question_id)
 
@@ -281,10 +309,16 @@ async def publicar_ahora(
 ) -> QuestionResponse:
     """Publica inmediatamente (bypass wait-window). Requiere `ml_bot.responder`.
 
-    CAS desde `waiting`/`taken_over`/`failed` -> `waiting` con
-    `wait_until=now` y `attempts=0` (fresh publish budget — this is also
-    the panel's "retry a failed row" action per design §2's
-    `failed -> waiting` manual-retry transition), luego delega a
+    CAS desde `waiting`/`taken_over`/`pending_morning`/`failed` -> `waiting`
+    con `wait_until=now`. El reset de `attempts` depende del estado de
+    origen (ver docstring del módulo): `failed` -> `attempts=1` (esta fila
+    tuvo intentos de publicación reales; el próximo claim del publisher lo
+    sube a 2, lo que fuerza el gate de verificación-antes-de-repostear de
+    `_publish_one` y evita un repost ciego de una pregunta que ML ya pudo
+    haber respondido). Cualquier otro origen -> `attempts=0` (fresh publish
+    budget genuino, nunca publicado). Esto es también la acción del panel
+    "reintentar una fila fallida" según la transición manual `failed ->
+    waiting` del §2 del diseño. Luego delega a
     `publisher_service.publish_question_now()` para reusar exactamente el
     mismo pipeline de POST + idempotencia que el loop de background.
     """
@@ -299,6 +333,8 @@ async def publicar_ahora(
     if not q.drafted_answer:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay respuesta cargada para publicar")
 
+    reset_attempts = _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS if q.status == "failed" else 0
+
     now = datetime.now(timezone.utc)
     ok = _cas_transition(
         db,
@@ -306,7 +342,7 @@ async def publicar_ahora(
         _PUBLISH_NOW_SOURCE_STATES,
         status="waiting",
         wait_until=now,
-        attempts=0,
+        attempts=reset_attempts,
         updated_at=now,
     )
     if not ok:

@@ -6,9 +6,11 @@ Covers:
 - Every endpoint enforces its documented `ml_bot.*` permission code (403
   without it, 200/201/204 with it) independent of frontend state.
 - take-over CAS never steals a row mid-publish (`publishing` excluded).
-- publish-now resets `attempts=0` entering `waiting` (fresh publish budget,
-  including the failed->waiting manual-retry path) and delegates to
-  `publisher_service.publish_question_now()`.
+- publish-now resets `attempts` source-state-dependently entering `waiting`:
+  `attempts=0` for waiting/taken_over/pending_morning (fresh budget),
+  `attempts=1` for the failed->waiting manual-retry path (forces the
+  publisher's verify-before-repost gate on the very next claim) — and
+  delegates to `publisher_service.publish_question_now()`.
 - answer edit only allowed on `taken_over` rows.
 - config/toggle/examples CRUD round-trips.
 """
@@ -25,6 +27,35 @@ from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 
 BASE = "/api/ml-bot"
+
+
+class _BackgroundDbCtx:
+    """Same SAVEPOINT-based stub used by `test_ml_bot_publisher_service.py`,
+    so `get_background_db()` (used internally by the real
+    `publisher_service` pipeline) reuses this test's transactional `db`
+    fixture instead of hitting a separate production-configured engine."""
+
+    def __init__(self, db) -> None:
+        self._db = db
+        self._nested = None
+
+    def __enter__(self):
+        self._nested = self._db.begin_nested()
+        return self._db
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is None:
+            self._nested.commit()
+        else:
+            self._nested.rollback()
+        return False
+
+
+def _patch_background_db(db):
+    return patch(
+        "app.services.ml_questions.publisher_service.get_background_db",
+        return_value=_BackgroundDbCtx(db),
+    )
 
 
 # ==========================================================================
@@ -246,10 +277,12 @@ class TestPublishNow:
         assert r.status_code == 200
         mock_publish.assert_awaited_once_with(q.id)
 
-    def test_retry_de_failed_resetea_attempts(self, client, auth_headers, db, con_todos_los_permisos) -> None:
-        """Judgment Day note: retrying a `failed` row (failed -> waiting)
-        MUST reset attempts=0 — entering waiting is always a fresh publish
-        budget."""
+    def test_retry_de_failed_resetea_attempts_a_uno(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """Judgment Day fix: retrying a `failed` row (failed -> waiting)
+        MUST reset attempts=1 (not 0) — a `failed` row had real prior
+        publish attempts, so the next publisher claim lands at attempts==2
+        and `_publish_one`'s verify-before-repost gate always fires,
+        preventing a blind re-post."""
         q = _seed_question(db, status="failed", attempts=3, last_error="boom")
         db.commit()
         q_id = q.id
@@ -264,7 +297,99 @@ class TestPublishNow:
         assert r.status_code == 200
         db.expire_all()
         refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
+        assert refreshed.attempts == 1
+
+    def test_publica_desde_pending_morning(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """Judgment Day fix (Judge A WARNING): pending_morning rows have
+        never entered publishing, so publish-now must reach them directly
+        with a fresh attempts=0 budget."""
+        q = _seed_question(db, status="pending_morning")
+        db.commit()
+        q_id = q.id
+
+        with patch(
+            "app.services.ml_questions.publisher_service.publish_question_now",
+            new_callable=AsyncMock,
+            return_value="published",
+        ) as mock_publish:
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        mock_publish.assert_awaited_once_with(q_id)
+        db.expire_all()
+        refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
         assert refreshed.attempts == 0
+
+    def test_retry_de_failed_ya_respondida_no_reposta(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """Judgment Day CRITICAL fix, real integration path: a `failed` row
+        whose question was ALREADY ANSWERED on ML (e.g. a prior claim's POST
+        succeeded but the terminal DB write was lost to a crash) must be
+        verified before re-posting when retried via publish-now. Only
+        `ml_client.get_question` is mocked; the full CAS -> claim ->
+        verify -> mark-published pipeline runs for real, and
+        `post_answer` must never be called."""
+        q = _seed_question(db, status="failed", attempts=3, last_error="boom")
+        db.commit()
+        q_id = q.id
+        ml_question_id = q.ml_question_id
+
+        with (
+            _patch_background_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.get_question",
+                new_callable=AsyncMock,
+                return_value={"status": "ANSWERED"},
+            ) as mock_get_question,
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new_callable=AsyncMock,
+            ) as mock_post_answer,
+        ):
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        mock_get_question.assert_awaited_once_with(ml_question_id)
+        mock_post_answer.assert_not_awaited()
+
+        db.expire_all()
+        refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
+        assert refreshed.status == "published"
+
+    def test_retry_de_failed_no_respondida_publica_normalmente(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """Companion to the above: a `failed` row genuinely unanswered on ML
+        passes verification and is posted normally through the real
+        pipeline."""
+        q = _seed_question(db, status="failed", attempts=3, last_error="boom")
+        db.commit()
+        q_id = q.id
+        ml_question_id = q.ml_question_id
+
+        with (
+            _patch_background_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.get_question",
+                new_callable=AsyncMock,
+                return_value={"status": "UNANSWERED"},
+            ) as mock_get_question,
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new_callable=AsyncMock,
+                return_value={"id": 1},
+            ) as mock_post_answer,
+        ):
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        mock_get_question.assert_awaited_once_with(ml_question_id)
+        mock_post_answer.assert_awaited_once()
+
+        db.expire_all()
+        refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
+        assert refreshed.status == "published"
 
     def test_sin_respuesta_cargada_400(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         q = _seed_question(db, status="waiting", drafted_answer=None)
