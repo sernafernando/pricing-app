@@ -17,6 +17,7 @@ No pytest-asyncio in this project — async code is driven with `asyncio.run(...
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
@@ -1248,3 +1249,115 @@ class TestAnswerShaping:
 
         db.refresh(row)
         assert row.drafted_answer == "¡Hola! Sí, tenemos stock disponible."
+
+
+class _NamedFakeProvider(_FakeProvider):
+    """`_FakeProvider` plus a `name`/`model` (like `RotatingProvider` would
+    expose via `last_used_provider`), for item #2's `llm_provider` column."""
+
+    def __init__(self, raw: str, *, name: str = "groq", model: str = "llama-3.3-70b-versatile") -> None:
+        super().__init__(raw)
+        self.name = name
+        self.model = model
+        self.last_used_provider = f"{name}/{model}"
+
+
+class TestLlmProviderColumn:
+    """PR de pulido item #2: `ml_bot_questions.llm_provider` records
+    "provider/model" for a successful bot draft."""
+
+    def test_successful_draft_stores_provider_label(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        provider = _NamedFakeProvider(_VALID_RAW, name="cerebras", model="llama-3.3-70b")
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.llm_provider == "cerebras/llama-3.3-70b"
+
+    def test_plain_provider_without_label_leaves_column_null(self, db) -> None:
+        """A provider that exposes neither `last_used_provider` nor `name`
+        (e.g. the bare `_FakeProvider` used across most of this file)
+        leaves `llm_provider` NULL rather than crashing."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+
+        db.refresh(row)
+        assert row.llm_provider is None
+
+
+class TestLlmDebugLogging:
+    """PR de pulido item #1: `llm_debug_logging` config (default off) gates
+    an INFO log per draft prefixed "ml-bot llm-debug" with the full
+    prompt/response — zero new log lines when off."""
+
+    def test_off_by_default_no_debug_log(self, db, caplog) -> None:
+        _seed_bot_enabled(db)
+        _seed_question(db)
+        db.commit()
+
+        target_logger = logging.getLogger("app.services.ml_questions.drafting_service")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.INFO)
+        try:
+            with (
+                _patch_db(db),
+                patch(
+                    "app.services.ml_questions.drafting_service.ml_client.get_item",
+                    new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+                ),
+            ):
+                asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(_VALID_RAW)))
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        assert not any("ml-bot llm-debug" in record.getMessage() for record in caplog.records)
+
+    def test_enabled_logs_full_prompt_and_response(self, db, caplog) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "llm_debug_logging", "true")
+        _seed_question(db, question_text="¿Tienen stock del modelo azul?")
+        db.commit()
+
+        target_logger = logging.getLogger("app.services.ml_questions.drafting_service")
+        target_logger.addHandler(caplog.handler)
+        target_logger.setLevel(logging.INFO)
+        try:
+            with (
+                _patch_db(db),
+                patch(
+                    "app.services.ml_questions.drafting_service.ml_client.get_item",
+                    new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+                ),
+            ):
+                asyncio.run(
+                    drafting_service.run_ml_questions_draft_cycle(
+                        provider=_NamedFakeProvider(_VALID_RAW, name="groq", model="llama-3.3-70b-versatile")
+                    )
+                )
+        finally:
+            target_logger.removeHandler(caplog.handler)
+
+        debug_lines = [r.getMessage() for r in caplog.records if "ml-bot llm-debug" in r.getMessage()]
+        assert len(debug_lines) == 1
+        assert "¿Tienen stock del modelo azul?" in debug_lines[0]
+        assert "groq/llama-3.3-70b-versatile" in debug_lines[0]
