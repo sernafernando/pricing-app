@@ -23,15 +23,38 @@ Pipeline per row (design §8):
    - ML "already answered" (`QuestionAlreadyAnsweredError`) -> treated as
      success-equivalent -> `published` (idempotency: a retried publish
      after a crash between the POST and the terminal write must not fail).
-   - Other failure -> bounded retry: `attempts` (read FRESH from the DB in
-     the same short session as the write, per the D2 Judgment Day fix —
-     never trust a caller-captured value) incremented; back to `waiting`
-     under `_MAX_ATTEMPTS`, else `failed` with `last_error`.
+   - Other failure -> bounded retry: back to `waiting` under
+     `_MAX_ATTEMPTS` claims, else `failed` with `last_error`.
 5. Stale-claim reclaim: any row still `publishing` past
    `_PUBLISHING_STALE_MINUTES` (measured off `updated_at`) is CAS-reverted
    to `waiting` at the start of every cycle — covers the SIGKILL-between-
    claim-and-terminal-write case, same pattern as drafting's
    `_reclaim_stale_drafting_claims`.
+
+Counter semantics (Judgment Day round 2, fix 1 — REDESIGNED): `attempts`
+counts CLAIMS, not POST failures. It is incremented atomically INSIDE the
+`_claim_for_publishing` CAS UPDATE itself (`attempts = attempts + 1` in the
+same `values()` as the `waiting -> publishing` transition), so every single
+time a row is claimed for a publish attempt — whether or not a POST ever
+happens — the counter advances. This closes two holes in the previous
+"increment only on POST failure" design:
+- First-attempt-crash double-post: previously, a crash after a successful
+  POST but before the terminal write left `attempts == 0`, so the next
+  cycle's "first attempt" branch skipped verification and posted again
+  blind. Now the very act of claiming bumps `attempts` to 1 on the first
+  claim; a reclaimed row that gets claimed AGAIN is already at `attempts
+  >= 2`, so the verification-before-repost gate (`attempts > 1`) fires
+  correctly and detects the already-answered question via `get_question`
+  before ever re-posting.
+- Unbounded verify-revert livelock: previously, a transient `get_question`
+  verification failure reverted the row to `waiting` WITHOUT touching
+  `attempts`, so a persistently-unreachable ML API could loop forever
+  reverting the same row. Now the claim counter itself bounds the loop —
+  after `_MAX_ATTEMPTS` claims (regardless of what happened inside each
+  claim), a row claimed at the limit is not claimed again: `_fetch_due_ids`
+  routes it to `failed` ("publish attempts exhausted") instead.
+`_mark_failed_or_retry` no longer increments `attempts` (the claim already
+did) — it only reads the current value to decide retry vs `failed`.
 
 Adjudicated invariant (carried over from the D2 Judgment Day round-2 note):
 this reclaim, and the claim/terminal-write CAS transitions in general, are
@@ -106,29 +129,51 @@ def _reclaim_stale_publishing_claims(now: datetime) -> int:
     return reclaimed
 
 
-def _fetch_due_ids(now: datetime) -> List[int]:
+def _fetch_due_ids(now: datetime) -> tuple[List[int], int]:
     """Rows due for publication: `waiting` and past `wait_until`. Excludes
     `taken_over`/`pending_morning`/anything else by construction — human
-    takeover always wins the race (design §8 point 2)."""
+    takeover always wins the race (design §8 point 2).
+
+    A row already at `attempts >= _MAX_ATTEMPTS` (claim counter, Judgment Day
+    round 2 fix 1) is NOT returned for claiming — it is transitioned straight
+    to `failed` here instead, so the claim-counter bound on the retry loop
+    is enforced even if nothing ever calls `_claim_for_publishing` on it
+    again.
+
+    Returns `(due_ids, exhausted_count)` so the caller can fold the
+    exhausted rows into its stats even though they never go through
+    `_publish_one`.
+    """
     with get_background_db() as db:
-        return [
-            row.id
-            for row in db.query(MlBotQuestion)
+        rows = (
+            db.query(MlBotQuestion)
             .filter(MlBotQuestion.status == "waiting", MlBotQuestion.wait_until <= now)
             .order_by(MlBotQuestion.wait_until.asc())
             .limit(_BATCH_LIMIT)
             .all()
-        ]
+        )
+        due_ids: List[int] = []
+        exhausted_count = 0
+        for row in rows:
+            if row.attempts >= _MAX_ATTEMPTS:
+                row.status = "failed"
+                row.last_error = "publish attempts exhausted"
+                exhausted_count += 1
+            else:
+                due_ids.append(row.id)
+        return due_ids, exhausted_count
 
 
 def _claim_for_publishing(question_id: int) -> bool:
-    """CAS transition `waiting -> publishing`. Returns True only if THIS
-    call won the claim (guards concurrent publish-cycle ticks)."""
+    """CAS transition `waiting -> publishing`, incrementing `attempts`
+    ATOMICALLY in the same UPDATE (Judgment Day round 2 fix 1: `attempts`
+    counts CLAIMS, not POST failures). Returns True only if THIS call won
+    the claim (guards concurrent publish-cycle ticks)."""
     with get_background_db() as db:
         result = db.execute(
             update(MlBotQuestion)
             .where(MlBotQuestion.id == question_id, MlBotQuestion.status == "waiting")
-            .values(status="publishing", updated_at=func.now())
+            .values(status="publishing", updated_at=func.now(), attempts=MlBotQuestion.attempts + 1)
         )
         return result.rowcount == 1
 
@@ -162,12 +207,14 @@ def _mark_published(question_id: int) -> None:
         row.published_at = datetime.now(timezone.utc)
 
 
-def _revert_to_waiting_without_penalty(question_id: int) -> None:
-    """CAS-revert a claimed row back to `waiting` WITHOUT touching
-    `attempts`/`last_error` — used when a retry-verification `get_question`
-    call fails transiently (Judgment Day fix 1b): no POST was attempted, so
-    this is not a failed publish attempt and must not burn the bounded
-    retry budget."""
+def _revert_to_waiting(question_id: int) -> None:
+    """CAS-revert a claimed row back to `waiting` — used when a
+    retry-verification `get_question` call fails transiently (Judgment Day
+    round 1 fix 1b). `attempts` is intentionally left untouched here: under
+    the redesigned claim-counted semantics (Judgment Day round 2 fix 1) the
+    penalty for this attempt was ALREADY applied atomically by
+    `_claim_for_publishing`'s CAS increment — the claim counter itself is
+    what bounds the retry loop, not this revert."""
     with get_background_db() as db:
         db.execute(
             update(MlBotQuestion)
@@ -210,9 +257,11 @@ def _mark_failed_or_retry(question_id: int, error_message: str) -> str:
     `_MAX_ATTEMPTS` the row becomes `failed` (panel-retryable, per design §2
     `failed -> {waiting|published}`).
 
-    Reads the row's CURRENT `attempts` from the DB itself (same short
-    session as the write), same discipline as drafting_service's D2
-    Judgment Day fix — never trust a caller-captured value.
+    Judgment Day round 2 fix 1: `attempts` is no longer incremented HERE —
+    `_claim_for_publishing`'s CAS UPDATE already counted this attempt when
+    the row was claimed. This function only reads the row's CURRENT
+    `attempts` (fresh from the DB, same short session as the write) to
+    decide retry vs `failed`.
 
     Returns "retry" or "failed" for the caller's stats dict.
     """
@@ -224,10 +273,8 @@ def _mark_failed_or_retry(question_id: int, error_message: str) -> str:
         )
         if row is None:
             return "skipped_claimed_elsewhere"
-        new_attempts = row.attempts + 1
-        row.attempts = new_attempts
         row.last_error = error_message[:2000]
-        if new_attempts >= _MAX_ATTEMPTS:
+        if row.attempts >= _MAX_ATTEMPTS:
             row.status = "failed"
             return "failed"
         row.status = "waiting"
@@ -250,21 +297,32 @@ async def _publish_one(question_id: int) -> str:
         if question is None:
             return "skipped_claimed_elsewhere"
 
-        # Judgment Day fix 1b: a RETRY (attempts > 0) may already have
-        # posted successfully to ML before a crash prevented the terminal
-        # DB write. Verify independently via `get_question` BEFORE
-        # re-posting — never post blind on a retry.
-        if question["attempts"] > 0:
+        # Judgment Day round 2 fix 1: `attempts` now counts CLAIMS (bumped
+        # atomically by `_claim_for_publishing`), so `attempts == 1` means
+        # THIS is the first-ever claim on this row — safe to POST directly,
+        # no wasted GET. `attempts > 1` means this row has been claimed
+        # before (a prior claim may have posted successfully to ML before a
+        # crash prevented the terminal DB write) — verify independently via
+        # `get_question` BEFORE re-posting, never post blind.
+        if question["attempts"] > 1:
             try:
                 verification = await ml_client.get_question(question["ml_question_id"])
             except QuestionNotFoundError:
-                # Terminal-but-ambiguous: play it safe, do not post blind.
-                verification = None
+                # ML confirms the question no longer exists — terminal,
+                # not retryable. Fail immediately rather than looping.
+                logger.warning(
+                    "ml-bot publisher: question %s not found in ML during retry verification — marking failed",
+                    question_id,
+                )
+                return _mark_failed_permanent(
+                    question_id, "ML question not found during retry verification (404) — treating as terminal"
+                )
 
             if verification is None:
                 # Transient GET failure — do not post, leave for next
-                # retry WITHOUT burning the attempts budget.
-                _revert_to_waiting_without_penalty(question_id)
+                # retry. The claim counter (already incremented on THIS
+                # claim) is what bounds the loop, not this revert.
+                _revert_to_waiting(question_id)
                 return "retry"
 
             if _is_ml_question_answered(verification):
@@ -333,7 +391,8 @@ async def run_ml_questions_publish_cycle() -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     _reclaim_stale_publishing_claims(now)
 
-    due_ids = _fetch_due_ids(now)
+    due_ids, exhausted_count = _fetch_due_ids(now)
+    stats["failed"] += exhausted_count
 
     for question_id in due_ids:
         try:

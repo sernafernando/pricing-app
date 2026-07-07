@@ -189,8 +189,9 @@ class TestTransientFailure:
         row = _seed_question(db, attempts=publisher_service._MAX_ATTEMPTS - 1)
         db.commit()
         post_answer = AsyncMock(return_value=None)
-        # attempts > 0 -> the publisher verifies via get_question BEFORE
-        # re-posting (Judgment Day fix 1b); unanswered means it proceeds.
+        # attempts (claim count) will be > 1 after this claim -> the
+        # publisher verifies via get_question BEFORE re-posting (Judgment
+        # Day fix 1b); unanswered means it proceeds.
         get_question = AsyncMock(return_value={"status": "UNANSWERED"})
 
         with (
@@ -265,11 +266,16 @@ class TestRetryVerificationBeforeRepost:
         post_answer.assert_not_called()
         db.refresh(row)
         assert row.status == "waiting"
-        # No penalty for a verification GET failure — this is not a failed
-        # POST attempt, so the retry counter must not be burned.
-        assert row.attempts == 1
+        # Judgment Day round 2 fix 1: the "penalty" for this attempt was
+        # already applied atomically by the CLAIM itself (attempts:
+        # 1 -> 2); the revert-on-transient-GET-failure path does not touch
+        # `attempts` again, but the claim counter still bounds the loop.
+        assert row.attempts == 2
 
-    def test_first_attempt_never_calls_get_question(self, db) -> None:
+    def test_first_ever_claim_posts_without_get_question(self, db) -> None:
+        """Judgment Day round 2 fix 1: the first-ever claim on a row bumps
+        `attempts` to 1 inside the CAS claim itself; with attempts == 1
+        the publisher posts directly — no wasted verification GET."""
         row = _seed_question(db, attempts=0)
         db.commit()
         post_answer = AsyncMock(return_value={"id": 999})
@@ -283,9 +289,85 @@ class TestRetryVerificationBeforeRepost:
             stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
 
         get_question.assert_not_called()
+        post_answer.assert_awaited_once()
         assert stats["published"] == 1
         db.refresh(row)
         assert row.status == "published"
+        assert row.attempts == 1
+
+    def test_crash_after_first_attempt_post_success_never_double_posts(self, db) -> None:
+        """Judgment Day round 2 fix 1 — closes the first-attempt-crash
+        double-post hole: a row claimed once (attempts -> 1), POSTed
+        successfully to ML, but crashed before the terminal DB write is
+        reclaimed (still `attempts == 1`, status back to `waiting` via
+        stale-claim reclaim). The NEXT claim bumps attempts to 2, which
+        must trigger verification-before-repost and detect the already-
+        answered question WITHOUT posting a second time."""
+        row = _seed_question(db, status="waiting", attempts=1)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value={"status": "ANSWERED", "answer": {"text": "ya respondida"}})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        get_question.assert_awaited_once_with(row.ml_question_id)
+        assert stats["published"] == 1
+        db.refresh(row)
+        assert row.status == "published"
+        assert row.attempts == 2
+
+    def test_row_at_max_attempts_is_not_claimed_again_and_becomes_failed(self, db) -> None:
+        """The claim counter bounds the verify-revert loop: once a row has
+        been claimed `_MAX_ATTEMPTS` times, it is routed straight to
+        `failed` by `_fetch_due_ids` instead of being claimed (and
+        re-verified/re-reverted) again."""
+        row = _seed_question(db, attempts=publisher_service._MAX_ATTEMPTS)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(return_value={"status": "UNANSWERED"})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        get_question.assert_not_called()
+        assert stats["failed"] == 1
+        db.refresh(row)
+        assert row.status == "failed"
+        assert row.attempts == publisher_service._MAX_ATTEMPTS
+
+    def test_question_not_found_during_verification_marks_failed_immediately(self, db) -> None:
+        """QuestionNotFoundError on the verification GET (question deleted
+        on ML) is terminal — the row goes straight to `failed`, not another
+        retry loop."""
+        from app.services.ml_api_client import QuestionNotFoundError
+
+        row = _seed_question(db, attempts=1)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+        get_question = AsyncMock(side_effect=QuestionNotFoundError(row.ml_question_id))
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        assert stats["failed"] == 1
+        db.refresh(row)
+        assert row.status == "failed"
 
 
 class TestErrorTaxonomy:

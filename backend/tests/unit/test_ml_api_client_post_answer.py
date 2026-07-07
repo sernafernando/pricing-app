@@ -180,3 +180,54 @@ class TestPostAnswerTransient:
 
         result = asyncio.run(client.post_answer(123, "respuesta"))
         assert result is None
+
+    @pytest.mark.parametrize("status_code", [429, 408])
+    def test_429_and_408_are_transient_not_permanent(self, monkeypatch: pytest.MonkeyPatch, status_code: int) -> None:
+        """Judgment Day round 2, fix 2: 429 (rate limit) and 408 (request
+        timeout) are transient conditions — they must be retried via the
+        bounded-retry contract (return None), never raise
+        AnswerPostPermanentError."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status_code, json={"message": "too many requests"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = _client(monkeypatch)
+
+        result = asyncio.run(client.post_answer(123, "respuesta"))
+        assert result is None
+
+
+class TestPostAnswerPhraseMatching:
+    """Judgment Day round 2, fix 3: phrase matching must not use bare
+    single-word substring fallback ("already"/"answered") — it produces both
+    false positives and false negatives."""
+
+    def test_unrelated_field_error_mentioning_answered_is_permanent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {
+            "message": "Field 'answered_by' is invalid",
+            "error": "bad_request",
+            "status": 400,
+            "cause": [],
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json=body)
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = _client(monkeypatch)
+
+        with pytest.raises(AnswerPostPermanentError):
+            asyncio.run(client.post_answer(123, "respuesta"))
+
+    def test_underscored_error_code_is_recognized_as_already_answered(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {"error": "question_already_answered", "message": ""}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json=body)
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = _client(monkeypatch)
+
+        with pytest.raises(QuestionAlreadyAnsweredError):
+            asyncio.run(client.post_answer(123, "respuesta"))
