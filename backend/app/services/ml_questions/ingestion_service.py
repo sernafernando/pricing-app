@@ -331,7 +331,20 @@ async def run_ml_questions_ingest_cycle() -> Dict[str, Any]:
                 raw_title = item_payload.get("title")
                 raw_permalink = item_payload.get("permalink")
                 item_title = raw_title[:200] if raw_title else None
-                item_permalink = raw_permalink[:500] if raw_permalink else None
+                # Scheme validation: ML always serves item permalinks over
+                # https — anything else (javascript:, data:, http:, etc.)
+                # is rejected and never stored, since this value is later
+                # rendered as an href in the frontend without further checks.
+                if raw_permalink and raw_permalink.startswith("https://"):
+                    item_permalink = raw_permalink[:500]
+                else:
+                    if raw_permalink:
+                        logger.warning(
+                            "ml-bot ingestion: rejected item permalink with invalid scheme for item %s: %s",
+                            item_id,
+                            raw_permalink[:100],
+                        )
+                    item_permalink = None
 
         new_row = MlBotQuestion(
             ml_question_id=question_id,

@@ -155,6 +155,45 @@ class TestIngestNewQuestions:
         assert row.item_title == "Notebook Lenovo"
         assert row.item_permalink == "https://articulo.mercadolibre.com.ar/MLA-123"
 
+    def test_rejects_permalink_with_invalid_scheme(self, db) -> None:
+        """Security guard: `item_permalink` is later rendered as an href
+        without further validation on the frontend, so ingestion must
+        reject anything that doesn't start with "https://" (ML always
+        serves https) — e.g. a javascript: URI — storing NULL instead and
+        logging a warning."""
+        _seed_cursor(db)
+        received = datetime(2026, 7, 6, 22, 0, tzinfo=timezone.utc)
+
+        with (
+            patch("app.services.ml_questions.ingestion_service.get_background_db", return_value=_ctx(db)),
+            patch.object(
+                ingestion_service,
+                "fetch_new_webhook_rows",
+                return_value=[_webhook_row("/questions/574", received)],
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_question",
+                new=AsyncMock(return_value=_ml_question(574)),
+            ),
+            patch.object(
+                ingestion_service.ml_client,
+                "get_item",
+                new=AsyncMock(return_value={"title": "Notebook Lenovo", "permalink": "javascript:alert(1)"}),
+            ),
+            patch.object(ingestion_service, "logger") as mock_logger,
+        ):
+            stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
+
+        assert stats["ingested"] == 1
+        row = db.query(MlBotQuestion).filter_by(ml_question_id=574).one()
+        assert row.item_title == "Notebook Lenovo"
+        assert row.item_permalink is None
+        assert any(
+            "rejected item permalink" in call.args[0]
+            for call in mock_logger.warning.call_args_list
+        )
+
     def test_enrichment_failure_does_not_block_ingestion(self, db) -> None:
         """ADR-5/non-fatal: `get_item()` raising must not prevent the
         question row from being ingested — it's inserted with NULL
@@ -210,7 +249,7 @@ class TestIngestNewQuestions:
             patch.object(
                 ingestion_service.ml_client,
                 "get_item",
-                new=AsyncMock(return_value={"title": "x" * 300, "permalink": "y" * 600}),
+                new=AsyncMock(return_value={"title": "x" * 300, "permalink": "https://articulo.mercadolibre.com.ar/" + "y" * 600}),
             ),
         ):
             stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
