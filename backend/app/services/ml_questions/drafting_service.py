@@ -150,11 +150,15 @@ def _log_llm_debug(
     called and zero new log lines are emitted. INFO level, prefixed
     "ml-bot llm-debug" so it's trivially greppable and separable from the
     normal WARNING/ERROR operational logs."""
-    outcome = error if error is not None else (
-        f"can_answer={parsed.can_answer} confidence={parsed.confidence} "
-        f"category={parsed.category!r} denylist_hit={policy.violates_denylist(parsed.answer)}"
-        if parsed is not None
-        else "unknown"
+    outcome = (
+        error
+        if error is not None
+        else (
+            f"can_answer={parsed.can_answer} confidence={parsed.confidence} "
+            f"category={parsed.category!r} denylist_hit={policy.violates_denylist(parsed.answer)}"
+            if parsed is not None
+            else "unknown"
+        )
     )
     logger.info(
         "ml-bot llm-debug question=%s provider=%s system_prompt=%r user_payload=%r raw_response=%r outcome=%s",
