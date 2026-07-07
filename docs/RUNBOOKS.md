@@ -231,6 +231,29 @@ text never ends mid-component. Verify signature discrimination against a
 real official-store item during the trial (check the drafting log line —
 `ml-bot drafting: question <id> official_store_id=... signature_path=...`).
 
+### Context Enrichment (Item Title + Description)
+
+`context_builder.py` includes the ML listing's own `title` and description
+(`plain_text`, fetched via `ml_client.get_item_description`) in the scoped
+context passed to the LLM (`titulo`/`descripcion` in the prompt's
+`CONTEXTO_PERMITIDO` JSON), on top of the existing allowlisted spec
+attributes — fixes a real production case where the bot said "no tenemos
+info" about the OS even though the title/description stated it.
+
+- `description_max_chars` (int, default `1500`, clamped to `[100, 4000]`):
+  truncates the fetched description before it reaches the prompt.
+  ```
+  PUT /api/ml-bot/config/description_max_chars
+  {"valor": "1000", "tipo": "int"}
+  ```
+- Fetch failure (network/404/timeout) or an absent description never blocks
+  drafting — the row still drafts normally, just without that section.
+- Trust boundary: title/description are seller-authored (same trust class as
+  the allowlisted spec attributes) and are NOT scanned/dropped for
+  price/address-like content — the "never reveal price/stock/address"
+  guarantee is enforced on the LLM's OUTPUT (system prompt rule + the
+  existing answer denylist), not by hiding seller-authored listing text.
+
 ### Business Hours vs Attention Hours (schedules-v2)
 
 Two separate, independently-editable `ml_bot_config` keys — the bot's
