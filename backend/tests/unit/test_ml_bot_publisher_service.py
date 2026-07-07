@@ -23,9 +23,25 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
+from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import AnswerPostPermanentError
 from app.services.ml_questions import publisher_service
+
+
+@pytest.fixture(autouse=True)
+def _default_auto_publish_enabled(request, db):
+    """Every pre-existing test in this file exercises the automatic publish
+    path and predates the supervised-mode gate — seed `auto_publish_enabled
+    = "true"` by default so they keep testing what they were written for.
+    `TestSupervisedModeGate` explicitly seeds its own values and opts out of
+    this default."""
+    if request.cls is not None and request.cls.__name__ == "TestSupervisedModeGate":
+        return
+    db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+    db.flush()
 
 
 class _ctx:
@@ -508,6 +524,91 @@ class TestStaleClaimReclaim:
         assert reclaimed == 1
         db.refresh(row)
         assert row.status == "waiting"
+
+
+class TestSupervisedModeGate:
+    """Supervised mode: when `auto_publish_enabled` is not exactly "true",
+    the automatic due-row selection in `run_ml_questions_publish_cycle` is
+    skipped entirely. `publish_question_now` (the panel's explicit human
+    action) and the stale-claim reclaim must both keep working regardless."""
+
+    def test_disabled_by_default_skips_automatic_due_selection(self, db) -> None:
+        row = _seed_question(db)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        assert stats["published"] == 0
+        assert stats.get("supervised_skip") is True
+        db.refresh(row)
+        assert row.status == "waiting"
+
+    def test_malformed_config_value_still_skips(self, db) -> None:
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="maybe", tipo="bool"))
+        row = _seed_question(db)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_not_called()
+        assert stats["published"] == 0
+        db.refresh(row)
+        assert row.status == "waiting"
+
+    def test_exactly_true_enables_automatic_due_selection(self, db) -> None:
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+        row = _seed_question(db)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        post_answer.assert_awaited_once()
+        assert stats["published"] == 1
+        assert "supervised_skip" not in stats
+        db.refresh(row)
+        assert row.status == "published"
+
+    def test_stale_claim_reclaim_still_runs_when_supervised(self, db) -> None:
+        stale_threshold = datetime.now(timezone.utc) - timedelta(
+            minutes=publisher_service._PUBLISHING_STALE_MINUTES + 5
+        )
+        row = _seed_question(db, status="publishing", updated_at=stale_threshold)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        db.refresh(row)
+        assert row.status == "waiting"
+
+    def test_publish_question_now_works_when_supervised(self, db) -> None:
+        row = _seed_question(db, status="taken_over", attempts=0)
+        db.commit()
+        post_answer = AsyncMock(return_value={"id": 999})
+
+        # publish_question_now expects the row already CAS'd into `waiting`
+        # by the router before it's invoked; simulate that directly here
+        # since this test targets the gate, not the router.
+        db.execute(
+            MlBotQuestion.__table__.update().where(MlBotQuestion.id == row.id).values(status="waiting")
+        )
+        db.commit()
+
+        with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
+            outcome = asyncio.run(publisher_service.publish_question_now(row.id))
+
+        assert outcome == "published"
+        post_answer.assert_awaited_once()
+        db.refresh(row)
+        assert row.status == "published"
 
 
 class TestNoSessionAcrossPost:

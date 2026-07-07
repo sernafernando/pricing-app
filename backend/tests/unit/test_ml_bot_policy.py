@@ -170,6 +170,41 @@ class TestBotEnabledKillSwitch:
         assert policy.is_eligible_for_bot(db, now) is True
 
 
+class TestAutoPublishEnabled:
+    """Supervised mode: `auto_publish_enabled` gates the automatic publish
+    path. Fail-safe default is FALSE (supervised) — absent/empty/malformed
+    values must never enable auto-publish, mirroring `bot_enabled`'s
+    fail-safe kill-switch pattern."""
+
+    def test_missing_key_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_empty_string_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_malformed_value_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="maybe", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_exact_true_token_enables(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is True
+
+    def test_false_token_disables(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="false", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+
 class TestResolveWaitMinutes:
     """T-B3: wait-window selection — R-203."""
 
