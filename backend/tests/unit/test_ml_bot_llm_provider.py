@@ -273,3 +273,19 @@ class TestParseLlmOutput:
         raw = json.dumps({"answer": "hola", "confidence": True, "category": "stock", "can_answer": True})
         with pytest.raises(LlmProviderError):
             parse_llm_output(raw)
+
+    def test_category_at_max_length_accepted(self) -> None:
+        from app.services.ml_questions.llm_provider import _CATEGORY_MAX_LENGTH
+
+        category = "c" * _CATEGORY_MAX_LENGTH
+        raw = json.dumps({"answer": "hola", "confidence": 0.9, "category": category, "can_answer": True})
+        result = parse_llm_output(raw)
+        assert result.category == category
+
+    def test_category_over_max_length_rejected(self) -> None:
+        from app.services.ml_questions.llm_provider import _CATEGORY_MAX_LENGTH
+
+        category = "c" * (_CATEGORY_MAX_LENGTH + 1)
+        raw = json.dumps({"answer": "hola", "confidence": 0.9, "category": category, "can_answer": True})
+        with pytest.raises(LlmProviderError):
+            parse_llm_output(raw)

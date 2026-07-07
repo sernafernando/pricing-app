@@ -402,6 +402,43 @@ class TestStuckDraftingRegression:
         db.refresh(good_row)
         assert good_row.status == "waiting"
 
+    def test_load_failure_after_claim_reads_current_attempts_from_db(self, db) -> None:
+        """Judgment Day fix round 2: `_mark_failed_or_retry` must read the
+        row's CURRENT `attempts` from the DB, not trust the caller's stale
+        captured value (0, since `_load_question` itself raised before it
+        could be read)."""
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        row.attempts = drafting_service._MAX_ATTEMPTS - 1
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch.object(drafting_service, "_load_question", side_effect=RuntimeError("db exploded")),
+        ):
+            outcome = asyncio.run(drafting_service._draft_one(row.id, _FakeProvider(_VALID_RAW)))
+
+        assert outcome == "failed"
+        db.refresh(row)
+        assert row.status == "failed"
+        assert row.attempts == drafting_service._MAX_ATTEMPTS
+
+    def test_load_failure_after_claim_below_max_attempts_still_reads_db(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch.object(drafting_service, "_load_question", side_effect=RuntimeError("db exploded")),
+        ):
+            outcome = asyncio.run(drafting_service._draft_one(row.id, _FakeProvider(_VALID_RAW)))
+
+        assert outcome == "failed"
+        db.refresh(row)
+        assert row.status == "received"
+        assert row.attempts == 1
+
     def test_stale_drafting_claim_is_reclaimed_to_received(self, db) -> None:
         from sqlalchemy import update as sa_update
 

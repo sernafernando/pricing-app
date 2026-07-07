@@ -230,17 +230,25 @@ def _resolve_success(question_id: int, answer: str, confidence: float, category:
         row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
 
 
-def _mark_failed_or_retry(question_id: int, attempts: int, error_message: str) -> None:
+def _mark_failed_or_retry(question_id: int, error_message: str) -> None:
     """Unexpected-error path: never leave a row stuck in `drafting`. Bounded
     retries via `attempts`; past `_MAX_ATTEMPTS` the row becomes `failed`
-    (panel-retryable, per design §2 `failed -> {waiting|published}`)."""
-    new_attempts = attempts + 1
+    (panel-retryable, per design §2 `failed -> {waiting|published}`).
+
+    Judgment Day fix (round 2): reads the row's CURRENT `attempts` from the
+    DB itself (same short session as the write) instead of trusting a
+    caller-captured value. When `_load_question` raises before it can read
+    `attempts`, the caller only ever has a stale `0` — writing `attempts=1`
+    from that would silently reset a row already at e.g. 2, defeating the
+    bounded retry during sustained DB flakiness.
+    """
     with get_background_db() as db:
         row = (
             db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
         )
         if row is None:
             return
+        new_attempts = row.attempts + 1
         row.attempts = new_attempts
         row.last_error = error_message[:2000]
         row.status = "failed" if new_attempts >= _MAX_ATTEMPTS else "received"
@@ -288,13 +296,10 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
     if not _claim_for_drafting(question_id):
         return "skipped_claimed_elsewhere"
 
-    attempts = 0
     try:
         question = _load_question(question_id)
         if question is None:
             return "skipped_claimed_elsewhere"
-
-        attempts = question["attempts"]
 
         if policy.detect_manipulation_signal(question["question_text"]):
             # R-503: manipulation signal -> fallback WITHOUT any LLM call.
@@ -328,14 +333,25 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
 
     except Exception as exc:  # noqa: BLE001 — must never crash the loop.
         logger.error("ml-bot drafting: unexpected error drafting question %s: %s", question_id, exc, exc_info=True)
-        _mark_failed_or_retry(question_id, attempts, str(exc))
+        _mark_failed_or_retry(question_id, str(exc))
         return "failed"
 
 
 def _reclaim_stale_drafting_claims(now: datetime) -> int:
     """Judgment Day fix: CAS-revert any row still `drafting` past
     `_DRAFTING_STALE_MINUTES` back to `received` so it gets retried on a
-    later tick, instead of staying stuck forever (see module docstring)."""
+    later tick, instead of staying stuck forever (see module docstring).
+
+    Adjudicated invariant (round 2): this reclaim is safe ONLY because the
+    draft cycle runs strictly sequentially in a single worker (the `fcntl`
+    lock in `main.py`) — a stalled provider call blocks the whole loop, so a
+    row that is still `drafting` past the staleness window can only belong
+    to a dead/crashed process, never a concurrently-running one. If the
+    cycle is ever invoked concurrently (e.g. an admin "run now" endpoint, or
+    multiple workers), the terminal writes in this module (`_resolve_*`,
+    `_mark_failed_or_retry`) would need an ownership/lease token to avoid
+    two processes racing on the same claimed row.
+    """
     threshold = now - timedelta(minutes=_DRAFTING_STALE_MINUTES)
     with get_background_db() as db:
         result = db.execute(

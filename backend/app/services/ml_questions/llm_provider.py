@@ -33,6 +33,15 @@ _DEFAULT_TIMEOUT_SECONDS = 15.0
 _MAX_RETRIES = 2  # retries on transient 5xx/network errors only
 _MAX_RESPONSE_BYTES = 256 * 1024  # 256 KB cap on the raw response body
 
+# Judgment Day fix (round 2): must match the `category` column width
+# (`VARCHAR(40)` on `ml_bot_questions`). A persistent over-long category is
+# rejected here — BEFORE any DB round-trip — instead of surfacing as a
+# DataError on commit downstream, which would silently burn all
+# `_MAX_ATTEMPTS` retries in `drafting_service` for a cosmetic reason. This
+# stays consistent with the module's fail-closed contract: malformed output
+# -> parse failure -> caller routes to the warm fallback.
+_CATEGORY_MAX_LENGTH = 40
+
 
 class LlmProviderError(Exception):
     """Raised when the provider call fails (transient or permanent). Callers
@@ -210,6 +219,8 @@ def parse_llm_output(raw: str) -> LlmAnswer:
         raise LlmProviderError("LLM output 'confidence' must be between 0 and 1")
     if not isinstance(category, str) or not category.strip():
         raise LlmProviderError("LLM output 'category' must be a non-empty string")
+    if len(category) > _CATEGORY_MAX_LENGTH:
+        raise LlmProviderError(f"LLM output 'category' must be at most {_CATEGORY_MAX_LENGTH} characters")
     if not isinstance(can_answer, bool):
         raise LlmProviderError("LLM output 'can_answer' must be a boolean")
 
