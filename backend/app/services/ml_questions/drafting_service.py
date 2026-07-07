@@ -52,6 +52,7 @@ gate on a row's first-ever publish claim.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -96,6 +97,25 @@ _DEFAULT_FALLBACK_TEMPLATE = (
     "abramos. ¡Gracias por tu paciencia!"
 )
 
+# Placeholder resolved at fallback-render time (schedules-v2) from the
+# `attention_hours_text` config key — kept separate from `.format()`'s
+# {business_hours_start}/{business_hours_end} substitution below so an
+# absent/empty config value can be cleanly removed instead of crashing or
+# rendering the literal "{attention_hours}" text.
+_ATTENTION_HOURS_PLACEHOLDER = "{attention_hours}"
+# Strips whitespace on BOTH sides of the placeholder so removal never
+# leaves a lone leading/trailing space behind, regardless of which side of
+# the template it sits on (e.g. "es {attention_hours}." -> "es." and
+# "Texto   {attention_hours}   fin" -> "Texto fin" after the space-run
+# collapse below).
+_ATTENTION_HOURS_PLACEHOLDER_RE = re.compile(r" *\{attention_hours\} *")
+# Collapses runs of the space character (NOT newlines, so intentional
+# line breaks in a panel-edited template survive cleanup).
+_SPACE_RUN_RE = re.compile(r" {2,}")
+# A leftover space directly before closing punctuation reads as a typo
+# once the placeholder is gone (e.g. "Horario ." -> "Horario.").
+_SPACE_BEFORE_PUNCT_RE = re.compile(r" ([.,;:!?)])")
+
 
 def _build_default_provider() -> LlmProvider:
     """Build the default `LlmProvider` for a cycle (ADR-6).
@@ -119,11 +139,44 @@ def _build_fallback_message(db: Any) -> str:
     template = policy.get_config(db, "warm_fallback_template", cast=str, default=_DEFAULT_FALLBACK_TEMPLATE)
     start = policy.get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
     end = policy.get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
+
+    # schedules-v2: resolve the free-text {attention_hours} placeholder BEFORE
+    # `.format()` (a plain string replace, not a format field) so an
+    # absent/empty `attention_hours_text` config value is cleanly removed
+    # rather than crashing `.format()` on an unsupplied kwarg or rendering
+    # the literal placeholder text.
+    attention_hours = policy.get_config(db, "attention_hours_text", cast=str, default="")
+    if attention_hours:
+        # Judgment Day fix: the substituted value is free admin-editable text
+        # that flows into `.format()` right after — an unbalanced brace in it
+        # (e.g. "de 9 a 18 {promo") would otherwise raise inside `.format()`
+        # below, escaping the local except and sending the whole question to
+        # `failed` instead of the graceful raw-template fallback path.
+        escaped = attention_hours.replace("{", "{{").replace("}", "}}")
+        template = template.replace(_ATTENTION_HOURS_PLACEHOLDER, escaped)
+    else:
+        # Judgment Day fix (round 2): strip the placeholder AND whitespace on
+        # BOTH sides, reinsert a single space so words on either side don't
+        # collide ("Texto {attention_hours} fin" -> "Texto fin", not
+        # "Textofin"), then collapse any remaining space runs and fix
+        # space-before-punctuation artifacts. Newlines are deliberately left
+        # untouched (only the space character is collapsed) so intentional
+        # line breaks in a panel-edited template survive cleanup. A
+        # placeholder immediately abutting a colon (e.g. "Horario:
+        # {attention_hours}.") can still leave a documented "Horario:."
+        # artifact — admins are expected to write self-contained clauses
+        # around the placeholder (see module docstring / runbook).
+        template = _ATTENTION_HOURS_PLACEHOLDER_RE.sub(" ", template)
+        template = _SPACE_RUN_RE.sub(" ", template)
+        template = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", template)
+        template = template.strip()
+
     try:
         return template.format(business_hours_start=start, business_hours_end=end)
-    except (KeyError, IndexError):
-        # A custom panel-edited template with unexpected placeholders must
-        # never crash the pipeline — fall back to the raw template text.
+    except (KeyError, IndexError, ValueError):
+        # A custom panel-edited template with unexpected placeholders (or
+        # residual unbalanced braces from free text) must never crash the
+        # pipeline — fall back to the raw template text.
         return template
 
 
@@ -156,29 +209,31 @@ def _is_repeat_buyer_after_midnight(
 
     localized = question_date.astimezone(tz) if question_date.tzinfo else question_date.replace(tzinfo=tz)
 
-    start_raw = policy.get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
-    try:
-        start_hour, start_minute = (int(part) for part in start_raw.split(":")[:2])
-    except ValueError:
+    # schedules-v2: today's opening time is sourced per-day (work_schedule if
+    # valid, else the legacy business_days + business_hours_start/end keys).
+    # A `question_date` landing on a day that isn't itself a working day has
+    # no "before opening" concept to check against — fails toward the safer
+    # normal-fallback default, same direction as a missing buyer_id above.
+    today_times = policy.get_business_hours_for_day(db, localized.isoweekday())
+    if today_times is None:
         return False
+    start_hour, start_minute, _end_hour, _end_minute = today_times
 
     if not ((0, 0) <= (localized.hour, localized.minute) < (start_hour, start_minute)):
         return False
 
-    # Judgment Day fix (R-602): bound the prior-question lookup to the
-    # CURRENT off-hours window instead of "ever" — an unbounded lookup makes
-    # ANY historical handled question trigger `pending_morning` forever for
-    # that buyer. Since we're in the `[00:00, business_hours_start)` slice,
-    # the current off-hours window started at YESTERDAY's business_hours_end
-    # (the window runs from close-of-business through the next morning's
-    # open). Anything before that boundary belongs to a previous cycle.
-    end_raw = policy.get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
-    try:
-        end_hour, end_minute = (int(part) for part in end_raw.split(":")[:2])
-    except ValueError:
+    # Judgment Day fix (R-602), generalized for per-day schedules
+    # (schedules-v2): bound the prior-question lookup to the CURRENT
+    # off-hours window instead of "ever" — an unbounded lookup makes ANY
+    # historical handled question trigger `pending_morning` forever for that
+    # buyer. The current off-hours window started at the END of the MOST
+    # RECENT WORKING DAY before now (not simply "yesterday" — with a
+    # per-day schedule, e.g. Mon-Fri 09-18 + Sat 09-13, the working-day end
+    # before a Sunday/Monday early morning is Saturday 13:00). Anything
+    # before that boundary belongs to a previous cycle.
+    window_start = policy.resolve_last_working_day_end(db, question_date)
+    if window_start is None:
         return False
-
-    window_start = localized.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0) - timedelta(days=1)
 
     prior = (
         db.query(MlBotQuestion)

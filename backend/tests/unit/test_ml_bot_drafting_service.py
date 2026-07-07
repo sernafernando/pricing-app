@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 
 from app.models.ml_bot_answer_example import MlBotAnswerExample
@@ -477,6 +478,268 @@ class TestRepeatBuyerAfterMidnight:
         db.refresh(row)
         assert row.status == "waiting"
         assert row.wait_until is not None
+
+
+_USER_WORK_SCHEDULE = (
+    '{"1": ["09:00", "18:00"], "2": ["09:00", "18:00"], "3": ["09:00", "18:00"], '
+    '"4": ["09:00", "18:00"], "5": ["09:00", "18:00"], "6": ["09:00", "13:00"]}'
+)
+
+
+class TestRepeatBuyerAfterMidnightPerDaySchedule:
+    """schedules-v2: R-602 window generalized to the end of the MOST RECENT
+    WORKING day (per `work_schedule`), not simply "yesterday". Real example:
+    Mon-Fri 09-18 + Sat 09-13 — a Monday early-morning question's window
+    starts at Saturday 13:00 (Sunday is off entirely)."""
+
+    def test_monday_early_morning_repeat_buyer_uses_saturday_close_as_window_start(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "America/Argentina/Buenos_Aires")
+        _seed_config(db, "work_schedule", _USER_WORK_SCHEDULE)
+        tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+        # Prior handled question Saturday 20:00 (AFTER Saturday's 13:00
+        # close — inside the current off-hours window, which runs from
+        # Saturday close through Monday's 09:00 open since Sunday is off).
+        saturday_prior = datetime(2026, 7, 11, 20, 0, tzinfo=tz)
+        prior = _seed_question(db, question_date=saturday_prior, buyer_id=777, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        # New question Monday 00:30 (before Monday's 09:00 opening).
+        monday_early = datetime(2026, 7, 13, 0, 30, tzinfo=tz)
+        row = _seed_question(db, question_date=monday_early, buyer_id=777)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "pending_morning"
+        assert row.wait_until is None
+
+    def test_prior_question_before_saturday_close_does_not_count(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "America/Argentina/Buenos_Aires")
+        _seed_config(db, "work_schedule", _USER_WORK_SCHEDULE)
+        tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+        # Prior handled question last Friday (before the current off-hours
+        # window, which starts at THIS Saturday's 13:00 close).
+        last_friday = datetime(2026, 7, 10, 12, 0, tzinfo=tz)
+        prior = _seed_question(db, question_date=last_friday, buyer_id=888, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        monday_early = datetime(2026, 7, 13, 0, 30, tzinfo=tz)
+        row = _seed_question(db, question_date=monday_early, buyer_id=888)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            stats = asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.wait_until is not None
+
+
+class TestAttentionHoursFallbackPlaceholder:
+    """schedules-v2: `{attention_hours}` placeholder in `warm_fallback_template`
+    is resolved from `attention_hours_text` at fallback-render time — replaced
+    when set, cleanly removed (never a literal placeholder, never a crash)
+    when unset/empty."""
+
+    def test_placeholder_replaced_with_configured_text(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "¡Hola! Nuestro horario es {attention_hours}. Te respondemos pronto.",
+        )
+        _seed_config(db, "attention_hours_text", "de lunes a viernes de 9 a 18hs y sábados de 9 a 13hs")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "de lunes a viernes de 9 a 18hs y sábados de 9 a 13hs" in row.drafted_answer
+        assert "{attention_hours}" not in row.drafted_answer
+
+    def test_placeholder_cleanly_removed_when_unset(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "¡Hola! Escribinos {attention_hours} y te respondemos.",
+        )
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "{attention_hours}" not in row.drafted_answer
+        assert "  " not in row.drafted_answer
+        assert " ." not in row.drafted_answer
+        assert row.drafted_answer == "¡Hola! Escribinos y te respondemos."
+
+    def test_unbalanced_braces_in_attention_hours_text_do_not_fail_question(self, db) -> None:
+        """Judgment Day fix: `attention_hours_text` is admin-editable free
+        text substituted into the template BEFORE `.format()` runs — an
+        unbalanced brace in it must not raise inside `.format()` and escape
+        the local except, which would otherwise route the question to
+        `failed` instead of the graceful raw-template fallback."""
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "¡Hola! Nuestro horario es {attention_hours}. Te respondemos pronto.",
+        )
+        _seed_config(db, "attention_hours_text", "de 9 a 18 {promo")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status != "failed"
+        assert "de 9 a 18 {promo" in row.drafted_answer
+
+    def test_placeholder_removal_collapses_multiple_surrounding_spaces(self, db) -> None:
+        """Judgment Day fix (round 2): a placeholder surrounded by extra
+        whitespace on both sides must not leave space runs behind."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Texto   {attention_hours}   fin")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.drafted_answer == "Texto fin"
+
+    def test_placeholder_removal_preserves_newlines(self, db) -> None:
+        """Judgment Day fix (round 2): only the space character is collapsed
+        during cleanup — intentional line breaks in a panel-edited template
+        must survive."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Linea uno\n{attention_hours}\nLinea dos")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "\n" in row.drafted_answer
+        assert "{attention_hours}" not in row.drafted_answer
+
+    def test_placeholder_appearing_twice_both_removed(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "Hola {attention_hours} y de nuevo {attention_hours} gracias",
+        )
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert "{attention_hours}" not in row.drafted_answer
+        assert row.drafted_answer == "Hola y de nuevo gracias"
+
+    def test_malformed_template_itself_falls_back_to_raw_text(self, db) -> None:
+        """Judgment Day fix (round 2, Judge A): unlike the escaped-braces
+        test above (which proves `attention_hours_text` escaping works but
+        never actually raises inside `.format()`), this test makes the
+        `warm_fallback_template` ITSELF malformed — an unclosed `{` with no
+        `attention_hours` placeholder at all — so `.format()` genuinely
+        raises `ValueError`/`KeyError` and the except branch must return the
+        raw (post-substitution) template instead of failing the question."""
+        _seed_bot_enabled(db)
+        _seed_config(db, "warm_fallback_template", "Hola {oops sin cerrar")
+        row = _seed_question(db)
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status != "failed"
+        assert row.drafted_answer == "Hola {oops sin cerrar"
 
 
 class TestClaimGuard:

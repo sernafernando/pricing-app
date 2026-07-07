@@ -168,11 +168,26 @@ class TestLoadBusinessVars:
         db.add(MlBotConfig(clave="approx_address", valor="Zona Norte, CABA", tipo="string"))
         db.commit()
         result = load_business_vars(db)
-        assert result == {"approx_address": "Zona Norte, CABA"}
+        assert result == {"approx_address": "Zona Norte, CABA", "attention_hours_text": ""}
 
     def test_defaults_to_empty_string_when_unset(self, db) -> None:
         result = load_business_vars(db)
-        assert result == {"approx_address": ""}
+        assert result == {"approx_address": "", "attention_hours_text": ""}
+
+    def test_reads_attention_hours_text_from_config(self, db) -> None:
+        db.add(
+            MlBotConfig(
+                clave="attention_hours_text",
+                valor="de lunes a viernes de 9 a 18hs y sábados de 9 a 13hs",
+                tipo="string",
+            )
+        )
+        db.commit()
+        result = load_business_vars(db)
+        assert result == {
+            "approx_address": "",
+            "attention_hours_text": "de lunes a viernes de 9 a 18hs y sábados de 9 a 13hs",
+        }
 
 
 class TestLoadFewShotExamples:
@@ -202,7 +217,7 @@ class TestBuildScopedContext:
         context = build_scoped_context(db, "¿Tienen stock?", item_payload)
         assert context.stock_available is True
         assert context.listing_attributes == {"COLOR": "Negro"}
-        assert context.business_vars == {"approx_address": "Zona Sur"}
+        assert context.business_vars == {"approx_address": "Zona Sur", "attention_hours_text": ""}
         assert len(context.few_shot_examples) == 1
         assert "price" not in context.listing_attributes
 

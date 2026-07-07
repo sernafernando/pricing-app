@@ -161,10 +161,16 @@ def extract_official_store_id(item_payload: Optional[Dict[str, Any]]) -> Optiona
 
 def load_business_vars(db: Session) -> Dict[str, str]:
     """R-401/R-402: only approved, panel-editable business-knowledge
-    variables — currently the approximate address/zone. Sourced exclusively
-    from `ml_bot_config` (never a raw address table)."""
+    variables — approximate address/zone plus the free-text attention-hours
+    description (schedules-v2, `attention_hours_text`: what the bot TELLS
+    buyers, separate from `work_schedule`'s bot-eligibility gate). Sourced
+    exclusively from `ml_bot_config` (never a raw address/schedule table)."""
     approx_address = policy.get_config(db, "approx_address", cast=str, default="")
-    return {"approx_address": approx_address or ""}
+    attention_hours_text = policy.get_config(db, "attention_hours_text", cast=str, default="")
+    return {
+        "approx_address": approx_address or "",
+        "attention_hours_text": attention_hours_text or "",
+    }
 
 
 def load_few_shot_examples(db: Session, limit: int = 10) -> List[FewShotExample]:
