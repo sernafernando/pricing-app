@@ -572,17 +572,22 @@ export default function MLQuestions() {
                   <strong>Respuesta (borrador)</strong>
                   <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
                 </div>
-                {q.answer_source === 'bot' && (
+                {q.llm_provider && (
                   <div>
                     <strong>Proveedor LLM</strong>
-                    <p className={styles.detailText}>{q.llm_provider || '—'}</p>
+                    <p className={styles.detailText}>{q.llm_provider}</p>
                   </div>
                 )}
                 <div>
                   <strong>Publicación</strong>
                   <p>
                     {itemLink ? (
-                      <a href={itemLink} target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={itemLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.detailLink}
+                      >
                         {q.item_title || q.item_id} <ExternalLink size={12} />
                       </a>
                     ) : (
@@ -798,6 +803,7 @@ export default function MLQuestions() {
                               target="_blank"
                               rel="noopener noreferrer"
                               title={q.item_title || q.item_id}
+                              className={styles.detailLink}
                             >
                               {q.item_title || q.item_id}
                             </a>
@@ -805,7 +811,13 @@ export default function MLQuestions() {
                             (() => {
                               const fallbackLink = buildFallbackItemLink(q.item_id);
                               return fallbackLink ? (
-                                <a href={fallbackLink} target="_blank" rel="noopener noreferrer" title={q.item_id}>
+                                <a
+                                  href={fallbackLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={q.item_id}
+                                  className={styles.detailLink}
+                                >
                                   {q.item_id}
                                 </a>
                               ) : (
