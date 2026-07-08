@@ -55,8 +55,7 @@ _SEEDS = [
     {
         "clave": "warm_fallback_template_business_hours",
         "valor": (
-            "¡Hola! No tengo esa información en este momento. "
-            "Volvé a consultar más tarde y te averiguamos. ¡Gracias!"
+            "¡Hola! No tengo esa información en este momento. Volvé a consultar más tarde y te averiguamos. ¡Gracias!"
         ),
         "descripcion": (
             "Mensaje de fallback cuando el bot no puede responder Y estamos "
@@ -94,7 +93,7 @@ _SEEDS = [
         ),
         "descripcion": (
             "Firmas por tienda oficial (JSON: {official_store_id: texto}). "
-            "\"\" = sin firma para esa tienda. Publicaciones en tiendas "
+            '"" = sin firma para esa tienda. Publicaciones en tiendas '
             "oficiales SIN entrada en el mapa → sin firma (fail-safe: mejor "
             "no firmar que firmar mal en tienda ajena)."
         ),
@@ -105,7 +104,7 @@ _SEEDS = [
         "valor": "",
         "descripcion": (
             "Saludo/cierre optativo que se appendea a las respuestas del bot "
-            "(ej. \"¡Cualquier otra consulta, escribinos!\"). Vacío = "
+            '(ej. "¡Cualquier otra consulta, escribinos!"). Vacío = '
             "desactivado."
         ),
         "tipo": "string",
