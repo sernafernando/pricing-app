@@ -163,7 +163,7 @@ class CajaService:
                 )
             if categoria.tipo_aplicable != "ambos" and categoria.tipo_aplicable != tipo:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Categoría '{categoria.nombre}' no es aplicable a movimientos de tipo '{tipo}'",
                 )
 
@@ -447,7 +447,7 @@ class CajaService:
             )
         if not tipo.activo:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Tipo de documento '{tipo.nombre}' está inactivo",
             )
 
@@ -628,7 +628,7 @@ class CajaService:
         content_type = file.content_type or ""
         if content_type not in ALLOWED_MIME_TYPES:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Tipo de archivo no permitido. Permitidos: PDF, JPEG, PNG, WEBP",
             )
 
@@ -862,7 +862,7 @@ class CajaService:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada")
             if cat.tipo_aplicable != "ambos" and cat.tipo_aplicable != mov.tipo:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Categoría '{cat.nombre}' (tipo_aplicable={cat.tipo_aplicable}) no es compatible con movimiento tipo '{mov.tipo}'",
                 )
             mov.categoria_id = categoria_id

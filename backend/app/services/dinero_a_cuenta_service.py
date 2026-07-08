@@ -421,7 +421,7 @@ def consumir(
     # llamada directa a la API podría cruzar proveedores.
     if op_proveedor_id is not None and dac.proveedor_id != op_proveedor_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"DineroACuenta id={dinero_a_cuenta_id} pertenece al proveedor "
                 f"id={dac.proveedor_id}, pero la OP pertenece al proveedor "
@@ -434,7 +434,7 @@ def consumir(
     if op_moneda is not None and str(dac.moneda) != op_moneda:
         if op_tipo_cambio is None or Decimal(op_tipo_cambio) <= 0:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"DineroACuenta id={dinero_a_cuenta_id} (moneda {dac.moneda}) "
                     f"cross-moneda con OP ({op_moneda}) requiere tipo_cambio > 0 en la OP. "

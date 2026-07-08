@@ -324,7 +324,7 @@ async def manual_disable_free_shipping(
     # Validar formato MLA
     if not MLA_PATTERN.match(mla_id):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Formato de MLA inválido: {mla_id}",
         )
 

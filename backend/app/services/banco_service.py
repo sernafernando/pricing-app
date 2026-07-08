@@ -187,7 +187,7 @@ class BancoService:
             saldo_posterior = saldo_actual - monto_dec
             if saldo_posterior < Decimal("0"):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(f"Saldo insuficiente. Saldo actual: {saldo_actual}, monto solicitado: {monto_dec}"),
                 )
 

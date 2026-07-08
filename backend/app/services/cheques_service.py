@@ -199,24 +199,24 @@ def emitir_cheque_propio(
     # Validaciones
     if tipo != "propio":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Este endpoint solo admite cheques propios; tipo recibido: '{tipo}'.",
         )
     if instrumento == "fisico" and chequera_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Un cheque propio físico requiere chequera_id.",
         )
     if chequera_id is not None:
         chequera_obj = db.execute(select(Chequera).where(Chequera.id == chequera_id)).scalar_one_or_none()
         if chequera_obj is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Chequera id={chequera_id} no encontrada.",
             )
         if chequera_obj.banco_empresa_id != banco_empresa_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"La chequera id={chequera_id} pertenece al banco_empresa_id="
                     f"{chequera_obj.banco_empresa_id}, no al banco_empresa_id={banco_empresa_id} recibido."
@@ -224,12 +224,12 @@ def emitir_cheque_propio(
             )
     if monto <= Decimal("0"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El monto del cheque debe ser mayor a cero.",
         )
     if fecha_pago < fecha_emision:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="La fecha de pago no puede ser anterior a la fecha de emisión.",
         )
 
@@ -316,7 +316,7 @@ def transicionar_cheque(
     # Acciones exclusivas de e-cheq — cheques físicos no pueden usarlas.
     if accion in ACCIONES_ECHEQ and cheque.instrumento != "echeq":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La acción '{accion}' es exclusiva de e-cheq. "
                 f"El cheque id={cheque.id} es instrumento='{cheque.instrumento}'."
@@ -326,7 +326,7 @@ def transicionar_cheque(
     # Estados terminales no permiten transiciones
     if estado_actual in ESTADOS_TERMINALES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"El cheque está en estado terminal '{estado_actual}' y no puede transicionar.",
         )
 
@@ -335,7 +335,7 @@ def transicionar_cheque(
 
     if estado_destino is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Transición inválida: ({cheque.tipo}, {estado_actual}) --[{accion}]--> ?",
         )
 
@@ -482,7 +482,7 @@ def _revertir_cc_si_linkeado(
                 cheque.orden_pago_id,
             )
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"No se puede revertir la CC del cheque #{cheque.numero}: "
                     "falta proveedor_id y no hay imputación a pedido registrada."
@@ -577,22 +577,22 @@ def recibir_cheque_tercero(
     """
     if not banco_nombre or not banco_nombre.strip():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="banco_nombre es requerido para cheques de tercero.",
         )
     if not cuit_librador or not cuit_librador.strip():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="cuit_librador es requerido para cheques de tercero.",
         )
     if monto <= Decimal("0"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El monto del cheque debe ser mayor a cero.",
         )
     if fecha_pago < fecha_emision:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="La fecha de pago no puede ser anterior a la fecha de emisión.",
         )
 
@@ -689,7 +689,7 @@ def debitar_cheque(
     # FR-4.3: no debitar antes de fecha_pago
     if fecha < cheque.fecha_pago:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"No se puede debitar antes de la fecha de pago. "
                 f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
@@ -698,7 +698,7 @@ def debitar_cheque(
 
     if cheque.banco_empresa_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"El cheque id={cheque.id} no tiene banco_empresa_id asignado.",
         )
 
@@ -712,7 +712,7 @@ def debitar_cheque(
     # Validar moneda
     if str(banco.moneda) != str(cheque.moneda):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La moneda del banco ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
                 "No se puede debitar en moneda distinta."
@@ -797,7 +797,7 @@ def depositar_cheque(
     # FR-4.3: no depositar antes de fecha_pago
     if fecha < cheque.fecha_pago:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"No se puede depositar antes de la fecha de pago. "
                 f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
@@ -814,7 +814,7 @@ def depositar_cheque(
     # Validar moneda
     if str(banco.moneda) != str(cheque.moneda):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La moneda del banco destino ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
                 "No se puede depositar en moneda distinta."
@@ -888,7 +888,7 @@ def acreditar_cheque(
     # FR-4.3: no acreditar antes de fecha_pago
     if fecha < cheque.fecha_pago:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"No se puede acreditar antes de la fecha de pago. "
                 f"fecha_pago={cheque.fecha_pago.isoformat()}, fecha_accion={fecha.isoformat()}."
@@ -900,7 +900,7 @@ def acreditar_cheque(
 
     if banco_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"El cheque id={cheque.id} no tiene banco destino asignado. "
                 "Para cheques de tercero: ejecutar depositar_cheque primero. "
@@ -918,7 +918,7 @@ def acreditar_cheque(
     # Validar moneda
     if str(banco.moneda) != str(cheque.moneda):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La moneda del banco ({banco.moneda}) no coincide con la moneda del cheque ({cheque.moneda}). "
                 "No se puede acreditar en moneda distinta."
