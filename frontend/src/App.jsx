@@ -5,71 +5,72 @@ import { useAuthStore } from './store/authStore';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PermisosProvider } from './contexts/PermisosContext';
 import Login from './pages/Login';
-import Layout from './components/Layout';
-import Productos from './pages/Productos';
-import Tienda from './pages/Tienda';
-import Navbar from './components/Navbar';
 import AppLayout from './components/AppLayout';
-import Admin from './pages/Admin';
-import UltimosCambios from './pages/UltimosCambios';
-import PreciosListas from './pages/PreciosListas';
-import GestionPM from './pages/GestionPM';
-import GestionAlertas from './pages/GestionAlertas';
-import Banlist from './pages/Banlist';
-import ItemsSinMLA from './pages/ItemsSinMLA';
-import DashboardMetricasML from './pages/DashboardMetricasML';
-import DashboardTPLink from './pages/DashboardTPLink';
-import DashboardVentasFuera from './pages/DashboardVentasFuera';
-import DashboardTiendaNube from './pages/DashboardTiendaNube';
-import Calculos from './pages/Calculos';
-import TestStatsDinamicos from './pages/TestStatsDinamicos';
-import Notificaciones from './pages/Notificaciones';
-import PedidosPreparacion from './pages/PedidosPreparacion';
-import Produccion from './pages/Produccion';
-import Prearmado from './pages/Prearmado';
-import PrearmadasDisponibles from './pages/PrearmadasDisponibles';
-import Clientes from './pages/Clientes';
-import TurboRouting from './pages/TurboRouting';
-import CuentasCorrientes from './pages/CuentasCorrientes';
-import ConfigOperaciones from './pages/ConfigOperaciones';
-import Rma from './pages/Rma';
-import ControlDeposito from './pages/ControlDeposito';
-import ClaimsDashboard from './pages/ClaimsDashboard';
-import Traza from './pages/Traza';
-import FreeShippingAlerts from './pages/FreeShippingAlerts';
-import SeguimientoEnvios from './pages/SeguimientoEnvios';
-import Empleados from './pages/Empleados';
-import RRHHPresentismo from './pages/RRHHPresentismo';
-import RRHHSanciones from './pages/RRHHSanciones';
-import RRHHVacaciones from './pages/RRHHVacaciones';
-import RRHHCuentaCorriente from './pages/RRHHCuentaCorriente';
-import RRHHHorarios from './pages/RRHHHorarios';
-import RRHHSueldos from './pages/RRHHSueldos';
-const RRHHHorasExtras = lazy(() => import('./pages/RRHHHorasExtras'));
-import RRHHReportes from './pages/RRHHReportes';
-import RRHHCumpleanos from './pages/RRHHCumpleanos';
-import FichajeMobile from './pages/FichajeMobile';
-import Tickets from './pages/Tickets';
-import ReescribirLH from './pages/ReescribirLH';
-import TicketsAdmin from './pages/TicketsAdmin';
-import AdministracionProveedores from './pages/AdministracionProveedores';
-import AdministracionBancos from './pages/AdministracionBancos';
-import AdministracionImpuestos from './pages/AdministracionImpuestos';
-import AdministracionCaja from './pages/AdministracionCaja';
-import AdministracionCompras from './pages/AdministracionCompras';
-import ConsultasRanking from './pages/ConsultasRanking';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
-const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
+import FichajeMobile from './pages/FichajeMobile';
 import './styles/design-tokens.css';
 import './styles/components.css';
 import './styles/buttons-tesla.css';
 import './styles/modals-tesla.css';
 import './styles/table-tesla.css';
 import './styles/theme.css';
+
+// --- lazy page components (code-split into assets/lazy/) ---
+const Productos = lazy(() => import('./pages/Productos'));
+const Tienda = lazy(() => import('./pages/Tienda'));
+const Admin = lazy(() => import('./pages/Admin'));
+const UltimosCambios = lazy(() => import('./pages/UltimosCambios'));
+const PreciosListas = lazy(() => import('./pages/PreciosListas'));
+const GestionPM = lazy(() => import('./pages/GestionPM'));
+const GestionAlertas = lazy(() => import('./pages/GestionAlertas'));
+const Banlist = lazy(() => import('./pages/Banlist'));
+const ItemsSinMLA = lazy(() => import('./pages/ItemsSinMLA'));
+const DashboardMetricasML = lazy(() => import('./pages/DashboardMetricasML'));
+const DashboardTPLink = lazy(() => import('./pages/DashboardTPLink'));
+const DashboardVentasFuera = lazy(() => import('./pages/DashboardVentasFuera'));
+const DashboardTiendaNube = lazy(() => import('./pages/DashboardTiendaNube'));
+const Calculos = lazy(() => import('./pages/Calculos'));
+const TestStatsDinamicos = lazy(() => import('./pages/TestStatsDinamicos'));
+const Notificaciones = lazy(() => import('./pages/Notificaciones'));
+const PedidosPreparacion = lazy(() => import('./pages/PedidosPreparacion'));
+const Produccion = lazy(() => import('./pages/Produccion'));
+const Prearmado = lazy(() => import('./pages/Prearmado'));
+const PrearmadasDisponibles = lazy(() => import('./pages/PrearmadasDisponibles'));
+const Clientes = lazy(() => import('./pages/Clientes'));
+const TurboRouting = lazy(() => import('./pages/TurboRouting'));
+const CuentasCorrientes = lazy(() => import('./pages/CuentasCorrientes'));
+const ConfigOperaciones = lazy(() => import('./pages/ConfigOperaciones'));
+const Rma = lazy(() => import('./pages/Rma'));
+const ControlDeposito = lazy(() => import('./pages/ControlDeposito'));
+const ClaimsDashboard = lazy(() => import('./pages/ClaimsDashboard'));
+const MLQuestions = lazy(() => import('./pages/MLQuestions'));
+const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
+const Traza = lazy(() => import('./pages/Traza'));
+const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
+const SeguimientoEnvios = lazy(() => import('./pages/SeguimientoEnvios'));
+const Empleados = lazy(() => import('./pages/Empleados'));
+const RRHHPresentismo = lazy(() => import('./pages/RRHHPresentismo'));
+const RRHHSanciones = lazy(() => import('./pages/RRHHSanciones'));
+const RRHHVacaciones = lazy(() => import('./pages/RRHHVacaciones'));
+const RRHHCuentaCorriente = lazy(() => import('./pages/RRHHCuentaCorriente'));
+const RRHHHorarios = lazy(() => import('./pages/RRHHHorarios'));
+const RRHHSueldos = lazy(() => import('./pages/RRHHSueldos'));
+const RRHHHorasExtras = lazy(() => import('./pages/RRHHHorasExtras'));
+const RRHHReportes = lazy(() => import('./pages/RRHHReportes'));
+const RRHHCumpleanos = lazy(() => import('./pages/RRHHCumpleanos'));
+const Tickets = lazy(() => import('./pages/Tickets'));
+const ReescribirLH = lazy(() => import('./pages/ReescribirLH'));
+const TicketsAdmin = lazy(() => import('./pages/TicketsAdmin'));
+const AdministracionProveedores = lazy(() => import('./pages/AdministracionProveedores'));
+const AdministracionBancos = lazy(() => import('./pages/AdministracionBancos'));
+const AdministracionImpuestos = lazy(() => import('./pages/AdministracionImpuestos'));
+const AdministracionCaja = lazy(() => import('./pages/AdministracionCaja'));
+const AdministracionCompras = lazy(() => import('./pages/AdministracionCompras'));
+const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,6 +84,87 @@ const queryClient = new QueryClient({
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   return isAuthenticated ? children : <Navigate to="/login" />;
+}
+
+// --- uniform wrap: ErrorBoundary outside Suspense (matches DocumentDesigner's shape) ---
+const routeFallback = (
+  <div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando...</div>
+);
+
+// eslint-disable-next-line no-unused-vars -- Component is used as the JSX tag below
+function lazyElement(Component) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={routeFallback}>
+        <Component />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+// --- config: one entry per protected route (path preserved exactly) ---
+const protectedRoutes = [
+  { path: '/productos', component: Productos, permiso: 'productos.ver' },
+  { path: '/tienda', component: Tienda, permiso: 'productos.ver_tienda' },
+  { path: '/precios-listas', component: PreciosListas, permiso: 'productos.ver' },
+  { path: '/ultimos-cambios', component: UltimosCambios, permiso: 'productos.ver_auditoria' },
+  { path: '/admin', component: Admin, permiso: 'admin.ver_panel' },
+  { path: '/gestion-pm', component: GestionPM, permiso: 'admin.gestionar_pms' },
+  { path: '/gestion/alertas', component: GestionAlertas, permiso: 'alertas.gestionar' },
+  { path: '/mla-banlist', component: Banlist, permiso: 'admin.gestionar_mla_banlist' },
+  { path: '/dashboard-metricas-ml', component: DashboardMetricasML, permiso: 'ventas_ml.ver_dashboard' },
+  { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
+  { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },
+  { path: '/dashboard-tienda-nube', component: DashboardTiendaNube, permiso: 'ventas_tn.ver_dashboard' },
+  { path: '/calculos', component: Calculos, permiso: 'reportes.ver_calculadora' },
+  { path: '/items-sin-mla', component: ItemsSinMLA, permiso: 'admin.ver_items_sin_mla' },
+  { path: '/test-stats-dinamicos', component: TestStatsDinamicos, permiso: 'admin.sincronizar' },
+  { path: '/notificaciones', component: Notificaciones, permiso: 'reportes.ver_notificaciones' },
+  { path: '/pedidos-preparacion', component: PedidosPreparacion, permiso: 'ordenes.ver_preparacion' },
+  { path: '/produccion', component: Produccion, permiso: 'produccion.ver_combos' },
+  { path: '/prearmado', component: Prearmado, permiso: 'produccion.prearmar_combos' },
+  { path: '/prearmadas-disponibles', component: PrearmadasDisponibles, permiso: 'produccion.ver_prearmadas_stats' },
+  { path: '/clientes', component: Clientes, permiso: 'clientes.ver' },
+  { path: '/turbo-routing', component: TurboRouting, permiso: 'ordenes.gestionar_turbo_routing' },
+  { path: '/cuentas-corrientes', component: CuentasCorrientes, permiso: 'reportes.ver_cuentas_corrientes' },
+  { path: '/config-operaciones', component: ConfigOperaciones, permiso: 'envios_flex.config' },
+  { path: '/rma', component: Rma, permiso: 'rma.ver' },
+  { path: '/control-deposito', component: ControlDeposito, permiso: 'rma.control_deposito' },
+  { path: '/claims', component: ClaimsDashboard, permiso: 'rma.ver' },
+  { path: '/ml-preguntas', component: MLQuestions, permiso: 'ml_bot.ver' },
+  { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
+  { path: '/traza', component: Traza, permiso: 'traza.ver' },
+  { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },
+  { path: '/seguimiento-envios', component: SeguimientoEnvios, permiso: 'seguimiento_envios.ver' },
+  { path: '/rrhh/empleados', component: Empleados, permiso: 'rrhh.ver' },
+  { path: '/rrhh/presentismo', component: RRHHPresentismo, permiso: 'rrhh.ver' },
+  { path: '/rrhh/sanciones', component: RRHHSanciones, permiso: 'rrhh.ver' },
+  { path: '/rrhh/vacaciones', component: RRHHVacaciones, permiso: 'rrhh.ver' },
+  { path: '/rrhh/cuenta-corriente', component: RRHHCuentaCorriente, permiso: 'rrhh.ver' },
+  { path: '/rrhh/horarios', component: RRHHHorarios, permiso: 'rrhh.ver' },
+  { path: '/rrhh/sueldos', component: RRHHSueldos, permiso: 'rrhh.ver' },
+  { path: '/rrhh/horas-extras', component: RRHHHorasExtras, permiso: 'rrhh.ver_horas_extras' },
+  { path: '/cumpleanos', component: RRHHCumpleanos },
+  { path: '/rrhh/reportes', component: RRHHReportes, permiso: 'rrhh.ver' },
+  // ── Administración (sector empresa) ────────────
+  { path: '/administracion/proveedores', component: AdministracionProveedores, permiso: 'administracion.ver_proveedores' },
+  { path: '/administracion/bancos', component: AdministracionBancos, permiso: 'administracion.ver_proveedores' },
+  { path: '/administracion/impuestos', component: AdministracionImpuestos, permiso: 'administracion.ver_proveedores' },
+  { path: '/administracion/caja', component: AdministracionCaja, permiso: 'administracion.ver_caja' },
+  { path: '/administracion/compras', component: AdministracionCompras, permiso: 'administracion.ver_ordenes_compra' },
+  { path: '/tickets', component: Tickets, permiso: 'tickets.ver' },
+  { path: '/etiquetas/reescribir-lh', component: ReescribirLH, permiso: 'etiquetas.reescribir_lh' },
+  { path: '/tickets/admin', component: TicketsAdmin, permiso: 'tickets.admin' },
+  { path: '/document-designer', component: DocumentDesigner, permiso: 'documentos.disenar' },
+];
+
+// --- render helper: preserves the ProtectedRoute wrapping shape ---
+function renderProtectedRoute({ path, component, permiso, permisos }) {
+  const el = lazyElement(component);
+  const guarded = (permiso || permisos)
+    ? <ProtectedRoute permiso={permiso} permisos={permisos}>{el}</ProtectedRoute>
+    : el; // routes with no per-route permission rely on the outer AppLayout guard
+  return <Route key={path} path={path} element={guarded} />;
 }
 
 function App() {
@@ -134,259 +216,7 @@ function App() {
               <AppLayout />
             </ProtectedRoute>
           }>
-            <Route path="/productos" element={
-                  <ProtectedRoute permiso="productos.ver">
-                    <Productos />
-                  </ProtectedRoute>
-                } />
-                <Route path="/tienda" element={
-                  <ProtectedRoute permiso="productos.ver_tienda">
-                    <Tienda />
-                  </ProtectedRoute>
-                } />
-                <Route path="/precios-listas" element={
-                  <ProtectedRoute permiso="productos.ver">
-                    <PreciosListas />
-                  </ProtectedRoute>
-                } />
-                <Route path="/ultimos-cambios" element={
-                  <ProtectedRoute permiso="productos.ver_auditoria">
-                    <UltimosCambios />
-                  </ProtectedRoute>
-                } />
-                <Route path="/admin" element={
-                  <ProtectedRoute permiso="admin.ver_panel">
-                    <Admin />
-                  </ProtectedRoute>
-                } />
-                <Route path="/gestion-pm" element={
-                  <ProtectedRoute permiso="admin.gestionar_pms">
-                    <GestionPM />
-                  </ProtectedRoute>
-                } />
-                <Route path="/gestion/alertas" element={
-                  <ProtectedRoute permiso="alertas.gestionar">
-                    <GestionAlertas />
-                  </ProtectedRoute>
-                } />
-                <Route path="/mla-banlist" element={
-                  <ProtectedRoute permiso="admin.gestionar_mla_banlist">
-                    <Banlist />
-                  </ProtectedRoute>
-                } />
-                <Route path="/dashboard-metricas-ml" element={
-                  <ProtectedRoute permiso="ventas_ml.ver_dashboard">
-                    <DashboardMetricasML />
-                  </ProtectedRoute>
-                } />
-                <Route path="/dashboard-tplink" element={
-                  <ProtectedRoute permiso="dashboard_tplink.ver">
-                    <DashboardTPLink />
-                  </ProtectedRoute>
-                } />
-                <Route path="/dashboard-ventas-fuera" element={
-                  <ProtectedRoute permiso="ventas_fuera.ver_dashboard">
-                    <DashboardVentasFuera />
-                  </ProtectedRoute>
-                } />
-                <Route path="/dashboard-tienda-nube" element={
-                  <ProtectedRoute permiso="ventas_tn.ver_dashboard">
-                    <DashboardTiendaNube />
-                  </ProtectedRoute>
-                } />
-                <Route path="/calculos" element={
-                  <ProtectedRoute permiso="reportes.ver_calculadora">
-                    <Calculos />
-                  </ProtectedRoute>
-                } />
-                <Route path="/items-sin-mla" element={
-                  <ProtectedRoute permiso="admin.ver_items_sin_mla">
-                    <ItemsSinMLA />
-                  </ProtectedRoute>
-                } />
-                <Route path="/test-stats-dinamicos" element={
-                  <ProtectedRoute permiso="admin.sincronizar">
-                    <TestStatsDinamicos />
-                  </ProtectedRoute>
-                } />
-                <Route path="/notificaciones" element={
-                  <ProtectedRoute permiso="reportes.ver_notificaciones">
-                    <Notificaciones />
-                  </ProtectedRoute>
-                } />
-                <Route path="/pedidos-preparacion" element={
-                  <ProtectedRoute permiso="ordenes.ver_preparacion">
-                    <PedidosPreparacion />
-                  </ProtectedRoute>
-                } />
-                <Route path="/produccion" element={
-                  <ProtectedRoute permiso="produccion.ver_combos">
-                    <Produccion />
-                  </ProtectedRoute>
-                } />
-                <Route path="/prearmado" element={
-                  <ProtectedRoute permiso="produccion.prearmar_combos">
-                    <Prearmado />
-                  </ProtectedRoute>
-                } />
-                <Route path="/prearmadas-disponibles" element={
-                  <ProtectedRoute permiso="produccion.ver_prearmadas_stats">
-                    <PrearmadasDisponibles />
-                  </ProtectedRoute>
-                } />
-                <Route path="/clientes" element={
-                  <ProtectedRoute permiso="clientes.ver">
-                    <Clientes />
-                  </ProtectedRoute>
-                } />
-            <Route path="/turbo-routing" element={
-              <ProtectedRoute permiso="ordenes.gestionar_turbo_routing">
-                <TurboRouting />
-              </ProtectedRoute>
-            } />
-            <Route path="/cuentas-corrientes" element={
-              <ProtectedRoute permiso="reportes.ver_cuentas_corrientes">
-                <CuentasCorrientes />
-              </ProtectedRoute>
-            } />
-            <Route path="/config-operaciones" element={
-              <ProtectedRoute permiso="envios_flex.config">
-                <ConfigOperaciones />
-              </ProtectedRoute>
-            } />
-            <Route path="/rma" element={
-              <ProtectedRoute permiso="rma.ver">
-                <Rma />
-              </ProtectedRoute>
-            } />
-            <Route path="/control-deposito" element={
-              <ProtectedRoute permiso="rma.control_deposito">
-                <ControlDeposito />
-              </ProtectedRoute>
-            } />
-            <Route path="/claims" element={
-              <ProtectedRoute permiso="rma.ver">
-                <ClaimsDashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/consultas/ranking" element={
-              <ProtectedRoute permisos={['consultas.ver_ranking', 'consultas.ver_mi_ranking']}>
-                <ConsultasRanking />
-              </ProtectedRoute>
-            } />
-            <Route path="/traza" element={
-              <ProtectedRoute permiso="traza.ver">
-                <Traza />
-              </ProtectedRoute>
-            } />
-            <Route path="/free-shipping-alerts" element={
-              <ProtectedRoute permiso="alertas.ver_free_shipping">
-                <FreeShippingAlerts />
-              </ProtectedRoute>
-            } />
-            <Route path="/seguimiento-envios" element={
-              <ProtectedRoute permiso="seguimiento_envios.ver">
-                <SeguimientoEnvios />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/empleados" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <Empleados />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/presentismo" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHPresentismo />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/sanciones" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHSanciones />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/vacaciones" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHVacaciones />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/cuenta-corriente" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHCuentaCorriente />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/horarios" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHHorarios />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/sueldos" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHSueldos />
-              </ProtectedRoute>
-            } />
-            <Route path="/rrhh/horas-extras" element={
-              <ProtectedRoute permiso="rrhh.ver_horas_extras">
-                <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Horas Extras...</div>}>
-                  <RRHHHorasExtras />
-                </Suspense>
-              </ProtectedRoute>
-            } />
-            <Route path="/cumpleanos" element={<RRHHCumpleanos />} />
-            <Route path="/rrhh/reportes" element={
-              <ProtectedRoute permiso="rrhh.ver">
-                <RRHHReportes />
-              </ProtectedRoute>
-            } />
-            {/* ── Administración (sector empresa) ──────────── */}
-            <Route path="/administracion/proveedores" element={
-              <ProtectedRoute permiso="administracion.ver_proveedores">
-                <AdministracionProveedores />
-              </ProtectedRoute>
-            } />
-            <Route path="/administracion/bancos" element={
-              <ProtectedRoute permiso="administracion.ver_proveedores">
-                <AdministracionBancos />
-              </ProtectedRoute>
-            } />
-            <Route path="/administracion/impuestos" element={
-              <ProtectedRoute permiso="administracion.ver_proveedores">
-                <AdministracionImpuestos />
-              </ProtectedRoute>
-            } />
-            <Route path="/administracion/caja" element={
-              <ProtectedRoute permiso="administracion.ver_caja">
-                <AdministracionCaja />
-              </ProtectedRoute>
-            } />
-            <Route path="/administracion/compras" element={
-              <ProtectedRoute permiso="administracion.ver_ordenes_compra">
-                <AdministracionCompras />
-              </ProtectedRoute>
-            } />
-            <Route path="/tickets" element={
-              <ProtectedRoute permiso="tickets.ver">
-                <Tickets />
-              </ProtectedRoute>
-            } />
-            <Route path="/etiquetas/reescribir-lh" element={
-              <ProtectedRoute permiso="etiquetas.reescribir_lh">
-                <ReescribirLH />
-              </ProtectedRoute>
-            } />
-            <Route path="/tickets/admin" element={
-              <ProtectedRoute permiso="tickets.admin">
-                <TicketsAdmin />
-              </ProtectedRoute>
-            } />
-            <Route path="/document-designer" element={
-              <ProtectedRoute permiso="documentos.disenar">
-                <ErrorBoundary>
-                  <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--cf-text-secondary)' }}>Cargando Designer...</div>}>
-                    <DocumentDesigner />
-                  </Suspense>
-                </ErrorBoundary>
-              </ProtectedRoute>
-            } />
+            {protectedRoutes.map(renderProtectedRoute)}
           </Route>
           </Routes>
         </BrowserRouter>

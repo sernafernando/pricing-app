@@ -2,6 +2,8 @@ import httpx
 from typing import Dict, Optional, List
 import logging
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -9,7 +11,7 @@ class MLWebhookClient:
     """Cliente para el servicio ml-webhook que consulta la API de MercadoLibre"""
 
     def __init__(self):
-        self.base_url = "https://ml-webhook.gaussonline.com.ar"
+        self.base_url = settings.ML_WEBHOOK_BASE_URL
 
     async def get_item_preview(self, mla_id: str, include_price_to_win: bool = False) -> Optional[Dict]:
         """Obtiene preview de un item de MercadoLibre

@@ -25,8 +25,7 @@ export default defineConfig({
         // RRHHHorasExtras chunk was requested when opening unrelated pages.
         // They are cached on-demand by the CacheFirst rule below instead.
         globIgnores: [
-          '**/RRHHHorasExtras-*.{js,css}',
-          '**/DocumentDesigner-*.{js,css}',
+          '**/assets/lazy/**',
           '**/pdfmePlugins-*.js',
           '**/pdfmeFonts-*.js',
           '**/index.es-*.js',
@@ -88,6 +87,16 @@ export default defineConfig({
     }
   },
   build: {
+    rollupOptions: {
+      output: {
+        // Relocate code-split (lazy) chunks so the SW can exclude them from
+        // precache with ONE glob. Does not change module→chunk assignment.
+        chunkFileNames: (chunk) =>
+          chunk.isDynamicEntry
+            ? 'assets/lazy/[name]-[hash].js'
+            : 'assets/[name]-[hash].js',
+      },
+    },
     minify: 'terser',
     terserOptions: {
       compress: {

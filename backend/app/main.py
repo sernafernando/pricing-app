@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import UTC, datetime
 import asyncio
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.api.endpoints import (
     sync,
     productos,
@@ -62,6 +65,7 @@ from app.api.endpoints import (
 )
 from app.routers import (
     consultas,
+    ml_bot,
     administracion_bancos,
     administracion_caja,
     administracion_cheques,
@@ -97,9 +101,10 @@ from app.tickets.api.endpoints import (
     sectores as sectores_ep,
     workflows as workflows_ep,
 )
-from app.core.config import settings
+from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Importar `app.events.rrhh_he_hooks` dispara los `@event.listens_for` que
 # detectan modificaciones de fichadas / cambios de turno y generan alertas
@@ -143,6 +148,26 @@ async def lifespan(app: FastAPI):
     logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
     logger.info("CORS allowed origins: %s", settings.cors_origins)
 
+    # ── Login rate-limit storage reachability probe (best-effort) ──
+    # Fail-open by design (see openspec/changes/security-quick-wins/design.md,
+    # ADR-5): if this storage is unreachable, login rate limiting is silently
+    # disabled. This check never blocks startup — it only gives ops a signal
+    # that brute-force protection is armed or not. Bounded by the same
+    # 250ms socket timeouts the limiter itself uses (FIX 1).
+    # NOTE: `check()` returns bool, it does NOT raise on failure (see
+    # limits.storage.redis.RedisStorage.check — it swallows the connection
+    # error internally and returns False). The try/except below only guards
+    # against a future `limits` version that behaves differently.
+    try:
+        storage_reachable = limiter._storage.check()
+    except Exception:
+        storage_reachable = False
+
+    if storage_reachable:
+        logger.info("✅ Login rate-limit storage reachable — brute-force protection is armed")
+    else:
+        logger.warning("⚠️ Rate-limit storage unreachable at startup — login brute-force protection is FAIL-OPEN")
+
     # ── Redis for SSE pub/sub (best-effort — app works without it) ─
     redis = None
     sse_manager = None
@@ -175,6 +200,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(sync_pedidos_preparacion_task()),
             asyncio.create_task(free_shipping_auto_fix_task()),
             asyncio.create_task(sync_sale_orders_task()),
+            asyncio.create_task(ml_questions_ingest_task()),
+            asyncio.create_task(ml_questions_draft_task()),
+            asyncio.create_task(ml_questions_publish_task()),
         ]
     else:
         import os
@@ -204,18 +232,42 @@ async def lifespan(app: FastAPI):
         bg_lock_fd.close()
 
 
+def _docs_urls(environment: str) -> dict[str, str | None]:
+    """Return docs/redoc/openapi URL kwargs, disabled outside dev-like envs.
+
+    Passing None to FastAPI disables the corresponding route entirely. One flag
+    gates all three because Swagger UI and ReDoc both fetch openapi_url.
+    Enabled for `DEV_LIKE_ENVIRONMENTS` ("development", "testing") — CI runs
+    with ENVIRONMENT=testing and still needs the docs affordances reachable.
+    """
+    if environment in DEV_LIKE_ENVIRONMENTS:
+        return {
+            "docs_url": "/api/docs",
+            "redoc_url": "/api/redoc",
+            "openapi_url": "/api/openapi.json",
+        }
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
 app = FastAPI(
     title="Pricing API",
     description="API para gestión de precios de productos",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
     lifespan=lifespan,
+    **_docs_urls(settings.ENVIRONMENT),
 )
 
-# Global error handler — ensures all errors follow the standard envelope
-app.add_exception_handler(HTTPException, http_exception_handler)
+# Global error handler — ensures all errors follow the standard envelope.
+# Registered on Starlette's base HTTPException (not just FastAPI's subclass) so
+# genuinely-unmatched routes (raised by Starlette's own routing, which uses the
+# base class) are normalized identically to explicit `HTTPException` raises in
+# handlers — required for env-gated 404s (e.g. wipe-compras) to be
+# byte-indistinguishable from a nonexistent route.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -314,6 +366,9 @@ app.include_router(sse.router, prefix="/api", tags=["SSE"])
 # ── Módulo Consultas ───────────────────────────────────────────────
 app.include_router(consultas.router, prefix="/api")
 
+# ── ML Bot - Preguntas (Slice F) ──────────────────────────────────
+app.include_router(ml_bot.router, prefix="/api")
+
 # ── Módulo Administración (sector empresa) ────────────────────────
 app.include_router(empresas.router, prefix="/api", tags=["admin-empresas"])
 app.include_router(administracion_proveedores.router, prefix="/api", tags=["Administración - Proveedores"])
@@ -378,6 +433,99 @@ async def sync_sale_orders_task():
 
         # Esperar 10 minutos
         await asyncio.sleep(600)
+
+
+async def _resolve_ml_bot_poll_interval_seconds() -> int:
+    """Judgment Day fix: `poll_interval_seconds` is seeded/documented as the
+    panel-editable interval for the ml-bot ingest/draft loops below, but was
+    never actually read — both loops hardcoded `asyncio.sleep(30)`. Read live
+    from a short-lived DB session (ADR-5) each tick; any failure (DB error,
+    malformed value already handled inside `resolve_poll_interval_seconds`)
+    falls back to the same default so a bad read can never crash the loop.
+    """
+    from app.core.database import get_background_db
+    from app.services.ml_questions import policy
+
+    try:
+        with get_background_db() as db:
+            return policy.resolve_poll_interval_seconds(db)
+    except Exception as exc:
+        logger.warning("ml-bot: failed to resolve poll_interval_seconds, using default=30s: %s", exc)
+        return 30
+
+
+async def ml_questions_ingest_task():
+    """
+    Tarea de background que ingesta preguntas nuevas de MercadoLibre
+    (topic='questions') desde la BD mlwebhook hacia ml_bot_questions
+    (Slice C — solo ingesta, sin drafting ni publicación).
+    """
+    from app.services.ml_questions.ingestion_service import run_ml_questions_ingest_cycle
+
+    # Esperar 60 segundos para que todo esté listo (DB, ML client, etc.)
+    await asyncio.sleep(60)
+    logger.info("Background task started: ml_questions_ingest (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_ingest_cycle()
+            if stats["ingested"] or stats["duplicates"] or stats["skipped_answered"]:
+                logger.info("ML questions ingest stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions ingest failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def ml_questions_publish_task():
+    """
+    Tarea de background que publica en ML las preguntas cuyo wait_until ya
+    venció (Slice E — wait-window publisher): claim CAS, POST /answers fuera
+    de cualquier sesión de DB, y ruteo a published/waiting(retry)/failed.
+    """
+    from app.services.ml_questions.publisher_service import run_ml_questions_publish_cycle
+
+    # Esperar 120 segundos para que ingesta (60s) y drafting (90s) ya hayan
+    # corrido al menos una vez y existan filas 'waiting' para publicar.
+    await asyncio.sleep(120)
+    logger.info("Background task started: ml_questions_publish (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_publish_cycle()
+            if stats["published"] or stats["retry"] or stats["failed"]:
+                logger.info("ML questions publish stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions publish failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def ml_questions_draft_task():
+    """
+    Tarea de background que orquesta el drafting de preguntas nuevas
+    (status='received') vía el pipeline LLM (Slice D2): claim CAS,
+    manipulation-signal check, contexto escopeado + Groq, denylist,
+    y ruteo a waiting/pending_morning/failed.
+    """
+    from app.services.ml_questions.drafting_service import run_ml_questions_draft_cycle
+
+    # Esperar 90 segundos para que ingesta (60s) ya haya corrido al menos una vez.
+    await asyncio.sleep(90)
+    logger.info("Background task started: ml_questions_draft (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_questions_draft_cycle()
+            if not stats.get("not_eligible"):
+                logger.info("ML questions draft stats: %s", stats)
+        except Exception as e:
+            logger.error("ML questions draft failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
 
 
 async def free_shipping_auto_fix_task():

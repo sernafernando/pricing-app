@@ -6,9 +6,68 @@ import logging
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import get_mlwebhook_engine
 
 logger = logging.getLogger(__name__)
+
+
+class QuestionNotFoundError(Exception):
+    """Raised by `get_question` when ML confirms the question no longer
+    exists (HTTP 404) — a terminal, non-retryable outcome. Distinguishes this
+    case from a transient failure (network/timeout/5xx/auth), which still
+    returns None so callers can retry."""
+
+    def __init__(self, question_id: int) -> None:
+        self.question_id = question_id
+        super().__init__(f"Question {question_id} not found in ML (404)")
+
+
+class QuestionAlreadyAnsweredError(Exception):
+    """Raised by `post_answer` when ML confirms the question was already
+    answered (a 4xx explicitly indicating that) — a success-equivalent
+    outcome for idempotency (ml-bot Slice E, ADR-5 double-publish defense):
+    a retried publish attempt (e.g. after a crash between the ML POST and
+    the terminal DB write) must not be treated as a failure."""
+
+    def __init__(self, question_id: int) -> None:
+        self.question_id = question_id
+        super().__init__(f"Question {question_id} was already answered in ML")
+
+
+class AnswerPostPermanentError(Exception):
+    """Raised by `post_answer` when ML rejects the answer with a non-
+    already-answered 4xx (e.g. 401/403/404/422, or a 400 that is not a
+    known already-answered signal) — a PERMANENT failure (ml-bot Slice E
+    Judgment Day fix). The caller must not burn bounded retries on these:
+    the request is malformed/unauthorized/rejected, not transiently
+    unavailable, so retrying will not help."""
+
+    def __init__(self, question_id: int, status_code: int, message: str) -> None:
+        self.question_id = question_id
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Question {question_id}: ML rejected answer permanently (HTTP {status_code}): {message}")
+
+
+# Explicit multi-word phrases only — matched against the structured
+# message/error/cause fields AFTER normalizing underscores/hyphens to spaces
+# and lowercasing (Judgment Day round 2, fix 3). Deliberately excludes bare
+# single-word substrings ("already"/"answered") which produce both false
+# positives (e.g. "Field 'answered_by' is invalid") and — pre-normalization —
+# false negatives (e.g. "question_already_answered").
+_ALREADY_ANSWERED_PHRASES = (
+    "already answered",
+    "already has an answer",
+    "already been answered",
+    "question already answered",
+    "answered question",
+)
+
+# Transient HTTP statuses that must NOT be routed through the permanent-4xx
+# classifier (Judgment Day round 2, fix 2): 429 (rate limited) and 408
+# (request timeout) are retryable conditions, not permanent rejections.
+_TRANSIENT_4XX_STATUS_CODES = frozenset({408, 429})
 
 
 def _load_token_from_mlwebhook() -> Optional[Dict]:
@@ -52,8 +111,7 @@ class MercadoLibreAPIClient:
         token_data = _load_token_from_mlwebhook()
         if not token_data or not token_data.get("access_token"):
             raise RuntimeError(
-                "No se pudo obtener access_token de mlwebhook DB. "
-                "Re-autenticar en https://ml-webhook.gaussonline.com.ar/auth"
+                f"No se pudo obtener access_token de mlwebhook DB. Re-autenticar en {settings.ML_WEBHOOK_BASE_URL}/auth"
             )
 
         self._cached_token = token_data["access_token"]
@@ -89,6 +147,187 @@ class MercadoLibreAPIClient:
         except Exception as e:
             logger.error(f"Error obteniendo item {item_id} de ML: {e}")
             return None
+
+    async def get_item_description(self, item_id: str) -> Optional[str]:
+        """Obtiene la descripción de un item de ML (context-enrichment,
+        sdd/ml-questions-ai/context-enrichment).
+
+        Mirrors `get_item`'s error conventions: any failure (404, other
+        4xx/5xx, network error, unexpected payload shape) is non-fatal and
+        returns `None` — never raises. Callers treat a `None` description as
+        "proceed without it", never as a reason to fail the whole draft.
+
+        Args:
+            item_id: El ID del item (MLA, MLB, etc.)
+
+        Returns:
+            El texto plano de la descripción (`plain_text`) o `None` si no
+            está disponible o hay error.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/items/{item_id}/description", headers={"Authorization": f"Bearer {token}"}
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Descripción del item {item_id} no encontrada en ML")
+                    return None
+
+                response.raise_for_status()
+                data = response.json()
+                plain_text = data.get("plain_text")
+                return plain_text if isinstance(plain_text, str) else None
+
+        except Exception as e:
+            logger.error(f"Error obteniendo descripción del item {item_id} de ML: {e}")
+            return None
+
+    async def get_question(self, question_id: int) -> Optional[Dict]:
+        """Obtiene el detalle completo de una pregunta de ML (ml-bot Slice C, R-101).
+
+        El webhook de mlwebhook solo trae el resource id; el texto de la
+        pregunta, comprador, item y estado se obtienen con un GET puntual acá.
+
+        Args:
+            question_id: El id numérico de la pregunta ML.
+
+        Returns:
+            Dict con la pregunta (incluye "status", "text", "date_created",
+            "item_id", "from") si tuvo éxito.
+
+        Raises:
+            QuestionNotFoundError: si ML devuelve 404 (la pregunta ya no
+                existe — resultado terminal, no reintentable).
+
+        Returns None for transient failures (network/timeout/5xx/auth) —
+        callers should retry these.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/questions/{question_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Pregunta {question_id} no encontrada en ML")
+                    raise QuestionNotFoundError(question_id)
+
+                response.raise_for_status()
+                return response.json()
+
+        except QuestionNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error obteniendo pregunta {question_id} de ML: {e}")
+            return None
+
+    async def post_answer(self, question_id: int, text: str) -> Optional[Dict]:
+        """Publica la respuesta de una pregunta en ML (ml-bot Slice E, ADR-5).
+
+        Args:
+            question_id: El id numérico de la pregunta ML.
+            text: El texto de la respuesta a publicar.
+
+        Returns:
+            Dict con la respuesta de ML si tuvo éxito.
+
+        Raises:
+            QuestionAlreadyAnsweredError: si ML indica explícitamente (4xx)
+                que la pregunta ya fue respondida — tratado como
+                éxito-equivalente por el caller (idempotencia).
+            AnswerPostPermanentError: si ML rechaza la respuesta con un 4xx
+                que NO es "ya respondida" (401/403/404/422/etc, o un 400 sin
+                señal de idempotencia) — falla PERMANENTE, no reintentable.
+
+        Returns None for transient failures (network/timeout/5xx) — callers
+        should retry these (bounded).
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/answers",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"question_id": question_id, "text": text},
+                )
+
+                if 200 <= response.status_code < 300:
+                    return response.json()
+
+                if response.status_code in _TRANSIENT_4XX_STATUS_CODES:
+                    logger.warning(
+                        "ml-bot post_answer: transient HTTP %s from ML for question %s — will be retried",
+                        response.status_code,
+                        question_id,
+                    )
+                    return None
+
+                if 400 <= response.status_code < 500:
+                    self._classify_post_answer_client_error(question_id, response)
+                    # _classify_post_answer_client_error always raises.
+
+                response.raise_for_status()
+                return response.json()
+
+        except (QuestionAlreadyAnsweredError, AnswerPostPermanentError):
+            raise
+        except Exception as e:
+            logger.error(f"Error publicando respuesta a pregunta {question_id} en ML: {e}")
+            return None
+
+    def _classify_post_answer_client_error(self, question_id: int, response: httpx.Response) -> None:
+        """Classify a 4xx `post_answer` response and raise the matching
+        exception. Never returns normally.
+
+        Prefers structured matching over the previous brittle
+        whole-body substring check: parses ML's JSON error shape
+        (`{"message": ..., "error": ..., "status": ..., "cause": [...]}`)
+        and inspects only the `message`/`error`/`cause[].message` fields for
+        known already-answered signals. Falls back to a narrow phrase check
+        on `message` alone. Logs a WARNING with a truncated body when a 400
+        matches neither — a signal of ML contract drift.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            logger.warning(
+                "ml-bot post_answer: 400 body from ML is not JSON (possible contract drift) for question %s: %s",
+                question_id,
+                response.text[:500],
+            )
+            raise AnswerPostPermanentError(question_id, response.status_code, response.text[:500])
+
+        if not isinstance(body, dict):
+            logger.warning(
+                "ml-bot post_answer: 400 body from ML is not a JSON object (possible contract drift) "
+                "for question %s: %s",
+                question_id,
+                str(body)[:500],
+            )
+            raise AnswerPostPermanentError(question_id, response.status_code, str(body)[:500])
+
+        message = str(body.get("message") or "")
+        error_field = str(body.get("error") or "")
+        cause = body.get("cause") or []
+        cause_messages = " ".join(str(c.get("message", "")) for c in cause if isinstance(c, dict))
+        combined_raw = " ".join([message, error_field, cause_messages])
+        # Normalize underscores/hyphens to spaces so ML error codes like
+        # "question_already_answered" match the same phrases as prose
+        # messages like "question already answered" (Judgment Day fix 3).
+        combined = combined_raw.replace("_", " ").replace("-", " ").lower()
+
+        if any(phrase in combined for phrase in _ALREADY_ANSWERED_PHRASES):
+            logger.warning(f"Pregunta {question_id} ya estaba respondida en ML ({response.status_code}): {message}")
+            raise QuestionAlreadyAnsweredError(question_id)
+
+        raise AnswerPostPermanentError(question_id, response.status_code, message or str(body)[:500])
 
     async def get_items_batch(self, item_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch

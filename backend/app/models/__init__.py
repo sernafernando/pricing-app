@@ -175,6 +175,11 @@ from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.cheque import Chequera, Cheque, OrdenPagoCheque, ChequeEvento
 from app.models.tplink_venta_metrica import TplinkVentaMetrica
 
+# ML questions bot (ml-questions-ai Slice A)
+from app.models.ml_bot_question import MlBotQuestion
+from app.models.ml_bot_config import MlBotConfig
+from app.models.ml_bot_answer_example import MlBotAnswerExample
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -361,4 +366,7 @@ __all__ = [
     "ChequeEvento",
     # TP-Link metrics
     "TplinkVentaMetrica",
+    "MlBotQuestion",
+    "MlBotConfig",
+    "MlBotAnswerExample",
 ]

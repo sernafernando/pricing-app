@@ -100,6 +100,10 @@ api.interceptors.response.use(
       );
       const newToken = data.access_token;
       localStorage.setItem('token', newToken);
+      if (data.refresh_token) {
+        // Backend rota el refresh_token en cada /auth/refresh; persistir el nuevo.
+        localStorage.setItem('refresh_token', data.refresh_token);
+      }
       processQueue(null, newToken);
       originalRequest.headers.Authorization = `Bearer ${newToken}`;
       return api(originalRequest);

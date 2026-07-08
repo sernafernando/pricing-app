@@ -15,9 +15,11 @@ import httpx
 import logging
 from typing import Optional, Dict, Any, Tuple
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-ML_WEBHOOK_BASE_URL = "https://ml-webhook.gaussonline.com.ar/api/ml/render"
+ML_WEBHOOK_RENDER_URL = f"{settings.ML_WEBHOOK_BASE_URL}/api/ml/render"
 
 
 async def fetch_shipment_data(shipping_id: str) -> Optional[Dict[str, Any]]:
@@ -53,7 +55,7 @@ async def fetch_shipment_data(shipping_id: str) -> Optional[Dict[str, Any]]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                ML_WEBHOOK_BASE_URL, params={"resource": f"/shipments/{shipping_id}", "format": "json"}
+                ML_WEBHOOK_RENDER_URL, params={"resource": f"/shipments/{shipping_id}", "format": "json"}
             )
             response.raise_for_status()
             data = response.json()
@@ -257,7 +259,7 @@ async def fetch_shipment_label_zpl(shipping_id: str) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
-                ML_WEBHOOK_BASE_URL,
+                ML_WEBHOOK_RENDER_URL,
                 params={"resource": resource, "format": "json"},
             )
 

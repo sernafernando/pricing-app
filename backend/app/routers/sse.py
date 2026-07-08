@@ -36,6 +36,7 @@ VALID_CHANNELS = {
     "shipments:webhook",
     "tickets:badge",
     "tickets:changed",
+    "ml_bot:questions",
 }
 
 
@@ -61,7 +62,7 @@ async def sse_stream(
     requested_channels = [ch.strip() for ch in channels.split(",") if ch.strip()]
     if not requested_channels:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="At least one channel is required",
         )
 

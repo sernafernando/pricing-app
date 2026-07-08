@@ -7,8 +7,8 @@ from datetime import date, datetime, timedelta
 from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
-from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
-from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo
+from app.models.offset_individual_consumo import OffsetIndividualConsumo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
@@ -18,6 +18,10 @@ from app.api.endpoints.rentabilidad_schemas import (
     DesgloseMarca,
     DesgloseOffset,
     RentabilidadResponse,
+)
+from app.services.offset_resumen_service import (
+    fetch_resumenes_grupo,
+    fetch_resumenes_individuales,
 )
 
 router = APIRouter()
@@ -318,6 +322,10 @@ def obtener_rentabilidad(
 
         return 0, 0.0, 0.0
 
+    # Prefetch de resúmenes de grupo en UNA sola query (evita N+1 en el loop de abajo)
+    _grupo_ids = {o.grupo_id for o in offsets if o.grupo_id}
+    _resumenes_grupo = fetch_resumenes_grupo(db, _grupo_ids)
+
     # Pre-calcular offsets por grupo para aplicar límites a nivel grupo
     for offset in offsets:
         if not offset.grupo_id:
@@ -327,7 +335,7 @@ def obtener_rentabilidad(
             tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
             # Primero intentamos usar la tabla de resumen para obtener el consumo total
-            resumen = db.query(OffsetGrupoResumen).filter(OffsetGrupoResumen.grupo_id == offset.grupo_id).first()
+            resumen = _resumenes_grupo.get(offset.grupo_id)
 
             # Fecha inicio del offset (desde cuando empezó a correr)
             offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
@@ -461,6 +469,10 @@ def obtener_rentabilidad(
             float(consumo.total_monto_usd or 0),
         )
 
+    # Prefetch de resúmenes individuales en UNA sola query (evita N+1 en el loop de abajo)
+    _offset_ids_individuales = {o.id for o in offsets if o.grupo_id is None and (o.max_unidades or o.max_monto_usd)}
+    _resumenes_individuales = fetch_resumenes_individuales(db, _offset_ids_individuales)
+
     for offset in offsets:
         # Solo procesar offsets individuales (sin grupo) que tengan límites
         if offset.grupo_id is not None:
@@ -470,7 +482,7 @@ def obtener_rentabilidad(
 
         tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
-        resumen = db.query(OffsetIndividualResumen).filter(OffsetIndividualResumen.offset_id == offset.id).first()
+        resumen = _resumenes_individuales.get(offset.id)
 
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 

@@ -49,6 +49,10 @@ async function silentRefresh(set, get) {
     );
     const newToken = data.access_token;
     localStorage.setItem('token', newToken);
+    if (data.refresh_token) {
+      // Backend rota el refresh_token en cada /auth/refresh; persistir el nuevo.
+      localStorage.setItem('refresh_token', data.refresh_token);
+    }
     set({ token: newToken });
 
     // Programar el próximo refresh
@@ -90,11 +94,28 @@ export const useAuthStore = create((set, get) => {
 
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.response?.data?.detail || 'Error al iniciar sesión' };
+        return {
+          success: false,
+          error: error.response?.data?.error?.message || error.response?.data?.detail || 'Error al iniciar sesión',
+        };
       }
     },
 
-    logout: () => {
+    logout: async () => {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          // Raw axios (no la instancia `api`): el logout se autoriza con el
+          // refresh_token del body, no con el access token del interceptor.
+          await axios.post(
+            `${import.meta.env.VITE_API_URL}/auth/logout`,
+            { refresh_token: refreshToken }
+          );
+        } catch {
+          // Best-effort: un logout fallido/bloqueado nunca debe trabar
+          // al usuario dentro de la sesión. Igual limpiamos el estado local.
+        }
+      }
       if (refreshTimer) {
         clearTimeout(refreshTimer);
         refreshTimer = null;

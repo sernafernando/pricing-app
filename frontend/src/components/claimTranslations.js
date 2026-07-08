@@ -2,6 +2,7 @@
  * Traducciones y helpers compartidos para claims de MercadoLibre.
  * Usado por ModalRma y TrazaViewer/ClaimCards.
  */
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 // ── Traducciones de campos de claims ML ──────────────────────────────────────
 export const TRIAGE_TAGS_ES = {
@@ -139,38 +140,10 @@ export const PLAYER_ROLE_ES = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Sanitiza HTML permitiendo solo tags seguros para mensajes de ML.
- * Remueve scripts, event handlers y tags peligrosos.
+ * Sanitiza HTML de mensajes de ML delegando en el util DOMPurify.
+ * Mantiene nombre/firma y el contrato de retorno ('' para vacío/null).
  */
-export const sanitizeMessageHtml = (html) => {
-  if (!html) return '';
-  const ALLOWED_TAGS = ['strong', 'b', 'em', 'i', 'u', 'br', 'p', 'ul', 'ol', 'li', 'a'];
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  for (const el of div.querySelectorAll('script, style, iframe, object, embed')) {
-    el.remove();
-  }
-  for (const el of div.querySelectorAll('*')) {
-    for (const attr of [...el.attributes]) {
-      if (attr.name.startsWith('on') || attr.name === 'style') {
-        el.removeAttribute(attr.name);
-      }
-    }
-    if (!ALLOWED_TAGS.includes(el.tagName.toLowerCase())) {
-      el.replaceWith(...el.childNodes);
-    }
-  }
-  for (const a of div.querySelectorAll('a')) {
-    const href = a.getAttribute('href') || '';
-    if (!href.startsWith('http')) {
-      a.replaceWith(...a.childNodes);
-    } else {
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
-    }
-  }
-  return div.innerHTML;
-};
+export const sanitizeMessageHtml = (html) => sanitizeHtml(html);
 
 const IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
 

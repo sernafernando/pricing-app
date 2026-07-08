@@ -67,7 +67,8 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 - ALWAYS: CamelCase class names: `.modalHeader`, `.btnPrimary`
 - NEVER: Inline styles (except dynamic values)
 - NEVER: Hardcoded colors — always use design tokens
-- NEVER: Tailwind utilities (project uses CSS Modules)
+- CSS Modules is the primary convention for component-scoped styles; Tailwind 4 is installed (`@tailwind` directives in `src/index.css`) and used as utility classes in a handful of components/pages (e.g. `Layout.jsx`, `PanelComisiones.jsx`, `Calculos.jsx`, `Tienda.jsx`, `Productos.jsx`) for layout/spacing. When touching one of those files, follow its existing convention; for new components default to CSS Modules unless you're extending an already-Tailwind file
+- NEVER: Introduce Tailwind utilities into a CSS-Modules component just for convenience — pick one convention per file, don't mix
 - NEVER: Deeply nested selectors — keep CSS flat
 - NEVER: Invent global CSS classes like `input-tesla` or `select-tesla` — they don't exist and never did
 - NEVER: Use `className="input-tesla"` or `className="select-tesla"` — these are phantom classes with NO styles
@@ -204,7 +205,7 @@ When writing NEW CSS or refactoring existing CSS, prefer CF tokens over legacy t
 
 ## TECH STACK
 
-React 18 | Vite | Zustand 4 | Axios | CSS Modules | Tesla Design System
+React 18 | Vite | Zustand 5 | Axios | CSS Modules (primary) + Tailwind 4 utilities (select components/pages) | Tesla Design System
 
 ---
 
@@ -228,12 +229,18 @@ frontend/src/
 ```bash
 # Dev
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 
 # Build
-npm run build
+pnpm run build
+
+# Tests
+pnpm test          # vitest run
+pnpm test:watch    # vitest watch mode
 ```
+
+Testing libraries in use: `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`, `jsdom`.
 
 ---
 
@@ -331,7 +338,7 @@ export function useDebounce(value, delay = 500) {
 **BEFORE every commit that touches `.jsx`, `.js`, or `.css` files, you MUST run:**
 
 ```bash
-cd frontend && npx eslint src/path/to/changed/files.jsx
+cd frontend && pnpm exec eslint src/path/to/changed/files.jsx
 ```
 
 - Fix ALL errors before committing (errors = CI failure = blocked PR)
@@ -344,7 +351,7 @@ cd frontend && npx eslint src/path/to/changed/files.jsx
 
 ## QA CHECKLIST
 
-- [ ] **`npm run lint` passes** on changed files (run BEFORE commit)
+- [ ] **`pnpm run lint` passes** on changed files (run BEFORE commit)
 - [ ] `const` by default, `let` only for reassignment, no `var`
 - [ ] No `console.log` left in production code
 - [ ] Functional components with hooks

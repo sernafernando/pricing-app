@@ -1,0 +1,614 @@
+"""
+T-B1/T-B3: Unit tests — services/ml_questions/policy.py
+
+Covers (Slice B, spec R-201/R-202/R-203, design §5/§11, ADR-4):
+- get_config(): live DB read + type casting, treats "" as unset (gotcha from Judgment Day).
+- is_within_business_hours(): [start, end) half-open boundary, business_days, timezone.
+- get_operating_mode() gate: off_hours_only vs always_on eligibility.
+- resolve_wait_minutes(): always_on business-hours override vs default wait_minutes.
+
+Pure logic — no DB session held during evaluation; config values are passed in
+via a `ml_bot_config` SQLite-backed `db` fixture, read live (no indefinite cache).
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from app.models.ml_bot_config import MlBotConfig
+from app.services.ml_questions import policy
+
+
+def _seed_config(db, **overrides: str) -> None:
+    """Seed ml_bot_config rows matching the Slice A migration defaults, with overrides."""
+    defaults = {
+        "bot_enabled": ("false", "bool"),
+        "operating_mode": ("off_hours_only", "string"),
+        "business_hours_start": ("09:00", "time"),
+        "business_hours_end": ("18:00", "time"),
+        "business_days": ("[1,2,3,4,5]", "json"),
+        "timezone": ("America/Argentina/Buenos_Aires", "string"),
+        "wait_minutes": ("5", "int"),
+        "wait_minutes_business_hours": ("", "int"),
+        "min_confidence": ("0.6", "string"),
+        "ingest_cursor_ts": ("", "string"),
+        "work_schedule": ("", "json"),
+        "attention_hours_text": ("", "string"),
+    }
+    for clave, (valor, tipo) in defaults.items():
+        actual_valor = overrides.get(clave, valor)
+        db.add(MlBotConfig(clave=clave, valor=str(actual_valor), tipo=tipo))
+    db.flush()
+
+
+class TestGetConfig:
+    """T-B1 (RED first): config accessor casting + empty-string gotcha."""
+
+    def test_get_config_casts_int(self, db) -> None:
+        _seed_config(db, wait_minutes="7")
+        assert policy.get_config(db, "wait_minutes", cast=int) == 7
+
+    def test_get_config_casts_bool_true(self, db) -> None:
+        _seed_config(db, bot_enabled="true")
+        assert policy.get_config(db, "bot_enabled", cast=bool) is True
+
+    def test_get_config_casts_bool_false(self, db) -> None:
+        _seed_config(db, bot_enabled="false")
+        assert policy.get_config(db, "bot_enabled", cast=bool) is False
+
+    def test_get_config_missing_key_returns_default(self, db) -> None:
+        _seed_config(db)
+        assert policy.get_config(db, "does_not_exist", cast=str, default="fallback") == "fallback"
+
+    def test_get_config_empty_string_int_returns_none_not_valueerror(self, db) -> None:
+        """Judgment Day gotcha: wait_minutes_business_hours seeded as "" must not raise
+        ValueError on int() cast — must be treated as unset (None)."""
+        _seed_config(db, wait_minutes_business_hours="")
+        assert policy.get_config(db, "wait_minutes_business_hours", cast=int) is None
+
+    def test_get_config_empty_string_str_returns_none(self, db) -> None:
+        """ingest_cursor_ts seeded as "" must also be treated as unset for str cast."""
+        _seed_config(db, ingest_cursor_ts="")
+        assert policy.get_config(db, "ingest_cursor_ts", cast=str) is None
+
+    def test_get_config_empty_string_with_explicit_default(self, db) -> None:
+        _seed_config(db, wait_minutes_business_hours="")
+        assert policy.get_config(db, "wait_minutes_business_hours", cast=int, default=99) == 99
+
+
+class TestIsWithinBusinessHours:
+    """T-B1: [start, end) half-open boundary — R-202."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_start_boundary_is_in_hours(self, db) -> None:
+        _seed_config(db)
+        # Tuesday 09:00:00 exactly -> in-hours (inclusive start)
+        now = datetime(2026, 7, 7, 9, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_end_boundary_is_out_of_hours(self, db) -> None:
+        _seed_config(db)
+        # Tuesday 18:00:00 exactly -> off-hours (exclusive end)
+        now = datetime(2026, 7, 7, 18, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_mid_business_hours(self, db) -> None:
+        _seed_config(db)
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_after_hours_at_night(self, db) -> None:
+        _seed_config(db)
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_weekend_is_out_of_hours(self, db) -> None:
+        _seed_config(db)
+        # Saturday 2026-07-11, 14:00 -> not in business_days [1..5]
+        now = datetime(2026, 7, 11, 14, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_naive_datetime_is_localized_to_configured_timezone(self, db) -> None:
+        _seed_config(db)
+        now = datetime(2026, 7, 7, 14, 0, 0)  # naive
+        assert policy.is_within_business_hours(db, now) is True
+
+
+_USER_WORK_SCHEDULE = (
+    '{"1": ["09:00", "18:00"], "2": ["09:00", "18:00"], "3": ["09:00", "18:00"], '
+    '"4": ["09:00", "18:00"], "5": ["09:00", "18:00"], "6": ["09:00", "13:00"]}'
+)
+
+
+class TestPerDayWorkSchedule:
+    """schedules-v2: `work_schedule` (JSON, per-isoweekday hours) takes
+    priority over the legacy `business_days` + `business_hours_start/end`
+    keys when present and valid. Real example: Mon-Fri 09-18, Sat 09-13."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        """See `TestMalformedConfigFailsSafe._allow_log_propagation` — the
+        `app` root logger sets propagate=False; re-enable it so caplog can
+        observe warnings from `policy.logger`."""
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_saturday_in_hours_before_closing(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 12, 59, 0, tzinfo=self.tz)  # Saturday 12:59
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_saturday_off_hours_after_closing(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 13, 1, 0, tzinfo=self.tz)  # Saturday 13:01
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_saturday_end_boundary_is_out_of_hours(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00 exactly
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_sunday_is_off_all_day(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 12, 12, 0, 0, tzinfo=self.tz)  # Sunday
+        assert policy.is_within_business_hours(db, now) is False
+
+    def test_weekday_start_boundary_is_in_hours(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        now = datetime(2026, 7, 7, 9, 0, 0, tzinfo=self.tz)  # Tuesday 09:00
+        assert policy.is_within_business_hours(db, now) is True
+
+    def test_malformed_json_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule="{not valid json", business_hours_start="09:00", business_hours_end="18:00")
+        now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=self.tz)  # Saturday, not in legacy business_days [1..5]
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is False  # legacy path: Saturday not a business day
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_non_dict_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule="[1,2,3]")
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            policy.get_work_schedule(db)
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_bad_day_key_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule='{"8": ["09:00", "18:00"]}')
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.get_work_schedule(db)
+        assert result is None
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_start_after_end_falls_back_to_legacy_keys(self, db, caplog) -> None:
+        _seed_config(db, work_schedule='{"1": ["18:00", "09:00"]}')
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.get_work_schedule(db)
+        assert result is None
+        assert any("work_schedule" in record.getMessage() for record in caplog.records)
+
+    def test_absent_work_schedule_uses_legacy_path(self, db) -> None:
+        _seed_config(db)  # no work_schedule seeded
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)
+        assert policy.is_within_business_hours(db, now) is True
+        assert policy.get_work_schedule(db) is None
+
+
+class TestResolveLastWorkingDayEnd:
+    """schedules-v2: R-602 generalization — most recent working day's END,
+    per-day-aware (not simply "yesterday")."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_monday_early_morning_resolves_to_saturday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 13, 0, 30, 0, tzinfo=self.tz)  # Monday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00
+
+    def test_tuesday_early_morning_resolves_to_monday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 7, 0, 30, 0, tzinfo=self.tz)  # Tuesday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 6, 18, 0, 0, tzinfo=self.tz)  # Monday 18:00
+
+    def test_legacy_path_when_no_work_schedule(self, db) -> None:
+        _seed_config(db, business_hours_start="09:00", business_hours_end="18:00")
+        before = datetime(2026, 7, 7, 0, 30, 0, tzinfo=self.tz)  # Tuesday 00:30
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 6, 18, 0, 0, tzinfo=self.tz)  # Monday 18:00
+
+    def test_saturday_after_close_resolves_to_todays_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 11, 14, 0, 0, tzinfo=self.tz)  # Saturday 14:00 (past 13:00 close)
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 11, 13, 0, 0, tzinfo=self.tz)  # Saturday 13:00 (today)
+
+    def test_saturday_mid_day_walks_back_to_friday_close(self, db) -> None:
+        _seed_config(db, work_schedule=_USER_WORK_SCHEDULE)
+        before = datetime(2026, 7, 11, 12, 0, 0, tzinfo=self.tz)  # Saturday 12:00 (before 13:00 close)
+        result = policy.resolve_last_working_day_end(db, before)
+        assert result == datetime(2026, 7, 10, 18, 0, 0, tzinfo=self.tz)  # Friday 18:00
+
+
+class TestOperatingModeGate:
+    """T-B3: operating-mode gate — R-201."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_off_hours_only_blocks_bot_during_business_hours(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # Tuesday in-hours
+        assert policy.is_eligible_for_bot(db, now) is False
+
+    def test_off_hours_only_allows_bot_off_hours(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours
+        assert policy.is_eligible_for_bot(db, now) is True
+
+    def test_always_on_allows_bot_during_business_hours(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # in-hours
+        assert policy.is_eligible_for_bot(db, now) is True
+
+    def test_always_on_allows_bot_off_hours_too(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.is_eligible_for_bot(db, now) is True
+
+    def test_unknown_operating_mode_defaults_to_off_hours_only_behavior(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="bogus_mode")
+        now = datetime(2026, 7, 7, 14, 0, 0, tzinfo=self.tz)  # in-hours
+        assert policy.is_eligible_for_bot(db, now) is False
+
+
+class TestBotEnabledKillSwitch:
+    """Fix 5: `is_eligible_for_bot` must itself check `bot_enabled` (single
+    source of truth for the kill switch), regardless of mode/time."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_bot_enabled_false_blocks_regardless_of_mode_and_time(self, db) -> None:
+        _seed_config(db, bot_enabled="false", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours, always_on -> would be True
+        assert policy.is_eligible_for_bot(db, now) is False
+
+    def test_bot_enabled_missing_defaults_to_disabled(self, db) -> None:
+        _seed_config(db, bot_enabled="", operating_mode="always_on")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.is_eligible_for_bot(db, now) is False
+
+    def test_bot_enabled_true_preserves_existing_truth_table(self, db) -> None:
+        _seed_config(db, bot_enabled="true", operating_mode="off_hours_only")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)  # off-hours -> eligible
+        assert policy.is_eligible_for_bot(db, now) is True
+
+
+class TestAutoPublishEnabled:
+    """Supervised mode: `auto_publish_enabled` gates the automatic publish
+    path. Fail-safe default is FALSE (supervised) — absent/empty/malformed
+    values must never enable auto-publish, mirroring `bot_enabled`'s
+    fail-safe kill-switch pattern."""
+
+    def test_missing_key_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_empty_string_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_malformed_value_defaults_to_disabled(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="maybe", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+    def test_exact_true_token_enables(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is True
+
+    def test_false_token_disables(self, db) -> None:
+        _seed_config(db)
+        db.add(MlBotConfig(clave="auto_publish_enabled", valor="false", tipo="bool"))
+        db.flush()
+        assert policy.is_auto_publish_enabled(db) is False
+
+
+class TestResolveWaitMinutes:
+    """T-B3: wait-window selection — R-203."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def test_off_hours_uses_standard_wait(self, db) -> None:
+        _seed_config(db, operating_mode="off_hours_only", wait_minutes="5", wait_minutes_business_hours="15")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 5
+
+    def test_always_on_in_hours_uses_business_hours_override_when_set(self, db) -> None:
+        _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="15")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 15
+
+    def test_always_on_in_hours_falls_back_to_standard_wait_when_override_unset(self, db) -> None:
+        _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 5
+
+    def test_always_on_off_hours_uses_standard_wait(self, db) -> None:
+        _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="15")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 5
+
+    def test_wait_minutes_business_hours_zero_returns_zero(self, db) -> None:
+        """Fix 8/INFO: explicit "0" override means instant publish, not unset."""
+        _seed_config(db, operating_mode="always_on", wait_minutes="5", wait_minutes_business_hours="0")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        assert policy.resolve_wait_minutes(db, now) == 0
+
+
+class TestResolvePollIntervalSeconds:
+    """Judgment Day fix: `poll_interval_seconds` is seeded/documented as a
+    panel-editable interval for the ingest/draft background loops, but was
+    never read — both loops hardcoded `asyncio.sleep(30)`. Fail-safe like
+    every other config read: missing/empty/malformed -> default; a typo like
+    "0" must not hot-loop, so results are clamped to a sane floor."""
+
+    def test_missing_config_returns_default(self, db) -> None:
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_valid_config_is_used(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="45", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 45
+
+    def test_malformed_config_falls_back_to_default_without_crashing(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="not-a-number", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_empty_config_falls_back_to_default(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 30
+
+    def test_below_floor_is_clamped_to_floor(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="0", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 5
+
+    def test_negative_value_is_clamped_to_floor(self, db) -> None:
+        db.add(MlBotConfig(clave="poll_interval_seconds", valor="-10", tipo="int"))
+        db.flush()
+        assert policy.resolve_poll_interval_seconds(db) == 5
+
+
+class TestMalformedConfigFailsSafe:
+    """Fix 4: malformed config values must not crash the gate; they must fail
+    SAFE (treated as within business hours -> bot NOT eligible in
+    off_hours_only mode) and log a warning."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        """The `app` root logger sets propagate=False (app/core/logging.py) to
+        avoid duplicate logs under uvicorn; re-enable propagation for the
+        duration of these tests so caplog (which attaches to the root logger)
+        can observe the warning emitted by `policy.logger`."""
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_malformed_business_hours_start_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_hours_start="930")  # missing colon
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True  # fail-safe: treated as in-hours
+        assert any("business_hours_start" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_business_hours_end_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_hours_end="not-a-time")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_hours_end" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_business_days_json_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, business_days="1,2,3,4,5")  # invalid JSON (no brackets)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_days" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_timezone_fails_safe(self, db, caplog) -> None:
+        _seed_config(db, timezone="Not/A_Real_Zone")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("timezone" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_config_does_not_raise(self, db) -> None:
+        _seed_config(db, business_hours_start="930", business_days="bogus", timezone="Bogus/Zone")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        # Must not raise any exception.
+        policy.is_within_business_hours(db, now)
+
+    @pytest.mark.parametrize("bad_business_days", ["5", "true", "null", '"mon"'])
+    def test_valid_json_non_list_business_days_fails_safe(self, db, caplog, bad_business_days: str) -> None:
+        """Fix 1/CRITICAL: business_days that parses as valid JSON but is not a
+        list (e.g. a bare number, bool, null, or string) must not reach
+        `isoweekday() not in business_days` — that raises an uncaught
+        TypeError for non-container types. Must fail safe instead."""
+        _seed_config(db, business_days=bad_business_days)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_days" in record.getMessage() for record in caplog.records)
+
+    @pytest.mark.parametrize("bad_hour", ["25:00", "09:99"])
+    def test_out_of_range_hour_or_minute_fails_safe(self, db, caplog, bad_hour: str) -> None:
+        """Fix 4/INFO: "25:00" or "09:99" parse as ints fine but are out of
+        range for hour/minute and must fail safe rather than silently
+        producing wrong boundaries."""
+        _seed_config(db, business_hours_start=bad_hour)
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True
+        assert any("business_hours_start" in record.getMessage() for record in caplog.records)
+
+
+class TestResolveWaitMinutesHardening:
+    """Fix 3/WARNING: non-numeric wait_minutes / wait_minutes_business_hours
+    must not crash `resolve_wait_minutes` — same class as the round-1 config
+    fix for empty-string handling in `get_config`."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_malformed_wait_minutes_falls_back_to_default(self, db, caplog) -> None:
+        _seed_config(db, operating_mode="off_hours_only", wait_minutes="five")
+        now = datetime(2026, 7, 7, 22, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.resolve_wait_minutes(db, now)
+        assert result == policy._DEFAULT_WAIT_MINUTES
+        assert any("wait_minutes" in record.getMessage() for record in caplog.records)
+
+    def test_malformed_wait_minutes_business_hours_treated_as_unset(self, db, caplog) -> None:
+        _seed_config(
+            db,
+            operating_mode="always_on",
+            wait_minutes="5",
+            wait_minutes_business_hours="5m",
+        )
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)  # in-hours
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.resolve_wait_minutes(db, now)
+        assert result == 5  # falls back to standard wait_minutes
+        assert any("wait_minutes_business_hours" in record.getMessage() for record in caplog.records)
+
+
+class TestBusinessDaysBooleanElementsFailSafe:
+    """Judgment Day follow-up: `business_days` elements must reject booleans.
+    In Python, `isinstance(True, int)` is True, so `[true, false]` parses as
+    valid JSON, passes the old `isinstance(day, int)` element check, and
+    silently behaves as `[1, 0]` instead of failing safe."""
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    _LOGGER_NAME = "app.services.ml_questions.policy"
+
+    @pytest.fixture(autouse=True)
+    def _allow_log_propagation(self):
+        app_logger = logging.getLogger("app")
+        original = app_logger.propagate
+        app_logger.propagate = True
+        try:
+            yield
+        finally:
+            app_logger.propagate = original
+
+    def test_boolean_business_days_elements_fail_safe(self, db, caplog) -> None:
+        _seed_config(db, business_days="[true, false]")
+        now = datetime(2026, 7, 7, 11, 0, 0, tzinfo=self.tz)
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER_NAME):
+            result = policy.is_within_business_hours(db, now)
+        assert result is True  # fail-safe: treated as in-hours
+        assert any("business_days" in record.getMessage() for record in caplog.records)
+
+
+class TestIsDeflectionResponse:
+    """Server-side detector for polite "I don't have that info" non-answers
+    the LLM produces despite the anti-deflection rule in the prompt. Same
+    defensive pattern as `violates_denylist`: match → caller routes to
+    the warm fallback template."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The exact production offender (Windows 11 case):
+            "No tenemos info sobre cables en este listado, pero podés consultar otros productos en nuestra tienda.",
+            # Info-family patterns (Spanish variants):
+            "No tenemos información sobre eso.",
+            "No tengo información al respecto.",
+            "No tenemos ese dato.",
+            "No tengo esa información en este momento.",
+            "No tenemos info específica sobre el modelo.",
+            # Ficha / publicación / descripción deflections:
+            "Podés consultar la ficha del producto.",
+            "Consultá la publicación para más detalles.",
+            "Revisá la descripción por favor.",
+            # "Otros productos" deflections:
+            "Otros productos en nuestra tienda pueden servirte.",
+            "Consultá otros productos si te interesan.",
+            # The "en este listado" pattern seen in production:
+            "El dato no está en este listado.",
+        ],
+    )
+    def test_flags_known_deflection_patterns(self, text: str) -> None:
+        assert policy.is_deflection_response(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Real answers about stock — must NOT be misclassified as deflection:
+            "No tenemos stock por el momento.",
+            "No tenemos color rojo disponible.",
+            "No tenemos ese modelo específico, tenemos el HP DeskJet 3775.",
+            # A real spec answer that happens to say "información" but IS
+            # answering:
+            "La información técnica del producto: 100W, 220V.",
+            # A real availability answer:
+            "Sí, tenemos disponible el modelo consultado.",
+            # A real answer mentioning "listado":
+            "El listado de compatibilidad incluye Windows 10 y 11.",
+            # A real answer about a product feature (mentions "ficha"):
+            "La ficha del producto detalla las especificaciones que consultás.",
+        ],
+    )
+    def test_does_not_flag_legitimate_answers(self, text: str) -> None:
+        assert policy.is_deflection_response(text) is False
+
+    @pytest.mark.parametrize("text", [None, "", "   "])
+    def test_fail_safe_on_empty_input(self, text: object) -> None:
+        assert policy.is_deflection_response(text) is False

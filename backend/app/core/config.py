@@ -1,6 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
+# Environments where testing affordances (docs, testing-only endpoints) are
+# allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
+# runs ENVIRONMENT=development (backend/.env). Production is never in here.
+DEV_LIKE_ENVIRONMENTS: tuple[str, ...] = ("development", "testing")
+
 
 class Settings(BaseSettings):
     # Database
@@ -11,6 +16,13 @@ class Settings(BaseSettings):
 
     # JWT
     SECRET_KEY: str
+    # Dedicated signing key for refresh tokens (audit M-2 — isolate refresh
+    # blast radius from access tokens). When unset, falls back to SECRET_KEY
+    # via the refresh_secret_key property, so CI/dev behave exactly as before.
+    # ponytail: remove the SECRET_KEY fallback (make this required, drop
+    # Optional/default) >=7 days after deploy, once pre-deploy SECRET_KEY-signed
+    # refresh tokens (REFRESH_TOKEN_EXPIRE_MINUTES window) have all expired.
+    REFRESH_SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 días
@@ -24,6 +36,28 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = "production"
+
+    @property
+    def is_dev_or_test(self) -> bool:
+        """Whether the current environment allows testing affordances.
+
+        Gates docs exposure and testing-only endpoints. CI runs with
+        ENVIRONMENT=testing (see .github/workflows/ci.yml), while local
+        development uses ENVIRONMENT=development (backend/.env) — both need
+        these affordances enabled. This is NEVER true in production.
+        """
+        return self.ENVIRONMENT in DEV_LIKE_ENVIRONMENTS
+
+    @property
+    def refresh_secret_key(self) -> str:
+        """Signing/verification key for refresh tokens.
+
+        Returns the dedicated REFRESH_SECRET_KEY when configured; otherwise
+        falls back to SECRET_KEY so environments that only set SECRET_KEY
+        (CI, dev) keep signing and validating refresh tokens exactly as today.
+        Removing this fallback is a scheduled follow-up.
+        """
+        return self.REFRESH_SECRET_KEY or self.SECRET_KEY
 
     # CORS — comma-separated origins, e.g. "https://app.example.com,https://admin.example.com"
     # Leave empty to use defaults: permissive in development, restrictive in production.
@@ -60,6 +94,9 @@ class Settings(BaseSettings):
 
     # ML Webhook Database (para consultar ml_previews directamente)
     ML_WEBHOOK_DB_URL: Optional[str] = None
+    # Base host of the internal ml-webhook microservice (render/preview API).
+    # Extracted from three hardcoded call sites (audit M-3). Override per env.
+    ML_WEBHOOK_BASE_URL: str = "https://ml-webhook.gaussonline.com.ar"
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
@@ -68,6 +105,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     SSE_HEARTBEAT_SECONDS: int = 30
     SSE_MAX_CONNECTIONS: int = 100
+
+    # Rate limiting (login brute-force friction)
+    LOGIN_RATE_LIMIT: str = "10/minute"
+    # Storage for rate-limit counters. Defaults to REDIS_URL (shared across the
+    # uvicorn workers -> one global counter). Tests override to "memory://".
+    RATE_LIMIT_STORAGE_URI: Optional[str] = None
 
     # GBP (ERP SOAP credentials)
     GBP_USERNAME: Optional[str] = None
@@ -118,6 +161,17 @@ class Settings(BaseSettings):
     # Certificado digital de producción (generado con scripts/setup_afip_cert.py)
     AFIP_CERT: Optional[str] = None
     AFIP_KEY: Optional[str] = None
+
+    # LLM providers (ml-bot Slice D — drafting pipeline, design §11/ADR-4/ADR-6;
+    # provider rotation follow-up, sdd/ml-questions-ai/provider-rotation).
+    # Only secrets/base URLs live in .env; roster/model/order live in
+    # `ml_bot_config` (panel-editable, no redeploy) — see provider_rotation.py.
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    CEREBRAS_API_KEY: Optional[str] = None
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15

@@ -203,7 +203,7 @@ def _lookup_tipo_documento_id(session: Session, nombre: str) -> int:
     td = session.execute(select(CajaTipoDocumento).where(CajaTipoDocumento.nombre == nombre)).scalar_one_or_none()
     if td is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Tipo de documento de caja '{nombre}' no está seedeado. "
                 f"Ejecutá la migración compras_011_seed_caja_tipos_compras."
@@ -431,7 +431,7 @@ def _validar_items_saldo_pendiente(
 
         if monto_item > saldo_pendiente:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"item[{idx}] (pedido #{pedido.numero}, id={pedido_id}): "
                     f"el monto del ítem ({monto_item:.2f} {pedido.moneda}) excede "
@@ -521,7 +521,7 @@ def validar_balance_op(
     if abs(diferencia) >= Decimal("0.005"):
         moneda = op_moneda
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La OP no balancea: diferencia = {diferencia:+.2f} {moneda}. "
                 f"monto_total={monto_total:.2f}, "
@@ -896,14 +896,14 @@ def _aplicar_ncs_lista(
             if not pedido_ids_items:
                 # OP a_cuenta or no pedido items.
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(
                         f"pedido_id es requerido para NC id={nc_id}: la OP es a_cuenta o no tiene pedidos asociados."
                     ),
                 )
             if len(pedido_ids_items) > 1:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(
                         f"pedido_id es requerido para NC id={nc_id}: "
                         f"la OP imputa múltiples pedidos: {sorted(pedido_ids_items)}."
@@ -1008,7 +1008,7 @@ def _imputar_cheque_en_op(
             )
         if pedido_cheque.proveedor_id != op.proveedor_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"Pedido id={pedido_id} pertenece al proveedor id={pedido_cheque.proveedor_id}, "
                     f"distinto al de la OP (proveedor_id={op.proveedor_id})."
@@ -1017,7 +1017,7 @@ def _imputar_cheque_en_op(
         saldo_pedido = pedidos_service.calcular_saldo_pendiente_pedido(session, pedido_id)
         if monto_op_moneda > saldo_pedido:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"Cheque #{cheque.numero}: monto a imputar ({monto_op_moneda}) "
                     f"excede el saldo pendiente del pedido id={pedido_id} ({saldo_pedido})."
@@ -1136,7 +1136,7 @@ def ejecutar_pago(
     # Service-level XOR guard (duplica la validación del schema para callers directos).
     if (caja_id is not None) and (banco_id is not None):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.",
         )
 
@@ -1173,7 +1173,7 @@ def ejecutar_pago(
         if caja.moneda != op.moneda:
             if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={
                         "codigo": CODIGO_ERROR_CAJA_MONEDA,
                         "mensaje": (
@@ -1203,12 +1203,12 @@ def ejecutar_pago(
             )
         if not banco.activo:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"El banco id={banco_id} no está activo.",
             )
         if banco.empresa_id is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"El banco id={banco_id} no tiene empresa asignada y "
                     f"no puede usarse como fuente de fondos (AC-F2-9)."
@@ -1227,7 +1227,7 @@ def ejecutar_pago(
         if fuente_moneda != str(op.moneda):
             if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={
                         "codigo": CODIGO_ERROR_CAJA_MONEDA,
                         "mensaje": (
@@ -1241,7 +1241,7 @@ def ejecutar_pago(
     elif not cheques_norm:
         # No fund source AND no cheques — cannot pay.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Se requiere exactamente una fuente de fondos: caja_id, banco_id, o cheques.",
         )
 
@@ -1258,7 +1258,7 @@ def ejecutar_pago(
             # Cheque ARS, OP USD: monto_op = ARS / TC
             if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(f"Cheque en ARS con OP en USD requiere tipo_cambio > 0 (número={ch.get('numero')})."),
                 )
             monto_op = q_usd(ch_monto / Decimal(tc_efectivo))
@@ -1266,7 +1266,7 @@ def ejecutar_pago(
             # Cheque USD, OP ARS: monto_op = USD * TC
             if tc_efectivo is None or Decimal(tc_efectivo) <= 0:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(f"Cheque en USD con OP en ARS requiere tipo_cambio > 0 (número={ch.get('numero')})."),
                 )
             monto_op = q_ars(ch_monto * Decimal(tc_efectivo))
@@ -1487,7 +1487,7 @@ def ejecutar_pago(
         dac_id = item.get("id")
         if not dac_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Item dinero_a_cuenta sin 'id' de DineroACuenta.",
             )
         monto_dac = Decimal(str(item["monto"]))
@@ -1504,7 +1504,7 @@ def ejecutar_pago(
             )
             if destino_item is None:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(
                         f"Item dinero_a_cuenta (dac_id={dac_id}) sin destino_id "
                         f"y la OP no tiene items pedido_compra/factura_erp para inferirlo."
@@ -1577,7 +1577,7 @@ def ejecutar_pago(
                     )
                 if cheque_a_usar.tipo != "tercero":
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"Cheque id={cheque_id_existente} es de tipo '{cheque_a_usar.tipo}'; "
                             f"para endosar por cheque_id el tipo debe ser 'tercero'."
@@ -1585,7 +1585,7 @@ def ejecutar_pago(
                     )
                 if cheque_a_usar.estado != "en_cartera":
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"Cheque id={cheque_id_existente} está en estado '{cheque_a_usar.estado}'; "
                             f"solo se pueden endosar cheques en 'en_cartera'."
@@ -2702,7 +2702,7 @@ def imputar_nc_a_pedido(
         )
     if nc.estado not in {"aprobado", "aplicada_parcial"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"NC local id={nc.id} en estado '{nc.estado}' no puede aplicarse. "
                 f"Estados válidos: 'aprobado', 'aplicada_parcial'."
@@ -2712,14 +2712,14 @@ def imputar_nc_a_pedido(
     # 5. Validar estado pedido imputable.
     if pedido.estado not in {"aprobado", "pagado_parcial"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Pedido id={pedido.id} en estado '{pedido.estado}' no admite imputación.",
         )
 
     # 5b. Validar coherencia de moneda NC↔pedido (cross-moneda prohibido en v1).
     if nc.moneda != pedido.moneda:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Cross-moneda no soportado en v1. NC moneda: {nc.moneda}, pedido moneda: {pedido.moneda}.",
         )
 
@@ -2727,7 +2727,7 @@ def imputar_nc_a_pedido(
     saldo_nc = ncs_locales_service.calcular_saldo_pendiente(session, nc.id)
     if monto > saldo_nc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"monto={monto} excede el saldo disponible de la NC id={nc.id} ({saldo_nc}).",
         )
 
@@ -2853,7 +2853,7 @@ def aplicar_nc_desde_op(
 
     if not pedido_ids_op:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"La OP id={op_id} no tiene imputaciones a pedidos de compra.",
         )
 
@@ -2861,7 +2861,7 @@ def aplicar_nc_desde_op(
         # El caller especificó un pedido: validar que esté en la lista.
         if pedido_id not in pedido_ids_op:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"pedido_id={pedido_id} no está entre los pedidos imputados "
                     f"por la OP id={op_id}. Opciones: {sorted(pedido_ids_op)}."
@@ -2872,7 +2872,7 @@ def aplicar_nc_desde_op(
         target_pedido_id = pedido_ids_op[0]
     else:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"La OP id={op_id} tiene múltiples pedidos: especificar pedido_id. Opciones: {sorted(pedido_ids_op)}."
             ),

@@ -1,21 +1,38 @@
 from datetime import datetime, timedelta, UTC
 from typing import Optional
+from uuid import uuid4
+import bcrypt
 import jwt
 from jwt.exceptions import PyJWTError
-from passlib.context import CryptContext
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt only considers the first 72 bytes of the input. passlib's bcrypt
+# handler silently truncated passwords to this limit before hashing; we
+# replicate that exact truncation here so hashes created by the old passlib
+# implementation keep verifying correctly (audit M-6: passlib is unmaintained
+# since 2020, migrated to direct bcrypt).
+_BCRYPT_MAX_BYTES = 72
+
+
+def _truncate_password(password: str) -> bytes:
+    """Encode a password to UTF-8 and truncate to bcrypt's 72-byte limit.
+
+    Matches passlib's historical bcrypt truncation behavior so existing
+    password hashes remain verifiable after the migration away from passlib.
+    """
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica que el password coincida con el hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    password_bytes = _truncate_password(plain_password)
+    return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
 
 
 def get_password_hash(password: str) -> str:
     """Genera hash del password"""
-    return pwd_context.hash(password)
+    password_bytes = _truncate_password(password)
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -32,6 +49,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             "exp": expire,
             "iss": "pricing-app",
             "aud": "pricing-app-api",
+            "jti": str(uuid4()),
         }
     )
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -49,9 +67,10 @@ def create_refresh_token(data: dict) -> str:
             "iss": "pricing-app",
             "aud": "pricing-app-api",
             "type": "refresh",
+            "jti": str(uuid4()),
         }
     )
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.refresh_secret_key, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 
@@ -68,3 +87,48 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except PyJWTError:
         return None
+
+
+def decode_refresh_token(token: str) -> Optional[dict]:
+    """Decode and validate a refresh token, tolerating the key transition.
+
+    Tries the dedicated refresh key first, then falls back to SECRET_KEY so a
+    refresh token minted just before this change deployed (signed with the old
+    SECRET_KEY) still validates — no forced mass logout during the migration
+    window. Same algorithm/audience/issuer constraints as decode_token.
+
+    Returns the payload on the first key that validates, or None if no key does.
+    The SECRET_KEY fallback is scheduled for removal once all pre-deploy
+    SECRET_KEY-signed refresh tokens have expired.
+    """
+    # ponytail: drop the settings.SECRET_KEY fallback below (validate against
+    # refresh_secret_key only) once the migration window has closed — see the
+    # matching marker on Settings.REFRESH_SECRET_KEY in config.py.
+    # dict.fromkeys preserves order and de-duplicates: when REFRESH_SECRET_KEY
+    # is unset, refresh_secret_key == SECRET_KEY, so we avoid decoding twice.
+    for key in dict.fromkeys((settings.refresh_secret_key, settings.SECRET_KEY)):
+        try:
+            return jwt.decode(
+                token,
+                key,
+                algorithms=[settings.ALGORITHM],
+                audience="pricing-app-api",
+                issuer="pricing-app",
+            )
+        except PyJWTError:
+            continue
+    return None
+
+
+def remaining_ttl_seconds(payload: dict) -> int:
+    """Seconds until this token's `exp`, clamped to >= 0.
+
+    `exp` is a Unix timestamp (int/float) after PyJWT decoding. Used to set the
+    denylist key TTL so the revocation record auto-expires exactly when the
+    token would have expired anyway (no cleanup job, no unbounded growth).
+    """
+    exp = payload.get("exp")
+    if exp is None:
+        return 0
+    remaining = int(exp - datetime.now(UTC).timestamp())
+    return max(remaining, 0)

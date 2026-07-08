@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 ```bash
 cd frontend
-npm install
+pnpm install
 ```
 
 ## 3) Flujo de trabajo
@@ -31,8 +31,23 @@ npm install
 1. Crea una branch chica y con nombre claro (`feature/...`, `fix/...`, `refactor/...`).
 2. Hace cambios minimos y atomicos.
 3. Agrega/actualiza tests para cambios de comportamiento.
-4. Corre checks relevantes del area tocada.
+4. Corre checks relevantes del area tocada:
+   - Frontend: `pnpm test` (vitest run) y `pnpm lint` en `frontend/`.
+   - Backend: la suite de pytest correspondiente (ver seccion "Tests" abajo).
 5. Abri PR con el template de `.github/pull_request_template.md`.
+
+### Tests (backend)
+
+Desde `backend/`, con el venv activado:
+
+```bash
+# Suite completa
+pytest tests/ -v
+
+# Una suite puntual (unit, integration, smoke, services, compras, rentabilidad, tickets, offsets)
+pytest tests/integration -q
+pytest tests/unit -q
+```
 
 ## 4) Reglas de calidad (minimo)
 
