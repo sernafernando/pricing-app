@@ -534,6 +534,58 @@ def violates_denylist(answer: str) -> bool:
     return any(pattern.search(answer) for pattern in _DENYLIST_PATTERNS)
 
 
+# Deflection response detector — the LLM sometimes produces polite but
+# unhelpful "we don't have that info, check other products / the listing /
+# the description" answers instead of respecting the anti-deflection rule
+# in the system prompt (which tells it to yield with can_answer=false when
+# data is missing). Same defensive pattern as the output denylist: don't
+# trust the LLM to obey rules perfectly; scan the answer text and route
+# to fallback if it matches a known deflection phrasing.
+#
+# Deliberately narrow: "no tenemos stock" is a REAL answer about stock,
+# not a deflection. Only "no tenemos info(rmación)" / "ese dato" /
+# "esa información" match. Patterns tuned for Rioplatense phrasings and
+# the common LLM habits we've seen in production drafts.
+_DEFLECTION_PATTERNS = [
+    re.compile(
+        r"\bno\s+ten(emos|go|é[sn])\s+(esa\s+|la\s+|ese\s+)?"
+        r"(informaci[oó]n|info|dato|datos)\b",
+        re.IGNORECASE,
+    ),
+    # Both imperative ("consultá la ficha") and infinitive
+    # ("podés consultar la ficha") — the LLM uses both.
+    re.compile(
+        r"\bconsult[aá]r?\s+(la\s+ficha|la\s+publicaci[oó]n|la\s+descripci[oó]n)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\brevis[aá]r?\s+(la\s+ficha|la\s+publicaci[oó]n|la\s+descripci[oó]n)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\botros\s+productos\s+en\s+nuestra\s+tienda\b", re.IGNORECASE),
+    re.compile(r"\bconsult[aá]r?\s+otros\s+productos\b", re.IGNORECASE),
+    re.compile(r"\ben\s+este\s+listado\b", re.IGNORECASE),
+]
+
+
+def is_deflection_response(text: Optional[str]) -> bool:
+    """Return True if the LLM's answer text matches a known deflection
+    pattern (polite non-answer that dodges by pointing the buyer elsewhere:
+    "consultá la ficha", "otros productos en nuestra tienda", "en este
+    listado", "no tenemos info", etc.).
+
+    Complements the system-prompt anti-deflection rule: the prompt tells
+    the LLM to yield with `can_answer=false`; this is the defensive
+    post-check for when it doesn't. Match → caller routes to fallback.
+
+    Fail-safe False on None/empty input (no answer text = nothing to
+    reject; caller has other gates for `can_answer=false` / empty answer).
+    """
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _DEFLECTION_PATTERNS)
+
+
 def detect_manipulation_signal(question_text: str) -> bool:
     """R-503: scan buyer question text for known injection/manipulation
     patterns BEFORE drafting. A match routes directly to the warm fallback

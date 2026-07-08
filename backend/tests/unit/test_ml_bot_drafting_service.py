@@ -580,7 +580,19 @@ class TestAttentionHoursFallbackPlaceholder:
     """schedules-v2: `{attention_hours}` placeholder in `warm_fallback_template`
     is resolved from `attention_hours_text` at fallback-render time — replaced
     when set, cleanly removed (never a literal placeholder, never a crash)
-    when unset/empty."""
+    when unset/empty.
+
+    The `{attention_hours}` placeholder ONLY exists in the off-hours template
+    variant (`warm_fallback_template`); the in-hours variant deliberately omits
+    it because the schedule is already implicit. Every test in this class
+    exercises the off-hours path, so we force off-hours by seeding an empty
+    `work_schedule` — no working days, `is_within_business_hours` returns
+    False, `_build_fallback_message` picks the off-hours template.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _force_off_hours(self, db):
+        _seed_config(db, "work_schedule", "{}")
 
     def test_placeholder_replaced_with_configured_text(self, db) -> None:
         _seed_bot_enabled(db)
@@ -1511,3 +1523,120 @@ class TestLlmDebugLogging:
         assert len(debug_lines) == 1
         assert "¿Tienen stock del modelo azul?" in debug_lines[0]
         assert "groq/llama-3.3-70b-versatile" in debug_lines[0]
+
+
+class TestDeflectionRoutedToFallback:
+    """The LLM sometimes produces polite non-answers ("no tenemos info sobre
+    X en este listado, consultá otros productos") despite the anti-deflection
+    rule in the prompt. Server-side detector routes those to fallback so the
+    warm template speaks instead — never publishes a deflection."""
+
+    _DEFLECTION_ANSWER = (
+        '{"answer": "¡Hola! No tenemos info sobre cables en este listado, '
+        'pero podés consultar otros productos en nuestra tienda.", '
+        '"confidence": 0.9, "category": "compatibility", "can_answer": true}'
+    )
+
+    def test_deflection_answer_routes_to_fallback_not_publish(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db, question_text="vendes cable también?")
+        db.commit()
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+        ):
+            stats = asyncio.run(
+                drafting_service.run_ml_questions_draft_cycle(provider=_FakeProvider(self._DEFLECTION_ANSWER))
+            )
+
+        assert stats["fallback"] == 1
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.answer_source == "fallback"
+        assert row.fallback_used is True
+        # Not an injection — the buyer's question was legitimate; the LLM
+        # just yielded a deflection. Don't pollute the injection_flag.
+        assert row.injection_flag is False
+        # And the actual deflection text is NOT what got saved as the draft.
+        assert "otros productos" not in (row.drafted_answer or "")
+
+
+class TestFallbackTemplateSelection:
+    """schedules-v2 follow-up: fallback message picks between two config
+    keys depending on whether now is within business hours — off-hours
+    template mentions {attention_hours}, in-hours template is a shorter
+    "check back later" wording that doesn't need to repeat the schedule."""
+
+    _TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+    def _seed_full_schedule(self, db) -> None:
+        # Mon-Fri 09-18 + Sat 09-13 (the operator's real schedule seed).
+        _seed_config(
+            db,
+            "work_schedule",
+            (
+                '{"1": ["09:00","18:00"], "2": ["09:00","18:00"], '
+                '"3": ["09:00","18:00"], "4": ["09:00","18:00"], '
+                '"5": ["09:00","18:00"], "6": ["09:00","13:00"]}'
+            ),
+        )
+        _seed_config(db, "attention_hours_text", "de lunes a viernes de 9 a 18 hs")
+
+    def test_off_hours_uses_off_hours_template_with_attention_hours(self, db) -> None:
+        self._seed_full_schedule(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "Escribinos {attention_hours} y te averiguamos.",
+        )
+        _seed_config(
+            db,
+            "warm_fallback_template_business_hours",
+            "Volvé más tarde.",
+        )
+        db.commit()
+
+        # Sunday 10:00 local = off-hours (Sunday not in schedule).
+        now = datetime(2026, 7, 12, 10, 0, 0, tzinfo=self._TZ)
+        result = drafting_service._build_fallback_message(db, now)
+
+        assert "Escribinos de lunes a viernes de 9 a 18 hs y te averiguamos." == result
+
+    def test_in_hours_uses_business_hours_template(self, db) -> None:
+        self._seed_full_schedule(db)
+        _seed_config(
+            db,
+            "warm_fallback_template",
+            "OFF: {attention_hours}",
+        )
+        _seed_config(
+            db,
+            "warm_fallback_template_business_hours",
+            "Volvé más tarde y te averiguamos.",
+        )
+        db.commit()
+
+        # Wednesday 14:00 local = well within Mon-Fri 09-18.
+        now = datetime(2026, 7, 8, 14, 0, 0, tzinfo=self._TZ)
+        result = drafting_service._build_fallback_message(db, now)
+
+        assert result == "Volvé más tarde y te averiguamos."
+        # The attention_hours placeholder from the OFF template should
+        # NOT appear in the in-hours result.
+        assert "de lunes a viernes" not in result
+
+    def test_now_none_falls_back_to_off_hours_template(self, db) -> None:
+        """Backward-compat: callers that don't pass `now` (or pass None) get
+        the off-hours template — the more informative variant."""
+        self._seed_full_schedule(db)
+        _seed_config(db, "warm_fallback_template", "OFF: {attention_hours}")
+        _seed_config(db, "warm_fallback_template_business_hours", "IN: no attention")
+        db.commit()
+
+        result = drafting_service._build_fallback_message(db, None)
+
+        assert "OFF: de lunes a viernes de 9 a 18 hs" == result
