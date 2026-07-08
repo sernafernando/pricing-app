@@ -328,12 +328,12 @@ def _parse_sort_params(
     for campo, direccion in zip(campos, dirs):
         if campo not in SORT_COLUMNS_PERMITIDAS:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Campo de sort '{campo}' no es válido. Opciones: {sorted(SORT_COLUMNS_PERMITIDAS)}",
             )
         if direccion not in ("asc", "desc"):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Dirección de sort '{direccion}' no es válida. Use 'asc' o 'desc'.",
             )
         if campo not in seen_fields:
@@ -818,7 +818,7 @@ async def get_ranking_resumen(
     """
     if group_by not in _VALID_GROUP_BY:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"group_by '{group_by}' no es válido. Opciones: {sorted(_VALID_GROUP_BY)}",
         )
 

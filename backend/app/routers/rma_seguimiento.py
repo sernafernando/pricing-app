@@ -681,7 +681,7 @@ def crear_caso(
 
     if not data.items:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El caso debe tener al menos un artículo.",
         )
 
@@ -1464,7 +1464,7 @@ def obtener_stats_drill_down(
     valid_dimensions = set(_DIMENSION_FK_COLUMNS) | {"proveedor"}
     if dimension not in valid_dimensions:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Dimensión inválida: '{dimension}'. Válidas: {sorted(valid_dimensions)}",
         )
 
@@ -1505,7 +1505,7 @@ def obtener_stats_drill_down(
                 supp_id_val = int(valor)
             except ValueError as exc:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Valor inválido para dimension proveedor: '{valor}'",
                 ) from exc
             base_q = base_q.filter(RmaCasoItem.supp_id == supp_id_val)
@@ -1515,7 +1515,7 @@ def obtener_stats_drill_down(
             base_q = base_q.filter(dim_col.is_(None))
         elif valor == "otros":
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="'otros' sólo es válido para dimension=proveedor",
             )
         else:
@@ -1523,7 +1523,7 @@ def obtener_stats_drill_down(
                 id_val = int(valor)
             except ValueError as exc:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Valor inválido: '{valor}' (se esperaba id numérico o 'sin_clasificar')",
                 ) from exc
             base_q = base_q.filter(dim_col == id_val)

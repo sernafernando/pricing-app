@@ -950,7 +950,7 @@ def exportar_excel(
 
     if periodo is None and (fecha_desde is None or fecha_hasta is None):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Se requiere 'periodo' (YYYYMM) o 'fecha_desde' + 'fecha_hasta'",
         )
 
@@ -1201,7 +1201,7 @@ def recalcular_periodo(
     dias_solicitados = (data.fecha_hasta - data.fecha_desde).days
     if dias_solicitados > cfg.cap_dias_recalculo_manual:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"El rango de recálculo no puede superar {cfg.cap_dias_recalculo_manual} días "
                 f"(solicitado: {dias_solicitados})"

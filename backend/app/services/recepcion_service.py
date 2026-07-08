@@ -273,7 +273,7 @@ def registrar_ingresos(
         saldo_actual = saldo_by_pod.get(linea.pod_id)
         if saldo_actual is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"pod_id {linea.pod_id} not found in linked OC",
             )
         if linea.cantidad_recibida > saldo_actual:

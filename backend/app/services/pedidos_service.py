@@ -412,7 +412,7 @@ def editar_pedido(
     # Specific 422 before the generic rejection path for a more actionable error message.
     if pedido.estado != "borrador" and "tipo_cambio" in campos and campos.get("tipo_cambio") is not None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "tipo_cambio ya no es editable por esta vía. "
                 "Usá PUT /pedidos/{id}/tipo-cambio para ajustar el TC del pedido."
@@ -2500,7 +2500,7 @@ def corregir_pedido(
     # el clon herede el valor sin emitir el movimiento de revaluación.
     if "tipo_cambio" in cambios and cambios["tipo_cambio"] is not None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "tipo_cambio no es corregible por esta vía. "
                 "Usá PUT /pedidos/{id}/tipo-cambio para ajustar el TC con auditoría de CC."
