@@ -111,6 +111,24 @@ _SEEDS = [
         "tipo": "string",
     },
     {
+        "clave": "llm_providers",
+        "valor": (
+            '[{"name": "groq", "model": "llama-3.3-70b-versatile", "enabled": true}, '
+            '{"name": "cerebras", "model": "llama-3.3-70b", "enabled": true}, '
+            '{"name": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "enabled": true}]'
+        ),
+        "descripcion": (
+            "Roster de proveedores LLM (JSON list de {name, model, enabled}). "
+            "Round-robin por pregunta + failover en cadena (si el primero "
+            "agota reintentos, prueba el siguiente antes del warm fallback). "
+            "Ausente/malformado → fail-safe a Groq-only. Requiere que las API "
+            "keys (GROQ_API_KEY / CEREBRAS_API_KEY / OPENROUTER_API_KEY) "
+            "estén configuradas en el .env — proveedor sin key se saltea con "
+            "warning."
+        ),
+        "tipo": "string",
+    },
+    {
         "clave": "work_schedule",
         "valor": (
             '{"1": ["09:00", "18:00"], "2": ["09:00", "18:00"], '
