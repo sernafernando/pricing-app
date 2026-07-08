@@ -94,9 +94,12 @@ _DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
 _DEFAULT_BUSINESS_HOURS_START = "09:00"
 _DEFAULT_BUSINESS_HOURS_END = "18:00"
 _DEFAULT_FALLBACK_TEMPLATE = (
-    "¡Hola! Gracias por tu consulta. Nuestro horario de atención es de "
-    "{business_hours_start} a {business_hours_end}. Te respondemos apenas "
-    "abramos. ¡Gracias por tu paciencia!"
+    "¡Hola! No tengo esa información en este momento. "
+    "Volvé a escribirnos {attention_hours} y con gusto te averiguamos. "
+    "¡Gracias!"
+)
+_DEFAULT_FALLBACK_TEMPLATE_BUSINESS_HOURS = (
+    "¡Hola! No tengo esa información en este momento. Volvé a consultar más tarde y te averiguamos. ¡Gracias!"
 )
 
 # Placeholder resolved at fallback-render time (schedules-v2) from the
@@ -186,11 +189,39 @@ def _build_default_provider() -> LlmProvider:
     return RotatingProvider()
 
 
-def _build_fallback_message(db: Any) -> str:
-    """R-601: the warm business-hours fallback message, templated from live
-    `ml_bot_config` values (never hardcoded, so a panel edit applies on the
-    next tick)."""
-    template = policy.get_config(db, "warm_fallback_template", cast=str, default=_DEFAULT_FALLBACK_TEMPLATE)
+def _build_fallback_message(db: Any, now: Optional[datetime] = None) -> str:
+    """R-601: the warm fallback message, templated from live `ml_bot_config`
+    values (never hardcoded, so a panel edit applies on the next tick).
+
+    Chooses between two templates depending on whether the current time is
+    within the working schedule:
+    - **Off-hours** → `warm_fallback_template`: supports the
+      `{attention_hours}` placeholder (schedules-v2) so the message can
+      point the buyer to the operator's next opening window.
+    - **In-hours** → `warm_fallback_template_business_hours`: shorter
+      wording that just asks the buyer to check back later (no need to
+      repeat the schedule that's already implicit).
+
+    Fail-safe: if `is_within_business_hours` raises for any reason (or
+    `now` is None and we can't localize), fall back to the off-hours
+    template (the more informative variant).
+    """
+    in_business_hours = False
+    if now is not None:
+        try:
+            in_business_hours = policy.is_within_business_hours(db, now)
+        except Exception:  # noqa: BLE001 — fail-safe to off-hours variant
+            in_business_hours = False
+
+    if in_business_hours:
+        template = policy.get_config(
+            db,
+            "warm_fallback_template_business_hours",
+            cast=str,
+            default=_DEFAULT_FALLBACK_TEMPLATE_BUSINESS_HOURS,
+        )
+    else:
+        template = policy.get_config(db, "warm_fallback_template", cast=str, default=_DEFAULT_FALLBACK_TEMPLATE)
     start = policy.get_config(db, "business_hours_start", cast=str, default=_DEFAULT_BUSINESS_HOURS_START)
     end = policy.get_config(db, "business_hours_end", cast=str, default=_DEFAULT_BUSINESS_HOURS_END)
 
@@ -339,13 +370,14 @@ def _resolve_fallback(
             # `publisher_service`'s is_failed-flag pattern) instead of while
             # the session is still open.
         else:
-            wait_minutes = policy.resolve_wait_minutes(db, datetime.now(timezone.utc))
+            _now = datetime.now(timezone.utc)
+            wait_minutes = policy.resolve_wait_minutes(db, _now)
             row.status = "waiting"
-            row.drafted_answer = _build_fallback_message(db)
+            row.drafted_answer = _build_fallback_message(db, _now)
             row.answer_source = "fallback"
             row.fallback_used = True
             row.injection_flag = row.injection_flag or injection_flag
-            row.wait_until = datetime.now(timezone.utc) + timedelta(minutes=wait_minutes)
+            row.wait_until = _now + timedelta(minutes=wait_minutes)
             # Judgment Day fix (round 3): `attempts` is a PER-STAGE counter —
             # drafting counts drafting retries (`_mark_failed_or_retry`), but
             # the publisher reuses the SAME column as its claim counter
@@ -528,8 +560,14 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
         if debug_logging:
             _log_llm_debug(question_id, system_prompt, user_payload, provider, raw=raw, parsed=parsed, error=None)
 
-        if not parsed.can_answer or parsed.confidence < min_confidence or policy.violates_denylist(parsed.answer):
-            denylist_hit = policy.violates_denylist(parsed.answer)
+        denylist_hit = policy.violates_denylist(parsed.answer)
+        deflection = policy.is_deflection_response(parsed.answer)
+        if not parsed.can_answer or parsed.confidence < min_confidence or denylist_hit or deflection:
+            # Deflection matches ("no tenemos info", "consultá la ficha",
+            # "en este listado", etc.) don't set the `injection_flag` — the
+            # buyer's question was legitimate; the LLM just produced a
+            # non-answer despite the anti-deflection prompt rule. The
+            # operator will see the warm fallback published instead.
             _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=denylist_hit)
             return "fallback"
 

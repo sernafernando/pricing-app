@@ -555,3 +555,60 @@ class TestBusinessDaysBooleanElementsFailSafe:
             result = policy.is_within_business_hours(db, now)
         assert result is True  # fail-safe: treated as in-hours
         assert any("business_days" in record.getMessage() for record in caplog.records)
+
+
+class TestIsDeflectionResponse:
+    """Server-side detector for polite "I don't have that info" non-answers
+    the LLM produces despite the anti-deflection rule in the prompt. Same
+    defensive pattern as `violates_denylist`: match → caller routes to
+    the warm fallback template."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The exact production offender (Windows 11 case):
+            "No tenemos info sobre cables en este listado, pero podés consultar otros productos en nuestra tienda.",
+            # Info-family patterns (Spanish variants):
+            "No tenemos información sobre eso.",
+            "No tengo información al respecto.",
+            "No tenemos ese dato.",
+            "No tengo esa información en este momento.",
+            "No tenemos info específica sobre el modelo.",
+            # Ficha / publicación / descripción deflections:
+            "Podés consultar la ficha del producto.",
+            "Consultá la publicación para más detalles.",
+            "Revisá la descripción por favor.",
+            # "Otros productos" deflections:
+            "Otros productos en nuestra tienda pueden servirte.",
+            "Consultá otros productos si te interesan.",
+            # The "en este listado" pattern seen in production:
+            "El dato no está en este listado.",
+        ],
+    )
+    def test_flags_known_deflection_patterns(self, text: str) -> None:
+        assert policy.is_deflection_response(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Real answers about stock — must NOT be misclassified as deflection:
+            "No tenemos stock por el momento.",
+            "No tenemos color rojo disponible.",
+            "No tenemos ese modelo específico, tenemos el HP DeskJet 3775.",
+            # A real spec answer that happens to say "información" but IS
+            # answering:
+            "La información técnica del producto: 100W, 220V.",
+            # A real availability answer:
+            "Sí, tenemos disponible el modelo consultado.",
+            # A real answer mentioning "listado":
+            "El listado de compatibilidad incluye Windows 10 y 11.",
+            # A real answer about a product feature (mentions "ficha"):
+            "La ficha del producto detalla las especificaciones que consultás.",
+        ],
+    )
+    def test_does_not_flag_legitimate_answers(self, text: str) -> None:
+        assert policy.is_deflection_response(text) is False
+
+    @pytest.mark.parametrize("text", [None, "", "   "])
+    def test_fail_safe_on_empty_input(self, text: object) -> None:
+        assert policy.is_deflection_response(text) is False
