@@ -70,6 +70,7 @@ from app.core.database import get_db
 from app.core.sse import sse_publish_bg
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
+from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.usuario import Usuario
 from app.services.ml_questions import publisher_service
@@ -201,6 +202,34 @@ class ExampleListResponse(BaseModel):
     examples: list[ExampleResponse]
 
 
+class MessageResponse(BaseModel):
+    id: int
+    ml_message_id: str
+    pack_id: Optional[str] = None
+    buyer_id: Optional[int] = None
+    buyer_nickname: Optional[str] = None
+    seller_id: int
+    subject: Optional[str] = None
+    text: str
+    status: str
+    moderation_status: Optional[str] = None
+    is_first_message: bool
+    attachments: Optional[list] = None
+    received_at: datetime
+    read_at: Optional[datetime] = None
+    kind: str
+    taken_over_by: Optional[int] = None
+    notes: Optional[str] = None
+    ingested_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MessageListResponse(BaseModel):
+    messages: list[MessageResponse]
+    total: int
+
+
 class ExampleCreate(BaseModel):
     question_example: str = Field(min_length=1, max_length=2000)
     answer_example: str = Field(min_length=1, max_length=2000)
@@ -288,6 +317,57 @@ def listar_preguntas(
     rows = query.order_by(MlBotQuestion.question_date.desc()).offset(offset).limit(limit).all()
     return QuestionListResponse(
         questions=[QuestionResponse.model_validate(r) for r in rows],
+        total=total,
+    )
+
+
+@router.get("/messages", response_model=MessageListResponse)
+def listar_mensajes(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    buyer_id: Optional[int] = Query(None),
+    pack_id: Optional[str] = Query(None),
+    has_read: Optional[bool] = Query(None),
+    include_moderated: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> MessageListResponse:
+    """Lista mensajes postventa (paginado, filtrable). Requiere `ml_bot.messages.ver`.
+
+    `pack_id=none` es un sentinel especial que filtra por `pack_id IS NULL`
+    (mensajes sin pack asociado) en lugar de una igualdad exacta (design
+    §Interfaces). `include_moderated=false` (default) oculta filas con
+    `moderation_status` no nulo y distinto de `'clean'`; filas con
+    `moderation_status IS NULL` siempre se muestran (unknown/pass, design
+    decision #3).
+    """
+    _check_permiso(db, current_user, "ml_bot.messages.ver")
+
+    query = db.query(MlBotMessage)
+    if status_filter:
+        query = query.filter(MlBotMessage.status == status_filter)
+    if buyer_id is not None:
+        query = query.filter(MlBotMessage.buyer_id == buyer_id)
+    if pack_id is not None:
+        if pack_id == "none":
+            query = query.filter(MlBotMessage.pack_id.is_(None))
+        else:
+            query = query.filter(MlBotMessage.pack_id == pack_id)
+    if has_read is not None:
+        if has_read:
+            query = query.filter(MlBotMessage.read_at.isnot(None))
+        else:
+            query = query.filter(MlBotMessage.read_at.is_(None))
+    if not include_moderated:
+        query = query.filter(
+            ~(MlBotMessage.moderation_status.isnot(None) & (MlBotMessage.moderation_status != "clean"))
+        )
+
+    total = query.count()
+    rows = query.order_by(MlBotMessage.received_at.desc()).offset(offset).limit(limit).all()
+    return MessageListResponse(
+        messages=[MessageResponse.model_validate(r) for r in rows],
         total=total,
     )
 
