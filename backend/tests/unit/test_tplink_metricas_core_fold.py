@@ -45,6 +45,7 @@ def _detail_row(
     pricelist_id: int | None = None,
     envio_producto: float | None = None,
     item_id: int = 1,
+    mlod_id: int | None = None,
 ) -> SimpleNamespace:
     """Build a synthetic per-detail row matching the aggregating CTE's projection."""
     return SimpleNamespace(
@@ -71,6 +72,7 @@ def _detail_row(
         shipment_total=shipment_total,
         envio_producto=envio_producto,
         fecha_venta=datetime(2026, 7, 1, 10, 0, 0),
+        mlod_id=mlod_id,
     )
 
 
@@ -297,3 +299,346 @@ class TestQueryBuilderShape:
         core = _get_core_module()
         sql_text = core.build_aggregation_sql()
         assert "mlo_cd" in str(sql_text)
+
+
+class TestShippingProrationAcrossSharedShipment:
+    """R3-001 (BLOCKER): shipping must be PRORATED across orders sharing a
+    `mlshippingid`, not charged in full to every order.
+
+    `shipment_total`'s underlying subquery joins on `mlshippingid`, which can
+    span MULTIPLE orders (not just multiple details of ONE order). Charging
+    the full `seller_shipping_cost` to every order sharing that shipment
+    overcounts shipping system-wide and deflates ganancia.
+    """
+
+    def test_shipping_prorated_across_two_orders_sharing_one_shipment(self) -> None:
+        core = _get_core_module()
+
+        # Two DIFFERENT orders (200 and 201) share one mlshippingid. The SQL
+        # subquery for shipment_total sums over BOTH orders' details, so both
+        # rows report the SAME shipment_total and seller_shipping_cost.
+        shared_seller_shipping_cost = 300.0  # with IVA, whole shipment
+        shared_shipment_total = 4000.0  # with IVA, monto across BOTH orders
+
+        order_a_monto = 1000.0
+        order_b_monto = 3000.0
+
+        order_a = _detail_row(
+            mlo_id=200,
+            ml_id="ML200",
+            mlp_id=1,
+            pack_id=None,
+            monto_unitario=order_a_monto,
+            cantidad=1,
+            costo_sin_iva=300.0,
+            seller_shipping_cost=shared_seller_shipping_cost,
+            shipment_total=shared_shipment_total,
+            mlod_id=1,
+        )
+        order_b = _detail_row(
+            mlo_id=201,
+            ml_id="ML201",
+            mlp_id=2,
+            pack_id=None,
+            monto_unitario=order_b_monto,
+            cantidad=1,
+            costo_sin_iva=900.0,
+            seller_shipping_cost=shared_seller_shipping_cost,
+            shipment_total=shared_shipment_total,
+            mlod_id=1,
+        )
+
+        folded = core.fold_order_rows([order_a, order_b])
+
+        shipping_a = folded[200]["costo_envio_ml"]
+        shipping_b = folded[201]["costo_envio_ml"]
+
+        total_shipping_sin_iva = shared_seller_shipping_cost / core.DEFAULT_IVA_MULTIPLIER
+        expected_a = total_shipping_sin_iva * (order_a_monto / shared_shipment_total)
+        expected_b = total_shipping_sin_iva * (order_b_monto / shared_shipment_total)
+
+        assert shipping_a == pytest.approx(expected_a)
+        assert shipping_b == pytest.approx(expected_b)
+
+        # No overcounting: the two orders' shipping sums to the shipment total.
+        assert (shipping_a + shipping_b) == pytest.approx(total_shipping_sin_iva)
+
+        # Regression guard for the pre-fix bug: full shipping was charged to BOTH orders.
+        assert shipping_a != pytest.approx(total_shipping_sin_iva)
+        assert shipping_b != pytest.approx(total_shipping_sin_iva)
+
+
+class _FakePricingConstantsQuery:
+    """Minimal stand-in for `db.query(PricingConstants).filter(...).order_by(...).first()`."""
+
+    def __init__(self, constants: SimpleNamespace) -> None:
+        self._constants = constants
+
+    def filter(self, *args, **kwargs) -> "_FakePricingConstantsQuery":
+        return self
+
+    def order_by(self, *args, **kwargs) -> "_FakePricingConstantsQuery":
+        return self
+
+    def first(self) -> SimpleNamespace:
+        return self._constants
+
+
+class _FakeDbSession:
+    """Minimal stand-in `db_session` so `calcular_metricas_ml` takes the
+    offset_flex-enabled branch (real synthetic tests were passing
+    `db_session=None`, which made `offset_flex` always 0 — R3-003).
+    """
+
+    def __init__(self, offset_flex: float = 500.0, monto_tier3: float = 33000.0) -> None:
+        # Includes every field calcular_comision_ml also reads off this same
+        # stubbed row (comision_ml is computed dynamically from
+        # fecha_venta + comision_base_porcentaje in these tests).
+        self._constants = SimpleNamespace(
+            offset_flex=offset_flex,
+            monto_tier1=15000.0,
+            monto_tier2=24000.0,
+            monto_tier3=monto_tier3,
+            comision_tier1=1095.0,
+            comision_tier2=2190.0,
+            comision_tier3=2628.0,
+            varios_porcentaje=6.5,
+            fecha_desde=None,
+        )
+
+    def query(self, *args, **kwargs) -> _FakePricingConstantsQuery:
+        return _FakePricingConstantsQuery(self._constants)
+
+
+class TestOffsetFlexAppliedOncePerOrder:
+    """R3-002 (BLOCKER): offset_flex is a FIXED per-shipment amount, must be
+    applied ONCE per order, never summed across qualifying details.
+    """
+
+    def test_offset_flex_not_multiplied_across_multiple_qualifying_details(self) -> None:
+        core = _get_core_module()
+        fake_db = _FakeDbSession(offset_flex=500.0, monto_tier3=33000.0)
+
+        # Two details in the same self_service order, BOTH under monto_tier3
+        # (both qualify for the offset individually).
+        rows = [
+            _detail_row(
+                mlo_id=500,
+                ml_id="ML500",
+                mlp_id=1,
+                pack_id="PACK-Z",
+                monto_unitario=1000.0,
+                cantidad=1,
+                costo_sin_iva=200.0,
+                seller_shipping_cost=None,
+                shipment_total=None,
+                tipo_logistica="self_service",
+                mlod_id=1,
+            ),
+            _detail_row(
+                mlo_id=500,
+                ml_id="ML500",
+                mlp_id=2,
+                pack_id="PACK-Z",
+                monto_unitario=1500.0,
+                cantidad=1,
+                costo_sin_iva=300.0,
+                seller_shipping_cost=None,
+                shipment_total=None,
+                tipo_logistica="self_service",
+                mlod_id=2,
+            ),
+        ]
+
+        folded = core.fold_order_rows(rows, db_session=fake_db)
+
+        # Applied ONCE (500.0), not summed (1000.0) across the two qualifying details.
+        assert folded[500]["offset_flex"] == pytest.approx(500.0)
+
+    def test_offset_flex_zero_when_no_detail_qualifies(self) -> None:
+        core = _get_core_module()
+        fake_db = _FakeDbSession(offset_flex=500.0, monto_tier3=33000.0)
+
+        rows = [
+            _detail_row(
+                mlo_id=501,
+                ml_id="ML501",
+                mlp_id=1,
+                pack_id=None,
+                monto_unitario=50000.0,  # above monto_tier3 -> does not qualify
+                cantidad=1,
+                costo_sin_iva=200.0,
+                seller_shipping_cost=None,
+                shipment_total=None,
+                tipo_logistica="self_service",
+                mlod_id=1,
+            ),
+        ]
+
+        folded = core.fold_order_rows(rows, db_session=fake_db)
+        assert folded[501]["offset_flex"] == pytest.approx(0.0)
+
+
+class TestIterableConsumedOnceOnly:
+    """R2-001 (CRITICAL): `fold_order_rows` must materialize its `rows`
+    argument exactly once — a one-shot generator must still produce correct
+    pack counts and folded values.
+
+    `count_per_pack()`'s return value is not currently surfaced in the folded
+    output (its consumer, `calcular_metricas_ml`'s `count_per_pack` param, is
+    marked DEPRECATED upstream), so we spy on the internal call to prove
+    `count_per_pack()` still receives the FULL row set even when the caller
+    passed a one-shot generator — this is exactly what silently breaks if
+    `rows` is iterated twice without materializing it first.
+    """
+
+    def _row_generator(self):
+        yield _detail_row(
+            mlo_id=600,
+            ml_id="ML600",
+            mlp_id=1,
+            pack_id="PACK-GEN",
+            monto_unitario=500.0,
+            cantidad=1,
+            costo_sin_iva=100.0,
+            seller_shipping_cost=None,
+            shipment_total=None,
+            mlod_id=1,
+        )
+        yield _detail_row(
+            mlo_id=601,
+            ml_id="ML601",
+            mlp_id=2,
+            pack_id="PACK-GEN",
+            monto_unitario=500.0,
+            cantidad=1,
+            costo_sin_iva=100.0,
+            seller_shipping_cost=None,
+            shipment_total=None,
+            mlod_id=1,
+        )
+
+    def test_accepts_one_shot_generator_without_losing_pack_counts(self) -> None:
+        core = _get_core_module()
+
+        folded = core.fold_order_rows(self._row_generator())
+
+        assert len(folded) == 2
+        assert folded[600]["monto_total"] == pytest.approx(500.0)
+        assert folded[601]["monto_total"] == pytest.approx(500.0)
+
+    def test_count_per_pack_receives_full_materialized_row_set_from_generator(self, monkeypatch) -> None:
+        core = _get_core_module()
+
+        original_count_per_pack = core.count_per_pack
+        captured: dict[str, list] = {}
+
+        def _spy(rows):
+            materialized = list(rows)
+            captured["rows"] = materialized
+            return original_count_per_pack(materialized)
+
+        monkeypatch.setattr(core, "count_per_pack", _spy)
+
+        core.fold_order_rows(self._row_generator())
+
+        # Pre-fix: the generator is exhausted by the grouping loop BEFORE
+        # count_per_pack() is called, so it would receive an EMPTY iterable.
+        assert len(captured["rows"]) == 2
+
+
+class TestRepresentativeDetailIsDeterministic:
+    """R3-006: the representative detail (for descriptive fields / mla_id)
+    must be picked deterministically by minimum `mlod_id`, not by caller
+    iteration order.
+    """
+
+    def test_representative_picked_by_min_mlod_id_regardless_of_list_order(self) -> None:
+        core = _get_core_module()
+
+        # Deliberately out of mlod_id order in the input list.
+        rows = [
+            _detail_row(
+                mlo_id=700,
+                ml_id="ML700",
+                mlp_id=999,  # higher mlod_id, should NOT be the representative
+                pack_id=None,
+                monto_unitario=100.0,
+                cantidad=1,
+                costo_sin_iva=50.0,
+                seller_shipping_cost=None,
+                shipment_total=None,
+                mlod_id=5,
+                codigo="SKU-LATER",
+            ),
+            _detail_row(
+                mlo_id=700,
+                ml_id="ML700",
+                mlp_id=111,  # lowest mlod_id, SHOULD be the representative
+                pack_id=None,
+                monto_unitario=200.0,
+                cantidad=1,
+                costo_sin_iva=80.0,
+                seller_shipping_cost=None,
+                shipment_total=None,
+                mlod_id=1,
+                codigo="SKU-FIRST",
+            ),
+        ]
+
+        folded = core.fold_order_rows(rows)
+
+        assert folded[700]["mla_id"] == "111"
+        assert folded[700]["codigo"] == "SKU-FIRST"
+
+
+class TestEdgeCases:
+    """R3-007: missing publication, empty input, zero/negative amounts."""
+
+    def test_missing_publication_yields_none_mla_id(self) -> None:
+        core = _get_core_module()
+
+        row = _detail_row(
+            mlo_id=800,
+            ml_id="ML800",
+            mlp_id=None,  # unresolved publication
+            pack_id=None,
+            monto_unitario=1000.0,
+            cantidad=1,
+            costo_sin_iva=200.0,
+            seller_shipping_cost=None,
+            shipment_total=None,
+            mlod_id=1,
+        )
+
+        folded = core.fold_order_rows([row])
+        assert folded[800]["mla_id"] is None
+        assert folded[800]["id_operacion"] == 800
+        assert folded[800]["ml_order_id"] == "ML800"
+
+    def test_empty_input_returns_empty_dict(self) -> None:
+        core = _get_core_module()
+        folded = core.fold_order_rows([])
+        assert folded == {}
+
+    def test_zero_cantidad_and_costo_does_not_crash(self) -> None:
+        core = _get_core_module()
+
+        row = _detail_row(
+            mlo_id=900,
+            ml_id="ML900",
+            mlp_id=1,
+            pack_id=None,
+            monto_unitario=0.0,
+            cantidad=0,
+            costo_sin_iva=0.0,
+            seller_shipping_cost=None,
+            shipment_total=None,
+            mlod_id=1,
+        )
+
+        folded = core.fold_order_rows([row])
+        assert folded[900]["cantidad"] == 0
+        assert folded[900]["costo_total_sin_iva"] == pytest.approx(0.0)
+        # No division-by-zero on markup_porcentaje when costo_total_sin_iva == 0.
+        assert folded[900]["markup_porcentaje"] == pytest.approx(0.0)
