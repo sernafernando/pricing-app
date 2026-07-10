@@ -24,13 +24,28 @@ Two responsibilities live here:
 not raw detail rows — a multi-detail order must not inflate the pack-offset
 count.
 
-Slice 1 of 3 (SDD change tplink-metricas-dual-key-dedup): this module is
-ADDITIVE ONLY. It is not yet wired into either job — that happens in slice 2.
+Slice 2 of 3 (SDD change tplink-metricas-dual-key-dedup) adds two more
+shared responsibilities so both jobs' insert/update mapping can never drift:
+
+3. `build_upsert_payload()` — maps a folded per-order dict (from
+   `fold_order_rows()`) to the exact `TplinkVentaMetrica` column payload
+   (types, rounding, `fecha_calculo`).
+
+4. `upsert_metrica()` — queries by `id_operacion` (mlo_id) and either
+   updates the existing row or inserts a new one. Callers own commit /
+   rollback / batching cadence.
+
+Both TP-Link job scripts (`agregar_metricas_tplink.py`,
+`agregar_metricas_tplink_incremental.py`) are thin wrappers around this
+module: they only own the date-window computation and the DB session /
+commit cadence.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
+from decimal import Decimal
 from typing import Any, Iterable
 
 from sqlalchemy import text
@@ -443,3 +458,75 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
         }
 
     return folded
+
+
+def _dec(value: Any, digits: int = 2) -> Decimal:
+    """Rounds `value` to `digits` decimals and returns a `Decimal`, defaulting
+    to `Decimal("0")` for `None`/falsy-zero inputs (matches the legacy jobs'
+    `Decimal(str(round(x, n)))` pattern)."""
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(round(float(value), digits)))
+
+
+def build_upsert_payload(folded: dict[str, Any]) -> dict[str, Any]:
+    """
+    Maps ONE folded per-order dict (as returned by `fold_order_rows()`) to
+    the exact `TplinkVentaMetrica` column payload — shared by both jobs so
+    field mapping/rounding/types can never drift between backfill and
+    incremental (design D1/D4: "cross-job upsert dedupes naturally").
+    """
+    return {
+        "id_operacion": folded["id_operacion"],
+        "ml_order_id": folded["ml_order_id"],
+        "pack_id": folded["pack_id"],
+        "item_id": folded["item_id"],
+        "codigo": folded["codigo"],
+        "descripcion": folded["descripcion"],
+        "marca": folded["marca"],
+        "categoria": folded["categoria"],
+        "subcategoria": folded["subcategoria"],
+        "fecha_venta": folded["fecha_venta"],
+        "fecha_calculo": date.today(),
+        "cantidad": int(folded["cantidad"]) if folded["cantidad"] is not None else 0,
+        "monto_unitario": _dec(folded["monto_unitario"]),
+        "monto_total": _dec(folded["monto_total"]),
+        "costo_unitario_sin_iva": _dec(folded["costo_unitario_sin_iva"], digits=6),
+        "costo_total_sin_iva": _dec(folded["costo_total_sin_iva"]),
+        "comision_ml": _dec(folded["comision_ml"]),
+        "costo_envio_ml": _dec(folded["costo_envio_ml"]),
+        "tipo_logistica": folded["tipo_logistica"],
+        "monto_limpio": _dec(folded["monto_limpio"]),
+        "ganancia": _dec(folded["ganancia"]),
+        "markup_porcentaje": _dec(folded["markup_porcentaje"]),
+        "mla_id": folded["mla_id"],
+        "mlp_official_store_id": folded["mlp_official_store_id"],
+        "offset_flex": _dec(folded["offset_flex"]),
+    }
+
+
+def upsert_metrica(db_session: Any, payload: dict[str, Any]) -> str:
+    """
+    Upserts ONE `TplinkVentaMetrica` row keyed by `id_operacion` (mlo_id).
+
+    Shared by both jobs so insert/update field-assignment logic can never
+    drift. The caller owns `commit()`/`rollback()`/batching cadence — this
+    function only queries, mutates, or constructs the ORM object; it never
+    commits.
+
+    Returns "actualizado" if an existing row was updated, "insertado" if a
+    new row was added.
+    """
+    from app.models.tplink_venta_metrica import TplinkVentaMetrica
+
+    existente = (
+        db_session.query(TplinkVentaMetrica).filter(TplinkVentaMetrica.id_operacion == payload["id_operacion"]).first()
+    )
+    if existente:
+        for key, value in payload.items():
+            if key != "id_operacion":
+                setattr(existente, key, value)
+        return "actualizado"
+
+    db_session.add(TplinkVentaMetrica(**payload))
+    return "insertado"
