@@ -40,7 +40,17 @@ from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 # Module-level constants — kept identical to the existing jobs.
 TPLINK_STORE_ID: int = 2645
+# Exported for slice-2 callers (job wiring) to bind as `:coslis_id` in
+# build_aggregation_sql()'s params — not dead code, just not consumed
+# within this module itself.
 TPLINK_COSLIS_ID: int = 8
+
+# Standard Argentine VAT multiplier, used to strip IVA from the order-level
+# shipping cost (`seller_shipping_cost` comes from ML with IVA included).
+# Mirrors the same assumption already baked into calcular_metricas_ml's own
+# shipping branch (ml_metrics_calculator.py) — kept as one named constant
+# here so both call sites can be audited together if the rate ever changes.
+DEFAULT_IVA_MULTIPLIER: float = 1.21
 
 
 def build_aggregation_sql() -> TextClause:
@@ -277,31 +287,63 @@ def _calcular_metricas_detalle_sin_envio(row: Any, count_per_pack_value: int, db
     )
 
 
-def _costo_envio_once_per_order(rows: list[Any]) -> float:
+def _pick_representative_detail(details: list[Any]) -> Any:
     """
-    Computes the order's shipping cost (sin IVA) EXACTLY ONCE, using the
-    per-order-correlated shipping fields (`seller_shipping_cost`,
-    `shipment_total`), which are identical across all of an order's details.
-    Uses the first (deterministically ordered) detail as representative.
+    Deterministically picks the representative detail for an order's
+    descriptive fields (`mla_id`, `codigo`, `descripcion`, etc.) by MINIMUM
+    `mlod_id` — never by unenforced caller/list ordering (R3-006). The SQL
+    query already orders rows by `(id_operacion, mlod_id)`, but this fold
+    function must not silently depend on that contract holding for every
+    caller (e.g. a future caller re-ordering rows before folding).
     """
-    representative = rows[0]
+    with_mlod_id = [d for d in details if getattr(d, "mlod_id", None) is not None]
+    if with_mlod_id:
+        return min(with_mlod_id, key=lambda d: d.mlod_id)
+    return details[0]
+
+
+def _costo_envio_once_per_order(details: list[Any], order_monto_total: float) -> float:
+    """
+    Computes the order's shipping cost (sin IVA) EXACTLY ONCE, PRORATED to
+    this order's share of the shipment (R3-001 fix).
+
+    `shipment_total` is a per-order-correlated field whose underlying SQL
+    subquery sums `monto_unitario * cantidad` over ALL details sharing the
+    same `mlshippingid` — which can span MULTIPLE orders (e.g. an ML "pack"
+    shipped together), not just multiple details of a single order. Charging
+    the full `seller_shipping_cost` to every order sharing that shipment
+    overcounts shipping system-wide. Instead, prorate:
+
+        order_shipping = shipment_shipping_sin_iva * (order_monto / shipment_monto)
+
+    This mirrors `calcular_metricas_ml`'s own per-item proration formula
+    (`ml_metrics_calculator.py`), but evaluated ONCE per order using the
+    order's OWN total monto (summed across its own details) as the numerator,
+    instead of once per detail.
+    """
+    representative = _pick_representative_detail(details)
     seller_shipping_cost = getattr(representative, "seller_shipping_cost", None)
     shipment_total = getattr(representative, "shipment_total", None)
 
     if not seller_shipping_cost or float(seller_shipping_cost) <= 0:
         return 0.0
 
-    # Mirrors calcular_metricas_ml's proportional-shipping branch, but
-    # evaluated ONCE for the whole order (monto_este_item == monto_pack
-    # since we're computing the order-level cost, not a per-item share).
-    return float(seller_shipping_cost) / 1.21
+    shipment_shipping_sin_iva = float(seller_shipping_cost) / DEFAULT_IVA_MULTIPLIER
+
+    monto_pack = float(shipment_total) if shipment_total and float(shipment_total) > 0 else order_monto_total
+    if monto_pack <= 0:
+        return 0.0
+
+    proporcion = order_monto_total / monto_pack
+    return shipment_shipping_sin_iva * proporcion
 
 
 def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, dict[str, Any]]:
     """
     Groups per-detail rows by `id_operacion` (mlo_id) and folds each group
     into ONE row with SUMMED monto_total, cantidad, costo, comision, ganancia,
-    with the order's shipping cost applied EXACTLY ONCE (design D1).
+    with the order's shipping cost and offset_flex applied EXACTLY ONCE
+    (design D1).
 
     Returns a dict keyed by `id_operacion` (mlo_id) -> folded dict with keys:
       id_operacion, ml_order_id, mla_id, pack_id, item_id, codigo, descripcion,
@@ -310,11 +352,18 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
       costo_envio_ml, tipo_logistica, monto_limpio, ganancia,
       markup_porcentaje, offset_flex, mlp_official_store_id.
 
+    `rows` is materialized into a list IMMEDIATELY (R2-001): it is iterated
+    more than once internally (grouping, then `count_per_pack`), so a
+    one-shot generator/cursor passed by the caller must not be silently
+    exhausted before the second pass.
+
     Determinism: summation is order-independent (no DISTINCT-ON arbitrary
-    pick); the representative detail for descriptive fields is the first
-    row in insertion order, which the SQL query already orders deterministically
-    (`ORDER BY id_operacion, mlod_id`).
+    pick); the representative detail for descriptive fields is picked by
+    minimum `mlod_id` (`_pick_representative_detail`), not by caller
+    iteration order (R3-006).
     """
+    rows = list(rows)
+
     grouped: dict[Any, list[Any]] = defaultdict(list)
     for row in rows:
         grouped[row.id_operacion].append(row)
@@ -324,7 +373,7 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
     folded: dict[Any, dict[str, Any]] = {}
 
     for order_id, details in grouped.items():
-        first = details[0]
+        first = _pick_representative_detail(details)
         pack_id = getattr(first, "pack_id", None)
         count_per_pack_value = pack_counts.get(pack_id, 1) if pack_id else 1
 
@@ -333,7 +382,11 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
         sum_costo_total_sin_iva = 0.0
         sum_comision_ml = 0.0
         sum_monto_limpio_sin_envio = 0.0
-        sum_offset_flex = 0.0
+        # offset_flex is a FIXED per-shipment amount (ml_metrics_calculator.py),
+        # not a per-detail one — applied ONCE per order (R3-002 fix), taking
+        # the first qualifying detail's value rather than summing across all
+        # qualifying details.
+        offset_flex_once = 0.0
 
         for detail in details:
             metricas = _calcular_metricas_detalle_sin_envio(detail, count_per_pack_value, db_session)
@@ -342,9 +395,10 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             sum_costo_total_sin_iva += metricas["costo_total_sin_iva"]
             sum_comision_ml += metricas["comision_ml"]
             sum_monto_limpio_sin_envio += metricas["monto_limpio"]
-            sum_offset_flex += metricas["offset_flex"]
+            if offset_flex_once == 0.0 and metricas["offset_flex"]:
+                offset_flex_once = metricas["offset_flex"]
 
-        costo_envio_ml = _costo_envio_once_per_order(details)
+        costo_envio_ml = _costo_envio_once_per_order(details, sum_monto_total)
 
         # Shipping subtracted ONCE from the summed monto_limpio/ganancia.
         monto_limpio = sum_monto_limpio_sin_envio - costo_envio_ml
@@ -358,6 +412,10 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
         folded[order_id] = {
             "id_operacion": order_id,
             "ml_order_id": str(first.ml_id) if first.ml_id else None,
+            # mla_id intentionally unifies on mlp_id (the INTERNAL publication
+            # PK), matching the incremental job's contract (design D1) and
+            # DIVERGING on purpose from the old backfill's external
+            # mlp_publicationID — a reviewed decision, not an oversight (R2-002).
             "mla_id": str(first.mlp_id) if getattr(first, "mlp_id", None) else None,
             "pack_id": pack_id,
             "item_id": first.item_id,
@@ -378,7 +436,7 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             "monto_limpio": monto_limpio,
             "ganancia": ganancia,
             "markup_porcentaje": markup_porcentaje,
-            "offset_flex": sum_offset_flex,
+            "offset_flex": offset_flex_once,
             "mlp_official_store_id": TPLINK_STORE_ID,
         }
 
