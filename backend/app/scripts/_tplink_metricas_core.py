@@ -248,7 +248,9 @@ def count_per_pack(rows: Iterable[Any]) -> dict[Any, int]:
     return {pack_id: len(order_ids) for pack_id, order_ids in orders_by_pack.items()}
 
 
-def _calcular_metricas_detalle_sin_envio(row: Any, count_per_pack_value: int, db_session: Any = None) -> dict[str, float]:
+def _calcular_metricas_detalle_sin_envio(
+    row: Any, count_per_pack_value: int, db_session: Any = None
+) -> dict[str, float]:
     """
     Runs `calcular_metricas_ml` for a SINGLE detail row with order shipping
     EXCLUDED (`seller_shipping_cost=None`, `shipment_total=None`). Shipping is
