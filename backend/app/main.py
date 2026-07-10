@@ -203,6 +203,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(ml_questions_ingest_task()),
             asyncio.create_task(ml_questions_draft_task()),
             asyncio.create_task(ml_questions_publish_task()),
+            asyncio.create_task(ml_messages_ingest_task()),
         ]
     else:
         import os
@@ -498,6 +499,32 @@ async def ml_questions_publish_task():
                 logger.info("ML questions publish stats: %s", stats)
         except Exception as e:
             logger.error("ML questions publish failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def ml_messages_ingest_task():
+    """
+    Tarea de background que ingesta mensajes postventa nuevos de
+    MercadoLibre (topic='messages') desde la BD mlwebhook hacia
+    ml_bot_messages (ml-bot postventa messages MVP, PR1 — solo ingesta,
+    read-only, sin drafting ni publicación).
+    """
+    from app.services.ml_messages.ingestion_service import run_ml_messages_ingest_cycle
+
+    # Esperar 60 segundos para que todo esté listo (DB, ML client, etc.) —
+    # mismo warm-up que ml_questions_ingest_task.
+    await asyncio.sleep(60)
+    logger.info("Background task started: ml_messages_ingest (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_messages_ingest_cycle()
+            if stats["created"] or stats["read_updated"] or stats["duplicates"] or stats["outgoing_skipped"]:
+                logger.info("ML messages ingest stats: %s", stats)
+        except Exception as e:
+            logger.error("ML messages ingest failed: %s", e, exc_info=True)
 
         # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
         await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
