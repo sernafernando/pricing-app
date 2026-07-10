@@ -135,6 +135,50 @@ def build_aggregation_sql() -> TextClause:
 
             pe.iva as iva,
 
+            -- Currency the coslis_id=8 cost was sourced in (JD-001 fix):
+            -- mirrors the SAME COALESCE structure as costo_sin_iva above so
+            -- the currency label always matches the source of the value.
+            COALESCE(
+                (
+                    SELECT CASE WHEN iclh.curr_id = 2 THEN 'USD' ELSE 'ARS' END
+                    FROM tb_item_cost_list_history iclh
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = :coslis_id
+                      AND iclh.iclh_price > 0
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT CASE WHEN ticl.curr_id = 2 THEN 'USD' ELSE 'ARS' END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = :coslis_id
+                ),
+                'ARS'
+            ) as moneda_costo,
+
+            -- USD exchange rate at sale time (JD-001 fix): the legacy
+            -- backfill always populated `cotizacion_dolar` with the day's
+            -- USD rate, independent of whether the cost itself was in USD.
+            COALESCE(
+                (
+                    SELECT tc.venta
+                    FROM tipo_cambio tc
+                    WHERE tc.moneda = 'USD'
+                      AND tc.fecha <= tmloh.mlo_cd::date
+                    ORDER BY tc.fecha DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT ceh.ceh_exchange
+                    FROM tb_cur_exch_history ceh
+                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                    ORDER BY ceh.ceh_cd DESC
+                    LIMIT 1
+                )
+            ) as cambio_momento,
+
             COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as tipo_logistica,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
@@ -188,6 +232,8 @@ def build_aggregation_sql() -> TextClause:
                     ELSE tmlip.prli_id
                 END
             ) as pricelist_id,
+
+            tmlip.mlp_listing_type_id as tipo_lista,
 
             tmlod.mlp_id as mlp_id,
             tmlip.mlp_official_store_id as mlp_official_store_id,
@@ -263,13 +309,17 @@ def count_per_pack(rows: Iterable[Any]) -> dict[Any, int]:
     return {pack_id: len(order_ids) for pack_id, order_ids in orders_by_pack.items()}
 
 
-def _calcular_metricas_detalle_sin_envio(
-    row: Any, count_per_pack_value: int, db_session: Any = None
-) -> dict[str, float]:
+def _resolver_comision_porcentaje(row: Any, db_session: Any = None) -> float:
     """
-    Runs `calcular_metricas_ml` for a SINGLE detail row with order shipping
-    EXCLUDED (`seller_shipping_cost=None`, `shipment_total=None`). Shipping is
-    applied once per order by the caller (`fold_order_rows`), never per detail.
+    Resolves the commission percentage for ONE detail row: the versioned
+    lookup (when a `db_session` + `subcat_id` + `pricelist_id` are
+    available), falling back to the SQL-computed `comision_base_porcentaje`
+    (already defaulted to 12.0 in `build_aggregation_sql`) otherwise.
+
+    Extracted as a standalone helper (JD-001 fix) so BOTH the per-detail
+    fold (`_calcular_metricas_detalle_sin_envio`) and the order-level
+    `porcentaje_comision_ml` field (representative detail, in
+    `fold_order_rows`) resolve commission the SAME way.
     """
     comision_porcentaje = None
     if db_session and row.subcat_id and row.pricelist_id:
@@ -282,6 +332,19 @@ def _calcular_metricas_detalle_sin_envio(
 
     if comision_porcentaje is None:
         comision_porcentaje = float(row.comision_base_porcentaje or 12.0)
+
+    return comision_porcentaje
+
+
+def _calcular_metricas_detalle_sin_envio(
+    row: Any, count_per_pack_value: int, db_session: Any = None
+) -> dict[str, float]:
+    """
+    Runs `calcular_metricas_ml` for a SINGLE detail row with order shipping
+    EXCLUDED (`seller_shipping_cost=None`, `shipment_total=None`). Shipping is
+    applied once per order by the caller (`fold_order_rows`), never per detail.
+    """
+    comision_porcentaje = _resolver_comision_porcentaje(row, db_session)
 
     costo_envio_producto = float(row.envio_producto) if getattr(row, "envio_producto", None) else None
 
@@ -455,6 +518,21 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             "markup_porcentaje": markup_porcentaje,
             "offset_flex": offset_flex_once,
             "mlp_official_store_id": TPLINK_STORE_ID,
+            # --- JD-001 fix: previously-dropped fields (see review ledger
+            # sdd/tplink-metricas-dual-key-dedup/review-ledger-slice2) ---
+            # Per-order REPRESENTATIVE values (same detail as descriptive
+            # fields like `codigo`/`marca` above), consistent with the
+            # design's representative-field pattern:
+            "cotizacion_dolar": getattr(first, "cambio_momento", None),
+            "moneda_costo": getattr(first, "moneda_costo", None) or "ARS",
+            "tipo_lista": getattr(first, "tipo_lista", None) or "unknown",
+            "porcentaje_comision_ml": _resolver_comision_porcentaje(first, db_session),
+            "prli_id": getattr(first, "pricelist_id", None) or 4,
+            # costo_total = costo_total_sin_iva + costo_envio_ml: the FINAL
+            # cost INCLUDING the once-per-order shipping (distinct from
+            # costo_total_sin_iva, which excludes shipping) — matches the
+            # TplinkVentaMetrica model docstring's documented formula.
+            "costo_total": sum_costo_total_sin_iva + costo_envio_ml,
         }
 
     return folded
@@ -502,6 +580,13 @@ def build_upsert_payload(folded: dict[str, Any]) -> dict[str, Any]:
         "mla_id": folded["mla_id"],
         "mlp_official_store_id": folded["mlp_official_store_id"],
         "offset_flex": _dec(folded["offset_flex"]),
+        # JD-001 fix: previously-dropped columns.
+        "cotizacion_dolar": _dec(folded["cotizacion_dolar"], digits=4),
+        "moneda_costo": folded["moneda_costo"],
+        "tipo_lista": folded["tipo_lista"],
+        "porcentaje_comision_ml": _dec(folded["porcentaje_comision_ml"]),
+        "prli_id": int(folded["prli_id"]) if folded["prli_id"] is not None else 4,
+        "costo_total": _dec(folded["costo_total"]),
     }
 
 

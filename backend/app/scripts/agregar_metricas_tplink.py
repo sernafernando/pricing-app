@@ -190,6 +190,7 @@ def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int = 100
             except Exception as e:
                 total_errores += 1
                 print(f"  Error procesando orden {order_id}: {str(e)}")
+                db.rollback()
                 continue
 
             procesados += 1
