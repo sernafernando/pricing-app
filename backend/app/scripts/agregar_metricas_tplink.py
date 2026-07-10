@@ -200,9 +200,7 @@ def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int = 100
                 except Exception as e:
                     print(f"  Error commit lote (orden {order_id}): {str(e)}")
                     db.rollback()
-                print(
-                    f"  Procesados: {procesados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}"
-                )
+                print(f"  Procesados: {procesados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
 
         try:
             db.commit()
