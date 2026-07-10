@@ -411,3 +411,51 @@
   word-break: break-word;
   margin: 4px 0 0;
 }
+
+/* Message threading (grouped by pack_id + buyer_id) */
+.threadGroup {
+  border-top: 1px solid var(--cf-border);
+}
+
+.threadGroup:first-of-type {
+  border-top: none;
+}
+
+.threadHeader td {
+  background: var(--cf-bg-hover);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+  border-bottom: 1px solid var(--cf-border);
+}
+
+.threadBuyer {
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.threadPack {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+}
+
+.threadCount {
+  color: var(--cf-text-tertiary);
+}
+
+.threadSeparator {
+  color: var(--cf-text-tertiary);
+  margin: 0 6px;
+}
+
+.threadRow td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.threadRowIndent {
+  width: 16px;
+  padding: 0;
+  border-right: 2px solid var(--cf-accent-orange);
+  opacity: 0.4;
+}
