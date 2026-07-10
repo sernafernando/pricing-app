@@ -23,6 +23,18 @@ class QuestionNotFoundError(Exception):
         super().__init__(f"Question {question_id} not found in ML (404)")
 
 
+class MessageNotFoundError(Exception):
+    """Raised by `get_message` when ML confirms the message no longer exists
+    (HTTP 404) — a terminal, non-retryable outcome (ml-bot postventa
+    messages MVP). Mirrors `QuestionNotFoundError`: distinguishes this case
+    from a transient failure (network/timeout/5xx/auth), which still returns
+    None so callers can retry."""
+
+    def __init__(self, message_id: str) -> None:
+        self.message_id = message_id
+        super().__init__(f"Message {message_id} not found in ML (404)")
+
+
 class QuestionAlreadyAnsweredError(Exception):
     """Raised by `post_answer` when ML confirms the question was already
     answered (a 4xx explicitly indicating that) — a success-equivalent
@@ -225,6 +237,52 @@ class MercadoLibreAPIClient:
             raise
         except Exception as e:
             logger.error(f"Error obteniendo pregunta {question_id} de ML: {e}")
+            return None
+
+    async def get_message(self, message_id: str) -> Optional[Dict]:
+        """Obtiene el detalle completo de un mensaje postventa de ML
+        (ml-bot postventa messages MVP, design §Interfaces, decision #8).
+
+        Mirrors `get_question`: the webhook only carries the message id;
+        the full payload (text, from, message_resources, message_moderation)
+        is fetched with a direct GET here — NOT via the mlwebhook render
+        proxy used by `routers/seriales_messages.py` (that's a different
+        endpoint, a listing route).
+
+        Args:
+            message_id: el id (string, UUIDv7 hex) del mensaje ML.
+
+        Returns:
+            Dict con el mensaje si tuvo éxito.
+
+        Raises:
+            MessageNotFoundError: si ML devuelve 404 (el mensaje ya no
+                existe — resultado terminal, no reintentable).
+
+        Returns None for transient failures (network/timeout/5xx/auth) —
+        callers should retry these.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/messages/{message_id}",
+                    params={"tag": "post_sale"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Mensaje {message_id} no encontrado en ML")
+                    raise MessageNotFoundError(message_id)
+
+                response.raise_for_status()
+                return response.json()
+
+        except MessageNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error obteniendo mensaje {message_id} de ML: {e}")
             return None
 
     async def post_answer(self, question_id: int, text: str) -> Optional[Dict]:
