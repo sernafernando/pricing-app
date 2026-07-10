@@ -114,6 +114,79 @@ Pipeline: ingest → draft → publish, one MercadoLibre account per env.
 3. Toggle the bot on from the panel (`ml_bot.on_off` permission) or via
    `POST /api/ml-bot/toggle` (`{"enabled": true}`).
 
+### Migration Convention: Updating `ml_bot_config` Defaults
+
+`ml_bot_config` values are **panel-editable**: operators customize them at
+runtime. This creates a tension when a new migration wants to update a
+default that was previously seeded — we want to fix stale defaults on
+prod without clobbering an operator's intentional customization.
+
+**Seeding a new key** (never existed before): use `ON CONFLICT DO NOTHING`.
+Fresh deploys get the default; existing prods either get the default (if
+absent) or keep whatever was already there (customizations preserved).
+
+```sql
+INSERT INTO ml_bot_config (clave, valor, descripcion, tipo)
+VALUES (:clave, :valor, :descripcion, :tipo)
+ON CONFLICT (clave) DO NOTHING
+```
+
+**Rewording a default** for a key that was seeded by a previous migration
+with different wording: use a conditional `UPDATE` that pisas only if the
+value still matches the OLD default. This is the "smart replace" pattern
+that keeps operator customizations intact:
+
+```sql
+UPDATE ml_bot_config
+SET valor = :new_default
+WHERE clave = :clave
+  AND valor = :old_default_exact_string  -- only overwrite the stale default
+```
+
+If the operator had edited the wording, `valor <> :old_default_exact_string`
+and the UPDATE is a no-op — customization preserved. If the operator never
+touched it, the row still holds the old default text, matches, gets
+updated to the new wording. Idempotent across re-runs.
+
+Case in point: PR #880 (July 2026) added a new fallback wording as the
+default for `warm_fallback_template`, but the migration used `ON CONFLICT
+DO NOTHING` — which correctly preserved operator customizations but ALSO
+preserved the old default from the July 6 seed, so prod kept rendering
+the old "¡Hola! Gracias por tu consulta..." text. The fix was an
+operator-run UPDATE with the WHERE-matches-old-default guard. Future
+default reworks should ship the smart UPDATE inside the migration itself:
+
+```python
+def upgrade() -> None:
+    op.get_bind().execute(
+        sa.text(
+            """
+            UPDATE ml_bot_config
+            SET valor = :new
+            WHERE clave = :clave AND valor = :old
+            """
+        ),
+        {
+            "clave": "warm_fallback_template",
+            "old": (
+                "¡Hola! Gracias por tu consulta. Nuestro horario de atención "
+                "es de {business_hours_start} a {business_hours_end}. "
+                "Te respondemos apenas abramos."
+            ),
+            "new": (
+                "¡Hola! No tengo esa información en este momento. "
+                "Volvé a escribirnos {attention_hours} y con gusto te "
+                "averiguamos. ¡Gracias!"
+            ),
+        },
+    )
+```
+
+**Rule of thumb**: `ON CONFLICT DO NOTHING` is for adding rows; a
+match-the-old-default `UPDATE` is for changing wordings. Never
+`ON CONFLICT DO UPDATE SET valor = EXCLUDED.valor` blindly — that
+overwrites customizations without warning.
+
 ### Supervised Mode (Trial Period)
 
 `ml_bot_config` key `auto_publish_enabled` gates the bot's automatic
