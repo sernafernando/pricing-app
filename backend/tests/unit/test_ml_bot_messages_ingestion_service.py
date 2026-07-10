@@ -275,3 +275,46 @@ class TestCursorCAS:
         assert stats["error"] is True
         cursor = db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts_messages").one()
         assert cursor.valor != ""
+
+
+class TestFetcherSchemaAssumption:
+    """Regression guards for the mlwebhook `webhooks` table shape — `actions`
+    is NOT a top-level column, it lives inside the `payload` JSONB. Mocked-
+    fetcher unit tests silently pass a wrong SQL through; this suite asserts
+    the SQL string built by `fetch_new_webhook_rows` extracts from payload."""
+
+    def test_sql_extracts_actions_from_payload_jsonb(self) -> None:
+        import re
+
+        captured: dict[str, str] = {}
+
+        class _FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, stmt, params):
+                captured["sql"] = str(stmt)
+
+                class _R:
+                    def fetchall(self_inner):
+                        return []
+
+                return _R()
+
+        class _FakeEngine:
+            def connect(self):
+                return _FakeConn()
+
+        with patch(
+            "app.services.ml_messages.ingestion_service.get_mlwebhook_engine",
+            return_value=_FakeEngine(),
+        ):
+            ingestion_service.fetch_new_webhook_rows(since=None, limit=10)
+
+        sql = captured["sql"]
+        assert re.search(r"payload\s*->\s*'actions'", sql), (
+            f"SQL must extract actions from payload JSONB (webhooks has no actions column); got: {sql!r}"
+        )

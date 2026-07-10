@@ -88,7 +88,7 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT resource, actions, webhook_id, received_at
+                SELECT resource, payload -> 'actions' AS actions, webhook_id, received_at
                 FROM webhooks
                 {where_clause}
                 ORDER BY received_at ASC, COALESCE(webhook_id::text, '') ASC
@@ -100,7 +100,7 @@ def fetch_new_webhook_rows(since: Optional[str], limit: int = _DEFAULT_BATCH_LIM
     return [
         {
             "resource": row[0],
-            "actions": row[1] or [],
+            "actions": list(row[1]) if row[1] else [],
             "webhook_id": row[2],
             "received_at": row[3],
         }
@@ -270,7 +270,7 @@ async def _handle_created(ml_message: Dict[str, Any], message_id: str, stats: Di
         text=ml_message.get("text") or "",
         status=ml_message.get("status") or "available",
         moderation_status=moderation_status,
-        is_first_message=bool(ml_message.get("first_message", False)),
+        is_first_message=bool(ml_message.get("conversation_first_message", False)),
         attachments=ml_message.get("attachments") or None,
         received_at=_parse_message_date(ml_message.get("date_created")),
     )
