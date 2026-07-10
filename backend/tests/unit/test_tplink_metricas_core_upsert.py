@@ -49,6 +49,12 @@ def _folded_row(**overrides) -> dict:
         "markup_porcentaje": 114.28,
         "offset_flex": 500.0,
         "mlp_official_store_id": 2645,
+        "cotizacion_dolar": 1234.5,
+        "moneda_costo": "USD",
+        "tipo_lista": "gold_special",
+        "porcentaje_comision_ml": 12.0,
+        "prli_id": 4,
+        "costo_total": 750.25,
     }
     base.update(overrides)
     return base
