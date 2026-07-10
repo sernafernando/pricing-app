@@ -79,6 +79,17 @@ const STATUS_LABELS = {
   failed: 'Fallida',
 };
 
+// Phase 5 (PR3) — ML Bot postventa messages tab. Read-only MVP: no reply /
+// take-over actions yet (deferred to a future drafting slice). Mirrors the
+// backend's raw `moderation_status` values (design §Schema); anything not
+// in this map still renders via the raw fallback so ML contract drift never
+// hides a badge silently.
+const MESSAGE_STATUS_LABELS = {
+  clean: 'Limpio',
+  pending: 'Pendiente de revisión',
+  flagged: 'Marcado',
+};
+
 // Item #5 (PR de pulido): structured editor for the `llm_providers` roster
 // key — a small picker UI over the same JSON the panel already round-trips
 // through the generic config text input. Falls back gracefully to an empty
@@ -216,6 +227,7 @@ export default function MLQuestions() {
   const puedeResponder = tienePermiso('ml_bot.responder');
   const puedeConfigurar = tienePermiso('ml_bot.config');
   const puedeEncenderApagar = tienePermiso('ml_bot.on_off');
+  const puedeVerMensajes = tienePermiso('ml_bot.messages.ver');
 
   const [activeTab, setActiveTab] = useState('preguntas');
 
@@ -247,6 +259,16 @@ export default function MLQuestions() {
 
   // Bot toggle
   const [toggling, setToggling] = useState(false);
+
+  // Messages tab (Phase 5, PR3) — read-only list of ml_bot_messages
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [messagesError, setMessagesError] = useState(null);
+  const [buyerFilter, setBuyerFilter] = useState('');
+  const [packFilter, setPackFilter] = useState('');
+  const [sinPack, setSinPack] = useState(false);
+  const [includeModerated, setIncludeModerated] = useState(false);
+  const [hasReadFilter, setHasReadFilter] = useState('');
 
   // Expandable row detail (panel-v2 requirements #3 + #5) — one expanded
   // panel per row with two sections: "Detalle" (full question/answer text,
@@ -342,6 +364,49 @@ export default function MLQuestions() {
       cargarExamples();
     }
   }, [activeTab, cargarConfig, cargarExamples]);
+
+  const cargarMensajes = useCallback(async ({ silent = false } = {}) => {
+    if (!puedeVerMensajes) return;
+    if (!silent) setMessagesLoading(true);
+    setMessagesError(null);
+    try {
+      const params = { limit: 100 };
+      if (buyerFilter.trim()) params.buyer_id = buyerFilter.trim();
+      if (sinPack) {
+        params.pack_id = 'none';
+      } else if (packFilter.trim()) {
+        params.pack_id = packFilter.trim();
+      }
+      if (hasReadFilter !== '') params.has_read = hasReadFilter === 'true';
+      if (includeModerated) params.include_moderated = true;
+      const { data } = await api.get('/ml-bot/messages', { params });
+      setMessages(data.messages || []);
+    } catch {
+      if (!silent) {
+        setMessages([]);
+        setMessagesError('Error al cargar mensajes');
+      }
+    } finally {
+      if (!silent) setMessagesLoading(false);
+    }
+  }, [puedeVerMensajes, buyerFilter, packFilter, sinPack, includeModerated, hasReadFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'mensajes' && puedeVerMensajes) {
+      cargarMensajes();
+    }
+  }, [activeTab, puedeVerMensajes, cargarMensajes]);
+
+  // SSE reload for the messages tab — mirrors the questions tab's reload
+  // pattern (mounted whenever the operator has the permission, so the tab
+  // stays warm across tab switches without a re-fetch storm).
+  const reloadMessagesFromSSE = useCallback(() => {
+    if (puedeVerMensajes) {
+      cargarMensajes({ silent: true });
+    }
+  }, [puedeVerMensajes, cargarMensajes]);
+
+  useSSEChannel('ml_bot:messages', reloadMessagesFromSSE, { enabled: puedeVerMensajes });
 
   // SSE-driven reload: instant panel update on any bot state transition.
   const reloadFromSSE = useCallback(() => {
@@ -722,6 +787,16 @@ export default function MLQuestions() {
           <Bot size={14} />
           Preguntas
         </button>
+        {puedeVerMensajes && (
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === 'mensajes' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('mensajes')}
+          >
+            <Bot size={14} />
+            Mensajes
+          </button>
+        )}
         {puedeConfigurar && (
           <button
             type="button"
@@ -921,6 +996,99 @@ export default function MLQuestions() {
                     </Fragment>
                     );
                   })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* ====== TAB: Mensajes (Phase 5, PR3 — read-only MVP) ====== */}
+      {activeTab === 'mensajes' && puedeVerMensajes && (
+        <>
+          <div className={styles.filtersBar}>
+            <input
+              type="text"
+              placeholder="Buscar por comprador (ID)"
+              className={styles.configInput}
+              value={buyerFilter}
+              onChange={(e) => setBuyerFilter(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Pack ID"
+              className={styles.configInput}
+              value={packFilter}
+              disabled={sinPack}
+              onChange={(e) => setPackFilter(e.target.value)}
+            />
+            <button
+              type="button"
+              className={`btn-tesla sm ${sinPack ? '' : 'outline-subtle-primary'}`}
+              onClick={() => setSinPack((prev) => !prev)}
+              aria-pressed={sinPack}
+            >
+              Sin pack
+            </button>
+            <label className={styles.rosterEnabledLabel}>
+              <input
+                type="checkbox"
+                checked={includeModerated}
+                onChange={(e) => setIncludeModerated(e.target.checked)}
+              />
+              Incluir moderados
+            </label>
+            <label className={styles.rosterEnabledLabel}>
+              <input
+                type="checkbox"
+                checked={hasReadFilter === 'true'}
+                onChange={(e) => setHasReadFilter(e.target.checked ? 'true' : 'false')}
+              />
+              Leídos
+            </label>
+          </div>
+
+          {messagesError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {messagesError}
+            </div>
+          )}
+
+          <div className="table-container-tesla">
+            <table className="table-tesla striped">
+              <thead className="table-tesla-head">
+                <tr>
+                  <th>Comprador</th>
+                  <th>Pack</th>
+                  <th>Mensaje</th>
+                  <th>Recibido</th>
+                  <th>Leído</th>
+                  <th>Moderación</th>
+                </tr>
+              </thead>
+              <tbody className="table-tesla-body">
+                {messagesLoading ? (
+                  <tr><td colSpan={6} className={styles.loadingCell}>Cargando...</td></tr>
+                ) : messages.length === 0 ? (
+                  <tr><td colSpan={6} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
+                ) : (
+                  messages.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.buyer_nickname || m.buyer_id || '—'}</td>
+                      <td>{m.pack_id || 'sin pack'}</td>
+                      <td className={styles.cellQuestion} title={m.text}>{m.text}</td>
+                      <td>{m.received_at ? new Date(m.received_at).toLocaleString() : '—'}</td>
+                      <td>{m.read_at ? new Date(m.read_at).toLocaleString() : '—'}</td>
+                      <td>
+                        {m.moderation_status && m.moderation_status !== 'clean' ? (
+                          <span className={`${styles.badge} ${styles.badgeWarning}`}>
+                            {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
