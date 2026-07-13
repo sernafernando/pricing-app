@@ -8,7 +8,7 @@
  * this page only hides/disables UI, it never trusts itself for authz.
  */
 
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
@@ -264,6 +264,42 @@ export default function MLQuestions() {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [messagesError, setMessagesError] = useState(null);
+
+  const messageThreads = useMemo(() => {
+    if (!messages || messages.length === 0) return [];
+    const groups = new Map();
+    for (const m of messages) {
+      const key = m.pack_id ? `pack:${m.pack_id}` : `buyer:${m.buyer_id || 'unknown'}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          pack_id: m.pack_id ?? null,
+          buyer_id: m.buyer_id ?? null,
+          buyer_nickname: m.buyer_nickname ?? null,
+          messages: [],
+        });
+      }
+      const group = groups.get(key);
+      group.messages.push(m);
+      if (m.buyer_nickname && !group.buyer_nickname) {
+        group.buyer_nickname = m.buyer_nickname;
+      }
+    }
+    for (const g of groups.values()) {
+      g.messages.sort((a, b) => {
+        const ta = a.received_at ? new Date(a.received_at).getTime() : 0;
+        const tb = b.received_at ? new Date(b.received_at).getTime() : 0;
+        return ta - tb;
+      });
+      g.latest_received_at = g.messages[g.messages.length - 1]?.received_at ?? null;
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+      const ta = a.latest_received_at ? new Date(a.latest_received_at).getTime() : 0;
+      const tb = b.latest_received_at ? new Date(b.latest_received_at).getTime() : 0;
+      return tb - ta;
+    });
+  }, [messages]);
+
   const [buyerFilter, setBuyerFilter] = useState('');
   const [packFilter, setPackFilter] = useState('');
   const [sinPack, setSinPack] = useState(false);
@@ -1056,41 +1092,60 @@ export default function MLQuestions() {
           )}
 
           <div className="table-container-tesla">
-            <table className="table-tesla striped">
+            <table className="table-tesla">
               <thead className="table-tesla-head">
                 <tr>
-                  <th>Comprador</th>
-                  <th>Pack</th>
+                  <th>Comprador · Pack</th>
                   <th>Mensaje</th>
                   <th>Recibido</th>
                   <th>Leído</th>
                   <th>Moderación</th>
                 </tr>
               </thead>
-              <tbody className="table-tesla-body">
-                {messagesLoading ? (
-                  <tr><td colSpan={6} className={styles.loadingCell}>Cargando...</td></tr>
-                ) : messages.length === 0 ? (
-                  <tr><td colSpan={6} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
-                ) : (
-                  messages.map((m) => (
-                    <tr key={m.id}>
-                      <td>{m.buyer_nickname || m.buyer_id || '—'}</td>
-                      <td>{m.pack_id || 'sin pack'}</td>
-                      <td className={styles.cellQuestion} title={m.text}>{m.text}</td>
-                      <td>{m.received_at ? new Date(m.received_at).toLocaleString() : '—'}</td>
-                      <td>{m.read_at ? new Date(m.read_at).toLocaleString() : '—'}</td>
-                      <td>
-                        {m.moderation_status && m.moderation_status !== 'clean' ? (
-                          <span className={`${styles.badge} ${styles.badgeWarning}`}>
-                            {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
-                          </span>
-                        ) : '—'}
+              {messagesLoading ? (
+                <tbody className="table-tesla-body">
+                  <tr><td colSpan={5} className={styles.loadingCell}>Cargando...</td></tr>
+                </tbody>
+              ) : messageThreads.length === 0 ? (
+                <tbody className="table-tesla-body">
+                  <tr><td colSpan={5} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
+                </tbody>
+              ) : (
+                messageThreads.map((thread) => (
+                  <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
+                    <tr className={styles.threadHeader}>
+                      <td colSpan={5}>
+                        <span className={styles.threadBuyer}>
+                          {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
+                        </span>
+                        <span className={styles.threadSeparator}>·</span>
+                        <span className={styles.threadPack}>
+                          {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
+                        </span>
+                        <span className={styles.threadSeparator}>·</span>
+                        <span className={styles.threadCount}>
+                          {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
+                        </span>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
+                    {thread.messages.map((m) => (
+                      <tr key={m.id} className={styles.threadRow}>
+                        <td className={styles.threadRowIndent} aria-hidden="true" />
+                        <td className={styles.cellQuestion} title={m.text}>{m.text}</td>
+                        <td>{m.received_at ? new Date(m.received_at).toLocaleString() : '—'}</td>
+                        <td>{m.read_at ? new Date(m.read_at).toLocaleString() : '—'}</td>
+                        <td>
+                          {m.moderation_status && m.moderation_status !== 'clean' ? (
+                            <span className={`${styles.badge} ${styles.badgeWarning}`}>
+                              {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))
+              )}
             </table>
           </div>
         </>

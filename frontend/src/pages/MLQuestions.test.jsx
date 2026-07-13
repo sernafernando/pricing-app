@@ -112,3 +112,74 @@ describe('Mensajes tab filters -> GET /ml-bot/messages params', () => {
     });
   });
 });
+
+describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
+  it('groups messages of the same pack under one thread header', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+      if (url === '/ml-bot/messages') {
+        return Promise.resolve({
+          data: {
+            messages: [
+              {
+                id: 1,
+                ml_message_id: 'msg-a',
+                pack_id: '2000013868175593',
+                buyer_id: 173555877,
+                buyer_nickname: 'JUAN_PEREZ',
+                text: 'Buen día me pasas la factura',
+                received_at: '2026-07-10T14:57:25Z',
+                read_at: null,
+                moderation_status: 'clean',
+              },
+              {
+                id: 2,
+                ml_message_id: 'msg-b',
+                pack_id: '2000013868175593',
+                buyer_id: 173555877,
+                buyer_nickname: 'JUAN_PEREZ',
+                text: 'Es factura A',
+                received_at: '2026-07-10T14:58:00Z',
+                read_at: null,
+                moderation_status: 'clean',
+              },
+              {
+                id: 3,
+                ml_message_id: 'msg-c',
+                pack_id: '2000017320250138',
+                buyer_id: 85885085,
+                buyer_nickname: 'MARIA_LOPEZ',
+                text: 'Solicito factura A. Gracias',
+                received_at: '2026-07-10T15:11:11Z',
+                read_at: null,
+                moderation_status: 'clean',
+              },
+            ],
+            total: 3,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
+      expect(screen.getByText(/MARIA_LOPEZ/)).toBeInTheDocument();
+    });
+
+    // JUAN_PEREZ header should announce "2 mensajes" (grouped), MARIA_LOPEZ "1 mensaje"
+    expect(screen.getByText(/2 mensajes/)).toBeInTheDocument();
+    expect(screen.getByText(/1 mensaje$/)).toBeInTheDocument();
+    // All three message texts render
+    expect(screen.getByText('Buen día me pasas la factura')).toBeInTheDocument();
+    expect(screen.getByText('Es factura A')).toBeInTheDocument();
+    expect(screen.getByText('Solicito factura A. Gracias')).toBeInTheDocument();
+  });
+});
