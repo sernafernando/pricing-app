@@ -10,16 +10,19 @@ Order of operations (`enroll_one_item` / `remove_one_item`):
   1. Kill-switch (`settings.PROMOS_WRITE_ENABLED`) checked FIRST, before
      any read or proxy call. This is a local gate, independent of the
      proxy's own authorization.
-  2. `promotion_type` restricted to SELLER_CAMPAIGN / DEAL — the only
-     writable types (PRICE_DISCOUNT/SMART/DOD/LIGHTNING are read-only
-     always, per spec).
+  2. `promotion_type` restricted to the writable types SELLER_CAMPAIGN /
+     DEAL / SMART. DOD/LIGHTNING stay ML-managed (read-only); PRICE_DISCOUNT
+     is out of write scope (offers array).
   3. Fresh LIVE read of the item (`ml_webhook_client.get_item_promotions`)
-     to obtain the current [min_discounted_price, max_discounted_price]
-     and `suggested_discounted_price` for the target promotion. Never a
-     cached/stale value.
-  4. Defensive range validation: `deal_price` must be within
-     [min, max] BEFORE the POST — reject out-of-range without a wasted
-     round-trip to the proxy.
+     to obtain the current pricing for the target promotion. Never a
+     cached/stale value. For SELLER_CAMPAIGN/DEAL this yields
+     [min_discounted_price, max_discounted_price] + `suggested_discounted_price`;
+     for SMART it yields the entry's `price` (the deal_price to submit) and
+     its `ref_id` (the required `offer_id`), and there is NO [min,max].
+  4. Defensive validation BEFORE the POST: for SELLER_CAMPAIGN/DEAL,
+     `deal_price` must be within [min, max] (reject out-of-range without a
+     wasted round-trip). For SMART there is no range — fail closed instead
+     if the entry's `price`/`ref_id` are missing.
   5. Single POST/DELETE via `MLWebhookClient` (no retry — a blind retry
      on an ambiguous write could double-apply it).
   6. On ambiguous outcome (timeout/5xx): reconcile via

@@ -20,7 +20,7 @@ All cross-DB engine + httpx calls are mocked. NO live-prod calls ever.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
