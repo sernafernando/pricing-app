@@ -151,3 +151,70 @@
   padding: 2px 10px;
   font-size: 12px;
 }
+
+.applyWrapper {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.applyBtn {
+  border: 1px solid var(--brand-primary);
+  background: transparent;
+  color: var(--brand-primary);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.applyBtn:hover {
+  background: var(--cf-bg-hover, var(--bg-hover));
+}
+
+.applyConfirm {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.applyConfirmBtn {
+  border: 1px solid var(--success, var(--brand-primary));
+  background: var(--success, var(--brand-primary));
+  color: var(--bg-primary);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.applyCancelBtn {
+  border: 1px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.feedbackSuccess {
+  font-size: 12px;
+  color: var(--success, var(--text-primary));
+}
+
+.feedbackWarn {
+  font-size: 12px;
+  color: var(--warning, var(--text-primary));
+}
+
+.feedbackError {
+  font-size: 12px;
+  color: var(--danger, var(--text-primary));
+}

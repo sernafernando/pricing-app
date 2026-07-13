@@ -1,12 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn(),
+    postPromocionItem: vi.fn(),
   },
+}));
+
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: () => true,
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
 }));
 
 function renderPanel(props = {}) {
@@ -84,7 +94,7 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.queryByRole('button', { name: /aplicar/i })).not.toBeInTheDocument();
   });
 
-  it('shows a disabled apply slot for applicable types (no write in FE-B)', async () => {
+  it('shows an enabled apply control for applicable types (FE-C)', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }],
@@ -94,7 +104,7 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /aplicar/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
   });
 
   it('shows an error state distinct from empty', async () => {
@@ -127,5 +137,49 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
 
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call reload/getPromocionesItem again after unmounting before the 4s post-apply reload fires', async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+
+    const { unmount } = renderPanel();
+    // Fake timers don't stop native Promise microtasks from flushing, so
+    // waitFor's polling (setInterval-based) still needs the fake clock
+    // nudged; flush via act on the resolved fetcher promise instead.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Deal promo')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    // Flush the microtask that resolves postPromocionItem and schedules the
+    // 4s reload timer before unmounting.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+    expect(consoleError).not.toHaveBeenCalled();
+
+    consoleError.mockRestore();
+    vi.useRealTimers();
   });
 });
