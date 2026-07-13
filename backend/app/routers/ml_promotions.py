@@ -332,7 +332,7 @@ def inscribir_item_en_promocion(
     current_user: Usuario = Depends(require_promos_write()),
 ) -> EnrollResult:
     """
-    Inscribe un item en una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    Inscribe un item en una promoción (SELLER_CAMPAIGN, DEAL o SMART) vía el proxy
     ml-webhook. Gated por PROMOS_WRITE_ENABLED (kill-switch, chequeado en
     el servicio ANTES de cualquier llamada al proxy) y por el permiso
     promos.escribir.
@@ -374,7 +374,7 @@ def remover_item_de_promocion(
     current_user: Usuario = Depends(require_promos_write()),
 ) -> RemoveResult:
     """
-    Remueve un item de una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    Remueve un item de una promoción (SELLER_CAMPAIGN, DEAL o SMART) vía el proxy
     ml-webhook. Mismo contrato de kill-switch/permisos que el enroll.
 
     Requiere permiso: promos.escribir

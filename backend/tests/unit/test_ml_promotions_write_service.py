@@ -5,7 +5,8 @@ Unit tests for the write-orchestration service
 Order of operations under test (enroll_one_item):
   1. kill-switch (settings.PROMOS_WRITE_ENABLED) checked FIRST, before any
      read/proxy call.
-  2. promotion_type restricted to SELLER_CAMPAIGN / DEAL.
+  2. promotion_type restricted to the writable types SELLER_CAMPAIGN /
+     DEAL / SMART.
   3. fresh live read of the item (ml_webhook_client.get_item_promotions)
      for [min,max] and suggested_discounted_price.
   4. defensive range validation before the POST.
