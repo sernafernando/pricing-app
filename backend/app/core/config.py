@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # Base host of the internal ml-webhook microservice (render/preview API).
     # Extracted from three hardcoded call sites (audit M-3). Override per env.
     ML_WEBHOOK_BASE_URL: str = "https://ml-webhook.gaussonline.com.ar"
+    # Kill-switch for the ML Seller Promotions write path (enroll/remove).
+    # Default OFF: writes to ML Central de Promociones are disabled until
+    # explicitly enabled per environment. Consumed by the write-orchestration
+    # service (PR2); the read path never checks this flag.
+    PROMOS_WRITE_ENABLED: bool = False
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
