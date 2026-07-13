@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useRef } from 'react';
 import { useLazyResource } from './useLazyResource';
 
 function setup() {
