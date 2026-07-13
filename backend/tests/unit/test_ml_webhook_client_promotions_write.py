@@ -53,9 +53,7 @@ class TestEnrollItem:
         _patch_client(monkeypatch, _mock_transport(handler))
         client = MLWebhookClient()
 
-        result = asyncio.run(
-            client.enroll_item("MLA123456789", "DEAL-1", "DEAL", 900.0)
-        )
+        result = asyncio.run(client.enroll_item("MLA123456789", "DEAL-1", "DEAL", 900.0))
         assert result == {"ok": True, "status_code": 201, "ambiguous": False, "body": {"status": "candidate"}}
 
     def test_201_with_top_deal_price_in_body(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,9 +67,7 @@ class TestEnrollItem:
         _patch_client(monkeypatch, _mock_transport(handler))
         client = MLWebhookClient()
 
-        result = asyncio.run(
-            client.enroll_item("MLA123456789", "DEAL-1", "DEAL", 900.0, top_deal_price=850.0)
-        )
+        result = asyncio.run(client.enroll_item("MLA123456789", "DEAL-1", "DEAL", 900.0, top_deal_price=850.0))
         assert result["ok"] is True
 
     def test_400_is_ok_false_not_ambiguous(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +120,45 @@ class TestEnrollItem:
         assert call_count["n"] == 1
 
 
+class TestEnrollItemOfferId:
+    def test_offer_id_included_when_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            body = json.loads(request.content)
+            assert body["offer_id"] == "CANDIDATE-MLA1859172999-1"
+            return httpx.Response(201, json={"offer_id": "OFFER-MLA1859172999-1"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(
+            client.enroll_item(
+                "MLA1859172999",
+                "P-MLA1",
+                "SMART",
+                19585.27,
+                offer_id="CANDIDATE-MLA1859172999-1",
+            )
+        )
+        assert result["ok"] is True
+        assert result["body"]["offer_id"] == "OFFER-MLA1859172999-1"
+
+    def test_offer_id_omitted_from_body_when_not_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            body = json.loads(request.content)
+            assert "offer_id" not in body
+            return httpx.Response(201, json={})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.enroll_item("MLA123456789", "DEAL-1", "DEAL", 900.0))
+        assert result["ok"] is True
+
+
 class TestRemoveItem:
     def test_200_returns_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -174,3 +209,27 @@ class TestRemoveItem:
 
         asyncio.run(client.remove_item("MLA123456789", "DEAL", "DEAL-1"))
         assert call_count["n"] == 1
+
+
+class TestRemoveItemOfferId:
+    def test_offer_id_included_in_query_when_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.params.get("offer_id") == "OFFER-MLA1859172999-1"
+            return httpx.Response(200, json={"ok": True})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.remove_item("MLA1859172999", "SMART", "P-MLA1", offer_id="OFFER-MLA1859172999-1"))
+        assert result["ok"] is True
+
+    def test_offer_id_omitted_from_query_when_not_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert "offer_id" not in request.url.params
+            return httpx.Response(200, json={"ok": True})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.remove_item("MLA123456789", "DEAL", "DEAL-1"))
+        assert result["ok"] is True

@@ -136,6 +136,10 @@ class EnrollResult(BaseModel):
     status_code: Optional[int] = None
     detail: Optional[Any] = None
     reconciled_row: Optional[Dict[str, Any]] = None
+    offer_id: Optional[str] = None
+    """SMART-only: the authoritative new offer_id ("OFFER-MLA...-N")
+    returned by ML in the 201 response. None for SELLER_CAMPAIGN/DEAL
+    (which have no offer_id concept) or when not yet submitted."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -328,7 +332,7 @@ def inscribir_item_en_promocion(
     current_user: Usuario = Depends(require_promos_write()),
 ) -> EnrollResult:
     """
-    Inscribe un item en una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    Inscribe un item en una promoción (SELLER_CAMPAIGN, DEAL o SMART) vía el proxy
     ml-webhook. Gated por PROMOS_WRITE_ENABLED (kill-switch, chequeado en
     el servicio ANTES de cualquier llamada al proxy) y por el permiso
     promos.escribir.
@@ -370,7 +374,7 @@ def remover_item_de_promocion(
     current_user: Usuario = Depends(require_promos_write()),
 ) -> RemoveResult:
     """
-    Remueve un item de una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    Remueve un item de una promoción (SELLER_CAMPAIGN, DEAL o SMART) vía el proxy
     ml-webhook. Mismo contrato de kill-switch/permisos que el enroll.
 
     Requiere permiso: promos.escribir
