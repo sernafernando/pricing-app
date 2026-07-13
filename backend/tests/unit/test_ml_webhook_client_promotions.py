@@ -14,8 +14,10 @@ Spec coverage:
   REQ-2 — get_promotions() timeout/error returns None (read convention: no retry)
   REQ-3 — get_promotion_items(promotion_id, promotion_type) requires
           promotion_type before calling the proxy
-  REQ-4 — get_promotion_items first page (no search_after) success
-  REQ-5 — get_promotion_items subsequent page (search_after passed through)
+  REQ-4 — get_promotion_items single page (no cursor) success
+  REQ-5 — get_promotion_items auto-loops searchAfter across pages,
+          aggregating all items, and terminates on empty/unchanged cursor
+          (PR2/T3-adjunct fix — reliability finding R3-003)
   REQ-6 — get_promotion_items timeout/error returns None
   REQ-7 — get_item_promotions(mla_id) success + timeout/error returns None
 """
@@ -23,6 +25,7 @@ Spec coverage:
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 import httpx
 import pytest
@@ -76,6 +79,11 @@ class TestGetPromotions:
 
 
 class TestGetPromotionItems:
+    """get_promotion_items now auto-loops on paging.searchAfter (PR2/T3-adjunct
+    fix — reliability finding R3-003) and returns ALL items aggregated,
+    instead of a single raw page. Guards against an infinite loop by
+    stopping when the cursor is empty/None or does not change."""
+
     def test_missing_promotion_type_raises_before_call(self) -> None:
         client = MLWebhookClient()
 
@@ -85,38 +93,72 @@ class TestGetPromotionItems:
         with pytest.raises(ValueError):
             asyncio.run(_call())
 
-    def test_first_page_no_search_after(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_single_page_no_cursor(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.url.path == "/api/promociones/DEAL-1/items"
             assert request.url.params.get("promotion_type") == "DEAL"
             assert request.url.params.get("searchAfter") is None
             return httpx.Response(
                 200,
-                json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
+                json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": None}},
             )
 
         _patch_client(monkeypatch, _mock_transport(handler))
         client = MLWebhookClient()
 
         result = asyncio.run(client.get_promotion_items("DEAL-1", promotion_type="DEAL"))
-        assert result == {"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}}
+        assert result == {"items": [{"mla": "MLA111"}], "count": 1}
 
-    def test_subsequent_page_passes_search_after(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_multi_page_aggregates_all_items(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[Optional[str]] = []
+
         def handler(request: httpx.Request) -> httpx.Response:
-            assert request.url.params.get("searchAfter") == "cursor-1"
+            cursor = request.url.params.get("searchAfter")
+            calls.append(cursor)
+            if cursor is None:
+                return httpx.Response(
+                    200,
+                    json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
+                )
+            if cursor == "cursor-1":
+                return httpx.Response(
+                    200,
+                    json={"items": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-2"}},
+                )
             return httpx.Response(
                 200,
-                json={"items": [{"mla": "MLA222"}], "paging": {"searchAfter": None}},
+                json={"items": [{"mla": "MLA333"}], "paging": {"searchAfter": None}},
             )
 
         _patch_client(monkeypatch, _mock_transport(handler))
         client = MLWebhookClient()
 
-        result = asyncio.run(
-            client.get_promotion_items("DEAL-1", promotion_type="DEAL", search_after="cursor-1")
-        )
-        assert result["items"] == [{"mla": "MLA222"}]
-        assert result["paging"]["searchAfter"] is None
+        result = asyncio.run(client.get_promotion_items("DEAL-1", promotion_type="DEAL"))
+        assert result["count"] == 3
+        assert [item["mla"] for item in result["items"]] == ["MLA111", "MLA222", "MLA333"]
+        assert calls == [None, "cursor-1", "cursor-2"]
+
+    def test_pagination_terminates_when_cursor_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Guards against an infinite loop if the proxy misbehaves and repeats
+        the same cursor instead of returning null/empty."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            cursor = request.url.params.get("searchAfter")
+            if cursor is None:
+                return httpx.Response(
+                    200,
+                    json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
+                )
+            return httpx.Response(
+                200,
+                json={"items": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-1"}},
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.get_promotion_items("DEAL-1", promotion_type="DEAL"))
+        assert result["count"] == 2
 
     def test_timeout_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

@@ -178,7 +178,7 @@ def fetch_item_promotions(mla_id: str) -> List[Dict[str, Any]]:
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
                 FROM ml_item_promotions
                 WHERE mla = :mla
-                ORDER BY updated_at DESC
+                ORDER BY updated_at DESC, promotion_id
             """),
             {"mla": mla_id},
         ).fetchall()
@@ -212,7 +212,7 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
                 FROM ml_item_promotions
                 WHERE promotion_id = :promotion_id
                   AND promotion_type = :promotion_type
-                ORDER BY updated_at DESC
+                ORDER BY updated_at DESC, promotion_id
             """),
             {"promotion_id": promotion_id, "promotion_type": promotion_type},
         ).fetchall()

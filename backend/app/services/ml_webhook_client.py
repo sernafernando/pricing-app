@@ -141,23 +141,23 @@ class MLWebhookClient:
         self,
         promotion_id: str,
         promotion_type: str,
-        search_after: Optional[str] = None,
     ) -> Optional[Dict]:
-        """Lista los items de una promoción vía el proxy ml-webhook.
+        """Lista TODOS los items de una promoción vía el proxy ml-webhook.
 
         `promotion_type` es obligatorio (ML lo requiere para resolver el
-        recurso correcto). Soporta paginación vía `search_after`: el caller
-        pasa el cursor recibido en `paging.searchAfter` de la página anterior
-        para pedir la siguiente (los items pueden ser miles).
+        recurso correcto). Pagina internamente vía `paging.searchAfter`
+        hasta agotar el cursor (los items pueden ser miles), agregando
+        todas las páginas en un único resultado. Se corta el loop si el
+        cursor viene vacío/None o si no cambia entre llamadas (guarda
+        contra un loop infinito si el proxy se comporta mal).
 
         Args:
             promotion_id: ID de la promoción (o promotion_type para PRICE_DISCOUNT).
             promotion_type: Tipo de promoción (requerido).
-            search_after: Cursor de paginación opcional.
 
         Returns:
-            Dict con `items` y `paging.searchAfter` (payload crudo del
-            proxy), o None si hay error/timeout.
+            Dict con `items` (todas las páginas agregadas) y `count`, o
+            None si hay error/timeout en cualquier página.
 
         Raises:
             ValueError: si promotion_type no se pasa.
@@ -165,18 +165,118 @@ class MLWebhookClient:
         if not promotion_type:
             raise ValueError("promotion_type es requerido para listar items de una promoción")
 
-        params: Dict[str, str] = {"promotion_type": promotion_type}
-        if search_after is not None:
-            params["searchAfter"] = search_after
+        all_items: List[Dict] = []
+        search_after: Optional[str] = None
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(f"{self.base_url}/api/promociones/{promotion_id}/items", params=params)
-                response.raise_for_status()
-                return response.json()
+                while True:
+                    params: Dict[str, str] = {"promotion_type": promotion_type}
+                    if search_after is not None:
+                        params["searchAfter"] = search_after
+
+                    response = await client.get(f"{self.base_url}/api/promociones/{promotion_id}/items", params=params)
+                    response.raise_for_status()
+                    page = response.json()
+
+                    all_items.extend(page.get("items") or [])
+
+                    next_cursor = (page.get("paging") or {}).get("searchAfter")
+                    if not next_cursor or next_cursor == search_after:
+                        break
+                    search_after = next_cursor
+
+            return {"items": all_items, "count": len(all_items)}
         except Exception as e:
             logger.error(f"Error obteniendo items de la promoción {promotion_id}: {e}")
             return None
+
+    # ── ML Seller Promotions (WRITE, PR2) ────────────────────────────
+    # Unlike the read methods above, write methods NEVER collapse errors
+    # to None: they always return a structured outcome
+    # {ok, status_code, ambiguous, body} so the write-orchestration
+    # service can classify timeout/5xx as ambiguous (needs reconciliation)
+    # vs. a definitive rejection (400). Single-shot: NO retry here — a
+    # blind retry on an ambiguous write could double-apply it.
+
+    async def enroll_item(
+        self,
+        mla_id: str,
+        promotion_id: str,
+        promotion_type: str,
+        deal_price: float,
+        top_deal_price: Optional[float] = None,
+    ) -> Dict:
+        """Inscribe un item en una promoción vía el proxy ml-webhook (POST).
+
+        Args:
+            mla_id: El ID del item (ej: MLA2361127120).
+            promotion_id: ID de la promoción.
+            promotion_type: Tipo de promoción (SELLER_CAMPAIGN o DEAL).
+            deal_price: Precio con descuento a aplicar.
+            top_deal_price: Precio tope opcional (solo algunos tipos lo usan).
+
+        Returns:
+            Dict `{ok, status_code, ambiguous, body}`. `ambiguous=True`
+            solo en timeout/5xx (no se puede saber si la escritura se
+            aplicó del lado de ML); 400 es un rechazo definitivo
+            (`ok=False, ambiguous=False`); 201 es éxito (`ok=True`).
+        """
+        payload: Dict = {"promotion_id": promotion_id, "promotion_type": promotion_type, "deal_price": deal_price}
+        if top_deal_price is not None:
+            payload["top_deal_price"] = top_deal_price
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(f"{self.base_url}/api/promociones/item/{mla_id}", json=payload)
+        except Exception as e:
+            logger.error(f"Error (ambiguo) inscribiendo item {mla_id} en promoción {promotion_id}: {e}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_write_response(response)
+
+    async def remove_item(self, mla_id: str, promotion_type: str, promotion_id: str) -> Dict:
+        """Remueve un item de una promoción vía el proxy ml-webhook (DELETE).
+
+        Args:
+            mla_id: El ID del item.
+            promotion_type: Tipo de promoción (SELLER_CAMPAIGN o DEAL).
+            promotion_id: ID de la promoción.
+
+        Returns:
+            Dict `{ok, status_code, ambiguous, body}` (mismo contrato que
+            `enroll_item`).
+        """
+        params = {"promotion_type": promotion_type, "promotion_id": promotion_id}
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.delete(f"{self.base_url}/api/promociones/item/{mla_id}", params=params)
+        except Exception as e:
+            logger.error(f"Error (ambiguo) removiendo item {mla_id} de promoción {promotion_id}: {e}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_write_response(response)
+
+    @staticmethod
+    def _classify_write_response(response: httpx.Response) -> Dict:
+        """Clasifica la respuesta de un POST/DELETE de escritura.
+
+        2xx -> ok=True. 5xx -> ambiguous=True (no se sabe si aplicó del
+        lado de ML). 4xx -> rechazo definitivo, no ambiguo.
+        """
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+
+        if 200 <= response.status_code < 300:
+            return {"ok": True, "status_code": response.status_code, "ambiguous": False, "body": body}
+
+        if response.status_code >= 500:
+            return {"ok": False, "status_code": response.status_code, "ambiguous": True, "body": body}
+
+        return {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
 
     async def get_item_promotions(self, mla_id: str) -> Optional[Dict]:
         """Obtiene las promociones de un item puntual vía el proxy ml-webhook.

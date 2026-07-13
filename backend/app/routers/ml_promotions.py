@@ -4,13 +4,16 @@ Router para ML Seller Promotions (Central de Promociones de MercadoLibre).
 PR1 — READ-ONLY: lista promociones y sus items desde ml_promotions /
 ml_item_promotions (tabla mlwebhook), leídas via ml_promotions_service.
 
-Escritura (enroll/remove vía proxy ml-webhook, gated por
-PROMOS_WRITE_ENABLED) se agrega en PR2.
+PR2 — WRITE: enroll/remove de un item en una promoción vía el proxy
+ml-webhook, orquestado por ml_promotions_write_service. Gated por
+`promos.escribir` (independiente del gate de lectura `promos.ver`) y por
+el kill-switch `PROMOS_WRITE_ENABLED` (chequeado dentro del servicio,
+ANTES de cualquier llamada al proxy).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from app.api.deps import get_current_user
@@ -22,6 +25,7 @@ from app.services.ml_promotions_service import (
     fetch_promotion_items,
     fetch_promotions,
 )
+from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.permisos_service import PermisosService
 
 logger = get_logger(__name__)
@@ -96,7 +100,86 @@ class ItemPromotionsList(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── Permission helper ────────────────────────────────────────────
+# ── Write schemas (PR2) ──────────────────────────────────────────
+
+
+class EnrollRequest(BaseModel):
+    """Body del POST de inscripción a una promoción."""
+
+    promotion_id: str
+    promotion_type: str
+    deal_price: Optional[float] = None
+    top_deal_price: Optional[float] = None
+
+
+class EnrollResult(BaseModel):
+    """Resultado de un enroll. Expresa "enviado", NO "confirmado-inscripto":
+    ml_item_promotions es la fuente de verdad; un 201 puede seguir
+    mostrando `candidate` en una lectura inmediata (~2s) sin que eso sea
+    una falla."""
+
+    submitted: bool
+    status: Literal[
+        "submitted",
+        "reconciled_applied",
+        "reconciled_not_applied",
+        "ambiguous",
+        "disabled",
+        "rejected_out_of_range",
+        "rejected_unsupported_type",
+        "rejected_by_proxy",
+        "rejected_read_unavailable",
+        "rejected_promotion_not_found",
+        "rejected_price_unresolved",
+    ]
+    price: Optional[float] = None
+    status_code: Optional[int] = None
+    detail: Optional[Any] = None
+    reconciled_row: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RemoveResult(BaseModel):
+    """Resultado de un remove. Mismo contrato de estados que EnrollResult
+    (sin `price`, no aplica a una remoción)."""
+
+    submitted: bool
+    status: Literal[
+        "submitted",
+        "reconciled_applied",
+        "reconciled_not_applied",
+        "ambiguous",
+        "disabled",
+        "rejected_unsupported_type",
+        "rejected_by_proxy",
+    ]
+    status_code: Optional[int] = None
+    detail: Optional[Any] = None
+    reconciled_row: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Write outcome -> HTTP status mapping ─────────────────────────
+#
+# Definitive rejections (kill-switch, validation, unresolved price,
+# unreachable live read, proxy 4xx) are NEVER a plain 200 — the request
+# was not fulfilled. `ambiguous` (write submitted, outcome genuinely
+# unknown) is 202 Accepted, not 200/500. `reconciled_*` and `submitted`
+# are 200 — the write was attempted/confirmed, informational body.
+_WRITE_STATUS_TO_HTTP = {
+    "disabled": status.HTTP_403_FORBIDDEN,
+    "rejected_out_of_range": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_unsupported_type": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_price_unresolved": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_promotion_not_found": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_read_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "rejected_by_proxy": status.HTTP_422_UNPROCESSABLE_ENTITY,
+}
+
+
+# ── Permission helpers ───────────────────────────────────────────
 
 
 def require_promos_read():
@@ -115,6 +198,39 @@ def require_promos_read():
         return current_user
 
     return _check
+
+
+def require_promos_write():
+    """Dependency: requiere permiso promos.escribir (independiente de
+    promos.ver — un usuario puede leer sin poder escribir)."""
+
+    def _check(
+        current_user: Usuario = Depends(get_current_user),
+        db=Depends(get_db),
+    ) -> Usuario:
+        permisos_service = PermisosService(db)
+        if not permisos_service.tiene_permiso(current_user, "promos.escribir"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso: promos.escribir",
+            )
+        return current_user
+
+    return _check
+
+
+def _raise_if_write_rejected(outcome: Dict[str, Any]) -> None:
+    """Maps a definitive write-service rejection status to the matching
+    HTTP error (see `_WRITE_STATUS_TO_HTTP`).
+
+    Statuses not in that map (submitted, reconciled_*, ambiguous) are NOT
+    request-validation failures — the write was attempted/confirmed, and
+    the caller handles their HTTP status separately (200 vs 202 Accepted
+    for `ambiguous`).
+    """
+    http_status = _WRITE_STATUS_TO_HTTP.get(outcome["status"])
+    if http_status is not None:
+        raise HTTPException(status_code=http_status, detail=outcome.get("detail") or outcome["status"])
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -199,3 +315,76 @@ def listar_items_de_promocion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar items de la promoción",
         )
+
+
+# ── Write endpoints (PR2) ────────────────────────────────────────
+
+
+@router.post("/item/{mla_id}", response_model=EnrollResult)
+def inscribir_item_en_promocion(
+    mla_id: str,
+    body: EnrollRequest,
+    response: Response,
+    current_user: Usuario = Depends(require_promos_write()),
+) -> EnrollResult:
+    """
+    Inscribe un item en una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    ml-webhook. Gated por PROMOS_WRITE_ENABLED (kill-switch, chequeado en
+    el servicio ANTES de cualquier llamada al proxy) y por el permiso
+    promos.escribir.
+
+    Devuelve un resultado de "enviado" (submitted), NO "confirmado
+    inscripto": ml_item_promotions es la fuente de verdad; una lectura
+    inmediata puede seguir mostrando `candidate` sin que eso sea una
+    falla (ver EnrollResult).
+
+    Requiere permiso: promos.escribir
+    """
+    try:
+        outcome = enroll_one_item(
+            mla_id,
+            body.promotion_id,
+            body.promotion_type,
+            deal_price=body.deal_price,
+            top_deal_price=body.top_deal_price,
+        )
+    except RuntimeError as e:
+        logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Base de datos mlwebhook no disponible",
+        )
+
+    _raise_if_write_rejected(outcome)
+    if outcome["status"] == "ambiguous":
+        response.status_code = status.HTTP_202_ACCEPTED
+    return EnrollResult(**outcome)
+
+
+@router.delete("/item/{mla_id}", response_model=RemoveResult)
+def remover_item_de_promocion(
+    mla_id: str,
+    response: Response,
+    promotion_type: str = Query(..., description="Tipo de promoción (requerido)"),
+    promotion_id: str = Query(..., description="ID de la promoción (requerido)"),
+    current_user: Usuario = Depends(require_promos_write()),
+) -> RemoveResult:
+    """
+    Remueve un item de una promoción (SELLER_CAMPAIGN o DEAL) vía el proxy
+    ml-webhook. Mismo contrato de kill-switch/permisos que el enroll.
+
+    Requiere permiso: promos.escribir
+    """
+    try:
+        outcome = remove_one_item(mla_id, promotion_type, promotion_id)
+    except RuntimeError as e:
+        logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Base de datos mlwebhook no disponible",
+        )
+
+    _raise_if_write_rejected(outcome)
+    if outcome["status"] == "ambiguous":
+        response.status_code = status.HTTP_202_ACCEPTED
+    return RemoveResult(**outcome)
