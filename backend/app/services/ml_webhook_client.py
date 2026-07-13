@@ -171,9 +171,7 @@ class MLWebhookClient:
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{self.base_url}/api/promociones/{promotion_id}/items", params=params
-                )
+                response = await client.get(f"{self.base_url}/api/promociones/{promotion_id}/items", params=params)
                 response.raise_for_status()
                 return response.json()
         except Exception as e:

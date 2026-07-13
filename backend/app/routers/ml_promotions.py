@@ -194,9 +194,7 @@ def listar_items_de_promocion(
             detail="Base de datos mlwebhook no disponible",
         )
     except Exception as e:
-        logger.error(
-            "Error querying ml_item_promotions for promotion %s: %s", promotion_id, e, exc_info=True
-        )
+        logger.error("Error querying ml_item_promotions for promotion %s: %s", promotion_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar items de la promoción",
