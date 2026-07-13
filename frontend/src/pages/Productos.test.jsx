@@ -786,3 +786,81 @@ describe('CS-8: keyboard navigation smoke', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// CS-9 — productos-promociones-ui (FE-B): L1 expansion + keyboard nav coexistence
+//
+// Oracle: expanding a product row's toggle mounts <ProductoMLAsPanel> (lazy
+// fetch via productosAPI.getProductoMercadolibre) inside a `data-detail-row`
+// <tr>, and the main product rows keep their `data-nav-row` contract so
+// keyboard navigation is unaffected by the inserted detail row.
+// ---------------------------------------------------------------------------
+describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard nav', () => {
+  it('expanding a product row shows the MLAs panel', async () => {
+    const p1 = makeProducto({ item_id: 'EXP1', descripcion: 'Producto EXP1' });
+    setupApiMocks({ productos: [p1], total: 1 });
+    productosAPI.getProductoMercadolibre.mockResolvedValue({
+      data: { publicaciones_ml: [{ mla: 'MLA999', pricelist_id: 4, publication_status: 'active' }] },
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto EXP1')).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir publicaciones de/i }));
+
+    await waitFor(() => expect(screen.getByText('MLA999')).toBeInTheDocument());
+    expect(productosAPI.getProductoMercadolibre).toHaveBeenCalledWith('EXP1');
+
+    const detailRow = document.querySelector('tr[data-detail-row]');
+    expect(detailRow).toBeInTheDocument();
+    expect(detailRow.textContent).toContain('MLA999');
+  });
+
+  it('keyboard nav still targets the correct main row when a detail row is present', async () => {
+    const p1 = makeProducto({ item_id: 'NAV1', descripcion: 'Producto NAV1' });
+    const p2 = makeProducto({ item_id: 'NAV2', descripcion: 'Producto NAV2' });
+    setupApiMocks({ productos: [p1, p2], total: 2 });
+    productosAPI.getProductoMercadolibre.mockResolvedValue({
+      data: { publicaciones_ml: [] },
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto NAV1')).toBeInTheDocument());
+
+    // Expand the first product row (inserts a data-detail-row <tr> above row 1).
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole('button', { name: /expandir publicaciones de/i })[0]);
+    await waitFor(() => expect(screen.getByText(/sin publicaciones/i)).toBeInTheDocument());
+
+    // Main rows keep their data-nav-row indices regardless of the inserted detail row.
+    const navRows = document.querySelectorAll('tr[data-nav-row]');
+    expect(navRows.length).toBe(2);
+    expect(navRows[0].getAttribute('data-nav-row')).toBe('0');
+    expect(navRows[1].getAttribute('data-nav-row')).toBe('1');
+
+    // Enter activates nav mode (row 0 active), ArrowDown moves to row 1 (NAV2).
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await waitFor(() => {
+      expect(document.querySelectorAll('tr.keyboard-row-active').length).toBeGreaterThan(0);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    await waitFor(() => {
+      const activeRows = document.querySelectorAll('tr.keyboard-row-active');
+      expect(activeRows.length).toBe(1);
+      expect(activeRows[0].textContent).toContain('Producto NAV2');
+    });
+  });
+});

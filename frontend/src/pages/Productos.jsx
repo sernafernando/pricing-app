@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import PricingModalTesla from '../components/PricingModalTesla';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
@@ -13,6 +13,10 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useExpandedSet } from '../hooks/useExpandedSet';
+import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
+import styles from '../components/promociones/promociones.module.css';
 import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
@@ -170,6 +174,19 @@ export default function Productos() {
 
   // Los productos ya vienen ordenados desde el backend
   const productosOrdenados = productos;
+
+  const mlaExpanded = useExpandedSet();
+  const mlasCacheRef = useRef(new Map());
+  const promosCacheRef = useRef(new Map());
+
+  // Stable key derived from item_ids, not the array reference: productosOrdenados
+  // gets a new array identity on every inline edit (setProductos(prods => prods.map(...))),
+  // which would otherwise clear the caches and force a refetch on every re-expand.
+  const productIdsKey = useMemo(() => productosOrdenados.map(p => p.item_id).join(','), [productosOrdenados]);
+  useEffect(() => {
+    mlasCacheRef.current.clear();
+    promosCacheRef.current.clear();
+  }, [productIdsKey]);
 
   // Filtrar marcas por búsqueda y por PM seleccionado
   const marcasFiltradas = marcas.filter(m => {
@@ -331,6 +348,11 @@ export default function Productos() {
       filtroNuevos,
     },
   });
+
+  const TOTAL_COLS =
+    8 + // checkbox, codigo, descripcion, marca, stock, costo, precio_clasica, acciones
+    (modoVista === 'normal' ? 3 : 4) +
+    1; // leading expand-toggle column
 
   const {
     celdaActiva, setCeldaActiva,
@@ -1373,6 +1395,7 @@ export default function Productos() {
             <table className="table-tesla striped">
               <thead className="table-tesla-head">
                 <tr>
+                  <th aria-label="Expandir" />
                   <th className="th-checkbox">
                     <input
                       type="checkbox"
@@ -1453,14 +1476,27 @@ export default function Productos() {
                 </tr>
               </thead>
               <tbody className="table-tesla-body">
-                {productosOrdenados.map((p, rowIndex) => {
+                {productosOrdenados.flatMap((p, rowIndex) => {
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
                   const colorClass = p.color_marcado ? `row-color-${p.color_marcado}` : '';
-                  return (
+                  const isMlaOpen = mlaExpanded.isOpen(p.item_id);
+                  const filas = [
                   <tr
                     key={p.item_id}
+                    data-nav-row={rowIndex}
                     className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
+                    <td className={styles.spoilerToggleCell}>
+                      <button
+                        type="button"
+                        className={styles.spoilerToggle}
+                        onClick={() => mlaExpanded.toggle(p.item_id)}
+                        aria-label={isMlaOpen ? `Colapsar publicaciones de ${p.codigo}` : `Expandir publicaciones de ${p.codigo}`}
+                        aria-expanded={isMlaOpen}
+                      >
+                        {isMlaOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+                    </td>
                     <td className="td-center">
                       <input
                         type="checkbox"
@@ -2228,8 +2264,20 @@ export default function Productos() {
                         )}
                       </div>
                     </td>
-                  </tr>
-                  );
+                  </tr>,
+                  ];
+                  if (isMlaOpen) {
+                    filas.push(
+                      <tr key={`${p.item_id}-mlas`} data-detail-row className={styles.filaDetalle}>
+                        <td colSpan={TOTAL_COLS}>
+                          <div className={styles.filaDetalleContent}>
+                            <ProductoMLAsPanel itemId={p.item_id} mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />
+                          </div>
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  return filas;
                 })}
               </tbody>
             </table>
