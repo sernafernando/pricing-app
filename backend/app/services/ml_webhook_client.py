@@ -116,6 +116,89 @@ class MLWebhookClient:
 
         return results
 
+    # ── ML Seller Promotions (READ-ONLY, PR1) ───────────────────────
+    # Write methods (enroll/remove) are added in PR2. No retry on any
+    # of these: timeout/error -> None, mirroring the existing read
+    # convention in this client.
+
+    async def get_promotions(self) -> Optional[List[Dict]]:
+        """Lista las promociones del vendedor vía el proxy ml-webhook.
+
+        Returns:
+            Lista de promociones (payload crudo del proxy), o None si hay
+            error/timeout.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/promociones")
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo promociones: {e}")
+            return None
+
+    async def get_promotion_items(
+        self,
+        promotion_id: str,
+        promotion_type: str,
+        search_after: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Lista los items de una promoción vía el proxy ml-webhook.
+
+        `promotion_type` es obligatorio (ML lo requiere para resolver el
+        recurso correcto). Soporta paginación vía `search_after`: el caller
+        pasa el cursor recibido en `paging.searchAfter` de la página anterior
+        para pedir la siguiente (los items pueden ser miles).
+
+        Args:
+            promotion_id: ID de la promoción (o promotion_type para PRICE_DISCOUNT).
+            promotion_type: Tipo de promoción (requerido).
+            search_after: Cursor de paginación opcional.
+
+        Returns:
+            Dict con `items` y `paging.searchAfter` (payload crudo del
+            proxy), o None si hay error/timeout.
+
+        Raises:
+            ValueError: si promotion_type no se pasa.
+        """
+        if not promotion_type:
+            raise ValueError("promotion_type es requerido para listar items de una promoción")
+
+        params: Dict[str, str] = {"promotion_type": promotion_type}
+        if search_after is not None:
+            params["searchAfter"] = search_after
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/promociones/{promotion_id}/items", params=params
+                )
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo items de la promoción {promotion_id}: {e}")
+            return None
+
+    async def get_item_promotions(self, mla_id: str) -> Optional[Dict]:
+        """Obtiene las promociones de un item puntual vía el proxy ml-webhook.
+
+        Args:
+            mla_id: El ID del item (ej: MLA2361127120).
+
+        Returns:
+            Dict con las promociones del item (payload crudo del proxy), o
+            None si hay error/timeout.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/promociones/item/{mla_id}")
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo promociones del item {mla_id}: {e}")
+            return None
+
 
 # Instancia global del cliente
 ml_webhook_client = MLWebhookClient()
