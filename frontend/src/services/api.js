@@ -132,6 +132,14 @@ export const productosAPI = {
   categorias: () => api.get('/categorias'),
   obtenerMarcasPorPMs: (pm_ids) => api.get(`/pms/marcas?pm_ids=${pm_ids}`),
   obtenerSubcategoriasPorPMs: (pm_ids) => api.get(`/pms/subcategorias?pm_ids=${pm_ids}`),
+  // Nested MLA/promotions expand (productos-promociones-ui, FE-A: read-only).
+  getProductoMercadolibre: (itemId) => api.get(`/productos/${itemId}/mercadolibre`),
+};
+
+export const promocionesAPI = {
+  // Read-only in FE-A. The write/apply POST is added in a later PR (FE-C)
+  // once the write endpoint availability probe + apply control land.
+  getPromocionesItem: (mlaId) => api.get(`/promociones/item/${mlaId}`),
 };
 
 export const pricingAPI = {

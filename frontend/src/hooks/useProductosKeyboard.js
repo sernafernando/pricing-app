@@ -450,13 +450,27 @@ export function useProductosKeyboard({
     columnasEditables,
   ]);
 
-  // Auto-scroll to keep active cell visible
+  // Auto-scroll to keep active cell visible.
+  //
+  // Once detail rows (MLA/promotions expand, productos-promociones-ui) can be
+  // inserted between main product rows, a plain DOM-position index
+  // (`querySelectorAll('tr')[rowIndex]`) breaks: detail rows shift every
+  // subsequent row's DOM position away from its data-array index.
+  //
+  // Fix: main product rows carry `data-nav-row={rowIndex}` (wired when the
+  // expand feature lands); prefer that attribute selector, which is immune to
+  // any detail rows inserted above/between rows. Fall back to the legacy
+  // DOM-position lookup when no row exposes `data-nav-row` yet, so this stays
+  // backward-compatible before that markup exists.
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
       const tbody = document.querySelector('.table-tesla-body');
       if (tbody) {
-        const filas = tbody.querySelectorAll('tr');
-        const filaActiva = filas[celdaActiva.rowIndex];
+        let filaActiva = tbody.querySelector(`tr[data-nav-row="${celdaActiva.rowIndex}"]`);
+        if (!filaActiva) {
+          const filas = tbody.querySelectorAll('tr');
+          filaActiva = filas[celdaActiva.rowIndex];
+        }
         if (filaActiva) {
           filaActiva.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
         }
