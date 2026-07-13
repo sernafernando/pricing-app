@@ -136,6 +136,10 @@ class EnrollResult(BaseModel):
     status_code: Optional[int] = None
     detail: Optional[Any] = None
     reconciled_row: Optional[Dict[str, Any]] = None
+    offer_id: Optional[str] = None
+    """SMART-only: the authoritative new offer_id ("OFFER-MLA...-N")
+    returned by ML in the 201 response. None for SELLER_CAMPAIGN/DEAL
+    (which have no offer_id concept) or when not yet submitted."""
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -206,25 +206,33 @@ class MLWebhookClient:
         promotion_type: str,
         deal_price: float,
         top_deal_price: Optional[float] = None,
+        offer_id: Optional[str] = None,
     ) -> Dict:
         """Inscribe un item en una promoción vía el proxy ml-webhook (POST).
 
         Args:
             mla_id: El ID del item (ej: MLA2361127120).
             promotion_id: ID de la promoción.
-            promotion_type: Tipo de promoción (SELLER_CAMPAIGN o DEAL).
+            promotion_type: Tipo de promoción (SELLER_CAMPAIGN, DEAL o SMART).
             deal_price: Precio con descuento a aplicar.
             top_deal_price: Precio tope opcional (solo algunos tipos lo usan).
+            offer_id: Requerido por SMART (el `ref_id` de la entrada SMART
+                candidata en la lectura live); ignorado/omitido para
+                SELLER_CAMPAIGN/DEAL, que no lo usan.
 
         Returns:
             Dict `{ok, status_code, ambiguous, body}`. `ambiguous=True`
             solo en timeout/5xx (no se puede saber si la escritura se
             aplicó del lado de ML); 400 es un rechazo definitivo
-            (`ok=False, ambiguous=False`); 201 es éxito (`ok=True`).
+            (`ok=False, ambiguous=False`); 201 es éxito (`ok=True`). Para
+            SMART, el body del 201 trae el `offer_id` autoritativo nuevo
+            (forma "OFFER-...") — se propaga sin modificar en `body`.
         """
         payload: Dict = {"promotion_id": promotion_id, "promotion_type": promotion_type, "deal_price": deal_price}
         if top_deal_price is not None:
             payload["top_deal_price"] = top_deal_price
+        if offer_id is not None:
+            payload["offer_id"] = offer_id
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -235,19 +243,30 @@ class MLWebhookClient:
 
         return self._classify_write_response(response)
 
-    async def remove_item(self, mla_id: str, promotion_type: str, promotion_id: str) -> Dict:
+    async def remove_item(
+        self,
+        mla_id: str,
+        promotion_type: str,
+        promotion_id: str,
+        offer_id: Optional[str] = None,
+    ) -> Dict:
         """Remueve un item de una promoción vía el proxy ml-webhook (DELETE).
 
         Args:
             mla_id: El ID del item.
-            promotion_type: Tipo de promoción (SELLER_CAMPAIGN o DEAL).
+            promotion_type: Tipo de promoción (SELLER_CAMPAIGN, DEAL o SMART).
             promotion_id: ID de la promoción.
+            offer_id: Requerido por SMART (el `ref_id` CURRENT/OFFER- leído
+                fresco antes del delete — el ref_id muta de CANDIDATE- a
+                OFFER- al iniciar); ignorado/omitido para SELLER_CAMPAIGN/DEAL.
 
         Returns:
             Dict `{ok, status_code, ambiguous, body}` (mismo contrato que
             `enroll_item`).
         """
-        params = {"promotion_type": promotion_type, "promotion_id": promotion_id}
+        params: Dict[str, str] = {"promotion_type": promotion_type, "promotion_id": promotion_id}
+        if offer_id is not None:
+            params["offer_id"] = offer_id
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
