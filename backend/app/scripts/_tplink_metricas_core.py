@@ -24,13 +24,28 @@ Two responsibilities live here:
 not raw detail rows — a multi-detail order must not inflate the pack-offset
 count.
 
-Slice 1 of 3 (SDD change tplink-metricas-dual-key-dedup): this module is
-ADDITIVE ONLY. It is not yet wired into either job — that happens in slice 2.
+Slice 2 of 3 (SDD change tplink-metricas-dual-key-dedup) adds two more
+shared responsibilities so both jobs' insert/update mapping can never drift:
+
+3. `build_upsert_payload()` — maps a folded per-order dict (from
+   `fold_order_rows()`) to the exact `TplinkVentaMetrica` column payload
+   (types, rounding, `fecha_calculo`).
+
+4. `upsert_metrica()` — queries by `id_operacion` (mlo_id) and either
+   updates the existing row or inserts a new one. Callers own commit /
+   rollback / batching cadence.
+
+Both TP-Link job scripts (`agregar_metricas_tplink.py`,
+`agregar_metricas_tplink_incremental.py`) are thin wrappers around this
+module: they only own the date-window computation and the DB session /
+commit cadence.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
+from decimal import Decimal
 from typing import Any, Iterable
 
 from sqlalchemy import text
@@ -120,6 +135,50 @@ def build_aggregation_sql() -> TextClause:
 
             pe.iva as iva,
 
+            -- Currency the coslis_id=8 cost was sourced in (JD-001 fix):
+            -- mirrors the SAME COALESCE structure as costo_sin_iva above so
+            -- the currency label always matches the source of the value.
+            COALESCE(
+                (
+                    SELECT CASE WHEN iclh.curr_id = 2 THEN 'USD' ELSE 'ARS' END
+                    FROM tb_item_cost_list_history iclh
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = :coslis_id
+                      AND iclh.iclh_price > 0
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT CASE WHEN ticl.curr_id = 2 THEN 'USD' ELSE 'ARS' END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = :coslis_id
+                ),
+                'ARS'
+            ) as moneda_costo,
+
+            -- USD exchange rate at sale time (JD-001 fix): the legacy
+            -- backfill always populated `cotizacion_dolar` with the day's
+            -- USD rate, independent of whether the cost itself was in USD.
+            COALESCE(
+                (
+                    SELECT tc.venta
+                    FROM tipo_cambio tc
+                    WHERE tc.moneda = 'USD'
+                      AND tc.fecha <= tmloh.mlo_cd::date
+                    ORDER BY tc.fecha DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT ceh.ceh_exchange
+                    FROM tb_cur_exch_history ceh
+                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                    ORDER BY ceh.ceh_cd DESC
+                    LIMIT 1
+                )
+            ) as cambio_momento,
+
             COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as tipo_logistica,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
@@ -173,6 +232,8 @@ def build_aggregation_sql() -> TextClause:
                     ELSE tmlip.prli_id
                 END
             ) as pricelist_id,
+
+            tmlip.mlp_listing_type_id as tipo_lista,
 
             tmlod.mlp_id as mlp_id,
             tmlip.mlp_official_store_id as mlp_official_store_id,
@@ -248,13 +309,17 @@ def count_per_pack(rows: Iterable[Any]) -> dict[Any, int]:
     return {pack_id: len(order_ids) for pack_id, order_ids in orders_by_pack.items()}
 
 
-def _calcular_metricas_detalle_sin_envio(
-    row: Any, count_per_pack_value: int, db_session: Any = None
-) -> dict[str, float]:
+def _resolver_comision_porcentaje(row: Any, db_session: Any = None) -> float:
     """
-    Runs `calcular_metricas_ml` for a SINGLE detail row with order shipping
-    EXCLUDED (`seller_shipping_cost=None`, `shipment_total=None`). Shipping is
-    applied once per order by the caller (`fold_order_rows`), never per detail.
+    Resolves the commission percentage for ONE detail row: the versioned
+    lookup (when a `db_session` + `subcat_id` + `pricelist_id` are
+    available), falling back to the SQL-computed `comision_base_porcentaje`
+    (already defaulted to 12.0 in `build_aggregation_sql`) otherwise.
+
+    Extracted as a standalone helper (JD-001 fix) so BOTH the per-detail
+    fold (`_calcular_metricas_detalle_sin_envio`) and the order-level
+    `porcentaje_comision_ml` field (representative detail, in
+    `fold_order_rows`) resolve commission the SAME way.
     """
     comision_porcentaje = None
     if db_session and row.subcat_id and row.pricelist_id:
@@ -267,6 +332,19 @@ def _calcular_metricas_detalle_sin_envio(
 
     if comision_porcentaje is None:
         comision_porcentaje = float(row.comision_base_porcentaje or 12.0)
+
+    return comision_porcentaje
+
+
+def _calcular_metricas_detalle_sin_envio(
+    row: Any, count_per_pack_value: int, db_session: Any = None
+) -> dict[str, float]:
+    """
+    Runs `calcular_metricas_ml` for a SINGLE detail row with order shipping
+    EXCLUDED (`seller_shipping_cost=None`, `shipment_total=None`). Shipping is
+    applied once per order by the caller (`fold_order_rows`), never per detail.
+    """
+    comision_porcentaje = _resolver_comision_porcentaje(row, db_session)
 
     costo_envio_producto = float(row.envio_producto) if getattr(row, "envio_producto", None) else None
 
@@ -440,6 +518,100 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             "markup_porcentaje": markup_porcentaje,
             "offset_flex": offset_flex_once,
             "mlp_official_store_id": TPLINK_STORE_ID,
+            # --- JD-001 fix: previously-dropped fields (see review ledger
+            # sdd/tplink-metricas-dual-key-dedup/review-ledger-slice2) ---
+            # Per-order REPRESENTATIVE values (same detail as descriptive
+            # fields like `codigo`/`marca` above), consistent with the
+            # design's representative-field pattern:
+            "cotizacion_dolar": getattr(first, "cambio_momento", None),
+            "moneda_costo": getattr(first, "moneda_costo", None) or "ARS",
+            "tipo_lista": getattr(first, "tipo_lista", None) or "unknown",
+            "porcentaje_comision_ml": _resolver_comision_porcentaje(first, db_session),
+            "prli_id": getattr(first, "pricelist_id", None) or 4,
+            # costo_total = costo_total_sin_iva + costo_envio_ml: the FINAL
+            # cost INCLUDING the once-per-order shipping (distinct from
+            # costo_total_sin_iva, which excludes shipping) — matches the
+            # TplinkVentaMetrica model docstring's documented formula.
+            "costo_total": sum_costo_total_sin_iva + costo_envio_ml,
         }
 
     return folded
+
+
+def _dec(value: Any, digits: int = 2) -> Decimal:
+    """Rounds `value` to `digits` decimals and returns a `Decimal`, defaulting
+    to `Decimal("0")` for `None`/falsy-zero inputs (matches the legacy jobs'
+    `Decimal(str(round(x, n)))` pattern)."""
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(round(float(value), digits)))
+
+
+def build_upsert_payload(folded: dict[str, Any]) -> dict[str, Any]:
+    """
+    Maps ONE folded per-order dict (as returned by `fold_order_rows()`) to
+    the exact `TplinkVentaMetrica` column payload — shared by both jobs so
+    field mapping/rounding/types can never drift between backfill and
+    incremental (design D1/D4: "cross-job upsert dedupes naturally").
+    """
+    return {
+        "id_operacion": folded["id_operacion"],
+        "ml_order_id": folded["ml_order_id"],
+        "pack_id": folded["pack_id"],
+        "item_id": folded["item_id"],
+        "codigo": folded["codigo"],
+        "descripcion": folded["descripcion"],
+        "marca": folded["marca"],
+        "categoria": folded["categoria"],
+        "subcategoria": folded["subcategoria"],
+        "fecha_venta": folded["fecha_venta"],
+        "fecha_calculo": date.today(),
+        "cantidad": int(folded["cantidad"]) if folded["cantidad"] is not None else 0,
+        "monto_unitario": _dec(folded["monto_unitario"]),
+        "monto_total": _dec(folded["monto_total"]),
+        "costo_unitario_sin_iva": _dec(folded["costo_unitario_sin_iva"], digits=6),
+        "costo_total_sin_iva": _dec(folded["costo_total_sin_iva"]),
+        "comision_ml": _dec(folded["comision_ml"]),
+        "costo_envio_ml": _dec(folded["costo_envio_ml"]),
+        "tipo_logistica": folded["tipo_logistica"],
+        "monto_limpio": _dec(folded["monto_limpio"]),
+        "ganancia": _dec(folded["ganancia"]),
+        "markup_porcentaje": _dec(folded["markup_porcentaje"]),
+        "mla_id": folded["mla_id"],
+        "mlp_official_store_id": folded["mlp_official_store_id"],
+        "offset_flex": _dec(folded["offset_flex"]),
+        # JD-001 fix: previously-dropped columns.
+        "cotizacion_dolar": _dec(folded["cotizacion_dolar"], digits=4),
+        "moneda_costo": folded["moneda_costo"],
+        "tipo_lista": folded["tipo_lista"],
+        "porcentaje_comision_ml": _dec(folded["porcentaje_comision_ml"]),
+        "prli_id": int(folded["prli_id"]) if folded["prli_id"] is not None else 4,
+        "costo_total": _dec(folded["costo_total"]),
+    }
+
+
+def upsert_metrica(db_session: Any, payload: dict[str, Any]) -> str:
+    """
+    Upserts ONE `TplinkVentaMetrica` row keyed by `id_operacion` (mlo_id).
+
+    Shared by both jobs so insert/update field-assignment logic can never
+    drift. The caller owns `commit()`/`rollback()`/batching cadence — this
+    function only queries, mutates, or constructs the ORM object; it never
+    commits.
+
+    Returns "actualizado" if an existing row was updated, "insertado" if a
+    new row was added.
+    """
+    from app.models.tplink_venta_metrica import TplinkVentaMetrica
+
+    existente = (
+        db_session.query(TplinkVentaMetrica).filter(TplinkVentaMetrica.id_operacion == payload["id_operacion"]).first()
+    )
+    if existente:
+        for key, value in payload.items():
+            if key != "id_operacion":
+                setattr(existente, key, value)
+        return "actualizado"
+
+    db_session.add(TplinkVentaMetrica(**payload))
+    return "insertado"

@@ -1,8 +1,14 @@
 """
 T-6 / T-7: Unit tests — SQL string guards for agregar_metricas_tplink_incremental.py.
 
+Slice 2 (SDD change tplink-metricas-dual-key-dedup): the incremental job's
+`calcular_metricas_locales` no longer owns its own SQL string — it delegates
+to the shared `_tplink_metricas_core.build_aggregation_sql()` (design D1),
+so these SQL-shape guards now target the core module's query builder
+instead of the wrapper function. The assertions themselves are unchanged.
+
 Verifies (SQLite-safe string assertions):
-- The raw SQL in calcular_metricas_locales contains NO literal 'coslis_id = 1'.
+- The shared aggregating SQL contains NO literal 'coslis_id = 1'.
 - The SQL contains ':coslis_id' bind parameter.
 - The SQL contains ':store_id' bind parameter.
 - process_and_insert does NOT call registrar_consumo_grupo_offset,
@@ -13,10 +19,7 @@ These are cheap regression guards against literal-leakage and double-counting si
 
 from __future__ import annotations
 
-import ast
 import inspect
-import textwrap
-import importlib
 
 import pytest
 
@@ -27,34 +30,48 @@ def _get_module():
     return mod
 
 
+def _get_core_module():
+    """Import the shared aggregation core module (owns the SQL now)."""
+    import app.scripts._tplink_metricas_core as core
+    return core
+
+
 class TestIncrementalSqlNoCoslis1Literal:
     """SQL must use :coslis_id bind, never coslis_id = 1 literal."""
 
     def test_no_literal_coslis_id_1_in_sql(self) -> None:
-        """The SQL string in calcular_metricas_locales must not contain 'coslis_id = 1'."""
-        mod = _get_module()
-        source = inspect.getsource(mod.calcular_metricas_locales)
-        assert "coslis_id = 1" not in source, (
-            "Found literal 'coslis_id = 1' in calcular_metricas_locales — "
+        """The shared aggregating SQL must not contain 'coslis_id = 1'."""
+        core = _get_core_module()
+        sql_str = str(core.build_aggregation_sql())
+        assert "coslis_id = 1" not in sql_str, (
+            "Found literal 'coslis_id = 1' in the shared aggregating SQL — "
             "must use :coslis_id bind parameter instead."
         )
 
     def test_coslis_id_bind_present_in_sql(self) -> None:
         """The SQL must reference ':coslis_id' as a bind parameter."""
-        mod = _get_module()
-        source = inspect.getsource(mod.calcular_metricas_locales)
-        assert ":coslis_id" in source, (
-            "':coslis_id' bind not found in calcular_metricas_locales SQL."
+        core = _get_core_module()
+        sql_str = str(core.build_aggregation_sql())
+        assert ":coslis_id" in sql_str, (
+            "':coslis_id' bind not found in the shared aggregating SQL."
         )
 
     def test_store_id_bind_present_in_sql(self) -> None:
         """The SQL must filter by ':store_id' bind parameter."""
-        mod = _get_module()
-        source = inspect.getsource(mod.calcular_metricas_locales)
-        assert ":store_id" in source, (
-            "':store_id' bind not found in calcular_metricas_locales SQL. "
+        core = _get_core_module()
+        sql_str = str(core.build_aggregation_sql())
+        assert ":store_id" in sql_str, (
+            "':store_id' bind not found in the shared aggregating SQL. "
             "Must add 'AND tmlip.mlp_official_store_id = :store_id' to WHERE clause."
         )
+
+    def test_incremental_delegates_to_shared_core_builder(self) -> None:
+        """The wrapper's `calcular_metricas_locales` must call the core's
+        `build_aggregation_sql()` rather than embedding its own SQL string."""
+        mod = _get_module()
+        source = inspect.getsource(mod.calcular_metricas_locales)
+        assert "build_aggregation_sql()" in source
+        assert "DISTINCT ON" not in source
 
 
 class TestIncrementalNoGlobalSideEffects:
