@@ -188,9 +188,7 @@ class TestFailClosedRangeValidation:
         assert result["submitted"] is False
         assert result["status"] == "rejected_read_unavailable"
 
-    def test_promotion_not_found_in_live_payload_rejects_without_posting(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_promotion_not_found_in_live_payload_rejects_without_posting(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -554,9 +552,7 @@ class TestSmartRemove:
             result = write_service.remove_one_item("MLA123456789", "SMART", "P-MLA1")
 
         mock_read.assert_called_once_with("MLA123456789")
-        mock_remove.assert_called_once_with(
-            "MLA123456789", "SMART", "P-MLA1", offer_id="OFFER-MLA1-11196371958"
-        )
+        mock_remove.assert_called_once_with("MLA123456789", "SMART", "P-MLA1", offer_id="OFFER-MLA1-11196371958")
         assert result["submitted"] is True
         assert result["status"] == "submitted"
 
@@ -761,9 +757,7 @@ class TestAmbiguousReconciliation:
         assert result["submitted"] is False
         assert result["status"] == "rejected_by_proxy"
 
-    def test_remove_5xx_row_absent_after_ambiguous_delete_means_applied(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_remove_5xx_row_absent_after_ambiguous_delete_means_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """DELETE reconciliation is direction-dependent: for a `remove`, the
         row being ABSENT after an ambiguous DELETE means the removal DID
         take effect (the item is no longer discounted) -> reconciled_applied.
@@ -865,9 +859,7 @@ class TestSmartAmbiguousReconciliation:
         mock_remove.assert_called_once()
         assert result["status"] == "ambiguous"
 
-    def test_ambiguous_smart_enroll_row_present_still_reconciled_applied(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ambiguous_smart_enroll_row_present_still_reconciled_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -927,9 +919,7 @@ class TestSmartOfferIdAuditLogging:
                 patch.object(
                     write_service.ml_webhook_client,
                     "get_item_promotions",
-                    return_value=_fake_live_smart_promotions(
-                        promotion_id="P-MLA1", ref_id="CANDIDATE-MLA1-1"
-                    ),
+                    return_value=_fake_live_smart_promotions(promotion_id="P-MLA1", ref_id="CANDIDATE-MLA1-1"),
                 ),
                 patch.object(
                     write_service.ml_webhook_client,
@@ -957,9 +947,7 @@ class TestSmartOfferIdAuditLogging:
                 patch.object(
                     write_service.ml_webhook_client,
                     "get_item_promotions",
-                    return_value=_fake_live_smart_promotions(
-                        promotion_id="P-MLA1", ref_id="OFFER-MLA1-1"
-                    ),
+                    return_value=_fake_live_smart_promotions(promotion_id="P-MLA1", ref_id="OFFER-MLA1-1"),
                 ),
                 patch.object(
                     write_service.ml_webhook_client,
