@@ -69,14 +69,25 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   const [markup, setMarkup] = useState(null);
   const [markupLoading, setMarkupLoading] = useState(false);
 
+  const isApplied = promotion.status === 'started';
+
   useEffect(() => {
-    if (!isRangeType || phase !== 'confirming') return undefined;
+    // The manual-price markup lookup only applies to the range-type enroll
+    // flow — the price input is rendered only when `isRangeType && !isApplied`.
+    // Skip it entirely for the Desaplicar flow, where no price is submitted.
+    if (!isRangeType || isApplied || phase !== 'confirming') return undefined;
 
     setMarkupLoading(true);
     const priceForLookup = dealPrice;
     const timer = setTimeout(() => {
       const numericPrice = Number(priceForLookup);
-      if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+      // Don't query the backend for a price the user can't submit anyway
+      // (out of [min,max] or non-numeric) — same bound as `priceOutOfRange`.
+      if (
+        !Number.isFinite(numericPrice) ||
+        numericPrice < promotion.min_discounted_price ||
+        numericPrice > promotion.max_discounted_price
+      ) {
         setMarkup(null);
         setMarkupLoading(false);
         return;
@@ -89,11 +100,18 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
     }, MARKUP_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [dealPrice, phase, isRangeType, mla]);
+  }, [
+    dealPrice,
+    phase,
+    isRangeType,
+    isApplied,
+    mla,
+    promotion.min_discounted_price,
+    promotion.max_discounted_price,
+  ]);
 
   const hasPermission = tienePermiso('promos.escribir');
   const isWritableType = WRITABLE_TYPES.has(promotion.promotion_type);
-  const isApplied = promotion.status === 'started';
   const actionLabel = isApplied ? 'desaplicar' : 'aplicar';
   const actionLabelCapitalized = isApplied ? 'Desaplicar' : 'Aplicar';
 
