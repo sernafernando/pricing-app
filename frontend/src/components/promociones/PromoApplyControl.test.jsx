@@ -277,6 +277,27 @@ describe('PromoApplyControl', () => {
     );
   });
 
+  it('sends only { promotion_id, promotion_type } for PRE_NEGOTIATED (no offer_id/price from FE)', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    render(
+      <PromoApplyControl
+        mla="MLA1"
+        promotion={{ promotion_id: 'P-PN', promotion_type: 'PRE_NEGOTIATED', name: 'Pre-negotiated promo', price: 100 }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P-PN',
+        promotion_type: 'PRE_NEGOTIATED',
+      }),
+    );
+  });
+
   describe('applied promo (status started) — Desaplicar', () => {
     function startedPromo(overrides = {}) {
       return dealPromo({ status: 'started', ...overrides });

@@ -1058,6 +1058,282 @@ class TestSmartOfferIdAuditLogging:
         assert any("OFFER-MLA1-1" in record.message for record in caplog.records)
 
 
+def _fake_live_pre_negotiated_promotions(
+    promotion_id: str = "PN-MLA1",
+    ref_id: str = "CANDIDATE-MLA1-1",
+    price: float = 900.0,
+) -> list:
+    """Real shape: bare list, entry keyed by `id`."""
+    return [
+        {
+            "id": promotion_id,
+            "type": "PRE_NEGOTIATED",
+            "ref_id": ref_id,
+            "price": price,
+        }
+    ]
+
+
+class TestPreNegotiatedWritableRegressionGuard:
+    """PRE_NEGOTIATED is now writable, treated identically to SMART in the
+    write path. SELLER_CAMPAIGN/DEAL must be completely unaffected."""
+
+    def test_pre_negotiated_now_passes_type_restriction(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={
+                    "ok": True,
+                    "status_code": 201,
+                    "ambiguous": False,
+                    "body": {"offer_id": "OFFER-MLA1-1"},
+                },
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_called_once()
+        assert result["status"] == "submitted"
+
+    def test_deal_out_of_range_still_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit regression assertion: DEAL/SELLER_CAMPAIGN range
+        validation is unchanged by the PRE_NEGOTIATED branch."""
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(min_price=850.0, max_price=950.0),
+            ),
+            patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "DEAL-1", "DEAL", deal_price=5000.0)
+
+        mock_enroll.assert_not_called()
+        assert result["status"] == "rejected_out_of_range"
+
+
+class TestPreNegotiatedEnroll:
+    def test_happy_path_uses_ref_id_as_offer_id_and_entry_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(
+                    promotion_id="PN-MLA1", ref_id="CANDIDATE-MLA1-1", price=19585.27
+                ),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={
+                    "ok": True,
+                    "status_code": 201,
+                    "ambiguous": False,
+                    "body": {"offer_id": "OFFER-MLA1-11196371958", "status": "started"},
+                },
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA1859172999", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_called_once_with(
+            "MLA1859172999",
+            "PN-MLA1",
+            "PRE_NEGOTIATED",
+            19585.27,
+            top_deal_price=None,
+            offer_id="CANDIDATE-MLA1-1",
+        )
+        assert result["submitted"] is True
+        assert result["status"] == "submitted"
+        assert result["price"] == 19585.27
+        assert result["offer_id"] == "OFFER-MLA1-11196371958"
+
+    def test_range_validation_not_applied_to_pre_negotiated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(price=99999.0),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_called_once()
+        assert result["status"] == "submitted"
+
+    def test_live_read_failure_rejects_without_posting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=None),
+            patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_not_called()
+        assert result["status"] == "rejected_read_unavailable"
+
+    def test_entry_not_found_rejects_without_posting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(promotion_id="OTHER-PROMO"),
+            ),
+            patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_not_called()
+        assert result["status"] == "rejected_promotion_not_found"
+
+    @pytest.mark.parametrize("missing_field", ["ref_id", "price"])
+    def test_missing_ref_id_or_price_rejects_price_unresolved(
+        self, monkeypatch: pytest.MonkeyPatch, missing_field: str
+    ) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+        live = _fake_live_pre_negotiated_promotions()
+        live[0][missing_field] = None
+
+        with (
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
+            patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_not_called()
+        assert result["status"] == "rejected_price_unresolved"
+
+
+class TestPreNegotiatedRemove:
+    def test_happy_path_re_reads_live_and_uses_current_offer_ref_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(
+                    promotion_id="PN-MLA1", ref_id="OFFER-MLA1-11196371958"
+                ),
+            ) as mock_read,
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": True, "status_code": 200, "ambiguous": False, "body": {"ok": True}},
+            ) as mock_remove,
+        ):
+            result = write_service.remove_one_item("MLA123456789", "PRE_NEGOTIATED", "PN-MLA1")
+
+        mock_read.assert_called_once_with("MLA123456789")
+        mock_remove.assert_called_once_with(
+            "MLA123456789", "PRE_NEGOTIATED", "PN-MLA1", offer_id="OFFER-MLA1-11196371958"
+        )
+        assert result["submitted"] is True
+        assert result["status"] == "submitted"
+
+    def test_read_failure_rejects_without_deleting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=None),
+            patch.object(write_service.ml_webhook_client, "remove_item") as mock_remove,
+        ):
+            result = write_service.remove_one_item("MLA123456789", "PRE_NEGOTIATED", "PN-MLA1")
+
+        mock_remove.assert_not_called()
+        assert result["status"] == "rejected_read_unavailable"
+
+    def test_entry_absent_rejects_without_deleting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(promotion_id="OTHER-PROMO"),
+            ),
+            patch.object(write_service.ml_webhook_client, "remove_item") as mock_remove,
+        ):
+            result = write_service.remove_one_item("MLA123456789", "PRE_NEGOTIATED", "PN-MLA1")
+
+        mock_remove.assert_not_called()
+        assert result["status"] == "rejected_promotion_not_found"
+
+
+class TestPreNegotiatedAmbiguousReconciliation:
+    """PRE_NEGOTIATED gets the SAME slow_consistency treatment as SMART."""
+
+    def test_ambiguous_enroll_row_absent_is_ambiguous_not_false_negative(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(promotion_id="PN-MLA1"),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": False, "status_code": 500, "ambiguous": True, "body": None},
+            ) as mock_enroll,
+            patch.object(write_service, "fetch_item_promotions", return_value=[]),
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+
+        mock_enroll.assert_called_once()  # no retry
+        assert result["status"] == "ambiguous"
+
+    def test_ambiguous_remove_row_present_is_ambiguous_not_false_negative(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_pre_negotiated_promotions(promotion_id="PN-MLA1", ref_id="OFFER-MLA1-1"),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": False, "status_code": 500, "ambiguous": True, "body": None},
+            ) as mock_remove,
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA123456789", "promotion_id": "PN-MLA1", "status": "started"}],
+            ),
+        ):
+            result = write_service.remove_one_item("MLA123456789", "PRE_NEGOTIATED", "PN-MLA1")
+
+        mock_remove.assert_called_once()
+        assert result["status"] == "ambiguous"
+
+
 class TestRemoveHappyPath:
     def test_200_returns_submitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)

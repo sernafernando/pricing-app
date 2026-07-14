@@ -377,6 +377,50 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getAllByRole('button', { name: /^desaplicar$/i })).toHaveLength(2);
   });
 
+  it('shows an enabled Aplicar button for a candidate PRE_NEGOTIATED promo', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PN1',
+            promotion_type: 'PRE_NEGOTIATED',
+            name: 'Pre-negotiated promo',
+            status: 'candidate',
+            price: 0,
+            suggested_discounted_price: 900,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Pre-negotiated promo')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+  });
+
+  it('shows a Desaplicar button for a started PRE_NEGOTIATED promo', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PN1',
+            promotion_type: 'PRE_NEGOTIATED',
+            name: 'Pre-negotiated promo',
+            status: 'started',
+            application_status: 'active',
+            price: 900,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Pre-negotiated promo')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
+  });
+
   it('shows the promo name (not the cryptic type) as the primary label', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

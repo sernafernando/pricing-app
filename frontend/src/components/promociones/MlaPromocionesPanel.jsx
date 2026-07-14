@@ -4,9 +4,10 @@ import { useLazyResource } from '../../hooks/useLazyResource';
 import PromoApplyControl from './PromoApplyControl';
 import styles from './promociones.module.css';
 
-// SELLER_CAMPAIGN/DEAL/SMART can be enrolled via the apply control (FE-C).
-// DOD/LIGHTNING/PRICE_DISCOUNT are read-only informational entries.
-const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART']);
+// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED can be enrolled via the apply
+// control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only informational
+// entries.
+const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED']);
 
 // SMART and PRE_NEGOTIATED both carry ML co-funding (meli_percentage /
 // seller_percentage in payload); other types don't fund the discount.

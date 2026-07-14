@@ -4,7 +4,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
 
 // Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
-const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART']);
+const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED']);
 
 // EnrollResult/RemoveResult.status -> feedback message + tone. Eventual-
 // consistency-safe: never claim a confirmed state from the immediate response.
@@ -46,7 +46,7 @@ function feedbackForError(err, actionLabel = 'aplicar') {
 }
 
 /**
- * Apply control for a single writable promotion row (SELLER_CAMPAIGN, DEAL, SMART).
+ * Apply control for a single writable promotion row (SELLER_CAMPAIGN, DEAL, SMART, PRE_NEGOTIATED).
  * Renders inline inside `MlaPromocionesPanel`. Triggers a REAL ML price write:
  * requires explicit confirmation, never auto-retries, never claims a confirmed
  * "aplicado" state from the immediate response (eventual consistency).
