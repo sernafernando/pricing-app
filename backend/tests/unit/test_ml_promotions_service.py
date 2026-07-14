@@ -67,7 +67,6 @@ def _make_item_promotion_row(
     suggested_discounted_price: float = 900.0,
     payload: dict = None,
     updated_at: datetime = None,
-    name: str = None,
 ):
     return (
         mla,
@@ -82,7 +81,6 @@ def _make_item_promotion_row(
         suggested_discounted_price,
         payload or {},
         updated_at,
-        name,
     )
 
 
@@ -230,17 +228,17 @@ class TestFetchItemPromotions:
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "status IN" not in executed_query
 
-    def test_includes_name_from_ml_promotions_join(self) -> None:
-        """The human-readable promo name (ml_promotions.name) must be present
-        in the returned dict via a LEFT JOIN, so the UI can show it instead
-        of the cryptic promotion_id/type."""
+    def test_includes_name_from_payload(self) -> None:
+        """The human-readable promo name must come from payload.name (the
+        live ML API response), not from a fragile/undeployed JOIN, so the UI
+        can show it instead of the cryptic promotion_id/type."""
         from app.services.ml_promotions_service import fetch_item_promotions
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_conn.execute.return_value.fetchall.return_value = [
-            _make_item_promotion_row(name="PREMIUM JULIO"),
+            _make_item_promotion_row(payload={"id": "DEAL-1", "name": "PREMIUM JULIO", "type": "DEAL"}),
         ]
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
@@ -249,25 +247,27 @@ class TestFetchItemPromotions:
         assert result[0]["name"] == "PREMIUM JULIO"
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "LEFT JOIN ml_promotions" in executed_query
-        assert "p.name" in executed_query
+        assert "ml_promotions" not in executed_query
+        assert "LEFT JOIN" not in executed_query
 
-    def test_name_none_when_no_join_match(self) -> None:
-        """PRICE_DISCOUNT (promotion_id == promotion_type) may not match a row
-        in ml_promotions; name stays None so the FE can fall back."""
+    def test_name_none_when_payload_name_empty_or_missing(self) -> None:
+        """PRICE_DISCOUNT sends payload.name == "" -> name stays None so the
+        FE can fall back to promotion_type. Missing payload.name also -> None."""
         from app.services.ml_promotions_service import fetch_item_promotions
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_conn.execute.return_value.fetchall.return_value = [
-            _make_item_promotion_row(name=None),
+            _make_item_promotion_row(payload={"id": "PRICE_DISCOUNT", "name": ""}),
+            _make_item_promotion_row(payload={"id": "DEAL-1"}),
         ]
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
             result = fetch_item_promotions("MLA123456789")
 
         assert result[0]["name"] is None
+        assert result[1]["name"] is None
 
 
 class TestFetchPromoSummaryByMla:
@@ -302,6 +302,11 @@ class TestFetchPromoSummaryByMla:
             "has_applied": False,
             "applied_name": None,
         }
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ml_promotions" not in executed_query
+        assert "LEFT JOIN" not in executed_query
+        assert "payload->>'name'" in executed_query
 
     def test_active_count_counts_candidate_and_started(self) -> None:
         from app.services.ml_promotions_service import fetch_promo_summary_by_mla
@@ -349,7 +354,7 @@ class TestFetchPromoSummaryByMla:
         assert result["MLA111"]["has_applied"] is False
         assert result["MLA111"]["applied_name"] is None
 
-    def test_applied_name_uses_ml_promotions_name(self) -> None:
+    def test_applied_name_uses_payload_name(self) -> None:
         from app.services.ml_promotions_service import fetch_promo_summary_by_mla
 
         mock_engine = MagicMock()
@@ -365,9 +370,10 @@ class TestFetchPromoSummaryByMla:
         assert result["MLA111"]["applied_name"] == "Campaña Vendedor"
 
     def test_applied_name_falls_back_to_promotion_type_when_name_null(self) -> None:
-        """PRICE_DISCOUNT has no ml_promotions match -> COALESCE falls back
-        to promotion_type in the SQL; here we just assert the dict passes
-        through whatever the row provides (fallback happens in SQL)."""
+        """PRICE_DISCOUNT sends payload.name == "" -> COALESCE(NULLIF(...))
+        falls back to promotion_type in the SQL; here we just assert the
+        dict passes through whatever the row provides (fallback happens
+        in SQL)."""
         from app.services.ml_promotions_service import fetch_promo_summary_by_mla
 
         mock_engine = MagicMock()
