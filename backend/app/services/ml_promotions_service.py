@@ -69,18 +69,19 @@ _PROMOTIONS_SELECT_COLUMNS = """
 """
 
 _ITEM_PROMOTIONS_SELECT_COLUMNS = """
-    mla,
-    promotion_id,
-    promotion_type,
-    sub_type,
-    status,
-    original_price,
-    price,
-    min_discounted_price,
-    max_discounted_price,
-    suggested_discounted_price,
-    payload,
-    updated_at
+    ip.mla,
+    ip.promotion_id,
+    ip.promotion_type,
+    ip.sub_type,
+    ip.status,
+    ip.original_price,
+    ip.price,
+    ip.min_discounted_price,
+    ip.max_discounted_price,
+    ip.suggested_discounted_price,
+    ip.payload,
+    ip.updated_at,
+    p.name
 """
 
 
@@ -128,6 +129,7 @@ def _item_promotion_row_to_dict(row: Any) -> Dict[str, Any]:
         "suggested_discounted_price": row[9],
         "payload": row[10] or {},
         "updated_at": row[11],
+        "name": row[12],
     }
 
 
@@ -177,16 +179,17 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
     Raises:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada.
     """
-    status_clause = "AND status IN ('candidate', 'started')" if active_only else ""
+    status_clause = "AND ip.status IN ('candidate', 'started')" if active_only else ""
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
-                FROM ml_item_promotions
-                WHERE mla = :mla
+                FROM ml_item_promotions AS ip
+                LEFT JOIN ml_promotions AS p ON ip.promotion_id = p.promotion_id
+                WHERE ip.mla = :mla
                 {status_clause}
-                ORDER BY updated_at DESC, promotion_id
+                ORDER BY ip.updated_at DESC, ip.promotion_id
             """),
             {"mla": mla_id},
         ).fetchall()
@@ -272,10 +275,11 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
         rows = conn.execute(
             text(f"""
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
-                FROM ml_item_promotions
-                WHERE promotion_id = :promotion_id
-                  AND promotion_type = :promotion_type
-                ORDER BY updated_at DESC, promotion_id
+                FROM ml_item_promotions AS ip
+                LEFT JOIN ml_promotions AS p ON ip.promotion_id = p.promotion_id
+                WHERE ip.promotion_id = :promotion_id
+                  AND ip.promotion_type = :promotion_type
+                ORDER BY ip.updated_at DESC, ip.promotion_id
             """),
             {"promotion_id": promotion_id, "promotion_type": promotion_type},
         ).fetchall()

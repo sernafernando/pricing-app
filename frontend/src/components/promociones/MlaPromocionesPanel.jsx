@@ -88,7 +88,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
             {promo.status === 'started' && (
               <span className={`${styles.badge} ${styles.badgeApplicable}`}>Aplicada</span>
             )}
-            <span className={styles.promoName}>{promo.name || promo.promotion_id}</span>
+            <span className={styles.promoName}>{promo.name || promo.promotion_type || promo.promotion_id}</span>
             <span className={styles.promoPrice}>
               {formatPrice(effectivePrice)}
               {promo.original_price != null && promo.original_price !== effectivePrice && (

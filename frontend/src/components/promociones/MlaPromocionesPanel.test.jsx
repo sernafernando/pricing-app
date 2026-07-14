@@ -220,6 +220,40 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getAllByText(/^aplicada$/i)).toHaveLength(2);
   });
 
+  it('shows the promo name (not the cryptic type) as the primary label', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'C-MLA1332399',
+            promotion_type: 'SELLER_CAMPAIGN',
+            name: 'PREMIUM JULIO',
+            price: 100,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('PREMIUM JULIO')).toBeInTheDocument());
+    expect(screen.queryByText('C-MLA1332399')).not.toBeInTheDocument();
+  });
+
+  it('falls back to promotion_type then promotion_id when name is null', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'C-MLA1332399', promotion_type: 'PRICE_DISCOUNT', name: null, price: 100 },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getAllByText('PRICE_DISCOUNT').length).toBeGreaterThan(0));
+  });
+
   it('shows an error state distinct from empty', async () => {
     promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('network error'));
 

@@ -67,6 +67,7 @@ def _make_item_promotion_row(
     suggested_discounted_price: float = 900.0,
     payload: dict = None,
     updated_at: datetime = None,
+    name: str = None,
 ):
     return (
         mla,
@@ -81,6 +82,7 @@ def _make_item_promotion_row(
         suggested_discounted_price,
         payload or {},
         updated_at,
+        name,
     )
 
 
@@ -207,7 +209,7 @@ class TestFetchItemPromotions:
             fetch_item_promotions("MLA123456789", active_only=True)
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "AND status IN ('candidate', 'started')" in executed_query
+        assert "AND ip.status IN ('candidate', 'started')" in executed_query
 
     def test_active_only_false_omits_status_filter(self) -> None:
         """active_only=False (default) must NOT filter by status.
@@ -227,6 +229,45 @@ class TestFetchItemPromotions:
 
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "status IN" not in executed_query
+
+    def test_includes_name_from_ml_promotions_join(self) -> None:
+        """The human-readable promo name (ml_promotions.name) must be present
+        in the returned dict via a LEFT JOIN, so the UI can show it instead
+        of the cryptic promotion_id/type."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(name="PREMIUM JULIO"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["name"] == "PREMIUM JULIO"
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "LEFT JOIN ml_promotions" in executed_query
+        assert "p.name" in executed_query
+
+    def test_name_none_when_no_join_match(self) -> None:
+        """PRICE_DISCOUNT (promotion_id == promotion_type) may not match a row
+        in ml_promotions; name stays None so the FE can fall back."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(name=None),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["name"] is None
 
 
 class TestFetchPromoSummaryByMla:
