@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
+from sqlalchemy import false as sa_false
 from typing import Optional
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
+from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -56,9 +59,17 @@ def listar_productos(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada"):
+        raise HTTPException(
+            status_code=422,
+            detail="promo_estado inválido: debe ser 'disponible' o 'aplicada'",
+        )
+
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
@@ -390,7 +401,6 @@ def listar_productos(
     # Filtro de oferta (ofertas vigentes en MercadoLibre)
     if con_oferta is not None:
         from app.models.oferta_ml import OfertaML
-        from app.models.publicacion_ml import PublicacionML
         from datetime import date
 
         hoy_date = date.today()
@@ -407,6 +417,33 @@ def listar_productos(
             query = query.filter(ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
         else:
             query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
+
+    # Filtro por tipo de promo activa en MercadoLibre (cross-DB: mlwebhook -> pricing)
+    if promo_tipos:
+        tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()]
+        if tipos_list:
+            applied_only = promo_estado == "aplicada"
+            try:
+                mlas_con_promo = fetch_mlas_with_active_promo_type(tipos_list, applied_only)
+            except Exception as exc:
+                logger.warning("Filtro de promociones no disponible: %s", exc)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Filtro de promociones no disponible temporalmente",
+                )
+
+            if mlas_con_promo:
+                items_con_promo_subquery = (
+                    db.query(PublicacionML.item_id)
+                    .filter(PublicacionML.mla.in_(mlas_con_promo))
+                    .distinct()
+                    .scalar_subquery()
+                )
+                query = query.filter(ProductoERP.item_id.in_(items_con_promo_subquery))
+            else:
+                # EMPTY-SET GUARD: types selected but zero matching MLAs => zero
+                # products, NOT "skip the filter" (would leak the full catalog).
+                query = query.filter(sa_false())
 
     # Filtro de colores
     if colores:
@@ -589,7 +626,6 @@ def listar_productos(
         len(results)
 
     from app.models.oferta_ml import OfertaML
-    from app.models.publicacion_ml import PublicacionML
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
