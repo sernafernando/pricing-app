@@ -20,6 +20,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.usuario import Usuario
+from app.services.ml_promotions_pricing import enriquecer_markup_por_promo
 from app.services.ml_promotions_service import (
     fetch_item_promotions,
     fetch_promotion_items,
@@ -77,6 +78,12 @@ class ItemPromotion(BaseModel):
     suggested_discounted_price: Optional[float] = None
     payload: Dict[str, Any] = {}
     updated_at: Optional[Any] = None
+    nuestro_markup: Optional[float] = None
+    """Seller's markup percentage on the promo's effective revenue
+    (effective discounted price + ML co-funding when applicable). Computed
+    server-side; None when cost/publication is unresolvable. Only populated
+    on `GET /promociones/item/{mla_id}` (per-item read); absent/None on the
+    per-promotion listing (`GET /promociones/{promotion_id}/items`)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -269,16 +276,20 @@ def listar_promociones(
 def obtener_promociones_item(
     mla_id: str,
     current_user: Usuario = Depends(require_promos_read()),
+    db=Depends(get_db),
 ) -> ItemPromotionsList:
     """
     Lista las promociones aplicables a un item desde ml_item_promotions
-    (fuente de verdad del estado final: candidate|started|finished).
+    (fuente de verdad del estado final: candidate|started|finished), con el
+    markup del vendedor ("nuestro_markup") calculado server-side sobre la
+    revenue efectiva de cada promo (ver `enriquecer_markup_por_promo`).
     Requiere permiso: promos.ver
     """
     try:
         # active_only: the backfilled table is upsert-only (no stale cleanup), so
         # finished promos can linger — show only candidate|started as real options.
         promotions = fetch_item_promotions(mla_id, active_only=True)
+        promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
         return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)

@@ -209,6 +209,14 @@ class TestPromotionItems:
         assert body["items"][0]["mla"] == "MLA111"
 
 
+def _passthrough_enriquecer(db, mla, promociones):
+    """Test double for `enriquecer_markup_por_promo`: sets a fixed
+    `nuestro_markup` per promo without touching the (fake/dummy) db."""
+    for promo in promociones:
+        promo["nuestro_markup"] = 18.5
+    return promociones
+
+
 class TestItemPromotions:
     def test_happy_path_status_mapping(self, client: TestClient) -> None:
         fake_service = _override_auth(allowed_permiso=True)
@@ -234,6 +242,10 @@ class TestItemPromotions:
                         }
                     ],
                 ) as mock_fetch,
+                patch(
+                    "app.routers.ml_promotions.enriquecer_markup_por_promo",
+                    side_effect=_passthrough_enriquecer,
+                ),
             ):
                 response = client.get("/api/promociones/item/MLA123456789")
         finally:
@@ -247,3 +259,80 @@ class TestItemPromotions:
         # backfilled ml_item_promotions table is upsert-only with no stale
         # cleanup, so finished promos would otherwise linger in the display.
         mock_fetch.assert_called_once_with("MLA123456789", active_only=True)
+
+    def test_nuestro_markup_present_per_promo(self, client: TestClient) -> None:
+        """R6/R7 — `nuestro_markup` is present per promo entry (number or
+        null), independently computed per promo."""
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.fetch_item_promotions",
+                    return_value=[
+                        {
+                            "mla": "MLA123456789",
+                            "promotion_id": "SMART-1",
+                            "promotion_type": "SMART",
+                            "sub_type": None,
+                            "status": "started",
+                            "original_price": 1000.0,
+                            "price": 900.0,
+                            "min_discounted_price": 850.0,
+                            "max_discounted_price": 950.0,
+                            "suggested_discounted_price": 900.0,
+                            "payload": {"meli_percentage": 1.4},
+                            "updated_at": None,
+                        },
+                        {
+                            "mla": "MLA123456789",
+                            "promotion_id": "DEAL-1",
+                            "promotion_type": "DEAL",
+                            "sub_type": None,
+                            "status": "candidate",
+                            "original_price": 1000.0,
+                            "price": 0.0,
+                            "min_discounted_price": None,
+                            "max_discounted_price": None,
+                            "suggested_discounted_price": None,
+                            "payload": {},
+                            "updated_at": None,
+                        },
+                    ],
+                ),
+                patch(
+                    "app.routers.ml_promotions.enriquecer_markup_por_promo",
+                    side_effect=lambda db, mla, promos: (
+                        [{**promos[0], "nuestro_markup": 22.3}, {**promos[1], "nuestro_markup": None}]
+                    ),
+                ),
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 2
+        assert body["promotions"][0]["nuestro_markup"] == 22.3
+        assert body["promotions"][1]["nuestro_markup"] is None
+
+    def test_db_unavailable_still_503_before_enrichment(self, client: TestClient) -> None:
+        """R5.3 — ML_WEBHOOK_DB_URL unset behavior is unchanged: 503 happens
+        before enrichment is ever attempted."""
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.fetch_item_promotions",
+                    side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+                ),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo") as mock_enrich,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 503
+        mock_enrich.assert_not_called()

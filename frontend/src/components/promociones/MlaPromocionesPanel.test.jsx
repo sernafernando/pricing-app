@@ -131,6 +131,48 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
   });
 
+  it('shows the backend-computed markup when nuestro_markup is a number', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            price: 100,
+            payload: {},
+            nuestro_markup: 18.5,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+    expect(screen.getByText(/tu markup: 18\.5%/i)).toBeInTheDocument();
+  });
+
+  it('shows N/A when nuestro_markup is null', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'DEAL',
+            name: 'Deal promo',
+            price: 80,
+            payload: {},
+            nuestro_markup: null,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
+    expect(screen.getByText(/tu markup: n\/a/i)).toBeInTheDocument();
+  });
+
   it('shows an error state distinct from empty', async () => {
     promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('network error'));
 
