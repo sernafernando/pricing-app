@@ -97,3 +97,136 @@ class TestMercadolibreLiteParam:
             )
 
         mock_batch.assert_called_once()
+
+
+class TestPromoSummaryEnrichment:
+    """T2 — promo_active_count / promo_has_applied / promo_applied_name
+    enrichment via fetch_promo_summary_by_mla, merged per-mla into
+    publicaciones_ml. Graceful degradation: enrichment failure never
+    breaks the endpoint (still 200, full publicaciones list, fields absent).
+    """
+
+    def test_success_path_adds_promo_fields_per_mla(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch(
+                "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_summary_by_mla",
+                return_value={
+                    "MLA9101": {
+                        "active_count": 2,
+                        "has_applied": True,
+                        "applied_name": "Oferta Relámpago",
+                    }
+                },
+            ) as mock_summary,
+        ):
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        mock_summary.assert_called_once_with(["MLA9101"])
+        publicaciones = result["publicaciones_ml"]
+        assert publicaciones[0]["promo_active_count"] == 2
+        assert publicaciones[0]["promo_has_applied"] is True
+        assert publicaciones[0]["promo_applied_name"] == "Oferta Relámpago"
+
+    def test_mla_absent_from_summary_leaves_fields_absent(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch(
+                "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_summary_by_mla",
+                return_value={},
+            ),
+        ):
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        publicaciones = result["publicaciones_ml"]
+        assert "promo_active_count" not in publicaciones[0]
+        assert "promo_has_applied" not in publicaciones[0]
+        assert "promo_applied_name" not in publicaciones[0]
+
+    def test_summary_runtime_error_degrades_gracefully(self) -> None:
+        """ML_WEBHOOK_DB_URL unset -> RuntimeError -> endpoint still 200
+        with full publicaciones list, no promo fields."""
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch(
+                "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_summary_by_mla",
+                side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+            ),
+        ):
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        publicaciones = result["publicaciones_ml"]
+        assert len(publicaciones) == 1
+        assert publicaciones[0]["mla"] == "MLA9101"
+        assert "promo_active_count" not in publicaciones[0]
+
+    def test_summary_generic_exception_degrades_gracefully(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch(
+                "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_summary_by_mla",
+                side_effect=Exception("connection refused"),
+            ),
+        ):
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        publicaciones = result["publicaciones_ml"]
+        assert len(publicaciones) == 1
+        assert publicaciones[0]["mla"] == "MLA9101"
+
+    def test_existing_fields_unchanged_on_success(self) -> None:
+        """R7 — pre-existing fields/values unchanged, only new keys added."""
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch(
+                "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_summary_by_mla",
+                return_value={},
+            ),
+        ):
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        pub = result["publicaciones_ml"][0]
+        assert pub["mla"] == "MLA9101"
+        assert pub["titulo"] == "Producto test lite"
+        assert pub["lista_nombre"] == "Clásica"
+        assert pub["pricelist_id"] == 4

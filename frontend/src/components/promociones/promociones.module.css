@@ -67,6 +67,16 @@
   color: var(--text-secondary);
 }
 
+.promoCountBadge {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.appliedIndicator {
+  background: var(--info-bg, var(--bg-secondary));
+  color: var(--info, var(--text-primary));
+}
+
 .innerTable {
   width: 100%;
   border-collapse: collapse;

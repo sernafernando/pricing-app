@@ -155,4 +155,117 @@ describe('ProductoMLAsPanel', () => {
 
     await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA001'));
   });
+
+  it('renders a count badge when promo_active_count > 0', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', promo_active_count: 3 },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText(/3/)).toBeInTheDocument();
+  });
+
+  it('does not render a count badge when promo_active_count is 0 or absent', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', promo_active_count: 0 },
+          { mla: 'MLA002', pricelist_id: 4, publication_status: 'active' },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByText('0 promos')).not.toBeInTheDocument();
+  });
+
+  it('renders an applied indicator when promo_has_applied is true', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', promo_has_applied: true },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText(/aplicada/i)).toBeInTheDocument();
+  });
+
+  it('shows promo_applied_name in the applied indicator when present', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          {
+            mla: 'MLA001',
+            pricelist_id: 4,
+            publication_status: 'active',
+            promo_has_applied: true,
+            promo_applied_name: 'Oferta Relámpago',
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText(/oferta relámpago/i)).toBeInTheDocument();
+  });
+
+  it('shows the applied indicator without blank text when promo_applied_name is absent', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', promo_has_applied: true },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    const indicator = screen.getByText(/aplicada/i);
+    expect(indicator.textContent).not.toMatch(/null|undefined/);
+  });
+
+  it('does not render badge/indicator when promo fields are entirely absent (degraded backend)', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByText(/aplicada/i)).not.toBeInTheDocument();
+  });
+
+  it('exposes L1_COL_SPAN of 5 to keep the detail row colSpan in sync with the new header column', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla001/i }));
+
+    const detailCell = document.querySelector('td[colspan]');
+    expect(detailCell).toHaveAttribute('colspan', '5');
+  });
 });

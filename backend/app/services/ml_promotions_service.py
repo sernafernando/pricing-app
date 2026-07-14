@@ -196,6 +196,61 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
     return result
 
 
+def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Lee un resumen batcheado de promos activas por MLA (una sola query).
+
+    Usado por el enrichment del endpoint lite de productos (badges/indicadores
+    en la UI). Agrega en SQL (GROUP BY mla) para evitar N+1: cuenta promos
+    activas (candidate|started), determina si hay al menos una `started`
+    ("aplicada" al item) y resuelve el nombre de la promo aplicada más
+    reciente (ml_promotions.name, con fallback a promotion_type cuando el
+    join no matchea, ej. PRICE_DISCOUNT).
+
+    Args:
+        mla_ids: lista de MLAs a resumir. [] no ejecuta ninguna query.
+
+    Returns:
+        Dict keyed por mla: {"active_count": int, "has_applied": bool,
+        "applied_name": Optional[str]}. MLAs sin promos activas no aparecen
+        como key (el caller debe tratar la ausencia como 0/False/None).
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada.
+    """
+    if not mla_ids:
+        return {}
+
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    ip.mla,
+                    COUNT(*)                                 AS active_count,
+                    bool_or(ip.status = 'started')           AS has_applied,
+                    (array_agg(COALESCE(p.name, ip.promotion_type) ORDER BY ip.updated_at DESC)
+                        FILTER (WHERE ip.status = 'started'))[1] AS applied_name
+                FROM ml_item_promotions ip
+                LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
+                WHERE ip.mla = ANY(:mlas)
+                  AND ip.status IN ('candidate', 'started')
+                GROUP BY ip.mla
+            """),
+            {"mlas": mla_ids},
+        ).fetchall()
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for mla, active_count, has_applied, applied_name in rows:
+        result[mla] = {
+            "active_count": active_count,
+            "has_applied": bool(has_applied),
+            "applied_name": applied_name,
+        }
+
+    logger.info("ml_item_promotions: promo summary read for %d mlas", len(result))
+    return result
+
+
 def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[str, Any]]:
     """Lee los items de una promoción puntual desde ml_item_promotions.
 

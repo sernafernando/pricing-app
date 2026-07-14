@@ -7,7 +7,7 @@ import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import styles from './promociones.module.css';
 
-const L1_COL_SPAN = 4;
+const L1_COL_SPAN = 5;
 
 /**
  * Level 1 panel: MLAs (MercadoLibre publications) of a product.
@@ -61,6 +61,18 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef }) {
                 </td>
                 <td>{pub.mla}</td>
                 <td>{pub.publication_status || 'N/A'}</td>
+                <td>
+                  {pub.promo_active_count > 0 && (
+                    <span className={`${styles.badge} ${styles.promoCountBadge}`}>
+                      {pub.promo_active_count} promos
+                    </span>
+                  )}
+                  {pub.promo_has_applied && (
+                    <span className={`${styles.badge} ${styles.appliedIndicator}`}>
+                      Aplicada{pub.promo_applied_name ? `: ${pub.promo_applied_name}` : ''}
+                    </span>
+                  )}
+                </td>
               </>
             }
           >
