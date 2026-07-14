@@ -29,6 +29,10 @@ import Productos from './Productos';
 import { productosAPI } from '../services/api';
 import api from '../services/api';
 
+function getPromoFilterContainer() {
+  return screen.getByText('🏷️ Promos').closest('.filter-item');
+}
+
 // ---------------------------------------------------------------------------
 // Shared fixture helpers
 // ---------------------------------------------------------------------------
@@ -861,6 +865,109 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
       const activeRows = document.querySelectorAll('tr.keyboard-row-active');
       expect(activeRows.length).toBe(1);
       expect(activeRows[0].textContent).toContain('Producto NAV2');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CS-10 — productos-list-promo-filter (FE): promo type/status filter control
+//
+// Oracle: the "Avanzados" panel exposes a promo-type multi-select (chips,
+// shared PROMO_TYPES) + a disponible/aplicada mode toggle. Selecting a chip
+// triggers a reload with promo_tipos + default promo_estado=disponible;
+// combining with an existing filter (marcas) keeps both active.
+// ---------------------------------------------------------------------------
+describe('CS-10: promo type/status filter control', () => {
+  it('selecting a promo type chip reloads with promo_tipos + default promo_estado', async () => {
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    // Open the "Avanzados" panel
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const smartChip = await within(getPromoFilterContainer()).findByRole('button', { name: /^smart$/i });
+    await act(async () => {
+      await user.click(smartChip);
+    });
+
+    await waitFor(() => {
+      const calls = productosAPI.listar.mock.calls;
+      const hasPromoParams = calls.some(
+        (call) => call[0] && call[0].promo_tipos === 'SMART' && call[0].promo_estado === 'disponible'
+      );
+      expect(hasPromoParams).toBe(true);
+    });
+  });
+
+  it('is combinable with an existing filter (marcas via URL) — both params sent together', async () => {
+    setupApiMocks({ productos: [makeProducto({ marca: 'BRAND_X' })], total: 1 });
+
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />, { initialEntries: ['/?marcas=BRAND_X'] });
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const dealChip = await within(getPromoFilterContainer()).findByRole('button', { name: /^deal$/i });
+    await act(async () => {
+      await user.click(dealChip);
+    });
+
+    await waitFor(() => {
+      const calls = productosAPI.listar.mock.calls;
+      const hasCombinedParams = calls.some(
+        (call) => call[0] && call[0].marcas && call[0].marcas.includes('BRAND_X') && call[0].promo_tipos === 'DEAL'
+      );
+      expect(hasCombinedParams).toBe(true);
+    });
+  });
+
+  it('toggling the mode select to aplicada sends promo_estado=aplicada', async () => {
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const smartChip = await within(getPromoFilterContainer()).findByRole('button', { name: /^smart$/i });
+    await act(async () => {
+      await user.click(smartChip);
+    });
+
+    const modeSelect = screen.getByLabelText(/estado de promo/i);
+    await act(async () => {
+      await user.selectOptions(modeSelect, 'aplicada');
+    });
+
+    await waitFor(() => {
+      const calls = productosAPI.listar.mock.calls;
+      const hasAplicada = calls.some(
+        (call) => call[0] && call[0].promo_tipos === 'SMART' && call[0].promo_estado === 'aplicada'
+      );
+      expect(hasAplicada).toBe(true);
     });
   });
 });

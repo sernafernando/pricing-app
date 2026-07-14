@@ -22,6 +22,7 @@ import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
+import { PROMO_TYPES } from '../constants/promoTypes';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
@@ -78,6 +79,7 @@ export default function Productos() {
     filtroMLA, setFiltroMLA, filtroEstadoMLA, setFiltroEstadoMLA,
     filtroNuevos, setFiltroNuevos, filtroTiendaOficial, setFiltroTiendaOficial,
     coloresSeleccionados, setColoresSeleccionados,
+    filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
@@ -111,6 +113,7 @@ export default function Productos() {
       filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
       filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
       coloresSeleccionados, pmsSeleccionados, filtrosAuditoria,
+      filtroPromoTipos, filtroPromoEstado,
     },
     showToast,
   });
@@ -593,12 +596,12 @@ export default function Productos() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) ? 'active' : ''}`}
           >
             Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length + filtroPromoTipos.length}
               </span>
             )}
           </button>
@@ -1285,6 +1288,42 @@ export default function Productos() {
                     <option value="todos">Todos</option>
                     <option value="activa">Activas</option>
                     <option value="pausada">Pausadas</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>🏷️ Promos</label>
+                  <div className={styles.filterBar}>
+                    {PROMO_TYPES.map(({ type, label }) => {
+                      const selected = filtroPromoTipos.includes(type);
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          className={`${styles.filterChip} ${selected ? styles.filterChipActive : ''}`}
+                          aria-pressed={selected}
+                          onClick={() => {
+                            setFiltroPromoTipos(
+                              selected
+                                ? filtroPromoTipos.filter((t) => t !== type)
+                                : [...filtroPromoTipos, type]
+                            );
+                            setPage(1);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <select
+                    value={filtroPromoEstado}
+                    onChange={(e) => { setFiltroPromoEstado(e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                    aria-label="Estado de promo"
+                  >
+                    <option value="disponible">Disponible</option>
+                    <option value="aplicada">Aplicada</option>
                   </select>
                 </div>
 
@@ -2433,6 +2472,8 @@ export default function Productos() {
             filtroEstadoMLA,
             filtroNuevos,
             coloresSeleccionados,
+            promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
+            promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
@@ -2499,6 +2540,8 @@ export default function Productos() {
             filtroEstadoMLA,
             filtroNuevos,
             coloresSeleccionados,
+            promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
+            promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,

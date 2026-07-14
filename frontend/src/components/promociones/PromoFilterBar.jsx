@@ -1,16 +1,6 @@
 import { usePromoFilterStore } from '../../store/promoFilterStore';
 import styles from './promociones.module.css';
-
-// Real promotion_type values, in the order the panels list them.
-const PROMO_TYPES = [
-  { type: 'SELLER_CAMPAIGN', label: 'Campaña' },
-  { type: 'DEAL', label: 'Deal' },
-  { type: 'SMART', label: 'Smart' },
-  { type: 'PRE_NEGOTIATED', label: 'Pre-negociada' },
-  { type: 'PRICE_DISCOUNT', label: 'Descuento' },
-  { type: 'DOD', label: 'DOD' },
-  { type: 'LIGHTNING', label: 'Lightning' },
-];
+import { PROMO_TYPES } from '../../constants/promoTypes';
 
 /**
  * GLOBAL filter bar — rendered once at the page level (not per-panel).

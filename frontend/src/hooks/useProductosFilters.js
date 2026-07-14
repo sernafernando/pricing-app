@@ -49,6 +49,8 @@ export function useProductosFilters() {
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
+  const [filtroPromoTipos, setFiltroPromoTipos] = useState([]);
+  const [filtroPromoEstado, setFiltroPromoEstado] = useState('disponible');
   const [filtrosInicializados, setFiltrosInicializados] = useState(false);
 
   // URL sync (INV-4: entire loop lives here — never split)
@@ -121,6 +123,10 @@ export function useProductosFilters() {
     // Colores
     if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
 
+    // Promo tipos/estado
+    if (filtroPromoTipos.length > 0) params.set('promo_tipos', filtroPromoTipos.join(','));
+    if (filtroPromoEstado !== 'disponible') params.set('promo_estado', filtroPromoEstado);
+
     // Página
     if (page > 1) params.set('page', page.toString());
 
@@ -158,6 +164,8 @@ export function useProductosFilters() {
     const nuevos = searchParams.get('nuevos');
     const tienda_oficial = searchParams.get('tienda_oficial');
     const colores = searchParams.get('colores');
+    const promoTipos = searchParams.get('promo_tipos');
+    const promoEstado = searchParams.get('promo_estado');
     const pageParam = searchParams.get('page');
     const pagesizeParam = searchParams.get('pagesize');
     const auditUsuarios = searchParams.get('audit_usuarios');
@@ -186,6 +194,8 @@ export function useProductosFilters() {
     if (nuevos) setFiltroNuevos(nuevos);
     if (tienda_oficial) setFiltroTiendaOficial(tienda_oficial);
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
+    if (promoTipos) setFiltroPromoTipos(promoTipos.split(',').map(t => t.trim()).filter(Boolean));
+    if (promoEstado) setFiltroPromoEstado(promoEstado);
     if (pageParam) setPage(parseInt(pageParam, 10));
     if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
 
@@ -238,6 +248,8 @@ export function useProductosFilters() {
     filtroNuevos,
     filtroTiendaOficial,
     coloresSeleccionados,
+    filtroPromoTipos,
+    filtroPromoEstado,
     page,
     pageSize,
     filtrosAuditoria
@@ -308,6 +320,8 @@ export function useProductosFilters() {
     setFiltroEstadoMLA(null);
     setFiltroNuevos(null);
     setColoresSeleccionados([]);
+    setFiltroPromoTipos([]);
+    setFiltroPromoEstado('disponible');
     setOrdenColumnas([]);
     setPage(1);
 
@@ -370,6 +384,8 @@ export function useProductosFilters() {
     setFiltroMarkupWebTransf(null);
     setFiltroMLA(null);
     setFiltroNuevos(null);
+    setFiltroPromoTipos([]);
+    setFiltroPromoEstado('disponible');
     setPage(1);
   };
 
@@ -418,13 +434,17 @@ export function useProductosFilters() {
     if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
     if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
     if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
+    if (filtroPromoTipos.length > 0) {
+      params.promo_tipos = filtroPromoTipos.join(',');
+      params.promo_estado = filtroPromoEstado;
+    }
     return params;
   }, [
     debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas,
     filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
     filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
-    coloresSeleccionados, pmsSeleccionados,
+    coloresSeleccionados, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
   ]);
 
   return {
@@ -442,6 +462,8 @@ export function useProductosFilters() {
     subcategoriasSeleccionadas, setSubcategoriasSeleccionadas,
     pmsSeleccionados, setPmsSeleccionados,
     coloresSeleccionados, setColoresSeleccionados,
+    filtroPromoTipos, setFiltroPromoTipos,
+    filtroPromoEstado, setFiltroPromoEstado,
     // Boolean filters
     filtroRebate, setFiltroRebate,
     filtroOferta, setFiltroOferta,
