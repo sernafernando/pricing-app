@@ -7,6 +7,7 @@ import { productosAPI } from '../../services/api';
 vi.mock('../../services/api', () => ({
   productosAPI: {
     getProductoMercadolibre: vi.fn(),
+    getProductoMercadolibreLite: vi.fn(),
   },
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promotions: [] } }),
@@ -41,7 +42,7 @@ describe('ProductoMLAsPanel', () => {
 
   it('shows a loading state while the fetch is in flight', async () => {
     let resolveFetch;
-    productosAPI.getProductoMercadolibre.mockReturnValue(
+    productosAPI.getProductoMercadolibreLite.mockReturnValue(
       new Promise((resolve) => {
         resolveFetch = resolve;
       }),
@@ -55,7 +56,7 @@ describe('ProductoMLAsPanel', () => {
   });
 
   it('renders ordered MLA rows with correct badges', async () => {
-    productosAPI.getProductoMercadolibre.mockResolvedValue({
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
       data: {
         publicaciones_ml: [
           { mla: 'MLA001', pricelist_id: 4, publication_status: 'active' },
@@ -72,8 +73,36 @@ describe('ProductoMLAsPanel', () => {
     expect(screen.getByText('3 Cuotas')).toBeInTheDocument();
   });
 
+  it('renders the backend-provided lista_nombre as the badge label', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, lista_nombre: 'Precio Personalizado 6 Cuotas', publication_status: 'active' },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText('Precio Personalizado 6 Cuotas')).toBeInTheDocument();
+  });
+
+  it('falls back to getPublicationTypeLabel when lista_nombre is missing', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText('Clásica')).toBeInTheDocument();
+  });
+
   it('shows an error state distinct from empty', async () => {
-    productosAPI.getProductoMercadolibre.mockRejectedValue(new Error('network error'));
+    productosAPI.getProductoMercadolibreLite.mockRejectedValue(new Error('network error'));
 
     renderPanel();
 
@@ -81,7 +110,7 @@ describe('ProductoMLAsPanel', () => {
   });
 
   it('shows an empty state when there are zero MLAs', async () => {
-    productosAPI.getProductoMercadolibre.mockResolvedValue({ data: { publicaciones_ml: [] } });
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({ data: { publicaciones_ml: [] } });
 
     renderPanel();
 
@@ -89,7 +118,7 @@ describe('ProductoMLAsPanel', () => {
   });
 
   it('does not re-fetch when re-mounted with the same cached itemId', async () => {
-    productosAPI.getProductoMercadolibre.mockResolvedValue({
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
       data: { publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }] },
     });
 
@@ -107,11 +136,11 @@ describe('ProductoMLAsPanel', () => {
     );
     await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
 
-    expect(productosAPI.getProductoMercadolibre).toHaveBeenCalledTimes(1);
+    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledTimes(1);
   });
 
   it('expanding an MLA row lazily mounts the L2 promotions panel', async () => {
-    productosAPI.getProductoMercadolibre.mockResolvedValue({
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
       data: { publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }] },
     });
 

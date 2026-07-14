@@ -134,6 +134,7 @@ export const productosAPI = {
   obtenerSubcategoriasPorPMs: (pm_ids) => api.get(`/pms/subcategorias?pm_ids=${pm_ids}`),
   // Nested MLA/promotions expand (productos-promociones-ui, FE-A: read-only).
   getProductoMercadolibre: (itemId) => api.get(`/productos/${itemId}/mercadolibre`),
+  getProductoMercadolibreLite: (itemId) => api.get(`/productos/${itemId}/mercadolibre?lite=true`),
 };
 
 export const promocionesAPI = {

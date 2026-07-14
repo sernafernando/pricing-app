@@ -17,7 +17,7 @@ const L1_COL_SPAN = 4;
  * endpoint Clásica -> 3 -> 6 -> 9 -> 12 cuotas) — do not re-sort here.
  */
 function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef }) {
-  const fetcher = useCallback((id) => productosAPI.getProductoMercadolibre(id).then((r) => r.data), []);
+  const fetcher = useCallback((id) => productosAPI.getProductoMercadolibreLite(id).then((r) => r.data), []);
   const { data, loading, error, reload } = useLazyResource(mlasCacheRef, itemId, fetcher);
   const mlaExpanded = useExpandedSet();
 
@@ -56,7 +56,7 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef }) {
               <>
                 <td>
                   <span className={`${styles.badge} ${styles.badgeReadonly}`}>
-                    {getPublicationTypeLabel(pub.pricelist_id)}
+                    {pub.lista_nombre || getPublicationTypeLabel(pub.pricelist_id)}
                   </span>
                 </td>
                 <td>{pub.mla}</td>
