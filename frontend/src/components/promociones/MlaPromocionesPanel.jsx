@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
+import { usePromoFilterStore } from '../../store/promoFilterStore';
 import PromoApplyControl from './PromoApplyControl';
 import styles from './promociones.module.css';
 
@@ -59,6 +60,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   const fetcher = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
   const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
   const reloadTimerRef = useRef(null);
+  const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
 
   useEffect(
     () => () => {
@@ -91,9 +93,19 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     return <div className={styles.panelState}>Sin promociones habilitadas.</div>;
   }
 
+  // Global filter (client-side only): empty selectedTypes = show all.
+  const filteredPromociones =
+    selectedTypes.length === 0
+      ? promociones
+      : promociones.filter((promo) => selectedTypes.includes(promo.promotion_type));
+
+  if (filteredPromociones.length === 0) {
+    return <div className={styles.filterMessage}>Sin promos del tipo filtrado.</div>;
+  }
+
   return (
     <ul className={styles.promoList}>
-      {promociones.map((promo) => {
+      {filteredPromociones.map((promo) => {
         const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
         const sellerPct = formatPercentage(promo.payload?.seller_percentage);
         const meliPct = formatPercentage(promo.payload?.meli_percentage);

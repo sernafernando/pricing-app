@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
+import { usePromoFilterStore } from '../../store/promoFilterStore';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -27,6 +28,7 @@ function renderPanel(props = {}) {
 describe('MlaPromocionesPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [] });
   });
 
   it('shows a loading state while the fetch is in flight', async () => {
@@ -549,5 +551,41 @@ describe('MlaPromocionesPanel', () => {
 
     consoleError.mockRestore();
     vi.useRealTimers();
+  });
+
+  describe('global promo-type filter', () => {
+    const promotions = [
+      { promotion_id: 'P1', promotion_type: 'SMART', name: 'Smart promo', price: 100 },
+      { promotion_id: 'P2', promotion_type: 'DEAL', name: 'Deal promo', price: 80 },
+    ];
+
+    it('shows all promos when selectedTypes is empty', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+      expect(screen.getByText('Deal promo')).toBeInTheDocument();
+    });
+
+    it('shows only promos matching selectedTypes', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
+      usePromoFilterStore.setState({ selectedTypes: ['SMART'] });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+      expect(screen.queryByText('Deal promo')).not.toBeInTheDocument();
+    });
+
+    it('shows the empty-filter message when everything is filtered out', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
+      usePromoFilterStore.setState({ selectedTypes: ['LIGHTNING'] });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText(/sin promos del tipo filtrado/i)).toBeInTheDocument());
+      expect(screen.queryByText('Smart promo')).not.toBeInTheDocument();
+    });
   });
 });
