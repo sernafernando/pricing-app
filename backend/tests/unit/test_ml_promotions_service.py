@@ -528,6 +528,104 @@ class TestFetchPromotionItems:
                 fetch_promotion_items("DEAL-1", "DEAL")
 
 
+class TestFetchMlasWithActivePromoType:
+    """fetch_mlas_with_active_promo_type(promo_types, applied_only=False) —
+    cross-DB lookup used by the Productos LIST promo-type filter (feature
+    productos-list-promo-filter). ONE query per call, DISTINCT mla, filtered
+    by promotion_type = ANY(:types) and a status set depending on mode.
+    """
+
+    def test_empty_promo_types_returns_empty_set_without_engine_call(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            result = fetch_mlas_with_active_promo_type([])
+
+        assert result == set()
+        mock_engine_fn.assert_not_called()
+
+    def test_empty_rows_returns_empty_set(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_mlas_with_active_promo_type(["SMART"])
+
+        assert result == set()
+
+    def test_rows_return_set_of_mla(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [("MLA111",), ("MLA222",)]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_mlas_with_active_promo_type(["SMART"])
+
+        assert result == {"MLA111", "MLA222"}
+
+    def test_applied_only_false_uses_candidate_started_status(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART"], applied_only=False)
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "IN ('candidate', 'started')" in executed_query
+        assert "= 'started'" not in executed_query
+
+    def test_applied_only_true_uses_started_only_status(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART"], applied_only=True)
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "status = 'started'" in executed_query
+        assert "IN ('candidate'" not in executed_query
+
+    def test_binds_types_param_via_any(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART", "DEAL"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ANY(:types)" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params == {"types": ["SMART", "DEAL"]}
+
+    def test_engine_failure_propagates(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            mock_engine_fn.side_effect = RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+            with pytest.raises(RuntimeError):
+                fetch_mlas_with_active_promo_type(["SMART"])
+
+
 def _promo(promotion_id: str, status: str, price: float = None, promotion_type: str = "SELLER_CAMPAIGN") -> dict:
     return {
         "mla": "MLA123456789",

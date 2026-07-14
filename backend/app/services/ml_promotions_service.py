@@ -45,7 +45,7 @@ state (candidate|started|finished), not the live ML API read-back.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from sqlalchemy import text
 
@@ -332,6 +332,53 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
         promotion_id,
         promotion_type,
     )
+    return result
+
+
+def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool = False) -> Set[str]:
+    """Lee el set de MLAs con al menos una promo activa de los tipos dados.
+
+    Usado por el filtro "por tipo de promo" del LISTADO de Productos (feature
+    productos-list-promo-filter): una sola query batcheada (nunca N+1) que
+    resuelve, para los `promo_types` seleccionados, qué MLAs tienen una promo
+    en estado activo según el modo elegido.
+
+    Args:
+        promo_types: lista de promotion_type a buscar (ANY). [] no ejecuta
+            ninguna query (mirrors fetch_promo_summary_by_mla's guard).
+        applied_only: si True (modo "aplicada"), sólo cuenta status='started'.
+            Si False (modo "disponible", default), cuenta status IN
+            ('candidate','started') — mirrors fetch_item_promotions'
+            active_only semantics. La tabla es upsert-only sin limpieza de
+            stale, así que este scope de status mantiene el set acotado a
+            promos genuinamente activas (nunca 'finished').
+
+    Returns:
+        Set de mla (str). Vacío si no hay filas.
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
+            (endpoint) es responsable de mapear esto a HTTP 503.
+    """
+    if not promo_types:
+        return set()
+
+    status_clause = "AND status = 'started'" if applied_only else "AND status IN ('candidate', 'started')"
+
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(f"""
+                SELECT DISTINCT mla
+                FROM ml_item_promotions
+                WHERE promotion_type = ANY(:types)
+                {status_clause}
+            """),
+            {"types": promo_types},
+        ).fetchall()
+
+    result = {row[0] for row in rows}
+    logger.info("ml_item_promotions: %d mlas with active promo type(s) %s", len(result), promo_types)
     return result
 
 
