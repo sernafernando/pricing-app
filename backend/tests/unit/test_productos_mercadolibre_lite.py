@@ -22,8 +22,6 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.api.endpoints.productos_detail import obtener_datos_ml_producto
 
 
