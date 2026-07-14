@@ -14,6 +14,16 @@ const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOT
 // seller_percentage in payload); other types don't fund the discount.
 const CO_FUNDED_TYPES = new Set(['SMART', 'PRE_NEGOTIATED']);
 
+// Per-type badge hue so each promotion type is visually distinct (no longer
+// all-blue). Types not listed (PRICE_DISCOUNT/DOD/LIGHTNING) fall back to the
+// read-only grey badge.
+const TYPE_BADGE_CLASS = {
+  SELLER_CAMPAIGN: styles.badgeTypeSellerCampaign,
+  DEAL: styles.badgeTypeDeal,
+  SMART: styles.badgeTypeSmart,
+  PRE_NEGOTIATED: styles.badgeTypePreNegotiated,
+};
+
 function formatPercentage(value) {
   if (value === null || value === undefined) return null;
   return `${value}%`;
@@ -120,11 +130,11 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
             key={promo.promotion_id}
             className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
           >
-            <span className={`${styles.badge} ${applicable ? styles.badgeApplicable : styles.badgeReadonly}`}>
+            <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
               {promo.promotion_type || 'N/A'}
             </span>
             {promo.application_status === 'active' && (
-              <span className={`${styles.badge} ${styles.badgeApplicable}`}>Aplicada</span>
+              <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
             )}
             {promo.application_status === 'programmed' && (
               <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>

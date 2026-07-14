@@ -67,7 +67,10 @@ def _make_item_promotion_row(
     suggested_discounted_price: float = 900.0,
     payload: dict = None,
     updated_at: datetime = None,
+    catalog_name: str = None,
 ):
+    # Trailing catalog_name mirrors the ml_promotions LEFT JOIN column (row[12])
+    # that fetch_item_promotions selects; fetch_promotion_items ignores it.
     return (
         mla,
         promotion_id,
@@ -81,6 +84,7 @@ def _make_item_promotion_row(
         suggested_discounted_price,
         payload or {},
         updated_at,
+        catalog_name,
     )
 
 
@@ -228,17 +232,22 @@ class TestFetchItemPromotions:
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "status IN" not in executed_query
 
-    def test_includes_name_from_payload(self) -> None:
-        """The human-readable promo name must come from payload.name (the
-        live ML API response), not from a fragile/undeployed JOIN, so the UI
-        can show it instead of the cryptic promotion_id/type."""
+    def test_name_prefers_catalog_over_empty_payload(self) -> None:
+        """The authoritative promo name is ml_promotions.name (catalog),
+        joined in. SELLER_CAMPAIGN/DEAL have payload.name == "" — only the
+        catalog carries the real name (e.g. "PREMIUM JULIO"), so the catalog
+        must win instead of falling back to the cryptic promotion_type."""
         from app.services.ml_promotions_service import fetch_item_promotions
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_conn.execute.return_value.fetchall.return_value = [
-            _make_item_promotion_row(payload={"id": "DEAL-1", "name": "PREMIUM JULIO", "type": "DEAL"}),
+            _make_item_promotion_row(
+                promotion_type="SELLER_CAMPAIGN",
+                payload={"id": "SC-1", "name": "", "type": "SELLER_CAMPAIGN"},
+                catalog_name="PREMIUM JULIO",
+            ),
         ]
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
@@ -247,20 +256,42 @@ class TestFetchItemPromotions:
         assert result[0]["name"] == "PREMIUM JULIO"
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "ml_promotions" not in executed_query
-        assert "LEFT JOIN" not in executed_query
+        assert "ml_promotions" in executed_query
+        assert "LEFT JOIN" in executed_query
 
-    def test_name_none_when_payload_name_empty_or_missing(self) -> None:
-        """PRICE_DISCOUNT sends payload.name == "" -> name stays None so the
-        FE can fall back to promotion_type. Missing payload.name also -> None."""
+    def test_name_falls_back_to_payload_when_no_catalog(self) -> None:
+        """When the catalog has no name (SMART fills payload.name instead),
+        payload.name is used."""
         from app.services.ml_promotions_service import fetch_item_promotions
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_conn.execute.return_value.fetchall.return_value = [
-            _make_item_promotion_row(payload={"id": "PRICE_DISCOUNT", "name": ""}),
-            _make_item_promotion_row(payload={"id": "DEAL-1"}),
+            _make_item_promotion_row(
+                promotion_type="SMART",
+                payload={"id": "SM-1", "name": "SMART JULIO"},
+                catalog_name=None,
+            ),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["name"] == "SMART JULIO"
+
+    def test_name_none_when_neither_catalog_nor_payload_name(self) -> None:
+        """PRICE_DISCOUNT has no catalog name and payload.name == "" -> name
+        stays None so the FE can fall back to promotion_type. Empty-string
+        catalog name is treated as absent too."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(payload={"id": "PRICE_DISCOUNT", "name": ""}, catalog_name=""),
+            _make_item_promotion_row(payload={"id": "DEAL-1"}, catalog_name=None),
         ]
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
@@ -331,9 +362,10 @@ class TestFetchPromoSummaryByMla:
         }
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "ml_promotions" not in executed_query
-        assert "LEFT JOIN" not in executed_query
+        assert "ml_promotions" in executed_query
+        assert "LEFT JOIN" in executed_query
         assert "payload->>'name'" in executed_query
+        assert "p.name" in executed_query
 
     def test_applied_name_ordered_by_price_asc_nulls_first(self) -> None:
         """A single item can be `started` in several promos at once; ML
