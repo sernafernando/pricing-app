@@ -219,7 +219,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
         )}
         <button
           type="button"
-          className={styles.applyConfirmBtn}
+          className={`${styles.applyConfirmBtn} ${isApplied ? styles.removeConfirmBtn : ''}`}
           onClick={handleConfirm}
           disabled={isRangeType && !isApplied && priceOutOfRange}
         >
@@ -242,7 +242,11 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
 
   return (
     <span className={styles.applyWrapper}>
-      <button type="button" className={styles.applyBtn} onClick={handleActionClick}>
+      <button
+        type="button"
+        className={`${styles.applyBtn} ${isApplied ? styles.removeBtn : ''}`}
+        onClick={handleActionClick}
+      >
         {actionLabelCapitalized}
       </button>
       {feedback && (

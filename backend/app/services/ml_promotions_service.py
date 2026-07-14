@@ -83,6 +83,26 @@ _ITEM_PROMOTIONS_SELECT_COLUMNS = """
     updated_at
 """
 
+# Same columns as above but ip.-qualified (bare promotion_id/type/status would
+# be ambiguous under the ml_promotions LEFT JOIN) plus the catalog name as a
+# trailing column (row[12]). Used by fetch_item_promotions to recover the
+# authoritative promo name that payload.name lacks for SELLER_CAMPAIGN/DEAL.
+_ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED = """
+    ip.mla,
+    ip.promotion_id,
+    ip.promotion_type,
+    ip.sub_type,
+    ip.status,
+    ip.original_price,
+    ip.price,
+    ip.min_discounted_price,
+    ip.max_discounted_price,
+    ip.suggested_discounted_price,
+    ip.payload,
+    ip.updated_at,
+    p.name AS catalog_name
+"""
+
 
 def _validate_item_status(status: Any) -> str:
     """Validate an ml_item_promotions.status against candidate|started|finished.
@@ -193,8 +213,9 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
+                SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED}
                 FROM ml_item_promotions AS ip
+                LEFT JOIN ml_promotions AS p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = :mla
                 {status_clause}
                 ORDER BY ip.updated_at DESC, ip.promotion_id
@@ -202,7 +223,16 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             {"mla": mla_id},
         ).fetchall()
 
-    result = [_item_promotion_row_to_dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = _item_promotion_row_to_dict(row)
+        # The authoritative human name is ml_promotions.name (catalog). For
+        # SELLER_CAMPAIGN/DEAL, payload.name is empty and ONLY the catalog has
+        # it; SMART fills payload.name. Catalog wins, then payload, then None
+        # (FE falls back to promotion_type). Empty '' is treated as absent.
+        catalog_name = row[12]
+        item["name"] = catalog_name or item["name"]
+        result.append(item)
     logger.info("ml_item_promotions: %d promotions read for %s", len(result), mla_id)
     return result
 
@@ -215,9 +245,11 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     activas (candidate|started), determina si hay al menos una `started`
     ("aplicada" al item) y resuelve el nombre de la promo ACTIVA (la
     `started` de menor precio; ML solo aplica una y deja el resto
-    programadas) via payload->>'name', con fallback a promotion_type cuando
-    el payload no trae nombre (ej. PRICE_DISCOUNT). NULLS FIRST porque un
-    precio null se considera activo (no descartable).
+    programadas). El nombre sale del catálogo ml_promotions.name (autoritativo;
+    SELLER_CAMPAIGN/DEAL tienen payload.name vacío), con fallback a
+    payload->>'name' (SMART sí lo trae) y luego a promotion_type cuando ninguno
+    tiene nombre (ej. PRICE_DISCOUNT). NULLS FIRST porque un precio null se
+    considera activo (no descartable).
 
     Args:
         mla_ids: lista de MLAs a resumir. [] no ejecuta ninguna query.
@@ -241,9 +273,10 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
                     ip.mla,
                     COUNT(*)                                 AS active_count,
                     bool_or(ip.status = 'started')           AS has_applied,
-                    (array_agg(COALESCE(NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.price ASC NULLS FIRST)
+                    (array_agg(COALESCE(NULLIF(p.name, ''), NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.price ASC NULLS FIRST)
                         FILTER (WHERE ip.status = 'started'))[1] AS applied_name
                 FROM ml_item_promotions ip
+                LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = ANY(:mlas)
                   AND ip.status IN ('candidate', 'started')
                 GROUP BY ip.mla
