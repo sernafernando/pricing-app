@@ -39,6 +39,16 @@ class TestCoFundingAmount:
         co_funding = _co_funding_amount(promo)
         assert co_funding == pytest.approx(394.492, abs=1)
 
+    def test_pre_negotiated_computes_meli_share_of_original_price(self) -> None:
+        """PRE_NEGOTIATED co-funds exactly like SMART (parity)."""
+        promo = {
+            "promotion_type": "PRE_NEGOTIATED",
+            "original_price": 28178,
+            "payload": {"meli_percentage": 1.4},
+        }
+        co_funding = _co_funding_amount(promo)
+        assert co_funding == pytest.approx(394.492, abs=1)
+
     @pytest.mark.parametrize("promotion_type", ["SELLER_CAMPAIGN", "DEAL", "PRICE_DISCOUNT", "UNKNOWN_TYPE", None])
     def test_non_smart_types_have_zero_co_funding(self, promotion_type: str) -> None:
         promo = {
@@ -368,5 +378,37 @@ class TestNuestroMarkupNumericParity:
         # test could pass vacuously regardless of whether the service adds it.
         assert expected_with_cofunding != pytest.approx(expected_without_cofunding)
 
+        assert result[0]["nuestro_markup"] == pytest.approx(expected_with_cofunding)
+        assert result[0]["nuestro_markup"] != pytest.approx(expected_without_cofunding)
+
+    def test_pre_negotiated_matches_canonical_markup_on_price_plus_co_funding(self) -> None:
+        """PRE_NEGOTIATED must behave exactly like SMART: markup computed on
+        effective_price + ML co-funding (meli_percentage * original_price),
+        never on price alone."""
+        db = MagicMock()
+        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
+        publicacion = _make_publicacion()
+        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
+
+        effective_price = 850.0
+        original_price = 1000.0
+        meli_percentage = 5.0
+        co_funding = (meli_percentage / 100) * original_price  # 50.0
+
+        promo = {
+            "promotion_type": "PRE_NEGOTIATED",
+            "status": "started",
+            "price": effective_price,
+            "original_price": original_price,
+            "suggested_discounted_price": None,
+            "payload": {"meli_percentage": meli_percentage},
+        }
+
+        result = self._run(db, "MLA1", [promo])
+
+        expected_with_cofunding = self._expected_markup(db, effective_price + co_funding)
+        expected_without_cofunding = self._expected_markup(db, effective_price)
+
+        assert expected_with_cofunding != pytest.approx(expected_without_cofunding)
         assert result[0]["nuestro_markup"] == pytest.approx(expected_with_cofunding)
         assert result[0]["nuestro_markup"] != pytest.approx(expected_without_cofunding)

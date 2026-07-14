@@ -44,15 +44,12 @@ introspection of the real mlwebhook DB (column names, order and PKs match):
 state (candidate|started|finished), not the live ML API read-back.
 """
 
-import asyncio
-import inspect
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import text
 
 from app.core.database import get_mlwebhook_engine
-from app.services.ml_webhook_client import ml_webhook_client
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +137,8 @@ def _item_promotion_row_to_dict(row: Any) -> Dict[str, Any]:
         "payload": payload_dict,
         "updated_at": row[11],
         "name": (payload_dict.get("name") or None) if isinstance(payload_dict, dict) else None,
+        "start_date": payload_dict.get("start_date") if isinstance(payload_dict, dict) else None,
+        "finish_date": payload_dict.get("finish_date") if isinstance(payload_dict, dict) else None,
     }
 
 
@@ -214,9 +213,11 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     Usado por el enrichment del endpoint lite de productos (badges/indicadores
     en la UI). Agrega en SQL (GROUP BY mla) para evitar N+1: cuenta promos
     activas (candidate|started), determina si hay al menos una `started`
-    ("aplicada" al item) y resuelve el nombre de la promo aplicada más
-    reciente (payload->>'name', con fallback a promotion_type cuando el
-    payload no trae nombre, ej. PRICE_DISCOUNT).
+    ("aplicada" al item) y resuelve el nombre de la promo ACTIVA (la
+    `started` de menor precio; ML solo aplica una y deja el resto
+    programadas) via payload->>'name', con fallback a promotion_type cuando
+    el payload no trae nombre (ej. PRICE_DISCOUNT). NULLS FIRST porque un
+    precio null se considera activo (no descartable).
 
     Args:
         mla_ids: lista de MLAs a resumir. [] no ejecuta ninguna query.
@@ -240,7 +241,7 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
                     ip.mla,
                     COUNT(*)                                 AS active_count,
                     bool_or(ip.status = 'started')           AS has_applied,
-                    (array_agg(COALESCE(NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.updated_at DESC)
+                    (array_agg(COALESCE(NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.price ASC NULLS FIRST)
                         FILTER (WHERE ip.status = 'started'))[1] AS applied_name
                 FROM ml_item_promotions ip
                 WHERE ip.mla = ANY(:mlas)
@@ -301,82 +302,54 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
     return result
 
 
-def _resolve(value: Any) -> Any:
-    """Bridges `MLWebhookClient`'s async methods into this module's
-    synchronous API. Mirrors `ml_promotions_write_service._resolve`: real
-    calls return a coroutine (awaited here via `asyncio.run`), and unit-test
-    mocks (`patch(..., return_value=...)`) return the plain value directly,
-    so both paths work unchanged.
-    """
-    if inspect.isawaitable(value):
-        return asyncio.run(value)
-    return value
+def derivar_application_status(promociones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Derives `application_status` for a single MLA's promotions.
 
+    ML's public API/tables mark every enrolled promo as `started` — a single
+    item can be legitimately enrolled in MULTIPLE promos, but ML only
+    actually APPLIES the one with the lowest price and leaves the rest
+    PROGRAMMED (scheduled, not currently applied). This distinction is not
+    stored anywhere and must be derived here:
 
-def reconcile_started_promotions(mla_id: str, promotions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Reconciles a stale "more than one `started`" table read against the
-    LIVE proxy read.
-
-    `ml_item_promotions` is upsert-only with no stale cleanup: a promo that
-    was bumped out of `started` (e.g. superseded, cancelled) can linger as
-    `started` in the table. More than one `started` row for the same MLA is
-    impossible in reality (ML only ever has one truly applied promo per
-    item) — a stale-signal trigger for reconciling against the live read.
-
-    Fast path (0 or 1 `started`): returns `promotions` unchanged, with NO
-    extra live call — the common case stays table-only.
-
-    Reconcile path (>1 `started`): reads `ml_webhook_client.get_item_promotions`
-    (a BARE LIST of promo entries keyed by `id`, not a `{"promotions": [...]}`
-    wrapper — see `MLWebhookClient.get_item_promotions`) and, for each table
-    promo whose `promotion_id` matches a live entry's `id`, OVERRIDES the
-    table's `status` with the live one (live is the source of truth for the
-    applied state). A table promo with no matching live entry is left
-    unchanged — the live read may simply not include exotic types, and a
-    graceful "still showing the stale table value" is safer than guessing.
-
-    Graceful degradation: if the live read raises or returns `None`/falsy,
-    logs a warning and returns `promotions` UNCHANGED (never 500s) — a
-    multi-started display is an acceptable fallback vs. a broken panel.
+      - `status != 'started'` (i.e. `candidate`): `application_status = None`
+        (not applied, nothing to derive — "available to apply").
+      - `status == 'started'`: compute the minimum non-null `price` among
+        all started promos in `promociones`. A started promo is `'active'`
+        when its `price is None` (missing price -> shown as active, never
+        silently discarded) OR its `price == min_price`. Every other started
+        promo is `'programmed'`.
+      - Ties on the minimum price -> ALL tied promos are marked `'active'`
+        (a PM decision, not something this function should pick one for).
+      - All-null prices among the started promos -> all `'active'` (no
+        minimum to compare against).
+      - Comparison spans ALL started promos regardless of `promotion_type`
+        (SMART/DEAL/SELLER_CAMPAIGN are compared on price, not per-type).
 
     Args:
-        mla_id: The item ID (e.g. MLA2361127120).
-        promotions: Table rows from `fetch_item_promotions` (mutated
-            in-place and also returned).
+        promociones: A single MLA's promo rows (mutated in place and also
+            returned).
 
     Returns:
-        `promotions`, with `status` reconciled against live when needed.
+        `promociones`, with `application_status` set on each entry.
     """
-    started_count = sum(1 for promo in promotions if promo.get("status") == "started")
-    if started_count <= 1:
-        return promotions
+    started = [promo for promo in promociones if promo.get("status") == "started"]
+    if not started:
+        for promo in promociones:
+            if promo.get("status") != "started":
+                promo["application_status"] = None
+        return promociones
 
-    logger.warning(
-        "ml_item_promotions: %d 'started' promos for %s (stale signal, expected <=1) — reconciling against live",
-        started_count,
-        mla_id,
-    )
+    prices = [promo.get("price") for promo in started if promo.get("price") is not None]
+    min_price = min(prices) if prices else None
 
-    try:
-        live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
-    except Exception as e:
-        logger.warning("Live reconcile read failed for %s: %s; returning table data unchanged", mla_id, e)
-        return promotions
+    for promo in promociones:
+        if promo.get("status") != "started":
+            promo["application_status"] = None
+            continue
+        price = promo.get("price")
+        if price is None or (min_price is not None and price == min_price):
+            promo["application_status"] = "active"
+        else:
+            promo["application_status"] = "programmed"
 
-    if not live:
-        logger.warning(
-            "Live reconcile read returned no data for %s; returning table data unchanged",
-            mla_id,
-        )
-        return promotions
-
-    live_status_by_id: Dict[str, Optional[str]] = {
-        entry.get("id"): entry.get("status") for entry in live if entry.get("id")
-    }
-
-    for promo in promotions:
-        live_status = live_status_by_id.get(promo.get("promotion_id"))
-        if live_status is not None:
-            promo["status"] = live_status
-
-    return promotions
+    return promociones

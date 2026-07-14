@@ -22,10 +22,10 @@ from app.core.logging import get_logger
 from app.models.usuario import Usuario
 from app.services.ml_promotions_pricing import enriquecer_markup_por_promo
 from app.services.ml_promotions_service import (
+    derivar_application_status,
     fetch_item_promotions,
     fetch_promotion_items,
     fetch_promotions,
-    reconcile_started_promotions,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.permisos_service import PermisosService
@@ -79,6 +79,14 @@ class ItemPromotion(BaseModel):
     suggested_discounted_price: Optional[float] = None
     payload: Dict[str, Any] = {}
     updated_at: Optional[Any] = None
+    start_date: Optional[str] = None
+    finish_date: Optional[str] = None
+    application_status: Optional[str] = None
+    """Derived (never stored): `'active'` for the `started` promo with the
+    minimum price on this item (ties -> all tied are `'active'`; null price
+    -> `'active'`), `'programmed'` for other `started` promos, `None` for
+    `candidate` (not applied). Only meaningful on
+    `GET /promociones/item/{mla_id}`; see `derivar_application_status`."""
     nuestro_markup: Optional[float] = None
     """Seller's markup percentage on the promo's effective revenue
     (effective discounted price + ML co-funding when applicable). Computed
@@ -290,12 +298,12 @@ def obtener_promociones_item(
         # active_only: the backfilled table is upsert-only (no stale cleanup), so
         # finished promos can linger — show only candidate|started as real options.
         promotions = fetch_item_promotions(mla_id, active_only=True)
-        # The table is upsert-only with no stale cleanup: more than one
-        # 'started' row for the same MLA is impossible in reality (ML only
-        # ever has one truly applied promo) -> stale signal, reconcile
-        # against the live proxy read. No-op (no extra call) when 0/1
-        # started, which is the common case.
-        promotions = reconcile_started_promotions(mla_id, promotions)
+        # A single item can be legitimately `started` (enrolled) in MULTIPLE
+        # promos at once: ML applies only the lowest-price one and leaves
+        # the rest programmed (scheduled). ML's API does not distinguish
+        # active from programmed (both show `started`), so it must be
+        # derived here.
+        promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
         return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
     except RuntimeError as e:

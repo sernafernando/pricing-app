@@ -40,13 +40,14 @@ logger = get_logger(__name__)
 def _co_funding_amount(promo: Dict[str, Any]) -> float:
     """ML's co-funded portion of the discount, in currency units.
 
-    SMART: `(meli_percentage / 100) * original_price`, read from
-    `promo["payload"]["meli_percentage"]`. Any other promo type
+    SMART and PRE_NEGOTIATED: `(meli_percentage / 100) * original_price`,
+    read from `promo["payload"]["meli_percentage"]` — PRE_NEGOTIATED has the
+    same ML co-funding contract as SMART. Any other promo type
     (SELLER_CAMPAIGN, DEAL, PRICE_DISCOUNT, unknown) funds nothing: 0.0.
     Defensive against missing/None inputs — always returns 0.0 on any
     unresolvable input rather than raising.
     """
-    if promo.get("promotion_type") != "SMART":
+    if promo.get("promotion_type") not in ("SMART", "PRE_NEGOTIATED"):
         return 0.0
 
     payload = promo.get("payload") or {}

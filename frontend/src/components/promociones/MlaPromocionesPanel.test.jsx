@@ -92,6 +92,73 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByText(/cofinanciación ml: 20%/i)).toBeInTheDocument();
   });
 
+  it('shows the seller-cost line for PRE_NEGOTIATED promos, like SMART', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PN1',
+            promotion_type: 'PRE_NEGOTIATED',
+            name: 'Pre-negotiated promo',
+            price: 100,
+            payload: { seller_percentage: 30, meli_percentage: 20 },
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Pre-negotiated promo')).toBeInTheDocument());
+    expect(screen.getByText(/costo vendedor: 30%/i)).toBeInTheDocument();
+    expect(screen.getByText(/cofinanciación ml: 20%/i)).toBeInTheDocument();
+  });
+
+  it('shows a compact date range when both start_date and finish_date are present', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'D1',
+            promotion_type: 'DEAL',
+            name: 'Deal with dates',
+            price: 80,
+            start_date: '2026-07-01T00:00:00',
+            finish_date: '2026-07-31T23:59:59',
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Deal with dates')).toBeInTheDocument());
+    expect(screen.getByText('01/07 – 31/07')).toBeInTheDocument();
+  });
+
+  it('shows no date range when start_date or finish_date is missing', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'PRICE_DISCOUNT',
+            name: 'No dates promo',
+            price: 50,
+            start_date: null,
+            finish_date: null,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('No dates promo')).toBeInTheDocument());
+    expect(screen.queryByText(/invalid date/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/–/)).not.toBeInTheDocument();
+  });
+
   it('hides SMART seller-cost gracefully when payload is absent', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
@@ -173,11 +240,18 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByText(/tu markup: n\/a/i)).toBeInTheDocument();
   });
 
-  it('shows an "Aplicada" badge on promo rows with status started', async () => {
+  it('shows an "Aplicada" badge on promo rows with application_status active', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
-          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Smart promo', status: 'started', price: 100 },
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            status: 'started',
+            application_status: 'active',
+            price: 100,
+          },
         ],
       },
     });
@@ -188,11 +262,41 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByText(/^aplicada$/i)).toBeInTheDocument();
   });
 
-  it('does not show the "Aplicada" badge on promo rows with status candidate', async () => {
+  it('shows a "Programada" badge (not "Aplicada") on promo rows with application_status programmed', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
-          { promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', status: 'candidate', price: 80 },
+          {
+            promotion_id: 'P1',
+            promotion_type: 'DEAL',
+            name: 'Deal promo',
+            status: 'started',
+            application_status: 'programmed',
+            price: 900,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
+    expect(screen.getByText(/^programada$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^aplicada$/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show the "Aplicada" or "Programada" badge on candidate promo rows', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'DEAL',
+            name: 'Deal promo',
+            status: 'candidate',
+            application_status: null,
+            price: 80,
+          },
         ],
       },
     });
@@ -201,15 +305,37 @@ describe('MlaPromocionesPanel', () => {
 
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
     expect(screen.queryByText(/^aplicada$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^programada$/i)).not.toBeInTheDocument();
   });
 
-  it('marks each started row independently among multiple promos', async () => {
+  it('marks each started row independently among multiple promos (active vs programmed)', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
-          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Smart promo', status: 'started', price: 100 },
-          { promotion_id: 'P2', promotion_type: 'DEAL', name: 'Deal promo', status: 'candidate', price: 80 },
-          { promotion_id: 'P3', promotion_type: 'SELLER_CAMPAIGN', name: 'Campaign', status: 'started', price: 50 },
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            status: 'started',
+            application_status: 'programmed',
+            price: 100,
+          },
+          {
+            promotion_id: 'P2',
+            promotion_type: 'DEAL',
+            name: 'Deal promo',
+            status: 'candidate',
+            application_status: null,
+            price: 80,
+          },
+          {
+            promotion_id: 'P3',
+            promotion_type: 'SELLER_CAMPAIGN',
+            name: 'Campaign',
+            status: 'started',
+            application_status: 'active',
+            price: 50,
+          },
         ],
       },
     });
@@ -217,7 +343,38 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
-    expect(screen.getAllByText(/^aplicada$/i)).toHaveLength(2);
+    expect(screen.getAllByText(/^aplicada$/i)).toHaveLength(1);
+    expect(screen.getAllByText(/^programada$/i)).toHaveLength(1);
+  });
+
+  it('shows the Desaplicar button for both active and programmed started promos', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'DEAL',
+            name: 'Active promo',
+            status: 'started',
+            application_status: 'active',
+            price: 50,
+          },
+          {
+            promotion_id: 'P2',
+            promotion_type: 'SMART',
+            name: 'Programmed promo',
+            status: 'started',
+            application_status: 'programmed',
+            price: 90,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Active promo')).toBeInTheDocument());
+    expect(screen.getAllByRole('button', { name: /^desaplicar$/i })).toHaveLength(2);
   });
 
   it('shows the promo name (not the cryptic type) as the primary label', async () => {
