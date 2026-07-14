@@ -317,6 +317,63 @@ class TestItemPromotions:
         assert body["promotions"][0]["nuestro_markup"] == 22.3
         assert body["promotions"][1]["nuestro_markup"] is None
 
+
+class TestMarkupParaPrecio:
+    """GET /api/promociones/item/{mla_id}/markup?price=<float>"""
+
+    def test_missing_permission_returns_403(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=False)
+        try:
+            with patch("app.routers.ml_promotions.PermisosService", return_value=fake_service):
+                response = client.get("/api/promociones/item/MLA1/markup", params={"price": 850})
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 403
+        assert "promos.ver" in fake_service.calls
+
+    def test_happy_path_returns_markup(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.markup_para_precio", return_value=18.5) as mock_markup,
+            ):
+                response = client.get("/api/promociones/item/MLA1/markup", params={"price": 850})
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["price"] == 850
+        assert body["nuestro_markup"] == 18.5
+        mock_markup.assert_called_once_with(mock_markup.call_args.args[0], "MLA1", 850.0)
+
+    def test_price_zero_or_negative_returns_422(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with patch("app.routers.ml_promotions.PermisosService", return_value=fake_service):
+                response = client.get("/api/promociones/item/MLA1/markup", params={"price": 0})
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 422
+
+    def test_unresolvable_cost_returns_200_with_null_markup(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.markup_para_precio", return_value=None),
+            ):
+                response = client.get("/api/promociones/item/MLA1/markup", params={"price": 850})
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["nuestro_markup"] is None
+
     def test_db_unavailable_still_503_before_enrichment(self, client: TestClient) -> None:
         """R5.3 — ML_WEBHOOK_DB_URL unset behavior is unchanged: 503 happens
         before enrichment is ever attempted."""

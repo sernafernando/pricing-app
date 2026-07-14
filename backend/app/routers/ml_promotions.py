@@ -20,7 +20,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.usuario import Usuario
-from app.services.ml_promotions_pricing import enriquecer_markup_por_promo
+from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio
 from app.services.ml_promotions_service import (
     derivar_application_status,
     fetch_item_promotions,
@@ -112,6 +112,19 @@ class ItemPromotionsList(BaseModel):
     mla: str
     count: int
     promotions: List[ItemPromotion]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MarkupParaPrecioResponse(BaseModel):
+    """Respuesta del markup para un precio candidato de un MLA."""
+
+    price: float
+    nuestro_markup: Optional[float] = None
+    """Seller markup percentage for `price`, computed with the SAME chain
+    as `nuestro_markup` on `GET /promociones/item/{mla_id}` (no
+    co-funding — plain-price markup). None when cost/publication is
+    unresolvable."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -318,6 +331,23 @@ def obtener_promociones_item(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar promociones del item",
         )
+
+
+@router.get("/item/{mla_id}/markup", response_model=MarkupParaPrecioResponse)
+def obtener_markup_para_precio(
+    mla_id: str,
+    price: float = Query(..., gt=0, description="Precio candidato (debe ser > 0)"),
+    current_user: Usuario = Depends(require_promos_read()),
+    db=Depends(get_db),
+) -> MarkupParaPrecioResponse:
+    """
+    Devuelve el markup del vendedor para un precio candidato de un MLA,
+    reutilizando la misma cadena de cálculo que `nuestro_markup` (ver
+    `markup_para_precio`). Usado por el input de precio manual de
+    SELLER_CAMPAIGN/DEAL en el frontend. Requiere permiso: promos.ver
+    """
+    nuestro_markup = markup_para_precio(db, mla_id, price)
+    return MarkupParaPrecioResponse(price=price, nuestro_markup=nuestro_markup)
 
 
 @router.get("/{promotion_id}/items", response_model=PromotionItemsList)

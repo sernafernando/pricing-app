@@ -77,29 +77,37 @@ def _effective_discounted_price(promo: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
-    in `promociones`, mutating them in place and returning the same list.
+class _PricingContext:
+    """Resolved cost/pricelist/commission context for an MLA, shared by
+    `enriquecer_markup_por_promo` and `markup_para_precio`."""
 
-    Resolves item/pricelist/cost/commission context ONCE per request from
-    `mla`. If the publication or the product cost cannot be resolved, every
-    promo in the list gets `nuestro_markup = None` (no exception).
-    """
-    if not promociones:
-        return promociones
+    def __init__(
+        self,
+        costo_ars: float,
+        comision_base: float,
+        iva: float,
+        costo_envio: float,
+        grupo_id: int,
+    ) -> None:
+        self.costo_ars = costo_ars
+        self.comision_base = comision_base
+        self.iva = iva
+        self.costo_envio = costo_envio
+        self.grupo_id = grupo_id
 
+
+def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]:
+    """Resolves item/pricelist/cost/commission context ONCE for `mla`.
+    Returns None (never raises) when the publication, product cost, or
+    commission base cannot be resolved."""
     try:
         publicacion = db.query(PublicacionML).filter(PublicacionML.mla == mla).first()
         if not publicacion:
-            for promo in promociones:
-                promo["nuestro_markup"] = None
-            return promociones
+            return None
 
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == publicacion.item_id).first()
         if not producto or not producto.costo:
-            for promo in promociones:
-                promo["nuestro_markup"] = None
-            return promociones
+            return None
 
         tipo_cambio = None
         if producto.moneda_costo == "USD":
@@ -111,11 +119,33 @@ def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[st
         costo_envio = resolver_costo_envio(db, producto)
     except Exception as e:
         logger.warning("Error resolving pricing context for mla %s: %s", mla, e)
-        for promo in promociones:
-            promo["nuestro_markup"] = None
-        return promociones
+        return None
 
     if comision_base is None:
+        return None
+
+    return _PricingContext(
+        costo_ars=costo_ars,
+        comision_base=comision_base,
+        iva=producto.iva,
+        costo_envio=costo_envio,
+        grupo_id=grupo_id,
+    )
+
+
+def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
+    in `promociones`, mutating them in place and returning the same list.
+
+    Resolves item/pricelist/cost/commission context ONCE per request from
+    `mla`. If the publication or the product cost cannot be resolved, every
+    promo in the list gets `nuestro_markup = None` (no exception).
+    """
+    if not promociones:
+        return promociones
+
+    context = _resolve_pricing_context(db, mla)
+    if context is None:
         for promo in promociones:
             promo["nuestro_markup"] = None
         return promociones
@@ -124,14 +154,43 @@ def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[st
         promo["nuestro_markup"] = _calcular_nuestro_markup(
             db=db,
             promo=promo,
-            costo_ars=costo_ars,
-            comision_base=comision_base,
-            iva=producto.iva,
-            costo_envio=costo_envio,
-            grupo_id=grupo_id,
+            costo_ars=context.costo_ars,
+            comision_base=context.comision_base,
+            iva=context.iva,
+            costo_envio=context.costo_envio,
+            grupo_id=context.grupo_id,
         )
 
     return promociones
+
+
+def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
+    """Seller markup percentage for a candidate `price` on `mla`, reusing
+    the SAME cost/pricelist/commission resolution and price->markup chain
+    as `enriquecer_markup_por_promo`, but on the plain `price` (no
+    co-funding — used for SELLER_CAMPAIGN/DEAL, which are seller-funded).
+
+    Never raises: returns None when the cost/publication context is
+    unresolvable, or when the markup computation itself fails.
+    """
+    context = _resolve_pricing_context(db, mla)
+    if context is None:
+        return None
+
+    try:
+        comisiones = calcular_comision_ml_total(price, context.comision_base, context.iva, db=db)
+        limpio = calcular_limpio(
+            price,
+            context.iva,
+            context.costo_envio,
+            comisiones["comision_total"],
+            db=db,
+            grupo_id=context.grupo_id,
+        )
+        return calcular_markup(limpio, context.costo_ars) * 100
+    except Exception as e:
+        logger.warning("Error calculando markup_para_precio para mla %s, price %s: %s", mla, price, e)
+        return None
 
 
 def _calcular_nuestro_markup(

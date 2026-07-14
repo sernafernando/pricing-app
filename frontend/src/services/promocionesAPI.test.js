@@ -48,4 +48,15 @@ describe('promocionesAPI (write methods, FE-C)', () => {
       params: { promotion_id: 'P1', promotion_type: 'DEAL' },
     });
   });
+
+  it('getMarkupParaPrecio gets /promociones/item/{mla}/markup with the given price', async () => {
+    const { promocionesAPI } = await import('./api');
+    mockApi.get.mockResolvedValue({ data: { price: 850, nuestro_markup: 18.5 } });
+
+    await promocionesAPI.getMarkupParaPrecio('MLA123', 850);
+
+    expect(mockApi.get).toHaveBeenCalledWith('/promociones/item/MLA123/markup', {
+      params: { price: 850 },
+    });
+  });
 });

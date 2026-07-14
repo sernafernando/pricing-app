@@ -147,6 +147,9 @@ export const promocionesAPI = {
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
   // for SMART itself, so the FE never sends offer_id here either.
   deletePromocionItem: (mlaId, params) => api.delete(`/promociones/item/${mlaId}`, { params }),
+  // Seller markup for a candidate price (used by the manual price input on
+  // SELLER_CAMPAIGN/DEAL apply controls). Returns { price, nuestro_markup }.
+  getMarkupParaPrecio: (mlaId, price) => api.get(`/promociones/item/${mlaId}/markup`, { params: { price } }),
 };
 
 export const pricingAPI = {

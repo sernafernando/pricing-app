@@ -231,6 +231,28 @@
   cursor: pointer;
 }
 
+.priceInput {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.priceInput input[type='number'] {
+  width: 90px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.priceMarkup {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .feedbackSuccess {
   font-size: 12px;
   color: var(--success, var(--text-primary));
