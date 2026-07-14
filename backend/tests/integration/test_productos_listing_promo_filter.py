@@ -80,6 +80,27 @@ class TestPromoTiposAbsentIsNoOp:
         mock_helper.assert_not_called()
         assert result.total == 2
 
+    def test_whitespace_or_comma_only_promo_tipos_is_noop(self, db) -> None:
+        """A supplied-but-empty promo_tipos (e.g. "  ,  ") parses to zero
+        types -> same no-op as an absent param (spec: empty promo_tipos skips
+        the filter). Pinned so this stays intentional: helper never called,
+        the full catalog is returned (this is NOT a leak — the listing is
+        already accessible unfiltered; the filter only narrows)."""
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type"
+        ) as mock_helper:
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="  ,  "
+            )
+
+        mock_helper.assert_not_called()
+        assert result.total == 2
+
 
 class TestEmptySetGuard:
     """Empty-set guard: promo_tipos present but the helper finds no matching
