@@ -137,9 +137,11 @@ export const productosAPI = {
 };
 
 export const promocionesAPI = {
-  // Read-only in FE-A. The write/apply POST is added in a later PR (FE-C)
-  // once the write endpoint availability probe + apply control land.
   getPromocionesItem: (mlaId) => api.get(`/promociones/item/${mlaId}`),
+  // Enroll a promotion for a given MLA (real ML price write). `body` shape:
+  // - SELLER_CAMPAIGN/DEAL: { promotion_id, promotion_type, deal_price? }
+  // - SMART: { promotion_id, promotion_type } — backend derives offer_id/price.
+  postPromocionItem: (mlaId, body) => api.post(`/promociones/item/${mlaId}`, body),
 };
 
 export const pricingAPI = {

@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
+import PromoApplyControl from './PromoApplyControl';
 import styles from './promociones.module.css';
 
 // SELLER_CAMPAIGN/DEAL/SMART can be enrolled via the apply control (FE-C).
@@ -25,6 +26,17 @@ function formatPrice(value) {
 function MlaPromocionesPanel({ mla, promosCacheRef }) {
   const fetcher = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
   const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
+  const reloadTimerRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   if (loading) {
     return <div className={styles.panelState}>Cargando promociones...</div>;
@@ -76,11 +88,26 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                 {meliPct && `Cofinanciación ML: ${meliPct}`}
               </span>
             )}
-            {/* Apply control slot — real enroll action lands in FE-C. */}
             {applicable && (
-              <button type="button" className={styles.applySlot} disabled title="Disponible próximamente">
-                Aplicar
-              </button>
+              <PromoApplyControl
+                mla={mla}
+                promotion={promo}
+                onApplied={() => {
+                  // Invalidate the L2 cache so a manual/later refresh re-reads;
+                  // do NOT assert the final state from this reload alone
+                  // (eventual consistency — the table stays the source of truth).
+                  // Clear any prior pending timer before scheduling a new one, and
+                  // clear on unmount so we never call reload() after the panel
+                  // (and the underlying setState) is gone.
+                  if (reloadTimerRef.current) {
+                    clearTimeout(reloadTimerRef.current);
+                  }
+                  reloadTimerRef.current = setTimeout(() => {
+                    reloadTimerRef.current = null;
+                    reload();
+                  }, 4000);
+                }}
+              />
             )}
           </li>
         );
