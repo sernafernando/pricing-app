@@ -65,6 +65,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
         const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
         const sellerPct = formatPercentage(promo.payload?.seller_percentage);
         const meliPct = formatPercentage(promo.payload?.meli_percentage);
+        // `price` is 0 for candidate promos (not yet applied); fall back to the
+        // suggested discounted price so the row shows the price it WOULD apply
+        // at, not $0. Started promos (SMART/LIGHTNING) carry a real `price`.
+        const effectivePrice = promo.price > 0 ? promo.price : promo.suggested_discounted_price;
 
         return (
           <li
@@ -76,8 +80,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
             </span>
             <span className={styles.promoName}>{promo.name || promo.promotion_id}</span>
             <span className={styles.promoPrice}>
-              {formatPrice(promo.price)}
-              {promo.original_price != null && promo.original_price !== promo.price && (
+              {formatPrice(effectivePrice)}
+              {promo.original_price != null && promo.original_price !== effectivePrice && (
                 <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
               )}
             </span>

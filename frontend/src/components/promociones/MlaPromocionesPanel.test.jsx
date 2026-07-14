@@ -44,6 +44,30 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.queryByText(/cargando promociones/i)).not.toBeInTheDocument());
   });
 
+  it('shows the suggested price for candidate promos whose price is 0', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'C1',
+            promotion_type: 'SELLER_CAMPAIGN',
+            name: 'Campaign',
+            price: 0,
+            suggested_discounted_price: 999,
+            original_price: 1200,
+            payload: {},
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Campaign')).toBeInTheDocument());
+    // Candidate promo: shows the price it WOULD apply at (suggested), not $0.
+    expect(screen.getByText('$999')).toBeInTheDocument();
+    expect(screen.queryByText('$0')).not.toBeInTheDocument();
+  });
+
   it('renders both applicable and read-only groups distinctly', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
