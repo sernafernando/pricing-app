@@ -215,12 +215,12 @@ def enroll_one_item(
     deal_price: Optional[float] = None,
     top_deal_price: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Enrolls a single item in a promotion (SELLER_CAMPAIGN, DEAL, or SMART).
+    """Enrolls a single item in a promotion (SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED).
 
     Args:
         mla_id: The item ID (e.g. MLA2361127120).
         promotion_id: Target promotion ID.
-        promotion_type: SELLER_CAMPAIGN, DEAL, or SMART.
+        promotion_type: SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED.
         deal_price: Discounted price to submit (SELLER_CAMPAIGN/DEAL only).
             If None, defaults to the item's fresh
             `suggested_discounted_price`. Ignored for SMART, whose price is
@@ -381,11 +381,11 @@ def enroll_one_item(
 
 
 def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
-    """Removes a single item from a promotion (SELLER_CAMPAIGN, DEAL, or SMART).
+    """Removes a single item from a promotion (SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED).
 
     Args:
         mla_id: The item ID.
-        promotion_type: SELLER_CAMPAIGN, DEAL, or SMART.
+        promotion_type: SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED.
         promotion_id: Target promotion ID.
 
     SMART specifics: the live item is re-read immediately before the

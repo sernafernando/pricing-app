@@ -532,6 +532,31 @@ describe('PromoApplyControl', () => {
       expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
     });
 
+    it('does NOT query the markup for an out-of-range price', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '1200'); // above max_discounted_price (950)
+
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
+    });
+
+    it('does NOT query the markup in the Desaplicar flow (started range promo)', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo({ status: 'started' })} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(screen.queryByLabelText(/precio/i)).not.toBeInTheDocument();
+      expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
+    });
+
     it('does NOT show a price input for SMART (backend derives)', async () => {
       const user = userEvent.setup({ delay: null });
       render(
