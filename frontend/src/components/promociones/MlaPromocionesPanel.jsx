@@ -18,6 +18,13 @@ function formatPrice(value) {
   return `$${Number(value).toLocaleString('es-AR')}`;
 }
 
+// Backend-computed markup on the promo's effective revenue (server-side
+// pricing math). No FE computation — only rendering.
+function formatMarkup(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  return `${Number(value).toFixed(1)}%`;
+}
+
 /**
  * Level 2 panel: promotions of a single MLA.
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
@@ -92,6 +99,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                 {meliPct && `Cofinanciación ML: ${meliPct}`}
               </span>
             )}
+            <span className={styles.promoMarkup}>Tu markup: {formatMarkup(promo.nuestro_markup)}</span>
             {applicable && (
               <PromoApplyControl
                 mla={mla}
