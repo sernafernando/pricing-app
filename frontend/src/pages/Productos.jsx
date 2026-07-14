@@ -17,6 +17,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
 import styles from '../components/promociones/promociones.module.css';
+import PromoFilterBar from '../components/promociones/PromoFilterBar';
 import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
@@ -1362,6 +1363,8 @@ export default function Productos() {
           </div>
         </div>
       )}
+
+      <PromoFilterBar />
 
       <div className="results-info">
         <div>
