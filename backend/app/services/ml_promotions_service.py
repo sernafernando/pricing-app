@@ -156,13 +156,19 @@ def fetch_promotions() -> List[Dict[str, Any]]:
     return result
 
 
-def fetch_item_promotions(mla_id: str) -> List[Dict[str, Any]]:
+def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
     """Lee las promociones aplicables a un MLA puntual desde ml_item_promotions.
 
     ml_item_promotions es la fuente de verdad del estado final del item.
 
     Args:
         mla_id: ID del item (ej: MLA1234567890).
+        active_only: si True, devuelve solo status IN ('candidate','started').
+            La tabla es upsert-only sin limpieza de stale, así que una promo
+            terminada puede quedar con su último estado hasta que un webhook la
+            marque 'finished'. El display (endpoint) usa active_only=True para no
+            mostrar promos terminadas; la reconciliación de escrituras usa el
+            default (False) porque necesita ver el estado crudo.
 
     Returns:
         Lista de promociones del item (dict), con status normalizado a
@@ -171,6 +177,7 @@ def fetch_item_promotions(mla_id: str) -> List[Dict[str, Any]]:
     Raises:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada.
     """
+    status_clause = "AND status IN ('candidate', 'started')" if active_only else ""
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
@@ -178,6 +185,7 @@ def fetch_item_promotions(mla_id: str) -> List[Dict[str, Any]]:
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
                 FROM ml_item_promotions
                 WHERE mla = :mla
+                {status_clause}
                 ORDER BY updated_at DESC, promotion_id
             """),
             {"mla": mla_id},

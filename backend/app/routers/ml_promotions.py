@@ -276,7 +276,9 @@ def obtener_promociones_item(
     Requiere permiso: promos.ver
     """
     try:
-        promotions = fetch_item_promotions(mla_id)
+        # active_only: the backfilled table is upsert-only (no stale cleanup), so
+        # finished promos can linger — show only candidate|started as real options.
+        promotions = fetch_item_promotions(mla_id, active_only=True)
         return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
