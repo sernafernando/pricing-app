@@ -124,14 +124,17 @@ def reconcile_write_outcome(
     (source of truth), mirroring the `reconciliar_ml_cancelaciones.py`
     precedent: read-then-classify instead of retrying the original write.
 
-    The interpretation of "row present" is DIRECTION-DEPENDENT:
+    The interpretation is DIRECTION-DEPENDENT:
       - operation="enroll": row present (candidate/started/finished) means
         the enrollment IS in effect -> reconciled_applied. Row absent ->
         reconciled_not_applied (unless slow_consistency, see below).
-      - operation="remove": row absent means the removal DID take effect
-        (the price is no longer discounted) -> reconciled_applied. Row
-        still present means the removal did NOT take effect (item is
-        still discounted) -> reconciled_not_applied (unless
+      - operation="remove": keyed on STATUS, not presence. A successful
+        DELETE returns the item to status='candidate' — the row PERSISTS
+        in `ml_item_promotions`, it does NOT disappear. So "removed" means
+        the item is no longer ACTIVELY enrolled: status != 'started'
+        (row absent, or status 'candidate'/'finished') -> reconciled_applied.
+        Only status == 'started' means the removal did NOT take effect
+        (still actively enrolled) -> reconciled_not_applied (unless
         slow_consistency, see below).
 
     slow_consistency (True for SMART, ~10-18s to settle vs ~2s for
@@ -163,7 +166,14 @@ def reconcile_write_outcome(
             break
 
     row_present = matched_row is not None
-    applied = (not row_present) if operation == "remove" else row_present
+    matched_status = matched_row.get("status") if matched_row is not None else None
+    if operation == "remove":
+        # A successful DELETE returns the item to 'candidate' — the row
+        # PERSISTS, so presence != "still enrolled". Removal took effect
+        # unless the item is still actively enrolled (status 'started').
+        applied = matched_status != "started"
+    else:  # enroll
+        applied = row_present
 
     if applied:
         status = "reconciled_applied"

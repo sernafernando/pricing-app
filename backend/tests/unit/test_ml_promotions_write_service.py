@@ -778,11 +778,12 @@ class TestAmbiguousReconciliation:
         mock_remove.assert_called_once()
         assert result["status"] == "reconciled_applied"
 
-    def test_remove_5xx_row_still_present_after_ambiguous_delete_means_not_applied(
+    def test_remove_5xx_row_still_started_after_ambiguous_delete_means_not_applied(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mirror case: the row is still PRESENT after an ambiguous DELETE ->
-        the removal did NOT take effect -> reconciled_not_applied."""
+        """Mirror case: the row is still status='started' (still actively
+        enrolled) after an ambiguous DELETE -> the removal did NOT take
+        effect -> reconciled_not_applied."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -801,6 +802,57 @@ class TestAmbiguousReconciliation:
 
         mock_remove.assert_called_once()
         assert result["status"] == "reconciled_not_applied"
+
+    def test_remove_5xx_row_present_as_candidate_after_ambiguous_delete_means_applied(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """BUG FIX regression: a successful DELETE returns the item to
+        status='candidate' — the row PERSISTS in ml_item_promotions, it does
+        NOT disappear. Presence alone must NOT be misread as "not applied";
+        only status='started' (still actively enrolled) means the removal
+        did not take effect. A persisted 'candidate' row means removed."""
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": False, "status_code": 500, "ambiguous": True, "body": None},
+            ) as mock_remove,
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA123456789", "promotion_id": "DEAL-1", "status": "candidate"}],
+            ),
+        ):
+            result = write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
+
+        mock_remove.assert_called_once()
+        assert result["status"] == "reconciled_applied"
+
+    def test_remove_5xx_row_finished_after_ambiguous_delete_means_applied(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """status='finished' also means no longer actively enrolled ->
+        removal applied."""
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": False, "status_code": 500, "ambiguous": True, "body": None},
+            ) as mock_remove,
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA123456789", "promotion_id": "DEAL-1", "status": "finished"}],
+            ),
+        ):
+            result = write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
+
+        mock_remove.assert_called_once()
+        assert result["status"] == "reconciled_applied"
 
 
 class TestSmartAmbiguousReconciliation:
