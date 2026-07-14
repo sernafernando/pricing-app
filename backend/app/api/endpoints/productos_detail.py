@@ -153,9 +153,20 @@ def obtener_detalle_producto(
 
 @router.get("/productos/{item_id}/mercadolibre")
 async def obtener_datos_ml_producto(
-    item_id: int, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
+    item_id: int,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
+    lite: bool = False,
 ):
-    """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)"""
+    """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)
+
+    `lite=True` skips the live ml-webhook enrichment (`get_items_batch`) and
+    returns only the persisted fields (mla, lista_nombre, pricelist_id,
+    publication_status, persisted precios). Used by the promotions panel,
+    which never reads the live-enriched extras (precio_ml, catalog_product_id).
+    Default (`lite=False`) preserves the full response for existing callers
+    (e.g. ModalInfoProducto).
+    """
     from app.models.publicacion_ml import PublicacionML
     from app.services.ml_webhook_client import ml_webhook_client
     from sqlalchemy import text
@@ -197,8 +208,9 @@ async def obtener_datos_ml_producto(
                     {"pricelist_id": pricelist_id, "precio": float(precio) if precio else None}
                 )
 
-    # Obtener datos de ML via webhook service
-    if mla_ids:
+    # Obtener datos de ML via webhook service (live call — skipped in `lite` mode,
+    # which the promotions panel uses since it only needs persisted fields)
+    if mla_ids and not lite:
         try:
             ml_items = await ml_webhook_client.get_items_batch(mla_ids)
             for mla_id, ml_data in ml_items.items():

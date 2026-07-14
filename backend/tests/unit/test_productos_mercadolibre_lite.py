@@ -1,0 +1,99 @@
+"""
+Unit tests for the `lite` query param on
+GET /productos/{item_id}/mercadolibre.
+
+The promotions panel (ProductoMLAsPanel) only needs persisted fields
+(mla, lista_nombre, pricelist_id, publication_status). It does NOT need
+the live ml-webhook enrichment (precio_ml, catalog_product_id, etc).
+
+`lite=true` must skip the live `ml_webhook_client.get_items_batch(...)` call.
+`lite` absent/false must keep calling it (regression — ModalInfoProducto
+depends on the full response).
+
+NOTE: this is a unit test (mocked `db`) rather than a full TestClient
+integration test. `obtener_datos_ml_producto` uses raw Postgres SQL
+(`mla = ANY(:mla_ids)`) which the sqlite-backed test DB cannot execute,
+so we drive the endpoint function directly with a mocked session instead.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.api.endpoints.productos_detail import obtener_datos_ml_producto
+
+
+def _make_db(pub_row) -> MagicMock:
+    """Build a mocked db.query()/db.execute() session returning one publication."""
+    db = MagicMock()
+
+    # db.query(PublicacionML).filter(...).all() -> [pub_row]
+    db.query.return_value.filter.return_value.all.return_value = [pub_row]
+
+    # every db.execute(...) call (precios_ml, catalog status, pub status) -> empty
+    empty_result = MagicMock()
+    empty_result.fetchall.return_value = []
+    db.execute.return_value = empty_result
+
+    return db
+
+
+def _pub_row() -> SimpleNamespace:
+    return SimpleNamespace(
+        mla="MLA9101",
+        item_title="Producto test lite",
+        lista_nombre="Clásica",
+        pricelist_id=4,
+    )
+
+
+class TestMercadolibreLiteParam:
+    def test_lite_true_skips_live_batch_call(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with patch(
+            "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+            new_callable=AsyncMock,
+        ) as mock_batch:
+            result = asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True)
+            )
+
+        mock_batch.assert_not_called()
+
+        publicaciones = result["publicaciones_ml"]
+        assert len(publicaciones) == 1
+        assert publicaciones[0]["mla"] == "MLA9101"
+        assert publicaciones[0]["lista_nombre"] == "Clásica"
+        assert publicaciones[0]["pricelist_id"] == 4
+
+    def test_lite_absent_still_calls_live_batch(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with patch(
+            "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+            new_callable=AsyncMock,
+            return_value={},
+        ) as mock_batch:
+            asyncio.run(obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user))
+
+        mock_batch.assert_called_once()
+
+    def test_lite_false_still_calls_live_batch(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with patch(
+            "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
+            new_callable=AsyncMock,
+            return_value={},
+        ) as mock_batch:
+            asyncio.run(
+                obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=False)
+            )
+
+        mock_batch.assert_called_once()

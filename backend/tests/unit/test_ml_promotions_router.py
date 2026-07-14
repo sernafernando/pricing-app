@@ -233,7 +233,7 @@ class TestItemPromotions:
                             "updated_at": None,
                         }
                     ],
-                ),
+                ) as mock_fetch,
             ):
                 response = client.get("/api/promociones/item/MLA123456789")
         finally:
@@ -243,3 +243,7 @@ class TestItemPromotions:
         body = response.json()
         assert body["count"] == 1
         assert body["promotions"][0]["status"] == "started"
+        # The endpoint must request only candidate|started promotions: the
+        # backfilled ml_item_promotions table is upsert-only with no stale
+        # cleanup, so finished promos would otherwise linger in the display.
+        mock_fetch.assert_called_once_with("MLA123456789", active_only=True)

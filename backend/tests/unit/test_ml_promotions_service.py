@@ -6,8 +6,10 @@ TDD: all tests written BEFORE the implementation.
 
 Spec coverage:
   REQ-1 — fetch_promotions() returns list of dicts from ml_promotions
-  REQ-2 — fetch_item_promotions(mla_id) returns list of dicts from
-          ml_item_promotions, status normalized to candidate|started|finished
+  REQ-2 — fetch_item_promotions(mla_id, active_only=False) returns list of
+          dicts from ml_item_promotions, status normalized to
+          candidate|started|finished; active_only=True adds a
+          status IN ('candidate', 'started') filter for the display path
   REQ-3 — fetch_promotion_items(promotion_id, promotion_type) returns items
           of a specific promotion from ml_item_promotions
   REQ-4 — empty result sets return [] (not None), no exception raised
@@ -185,6 +187,46 @@ class TestFetchItemPromotions:
 
             with pytest.raises(RuntimeError):
                 fetch_item_promotions("MLA123456789")
+
+    def test_active_only_true_adds_status_filter(self) -> None:
+        """active_only=True must filter to candidate|started in the SQL.
+
+        ml_item_promotions is backfilled and upsert-only (no stale cleanup),
+        so a finished promo can linger with its last status until a webhook
+        marks it 'finished'. The display endpoint relies on this filter to
+        avoid showing terminated promotions.
+        """
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_item_promotions("MLA123456789", active_only=True)
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "AND status IN ('candidate', 'started')" in executed_query
+
+    def test_active_only_false_omits_status_filter(self) -> None:
+        """active_only=False (default) must NOT filter by status.
+
+        Regression guard: the reconciliation path needs the raw read
+        (including finished promos) to detect stale rows.
+        """
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_item_promotions("MLA123456789")
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "status IN" not in executed_query
 
 
 class TestFetchPromotionItems:
