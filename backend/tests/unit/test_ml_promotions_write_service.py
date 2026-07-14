@@ -34,18 +34,19 @@ def _fake_live_item_promotions(
     min_price: float = 850.0,
     max_price: float = 950.0,
     suggested: float = 900.0,
-) -> dict:
-    return {
-        "promotions": [
-            {
-                "promotion_id": promotion_id,
-                "promotion_type": promotion_type,
-                "min_discounted_price": min_price,
-                "max_discounted_price": max_price,
-                "suggested_discounted_price": suggested,
-            }
-        ]
-    }
+) -> list:
+    """Real shape of ml_webhook_client.get_item_promotions: a BARE LIST,
+    each entry keyed by `id` (not `promotion_id`, not wrapped in
+    `{"promotions": [...]}`)."""
+    return [
+        {
+            "id": promotion_id,
+            "type": promotion_type,
+            "min_discounted_price": min_price,
+            "max_discounted_price": max_price,
+            "suggested_discounted_price": suggested,
+        }
+    ]
 
 
 class TestKillSwitch:
@@ -233,17 +234,15 @@ class TestFailClosedRangeValidation:
         the caller passed no deal_price -> rejected_price_unresolved, no POST."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
-        incomplete_live = {
-            "promotions": [
-                {
-                    "promotion_id": "DEAL-1",
-                    "promotion_type": "DEAL",
-                    "min_discounted_price": None,
-                    "max_discounted_price": None,
-                    "suggested_discounted_price": None,
-                }
-            ]
-        }
+        incomplete_live = [
+            {
+                "id": "DEAL-1",
+                "type": "DEAL",
+                "min_discounted_price": None,
+                "max_discounted_price": None,
+                "suggested_discounted_price": None,
+            }
+        ]
 
         with (
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=incomplete_live),
@@ -270,6 +269,48 @@ class TestFailClosedRangeValidation:
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_out_of_range"
+
+
+class TestLivePayloadRealContract:
+    """Locks the REAL contract of ml_webhook_client.get_item_promotions:
+    a bare LIST (no `{"promotions": [...]}` wrapper) where each entry's
+    promotion id is under `id` (not `promotion_id`). This test must FAIL
+    against the old dict/`promotion_id`-based `_find_live_promotion` and
+    PASS with the corrected list/`id`-based implementation."""
+
+    def test_enroll_finds_promo_in_bare_list_live_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        real_live_payload = [
+            {
+                "id": "C-MLA1332399",
+                "type": "SELLER_CAMPAIGN",
+                "status": "candidate",
+                "original_price": 23223,
+                "price": 0,
+                "min_discounted_price": 7960,
+                "max_discounted_price": 22061.85,
+                "suggested_discounted_price": 18690,
+            }
+        ]
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=real_live_payload,
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA1332399", "C-MLA1332399", "SELLER_CAMPAIGN", deal_price=18690)
+
+        mock_enroll.assert_called_once()
+        assert result["submitted"] is True
+        assert result["status"] == "submitted"
 
 
 class TestInclusiveRangeBoundary:
@@ -353,17 +394,16 @@ def _fake_live_smart_promotions(
     promotion_id: str = "P-MLA1",
     ref_id: str = "CANDIDATE-MLA1-1",
     price: float = 900.0,
-) -> dict:
-    return {
-        "promotions": [
-            {
-                "promotion_id": promotion_id,
-                "promotion_type": "SMART",
-                "ref_id": ref_id,
-                "price": price,
-            }
-        ]
-    }
+) -> list:
+    """Real shape: bare list, entry keyed by `id`."""
+    return [
+        {
+            "id": promotion_id,
+            "type": "SMART",
+            "ref_id": ref_id,
+            "price": price,
+        }
+    ]
 
 
 class TestSmartWritableRegressionGuard:
@@ -509,7 +549,7 @@ class TestSmartEnroll:
     ) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
         live = _fake_live_smart_promotions()
-        live["promotions"][0][missing_field] = None
+        live[0][missing_field] = None
 
         with (
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
@@ -588,7 +628,7 @@ class TestSmartRemove:
     def test_missing_ref_id_rejects_without_deleting(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
         live = _fake_live_smart_promotions()
-        live["promotions"][0]["ref_id"] = None
+        live[0]["ref_id"] = None
 
         with (
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),

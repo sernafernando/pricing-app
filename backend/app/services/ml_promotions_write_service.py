@@ -42,7 +42,7 @@ ambiguous response rather than via a scheduled sweep (see design decision).
 import asyncio
 import inspect
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
 from app.services.ml_promotions_service import fetch_item_promotions
@@ -84,12 +84,20 @@ def _rejected_unsupported_type(promotion_type: str) -> Dict[str, Any]:
     }
 
 
-def _find_live_promotion(live_item_promotions: Optional[Dict[str, Any]], promotion_id: str) -> Optional[Dict[str, Any]]:
-    """Locates the target promotion's pricing block in a live get_item_promotions() payload."""
+def _find_live_promotion(
+    live_item_promotions: Optional[List[Dict[str, Any]]], promotion_id: str
+) -> Optional[Dict[str, Any]]:
+    """Locates the target promotion's pricing block in a live
+    `get_item_promotions()` payload.
+
+    The proxy `GET /api/promociones/item/<MLA>` returns a bare LIST of promo
+    entries (NOT a `{"promotions": [...]}` wrapper), and each entry's
+    promotion id is in the `id` key (which may be absent for PRICE_DISCOUNT).
+    """
     if not live_item_promotions:
         return None
-    for promo in live_item_promotions.get("promotions") or []:
-        if promo.get("promotion_id") == promotion_id:
+    for promo in live_item_promotions:
+        if promo.get("id") == promotion_id:
             return promo
     return None
 

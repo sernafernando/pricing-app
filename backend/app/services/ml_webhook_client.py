@@ -297,14 +297,16 @@ class MLWebhookClient:
 
         return {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
 
-    async def get_item_promotions(self, mla_id: str) -> Optional[Dict]:
+    async def get_item_promotions(self, mla_id: str) -> Optional[List[Dict]]:
         """Obtiene las promociones de un item puntual vía el proxy ml-webhook.
 
         Args:
             mla_id: El ID del item (ej: MLA2361127120).
 
         Returns:
-            Dict con las promociones del item (payload crudo del proxy), o
+            LISTA de promos del item (payload crudo del proxy: el endpoint
+            `/api/promociones/item/<MLA>` devuelve un array de entradas, cada
+            una con `id` (=promotion_id), `type`, `status`, precios, etc.), o
             None si hay error/timeout.
         """
         try:
