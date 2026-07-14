@@ -44,12 +44,15 @@ introspection of the real mlwebhook DB (column names, order and PKs match):
 state (candidate|started|finished), not the live ML API read-back.
 """
 
+import asyncio
+import inspect
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
 from app.core.database import get_mlwebhook_engine
+from app.services.ml_webhook_client import ml_webhook_client
 
 logger = logging.getLogger(__name__)
 
@@ -296,3 +299,84 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
         promotion_type,
     )
     return result
+
+
+def _resolve(value: Any) -> Any:
+    """Bridges `MLWebhookClient`'s async methods into this module's
+    synchronous API. Mirrors `ml_promotions_write_service._resolve`: real
+    calls return a coroutine (awaited here via `asyncio.run`), and unit-test
+    mocks (`patch(..., return_value=...)`) return the plain value directly,
+    so both paths work unchanged.
+    """
+    if inspect.isawaitable(value):
+        return asyncio.run(value)
+    return value
+
+
+def reconcile_started_promotions(mla_id: str, promotions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Reconciles a stale "more than one `started`" table read against the
+    LIVE proxy read.
+
+    `ml_item_promotions` is upsert-only with no stale cleanup: a promo that
+    was bumped out of `started` (e.g. superseded, cancelled) can linger as
+    `started` in the table. More than one `started` row for the same MLA is
+    impossible in reality (ML only ever has one truly applied promo per
+    item) — a stale-signal trigger for reconciling against the live read.
+
+    Fast path (0 or 1 `started`): returns `promotions` unchanged, with NO
+    extra live call — the common case stays table-only.
+
+    Reconcile path (>1 `started`): reads `ml_webhook_client.get_item_promotions`
+    (a BARE LIST of promo entries keyed by `id`, not a `{"promotions": [...]}`
+    wrapper — see `MLWebhookClient.get_item_promotions`) and, for each table
+    promo whose `promotion_id` matches a live entry's `id`, OVERRIDES the
+    table's `status` with the live one (live is the source of truth for the
+    applied state). A table promo with no matching live entry is left
+    unchanged — the live read may simply not include exotic types, and a
+    graceful "still showing the stale table value" is safer than guessing.
+
+    Graceful degradation: if the live read raises or returns `None`/falsy,
+    logs a warning and returns `promotions` UNCHANGED (never 500s) — a
+    multi-started display is an acceptable fallback vs. a broken panel.
+
+    Args:
+        mla_id: The item ID (e.g. MLA2361127120).
+        promotions: Table rows from `fetch_item_promotions` (mutated
+            in-place and also returned).
+
+    Returns:
+        `promotions`, with `status` reconciled against live when needed.
+    """
+    started_count = sum(1 for promo in promotions if promo.get("status") == "started")
+    if started_count <= 1:
+        return promotions
+
+    logger.warning(
+        "ml_item_promotions: %d 'started' promos for %s (stale signal, expected <=1) — reconciling against live",
+        started_count,
+        mla_id,
+    )
+
+    try:
+        live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
+    except Exception as e:
+        logger.warning("Live reconcile read failed for %s: %s; returning table data unchanged", mla_id, e)
+        return promotions
+
+    if not live:
+        logger.warning(
+            "Live reconcile read returned no data for %s; returning table data unchanged",
+            mla_id,
+        )
+        return promotions
+
+    live_status_by_id: Dict[str, Optional[str]] = {
+        entry.get("id"): entry.get("status") for entry in live if entry.get("id")
+    }
+
+    for promo in promotions:
+        live_status = live_status_by_id.get(promo.get("promotion_id"))
+        if live_status is not None:
+            promo["status"] = live_status
+
+    return promotions

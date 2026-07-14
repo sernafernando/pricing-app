@@ -25,6 +25,7 @@ from app.services.ml_promotions_service import (
     fetch_item_promotions,
     fetch_promotion_items,
     fetch_promotions,
+    reconcile_started_promotions,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.permisos_service import PermisosService
@@ -289,6 +290,12 @@ def obtener_promociones_item(
         # active_only: the backfilled table is upsert-only (no stale cleanup), so
         # finished promos can linger — show only candidate|started as real options.
         promotions = fetch_item_promotions(mla_id, active_only=True)
+        # The table is upsert-only with no stale cleanup: more than one
+        # 'started' row for the same MLA is impossible in reality (ML only
+        # ever has one truly applied promo) -> stale signal, reconcile
+        # against the live proxy read. No-op (no extra call) when 0/1
+        # started, which is the common case.
+        promotions = reconcile_started_promotions(mla_id, promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
         return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
     except RuntimeError as e:
