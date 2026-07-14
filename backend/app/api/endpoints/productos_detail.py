@@ -13,6 +13,8 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costo_envio
+from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+from fastapi.concurrency import run_in_threadpool
 
 import logging
 
@@ -190,6 +192,23 @@ async def obtener_datos_ml_producto(
             "precios": [],
         }
         mla_ids.append(pub.mla)
+
+    # Enriquecer con resumen de promos activas (batched, cross-DB, read-only).
+    # Enrichment nunca debe romper la lista de publicaciones: cualquier falla
+    # (incl. ML_WEBHOOK_DB_URL no configurada) se loguea y los campos quedan
+    # ausentes en las publicaciones afectadas.
+    if mla_ids:
+        try:
+            promo_summary = await run_in_threadpool(fetch_promo_summary_by_mla, mla_ids)
+        except Exception as e:
+            logger.warning(f"Error obteniendo resumen de promos: {e}")
+            promo_summary = {}
+
+        for mla, summary in promo_summary.items():
+            if mla in publicaciones_dict:
+                publicaciones_dict[mla]["promo_active_count"] = summary.get("active_count", 0)
+                publicaciones_dict[mla]["promo_has_applied"] = summary.get("has_applied", False)
+                publicaciones_dict[mla]["promo_applied_name"] = summary.get("applied_name")
 
     # Obtener precios de ML para estas publicaciones
     if mla_ids:

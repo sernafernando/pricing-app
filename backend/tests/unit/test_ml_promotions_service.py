@@ -67,6 +67,7 @@ def _make_item_promotion_row(
     suggested_discounted_price: float = 900.0,
     payload: dict = None,
     updated_at: datetime = None,
+    name: str = None,
 ):
     return (
         mla,
@@ -81,6 +82,7 @@ def _make_item_promotion_row(
         suggested_discounted_price,
         payload or {},
         updated_at,
+        name,
     )
 
 
@@ -207,7 +209,7 @@ class TestFetchItemPromotions:
             fetch_item_promotions("MLA123456789", active_only=True)
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "AND status IN ('candidate', 'started')" in executed_query
+        assert "AND ip.status IN ('candidate', 'started')" in executed_query
 
     def test_active_only_false_omits_status_filter(self) -> None:
         """active_only=False (default) must NOT filter by status.
@@ -227,6 +229,176 @@ class TestFetchItemPromotions:
 
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "status IN" not in executed_query
+
+    def test_includes_name_from_ml_promotions_join(self) -> None:
+        """The human-readable promo name (ml_promotions.name) must be present
+        in the returned dict via a LEFT JOIN, so the UI can show it instead
+        of the cryptic promotion_id/type."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(name="PREMIUM JULIO"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["name"] == "PREMIUM JULIO"
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "LEFT JOIN ml_promotions" in executed_query
+        assert "p.name" in executed_query
+
+    def test_name_none_when_no_join_match(self) -> None:
+        """PRICE_DISCOUNT (promotion_id == promotion_type) may not match a row
+        in ml_promotions; name stays None so the FE can fall back."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(name=None),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["name"] is None
+
+
+class TestFetchPromoSummaryByMla:
+    """fetch_promo_summary_by_mla(mla_ids) — batched cross-DB summary read.
+
+    One GROUP BY query per call (no N+1). Per-mla dict:
+    {"active_count": int, "has_applied": bool, "applied_name": Optional[str]}.
+    """
+
+    def test_multiple_mlas_batched_in_one_query_call(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 3, True, "Oferta Relámpago"),
+            ("MLA222", 1, False, None),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111", "MLA222"])
+
+        assert mock_conn.execute.call_count == 1
+        assert result["MLA111"] == {
+            "active_count": 3,
+            "has_applied": True,
+            "applied_name": "Oferta Relámpago",
+        }
+        assert result["MLA222"] == {
+            "active_count": 1,
+            "has_applied": False,
+            "applied_name": None,
+        }
+
+    def test_active_count_counts_candidate_and_started(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 4, True, "Nombre"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["active_count"] == 4
+
+    def test_has_applied_true_when_started_row_exists(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 2, True, "Nombre"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["has_applied"] is True
+
+    def test_has_applied_false_when_no_started_row(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 2, False, None),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["has_applied"] is False
+        assert result["MLA111"]["applied_name"] is None
+
+    def test_applied_name_uses_ml_promotions_name(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 1, True, "Campaña Vendedor"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["applied_name"] == "Campaña Vendedor"
+
+    def test_applied_name_falls_back_to_promotion_type_when_name_null(self) -> None:
+        """PRICE_DISCOUNT has no ml_promotions match -> COALESCE falls back
+        to promotion_type in the SQL; here we just assert the dict passes
+        through whatever the row provides (fallback happens in SQL)."""
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 1, True, "PRICE_DISCOUNT"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["applied_name"] == "PRICE_DISCOUNT"
+
+    def test_empty_mla_ids_returns_empty_dict_no_engine_call(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            result = fetch_promo_summary_by_mla([])
+
+        assert result == {}
+        mock_engine_fn.assert_not_called()
+
+    def test_db_unavailable_raises_runtime_error(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            mock_engine_fn.side_effect = RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+            with pytest.raises(RuntimeError):
+                fetch_promo_summary_by_mla(["MLA111"])
 
 
 class TestFetchPromotionItems:
