@@ -336,3 +336,194 @@ class TestItemPromotions:
 
         assert response.status_code == 503
         mock_enrich.assert_not_called()
+
+
+def _item_promo(promotion_id: str, status: str, promotion_type: str = "SELLER_CAMPAIGN") -> dict:
+    return {
+        "mla": "MLA123456789",
+        "promotion_id": promotion_id,
+        "promotion_type": promotion_type,
+        "sub_type": None,
+        "status": status,
+        "original_price": 1000.0,
+        "price": 900.0,
+        "min_discounted_price": 850.0,
+        "max_discounted_price": 950.0,
+        "suggested_discounted_price": 900.0,
+        "payload": {},
+        "updated_at": None,
+    }
+
+
+class TestReconcileMultiStarted:
+    """ml_item_promotions is upsert-only with no stale cleanup: a promo
+    bumped out of `started` can linger as `started`. More than one
+    `started` row for the same MLA is impossible in reality (ML only
+    ever has one truly applied promo) -> a stale-signal trigger for
+    reconciling against the live proxy read.
+    """
+
+    def test_multi_started_reconciled_against_live(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("A-1", "started"),
+            _item_promo("B-1", "started"),
+        ]
+        live_payload = [
+            {"id": "A-1", "type": "SELLER_CAMPAIGN", "status": "candidate"},
+            {"id": "B-1", "type": "SELLER_CAMPAIGN", "status": "started"},
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                    return_value=live_payload,
+                ) as mock_live,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        mock_live.assert_called_once_with("MLA123456789")
+        body = response.json()
+        statuses = [p["status"] for p in body["promotions"]]
+        assert statuses.count("started") == 1
+        by_id = {p["promotion_id"]: p["status"] for p in body["promotions"]}
+        assert by_id["A-1"] == "candidate"
+        assert by_id["B-1"] == "started"
+
+    def test_single_started_no_live_call(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("A-1", "started"),
+            _item_promo("B-1", "candidate"),
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                ) as mock_live,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        mock_live.assert_not_called()
+        body = response.json()
+        assert body["promotions"][0]["status"] == "started"
+        assert body["promotions"][1]["status"] == "candidate"
+
+    def test_zero_started_no_live_call(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("A-1", "candidate"),
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                ) as mock_live,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        mock_live.assert_not_called()
+        assert response.json()["promotions"][0]["status"] == "candidate"
+
+    def test_multi_started_live_read_fails_graceful_fallback(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("A-1", "started"),
+            _item_promo("B-1", "started"),
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                    side_effect=RuntimeError("proxy unreachable"),
+                ) as mock_live,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        mock_live.assert_called_once()
+        body = response.json()
+        statuses = [p["status"] for p in body["promotions"]]
+        assert statuses.count("started") == 2
+
+    def test_multi_started_live_read_returns_none_graceful_fallback(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("A-1", "started"),
+            _item_promo("B-1", "started"),
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                    return_value=None,
+                ) as mock_live,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        mock_live.assert_called_once()
+        body = response.json()
+        statuses = [p["status"] for p in body["promotions"]]
+        assert statuses.count("started") == 2
+
+    def test_live_entry_keyed_by_id_matched_against_promotion_id(self, client: TestClient) -> None:
+        """Guards against the bare-list/`id` contract: live entries are
+        keyed by `id` (not `promotion_id`), matched against the table
+        row's `promotion_id`."""
+        fake_service = _override_auth(allowed_permiso=True)
+        table_rows = [
+            _item_promo("C-MLA1332399", "started", promotion_type="SELLER_CAMPAIGN"),
+            _item_promo("C-MLA1334584", "started", promotion_type="SELLER_CAMPAIGN"),
+        ]
+        live_payload = [
+            {"id": "C-MLA1332399", "type": "SELLER_CAMPAIGN", "status": "candidate"},
+            {"id": "C-MLA1334584", "type": "SELLER_CAMPAIGN", "status": "started"},
+        ]
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=table_rows),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch(
+                    "app.services.ml_promotions_service.ml_webhook_client.get_item_promotions",
+                    return_value=live_payload,
+                ),
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        body = response.json()
+        by_id = {p["promotion_id"]: p["status"] for p in body["promotions"]}
+        assert by_id["C-MLA1332399"] == "candidate"
+        assert by_id["C-MLA1334584"] == "started"
