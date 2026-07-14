@@ -9,6 +9,7 @@ const mockTienePermiso = vi.fn(() => true);
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     postPromocionItem: vi.fn(),
+    deletePromocionItem: vi.fn(),
   },
 }));
 
@@ -274,5 +275,152 @@ describe('PromoApplyControl', () => {
         promotion_type: 'SMART',
       }),
     );
+  });
+
+  describe('applied promo (status started) — Desaplicar', () => {
+    function startedPromo(overrides = {}) {
+      return dealPromo({ status: 'started', ...overrides });
+    }
+
+    it('shows "Desaplicar" (not "Aplicar") for an applied promo', () => {
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
+    });
+
+    it('a candidate promo still shows "Aplicar"', () => {
+      render(<PromoApplyControl mla="MLA1" promotion={dealPromo({ status: 'candidate' })} />);
+
+      expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^desaplicar$/i })).not.toBeInTheDocument();
+    });
+
+    it('requires confirmation and calls deletePromocionItem with the right params', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      expect(promocionesAPI.deletePromocionItem).not.toHaveBeenCalled();
+      expect(screen.getByText(/¿desaplicar esta promoción\?/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+      await waitFor(() => expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledTimes(1));
+      expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P1',
+        promotion_type: 'DEAL',
+      });
+      expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+    });
+
+    it('cancelling the confirm step does not delete', async () => {
+      const user = userEvent.setup();
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /cancelar/i }));
+
+      expect(promocionesAPI.deletePromocionItem).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeInTheDocument();
+    });
+
+    it('disables the button while submitting', async () => {
+      const user = userEvent.setup();
+      let resolveDelete;
+      promocionesAPI.deletePromocionItem.mockReturnValue(
+        new Promise((resolve) => {
+          resolveDelete = resolve;
+        }),
+      );
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      expect(screen.getByRole('button', { name: /desaplicando/i })).toBeDisabled();
+
+      resolveDelete({ data: { status: 'submitted' } });
+      await waitFor(() => expect(screen.queryByText(/desaplicando/i)).not.toBeInTheDocument());
+    });
+
+    it('shows submitted feedback for a remove without claiming confirmed success', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/puede tardar en reflejarse/i)).toBeInTheDocument());
+    });
+
+    it('shows ambiguous feedback for a remove', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'ambiguous' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/estado por confirmar/i)).toBeInTheDocument());
+    });
+
+    it('shows reconciled_applied feedback for a remove', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/promoción desaplicada/i)).toBeInTheDocument());
+    });
+
+    it('shows a rejected_* feedback for a remove', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'rejected_promotion_not_found' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/promoción no encontrada/i)).toBeInTheDocument());
+    });
+
+    it('shows a kill-switch "disabled" message for a remove', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'disabled' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/escritura deshabilitada/i)).toBeInTheDocument());
+    });
+
+    it('flips to "Desaplicar no disponible" on a 404 and does not auto-retry', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockRejectedValue({ response: { status: 404 } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/desaplicar no disponible/i)).toBeInTheDocument());
+      expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls onApplied after a successful remove so the panel can refresh', async () => {
+      const user = userEvent.setup();
+      const onApplied = vi.fn();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo()} onApplied={onApplied} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(onApplied).toHaveBeenCalledWith({ status: 'reconciled_applied' }));
+    });
   });
 });

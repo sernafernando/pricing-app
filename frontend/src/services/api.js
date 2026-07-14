@@ -143,6 +143,10 @@ export const promocionesAPI = {
   // - SELLER_CAMPAIGN/DEAL: { promotion_id, promotion_type, deal_price? }
   // - SMART: { promotion_id, promotion_type } — backend derives offer_id/price.
   postPromocionItem: (mlaId, body) => api.post(`/promociones/item/${mlaId}`, body),
+  // Remove/desapply a promotion from a given MLA (real ML write). `params`
+  // shape: { promotion_type, promotion_id } - backend re-derives offer_id
+  // for SMART itself, so the FE never sends offer_id here either.
+  deletePromocionItem: (mlaId, params) => api.delete(`/promociones/item/${mlaId}`, { params }),
 };
 
 export const pricingAPI = {

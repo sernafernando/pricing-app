@@ -254,6 +254,26 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getAllByText('PRICE_DISCOUNT').length).toBeGreaterThan(0));
   });
 
+  it('falls back to payload.name when top-level name is absent', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'C-MLA1332399',
+            promotion_type: 'SELLER_CAMPAIGN',
+            name: null,
+            payload: { name: 'PREMIUM JULIO (payload)' },
+            price: 100,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('PREMIUM JULIO (payload)')).toBeInTheDocument());
+  });
+
   it('shows an error state distinct from empty', async () => {
     promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('network error'));
 

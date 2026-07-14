@@ -37,4 +37,15 @@ describe('promocionesAPI (write methods, FE-C)', () => {
       promotion_type: 'DEAL',
     });
   });
+
+  it('deletePromocionItem deletes /promociones/item/{mla} with the given params', async () => {
+    const { promocionesAPI } = await import('./api');
+    mockApi.delete.mockResolvedValue({ data: { status: 'submitted' } });
+
+    await promocionesAPI.deletePromocionItem('MLA123', { promotion_id: 'P1', promotion_type: 'DEAL' });
+
+    expect(mockApi.delete).toHaveBeenCalledWith('/promociones/item/MLA123', {
+      params: { promotion_id: 'P1', promotion_type: 'DEAL' },
+    });
+  });
 });

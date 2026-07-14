@@ -69,19 +69,18 @@ _PROMOTIONS_SELECT_COLUMNS = """
 """
 
 _ITEM_PROMOTIONS_SELECT_COLUMNS = """
-    ip.mla,
-    ip.promotion_id,
-    ip.promotion_type,
-    ip.sub_type,
-    ip.status,
-    ip.original_price,
-    ip.price,
-    ip.min_discounted_price,
-    ip.max_discounted_price,
-    ip.suggested_discounted_price,
-    ip.payload,
-    ip.updated_at,
-    p.name
+    mla,
+    promotion_id,
+    promotion_type,
+    sub_type,
+    status,
+    original_price,
+    price,
+    min_discounted_price,
+    max_discounted_price,
+    suggested_discounted_price,
+    payload,
+    updated_at
 """
 
 
@@ -115,7 +114,15 @@ def _promotion_row_to_dict(row: Any) -> Dict[str, Any]:
 
 
 def _item_promotion_row_to_dict(row: Any) -> Dict[str, Any]:
-    """Maps a row from ml_item_promotions to dict (order = _ITEM_PROMOTIONS_SELECT_COLUMNS)."""
+    """Maps a row from ml_item_promotions to dict (order = _ITEM_PROMOTIONS_SELECT_COLUMNS).
+
+    The human-readable `name` is NOT a column on this table; it is read from
+    the JSONB `payload` (payload.name), which mirrors the live ML API
+    response for the promotion. PRICE_DISCOUNT sends payload.name == "" (ML
+    doesn't name price-discount promos), so an empty string is normalized to
+    None and the FE falls back to promotion_type.
+    """
+    payload_dict = row[10] or {}
     return {
         "mla": row[0],
         "promotion_id": row[1],
@@ -127,9 +134,9 @@ def _item_promotion_row_to_dict(row: Any) -> Dict[str, Any]:
         "min_discounted_price": row[7],
         "max_discounted_price": row[8],
         "suggested_discounted_price": row[9],
-        "payload": row[10] or {},
+        "payload": payload_dict,
         "updated_at": row[11],
-        "name": row[12],
+        "name": (payload_dict.get("name") or None) if isinstance(payload_dict, dict) else None,
     }
 
 
@@ -186,7 +193,6 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             text(f"""
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
                 FROM ml_item_promotions AS ip
-                LEFT JOIN ml_promotions AS p ON ip.promotion_id = p.promotion_id
                 WHERE ip.mla = :mla
                 {status_clause}
                 ORDER BY ip.updated_at DESC, ip.promotion_id
@@ -206,8 +212,8 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     en la UI). Agrega en SQL (GROUP BY mla) para evitar N+1: cuenta promos
     activas (candidate|started), determina si hay al menos una `started`
     ("aplicada" al item) y resuelve el nombre de la promo aplicada más
-    reciente (ml_promotions.name, con fallback a promotion_type cuando el
-    join no matchea, ej. PRICE_DISCOUNT).
+    reciente (payload->>'name', con fallback a promotion_type cuando el
+    payload no trae nombre, ej. PRICE_DISCOUNT).
 
     Args:
         mla_ids: lista de MLAs a resumir. [] no ejecuta ninguna query.
@@ -231,10 +237,9 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
                     ip.mla,
                     COUNT(*)                                 AS active_count,
                     bool_or(ip.status = 'started')           AS has_applied,
-                    (array_agg(COALESCE(p.name, ip.promotion_type) ORDER BY ip.updated_at DESC)
+                    (array_agg(COALESCE(NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.updated_at DESC)
                         FILTER (WHERE ip.status = 'started'))[1] AS applied_name
                 FROM ml_item_promotions ip
-                LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = ANY(:mlas)
                   AND ip.status IN ('candidate', 'started')
                 GROUP BY ip.mla
@@ -276,7 +281,6 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
             text(f"""
                 SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS}
                 FROM ml_item_promotions AS ip
-                LEFT JOIN ml_promotions AS p ON ip.promotion_id = p.promotion_id
                 WHERE ip.promotion_id = :promotion_id
                   AND ip.promotion_type = :promotion_type
                 ORDER BY ip.updated_at DESC, ip.promotion_id

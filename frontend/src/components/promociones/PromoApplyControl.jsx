@@ -6,34 +6,35 @@ import styles from './promociones.module.css';
 // Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
 const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART']);
 
-// EnrollResult.status -> feedback message + tone. Eventual-consistency-safe:
-// never claim a confirmed "aplicado" from the immediate response alone.
-const STATUS_FEEDBACK = {
-  submitted: { tone: 'info', message: 'Enviado — puede tardar en reflejarse (la tabla es la fuente de verdad).' },
-  ambiguous: { tone: 'warn', message: 'Enviado, estado por confirmar — verificá en ML.' },
-  reconciled_applied: { tone: 'success', message: 'Promoción aplicada.' },
-  reconciled_not_applied: { tone: 'warn', message: 'Enviado pero aún no reflejado — verificá en ML.' },
-  disabled: { tone: 'error', message: 'Escritura deshabilitada.' },
-  rejected_out_of_range: { tone: 'error', message: 'Precio fuera de rango.' },
-  rejected_unsupported_type: { tone: 'error', message: 'Tipo de promoción no soportado.' },
-  rejected_price_unresolved: { tone: 'error', message: 'No se pudo resolver el precio.' },
-  rejected_promotion_not_found: { tone: 'error', message: 'Promoción no encontrada.' },
-  rejected_read_unavailable: { tone: 'error', message: 'Servicio de ML no disponible, reintentá.' },
-  rejected_by_proxy: { tone: 'error', message: 'Rechazado por ML.' },
-};
-
-function feedbackFor(status) {
-  return STATUS_FEEDBACK[status] || { tone: 'error', message: 'No se pudo confirmar el resultado.' };
+// EnrollResult/RemoveResult.status -> feedback message + tone. Eventual-
+// consistency-safe: never claim a confirmed state from the immediate response.
+// The success verb depends on the action (aplicada vs desaplicada).
+function feedbackFor(status, isApplied) {
+  const verb = isApplied ? 'desaplicada' : 'aplicada';
+  const map = {
+    submitted: { tone: 'info', message: 'Enviado — puede tardar en reflejarse (la tabla es la fuente de verdad).' },
+    ambiguous: { tone: 'warn', message: 'Enviado, estado por confirmar — verificá en ML.' },
+    reconciled_applied: { tone: 'success', message: `Promoción ${verb}.` },
+    reconciled_not_applied: { tone: 'warn', message: 'Enviado pero aún no reflejado — verificá en ML.' },
+    disabled: { tone: 'error', message: 'Escritura deshabilitada.' },
+    rejected_out_of_range: { tone: 'error', message: 'Precio fuera de rango.' },
+    rejected_unsupported_type: { tone: 'error', message: 'Tipo de promoción no soportado.' },
+    rejected_price_unresolved: { tone: 'error', message: 'No se pudo resolver el precio.' },
+    rejected_promotion_not_found: { tone: 'error', message: 'Promoción no encontrada.' },
+    rejected_read_unavailable: { tone: 'error', message: 'Servicio de ML no disponible, reintentá.' },
+    rejected_by_proxy: { tone: 'error', message: 'Rechazado por ML.' },
+  };
+  return map[status] || { tone: 'error', message: 'No se pudo confirmar el resultado.' };
 }
 
-function feedbackForError(err) {
+function feedbackForError(err, actionLabel = 'aplicar') {
   const httpStatus = err?.response?.status;
   const detail = err?.response?.data?.detail;
   if (httpStatus === 403) {
     return { tone: 'error', message: detail || 'No autorizado o función deshabilitada.' };
   }
   if (httpStatus === 404 || httpStatus === 405 || httpStatus === 501) {
-    return { tone: 'unavailable', message: 'Aplicar no disponible.' };
+    return { tone: 'unavailable', message: `${actionLabel === 'aplicar' ? 'Aplicar' : 'Desaplicar'} no disponible.` };
   }
   if (httpStatus === 422) {
     return { tone: 'error', message: detail || 'Solicitud rechazada.' };
@@ -41,7 +42,7 @@ function feedbackForError(err) {
   if (httpStatus === 503) {
     return { tone: 'error', message: 'Servicio de ML no disponible, reintentá.' };
   }
-  return { tone: 'error', message: 'Error al aplicar la promoción.' };
+  return { tone: 'error', message: `Error al ${actionLabel} la promoción.` };
 }
 
 /**
@@ -58,6 +59,9 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
 
   const hasPermission = tienePermiso('promos.escribir');
   const isWritableType = WRITABLE_TYPES.has(promotion.promotion_type);
+  const isApplied = promotion.status === 'started';
+  const actionLabel = isApplied ? 'desaplicar' : 'aplicar';
+  const actionLabelCapitalized = isApplied ? 'Desaplicar' : 'Aplicar';
 
   if (!isWritableType) {
     return <span className={styles.applySlot}>Lo maneja ML</span>;
@@ -72,10 +76,10 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   }
 
   if (unavailable) {
-    return <span className={styles.applySlot}>Aplicar no disponible</span>;
+    return <span className={styles.applySlot}>{actionLabelCapitalized} no disponible</span>;
   }
 
-  const handleApplyClick = () => {
+  const handleActionClick = () => {
     setFeedback(null);
     setPhase('confirming');
   };
@@ -87,16 +91,24 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   const handleConfirm = async () => {
     setPhase('submitting');
     try {
-      const body =
-        promotion.promotion_type === 'SMART'
-          ? { promotion_id: promotion.promotion_id, promotion_type: promotion.promotion_type }
-          : { promotion_id: promotion.promotion_id, promotion_type: promotion.promotion_type };
-      const { data } = await promocionesAPI.postPromocionItem(mla, body);
-      setFeedback(feedbackFor(data?.status));
+      const data = isApplied
+        ? await promocionesAPI
+            .deletePromocionItem(mla, {
+              promotion_id: promotion.promotion_id,
+              promotion_type: promotion.promotion_type,
+            })
+            .then((res) => res.data)
+        : await promocionesAPI
+            .postPromocionItem(mla, {
+              promotion_id: promotion.promotion_id,
+              promotion_type: promotion.promotion_type,
+            })
+            .then((res) => res.data);
+      setFeedback(feedbackFor(data?.status, isApplied));
       setPhase('done');
       if (onApplied) onApplied(data);
     } catch (err) {
-      const fb = feedbackForError(err);
+      const fb = feedbackForError(err, actionLabel);
       if (fb.tone === 'unavailable') {
         setUnavailable(true);
         setPhase('idle');
@@ -110,9 +122,9 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   if (phase === 'confirming') {
     return (
       <span className={styles.applyConfirm}>
-        <span>¿Aplicar esta promoción?</span>
+        <span>¿{actionLabelCapitalized} esta promoción?</span>
         <button type="button" className={styles.applyConfirmBtn} onClick={handleConfirm}>
-          Sí, aplicar
+          Sí, {actionLabel}
         </button>
         <button type="button" className={styles.applyCancelBtn} onClick={handleCancel}>
           Cancelar
@@ -124,15 +136,15 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   if (phase === 'submitting') {
     return (
       <button type="button" className={styles.applySlot} disabled>
-        Aplicando...
+        {isApplied ? 'Desaplicando...' : 'Aplicando...'}
       </button>
     );
   }
 
   return (
     <span className={styles.applyWrapper}>
-      <button type="button" className={styles.applyBtn} onClick={handleApplyClick}>
-        Aplicar
+      <button type="button" className={styles.applyBtn} onClick={handleActionClick}>
+        {actionLabelCapitalized}
       </button>
       {feedback && (
         <span
