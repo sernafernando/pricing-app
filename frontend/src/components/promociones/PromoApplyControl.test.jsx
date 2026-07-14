@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromoApplyControl from './PromoApplyControl';
@@ -10,6 +10,7 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     postPromocionItem: vi.fn(),
     deletePromocionItem: vi.fn(),
+    getMarkupParaPrecio: vi.fn(),
   },
 }));
 
@@ -277,6 +278,27 @@ describe('PromoApplyControl', () => {
     );
   });
 
+  it('sends only { promotion_id, promotion_type } for PRE_NEGOTIATED (no offer_id/price from FE)', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    render(
+      <PromoApplyControl
+        mla="MLA1"
+        promotion={{ promotion_id: 'P-PN', promotion_type: 'PRE_NEGOTIATED', name: 'Pre-negotiated promo', price: 100 }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P-PN',
+        promotion_type: 'PRE_NEGOTIATED',
+      }),
+    );
+  });
+
   describe('applied promo (status started) — Desaplicar', () => {
     function startedPromo(overrides = {}) {
       return dealPromo({ status: 'started', ...overrides });
@@ -421,6 +443,119 @@ describe('PromoApplyControl', () => {
       await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
 
       await waitFor(() => expect(onApplied).toHaveBeenCalledWith({ status: 'reconciled_applied' }));
+    });
+  });
+
+  describe('manual price input for range-based promos (SELLER_CAMPAIGN, DEAL)', () => {
+    function rangePromo(overrides = {}) {
+      return {
+        promotion_id: 'P-SC',
+        promotion_type: 'SELLER_CAMPAIGN',
+        name: 'Seller campaign promo',
+        price: 0,
+        min_discounted_price: 700,
+        max_discounted_price: 950,
+        suggested_discounted_price: 900,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('shows a price input defaulting to suggested_discounted_price when confirming', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+
+      const input = screen.getByLabelText(/precio/i);
+      expect(input).toHaveValue(900);
+    });
+
+    it('fetches and shows the markup for the entered price (debounced)', async () => {
+      const user = userEvent.setup({ delay: null });
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { price: 850, nuestro_markup: 22.5 } });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '850');
+
+      await vi.advanceTimersByTimeAsync(400);
+
+      await waitFor(() => expect(promocionesAPI.getMarkupParaPrecio).toHaveBeenCalledWith('MLA1', 850));
+      await waitFor(() => expect(screen.getByText(/22.5/)).toBeInTheDocument());
+    });
+
+    it('sends the entered deal_price on confirm', async () => {
+      const user = userEvent.setup({ delay: null });
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { price: 800, nuestro_markup: 20 } });
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '800');
+      await vi.advanceTimersByTimeAsync(400);
+      await waitFor(() => expect(promocionesAPI.getMarkupParaPrecio).toHaveBeenCalled());
+
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+      await waitFor(() =>
+        expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+          promotion_id: 'P-SC',
+          promotion_type: 'SELLER_CAMPAIGN',
+          deal_price: 800,
+        }),
+      );
+    });
+
+    it('blocks apply with an inline message when the price is out of range', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '1200');
+
+      expect(screen.getByText(/fuera de rango/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /sí, aplicar/i })).toBeDisabled();
+      expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+    });
+
+    it('does NOT show a price input for SMART (backend derives)', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <PromoApplyControl
+          mla="MLA1"
+          promotion={{ promotion_id: 'P-SM', promotion_type: 'SMART', name: 'Smart', price: 100 }}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      expect(screen.queryByLabelText(/precio/i)).not.toBeInTheDocument();
+    });
+
+    it('does NOT show a price input for PRE_NEGOTIATED (backend derives)', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <PromoApplyControl
+          mla="MLA1"
+          promotion={{ promotion_id: 'P-PN', promotion_type: 'PRE_NEGOTIATED', name: 'Pre-negotiated', price: 100 }}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      expect(screen.queryByLabelText(/precio/i)).not.toBeInTheDocument();
     });
   });
 });

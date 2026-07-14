@@ -269,6 +269,33 @@ class TestFetchItemPromotions:
         assert result[0]["name"] is None
         assert result[1]["name"] is None
 
+    def test_includes_start_and_finish_date_from_payload(self) -> None:
+        """start_date/finish_date come from payload (same defensive pattern
+        as name): present when the payload carries them, None otherwise."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(
+                payload={
+                    "id": "DEAL-1",
+                    "start_date": "2026-07-01T00:00:00",
+                    "finish_date": "2026-07-31T23:59:59",
+                }
+            ),
+            _make_item_promotion_row(payload={"id": "PRICE_DISCOUNT"}),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["start_date"] == "2026-07-01T00:00:00"
+        assert result[0]["finish_date"] == "2026-07-31T23:59:59"
+        assert result[1]["start_date"] is None
+        assert result[1]["finish_date"] is None
+
 
 class TestFetchPromoSummaryByMla:
     """fetch_promo_summary_by_mla(mla_ids) — batched cross-DB summary read.
@@ -307,6 +334,24 @@ class TestFetchPromoSummaryByMla:
         assert "ml_promotions" not in executed_query
         assert "LEFT JOIN" not in executed_query
         assert "payload->>'name'" in executed_query
+
+    def test_applied_name_ordered_by_price_asc_nulls_first(self) -> None:
+        """A single item can be `started` in several promos at once; ML
+        only applies the lowest-price one (null price counts as active,
+        never discarded), so `applied_name` must reflect THAT one, not the
+        most recently updated row."""
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_promo_summary_by_mla(["MLA111"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ORDER BY ip.price ASC NULLS FIRST" in executed_query
 
     def test_active_count_counts_candidate_and_started(self) -> None:
         from app.services.ml_promotions_service import fetch_promo_summary_by_mla
@@ -449,3 +494,126 @@ class TestFetchPromotionItems:
 
             with pytest.raises(RuntimeError):
                 fetch_promotion_items("DEAL-1", "DEAL")
+
+
+def _promo(promotion_id: str, status: str, price: float = None, promotion_type: str = "SELLER_CAMPAIGN") -> dict:
+    return {
+        "mla": "MLA123456789",
+        "promotion_id": promotion_id,
+        "promotion_type": promotion_type,
+        "status": status,
+        "price": price,
+    }
+
+
+class TestDerivarApplicationStatus:
+    """A single item can be legitimately `started` in MULTIPLE promos: ML
+    applies only the lowest-price one and leaves the rest programmed.
+    ML's API never distinguishes these (both show `started`), so
+    `derivar_application_status` derives it from `price`."""
+
+    def test_single_min_price_is_active_others_programmed(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "started", price=900.0, promotion_type="SMART"),
+            _promo("B-1", "started", price=850.0, promotion_type="DEAL"),
+            _promo("C-1", "started", price=950.0, promotion_type="SELLER_CAMPAIGN"),
+        ]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["B-1"] == "active"
+        assert by_id["A-1"] == "programmed"
+        assert by_id["C-1"] == "programmed"
+
+    def test_tie_on_min_price_marks_all_tied_active(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "started", price=850.0),
+            _promo("B-1", "started", price=850.0),
+            _promo("C-1", "started", price=900.0),
+        ]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["A-1"] == "active"
+        assert by_id["B-1"] == "active"
+        assert by_id["C-1"] == "programmed"
+
+    def test_null_price_is_active(self) -> None:
+        """A null price is always active; when it's the ONLY other started
+        promo, the non-null one is also the min of non-null prices, so it
+        is active too."""
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "started", price=None),
+            _promo("B-1", "started", price=900.0),
+        ]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["A-1"] == "active"
+        assert by_id["B-1"] == "active"
+
+    def test_null_price_active_while_higher_non_null_is_programmed(self) -> None:
+        """A null-price started promo is active; a non-null started promo
+        above the min of non-null prices is programmed."""
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "started", price=None),
+            _promo("B-1", "started", price=850.0),
+            _promo("C-1", "started", price=900.0),
+        ]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["A-1"] == "active"
+        assert by_id["B-1"] == "active"
+        assert by_id["C-1"] == "programmed"
+
+    def test_all_null_prices_are_all_active(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "started", price=None),
+            _promo("B-1", "started", price=None),
+        ]
+
+        result = derivar_application_status(promos)
+
+        assert all(p["application_status"] == "active" for p in result)
+
+    def test_candidate_has_none_application_status(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [_promo("A-1", "candidate", price=0.0)]
+
+        result = derivar_application_status(promos)
+
+        assert result[0]["application_status"] is None
+
+    def test_no_started_promos_leaves_candidates_untouched(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [_promo("A-1", "candidate", price=0.0), _promo("B-1", "candidate", price=0.0)]
+
+        result = derivar_application_status(promos)
+
+        assert all(p["application_status"] is None for p in result)
+
+    def test_mutates_and_returns_same_list(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [_promo("A-1", "started", price=900.0)]
+
+        result = derivar_application_status(promos)
+
+        assert result is promos

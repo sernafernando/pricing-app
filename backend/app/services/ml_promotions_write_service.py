@@ -11,18 +11,19 @@ Order of operations (`enroll_one_item` / `remove_one_item`):
      any read or proxy call. This is a local gate, independent of the
      proxy's own authorization.
   2. `promotion_type` restricted to the writable types SELLER_CAMPAIGN /
-     DEAL / SMART. DOD/LIGHTNING stay ML-managed (read-only); PRICE_DISCOUNT
-     is out of write scope (offers array).
+     DEAL / SMART / PRE_NEGOTIATED. DOD/LIGHTNING stay ML-managed
+     (read-only); PRICE_DISCOUNT is out of write scope (offers array).
   3. Fresh LIVE read of the item (`ml_webhook_client.get_item_promotions`)
      to obtain the current pricing for the target promotion. Never a
      cached/stale value. For SELLER_CAMPAIGN/DEAL this yields
      [min_discounted_price, max_discounted_price] + `suggested_discounted_price`;
-     for SMART it yields the entry's `price` (the deal_price to submit) and
-     its `ref_id` (the required `offer_id`), and there is NO [min,max].
+     for SMART/PRE_NEGOTIATED it yields the entry's `price` (the deal_price
+     to submit) and its `ref_id` (the required `offer_id`), and there is NO
+     [min,max].
   4. Defensive validation BEFORE the POST: for SELLER_CAMPAIGN/DEAL,
      `deal_price` must be within [min, max] (reject out-of-range without a
-     wasted round-trip). For SMART there is no range — fail closed instead
-     if the entry's `price`/`ref_id` are missing.
+     wasted round-trip). For SMART/PRE_NEGOTIATED there is no range — fail
+     closed instead if the entry's `price`/`ref_id` are missing.
   5. Single POST/DELETE via `MLWebhookClient` (no retry — a blind retry
      on an ambiguous write could double-apply it).
   6. On ambiguous outcome (timeout/5xx): reconcile via
@@ -50,7 +51,14 @@ from app.services.ml_webhook_client import ml_webhook_client
 
 logger = logging.getLogger(__name__)
 
-WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART"}
+WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED"}
+
+# PRE_NEGOTIATED behaves identically to SMART in the write path: it uses an
+# `offer_id` (from the live entry's `ref_id`, not a promotion-id-based POST)
+# and the entry's own `price` (no [min,max] range), and remove re-reads live
+# for the current offer_id. Also shares SMART's slower eventual-consistency
+# window for reconciliation purposes.
+SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED"}
 
 
 def _resolve(value: Any) -> Any:
@@ -266,8 +274,8 @@ def enroll_one_item(
             "detail": f"promotion_id={promotion_id!r} not present in the live item promotions payload",
         }
 
-    if promotion_type == "SMART":
-        # SMART has no [min,max_discounted_price] to validate against — the
+    if promotion_type in SMART_LIKE_PROMOTION_TYPES:
+        # SMART/PRE_NEGOTIATED have no [min,max_discounted_price] to validate against — the
         # entry's own `price` IS the deal_price, and enroll requires the
         # entry's `ref_id` (candidate state, form "CANDIDATE-MLA...-N") as
         # `offer_id`. Both are re-read fresh every time (never cached): the
@@ -277,17 +285,17 @@ def enroll_one_item(
 
         if offer_id is None or entry_price is None:
             logger.warning(
-                "ML promo enroll rejected_price_unresolved mla=%s promotion_id=%s promotion_type=SMART "
-                "ref_id=%s price=%s",
+                "ML promo enroll rejected_price_unresolved mla=%s promotion_id=%s promotion_type=%s ref_id=%s price=%s",
                 mla_id,
                 promotion_id,
+                promotion_type,
                 offer_id,
                 entry_price,
             )
             return {
                 "submitted": False,
                 "status": "rejected_price_unresolved",
-                "detail": "SMART entry is missing ref_id (offer_id) or price in the live payload",
+                "detail": f"{promotion_type} entry is missing ref_id (offer_id) or price in the live payload",
             }
 
         write_result = _resolve(
@@ -317,10 +325,11 @@ def enroll_one_item(
             authoritative_offer_id = (body or {}).get("offer_id")
             outcome["offer_id"] = authoritative_offer_id
             logger.info(
-                "ML promo enroll submitted mla=%s promotion_id=%s promotion_type=SMART "
+                "ML promo enroll submitted mla=%s promotion_id=%s promotion_type=%s "
                 "candidate_offer_id=%s authoritative_offer_id=%s",
                 mla_id,
                 promotion_id,
+                promotion_type,
                 offer_id,
                 authoritative_offer_id,
             )
@@ -393,17 +402,18 @@ def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict
     if promotion_type not in WRITABLE_PROMOTION_TYPES:
         return _rejected_unsupported_type(promotion_type)
 
-    if promotion_type == "SMART":
-        # SMART's ref_id MUTATES on enroll (CANDIDATE-... -> OFFER-...) and
-        # delete requires the CURRENT offer_id — a stale/candidate id 400s.
-        # Always re-read live immediately before the delete; never reuse a
-        # previously-captured offer_id.
+    if promotion_type in SMART_LIKE_PROMOTION_TYPES:
+        # SMART/PRE_NEGOTIATED's ref_id MUTATES on enroll (CANDIDATE-... ->
+        # OFFER-...) and delete requires the CURRENT offer_id — a
+        # stale/candidate id 400s. Always re-read live immediately before
+        # the delete; never reuse a previously-captured offer_id.
         live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
         if live is None:
             logger.warning(
-                "ML promo remove rejected_read_unavailable mla=%s promotion_id=%s promotion_type=SMART",
+                "ML promo remove rejected_read_unavailable mla=%s promotion_id=%s promotion_type=%s",
                 mla_id,
                 promotion_id,
+                promotion_type,
             )
             return {
                 "submitted": False,
@@ -415,9 +425,10 @@ def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict
         offer_id = promo.get("ref_id") if promo is not None else None
         if offer_id is None:
             logger.warning(
-                "ML promo remove rejected_promotion_not_found mla=%s promotion_id=%s promotion_type=SMART",
+                "ML promo remove rejected_promotion_not_found mla=%s promotion_id=%s promotion_type=%s",
                 mla_id,
                 promotion_id,
+                promotion_type,
             )
             return {
                 "submitted": False,
@@ -463,7 +474,7 @@ def _classify_write_outcome(
     reported as "ambiguous" instead of "reconciled_not_applied" to avoid a
     false negative.
     """
-    slow_consistency = promotion_type == "SMART"
+    slow_consistency = promotion_type in SMART_LIKE_PROMOTION_TYPES
 
     if write_result["ok"]:
         logger.info(
