@@ -9,12 +9,16 @@ Spec coverage (design #937, MUST-RESOLVE #2):
   REQ-4 — recompute_item called with now=activation_time (max updated_at
           among that item's newly-active rows) — the no-clobber-manual
           guard: a manual edit strictly after activation is not overwritten
-  REQ-5 — watermark advances only after a fully successful pass, to the
-          max updated_at processed; not advanced past an aborted item
+  REQ-5 — watermark advances to max_seen as soon as at least one item
+          succeeds this run; items still failing after in-run retries are
+          quarantined (logged loudly) rather than blocking the batch;
+          watermark is withheld only when EVERY item fails (systemic
+          outage)
   REQ-6 — idempotent empty run: no newly-active rows -> no writes, watermark
           unchanged
   REQ-7 — a per-item recompute failure is isolated: other items still
-          processed
+          processed; a transient failure self-heals via bounded in-run
+          retries before counting as failed
 """
 
 from __future__ import annotations
