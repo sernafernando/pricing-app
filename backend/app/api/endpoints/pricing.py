@@ -19,6 +19,8 @@ from app.services.pricing_calculator import (
     calcular_comision_ml_total,
     calcular_limpio,
     calcular_markup,
+    calcular_markup_rebate,
+    calcular_markup_oferta,
     convertir_a_pesos,
     obtener_tipo_cambio_actual,
     obtener_grupo_subcategoria,
@@ -27,127 +29,6 @@ from app.services.pricing_calculator import (
 
 
 router = APIRouter()
-
-
-def calcular_markup_rebate(
-    db: Session,
-    producto: ProductoERP,
-    pricing: ProductoPricing,
-    tipo_cambio=None,
-    *,
-    costo_envio: Optional[float] = None,
-) -> Optional[float]:
-    """Calcula el markup de rebate para un producto.
-
-    Args:
-        costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
-                     instead of calling resolver_costo_envio again, avoiding a
-                     redundant cross-DB query.
-    """
-    if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml or not producto.costo:
-        return None
-
-    try:
-        porcentaje_rebate_val = float(pricing.porcentaje_rebate if pricing.porcentaje_rebate is not None else 3.8)
-        precio_rebate = float(pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
-
-        costo_rebate = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
-        grupo_id_rebate = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-        comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
-
-        if comision_base_rebate and precio_rebate > 0:
-            comisiones_rebate = calcular_comision_ml_total(precio_rebate, comision_base_rebate, producto.iva, db=db)
-            _envio = costo_envio if costo_envio is not None else float(producto.envio or 0)
-            limpio_rebate = calcular_limpio(
-                precio_rebate,
-                producto.iva,
-                _envio,
-                comisiones_rebate["comision_total"],
-                db=db,
-                grupo_id=grupo_id_rebate,
-            )
-            markup_rebate_val = calcular_markup(limpio_rebate, costo_rebate) * 100
-            return markup_rebate_val
-    except Exception as e:
-        logger.warning("Error calculando markup rebate para producto %s: %s", producto.item_id, e)
-
-    return None
-
-
-def calcular_markup_oferta(
-    db: Session,
-    producto: ProductoERP,
-    tipo_cambio=None,
-    *,
-    costo_envio: Optional[float] = None,
-) -> Optional[float]:
-    """Calcula el markup de oferta vigente para un producto.
-
-    Args:
-        costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
-                     instead of calling resolver_costo_envio again.
-    """
-    if not producto.costo:
-        return None
-
-    try:
-        from app.models.publicacion_ml import PublicacionML
-        from app.models.oferta_ml import OfertaML
-        from datetime import date
-
-        hoy = date.today()
-
-        # Buscar publicación del producto
-        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto.item_id).all()
-
-        mejor_oferta = None
-        mejor_pub = None
-
-        for pub in pubs:
-            oferta = (
-                db.query(OfertaML)
-                .filter(
-                    OfertaML.mla == pub.mla,
-                    OfertaML.fecha_desde <= hoy,
-                    OfertaML.fecha_hasta >= hoy,
-                    OfertaML.pvp_seller.isnot(None),
-                )
-                .order_by(OfertaML.fecha_desde.desc())
-                .first()
-            )
-
-            if oferta:
-                if not mejor_oferta:
-                    mejor_oferta = oferta
-                    mejor_pub = pub
-
-        if mejor_oferta and mejor_pub:
-            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
-
-            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                costo_oferta = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
-                grupo_id_oferta = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-                comision_base_oferta = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id_oferta)
-
-                if comision_base_oferta:
-                    comisiones_oferta = calcular_comision_ml_total(
-                        mejor_oferta_pvp, comision_base_oferta, producto.iva, db=db
-                    )
-                    _envio_oferta = costo_envio if costo_envio is not None else float(producto.envio or 0)
-                    limpio_oferta = calcular_limpio(
-                        mejor_oferta_pvp,
-                        producto.iva,
-                        _envio_oferta,
-                        comisiones_oferta["comision_total"],
-                        db=db,
-                        grupo_id=grupo_id_oferta,
-                    )
-                    markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
-                    return markup_oferta_val
-    except Exception as e:
-        logger.warning("Error calculando markup oferta para producto %s: %s", producto.item_id, e)
-
-    return None
 
 
 def obtener_markup_adicional_cuotas(db: Session) -> float:

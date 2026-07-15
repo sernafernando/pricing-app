@@ -68,6 +68,8 @@ class TestRecomputeItemMinOfActive:
         _make_producto(db)
         _make_publicacion(db, 2001, "MLA1", 4)
         _make_publicacion(db, 2001, "MLA2", 4)
+        db.add(ProductoPricing(item_id=2001))
+        db.commit()
 
         def fake_fetch(mla, active_only=True):
             return {
@@ -95,6 +97,8 @@ class TestRecomputeItemMinOfActive:
         _make_producto(db)
         _make_publicacion(db, 2001, "MLA1", 4)  # clasica
         _make_publicacion(db, 2001, "MLA2", 17)  # 3 cuotas
+        db.add(ProductoPricing(item_id=2001))
+        db.commit()
 
         def fake_fetch(mla, active_only=True):
             return {
@@ -136,6 +140,7 @@ class TestRecomputeItemLastWriteWins:
                 item_id=2001, column_key="precio_lista_ml", origen="manual", fecha=manual_fecha
             )
         )
+        db.add(ProductoPricing(item_id=2001, precio_lista_ml=1234.0))
         db.commit()
 
         activation_time = datetime(2026, 1, 2, tzinfo=UTC)
@@ -257,3 +262,105 @@ class TestRecomputeItemNoPublications:
         _make_producto(db)
         result = recompute_item(db, 2001)
         assert result.columns == []
+
+
+class TestRecomputeItemMarkupRecompute:
+    """FIX 1 (CRITICAL, review fix-pass): a promo price write must refresh
+    markup_rebate/markup_oferta in the SAME transaction, exactly like the
+    manual path (`pricing.py::setear_precio_cuota`) does — otherwise these
+    stored columns go stale and `productos_listing.py`'s sign filters
+    mis-classify the product after a promo."""
+
+    def test_promo_write_recomputes_markup_rebate_and_oferta(self, db):
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        pricing = ProductoPricing(
+            item_id=2001,
+            precio_lista_ml=1000.0,
+            markup_rebate=-5.0,
+            markup_oferta=-5.0,
+        )
+        db.add(pricing)
+        db.commit()
+
+        with (
+            patch(
+                "app.services.promo_price_propagation.fetch_item_promotions",
+                return_value=[_active_promo("PROMO-A", 700.0)],
+            ),
+            patch(
+                "app.services.promo_price_propagation.calcular_markup_rebate",
+                return_value=42.0,
+            ) as mock_rebate,
+            patch(
+                "app.services.promo_price_propagation.calcular_markup_oferta",
+                return_value=17.0,
+            ) as mock_oferta,
+        ):
+            recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 700.0
+        assert pricing.markup_rebate == 42.0
+        assert pricing.markup_oferta == 17.0
+        assert mock_rebate.called
+        assert mock_oferta.called
+
+    def test_promo_write_reflects_post_promo_listing_filter_sign(self, db):
+        """Behavioral: after a promo write, markup_rebate/oferta sign
+        (as used by productos_listing.py's filters) reflects the NEW
+        price, not the stale pre-promo value."""
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        pricing = ProductoPricing(
+            item_id=2001,
+            precio_lista_ml=1000.0,
+            markup_rebate=-5.0,
+            markup_oferta=-5.0,
+        )
+        db.add(pricing)
+        db.commit()
+
+        with (
+            patch(
+                "app.services.promo_price_propagation.fetch_item_promotions",
+                return_value=[_active_promo("PROMO-A", 700.0)],
+            ),
+            patch(
+                "app.services.promo_price_propagation.calcular_markup_rebate",
+                return_value=10.0,
+            ),
+            patch(
+                "app.services.promo_price_propagation.calcular_markup_oferta",
+                return_value=8.0,
+            ),
+        ):
+            recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert pricing.markup_rebate > 0
+        assert pricing.markup_oferta > 0
+
+
+class TestRecomputeItemNoBareRow:
+    """FIX 2 (WARNING, review fix-pass): must never create a
+    ProductoPricing row with only the price column populated — skip
+    the write for that item/column when no row exists."""
+
+    def test_no_existing_pricing_row_skips_write_not_creates_bare_row(self, db):
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        # No ProductoPricing row exists for item_id=2001.
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            return_value=[_active_promo("PROMO-A", 700.0)],
+        ):
+            result = recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert pricing is None
+        assert result.columns[0].status == "skipped_no_pricing_row"

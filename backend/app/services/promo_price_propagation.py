@@ -45,10 +45,16 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.producto import ProductoPricing
+from app.models.producto import ProductoERP, ProductoPricing
 from app.models.producto_precio_origen import ProductoPrecioOrigen, upsert_origen_promo
 from app.models.publicacion_ml import PublicacionML
+from app.services.envio_real_service import resolver_costo_envio
 from app.services.ml_promotions_service import fetch_item_promotions
+from app.services.pricing_calculator import (
+    calcular_markup_oferta,
+    calcular_markup_rebate,
+    obtener_tipo_cambio_actual,
+)
 from app.services.pricing_columns import campo_for_pricelist
 
 logger = logging.getLogger(__name__)
@@ -59,7 +65,7 @@ class ColumnOutcome:
     """Outcome of `recompute_item` for a single price column."""
 
     column_key: str
-    status: str  # "written" | "skipped_disabled" | "skipped_no_active_promo" | "skipped_frozen_manual"
+    status: str  # "written" | "skipped_disabled" | "skipped_no_active_promo" | "skipped_frozen_manual" | "skipped_no_pricing_row"
     price: Optional[float] = None
     promo_id: Optional[str] = None
     mla: Optional[str] = None
@@ -146,19 +152,45 @@ def _may_write(origin: Optional[ProductoPrecioOrigen], activation_time: datetime
     return True
 
 
-def _write_column(db: Session, item_id: int, campo_precio: str, precio: float) -> None:
+def _write_column(
+    db: Session,
+    item_id: int,
+    campo_precio: str,
+    precio: float,
+    producto: Optional[ProductoERP],
+    tipo_cambio: Optional[float],
+    costo_envio: Optional[float],
+) -> bool:
     """Set-cuota single-column write pattern: setattr the ONE price
-    column, no cuota cascade (mirrors `pricing.py::setear_precio_cuota`).
+    column, no cuota cascade (mirrors `pricing.py::setear_precio_cuota`),
+    then recompute `markup_rebate`/`markup_oferta` exactly like the
+    manual write path so both writers keep these stored columns in
+    sync (review fix-pass, CRITICAL) — `productos_listing.py` filters
+    on their sign, so leaving them stale mis-classifies the product.
+
+    Never manufactures a half-populated `ProductoPricing` row (review
+    fix-pass, WARNING): if no row exists for the item, the write is
+    skipped entirely. Returns True if written, False if skipped.
     """
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
-    if pricing:
-        setattr(pricing, campo_precio, precio)
-        pricing.fecha_modificacion = datetime.now(UTC)
-    else:
-        pricing = ProductoPricing(item_id=item_id, motivo_cambio="Promo price propagation")
-        setattr(pricing, campo_precio, precio)
-        db.add(pricing)
+    if pricing is None:
+        logger.warning(
+            "promo_price_propagation: skipping write for item_id=%s column=%s "
+            "— no ProductoPricing row exists",
+            item_id,
+            campo_precio,
+        )
+        return False
+
+    setattr(pricing, campo_precio, precio)
+    pricing.fecha_modificacion = datetime.now(UTC)
+
+    if producto is not None:
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
+
     db.flush()
+    return True
 
 
 def recompute_item(db: Session, item_id: int, *, now: Optional[datetime] = None) -> RecomputeResult:
@@ -188,6 +220,16 @@ def recompute_item(db: Session, item_id: int, *, now: Optional[datetime] = None)
             result.columns.append(ColumnOutcome(column_key=column_key, status="skipped_disabled"))
         return result
 
+    # Same inputs the manual write path (`pricing.py::setear_precio_cuota`)
+    # uses to recompute markup_rebate/markup_oferta on every price write.
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    tipo_cambio: Optional[float] = None
+    costo_envio: Optional[float] = None
+    if producto is not None:
+        if producto.moneda_costo == "USD":
+            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        costo_envio = resolver_costo_envio(db, producto)
+
     for column_key, best in column_promo.items():
         if best is None:
             # No active promo left for this column -> FROZEN, never revert.
@@ -199,7 +241,11 @@ def recompute_item(db: Session, item_id: int, *, now: Optional[datetime] = None)
             result.columns.append(ColumnOutcome(column_key=column_key, status="skipped_frozen_manual"))
             continue
 
-        _write_column(db, item_id, column_key, best["price"])
+        written = _write_column(db, item_id, column_key, best["price"], producto, tipo_cambio, costo_envio)
+        if not written:
+            result.columns.append(ColumnOutcome(column_key=column_key, status="skipped_no_pricing_row"))
+            continue
+
         upsert_origen_promo(
             db,
             item_id,
