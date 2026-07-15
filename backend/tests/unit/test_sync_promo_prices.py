@@ -219,7 +219,10 @@ class TestWatermarkAdvance:
             stored = stored.replace(tzinfo=UTC)
         assert stored == activation_time
 
-    def test_watermark_not_advanced_when_an_item_fails(self, db):
+    def test_poison_item_advances_watermark_and_quarantines_it(self, db, caplog):
+        """A single deterministically-failing item must NEVER stall the
+        watermark forever: as long as at least one item succeeded, advance
+        to max_seen and quarantine the poison item (loudly logged)."""
         _make_producto(db, 2001)
         _make_publicacion(db, 2001, "MLA1")
         _make_producto(db, 2002)
@@ -229,7 +232,7 @@ class TestWatermarkAdvance:
 
         def fake_recompute(db_arg, item_id, *, now=None):
             if item_id == 2002:
-                raise RuntimeError("cross-db outage")
+                raise RuntimeError("poison item — always fails")
 
         with (
             patch.object(sync_promo_prices, "get_background_db", side_effect=lambda: _fake_ctx(db)),
@@ -239,13 +242,116 @@ class TestWatermarkAdvance:
                 return_value=[("MLA1", t1), ("MLA2", t2)],
             ),
             patch.object(sync_promo_prices, "recompute_item", side_effect=fake_recompute) as mock_recompute,
+            caplog.at_level("ERROR"),
         ):
             sync_promo_prices.run_sync()
 
         db.commit()
-        # Both items were attempted (isolated failure — other items still processed).
-        assert mock_recompute.call_count == 2
-        assert get_watermark(db) is None  # NOT advanced past the failed item
+        # item 2001 attempted once (success), item 2002 retried up to MAX_ITEM_ATTEMPTS.
+        assert mock_recompute.call_count == 1 + sync_promo_prices.MAX_ITEM_ATTEMPTS
+        stored = get_watermark(db)
+        if stored.tzinfo is None:
+            stored = stored.replace(tzinfo=UTC)
+        assert stored == t2  # watermark ADVANCED — no stall
+        assert any("2002" in record.getMessage() and "QUARANTINED" in record.getMessage() for record in caplog.records)
+
+    def test_second_run_does_not_reprocess_quarantined_poison_item(self, db):
+        """After the poison item is quarantined and the watermark advances
+        past it, a subsequent run with no new rows must not reprocess it —
+        proved here by simulating the watermark-filtered second run."""
+        _make_producto(db, 2001)
+        _make_publicacion(db, 2001, "MLA1")
+        _make_producto(db, 2002)
+        _make_publicacion(db, 2002, "MLA2")
+        t1 = datetime(2026, 1, 3, tzinfo=UTC)
+        t2 = datetime(2026, 1, 4, tzinfo=UTC)
+
+        def fake_recompute(db_arg, item_id, *, now=None):
+            if item_id == 2002:
+                raise RuntimeError("poison item — always fails")
+
+        with (
+            patch.object(sync_promo_prices, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(
+                sync_promo_prices,
+                "_fetch_newly_active_rows",
+                return_value=[("MLA1", t1), ("MLA2", t2)],
+            ),
+            patch.object(sync_promo_prices, "recompute_item", side_effect=fake_recompute),
+        ):
+            sync_promo_prices.run_sync()
+
+        db.commit()
+
+        # Second run: no rows newer than the (now-advanced) watermark.
+        with (
+            patch.object(sync_promo_prices, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(sync_promo_prices, "_fetch_newly_active_rows", return_value=[]) as mock_fetch,
+            patch.object(sync_promo_prices, "recompute_item") as mock_recompute_2,
+        ):
+            sync_promo_prices.run_sync()
+
+        mock_fetch.assert_called_once()
+        mock_recompute_2.assert_not_called()
+
+    def test_systemic_outage_all_items_fail_watermark_not_advanced(self, db):
+        """Every item failing (e.g. mlwebhook down) must NOT advance the
+        watermark — the whole batch retries next run."""
+        _make_producto(db, 2001)
+        _make_publicacion(db, 2001, "MLA1")
+        _make_producto(db, 2002)
+        _make_publicacion(db, 2002, "MLA2")
+        t1 = datetime(2026, 1, 3, tzinfo=UTC)
+        t2 = datetime(2026, 1, 4, tzinfo=UTC)
+
+        with (
+            patch.object(sync_promo_prices, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(
+                sync_promo_prices,
+                "_fetch_newly_active_rows",
+                return_value=[("MLA1", t1), ("MLA2", t2)],
+            ),
+            patch.object(
+                sync_promo_prices, "recompute_item", side_effect=RuntimeError("cross-db outage")
+            ) as mock_recompute,
+        ):
+            sync_promo_prices.run_sync()
+
+        db.commit()
+        assert mock_recompute.call_count == 2 * sync_promo_prices.MAX_ITEM_ATTEMPTS
+        assert get_watermark(db) is None  # NOT advanced — systemic outage
+
+    def test_transient_failure_self_heals_on_in_run_retry(self, db):
+        """An item that fails once then succeeds on retry within the same
+        run counts as a success — not quarantined, watermark advances."""
+        _make_producto(db, 2001)
+        _make_publicacion(db, 2001, "MLA1")
+        activation_time = datetime(2026, 1, 3, tzinfo=UTC)
+
+        call_count = {"n": 0}
+
+        def fake_recompute(db_arg, item_id, *, now=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("transient blip")
+
+        with (
+            patch.object(sync_promo_prices, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(
+                sync_promo_prices,
+                "_fetch_newly_active_rows",
+                return_value=[("MLA1", activation_time)],
+            ),
+            patch.object(sync_promo_prices, "recompute_item", side_effect=fake_recompute) as mock_recompute,
+        ):
+            sync_promo_prices.run_sync()
+
+        db.commit()
+        assert mock_recompute.call_count == 2  # 1 failure + 1 successful retry
+        stored = get_watermark(db)
+        if stored.tzinfo is None:
+            stored = stored.replace(tzinfo=UTC)
+        assert stored == activation_time  # advanced — self-healed, not quarantined
 
 
 class TestIdempotentEmptyRun:

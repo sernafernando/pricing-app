@@ -24,10 +24,17 @@ Mechanism (design #937, MUST-RESOLVE #2):
      session (never one session held across the whole batch — this repo had
      a DB-pool-exhaustion incident). A per-item failure is caught, logged,
      and does not abort the run or corrupt other items.
-  6. The watermark advances ONLY after every affected item processed
-     successfully this run, to the max `updated_at` seen in the batch. If
-     ANY item fails, the watermark is left untouched so next run retries the
-     whole batch — safe because `recompute_item` is idempotent.
+  6. Each item gets a small bounded number of in-run retries (self-heals
+     transient blips within the same run). After that, the watermark
+     advances to the max `updated_at` seen in the batch AS SOON AS AT LEAST
+     ONE item succeeded this run — a single poison item (deterministically
+     failing) must never block the whole sync forever. Items that still
+     fail after retries are QUARANTINED for this cycle (logged loudly with
+     `logger.error`); their price re-propagates next time their promo row's
+     `updated_at` changes, or via manual intervention. Only when EVERY
+     affected item fails (a systemic outage, e.g. mlwebhook down) is the
+     watermark withheld so the next run retries the whole batch — safe
+     because `recompute_item` is idempotent.
 
 Run:
     python app/scripts/sync_promo_prices.py
@@ -52,6 +59,7 @@ env_path = backend_path / ".env"
 load_dotenv(dotenv_path=env_path)
 
 from sqlalchemy import text  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.database import get_background_db, get_mlwebhook_engine  # noqa: E402
@@ -60,6 +68,31 @@ from app.models.publicacion_ml import PublicacionML  # noqa: E402
 from app.services.promo_price_propagation import recompute_item  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# Bounded in-run retries per item: 1 initial attempt + this many extra
+# attempts, so a transient blip self-heals within the same run without
+# stalling on external backoff.
+MAX_ITEM_ATTEMPTS = 3
+
+
+def _recompute_item_with_retries(item_id: int, activation_time: datetime) -> bool:
+    """Attempts `recompute_item` for a single item up to `MAX_ITEM_ATTEMPTS`
+    times, each in its own short-lived `get_background_db()` session.
+    Returns True on success, False if every attempt failed."""
+    for attempt in range(1, MAX_ITEM_ATTEMPTS + 1):
+        try:
+            with get_background_db() as db:
+                recompute_item(db, item_id, now=activation_time)
+            return True
+        except Exception:
+            logger.warning(
+                "sync_promo_prices: recompute_item failed for item_id=%s (attempt %s/%s)",
+                item_id,
+                attempt,
+                MAX_ITEM_ATTEMPTS,
+                exc_info=True,
+            )
+    return False
 
 
 def _fetch_newly_active_rows(watermark: Optional[datetime]) -> List[Tuple[str, datetime]]:
@@ -81,7 +114,7 @@ def _fetch_newly_active_rows(watermark: Optional[datetime]) -> List[Tuple[str, d
     return [(row[0], row[1]) for row in rows]
 
 
-def _map_activation_by_item(db, rows: List[Tuple[str, datetime]]) -> Dict[int, datetime]:
+def _map_activation_by_item(db: Session, rows: List[Tuple[str, datetime]]) -> Dict[int, datetime]:
     """Maps the affected MLAs to their `item_id` (PublicacionML, pricing DB)
     and dedupes to the distinct set of affected items, each with the MAX
     `updated_at` among its newly-active rows in this batch (the activation
@@ -124,30 +157,44 @@ def run_sync() -> None:
     with get_background_db() as db:
         activation_by_item = _map_activation_by_item(db, rows)
 
+    if not activation_by_item:
+        logger.info("sync_promo_prices: no affected items mapped this run — watermark unchanged")
+        return
+
     max_seen = max(updated_at for _, updated_at in rows)
 
-    had_failure = False
+    quarantined: List[int] = []
+    succeeded_count = 0
     for item_id, activation_time in activation_by_item.items():
-        try:
-            with get_background_db() as db:
-                recompute_item(db, item_id, now=activation_time)
-        except Exception:
-            had_failure = True
-            logger.exception(
-                "sync_promo_prices: recompute_item failed for item_id=%s (isolated — other items still processed)",
-                item_id,
-            )
+        if _recompute_item_with_retries(item_id, activation_time):
+            succeeded_count += 1
+        else:
+            quarantined.append(item_id)
 
-    if had_failure:
+    if succeeded_count == 0:
         logger.warning(
-            "sync_promo_prices: at least one item failed this run — watermark NOT advanced, "
-            "next run retries the whole batch (recompute_item is idempotent)"
+            "sync_promo_prices: ALL %s affected item(s) failed this run (systemic outage suspected) — "
+            "watermark NOT advanced, next run retries the whole batch (recompute_item is idempotent)",
+            len(activation_by_item),
         )
         return
 
+    if quarantined:
+        logger.error(
+            "sync_promo_prices: item_id(s) %s QUARANTINED this cycle after %s attempts each — "
+            "will re-propagate next time their promo row's updated_at changes, or via manual intervention",
+            quarantined,
+            MAX_ITEM_ATTEMPTS,
+        )
+
     with get_background_db() as db:
         set_watermark(db, max_seen)
-    logger.info("sync_promo_prices: run complete — watermark advanced to %s", max_seen)
+    logger.info(
+        "sync_promo_prices: run complete — watermark advanced to %s (%s succeeded, %s quarantined)",
+        max_seen,
+        succeeded_count,
+        len(quarantined),
+    )
 
 
 def main() -> None:
