@@ -11,6 +11,7 @@ from app.services.envio_real_service import resolver_costo_envio
 
 logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
+from app.models.producto_precio_origen import upsert_origen_manual
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.usuario import Usuario
 from app.services.pricing_calculator import (
@@ -492,6 +493,12 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
         pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
 
+    # Tag origen='manual' for every column this endpoint just wrote (clásica + auto-calculated cuotas)
+    columnas_escritas = ["precio_lista_ml"] + [
+        campo for campo, valor in precios_cuotas_calculados.items() if valor is not None
+    ]
+    upsert_origen_manual(db, request.item_id, columnas_escritas)
+
     db.commit()
     db.refresh(pricing)
 
@@ -915,6 +922,13 @@ def setear_precio_rapido(
         pricing.precio_web_transferencia = resultado_web["precio"]
         pricing.markup_web_real = resultado_web["markup_real"]
 
+    # Tag origen='manual' for the classic column just written + any cascaded cuotas
+    campo_clasica = "precio_pvp" if lista_tipo == "pvp" else "precio_lista_ml"
+    columnas_escritas = [campo_clasica]
+    if recalcular_cuotas:
+        columnas_escritas += [campo for campo, valor in precios_cuotas.items() if valor is not None]
+    upsert_origen_manual(db, item_id, columnas_escritas)
+
     db.commit()
     db.refresh(pricing)
 
@@ -1288,6 +1302,9 @@ def setear_precio_cuota(
         # Calcular y actualizar markup_rebate y markup_oferta
         pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=costo_envio)
         pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
+
+    # Tag origen='manual' for the single column this endpoint just wrote
+    upsert_origen_manual(db, item_id, [campo_precio])
 
     db.commit()
     db.refresh(pricing)
