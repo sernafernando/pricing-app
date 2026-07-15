@@ -260,6 +260,48 @@ class TestItemPromotions:
         # cleanup, so finished promos would otherwise linger in the display.
         mock_fetch.assert_called_once_with("MLA123456789", active_only=True)
 
+    def test_promo_name_present_per_promo(self, client: TestClient) -> None:
+        """Regression: the panel endpoint MUST expose `name` per promo. The
+        service resolves it (catalog → payload → type), but if the
+        `ItemPromotion` schema omits the field, Pydantic silently drops it and
+        the panel falls back to the cryptic promotion_type (the reported bug)."""
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.fetch_item_promotions",
+                    return_value=[
+                        {
+                            "mla": "MLA123456789",
+                            "promotion_id": "C-MLA1342522",
+                            "promotion_type": "SELLER_CAMPAIGN",
+                            "sub_type": "FLEXIBLE_PERCENTAGE",
+                            "status": "candidate",
+                            "name": "TPLINK 6-7 al 20-7",
+                            "original_price": 53705.0,
+                            "price": None,
+                            "min_discounted_price": 13180.0,
+                            "max_discounted_price": 32620.5,
+                            "suggested_discounted_price": 32171.0,
+                            "payload": {},
+                            "updated_at": None,
+                        },
+                    ],
+                ),
+                patch(
+                    "app.routers.ml_promotions.enriquecer_markup_por_promo",
+                    side_effect=lambda db, mla, promos: promos,
+                ),
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["promotions"][0]["name"] == "TPLINK 6-7 al 20-7"
+
     def test_nuestro_markup_present_per_promo(self, client: TestClient) -> None:
         """R6/R7 — `nuestro_markup` is present per promo entry (number or
         null), independently computed per promo."""

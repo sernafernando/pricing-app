@@ -63,6 +63,92 @@ def _enable_promo_writes():
     settings.PROMOS_WRITE_ENABLED = original
 
 
+def _candidate_promo(promotion_id: str, price) -> dict:
+    """A promo OFFERED to the item but NOT applied. Real data (2026-07-16):
+    candidate rows carry price=0 (7270 rows), NULL (31480) or a would-be
+    price (5764) — never a price the item is actually selling at."""
+    return {"promotion_id": promotion_id, "status": "candidate", "price": price}
+
+
+class TestOnlyStartedPromosSetPrice:
+    """Only APPLIED (`started`) promos may set a pricing column.
+
+    A `candidate` promo is merely offered to the item — it is NOT applied and
+    the item is NOT selling at that price, so it must never reach a price
+    column. Production evidence (2026-07-16): all 2897 `started` rows have a
+    real price (0 zeros, 0 nulls), while `candidate` rows carry price=0,
+    NULL, or a would-be price.
+
+    REGRESSION: the original rule was "MIN across candidate|started" and only
+    skipped `price is None` — so the 7270 candidates with price=0 dragged the
+    MIN to 0 and wrote **0** into the pricing column of ~every product.
+    """
+
+    def test_candidate_with_zero_price_never_drags_min_to_zero(self, db):
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        db.add(ProductoPricing(item_id=2001))
+        db.commit()
+
+        def fake_fetch(mla, active_only=True):
+            return [_candidate_promo("PROMO-CAND", 0.0), _active_promo("PROMO-APPLIED", 800.0)]
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            side_effect=fake_fetch,
+        ):
+            recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 800.0  # NOT 0.0
+
+    def test_candidate_cheaper_than_started_is_ignored(self, db):
+        """A candidate's would-be price must not undercut the applied one —
+        otherwise the list shows a discount that does not exist in ML."""
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        db.add(ProductoPricing(item_id=2001))
+        db.commit()
+
+        def fake_fetch(mla, active_only=True):
+            return [_candidate_promo("PROMO-CAND", 500.0), _active_promo("PROMO-APPLIED", 800.0)]
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            side_effect=fake_fetch,
+        ):
+            recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 800.0
+
+        origen = db.query(ProductoPrecioOrigen).filter_by(item_id=2001, column_key="precio_lista_ml").first()
+        assert origen.promo_id == "PROMO-APPLIED"
+
+    def test_only_candidates_writes_nothing(self, db):
+        """No applied promo -> no write at all (column stays frozen)."""
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        db.add(ProductoPricing(item_id=2001, precio_lista_ml=1000.0))
+        db.commit()
+
+        def fake_fetch(mla, active_only=True):
+            return [_candidate_promo("PROMO-A", 0.0), _candidate_promo("PROMO-B", 500.0)]
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            side_effect=fake_fetch,
+        ):
+            result = recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 1000.0  # untouched
+        assert result.written_columns == []
+
+
 class TestRecomputeItemMinOfActive:
     def test_writes_min_active_price_across_multiple_mlas_same_column(self, db):
         _make_producto(db)
@@ -135,11 +221,7 @@ class TestRecomputeItemLastWriteWins:
         _make_producto(db)
         _make_publicacion(db, 2001, "MLA1", 4)
         manual_fecha = datetime(2026, 1, 1, tzinfo=UTC)
-        db.add(
-            ProductoPrecioOrigen(
-                item_id=2001, column_key="precio_lista_ml", origen="manual", fecha=manual_fecha
-            )
-        )
+        db.add(ProductoPrecioOrigen(item_id=2001, column_key="precio_lista_ml", origen="manual", fecha=manual_fecha))
         db.add(ProductoPricing(item_id=2001, precio_lista_ml=1234.0))
         db.commit()
 
@@ -161,11 +243,7 @@ class TestRecomputeItemLastWriteWins:
         _make_producto(db)
         _make_publicacion(db, 2001, "MLA1", 4)
         manual_fecha = datetime(2026, 1, 5, tzinfo=UTC)
-        db.add(
-            ProductoPrecioOrigen(
-                item_id=2001, column_key="precio_lista_ml", origen="manual", fecha=manual_fecha
-            )
-        )
+        db.add(ProductoPrecioOrigen(item_id=2001, column_key="precio_lista_ml", origen="manual", fecha=manual_fecha))
         pricing = ProductoPricing(item_id=2001, precio_lista_ml=1234.0)
         db.add(pricing)
         db.commit()
