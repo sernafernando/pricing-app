@@ -72,6 +72,12 @@ class ItemPromotion(BaseModel):
     promotion_type: Optional[str] = None
     sub_type: Optional[str] = None
     status: Optional[str] = None
+    name: Optional[str] = None
+    """Human-readable promo name. Resolved server-side by `fetch_item_promotions`
+    from the `ml_promotions` catalog (`COALESCE(catalog.name, payload.name,
+    promotion_type)`); the FE shows it instead of the cryptic promotion_type.
+    Without this field the value is silently dropped from the response and the
+    panel falls back to the type — the exact regression this field fixes."""
     original_price: Optional[float] = None
     price: Optional[float] = None
     min_discounted_price: Optional[float] = None
