@@ -175,8 +175,7 @@ def _write_column(
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
     if pricing is None:
         logger.warning(
-            "promo_price_propagation: skipping write for item_id=%s column=%s "
-            "— no ProductoPricing row exists",
+            "promo_price_propagation: skipping write for item_id=%s column=%s — no ProductoPricing row exists",
             item_id,
             campo_precio,
         )
