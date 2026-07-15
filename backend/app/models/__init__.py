@@ -1,5 +1,6 @@
 from app.models.publicacion_ml import PublicacionML
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
+from app.models.producto_precio_origen import ProductoPrecioOrigen
 from app.models.usuario import Usuario
 from app.models.tipo_cambio import TipoCambio
 from app.models.subcategoria import Subcategoria
@@ -183,6 +184,7 @@ from app.models.ml_bot_answer_example import MlBotAnswerExample
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
+    "ProductoPrecioOrigen",
     "HistorialPrecio",
     "Usuario",
     "TipoCambio",
