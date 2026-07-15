@@ -75,3 +75,48 @@ def upsert_origen_manual(
                     fecha=ts,
                 )
             )
+
+
+def upsert_origen_promo(
+    db: Session,
+    item_id: int,
+    column_key: str,
+    *,
+    promo_id: Optional[str] = None,
+    mla: Optional[str] = None,
+    fecha: Optional[datetime] = None,
+) -> None:
+    """Tags `column_key` as promo-owned for `item_id` (slice 3:
+    `promo_price_propagation.recompute_item`'s provenance write).
+
+    Mirrors `upsert_origen_manual`'s upsert-in-place semantics (single
+    current row per (item_id, column_key)) but flips origen to 'promo'
+    and records the winning `promo_id`/`mla`. Does not commit — caller
+    persists this in the same transaction as the price write it
+    accompanies.
+    """
+    ts = fecha or datetime.now(UTC)
+    existing = (
+        db.query(ProductoPrecioOrigen)
+        .filter(
+            ProductoPrecioOrigen.item_id == item_id,
+            ProductoPrecioOrigen.column_key == column_key,
+        )
+        .first()
+    )
+    if existing:
+        existing.origen = "promo"
+        existing.promo_id = promo_id
+        existing.mla = mla
+        existing.fecha = ts
+    else:
+        db.add(
+            ProductoPrecioOrigen(
+                item_id=item_id,
+                column_key=column_key,
+                origen="promo",
+                promo_id=promo_id,
+                mla=mla,
+                fecha=ts,
+            )
+        )

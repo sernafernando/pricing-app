@@ -46,10 +46,17 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
+from app.core.database import get_background_db
+from app.models.publicacion_ml import PublicacionML
 from app.services.ml_promotions_service import fetch_item_promotions
 from app.services.ml_webhook_client import ml_webhook_client
+from app.services.promo_price_propagation import recompute_item
 
 logger = logging.getLogger(__name__)
+
+# Outcomes that mean the promo actually changed state at ML — only these
+# are worth triggering a price recompute for.
+_RECOMPUTE_TRIGGER_STATUSES = {"submitted", "reconciled_applied"}
 
 WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED"}
 
@@ -208,7 +215,61 @@ def reconcile_write_outcome(
     return result
 
 
+def _maybe_recompute_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
+    """Best-effort post-write hook: recomputes promo-driven price columns
+    for the item this `mla_id` belongs to, AFTER the enroll/remove
+    reconciliation completed.
+
+    Only fires for outcomes where the promo actually changed state at ML
+    (`submitted`/`reconciled_applied`) — a rejected/disabled/ambiguous
+    outcome changed nothing, so there is nothing to recompute.
+
+    Defensive by design: the enroll/remove already happened at ML by the
+    time this runs, so a recompute failure (mlwebhook down, unmapped
+    MLA, DB error) must NEVER corrupt or reverse the enroll/remove
+    result — it is only logged here, never raised.
+    """
+    if outcome.get("status") not in _RECOMPUTE_TRIGGER_STATUSES:
+        return
+    try:
+        with get_background_db() as db:
+            publicacion = db.query(PublicacionML).filter(PublicacionML.mla == mla_id).first()
+            if publicacion is None:
+                logger.warning("Promo price recompute skipped: no PublicacionML found for mla=%s", mla_id)
+                return
+            recompute_item(db, publicacion.item_id)
+    except Exception as e:
+        logger.error(
+            "Promo price recompute failed for mla=%s (enroll/remove outcome is unaffected): %s",
+            mla_id,
+            e,
+            exc_info=True,
+        )
+
+
 def enroll_one_item(
+    mla_id: str,
+    promotion_id: str,
+    promotion_type: str,
+    deal_price: Optional[float] = None,
+    top_deal_price: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Enrolls a single item in a promotion, then triggers the promo price
+    recompute hook (`_maybe_recompute_after_write`) — see that function's
+    docstring for the failure-isolation contract. See `_enroll_one_item`
+    for the enroll orchestration itself."""
+    outcome = _enroll_one_item(
+        mla_id,
+        promotion_id,
+        promotion_type,
+        deal_price=deal_price,
+        top_deal_price=top_deal_price,
+    )
+    _maybe_recompute_after_write(mla_id, outcome)
+    return outcome
+
+
+def _enroll_one_item(
     mla_id: str,
     promotion_id: str,
     promotion_type: str,
@@ -381,6 +442,15 @@ def enroll_one_item(
 
 
 def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
+    """Removes a single item from a promotion, then triggers the promo
+    price recompute hook (`_maybe_recompute_after_write`). See
+    `_remove_one_item` for the remove orchestration itself."""
+    outcome = _remove_one_item(mla_id, promotion_type, promotion_id)
+    _maybe_recompute_after_write(mla_id, outcome)
+    return outcome
+
+
+def _remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
     """Removes a single item from a promotion (SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED).
 
     Args:

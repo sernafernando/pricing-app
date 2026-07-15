@@ -21,11 +21,22 @@ All cross-DB engine + httpx calls are mocked. NO live-prod calls ever.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services import ml_promotions_write_service as write_service
+
+
+@pytest.fixture(autouse=True)
+def _stub_recompute_hook(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """No-ops the post-write promo price recompute hook for every test in
+    this file EXCEPT `TestRecomputeHook`, which exercises it directly.
+    Without this, every 'submitted'/'reconciled_applied' test below would
+    open a real DB session via `get_background_db()`."""
+    if request.cls is not None and request.cls.__name__ == "TestRecomputeHook":
+        return
+    monkeypatch.setattr(write_service, "_maybe_recompute_after_write", lambda *a, **k: None)
 
 
 def _fake_live_item_promotions(
@@ -1356,3 +1367,91 @@ class TestRemoveHappyPath:
 
         mock_remove.assert_not_called()
         assert result["status"] == "rejected_unsupported_type"
+
+
+class TestRecomputeHook:
+    """Panel enroll/remove hook (slice 3): after a real state change at ML,
+    `recompute_item` is called for the affected item. A recompute failure
+    must NEVER surface as/replace the enroll/remove outcome."""
+
+    def test_maybe_recompute_calls_recompute_item_for_mapped_mla(self) -> None:
+        fake_publicacion = MagicMock(item_id=4242)
+        fake_db = MagicMock()
+        fake_db.query.return_value.filter.return_value.first.return_value = fake_publicacion
+
+        with (
+            patch.object(write_service, "get_background_db") as mock_get_db,
+            patch.object(write_service, "recompute_item") as mock_recompute,
+        ):
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._maybe_recompute_after_write("MLA123456789", {"status": "submitted"})
+
+        mock_recompute.assert_called_once_with(fake_db, 4242)
+
+    def test_maybe_recompute_skips_unmapped_mla(self) -> None:
+        fake_db = MagicMock()
+        fake_db.query.return_value.filter.return_value.first.return_value = None
+
+        with (
+            patch.object(write_service, "get_background_db") as mock_get_db,
+            patch.object(write_service, "recompute_item") as mock_recompute,
+        ):
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._maybe_recompute_after_write("MLA_UNKNOWN", {"status": "reconciled_applied"})
+
+        mock_recompute.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "status", ["disabled", "rejected_out_of_range", "rejected_by_proxy", "ambiguous", "reconciled_not_applied"]
+    )
+    def test_maybe_recompute_skips_non_effective_outcomes(self, status: str) -> None:
+        with (
+            patch.object(write_service, "get_background_db") as mock_get_db,
+            patch.object(write_service, "recompute_item") as mock_recompute,
+        ):
+            write_service._maybe_recompute_after_write("MLA123456789", {"status": status})
+
+        mock_get_db.assert_not_called()
+        mock_recompute.assert_not_called()
+
+    def test_recompute_failure_does_not_raise_or_affect_outcome(self) -> None:
+        """A recompute failure (mlwebhook down etc.) must be swallowed —
+        the enroll/remove outcome already reflects the real ML state."""
+        with patch.object(write_service, "get_background_db", side_effect=RuntimeError("mlwebhook down")):
+            # Must not raise.
+            write_service._maybe_recompute_after_write("MLA123456789", {"status": "submitted"})
+
+    def test_enroll_one_item_triggers_recompute_hook_on_submitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            ),
+            patch.object(write_service, "_maybe_recompute_after_write") as mock_hook,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "DEAL-1", "DEAL", deal_price=900.0)
+
+        mock_hook.assert_called_once_with("MLA123456789", result)
+
+    def test_remove_one_item_triggers_recompute_hook_on_submitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": True, "status_code": 204, "ambiguous": False, "body": {}},
+            ),
+            patch.object(write_service, "_maybe_recompute_after_write") as mock_hook,
+        ):
+            result = write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
+
+        mock_hook.assert_called_once_with("MLA123456789", result)
