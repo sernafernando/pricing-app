@@ -11,6 +11,11 @@ from datetime import UTC, date
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
 from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+from app.services.pricing_columns import (
+    CUOTAS_BY_PRICELIST,
+    PRICELIST_IDS_CLASICA_Y_CUOTAS,
+    PVP_TO_WEB_PRICELIST,
+)
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -650,14 +655,8 @@ def listar_productos(
     subcat_to_grupo = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos}
 
     # ── T-5: Prefetch comision lookup ───────────────────────────────────
-    _pricelist_pvp_to_web = {
-        12: 4,
-        18: 17,
-        19: 14,
-        20: 13,
-        21: 23,
-    }
-    _pricelist_to_cuotas = {17: 3, 14: 6, 13: 9, 23: 12}
+    _pricelist_pvp_to_web = PVP_TO_WEB_PRICELIST
+    _pricelist_to_cuotas = CUOTAS_BY_PRICELIST
 
     _active_version = (
         db.query(ComisionVersion)
@@ -1354,7 +1353,7 @@ def listar_productos_con_precios_listas(
         # Obtener precios de todas las listas directamente por item_id
         precios_listas = {}
 
-        for pricelist_id in [4, 17, 14, 13, 23]:
+        for pricelist_id in PRICELIST_IDS_CLASICA_Y_CUOTAS:
             precio_ml = (
                 db.query(PrecioML)
                 .filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == pricelist_id)
@@ -1836,8 +1835,8 @@ def listar_productos_tienda(
     subcat_to_grupo_t = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos_t}
 
     # ── T-8/T-5: Prefetch comision lookup ────────────────────────────────
-    _pricelist_pvp_to_web_t = {12: 4, 18: 17, 19: 14, 20: 13, 21: 23}
-    _pricelist_to_cuotas_t = {17: 3, 14: 6, 13: 9, 23: 12}
+    _pricelist_pvp_to_web_t = PVP_TO_WEB_PRICELIST
+    _pricelist_to_cuotas_t = CUOTAS_BY_PRICELIST
 
     _active_version_t = (
         db.query(ComisionVersion)
