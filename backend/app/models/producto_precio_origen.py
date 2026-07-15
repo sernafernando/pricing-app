@@ -32,9 +32,7 @@ class ProductoPrecioOrigen(Base):
     mla = Column(String(50), nullable=True)
     fecha = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
 
-    __table_args__ = (
-        UniqueConstraint("item_id", "column_key", name="uq_producto_precio_origen_item_column"),
-    )
+    __table_args__ = (UniqueConstraint("item_id", "column_key", name="uq_producto_precio_origen_item_column"),)
 
 
 def upsert_origen_manual(
