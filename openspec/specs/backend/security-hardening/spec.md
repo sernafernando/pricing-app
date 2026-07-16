@@ -3,9 +3,15 @@
 **Capability**: `backend/security-hardening`
 **Status**: Active (canonical source of truth)
 **Origen**: Sincronizado desde `openspec/changes/archive/2026-07-03-security-quick-wins/specs/backend/security-hardening/spec.md`
-**Última actualización**: 2026-07-03
+**Última actualización**: 2026-07-16 (Requirement 3 reversed — see below)
 
-> Backend security hardening: June 2026 audit quick wins (week 1). Four low-risk, high-value fixes: python-multipart CVE-2024-24762 remediation, OpenAPI docs env-gating, wipe-compras 404 endpoint hardening, and login brute-force rate limiting (10/minute per IP, fail-open on Redis outage, Cloudflare-IP-keyed).
+> Backend security hardening: June 2026 audit quick wins (week 1). Four low-risk, high-value fixes: python-multipart CVE-2024-24762 remediation, OpenAPI docs env-gating, wipe-compras endpoint hardening, and login brute-force rate limiting (10/minute per IP, fail-open on Redis outage, Cloudflare-IP-keyed).
+>
+> **Requirement 3 was reversed on 2026-07-16.** The wipe-compras env-gate shipped
+> here contradicted a prior recorded decision (2026-06-10) that accepted audit
+> finding A-5 as a conscious risk. The endpoint is intentionally reachable in
+> production, guarded by a dedicated critical permission, until the compras module
+> is complete. The other three requirements stand unchanged.
 
 ---
 
@@ -78,46 +84,71 @@ MUST be reachable only when `ENVIRONMENT` is a member of
   `DEV_LIKE_ENVIRONMENTS`, and the three routes are disabled (fail-closed
   default)
 
-## Requirement 3 — `wipe-compras` Endpoint Hardening
+## Requirement 3 — `wipe-compras` Access Control
 
-> Amended 2026-07-02 (review): CI runs ENVIRONMENT=testing — the gate is
-> membership in `DEV_LIKE_ENVIRONMENTS = ("development", "testing")`, not a
-> strict `== "development"` check.
+> **REVERSED 2026-07-16.** This requirement originally mandated an environment
+> gate returning `404` outside `DEV_LIKE_ENVIRONMENTS` (shipped in PR #839,
+> 2026-07-03). That contradicted an earlier recorded decision (2026-06-10) which
+> had already accepted audit finding A-5 as a conscious risk and explicitly ruled
+> out blocking this endpoint in security remediations. The gate made the endpoint
+> unusable in production — the only environment where the compras module can
+> currently be tested — so it was removed. The text below states the behavior
+> that now holds; the superseded 404 requirement is preserved in
+> `openspec/changes/archive/2026-07-03-security-quick-wins/`.
 
-`POST /api/testing/wipe-compras` MUST be unreachable — indistinguishable from
-a nonexistent route — outside `DEV_LIKE_ENVIRONMENTS`, and MUST retain its
-existing permission checks unchanged inside `DEV_LIKE_ENVIRONMENTS`.
+`POST /api/administracion/compras/testing/wipe-compras` MUST remain reachable in
+every environment, production included, while the compras module is under
+development. Access MUST be governed solely by the dedicated
+`administracion.wipe_compras_testing` permission and the textual confirmation —
+never by `settings.ENVIRONMENT`.
 
-### Scenario: Endpoint hidden outside dev-like environments
+The endpoint MUST be removed outright when the compras module is complete. Until
+then, finding A-5 stands as an accepted risk and MUST NOT be re-remediated by
+gating or removing the route.
 
-- **Given** `settings.ENVIRONMENT` is set to a value not in
-  `DEV_LIKE_ENVIRONMENTS` (e.g. `"production"`, `"staging"`)
-- **When** a client sends `POST /api/testing/wipe-compras` (with or without a
-  valid auth token, with or without the required permission)
-- **Then** the response is `404 Not Found`, with the same body shape used for
-  genuinely unknown routes (no distinguishing detail message, no indication
-  the route exists)
+### Scenario: Endpoint reachable in production with the permission
 
-### Scenario: No side effect occurs before the env gate
+- **Given** `settings.ENVIRONMENT` is `"production"`
+- **And** the caller holds `administracion.wipe_compras_testing`
+- **When** `POST .../testing/wipe-compras` is called with `confirmacion: "WIPE"`
+- **Then** the wipe executes and the response is `200` — the environment does
+  not affect reachability
 
-- **Given** `settings.ENVIRONMENT` is not in `DEV_LIKE_ENVIRONMENTS`
-- **When** `POST /api/testing/wipe-compras` is called
-- **Then** no data is wiped, no query against the compras tables is executed,
-  and no permission check is evaluated — the 404 is returned before any
-  business logic runs
+### Scenario: Permission is the guard, in every environment
 
-### Scenario: Permission checks unchanged in development/testing
-
-- **Given** `settings.ENVIRONMENT` is `"development"` or `"testing"`
-- **When** `POST /api/testing/wipe-compras` is called
-- **Then** the existing permission check (`administracion.wipe_compras_testing`)
-  still governs access exactly as before this change:
+- **Given** any value of `settings.ENVIRONMENT`, production included
+- **When** `POST .../testing/wipe-compras` is called
+- **Then** access is governed exactly by:
   - anonymous/no token → `401`
-  - authenticated but missing the permission → `403`
-  - authenticated with the permission and valid input → `200` (existing
-    success behavior, unchanged)
-  - authenticated with the permission and invalid input → `422` (existing
-    validation behavior, unchanged)
+  - authenticated but missing `administracion.wipe_compras_testing` → `403`
+  - authenticated with the permission and valid input → `200`
+  - authenticated with the permission and invalid input → `422`
+- **And** a `404` MUST NOT be returned in any of these cases — a `404` would mean
+  an environment gate has crept back in and silently displaced the permission
+  check
+
+### Scenario: Permission remains critical and narrowly granted
+
+- **Given** the `permisos` table seeded by `compras_034_wipe_compras_permiso`
+- **When** `administracion.wipe_compras_testing` is inspected
+- **Then** it is flagged `es_critico = true` and granted only to the `SUPERADMIN`
+  and `ADMIN` base roles
+
+### Scenario: Every wipe is attributable
+
+- **Given** a caller holding the permission triggers a wipe in any environment
+- **When** the request is handled
+- **Then** an audit line naming the actor (`usuario_id` and `username`) is logged
+  BEFORE the deletion runs, so an attempt that dies half-way is still attributed
+- **And** a second line records completion with the rows and tables affected, or
+  the failure with the same actor
+- **And** the lines carry no email or other PII — id and username are sufficient
+  for attribution
+
+> This audit trail is the second half of the mitigation the 2026-06-10 decision
+> named alongside the dedicated permission. It is the only record of who
+> triggered an irreversible wipe in production; it MUST NOT be dropped while the
+> endpoint remains reachable.
 
 ### Scenario: Existing development-path tests keep passing
 

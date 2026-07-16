@@ -6,7 +6,11 @@ the JSONResponse (RFC 7231 `Allow` on 405, `WWW-Authenticate` on 401), and a
 instead of falling back to the generic `INTERNAL_ERROR`.
 """
 
+from fastapi import Depends
+
+from app.api.deps import require_dev_or_test
 from app.core.config import settings
+from app.main import app
 
 
 BASE = "/api/administracion/compras"
@@ -25,18 +29,29 @@ def test_method_not_allowed_returns_allow_header_and_error_code(client, monkeypa
     assert body["error"]["code"] == "METHOD_NOT_ALLOWED"
 
 
-def test_wipe_gate_still_byte_identical_404_outside_dev(client, monkeypatch) -> None:
-    """Regression: the wipe-gate byte-identical-404 behavior must survive the
-    header-forwarding change (headers=None outside the gate path)."""
-    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+def test_env_gated_404_is_byte_identical_to_unmatched_route(client, monkeypatch) -> None:
+    """An explicit bare `HTTPException(404)` must be byte-identical to Starlette's
+    own unmatched-route 404 — that is why the handler is registered on the base
+    `StarletteHTTPException` and must survive the header-forwarding change
+    (`headers=None` outside the gate path).
 
-    response = client.post(
-        f"{BASE}/testing/wipe-compras",
-        json={"confirmacion": "WIPE", "incluir_caja_banco": False},
-        headers={"Authorization": "Bearer invalid"},
-    )
-    control = client.post("/api/this-route-does-not-exist-xyz", json={})
+    This used to be exercised through the wipe-compras env-gate. That gate was
+    removed on 2026-07-16 (recorded decision 2026-06-10 keeps the endpoint
+    reachable in production), so the invariant is pinned here against
+    `require_dev_or_test` itself — the helper any future testing-only route would
+    use — mounted on a throwaway probe route.
+    """
+    probe_path = "/api/_probe-env-gated-404"
 
-    assert response.status_code == control.status_code == 404
-    assert response.json() == control.json()
-    assert response.headers.get("content-type") == control.headers.get("content-type")
+    app.post(probe_path, dependencies=[Depends(require_dev_or_test)])(lambda: {"ok": True})
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+
+        response = client.post(probe_path, json={})
+        control = client.post("/api/this-route-does-not-exist-xyz", json={})
+
+        assert response.status_code == control.status_code == 404
+        assert response.json() == control.json()
+        assert response.headers.get("content-type") == control.headers.get("content-type")
+    finally:
+        app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) != probe_path]

@@ -263,8 +263,8 @@ app = FastAPI(
 # Registered on Starlette's base HTTPException (not just FastAPI's subclass) so
 # genuinely-unmatched routes (raised by Starlette's own routing, which uses the
 # base class) are normalized identically to explicit `HTTPException` raises in
-# handlers — required for env-gated 404s (e.g. wipe-compras) to be
-# byte-indistinguishable from a nonexistent route.
+# handlers — so a bare 404 raised by an env-gated route (see `require_dev_or_test`)
+# stays byte-indistinguishable from a nonexistent route.
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
 app.state.limiter = limiter
