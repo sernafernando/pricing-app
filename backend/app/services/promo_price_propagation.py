@@ -2,15 +2,20 @@
 Promo price propagation core (SDD promo-price-propagation, slice 3).
 
 `recompute_item(db, item_id, now=None)` is the single writer-of-record that
-keeps `ProductoPricing` price columns in sync with ACTIVE ML seller
+keeps `ProductoPricing` price columns in sync with APPLIED ML seller
 promotions (`ml_item_promotions`, read cross-DB via
 `ml_promotions_service.fetch_item_promotions`). Two triggers share this
 same core: the panel enroll/remove hook (this slice, see
 `ml_promotions_write_service`) and the periodic sync job (slice 4).
 
-Business rules (design #937):
-  1. Per target column, write the MIN price across all ACTIVE
-     (candidate|started) promos of the MLAs mapping to that column.
+Business rules (design #937; rule 1 CORRECTED 2026-07-16, see below):
+  1. Per target column, write the MIN price across the APPLIED (`started`)
+     promos of the MLAs mapping to that column. `candidate` promos are
+     EXCLUDED: they are offered but not applied, so the item is not selling
+     at that price. (Originally this rule read "MIN across candidate|started"
+     — that was wrong, and since candidate rows carry price=0 or NULL it
+     wrote **0** into the price columns. `started` rows always carry a real
+     price.)
   2. Clasica (pricelist_id=4) resolves to `precio_lista_ml`, via the
      same set-cuota single-column write pattern (setattr one column,
      no cuota cascade).
@@ -21,8 +26,8 @@ Business rules (design #937):
      freezes the column (skipped, never reverted). Implemented as a
      plain timestamp comparison (not a special-case) so slice 4's sync
      job reuses this same core unchanged.
-  4. Expiry/removal: only ACTIVE promos are considered here. If a
-     column ends up with no active promo, it is left FROZEN at its
+  4. Expiry/removal: only APPLIED (`started`) promos are considered here. If
+     a column ends up with no applied promo, it is left FROZEN at its
      last value — never reverted.
 
 Fail-closed: any cross-DB read failure (`fetch_item_promotions` ->
@@ -100,10 +105,17 @@ def _group_mlas_by_column(db: Session, item_id: int) -> Dict[str, List[str]]:
     return by_column
 
 
-def _min_active_promo_for_column(mlas: List[str]) -> Optional[Dict[str, Any]]:
-    """Reads ACTIVE (candidate|started) promos for every mla in `mlas` and
-    returns `{price, promo_id, mla}` for the MIN priced one, or None if
-    none of the MLAs currently have an active promo with a price.
+def _min_started_promo_for_column(mlas: List[str]) -> Optional[Dict[str, Any]]:
+    """Reads APPLIED (`started`) promos for every mla in `mlas` and returns
+    `{price, promo_id, mla}` for the MIN priced one, or None if none of the
+    MLAs currently has an applied promo with a usable price.
+
+    ONLY `started` counts. A `candidate` promo is merely OFFERED to the item
+    (it is what the panel's "Aplicar" button would enroll) — it is NOT applied
+    and the item is NOT selling at that price, so it must never set a price
+    column. Candidate rows also carry price=0 or NULL in practice, so the
+    earlier "MIN across candidate|started" rule wrote 0 into the price
+    columns; `started` rows always carry a real price.
 
     Raises whatever `fetch_item_promotions` raises (cross-DB outage) —
     the caller is responsible for `recompute_item`'s fail-closed,
@@ -113,8 +125,13 @@ def _min_active_promo_for_column(mlas: List[str]) -> Optional[Dict[str, Any]]:
     for mla in mlas:
         promos = fetch_item_promotions(mla, active_only=True)
         for promo in promos:
+            if promo.get("status") != "started":
+                continue
             price = promo.get("price")
-            if price is None:
+            # Defense in depth: `started` rows always have a real price today,
+            # but a 0/negative slipping in would zero out a real sale price.
+            # Fail closed — skip it rather than write it.
+            if price is None or price <= 0:
                 continue
             if best is None or price < best["price"]:
                 best = {"price": price, "promo_id": promo.get("promotion_id"), "mla": mla}
@@ -211,7 +228,7 @@ def recompute_item(db: Session, item_id: int, *, now: Optional[datetime] = None)
     # Gather ALL cross-DB reads before any write: a failure here must
     # leave the item entirely untouched (fail-closed).
     column_promo: Dict[str, Optional[Dict[str, Any]]] = {
-        column_key: _min_active_promo_for_column(mlas) for column_key, mlas in by_column.items()
+        column_key: _min_started_promo_for_column(mlas) for column_key, mlas in by_column.items()
     }
 
     if not settings.PROMOS_WRITE_ENABLED:
