@@ -53,11 +53,24 @@ const processQueue = (error, token = null) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    // Normalizar detail: si el backend envía {code, message}, extraer message
-    // para que los componentes siempre reciban un string en error.response.data.detail
+    // Normalizar detail a un string para que los componentes siempre reciban
+    // texto renderizable en error.response.data.detail, sea cual sea la forma
+    // que devuelva el backend:
+    //   - {code, message} / {message}          → message
+    //   - [{msg, ...}] (422 de validación FastAPI/Pydantic) → msgs unidos
+    //   - {msg} (error Pydantic suelto)         → msg
+    // Sin esto, un 422 deja detail como array de objetos y los componentes que
+    // lo renderizan directo (<div>{error}</div>) tiran React #31.
     const detail = error.response?.data?.detail;
-    if (detail && typeof detail === 'object' && detail.message) {
-      error.response.data.detail = detail.message;
+    if (Array.isArray(detail)) {
+      error.response.data.detail = detail
+        .map((e) =>
+          typeof e === 'string' ? e : e?.msg || e?.mensaje || JSON.stringify(e),
+        )
+        .join('; ');
+    } else if (detail && typeof detail === 'object') {
+      error.response.data.detail =
+        detail.message || detail.msg || detail.mensaje || JSON.stringify(detail);
     }
 
     const originalRequest = error.config;
