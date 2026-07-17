@@ -53,7 +53,7 @@ export default function SidebarSection({
         aria-expanded={effectiveOpen}
       >
         <span className={styles.icon}>
-          {Icon && <Icon size={isExpanded ? 14 : 20} strokeWidth={2} />}
+          {Icon && <Icon size={isExpanded ? 14 : 18} strokeWidth={2} />}
         </span>
         {isExpanded && (
           <>

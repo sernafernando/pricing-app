@@ -149,11 +149,9 @@
   background: var(--cf-border-strong);
 }
 
-/* Cuando el sidebar está colapsado, reducir padding horizontal */
-.sidebar[data-pinned="false"]:not([data-expanded="true"]) .nav,
-.sidebar[data-pinned="false"][data-expanded="false"] .nav {
-  padding-left: 4px;
-  padding-right: 4px;
+/* Colapsado: el botón expandAll no se renderiza, así que su reserva de 48px arriba sobra */
+.sidebar[data-expanded="false"] .nav {
+  padding: var(--space-2) 4px 8px;
 }
 
 /* Mobile Overlay */
