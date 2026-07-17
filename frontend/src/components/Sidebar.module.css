@@ -149,9 +149,11 @@
   background: var(--cf-border-strong);
 }
 
-/* Colapsado: el botón expandAll no se renderiza, así que su reserva de 48px arriba sobra */
+/* Colapsado: el botón expandAll no se renderiza, así que su reserva de 48px arriba sobra.
+   align-items centra las cajas cuadradas de ancho fijo en el rail. */
 .sidebar[data-expanded="false"] .nav {
   padding: var(--space-2) 4px 8px;
+  align-items: center;
 }
 
 /* Mobile Overlay */
