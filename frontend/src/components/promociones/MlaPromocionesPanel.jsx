@@ -2,26 +2,31 @@ import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
+import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import PromoApplyControl from './PromoApplyControl';
 import styles from './promociones.module.css';
 
-// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED can be enrolled via the apply
-// control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only informational
-// entries.
-const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED']);
+// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING can be enrolled
+// via the apply control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only
+// informational entries. PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED
+// (ML-autogestionado, never writable) — its absence here is what keeps it
+// read-only; never add it.
+const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
 
-// SMART and PRE_NEGOTIATED both carry ML co-funding (meli_percentage /
-// seller_percentage in payload); other types don't fund the discount.
-const CO_FUNDED_TYPES = new Set(['SMART', 'PRE_NEGOTIATED']);
+// SMART, PRE_NEGOTIATED and PRICE_MATCHING all carry ML co-funding
+// (meli_percentage / seller_percentage in payload); other types don't fund
+// the discount.
+const CO_FUNDED_TYPES = new Set(['SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
 
 // Per-type badge hue so each promotion type is visually distinct (no longer
-// all-blue). Types not listed (PRICE_DISCOUNT/DOD/LIGHTNING) fall back to the
-// read-only grey badge.
+// all-blue). Types not listed (PRICE_DISCOUNT/DOD/LIGHTNING/
+// PRICE_MATCHING_MELI_ALL) fall back to the read-only grey badge.
 const TYPE_BADGE_CLASS = {
   SELLER_CAMPAIGN: styles.badgeTypeSellerCampaign,
   DEAL: styles.badgeTypeDeal,
   SMART: styles.badgeTypeSmart,
   PRE_NEGOTIATED: styles.badgeTypePreNegotiated,
+  PRICE_MATCHING: styles.badgeTypePriceMatching,
 };
 
 function formatPercentage(value) {
@@ -139,6 +144,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
             {promo.application_status === 'programmed' && (
               <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
             )}
+            {promo.application_status === 'pending' && (
+              <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
+            )}
             <span className={styles.promoName}>
               {promo.name || promo.payload?.name || promo.promotion_type || promo.promotion_id}
             </span>
@@ -156,7 +164,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                 {meliPct && `Cofinanciación ML: ${meliPct}`}
               </span>
             )}
-            <span className={styles.promoMarkup}>Tu markup: {formatMarkup(promo.nuestro_markup)}</span>
+            <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
+              Tu markup: {formatMarkup(promo.nuestro_markup)}
+            </span>
             {applicable && (
               <PromoApplyControl
                 mla={mla}

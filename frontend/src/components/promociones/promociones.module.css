@@ -91,6 +91,11 @@
   color: var(--warning-text, var(--text-secondary));
 }
 
+.badgeTypePriceMatching {
+  background: var(--teal-bg, var(--bg-secondary));
+  color: var(--teal-text, var(--text-primary));
+}
+
 /* Currently-applied (live) promo — a SOLID pill so it stands out from the soft
    type chips regardless of the type's own hue. */
 .badgeApplied {
@@ -103,6 +108,13 @@
 .badgeProgrammed {
   background: var(--warning-bg, var(--bg-secondary));
   color: var(--warning-text, var(--text-secondary));
+}
+
+/* Enrolled but not yet live at ML (`pending`) — soft info tone, distinct
+   from .badgeApplied (solid success) and .badgeProgrammed (warning). */
+.badgePending {
+  background: var(--info-bg, var(--bg-secondary));
+  color: var(--info-text, var(--text-secondary));
 }
 
 .promoCountBadge {

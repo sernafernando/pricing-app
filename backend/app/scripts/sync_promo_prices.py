@@ -104,6 +104,12 @@ def _fetch_newly_active_rows(watermark: Optional[datetime]) -> List[Tuple[str, d
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
+                -- DECISION (SDD promo-pending-and-price-matching, D2): deliberately
+                -- NOT adding 'pending' here. A pending->started transition bumps
+                -- updated_at and is already caught by the 'started' clause below,
+                -- which is when the price actually matters; adding 'pending' would
+                -- only trigger redundant no-op recomputes (recompute_item still
+                -- hard-filters to 'started' per REQ-10).
                 SELECT mla, updated_at
                 FROM ml_item_promotions
                 WHERE status IN ('candidate', 'started')

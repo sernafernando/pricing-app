@@ -299,6 +299,27 @@ describe('PromoApplyControl', () => {
     );
   });
 
+  it('sends only { promotion_id, promotion_type } for PRICE_MATCHING (no offer_id/price from FE)', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    render(
+      <PromoApplyControl
+        mla="MLA1"
+        promotion={{ promotion_id: 'P-PM', promotion_type: 'PRICE_MATCHING', name: 'Price matching promo', price: 100 }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P-PM',
+        promotion_type: 'PRICE_MATCHING',
+      }),
+    );
+  });
+
   describe('applied promo (status started) — Desaplicar', () => {
     function startedPromo(overrides = {}) {
       return dealPromo({ status: 'started', ...overrides });
@@ -316,6 +337,29 @@ describe('PromoApplyControl', () => {
 
       expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^desaplicar$/i })).not.toBeInTheDocument();
+    });
+
+    it('a pending promo shows only "Desaplicar" (already enrolled, REQ-5)', () => {
+      render(<PromoApplyControl mla="MLA1" promotion={dealPromo({ status: 'pending' })} />);
+
+      expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
+    });
+
+    it('requires confirmation and calls deletePromocionItem for a pending promo (REQ-6)', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo({ status: 'pending' })} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      expect(screen.getByText(/¿desaplicar esta promoción\?/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+      await waitFor(() => expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledTimes(1));
+      expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P1',
+        promotion_type: 'DEAL',
+      });
     });
 
     it('requires confirmation and calls deletePromocionItem with the right params', async () => {

@@ -63,6 +63,13 @@ def _enable_promo_writes():
     settings.PROMOS_WRITE_ENABLED = original
 
 
+def _pending_promo(promotion_id: str, price) -> dict:
+    """An ENROLLED-but-not-yet-started promo (SDD promo-pending-and-price-
+    matching). Must NEVER set a price column — same hard constraint as
+    `candidate`."""
+    return {"promotion_id": promotion_id, "status": "pending", "price": price}
+
+
 def _candidate_promo(promotion_id: str, price) -> dict:
     """A promo OFFERED to the item but NOT applied. Real data (2026-07-16):
     candidate rows carry price=0 (7270 rows), NULL (31480) or a would-be
@@ -136,6 +143,55 @@ class TestOnlyStartedPromosSetPrice:
 
         def fake_fetch(mla, active_only=True):
             return [_candidate_promo("PROMO-A", 0.0), _candidate_promo("PROMO-B", 500.0)]
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            side_effect=fake_fetch,
+        ):
+            result = recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 1000.0  # untouched
+        assert result.written_columns == []
+
+
+class TestPendingNeverSetsPriceRegression:
+    """HARD CONSTRAINT (REQ-10, PR#916 carryover): `pending` never sets a
+    pricing column, even though `active_only` display reads now include it.
+    `_min_started_promo_for_column`'s literal `status == "started"` filter
+    must stay untouched."""
+
+    def test_pending_and_started_same_column_only_started_priced(self, db):
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        db.add(ProductoPricing(item_id=2001))
+        db.commit()
+
+        def fake_fetch(mla, active_only=True):
+            return [_pending_promo("PROMO-PENDING", 500.0), _active_promo("PROMO-APPLIED", 800.0)]
+
+        with patch(
+            "app.services.promo_price_propagation.fetch_item_promotions",
+            side_effect=fake_fetch,
+        ):
+            recompute_item(db, 2001)
+        db.commit()
+
+        pricing = db.query(ProductoPricing).filter_by(item_id=2001).first()
+        assert float(pricing.precio_lista_ml) == 800.0  # NOT the pending row's 500.0
+
+        origen = db.query(ProductoPrecioOrigen).filter_by(item_id=2001, column_key="precio_lista_ml").first()
+        assert origen.promo_id == "PROMO-APPLIED"
+
+    def test_pending_only_writes_nothing(self, db):
+        _make_producto(db)
+        _make_publicacion(db, 2001, "MLA1", 4)
+        db.add(ProductoPricing(item_id=2001, precio_lista_ml=1000.0))
+        db.commit()
+
+        def fake_fetch(mla, active_only=True):
+            return [_pending_promo("PROMO-PENDING", 500.0)]
 
         with patch(
             "app.services.promo_price_propagation.fetch_item_promotions",

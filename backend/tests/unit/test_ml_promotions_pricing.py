@@ -50,6 +50,18 @@ class TestCoFundingAmount:
         co_funding = _co_funding_amount(promo)
         assert co_funding == pytest.approx(394.492, abs=1)
 
+    def test_price_matching_computes_meli_share_of_original_price(self) -> None:
+        """MUST-FIX (design D8): PRICE_MATCHING must co-fund like SMART,
+        otherwise nuestro_markup is computed too low/wrong."""
+        promo = {
+            "promotion_type": "PRICE_MATCHING",
+            "original_price": 28178,
+            "payload": {"meli_percentage": 1.4},
+        }
+        co_funding = _co_funding_amount(promo)
+        assert co_funding == pytest.approx(394.492, abs=1)
+        assert co_funding != 0.0
+
     @pytest.mark.parametrize("promotion_type", ["SELLER_CAMPAIGN", "DEAL", "PRICE_DISCOUNT", "UNKNOWN_TYPE", None])
     def test_non_smart_types_have_zero_co_funding(self, promotion_type: str) -> None:
         promo = {

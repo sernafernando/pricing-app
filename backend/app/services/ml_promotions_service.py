@@ -53,7 +53,7 @@ from app.core.database import get_mlwebhook_engine
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_ITEM_STATUSES = {"candidate", "started", "finished"}
+_KNOWN_ITEM_STATUSES = {"candidate", "started", "pending", "finished"}
 
 _PROMOTIONS_SELECT_COLUMNS = """
     promotion_id,
@@ -84,9 +84,12 @@ _ITEM_PROMOTIONS_SELECT_COLUMNS = """
 """
 
 # Same columns as above but ip.-qualified (bare promotion_id/type/status would
-# be ambiguous under the ml_promotions LEFT JOIN) plus the catalog name as a
-# trailing column (row[12]). Used by fetch_item_promotions to recover the
-# authoritative promo name that payload.name lacks for SELLER_CAMPAIGN/DEAL.
+# be ambiguous under the ml_promotions LEFT JOIN) plus the catalog name
+# (row[12]) and catalog start/finish dates (row[13]/row[14]) as trailing
+# columns. Used by fetch_item_promotions to recover the authoritative promo
+# name and dates that payload lacks for some types (SELLER_CAMPAIGN/DEAL).
+# NOTE: any positional row[N] access against this constant must be re-audited
+# whenever a column is added/reordered here.
 _ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED = """
     ip.mla,
     ip.promotion_id,
@@ -100,7 +103,9 @@ _ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED = """
     ip.suggested_discounted_price,
     ip.payload,
     ip.updated_at,
-    p.name AS catalog_name
+    p.name AS catalog_name,
+    p.start_date AS catalog_start_date,
+    p.finish_date AS catalog_finish_date
 """
 
 
@@ -208,7 +213,7 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
     Raises:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada.
     """
-    status_clause = "AND ip.status IN ('candidate', 'started')" if active_only else ""
+    status_clause = "AND ip.status IN ('candidate', 'started', 'pending')" if active_only else ""
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
@@ -232,6 +237,15 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
         # (FE falls back to promotion_type). Empty '' is treated as absent.
         catalog_name = row[12]
         item["name"] = catalog_name or item["name"]
+        # ADD-2: catalog start_date/finish_date (timestamptz -> datetime) win
+        # over payload's when present; payload wins when catalog is empty
+        # (same catalog-then-payload-then-None precedence as name above).
+        # MUST serialize to ISO string — the ItemPromotion schema field is
+        # Optional[str] and the FE parses it with `new Date(...)`.
+        catalog_start = row[13]
+        catalog_finish = row[14]
+        item["start_date"] = catalog_start.isoformat() if catalog_start else item["start_date"]
+        item["finish_date"] = catalog_finish.isoformat() if catalog_finish else item["finish_date"]
         result.append(item)
     logger.info("ml_item_promotions: %d promotions read for %s", len(result), mla_id)
     return result
@@ -278,7 +292,7 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
                 FROM ml_item_promotions ip
                 LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = ANY(:mlas)
-                  AND ip.status IN ('candidate', 'started')
+                  AND ip.status IN ('candidate', 'started', 'pending')
                 GROUP BY ip.mla
             """),
             {"mlas": mla_ids},
@@ -416,7 +430,7 @@ def derivar_application_status(promociones: List[Dict[str, Any]]) -> List[Dict[s
     if not started:
         for promo in promociones:
             if promo.get("status") != "started":
-                promo["application_status"] = None
+                promo["application_status"] = "pending" if promo.get("status") == "pending" else None
         return promociones
 
     prices = [promo.get("price") for promo in started if promo.get("price") is not None]
@@ -424,7 +438,7 @@ def derivar_application_status(promociones: List[Dict[str, Any]]) -> List[Dict[s
 
     for promo in promociones:
         if promo.get("status") != "started":
-            promo["application_status"] = None
+            promo["application_status"] = "pending" if promo.get("status") == "pending" else None
             continue
         price = promo.get("price")
         if price is None or (min_price is not None and price == min_price):

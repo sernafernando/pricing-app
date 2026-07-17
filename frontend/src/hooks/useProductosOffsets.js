@@ -2,6 +2,21 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 
 /**
+ * Markup -> color thresholds (canonical, shared across the app): negative is
+ * error, [0,1) is warning, >=1 is success, null/undefined is neutral. Pure
+ * function of `markup` only — exported standalone so callers that just need
+ * the color (e.g. MlaPromocionesPanel) don't have to mount the whole
+ * `useProductosOffsets` hook (and its offsets/tipo-cambio API calls) just to
+ * reach it.
+ */
+export function getMarkupColor(markup) {
+  if (markup === null || markup === undefined) return 'var(--text-tertiary)';
+  if (markup < 0) return 'var(--error)';
+  if (markup < 1) return 'var(--warning)';
+  return 'var(--success)';
+}
+
+/**
  * Manages profit-offset state and markup-with-offset calculation for the Productos page.
  * This is a leaf hook: no injected deps, owns its own endpoints.
  */
@@ -47,13 +62,6 @@ export function useProductosOffsets() {
 
   // Bootstrap on mount — run once only
   useEffect(() => { cargarOffsetsVigentes(); }, []);
-
-  const getMarkupColor = (markup) => {
-    if (markup === null || markup === undefined) return 'var(--text-tertiary)';
-    if (markup < 0) return 'var(--error)';
-    if (markup < 1) return 'var(--warning)';
-    return 'var(--success)';
-  };
 
   /**
    * Calculates markup with offset applied for a product.
