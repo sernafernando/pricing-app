@@ -36,7 +36,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user, require_dev_or_test, require_permiso
+from app.api.deps import get_current_user, require_permiso
 from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
@@ -4723,18 +4723,21 @@ def listar_adjuntos_nc_local(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-# ponytail: method-probe (GET->405) still reveals this route's existence outside dev; revisit if moved to conditional route registration
+# Reachable in every environment, production included, while the compras module is
+# under development: production is the only environment where it can be tested today
+# (decision 2026-06-10; audit finding A-5 accepted as a conscious risk). The dedicated
+# `administracion.wipe_compras_testing` permission is the guard, not ENVIRONMENT.
+# Removed outright once the module is complete.
 @router.post(
     "/testing/wipe-compras",
     response_model=WipeComprasResponse,
     summary="[TESTING] Limpiar todas las tablas del módulo compras",
     tags=["Testing"],
-    dependencies=[Depends(require_dev_or_test)],  # ← env-gate-404, runs FIRST
 )
 def wipe_compras_endpoint(
     body: WipeComprasRequest,
     db: Session = Depends(get_db),
-    _user: Usuario = Depends(require_permiso("administracion.wipe_compras_testing")),
+    current_user: Usuario = Depends(require_permiso("administracion.wipe_compras_testing")),
 ) -> WipeComprasResponse:
     """
     Elimina TODOS los datos del módulo compras.
@@ -4743,17 +4746,44 @@ def wipe_compras_endpoint(
     Requiere permiso `administracion.wipe_compras_testing` y confirmación textual.
 
     El campo `confirmacion` debe valer exactamente 'WIPE'.
+
+    La acción queda registrada en el log con la identidad del ejecutor: es la
+    mitigación que acompaña al permiso dedicado (decisión 2026-06-10), y el único
+    rastro de quién disparó un wipe irreversible en producción.
     """
+    # Logged BEFORE the wipe runs: if it dies half-way the attempt is still attributed.
+    # id + username identify the actor; no email/PII — attribution needs neither.
+    logger.warning(
+        "wipe-compras solicitado por usuario_id=%s username=%s (incluir_caja_banco=%s, env=%s)",
+        current_user.id,
+        current_user.username,
+        body.incluir_caja_banco,
+        settings.ENVIRONMENT,
+    )
+
     try:
         tablas = _wipe_compras(db, incluir_caja_banco=body.incluir_caja_banco)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        logger.exception("wipe_compras falló: %s", exc)
+        logger.exception(
+            "wipe-compras FALLÓ para usuario_id=%s username=%s: %s",
+            current_user.id,
+            current_user.username,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al limpiar las tablas de compras.",
         ) from exc
+
+    logger.warning(
+        "wipe-compras COMPLETADO por usuario_id=%s username=%s: %s filas eliminadas en %s tablas",
+        current_user.id,
+        current_user.username,
+        sum(tablas.values()),
+        len(tablas),
+    )
 
     return WipeComprasResponse(
         confirmado=True,

@@ -3,15 +3,18 @@ T1.2 — Tests para el endpoint POST /api/administracion/compras/testing/wipe-co
 
 Cubre:
   - test_wipe_requires_auth: sin token → 401
-  - test_wipe_requires_permiso: con token pero sin permiso → 403
+  - test_wipe_requires_permiso: con token pero sin permiso → 403 (en development y production)
   - test_wipe_requires_confirmation_string: body con confirmacion wrong → 422
   - test_wipe_clears_all_tables: user con permiso + body correcto → 200, filas seedeadas
     realmente eliminadas (cc_proveedor_movimientos, compras_papelera) + tablas nuevas presentes.
+  - test_wipe_is_reachable_in_production_with_permission: en production el endpoint sigue
+    accesible (sin env-gate) → decisión registrada 2026-06-10.
 """
 
 from __future__ import annotations
 
 import datetime
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -31,16 +34,21 @@ from app.models.compras_papelera import ComprasPapelera
 BASE = "/api/administracion/compras"
 
 # ──────────────────────────────────────────────────────────────────────────
-# Env decision (Work Unit 1.1 / design §10.2; amended 2026-07-02 review):
+# Env decision (recorded 2026-06-10; env-gate reverted 2026-07-16):
 #
-# Local runs default `settings.ENVIRONMENT` to "development" (backend/.env
-# sets ENVIRONMENT=development, loaded via pydantic-settings' `env_file`).
-# CI runs with `ENVIRONMENT=testing` (.github/workflows/ci.yml). Both values
-# are members of `DEV_LIKE_ENVIRONMENTS` (app.core.config), so the gate stays
-# open for both — that's why the legacy 401/403/422/200 tests below pass
-# unchanged in both environments. Only `settings.ENVIRONMENT == "production"`
-# closes the gate; `test_wipe_returns_404_outside_development` below
-# overrides `ENVIRONMENT` to "production" via monkeypatch to exercise that.
+# This endpoint is INTENTIONALLY reachable in every environment, production
+# included, while the compras module is under development — production is the
+# only environment where compras can currently be tested. Audit finding A-5 is
+# an accepted, conscious risk; the dedicated permission
+# `administracion.wipe_compras_testing` is the guard, not `ENVIRONMENT`.
+#
+# The `require_dev_or_test` env-gate added by PR #839 (security-quick-wins,
+# 2026-07-03) contradicted that decision and returned 404 in production; it was
+# removed on 2026-07-16. `settings.ENVIRONMENT` therefore does not affect
+# reachability, and the tests below that monkeypatch it to "production" pin
+# that invariant: 403 without the permission, never 404.
+#
+# The endpoint is removed outright when the compras module is complete.
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -154,14 +162,25 @@ def test_wipe_requires_auth(client) -> None:
     assert response.status_code in (401, 403)
 
 
-def test_wipe_requires_permiso(client, admin_auth_headers, sin_permiso_wipe) -> None:
-    """Con token pero sin permiso → 403."""
+@pytest.mark.parametrize("environment", ["development", "production"])
+def test_wipe_requires_permiso(client, admin_auth_headers, sin_permiso_wipe, monkeypatch, environment) -> None:
+    """Con token pero sin permiso → 403.
+
+    Parametrized over production on purpose. Production availability of this
+    endpoint is an intentional, recorded decision (2026-06-10) while the compras
+    module is in development, so `administracion.wipe_compras_testing` is the
+    only guard. Missing permission MUST answer 403 in production too — a 404
+    here would mean an environment gate has crept back in and silently replaced
+    the permission check.
+    """
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+
     response = client.post(
         f"{BASE}/testing/wipe-compras",
         json={"confirmacion": "WIPE", "incluir_caja_banco": True},
         headers=admin_auth_headers,
     )
-    assert response.status_code == 403
+    assert response.status_code == 403, f"expected 403 (permission denied) in {environment}, got {response.status_code}"
 
 
 def test_wipe_requires_confirmation_string(client, admin_auth_headers, con_permiso_wipe) -> None:
@@ -372,8 +391,43 @@ def test_wipe_fk_regression_dinero_a_cuenta_y_etiqueta(
     assert tipo_row[0] == "cliente", "etiqueta_envio.tipo_envio debe ser 'cliente' tras el wipe (constraint coherencia)"
 
 
-def test_wipe_returns_404_outside_development(client, admin_auth_headers, con_permiso_wipe, monkeypatch) -> None:
-    """Fuera de development el endpoint debe ser indistinguible de una ruta inexistente (404)."""
+def test_wipe_logs_who_ran_it(client, admin_auth_headers, con_permiso_wipe, admin_user, caplog) -> None:
+    """A wipe MUST record the actor, not just what it deleted.
+
+    The endpoint is reachable in production by design (decision 2026-06-10), and
+    that decision pairs the dedicated permission with audit logging as the
+    mitigation. Without the actor in the record an accidental production wipe is
+    unattributable — the service log alone only says that tables were emptied.
+    """
+    usuario_id = admin_user.id
+
+    with caplog.at_level(logging.WARNING, logger="app.routers.administracion_compras"):
+        response = client.post(
+            f"{BASE}/testing/wipe-compras",
+            json={"confirmacion": "WIPE", "incluir_caja_banco": False},
+            headers=admin_auth_headers,
+        )
+
+    assert response.status_code == 200
+
+    audit_lines = [r.getMessage() for r in caplog.records if "wipe-compras" in r.getMessage()]
+    assert audit_lines, "the wipe must emit an audit log line naming the actor"
+    joined = " ".join(audit_lines)
+    assert str(usuario_id) in joined, f"actor id {usuario_id} missing from audit log: {joined}"
+    assert "adminuser" in joined, f"actor username missing from audit log: {joined}"
+
+
+def test_wipe_is_reachable_in_production_with_permission(
+    client, admin_auth_headers, con_permiso_wipe, monkeypatch
+) -> None:
+    """In production, a caller holding the permission reaches the endpoint.
+
+    Production availability is an intentional, recorded decision (2026-06-10):
+    production is the only environment where the compras module can be tested
+    today, so `administracion.wipe_compras_testing` is the guard — not
+    `ENVIRONMENT`. This pins the removal of the PR #839 env-gate; a 404 here
+    means the gate has crept back in.
+    """
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
 
     response = client.post(
@@ -382,10 +436,5 @@ def test_wipe_returns_404_outside_development(client, admin_auth_headers, con_pe
         headers=admin_auth_headers,
     )
 
-    assert response.status_code == 404
-
-    # Indistinguishability: byte-equal to a genuinely unknown route.
-    control = client.post("/api/this-route-does-not-exist-xyz", json={})
-    assert response.status_code == control.status_code
-    assert response.json() == control.json()
-    assert response.headers.get("content-type") == control.headers.get("content-type")
+    assert response.status_code == 200, f"endpoint must stay reachable in production, got {response.status_code}"
+    assert response.json()["confirmado"] is True
