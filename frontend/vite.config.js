@@ -12,6 +12,19 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // TRANSITIONAL ONE-SHOT RELEASE — remove after clients have picked it up.
+      //
+      // Clients that loaded the app before 2026-06-08 still have the old
+      // `registerType: 'autoUpdate'` service worker installed. That SW keeps
+      // hard-reloading the page on every new build (skipWaiting + clientsClaim),
+      // silently wiping in-progress work. A normal redeploy does NOT reliably
+      // evict it because the stale SW is the one in control.
+      //
+      // `selfDestroying: true` ships a SW that unregisters itself and clears all
+      // caches, replacing the rogue autoUpdate SW on every client. Deploy this,
+      // let it propagate (clients poll every 5 min and on tab focus), THEN revert
+      // this commit to restore the normal `prompt` behavior below.
+      selfDestroying: true,
       // 'prompt' (not autoUpdate): a new build does NOT silently reload the
       // page — that would wipe a half-filled form on a business app. Instead
       // the app surfaces a toast and the user applies the update on click.
