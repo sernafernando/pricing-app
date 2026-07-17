@@ -102,13 +102,13 @@
   margin-bottom: 0;
 }
 
+/* Caja cuadrada centrada: el recuadro del activo envuelve el icono, no todo el ancho */
 :global([data-expanded="false"]) .sectionHeader {
   justify-content: center;
   align-items: center;
-  padding: var(--space-2);
-  width: 100%;
-  height: auto;
-  min-height: var(--cf-sidebar-item-height);
+  width: var(--cf-sidebar-item-height);
+  height: var(--cf-sidebar-item-height);
+  padding: 0;
   gap: 0;
   margin: 0 auto;
 }
