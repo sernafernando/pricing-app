@@ -12,10 +12,21 @@ Las tablas se borran en orden FK-safe (hijos antes que padres):
     → hijos que no tienen FKs salientes a ordenes_pago, pedidos, etc.
   - dinero_a_cuenta → leaf table; origen_op_id → ordenes_pago.id (RESTRICT). Debe ir
     ANTES de ordenes_pago para evitar ForeignKeyViolation al borrar OPs.
+  - orden_pago_cheque → tabla puente OP↔cheque con RESTRICT de ambos lados. Debe ir
+    ANTES de ordenes_pago. Solo se borra el VÍNCULO: la chequera es de otro módulo y
+    los cheques sobreviven (cheques.orden_pago_id es SET NULL, se limpia solo).
   - ordenes_pago → debe ir antes de caja/banco porque tiene FK RESTRICT a esas tablas.
   - notas_credito_local → tabla de documentos; sin hijos en el módulo compras.
+  - pedido_compra_ingresos → líneas de recepción de depósito; pedido_id → pedidos_compra.id
+    (RESTRICT). Debe ir ANTES de pedidos_compra.
   - pedidos_compra → tabla cabecera; va al final del bloque compras.
   - caja_documentos, caja_movimientos, banco_movimientos → últimas, ya sin hijos.
+
+MANTENIMIENTO: esta lista es hardcodeada y se pudre sola cada vez que alguien suma
+una tabla que apunta al módulo. Ya rompió producción dos veces (2026-06-03,
+2026-07-17). El guardián que lo evita vive en tests/compras/test_wipe_compras_fk_guard.py:
+recorre el metadata real de SQLAlchemy y falla si aparece una FK entrante sin contemplar.
+Si ese test falla, leelo antes de tocar nada acá.
 
 NOTA sobre etiquetas_envio: es una tabla COMPARTIDA entre módulos. No se borra aquí por
 dos razones:
@@ -54,8 +65,10 @@ TABLAS_COMPRAS_SIEMPRE = [
     "imputaciones",
     "cc_proveedor_movimientos",
     "dinero_a_cuenta",
+    "orden_pago_cheque",
     "ordenes_pago",
     "notas_credito_local",
+    "pedido_compra_ingresos",
     "pedidos_compra",
 ]
 
