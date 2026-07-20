@@ -1345,6 +1345,136 @@ class TestPreNegotiatedAmbiguousReconciliation:
         assert result["status"] == "ambiguous"
 
 
+def _fake_live_price_matching_promotions(
+    promotion_id: str = "PM-MLA1",
+    ref_id: str = "CANDIDATE-MLA1-1",
+    price: float = 900.0,
+) -> list:
+    """Real shape: bare list, entry keyed by `id`. PRICE_MATCHING has the
+    same read shape as SMART/PRE_NEGOTIATED (ref_id + price, no [min,max])."""
+    return [
+        {
+            "id": promotion_id,
+            "type": "PRICE_MATCHING",
+            "ref_id": ref_id,
+            "price": price,
+        }
+    ]
+
+
+class TestPriceMatchingWritableRegressionGuard:
+    """REQ-9 (guard): PRICE_MATCHING is writable; PRICE_MATCHING_MELI_ALL
+    stays excluded from every set — absence enforces the deny."""
+
+    def test_price_matching_now_passes_type_restriction(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_price_matching_promotions(),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PM-MLA1", "PRICE_MATCHING")
+
+        mock_enroll.assert_called_once()
+        assert result["status"] == "submitted"
+
+    def test_price_matching_meli_all_absent_from_writable_sets(self) -> None:
+        assert "PRICE_MATCHING_MELI_ALL" not in write_service.WRITABLE_PROMOTION_TYPES
+        assert "PRICE_MATCHING_MELI_ALL" not in write_service.SMART_LIKE_PROMOTION_TYPES
+        assert "PRICE_MATCHING" in write_service.WRITABLE_PROMOTION_TYPES
+        assert "PRICE_MATCHING" in write_service.SMART_LIKE_PROMOTION_TYPES
+
+    def test_price_matching_meli_all_rejected_before_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(write_service.ml_webhook_client, "get_item_promotions") as mock_read,
+            patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA123456789", "PMA-1", "PRICE_MATCHING_MELI_ALL")
+
+        mock_read.assert_not_called()
+        mock_enroll.assert_not_called()
+        assert result["status"] == "rejected_unsupported_type"
+
+
+class TestPriceMatchingEnroll:
+    def test_happy_path_uses_ref_id_as_offer_id_and_entry_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_price_matching_promotions(
+                    promotion_id="PM-MLA1", ref_id="CANDIDATE-MLA1-1", price=19585.27
+                ),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={
+                    "ok": True,
+                    "status_code": 201,
+                    "ambiguous": False,
+                    "body": {"offer_id": "OFFER-MLA1-11196371958", "status": "started"},
+                },
+            ) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item("MLA1859172999", "PM-MLA1", "PRICE_MATCHING")
+
+        mock_enroll.assert_called_once_with(
+            "MLA1859172999",
+            "PM-MLA1",
+            "PRICE_MATCHING",
+            19585.27,
+            top_deal_price=None,
+            offer_id="CANDIDATE-MLA1-1",
+        )
+        assert result["submitted"] is True
+        assert result["status"] == "submitted"
+        assert result["price"] == 19585.27
+        assert result["offer_id"] == "OFFER-MLA1-11196371958"
+
+
+class TestPriceMatchingRemove:
+    def test_started_or_pending_remove_uses_current_offer_ref_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """REQ-6/REQ-8: pending remove rides the same offer_id contract
+        already used for started SMART-like removes — no new branch."""
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_price_matching_promotions(
+                    promotion_id="PM-MLA1", ref_id="OFFER-MLA1-11196371958"
+                ),
+            ) as mock_read,
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": True, "status_code": 200, "ambiguous": False, "body": {"ok": True}},
+            ) as mock_remove,
+        ):
+            result = write_service.remove_one_item("MLA123456789", "PRICE_MATCHING", "PM-MLA1")
+
+        mock_read.assert_called_once_with("MLA123456789")
+        mock_remove.assert_called_once_with(
+            "MLA123456789", "PRICE_MATCHING", "PM-MLA1", offer_id="OFFER-MLA1-11196371958"
+        )
+        assert result["submitted"] is True
+        assert result["status"] == "submitted"
+
+
 class TestRemoveHappyPath:
     def test_200_returns_submitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)

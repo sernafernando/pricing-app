@@ -68,9 +68,12 @@ def _make_item_promotion_row(
     payload: dict = None,
     updated_at: datetime = None,
     catalog_name: str = None,
+    catalog_start_date: datetime = None,
+    catalog_finish_date: datetime = None,
 ):
-    # Trailing catalog_name mirrors the ml_promotions LEFT JOIN column (row[12])
-    # that fetch_item_promotions selects; fetch_promotion_items ignores it.
+    # Trailing catalog_name/catalog_start_date/catalog_finish_date mirror the
+    # ml_promotions LEFT JOIN columns (row[12]/row[13]/row[14]) that
+    # fetch_item_promotions selects; fetch_promotion_items ignores them.
     return (
         mla,
         promotion_id,
@@ -85,7 +88,24 @@ def _make_item_promotion_row(
         payload or {},
         updated_at,
         catalog_name,
+        catalog_start_date,
+        catalog_finish_date,
     )
+
+
+class TestValidateItemStatus:
+    """REQ-1: `pending` is a known, non-warning item status."""
+
+    def test_pending_is_known_status_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        from app.services.ml_promotions_service import _KNOWN_ITEM_STATUSES, _validate_item_status
+
+        assert "pending" in _KNOWN_ITEM_STATUSES
+
+        with caplog.at_level("WARNING"):
+            result = _validate_item_status("pending")
+
+        assert result == "pending"
+        assert not any("Unexpected" in record.message for record in caplog.records)
 
 
 class TestFetchPromotions:
@@ -211,7 +231,7 @@ class TestFetchItemPromotions:
             fetch_item_promotions("MLA123456789", active_only=True)
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "AND ip.status IN ('candidate', 'started')" in executed_query
+        assert "AND ip.status IN ('candidate', 'started', 'pending')" in executed_query
 
     def test_active_only_false_omits_status_filter(self) -> None:
         """active_only=False (default) must NOT filter by status.
@@ -299,6 +319,63 @@ class TestFetchItemPromotions:
 
         assert result[0]["name"] is None
         assert result[1]["name"] is None
+
+    def test_active_only_true_status_filter_includes_pending(self) -> None:
+        """REQ-2: display query must also return `pending` rows."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(status="pending"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789", active_only=True)
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "'pending'" in executed_query
+        assert result[0]["status"] == "pending"
+
+    def test_catalog_start_finish_date_win_over_empty_payload_serialized_iso(self) -> None:
+        """ADD-2: catalog start_date/finish_date (timestamptz -> datetime)
+        win over an empty payload and must be serialized to ISO strings."""
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(
+                promotion_type="SMART",
+                payload={"id": "SM-1"},
+                catalog_start_date=datetime(2026, 7, 1, 0, 0, 0),
+                catalog_finish_date=datetime(2026, 7, 31, 23, 59, 59),
+            ),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["start_date"] == "2026-07-01T00:00:00"
+        assert result[0]["finish_date"] == "2026-07-31T23:59:59"
+
+    def test_catalog_and_payload_dates_both_empty_is_none(self) -> None:
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            _make_item_promotion_row(promotion_type="LIGHTNING", payload={"id": "L-1"}),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_item_promotions("MLA123456789")
+
+        assert result[0]["start_date"] is None
+        assert result[0]["finish_date"] is None
 
     def test_includes_start_and_finish_date_from_payload(self) -> None:
         """start_date/finish_date come from payload (same defensive pattern
@@ -464,6 +541,23 @@ class TestFetchPromoSummaryByMla:
             result = fetch_promo_summary_by_mla(["MLA111"])
 
         assert result["MLA111"]["applied_name"] == "PRICE_DISCOUNT"
+
+    def test_status_clause_includes_pending(self) -> None:
+        """REQ-2: summary SQL must include `pending` in its status IN clause."""
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_promo_summary_by_mla(["MLA111"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "'pending'" in executed_query
+        # REGRESSION: has_applied / applied_name FILTER stay started-only.
+        assert "ip.status = 'started'" in executed_query
 
     def test_empty_mla_ids_returns_empty_dict_no_engine_call(self) -> None:
         from app.services.ml_promotions_service import fetch_promo_summary_by_mla
@@ -747,3 +841,38 @@ class TestDerivarApplicationStatus:
         result = derivar_application_status(promos)
 
         assert result is promos
+
+    def test_pending_status_gets_distinct_pending_application_status(self) -> None:
+        """REQ-3: pending must NOT be None, active, or programmed."""
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [_promo("A-1", "pending", price=None)]
+
+        result = derivar_application_status(promos)
+
+        assert result[0]["application_status"] == "pending"
+
+    def test_pending_status_distinct_when_no_started_promos_present(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [_promo("A-1", "pending", price=None), _promo("B-1", "candidate", price=0.0)]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["A-1"] == "pending"
+        assert by_id["B-1"] is None
+
+    def test_mixed_pending_and_started_produces_both_distinct_badges(self) -> None:
+        from app.services.ml_promotions_service import derivar_application_status
+
+        promos = [
+            _promo("A-1", "pending", price=None),
+            _promo("B-1", "started", price=900.0),
+        ]
+
+        result = derivar_application_status(promos)
+
+        by_id = {p["promotion_id"]: p["application_status"] for p in result}
+        assert by_id["A-1"] == "pending"
+        assert by_id["B-1"] == "active"

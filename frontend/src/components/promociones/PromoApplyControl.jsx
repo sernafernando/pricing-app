@@ -4,7 +4,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
 
 // Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
-const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED']);
+const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
 
 // Debounce delay (ms) for the manual-price -> markup lookup.
 const MARKUP_DEBOUNCE_MS = 400;
@@ -12,8 +12,8 @@ const MARKUP_DEBOUNCE_MS = 400;
 // EnrollResult/RemoveResult.status -> feedback message + tone. Eventual-
 // consistency-safe: never claim a confirmed state from the immediate response.
 // The success verb depends on the action (aplicada vs desaplicada).
-function feedbackFor(status, isApplied) {
-  const verb = isApplied ? 'desaplicada' : 'aplicada';
+function feedbackFor(status, isEnrolled) {
+  const verb = isEnrolled ? 'desaplicada' : 'aplicada';
   const map = {
     submitted: { tone: 'info', message: 'Enviado — puede tardar en reflejarse (la tabla es la fuente de verdad).' },
     ambiguous: { tone: 'warn', message: 'Enviado, estado por confirmar — verificá en ML.' },
@@ -69,13 +69,16 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   const [markup, setMarkup] = useState(null);
   const [markupLoading, setMarkupLoading] = useState(false);
 
-  const isApplied = promotion.status === 'started';
+  // `started` and `pending` both mean "already enrolled" — pending is
+  // offered but not yet live at ML, so the only valid action is Desaplicar
+  // (remove), same as started. Only `candidate` offers Aplicar.
+  const isEnrolled = promotion.status === 'started' || promotion.status === 'pending';
 
   useEffect(() => {
     // The manual-price markup lookup only applies to the range-type enroll
-    // flow — the price input is rendered only when `isRangeType && !isApplied`.
+    // flow — the price input is rendered only when `isRangeType && !isEnrolled`.
     // Skip it entirely for the Desaplicar flow, where no price is submitted.
-    if (!isRangeType || isApplied || phase !== 'confirming') return undefined;
+    if (!isRangeType || isEnrolled || phase !== 'confirming') return undefined;
 
     setMarkupLoading(true);
     const priceForLookup = dealPrice;
@@ -104,7 +107,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
     dealPrice,
     phase,
     isRangeType,
-    isApplied,
+    isEnrolled,
     mla,
     promotion.min_discounted_price,
     promotion.max_discounted_price,
@@ -112,8 +115,8 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
 
   const hasPermission = tienePermiso('promos.escribir');
   const isWritableType = WRITABLE_TYPES.has(promotion.promotion_type);
-  const actionLabel = isApplied ? 'desaplicar' : 'aplicar';
-  const actionLabelCapitalized = isApplied ? 'Desaplicar' : 'Aplicar';
+  const actionLabel = isEnrolled ? 'desaplicar' : 'aplicar';
+  const actionLabelCapitalized = isEnrolled ? 'Desaplicar' : 'Aplicar';
 
   const numericDealPrice = Number(dealPrice);
   const priceOutOfRange =
@@ -158,7 +161,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
 
     setPhase('submitting');
     try {
-      const data = isApplied
+      const data = isEnrolled
         ? await promocionesAPI
             .deletePromocionItem(mla, {
               promotion_id: promotion.promotion_id,
@@ -172,7 +175,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
               ...(isRangeType ? { deal_price: numericDealPrice } : {}),
             })
             .then((res) => res.data);
-      setFeedback(feedbackFor(data?.status, isApplied));
+      setFeedback(feedbackFor(data?.status, isEnrolled));
       setPhase('done');
       if (onApplied) onApplied(data);
     } catch (err) {
@@ -192,7 +195,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
     return (
       <span className={styles.applyConfirm}>
         <span>¿{actionLabelCapitalized} esta promoción?</span>
-        {isRangeType && !isApplied && (
+        {isRangeType && !isEnrolled && (
           <span className={styles.priceInput}>
             <label htmlFor={priceInputId}>Precio</label>
             <input
@@ -219,9 +222,9 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
         )}
         <button
           type="button"
-          className={`${styles.applyConfirmBtn} ${isApplied ? styles.removeConfirmBtn : ''}`}
+          className={`${styles.applyConfirmBtn} ${isEnrolled ? styles.removeConfirmBtn : ''}`}
           onClick={handleConfirm}
-          disabled={isRangeType && !isApplied && priceOutOfRange}
+          disabled={isRangeType && !isEnrolled && priceOutOfRange}
         >
           Sí, {actionLabel}
         </button>
@@ -235,7 +238,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   if (phase === 'submitting') {
     return (
       <button type="button" className={styles.applySlot} disabled>
-        {isApplied ? 'Desaplicando...' : 'Aplicando...'}
+        {isEnrolled ? 'Desaplicando...' : 'Aplicando...'}
       </button>
     );
   }
@@ -244,7 +247,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
     <span className={styles.applyWrapper}>
       <button
         type="button"
-        className={`${styles.applyBtn} ${isApplied ? styles.removeBtn : ''}`}
+        className={`${styles.applyBtn} ${isEnrolled ? styles.removeBtn : ''}`}
         onClick={handleActionClick}
       >
         {actionLabelCapitalized}

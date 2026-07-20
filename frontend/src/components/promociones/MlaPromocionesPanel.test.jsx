@@ -423,6 +423,130 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
   });
 
+  it('shows an "En espera" badge for a pending promo (REQ-4), mutually exclusive with Aplicada/Programada', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            status: 'pending',
+            application_status: 'pending',
+            price: 100,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+    expect(screen.getByText(/^en espera$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^aplicada$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^programada$/i)).not.toBeInTheDocument();
+  });
+
+  it('shows co-funded % fields and an enabled Aplicar for a candidate PRICE_MATCHING promo (REQ-7)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PM1',
+            promotion_type: 'PRICE_MATCHING',
+            name: 'Price matching promo',
+            status: 'candidate',
+            price: 0,
+            suggested_discounted_price: 900,
+            payload: { seller_percentage: 30, meli_percentage: 20 },
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Price matching promo')).toBeInTheDocument());
+    expect(screen.getByText(/costo vendedor: 30%/i)).toBeInTheDocument();
+    expect(screen.getByText(/cofinanciación ml: 20%/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+  });
+
+  it('shows a Desaplicar button for a pending PRICE_MATCHING promo (REQ-7/REQ-6)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PM1',
+            promotion_type: 'PRICE_MATCHING',
+            name: 'Price matching promo',
+            status: 'pending',
+            application_status: 'pending',
+            price: 900,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Price matching promo')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
+  });
+
+  it('never renders an apply control for PRICE_MATCHING_MELI_ALL, in any status (REQ-9 guard)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'PMA1',
+            promotion_type: 'PRICE_MATCHING_MELI_ALL',
+            name: 'Price matching meli all',
+            status: 'started',
+            price: 900,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Price matching meli all')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^desaplicar$/i })).not.toBeInTheDocument();
+  });
+
+  it('colors the promo-row markup using the shared markup-color thresholds (ADD-1)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'DEAL',
+            name: 'Positive markup promo',
+            price: 80,
+            nuestro_markup: 25,
+          },
+          {
+            promotion_id: 'P2',
+            promotion_type: 'DEAL',
+            name: 'Negative markup promo',
+            price: 80,
+            nuestro_markup: -5,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Positive markup promo')).toBeInTheDocument());
+    const positiveMarkup = screen.getByText(/tu markup: 25\.0%/i);
+    const negativeMarkup = screen.getByText(/tu markup: -5\.0%/i);
+    expect(positiveMarkup).toHaveStyle({ color: 'var(--success)' });
+    expect(negativeMarkup).toHaveStyle({ color: 'var(--error)' });
+  });
+
   it('shows the promo name (not the cryptic type) as the primary label', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

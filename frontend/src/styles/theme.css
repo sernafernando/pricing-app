@@ -68,6 +68,10 @@
   --purple-bg: #ede9fe;
   --purple-text: #5b21b6;
 
+  /* Teal - dedicated hue for PRICE_MATCHING, distinct from info/success/purple/warning */
+  --teal-bg: #e0f7f5;
+  --teal-text: #0f766e;
+
   /* Shadows - Sutiles */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
   --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.12);
@@ -153,6 +157,10 @@
   --purple-light: #1e1633;
   --purple-bg: #2d1f47;
   --purple-text: #c4b5fd;
+
+  /* Teal - dedicated hue for PRICE_MATCHING, distinct from info/success/purple/warning */
+  --teal-bg: #0d2a28;
+  --teal-text: #2dd4bf;
 
   /* Shadows - Profundas en negro */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);

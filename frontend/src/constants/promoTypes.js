@@ -6,6 +6,7 @@ export const PROMO_TYPES = [
   { type: 'DEAL', label: 'Deal' },
   { type: 'SMART', label: 'Smart' },
   { type: 'PRE_NEGOTIATED', label: 'Pre-negociada' },
+  { type: 'PRICE_MATCHING', label: 'Igualación de precio' },
   { type: 'PRICE_DISCOUNT', label: 'Descuento' },
   { type: 'DOD', label: 'DOD' },
   { type: 'LIGHTNING', label: 'Lightning' },

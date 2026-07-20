@@ -58,14 +58,21 @@ logger = logging.getLogger(__name__)
 # are worth triggering a price recompute for.
 _RECOMPUTE_TRIGGER_STATUSES = {"submitted", "reconciled_applied"}
 
-WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED"}
+# NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
+# (ML-autogestionado, not writable by us). Its absence here is what enforces
+# the deny (enroll/remove both fail-close on `not in WRITABLE_PROMOTION_TYPES`)
+# — never add it, and never use startswith/prefix matching against
+# "PRICE_MATCHING" that could accidentally admit it.
+WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
 
-# PRE_NEGOTIATED behaves identically to SMART in the write path: it uses an
-# `offer_id` (from the live entry's `ref_id`, not a promotion-id-based POST)
-# and the entry's own `price` (no [min,max] range), and remove re-reads live
-# for the current offer_id. Also shares SMART's slower eventual-consistency
-# window for reconciliation purposes.
-SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED"}
+# PRE_NEGOTIATED and PRICE_MATCHING behave identically to SMART in the write
+# path: they use an `offer_id` (from the live entry's `ref_id`, not a
+# promotion-id-based POST) and the entry's own `price` (no [min,max] range),
+# and remove re-reads live for the current offer_id. Also share SMART's
+# slower eventual-consistency window for reconciliation purposes.
+# NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED here too (see
+# WRITABLE_PROMOTION_TYPES comment above) — exact set membership only.
+SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
 
 
 def _resolve(value: Any) -> Any:
