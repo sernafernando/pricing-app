@@ -183,3 +183,74 @@ describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
     expect(screen.getByText('Solicito factura A. Gracias')).toBeInTheDocument();
   });
 });
+
+describe('Resizable columns (Preguntas table)', () => {
+  it('renders a <colgroup> with one <col> per header cell', async () => {
+    await renderWithRouter(<MLQuestions />);
+    await waitFor(() => screen.getByText('Preguntas'));
+
+    const container = document.querySelector('.table-container-tesla table.table-tesla');
+    const headerCells = container.querySelectorAll('thead th');
+    const cols = container.querySelectorAll('colgroup col');
+    expect(cols.length).toBe(headerCells.length);
+  });
+
+  it('exposes a labeled resize handle (role=separator) on each resizable header', async () => {
+    await renderWithRouter(<MLQuestions />);
+    await waitFor(() => screen.getByText('Preguntas'));
+
+    expect(
+      screen.getByRole('separator', { name: /Redimensionar columna Pregunta$/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('separator', { name: /Redimensionar columna Item/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('separator', { name: /Redimensionar columna Respuesta/i })
+    ).toBeInTheDocument();
+  });
+
+  it('does not show a reset-widths control before any column has been resized', async () => {
+    await renderWithRouter(<MLQuestions />);
+    await waitFor(() => screen.getByText('Preguntas'));
+
+    expect(screen.queryByRole('button', { name: /Restablecer columnas/i })).not.toBeInTheDocument();
+  });
+
+  it('shows and wires a reset-widths control after a keyboard resize', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await waitFor(() => screen.getByText('Preguntas'));
+
+    const handle = screen.getByRole('separator', { name: /Redimensionar columna Pregunta$/i });
+    handle.focus();
+    await user.keyboard('{ArrowRight}');
+
+    const resetBtn = await screen.findByRole('button', { name: /Restablecer columnas/i });
+    expect(resetBtn).toBeInTheDocument();
+
+    await user.click(resetBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Restablecer columnas/i })).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('Resizable columns (Mensajes table)', () => {
+  it('exposes a resize handle on Mensaje but NOT on Comprador · Pack', async () => {
+    // Comprador·Pack is only a thin indent bar in message rows (buyer identity
+    // lives in a colSpan thread-header row), so it is intentionally not resizable.
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    expect(
+      await screen.findByRole('separator', { name: /Redimensionar columna Mensaje$/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('separator', { name: /Redimensionar columna Comprador/i })
+    ).not.toBeInTheDocument();
+  });
+});

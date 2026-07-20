@@ -150,12 +150,109 @@
   font-size: 0.85rem;
 }
 
+/* ── Resizable columns ────────────────────────────────────────────────
+   Page-scoped override of the shared Tesla table so per-table columns can
+   be dragged/keyboard-resized. Column width now lives on <col> (fixed
+   layout only honors <col>/first-row width, not cell max-width); resized
+   columns get an inline style on the <col>, un-resized columns keep the
+   responsive clamp() default via the .colX classes below.
+   `table-tesla.css` itself is never touched — only this page's rules. */
+.container :global(.table-tesla) {
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+
+.container :global(.table-container-tesla) {
+  overflow-x: auto;
+}
+
+/* Resize handle: absolutely positioned on the right edge of a resizable
+   header; the header needs relative positioning as an anchor. */
+.resizableHeader {
+  position: relative;
+}
+
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.resizeHandle:hover {
+  background: var(--cf-border-default);
+}
+
+.resizeHandle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--cf-accent-blue);
+}
+
+.resetWidthsBtn {
+  margin-left: auto;
+}
+
+/* Static widths for fixed (non-resizable) columns so table-layout:fixed has
+   an explicit width for every <col>. */
+.colStatusNarrow {
+  width: 90px;
+}
+
+.colConfidence {
+  width: 90px;
+}
+
+.colCountdown {
+  width: 140px;
+}
+
+.colActions {
+  width: 150px;
+}
+
+.colDate {
+  width: 160px;
+}
+
+.colModeration {
+  width: 120px;
+}
+
+.colIndent {
+  width: 16px;
+}
+
+/* Responsive-default widths for resizable columns (used on the <col> when
+   the user has not manually resized that column). */
+.colQuestion {
+  width: clamp(140px, 18vw, 320px);
+}
+
+.colItem {
+  width: clamp(120px, 14vw, 240px);
+}
+
+.colAnswer {
+  width: clamp(140px, 18vw, 320px);
+}
+
+.colMensaje {
+  width: clamp(140px, 18vw, 320px);
+}
+
+.colComprador {
+  width: clamp(120px, 14vw, 240px);
+}
+
 /* Table cells */
 /* Text columns size fluidly so the table fits on notebooks without pushing
    the Estado/Acciones columns off-screen. Full text stays available via the
    cell's `title` tooltip. Horizontal scroll remains only as a last resort. */
 .cellQuestion {
-  max-width: clamp(140px, 18vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -172,7 +269,6 @@
   font-family: var(--font-mono, monospace);
   font-size: 0.78rem;
   white-space: nowrap;
-  max-width: clamp(120px, 14vw, 240px);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -188,7 +284,6 @@
 }
 
 .cellAnswer {
-  max-width: clamp(140px, 18vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -484,13 +579,22 @@
 @media (max-width: 1440px) {
   .cellQuestion,
   .cellAnswer {
-    max-width: clamp(120px, 14vw, 220px);
     font-size: 0.78rem;
   }
 
   .cellItem {
-    max-width: clamp(100px, 11vw, 180px);
     font-size: 0.74rem;
+  }
+
+  .colQuestion,
+  .colAnswer,
+  .colMensaje {
+    width: clamp(120px, 14vw, 220px);
+  }
+
+  .colItem,
+  .colComprador {
+    width: clamp(100px, 11vw, 180px);
   }
 }
 

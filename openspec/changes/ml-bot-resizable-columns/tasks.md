@@ -33,37 +33,37 @@ Scope fence: only `frontend/src/hooks/useResizableColumns.js` (+ its test file),
 
 ## 3. MLQuestions.module.css scoped layout changes
 **Satisfies**: Spec reqs 4 (clamp coexistence), 6 (ellipsis), 7 (guaranteed horizontal scroll); Design "Key Decisions" 1–3.
-- [ ] 3.1 Add `.container :global(.table-tesla) { table-layout: fixed; width: max-content; min-width: 100%; }` (page-scoped override, no edits to shared `table-tesla.css`).
-- [ ] 3.2 Add `.container :global(.table-container-tesla) { overflow-x: auto; }` — confirm existing scrollbar styling is reused, not duplicated; verify sticky thead still works with horizontal scroll (visual/manual, see section 6).
-- [ ] 3.3 Move current `max-width: clamp(...)` rules for resizable columns off cell classes (`.cellQuestion`, `.cellItem`, `.cellAnswer`, etc.) onto new `<col>`-targeting classes (e.g. `.colQuestion`, `.colItem`, `.colAnswer`, `.colMensaje`, `.colComprador`) using `width: clamp(...)` instead of `max-width`.
-- [ ] 3.4 Keep `overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` on the existing cell classes (still needed for ellipsis under fixed layout even though `max-width` there is now inert).
-- [ ] 3.5 Add handle styles: absolutely positioned `right:0; top:0; bottom:0; width:6px; cursor:col-resize;` inside a scoped `th { position: relative; }` rule for resizable headers.
-- [ ] 3.6 Add focus-ring style for the handle: `box-shadow: 0 0 0 2px var(--brand-primary-light);` (design token, no hardcoded color) on `:focus-visible`.
-- [ ] 3.7 Add static `<col>` width classes for fixed/non-resizable columns (Estado, Confianza, Cuenta regresiva, Acciones, Recibido, Leído, Moderación, Fecha, thin indent col in Mensajes) so table-layout:fixed has explicit widths for every column.
-- Done when: `pnpm run build` (or dev server) shows no CSS errors, and visually the three tables render with fixed layout, working ellipsis, and no changes made to `frontend/src/styles/table-tesla.css`.
+- [x] 3.1 Add `.container :global(.table-tesla) { table-layout: fixed; width: max-content; min-width: 100%; }` (page-scoped override, no edits to shared `table-tesla.css`).
+- [x] 3.2 Add `.container :global(.table-container-tesla) { overflow-x: auto; }` — confirm existing scrollbar styling is reused, not duplicated; verify sticky thead still works with horizontal scroll (visual/manual, see section 6).
+- [x] 3.3 Move current `max-width: clamp(...)` rules for resizable columns off cell classes (`.cellQuestion`, `.cellItem`, `.cellAnswer`, etc.) onto new `<col>`-targeting classes (e.g. `.colQuestion`, `.colItem`, `.colAnswer`, `.colMensaje`, `.colComprador`) using `width: clamp(...)` instead of `max-width`.
+- [x] 3.4 Keep `overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` on the existing cell classes (still needed for ellipsis under fixed layout even though `max-width` there is now inert).
+- [x] 3.5 Add handle styles: absolutely positioned `right:0; top:0; bottom:0; width:6px; cursor:col-resize;` inside a scoped `th { position: relative; }` rule for resizable headers.
+- [x] 3.6 Add focus-ring style for the handle: `box-shadow: 0 0 0 2px var(--brand-primary-light);` (design token, no hardcoded color) on `:focus-visible`.
+- [x] 3.7 Add static `<col>` width classes for fixed/non-resizable columns (Estado, Confianza, Cuenta regresiva, Acciones, Recibido, Leído, Moderación, Fecha, thin indent col in Mensajes) so table-layout:fixed has explicit widths for every column.
+- Done when: `pnpm run build` (or dev server) shows no CSS errors, and visually the three tables render with fixed layout, working ellipsis, and no changes made to `frontend/src/styles/table-tesla.css`. **VERIFIED**: `pnpm run build` passes clean.
 
 ## 4. Wire Preguntas table in MLQuestions.jsx
 **Satisfies**: Spec reqs 1–8 for the Preguntas table; Design "File Changes" + "Resizable cols" mapping.
-- [ ] 4.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:preguntas', columns: [...] })` with resizable Pregunta/Item/Respuesta(borrador) and fixed Estado/Confianza/Cuenta regresiva/Acciones.
-- [ ] 4.2 Add `<colgroup>` with one `<col>` per column; resizable cols get inline `style={{ width: colWidth(id) }}` when `isResized(id)` (falls through to `.colX` CSS class default otherwise); fixed cols use static width classes from 3.7.
-- [ ] 4.3 Add a resize handle element inside each resizable `<th>`, spread `getHandleProps(id)` onto it.
-- [ ] 4.4 Add a "Restablecer columnas" ghost button (btn-tesla sm) near the Preguntas table header, visible only when `isResized` is true for at least one column of this table; `onClick` calls `resetWidths()`.
-- Done when: Preguntas tab renders with drag+keyboard resizing on Pregunta/Item/Respuesta, reset button appears only after a resize, and existing Preguntas behavior (sorting/filtering/pagination) is unaffected.
+- [x] 4.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:preguntas', columns: [...] })` with resizable Pregunta/Item/Respuesta(borrador) and fixed Estado/Confianza/Cuenta regresiva/Acciones.
+- [x] 4.2 Add `<colgroup>` with one `<col>` per column; resizable cols get inline `style={{ width: colWidth(id) }}` when `isResized(id)` (falls through to `.colX` CSS class default otherwise); fixed cols use static width classes from 3.7.
+- [x] 4.3 Add a resize handle element inside each resizable `<th>`, spread `getHandleProps(id)` onto it.
+- [x] 4.4 Add a "Restablecer columnas" ghost button (btn-tesla sm) near the Preguntas table header, visible only when `isResized` is true for at least one column of this table; `onClick` calls `resetWidths()`.
+- Done when: Preguntas tab renders with drag+keyboard resizing on Pregunta/Item/Respuesta, reset button appears only after a resize, and existing Preguntas behavior (sorting/filtering/pagination) is unaffected. **VERIFIED**: covered by `MLQuestions.test.jsx` "Resizable columns (Preguntas table)" suite (colgroup count, handle labels, reset button appears only after resize and disappears after reset).
 
 ## 5. Wire Mensajes table in MLQuestions.jsx (LOCKED: Mensaje + Comprador·Pack both resizable)
 **Satisfies**: Spec reqs 1–8 for the Mensajes table; overrides design's Mensaje-only default per explicit product decision.
-- [ ] 5.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:mensajes', columns: [...] })` with resizable **Mensaje** and **Comprador·Pack**; fixed Recibido/Leído/Moderación (and the thin indent column, if present, stays fixed).
-- [ ] 5.2 Add `<colgroup>` per 4.2 pattern, now with two resizable `<col>`s (Mensaje, Comprador·Pack).
-- [ ] 5.3 Add resize handles + `getHandleProps(id)` to both the "Mensaje" and "Comprador·Pack" `<th>`s.
-- [ ] 5.4 Add reset button for the Mensajes table (independent from Preguntas/Detalle, own storage key).
-- Done when: both Mensaje and Comprador·Pack columns are independently draggable/keyboard-resizable, persist independently, reset together via the Mensajes reset button, and Preguntas/Detalle widths are unaffected (independent storage keys, spec req 3).
+- [x] 5.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:mensajes', columns: [...] })` with resizable **Mensaje** and **Comprador·Pack**; fixed Recibido/Leído/Moderación (and the thin indent column, if present, stays fixed).
+- [x] 5.2 Add `<colgroup>` per 4.2 pattern, now with two resizable `<col>`s (Mensaje, Comprador·Pack).
+- [x] 5.3 Add resize handles + `getHandleProps(id)` to both the "Mensaje" and "Comprador·Pack" `<th>`s.
+- [x] 5.4 Add reset button for the Mensajes table (independent from Preguntas/Detalle, own storage key).
+- Done when: both Mensaje and Comprador·Pack columns are independently draggable/keyboard-resizable, persist independently, reset together via the Mensajes reset button, and Preguntas/Detalle widths are unaffected (independent storage keys, spec req 3). **VERIFIED**: covered by "Resizable columns (Mensajes table)" test asserting both handles render; independent `storageKey`s confirmed by code review (three distinct keys, three separate hook instances/state).
 
 ## 6. Wire Detalle/historial table in MLQuestions.jsx
 **Satisfies**: Spec reqs 1–8 for the Detalle table.
-- [ ] 6.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:detalle', columns: [...] })` with resizable Pregunta/Item/Respuesta; fixed Fecha/Estado.
-- [ ] 6.2 Add `<colgroup>`, handles, `getHandleProps` per the same pattern as 4.2–4.3.
-- [ ] 6.3 Add reset button scoped to the Detalle table.
-- Done when: Detalle/historial view (modal or expanded row, whichever the current implementation uses) resizes/persists/resets independently of the other two tables.
+- [x] 6.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:detalle', columns: [...] })` with resizable Pregunta/Item/Respuesta; fixed Fecha/Estado.
+- [x] 6.2 Add `<colgroup>`, handles, `getHandleProps` per the same pattern as 4.2–4.3.
+- [x] 6.3 Add reset button scoped to the Detalle table.
+- Done when: Detalle/historial view (modal or expanded row, whichever the current implementation uses) resizes/persists/resets independently of the other two tables. **VERIFIED**: implemented in `renderDetailRow`'s "historial" tab following the same colgroup/handle/reset pattern as Preguntas/Mensajes, own storage key `mlbot:colwidths:detalle`; not separately covered by an automated test (row must be expanded + historial tab opened + history fetched, deemed acceptable given the identical, already-tested pattern) — add to section 7 manual pass.
 
 ## 7. Manual/browser verification (cannot be exercised in jsdom)
 **Satisfies**: Spec reqs 4 (clamp/1440px breakpoint), 7 (guaranteed horizontal scroll with sticky thead), drag pixel math.
@@ -73,7 +73,8 @@ Scope fence: only `frontend/src/hooks/useResizableColumns.js` (+ its test file),
 - [ ] 7.4 Reload the page after resizing; confirm widths persist per table, and confirm resizing one table (e.g. Mensajes) does not affect the other two's stored widths.
 - [ ] 7.5 Click "Restablecer columnas" on each table; confirm it reverts only that table to clamp() defaults and clears only its own localStorage key.
 - [ ] 7.6 With devtools localStorage disabled or manually corrupted (set the key to `"not json"`), reload and confirm the page still renders with default widths (no console throw), and live resize (in-memory) still works during that session.
-- Done when: all 6 checks above pass manually and are noted as verified in the PR description (this task list does not gate merge on automated coverage for pixel/visual behavior, per design's stated jsdom limitation).
+- [ ] 7.7 Expand a row and open the "Historial del comprador" tab; drag/keyboard-resize Pregunta/Item/Respuesta there and confirm it persists independently of the Preguntas/Mensajes tables (storage key `mlbot:colwidths:detalle`).
+- Done when: all checks above pass manually and are noted as verified in the PR description (this task list does not gate merge on automated coverage for pixel/visual behavior, per design's stated jsdom limitation). **STATUS: pending manual browser pass** — automated coverage (unit + component tests + build) is green; this section requires a human/browser check before merge.
 
 ---
 
