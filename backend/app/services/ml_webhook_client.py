@@ -318,6 +318,30 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo promociones del item {mla_id}: {e}")
             return None
 
+    async def refresh_item_promotions(self, mla_id: str) -> bool:
+        """Triggers a server-side point-refresh of the ml-webhook mirror
+        for a single item, right after our own enroll/remove write, so
+        dependent consumers (panel/L1 badges, list filters, price sync)
+        stop showing stale state until the next webhook/backfill cycle.
+
+        Args:
+            mla_id: The item ID (e.g. MLA2361127120).
+
+        Returns:
+            True on 2xx, False on any error (404 route-absent, other
+            4xx/5xx, timeout, or any other exception) — mirrors the read
+            methods' error-swallowing shape, NEVER raises. A route-absent
+            404 degrades gracefully back to the existing backfill cadence.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(f"{self.base_url}/api/promociones/item/{mla_id}/refresh")
+                response.raise_for_status()
+                return True
+        except Exception as e:
+            logger.error(f"Error refrescando promociones del item {mla_id}: {e}")
+            return False
+
 
 # Instancia global del cliente
 ml_webhook_client = MLWebhookClient()

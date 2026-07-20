@@ -24,6 +24,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.services import ml_promotions_write_service as write_service
 
@@ -34,9 +35,25 @@ def _stub_recompute_hook(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     this file EXCEPT `TestRecomputeHook`, which exercises it directly.
     Without this, every 'submitted'/'reconciled_applied' test below would
     open a real DB session via `get_background_db()`."""
-    if request.cls is not None and request.cls.__name__ == "TestRecomputeHook":
+    if request.cls is not None and request.cls.__name__ in ("TestRecomputeHook", "TestRefreshRecomputeOrdering"):
         return
     monkeypatch.setattr(write_service, "_maybe_recompute_after_write", lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
+def _stub_refresh_hook(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """No-ops the post-write point-refresh hook for every test in this file
+    EXCEPT `TestRefreshHook`/`TestEnqueueRefreshRetry`, which exercise it
+    directly. Without this, every 'submitted'/'reconciled_applied'/
+    'ambiguous' test below would attempt a real httpx call + DB session via
+    `refresh_item_promotions`/`get_background_db()`."""
+    if request.cls is not None and request.cls.__name__ in (
+        "TestRefreshHook",
+        "TestEnqueueRefreshRetry",
+        "TestRefreshRecomputeOrdering",
+    ):
+        return
+    monkeypatch.setattr(write_service, "_maybe_refresh_after_write", lambda *a, **k: None)
 
 
 def _fake_live_item_promotions(
@@ -1585,3 +1602,208 @@ class TestRecomputeHook:
             result = write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
 
         mock_hook.assert_called_once_with("MLA123456789", result)
+
+
+class TestEnqueueRefreshRetry:
+    """`_enqueue_refresh_retry` upserts a `promo_refresh_pending` row keyed
+    on the UNIQUE `mla` column, via a short-lived `get_background_db()`
+    session (ADR-5 / DB-pool-exhaustion incident pattern).
+
+    B2: implemented as a single native `INSERT ... ON CONFLICT DO UPDATE`
+    statement — NOT a `.query().first()` read followed by `.add()`, since
+    that SELECT-then-INSERT shape races under concurrent applies for the
+    same mla (second commit raises IntegrityError, and the caller swallows
+    it, silently dropping that mla's durable retry).
+
+    NOTE: these tests assert against the COMPILED SQL (that it's an
+    `ON CONFLICT ... DO UPDATE`), not against a real DB — the test DB is
+    sqlite, so the actual ON CONFLICT upsert behaviour only exercises against
+    Postgres in staging/prod. The syntactic assertion still catches a
+    regression away from the upsert form."""
+
+    def test_inserts_new_row_when_none_exists(self) -> None:
+        fake_db = MagicMock()
+
+        with patch.object(write_service, "get_background_db") as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._enqueue_refresh_retry("MLA123456789")
+
+        fake_db.execute.assert_called_once()
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        assert "INSERT INTO promo_refresh_pending" in str(compiled)
+        assert "ON CONFLICT" in str(compiled).upper()
+        fake_db.commit.assert_called_once()
+
+    def test_updates_existing_row_resets_due_at_and_attempts(self) -> None:
+        """A second enqueue for the same mla (simulating an existing row)
+        must upsert due_at/attempts=0 via the ON CONFLICT DO UPDATE clause
+        rather than raising or silently no-oping."""
+        fake_db = MagicMock()
+
+        with patch.object(write_service, "get_background_db") as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._enqueue_refresh_retry("MLA123456789")
+
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        compiled_sql = str(compiled).upper()
+        assert "DO UPDATE SET" in compiled_sql
+        assert "ATTEMPTS" in compiled_sql
+        assert "DUE_AT" in compiled_sql
+        fake_db.commit.assert_called_once()
+
+    def test_session_is_closed_via_context_manager(self) -> None:
+        fake_db = MagicMock()
+
+        with patch.object(write_service, "get_background_db") as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._enqueue_refresh_retry("MLA123456789")
+
+        mock_get_db.return_value.__exit__.assert_called_once()
+
+    def test_concurrent_enqueue_upserts_instead_of_racing_select_then_insert(self) -> None:
+        """B2 regression: two near-simultaneous enqueues for the same mla
+        must not race a SELECT-then-INSERT (which drops the second row's
+        durable retry on IntegrityError). The statement executed must be a
+        native ON CONFLICT upsert keyed on `mla`, not a `.query().first()`
+        read followed by `.add()`."""
+        fake_db = MagicMock()
+
+        with patch.object(write_service, "get_background_db") as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._enqueue_refresh_retry("MLA123456789")
+
+        fake_db.query.assert_not_called()
+        fake_db.add.assert_not_called()
+        fake_db.execute.assert_called_once()
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        assert "ON CONFLICT" in str(compiled).upper()
+        assert "mla" in compiled.params or "mla_1" in compiled.params or "MLA123456789" in str(compiled.params.values())
+        fake_db.commit.assert_called_once()
+
+
+class TestRefreshHook:
+    """Point-refresh hook (backend slice of promo-state-dynamic-refresh):
+    after a real state change at ML, the ml-webhook mirror is refreshed
+    (immediate best-effort) AND a retry is enqueued for ~60s later. A
+    refresh/enqueue failure must NEVER surface as/replace the enroll/remove
+    outcome. Trigger set is WIDER than the recompute trigger set — includes
+    'ambiguous' (a truth-revealing refresh matters most there)."""
+
+    @pytest.mark.parametrize("status", ["submitted", "reconciled_applied", "ambiguous"])
+    def test_fires_refresh_and_enqueue_exactly_once_for_trigger_statuses(self, status: str) -> None:
+        with (
+            patch.object(write_service.ml_webhook_client, "refresh_item_promotions", return_value=True) as mock_refresh,
+            patch.object(write_service, "_enqueue_refresh_retry") as mock_enqueue,
+        ):
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": status})
+
+        mock_refresh.assert_called_once_with("MLA123456789")
+        mock_enqueue.assert_called_once_with("MLA123456789")
+
+    @pytest.mark.parametrize(
+        "status", ["disabled", "rejected_out_of_range", "rejected_by_proxy", "reconciled_not_applied"]
+    )
+    def test_skips_non_trigger_statuses(self, status: str) -> None:
+        with (
+            patch.object(write_service.ml_webhook_client, "refresh_item_promotions") as mock_refresh,
+            patch.object(write_service, "_enqueue_refresh_retry") as mock_enqueue,
+        ):
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": status})
+
+        mock_refresh.assert_not_called()
+        mock_enqueue.assert_not_called()
+
+    def test_refresh_exception_does_not_raise_or_affect_outcome(self) -> None:
+        with patch.object(
+            write_service.ml_webhook_client, "refresh_item_promotions", side_effect=RuntimeError("mlwebhook down")
+        ):
+            # Must not raise.
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
+
+    def test_enqueue_exception_does_not_raise_or_affect_outcome(self) -> None:
+        with (
+            patch.object(write_service.ml_webhook_client, "refresh_item_promotions", return_value=True),
+            patch.object(write_service, "_enqueue_refresh_retry", side_effect=RuntimeError("db down")),
+        ):
+            # Must not raise.
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
+
+    def test_enqueue_still_runs_when_immediate_refresh_raises(self) -> None:
+        """Resilience: the durable ~60s retry must be queued even if the
+        immediate refresh blows up (e.g. the async bridge fails) — the two
+        steps are independent, so a failed immediate refresh must NOT silently
+        degrade the item to the 3x/day backfill only."""
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "refresh_item_promotions",
+                side_effect=RuntimeError("bridge boom"),
+            ),
+            patch.object(write_service, "_enqueue_refresh_retry") as mock_enqueue,
+        ):
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
+
+        mock_enqueue.assert_called_once_with("MLA123456789")
+
+    def test_ambiguous_does_not_trigger_recompute(self) -> None:
+        """Guards against the recompute trigger set silently drifting to
+        include 'ambiguous' — recompute stays on its existing narrower set."""
+        assert "ambiguous" not in write_service._RECOMPUTE_TRIGGER_STATUSES
+        assert "ambiguous" in write_service._REFRESH_TRIGGER_STATUSES
+
+
+class TestRefreshRecomputeOrdering:
+    """enroll_one_item / remove_one_item call the refresh hook BEFORE the
+    recompute hook, so the inline recompute reads the freshened mirror."""
+
+    def test_enroll_one_item_calls_refresh_before_recompute(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        manager = MagicMock()
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(),
+            ),
+            patch.object(
+                write_service.ml_webhook_client,
+                "enroll_item",
+                return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            ),
+            patch.object(write_service, "_maybe_refresh_after_write") as mock_refresh_hook,
+            patch.object(write_service, "_maybe_recompute_after_write") as mock_recompute_hook,
+        ):
+            manager.attach_mock(mock_refresh_hook, "refresh_hook")
+            manager.attach_mock(mock_recompute_hook, "recompute_hook")
+            result = write_service.enroll_one_item("MLA123456789", "DEAL-1", "DEAL", deal_price=900.0)
+
+        assert [c[0] for c in manager.mock_calls] == ["refresh_hook", "recompute_hook"]
+        mock_refresh_hook.assert_called_once_with("MLA123456789", result)
+        mock_recompute_hook.assert_called_once_with("MLA123456789", result)
+
+    def test_remove_one_item_calls_refresh_before_recompute(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
+
+        manager = MagicMock()
+
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "remove_item",
+                return_value={"ok": True, "status_code": 204, "ambiguous": False, "body": {}},
+            ),
+            patch.object(write_service, "_maybe_refresh_after_write") as mock_refresh_hook,
+            patch.object(write_service, "_maybe_recompute_after_write") as mock_recompute_hook,
+        ):
+            manager.attach_mock(mock_refresh_hook, "refresh_hook")
+            manager.attach_mock(mock_recompute_hook, "recompute_hook")
+            result = write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
+
+        assert [c[0] for c in manager.mock_calls] == ["refresh_hook", "recompute_hook"]
+        mock_refresh_hook.assert_called_once_with("MLA123456789", result)
+        mock_recompute_hook.assert_called_once_with("MLA123456789", result)

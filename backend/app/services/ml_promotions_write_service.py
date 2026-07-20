@@ -40,23 +40,37 @@ low-volume, human-triggered, so reconciliation happens inline on the
 ambiguous response rather than via a scheduled sweep (see design decision).
 """
 
-import asyncio
-import inspect
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.models.promo_refresh_pending import PromoRefreshPending
 from app.models.publicacion_ml import PublicacionML
 from app.services.ml_promotions_service import fetch_item_promotions
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.promo_price_propagation import recompute_item
+from app.utils.async_bridge import resolve_maybe_async as _resolve
 
 logger = logging.getLogger(__name__)
 
 # Outcomes that mean the promo actually changed state at ML — only these
 # are worth triggering a price recompute for.
 _RECOMPUTE_TRIGGER_STATUSES = {"submitted", "reconciled_applied"}
+
+# Outcomes worth triggering a server-side point-refresh for. Deliberately
+# WIDER than _RECOMPUTE_TRIGGER_STATUSES: "ambiguous" is included here (a
+# truth-revealing refresh matters most when we genuinely don't know the
+# outcome), but must NEVER leak into the recompute trigger set above — a
+# recompute for an outcome that may not have actually changed anything at
+# ML would be wasted work at best.
+_REFRESH_TRIGGER_STATUSES = {"submitted", "reconciled_applied", "ambiguous"}
+
+# Retry queue tuning (see PromoRefreshPending / drain_promo_refresh.py).
+REFRESH_RETRY_DELAY_SECONDS = 60
 
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
 # (ML-autogestionado, not writable by us). Its absence here is what enforces
@@ -73,17 +87,6 @@ WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED"
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED here too (see
 # WRITABLE_PROMOTION_TYPES comment above) — exact set membership only.
 SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
-
-
-def _resolve(value: Any) -> Any:
-    """Bridges `MLWebhookClient`'s async methods into this module's
-    synchronous API. Real calls return a coroutine (awaited here via
-    `asyncio.run`); unit-test mocks (`patch.object(..., return_value=...)`)
-    return the plain value directly, so both paths work unchanged.
-    """
-    if inspect.isawaitable(value):
-        return asyncio.run(value)
-    return value
 
 
 def _disabled_outcome() -> Dict[str, Any]:
@@ -222,6 +225,92 @@ def reconcile_write_outcome(
     return result
 
 
+def _enqueue_refresh_retry(mla_id: str) -> None:
+    """Upserts a `promo_refresh_pending` row for `mla_id`, due ~60s from
+    now, in a short-lived `get_background_db()` session (ADR-5 /
+    DB-pool-exhaustion incident pattern — never hold a session across
+    unrelated work).
+
+    Idempotent via a NATIVE `INSERT ... ON CONFLICT (mla) DO UPDATE`, not a
+    `.query().first()` read followed by `.add()` — a SELECT-then-INSERT is
+    not atomic: two overlapping enroll/remove calls for the same mla can
+    both read no existing row, both `.add()`, and the second `.commit()`
+    then raises `IntegrityError` (caught/swallowed by the caller), silently
+    dropping that mla's durable retry. The upsert makes concurrent enqueues
+    for the same mla converge on one row with due_at/attempts reset,
+    matching the pre-existing idempotency contract — reconcile on the
+    ml-webhook side is itself an idempotent upsert, so a duplicate/extra
+    refresh is harmless.
+
+    `attempts` resets to 0 on every enqueue BY DESIGN: each fresh operator
+    action deserves its own full retry window. Trade-off: repeatedly acting on
+    the same mla while ml-webhook is down keeps resetting the counter so that
+    row never quarantines — but each reset also re-issues the immediate
+    refresh, and the 3x/day backfill is the ultimate backstop.
+    """
+    due_at = datetime.now(timezone.utc) + timedelta(seconds=REFRESH_RETRY_DELAY_SECONDS)
+    stmt = pg_insert(PromoRefreshPending).values(mla=mla_id, due_at=due_at, attempts=0)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["mla"],
+        set_={"due_at": due_at, "attempts": 0},
+    )
+    with get_background_db() as db:
+        db.execute(stmt)
+        db.commit()
+
+
+def _maybe_refresh_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
+    """Best-effort post-write hook: triggers a server-side point-refresh of
+    the `ml_item_promotions` mirror for this `mla_id`, AFTER the
+    enroll/remove reconciliation completed, so dependent consumers (panel/
+    L1 badges, list filters, price sync) stop showing stale state until
+    the next webhook/backfill cycle.
+
+    Fires for a WIDER set of outcomes than `_maybe_recompute_after_write`
+    (`_REFRESH_TRIGGER_STATUSES` includes "ambiguous" — a truth-revealing
+    refresh matters most there, since we genuinely don't know what
+    happened at ML). `_RECOMPUTE_TRIGGER_STATUSES` is intentionally NOT
+    touched by this widening.
+
+    Does two things, in INDEPENDENT best-effort steps: (a) enqueues a ~60s
+    retry FIRST (the reliable follow-up for slower-consistency writes like
+    SMART, ~10-18s) so the durable retry is guaranteed even if the immediate
+    refresh below fails to run, and (b) an immediate best-effort refresh
+    (campaign consistency may already be settled by the time this runs). The
+    drainer is idempotent, so a successful immediate refresh just makes the
+    queued retry a cheap confirming no-op.
+
+    Defensive by design, mirroring `_maybe_recompute_after_write`'s
+    isolation contract exactly: the enroll/remove already happened at ML
+    by the time this runs, so a refresh/enqueue failure (mlwebhook down,
+    route absent, DB error) must NEVER corrupt or reverse the
+    enroll/remove result — each step is independently logged, never raised.
+    """
+    if outcome.get("status") not in _REFRESH_TRIGGER_STATUSES:
+        return
+    # (a) Durable retry FIRST — independent of the immediate refresh so the
+    # reliable ~60s follow-up is queued even if (b) blows up.
+    try:
+        _enqueue_refresh_retry(mla_id)
+    except Exception as e:
+        logger.error(
+            "Promo refresh-retry enqueue failed for mla=%s (enroll/remove outcome is unaffected): %s",
+            mla_id,
+            e,
+            exc_info=True,
+        )
+    # (b) Immediate best-effort refresh — independent of (a).
+    try:
+        _resolve(ml_webhook_client.refresh_item_promotions(mla_id))
+    except Exception as e:
+        logger.error(
+            "Promo immediate point-refresh failed for mla=%s (enroll/remove outcome is unaffected): %s",
+            mla_id,
+            e,
+            exc_info=True,
+        )
+
+
 def _maybe_recompute_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
     """Best-effort post-write hook: recomputes promo-driven price columns
     for the item this `mla_id` belongs to, AFTER the enroll/remove
@@ -261,10 +350,11 @@ def enroll_one_item(
     deal_price: Optional[float] = None,
     top_deal_price: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Enrolls a single item in a promotion, then triggers the promo price
-    recompute hook (`_maybe_recompute_after_write`) — see that function's
-    docstring for the failure-isolation contract. See `_enroll_one_item`
-    for the enroll orchestration itself."""
+    """Enrolls a single item in a promotion, then triggers the point-refresh
+    hook (`_maybe_refresh_after_write`) BEFORE the promo price recompute
+    hook (`_maybe_recompute_after_write`) — see each function's docstring
+    for its failure-isolation contract. See `_enroll_one_item` for the
+    enroll orchestration itself."""
     outcome = _enroll_one_item(
         mla_id,
         promotion_id,
@@ -272,6 +362,7 @@ def enroll_one_item(
         deal_price=deal_price,
         top_deal_price=top_deal_price,
     )
+    _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
     return outcome
 
@@ -449,10 +540,12 @@ def _enroll_one_item(
 
 
 def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
-    """Removes a single item from a promotion, then triggers the promo
+    """Removes a single item from a promotion, then triggers the
+    point-refresh hook (`_maybe_refresh_after_write`) BEFORE the promo
     price recompute hook (`_maybe_recompute_after_write`). See
     `_remove_one_item` for the remove orchestration itself."""
     outcome = _remove_one_item(mla_id, promotion_type, promotion_id)
+    _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
     return outcome
 

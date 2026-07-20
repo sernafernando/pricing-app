@@ -211,6 +211,76 @@ class TestRemoveItem:
         assert call_count["n"] == 1
 
 
+class TestRefreshItemPromotions:
+    """`refresh_item_promotions` triggers a server-side point-refresh of the
+    ml-webhook mirror after our own enroll/remove. Mirrors the read
+    methods' error-swallowing shape (never raises), but returns a bool
+    since only did-it-work matters here (no payload to surface)."""
+
+    def test_2xx_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == "/api/promociones/item/MLA123456789/refresh"
+            assert request.content == b""
+            return httpx.Response(200, json={"status": "ok"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is True
+
+    def test_404_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"message": "not found"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is False
+
+    def test_4xx_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"message": "bad request"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is False
+
+    def test_5xx_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"message": "boom"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is False
+
+    def test_timeout_returns_false_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("boom", request=request)
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is False
+
+    def test_generic_exception_returns_false_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise RuntimeError("unexpected")
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
+        assert result is False
+
+
 class TestRemoveItemOfferId:
     def test_offer_id_included_in_query_when_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
