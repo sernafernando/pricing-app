@@ -1,6 +1,6 @@
 # Tasks: ml-bot-resizable-columns
 
-Locked decision overriding design's open question: in **Mensajes**, resizable columns are **BOTH "Mensaje" AND "Comprador·Pack"** (design's Mensaje-only default is superseded).
+Final decision (as shipped): in **Mensajes**, only **"Mensaje"** is resizable. "Comprador·Pack" was initially going to be resizable too, but during wiring we found the Mensajes table is thread-grouped — the buyer/pack identity renders in a `<td colSpan={5}>` thread-header row, and the per-message column 1 is only a thin indent bar. Resizing it reveals nothing, so it stays fixed (matches the design's original Mensaje-only default).
 
 Strict TDD is ON: tests for the hook are written/updated before (or alongside, RED-first) the corresponding implementation. Test runner: `pnpm run test` (vitest + RTL) from `frontend/`.
 
@@ -50,13 +50,13 @@ Scope fence: only `frontend/src/hooks/useResizableColumns.js` (+ its test file),
 - [x] 4.4 Add a "Restablecer columnas" ghost button (btn-tesla sm) near the Preguntas table header, visible only when `isResized` is true for at least one column of this table; `onClick` calls `resetWidths()`.
 - Done when: Preguntas tab renders with drag+keyboard resizing on Pregunta/Item/Respuesta, reset button appears only after a resize, and existing Preguntas behavior (sorting/filtering/pagination) is unaffected. **VERIFIED**: covered by `MLQuestions.test.jsx` "Resizable columns (Preguntas table)" suite (colgroup count, handle labels, reset button appears only after resize and disappears after reset).
 
-## 5. Wire Mensajes table in MLQuestions.jsx (LOCKED: Mensaje + Comprador·Pack both resizable)
-**Satisfies**: Spec reqs 1–8 for the Mensajes table; overrides design's Mensaje-only default per explicit product decision.
-- [x] 5.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:mensajes', columns: [...] })` with resizable **Mensaje** and **Comprador·Pack**; fixed Recibido/Leído/Moderación (and the thin indent column, if present, stays fixed).
-- [x] 5.2 Add `<colgroup>` per 4.2 pattern, now with two resizable `<col>`s (Mensaje, Comprador·Pack).
-- [x] 5.3 Add resize handles + `getHandleProps(id)` to both the "Mensaje" and "Comprador·Pack" `<th>`s.
+## 5. Wire Mensajes table in MLQuestions.jsx (SHIPPED: only Mensaje resizable)
+**Satisfies**: Spec reqs 1–8 for the Mensajes table. Comprador·Pack stays fixed — the table is thread-grouped, so that column is only a thin indent bar in message rows (buyer identity is in a `<td colSpan={5}>` thread-header row).
+- [x] 5.1 Instantiate `useResizableColumns({ storageKey: 'mlbot:colwidths:mensajes', columns: [...] })` with resizable **Mensaje**; Comprador·Pack/Recibido/Leído/Moderación fixed.
+- [x] 5.2 Add `<colgroup>` per 4.2 pattern, with one resizable `<col>` (Mensaje) and fixed cols for the rest.
+- [x] 5.3 Add resize handle + `getHandleProps('mensaje')` to the "Mensaje" `<th>`; "Comprador · Pack" `<th>` stays a plain header.
 - [x] 5.4 Add reset button for the Mensajes table (independent from Preguntas/Detalle, own storage key).
-- Done when: both Mensaje and Comprador·Pack columns are independently draggable/keyboard-resizable, persist independently, reset together via the Mensajes reset button, and Preguntas/Detalle widths are unaffected (independent storage keys, spec req 3). **VERIFIED**: covered by "Resizable columns (Mensajes table)" test asserting both handles render; independent `storageKey`s confirmed by code review (three distinct keys, three separate hook instances/state).
+- Done when: the Mensaje column is draggable/keyboard-resizable, persists, resets via the Mensajes reset button, and Preguntas/Detalle widths are unaffected (independent storage keys, spec req 3). **VERIFIED**: "Resizable columns (Mensajes table)" test asserts the Mensaje handle renders and NO Comprador handle exists; three distinct `storageKey`s / hook instances confirmed by code review.
 
 ## 6. Wire Detalle/historial table in MLQuestions.jsx
 **Satisfies**: Spec reqs 1–8 for the Detalle table.
