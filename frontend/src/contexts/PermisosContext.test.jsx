@@ -73,11 +73,11 @@ describe('PermisosContext — silent refetch on token rotation', () => {
     expect(result.current.tienePermiso('productos.ver')).toBe(true);
 
     await act(async () => {
-      resolveRefetch(permisosResponse(['productos.ver', 'tienda.ver'], 'PM'));
+      resolveRefetch(permisosResponse(['productos.ver', 'productos.ver_tienda'], 'PM'));
     });
 
     await waitFor(() =>
-      expect(result.current.tienePermiso('tienda.ver')).toBe(true)
+      expect(result.current.tienePermiso('productos.ver_tienda')).toBe(true)
     );
     expect(result.current.loading).toBe(false);
   });
