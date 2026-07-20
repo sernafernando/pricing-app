@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
+import FullScreenLoader from './FullScreenLoader';
 
 /**
  * Redirige al usuario a la primera página que tenga acceso
@@ -14,18 +15,7 @@ export default function SmartRedirect() {
 
   // Esperar hasta que los permisos estén completamente cargados
   if (loading || !initialized) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        background: 'var(--cf-bg-app)',
-        color: 'var(--cf-text-primary)'
-      }}>
-        <div>Cargando permisos...</div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // Lista de rutas en orden de prioridad con sus permisos requeridos
