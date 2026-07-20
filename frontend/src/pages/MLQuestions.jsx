@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useResizableColumns } from '../hooks/useResizableColumns';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
@@ -321,6 +322,50 @@ export default function MLQuestions() {
   // in-flight response (from a row the operator already navigated away
   // from) never overwrites the history of the row that's now expanded.
   const expandedIdRef = useRef(null);
+
+  // Resizable columns (PR2 of the resizable-columns change): one hook
+  // instance per table, independent storage keys so a resize in one table
+  // never affects the others (spec req "per-table persistence").
+  const preguntasCols = useResizableColumns({
+    storageKey: 'mlbot:colwidths:preguntas',
+    columns: [
+      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 160 },
+      { id: 'estado', label: 'Estado', resizable: false },
+      { id: 'respuesta', label: 'Respuesta (borrador)', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+      { id: 'confianza', label: 'Confianza', resizable: false },
+      { id: 'countdown', label: 'Cuenta regresiva', resizable: false },
+      { id: 'acciones', label: 'Acciones', resizable: false },
+    ],
+  });
+  const preguntasResized = ['pregunta', 'item', 'respuesta'].some((id) => preguntasCols.isResized(id));
+
+  const mensajesCols = useResizableColumns({
+    storageKey: 'mlbot:colwidths:mensajes',
+    columns: [
+      // Comprador·Pack is NOT resizable: in message rows this column is only a
+      // thin indent bar — the buyer/pack identity lives in a colSpan thread-header
+      // row, so widening this column reveals nothing. Only Mensaje carries text.
+      { id: 'comprador', label: 'Comprador · Pack', resizable: false },
+      { id: 'mensaje', label: 'Mensaje', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+      { id: 'recibido', label: 'Recibido', resizable: false },
+      { id: 'leido', label: 'Leído', resizable: false },
+      { id: 'moderacion', label: 'Moderación', resizable: false },
+    ],
+  });
+  const mensajesResized = mensajesCols.isResized('mensaje');
+
+  const detalleCols = useResizableColumns({
+    storageKey: 'mlbot:colwidths:detalle',
+    columns: [
+      { id: 'fecha', label: 'Fecha', resizable: false },
+      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 160 },
+      { id: 'estado', label: 'Estado', resizable: false },
+      { id: 'respuesta', label: 'Respuesta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+    ],
+  });
+  const detalleResized = ['pregunta', 'item', 'respuesta'].some((id) => detalleCols.isResized(id));
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -713,36 +758,72 @@ export default function MLQuestions() {
                 ) : historyItems.length === 0 ? (
                   <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
                 ) : (
-                  <div className="table-container-tesla">
-                    <table className="table-tesla striped">
-                      <thead className="table-tesla-head">
-                        <tr>
-                          <th>Fecha</th>
-                          <th>Pregunta</th>
-                          <th>Item</th>
-                          <th>Estado</th>
-                          <th>Respuesta</th>
-                        </tr>
-                      </thead>
-                      <tbody className="table-tesla-body">
-                        {historyItems.map((h) => (
-                          <tr key={h.id}>
-                            <td>{new Date(h.question_date).toLocaleString()}</td>
-                            <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
-                            <td className={styles.cellItem}>{h.item_title || '—'}</td>
-                            <td>
-                              <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
-                                {STATUS_LABELS[h.status] || h.status}
-                              </span>
-                            </td>
-                            <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
-                              {h.drafted_answer || '—'}
-                            </td>
+                  <>
+                    {detalleResized && (
+                      <button
+                        type="button"
+                        className="btn-tesla ghost sm"
+                        onClick={() => detalleCols.resetWidths()}
+                      >
+                        Restablecer columnas
+                      </button>
+                    )}
+                    <div className="table-container-tesla">
+                      <table className="table-tesla striped">
+                        <colgroup>
+                          <col className={styles.colDate} />
+                          <col
+                            className={styles.colQuestion}
+                            style={detalleCols.isResized('pregunta') ? { width: detalleCols.colWidth('pregunta') } : undefined}
+                          />
+                          <col
+                            className={styles.colItem}
+                            style={detalleCols.isResized('item') ? { width: detalleCols.colWidth('item') } : undefined}
+                          />
+                          <col className={styles.colStatusNarrow} />
+                          <col
+                            className={styles.colAnswer}
+                            style={detalleCols.isResized('respuesta') ? { width: detalleCols.colWidth('respuesta') } : undefined}
+                          />
+                        </colgroup>
+                        <thead className="table-tesla-head">
+                          <tr>
+                            <th>Fecha</th>
+                            <th className={styles.resizableHeader}>
+                              Pregunta
+                              <div {...detalleCols.getHandleProps('pregunta')} className={styles.resizeHandle} />
+                            </th>
+                            <th className={styles.resizableHeader}>
+                              Item
+                              <div {...detalleCols.getHandleProps('item')} className={styles.resizeHandle} />
+                            </th>
+                            <th>Estado</th>
+                            <th className={styles.resizableHeader}>
+                              Respuesta
+                              <div {...detalleCols.getHandleProps('respuesta')} className={styles.resizeHandle} />
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="table-tesla-body">
+                          {historyItems.map((h) => (
+                            <tr key={h.id}>
+                              <td>{new Date(h.question_date).toLocaleString()}</td>
+                              <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
+                              <td className={styles.cellItem}>{h.item_title || '—'}</td>
+                              <td>
+                                <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
+                                  {STATUS_LABELS[h.status] || h.status}
+                                </span>
+                              </td>
+                              <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
+                                {h.drafted_answer || '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -879,14 +960,51 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {preguntasResized && (
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              onClick={() => preguntasCols.resetWidths()}
+            >
+              Restablecer columnas
+            </button>
+          )}
+
           <div className="table-container-tesla">
             <table className="table-tesla striped">
+              <colgroup>
+                <col
+                  className={styles.colQuestion}
+                  style={preguntasCols.isResized('pregunta') ? { width: preguntasCols.colWidth('pregunta') } : undefined}
+                />
+                <col
+                  className={styles.colItem}
+                  style={preguntasCols.isResized('item') ? { width: preguntasCols.colWidth('item') } : undefined}
+                />
+                <col className={styles.colStatusNarrow} />
+                <col
+                  className={styles.colAnswer}
+                  style={preguntasCols.isResized('respuesta') ? { width: preguntasCols.colWidth('respuesta') } : undefined}
+                />
+                <col className={styles.colConfidence} />
+                <col className={styles.colCountdown} />
+                <col className={styles.colActions} />
+              </colgroup>
               <thead className="table-tesla-head">
                 <tr>
-                  <th>Pregunta</th>
-                  <th>Item</th>
+                  <th className={styles.resizableHeader}>
+                    Pregunta
+                    <div {...preguntasCols.getHandleProps('pregunta')} className={styles.resizeHandle} />
+                  </th>
+                  <th className={styles.resizableHeader}>
+                    Item
+                    <div {...preguntasCols.getHandleProps('item')} className={styles.resizeHandle} />
+                  </th>
                   <th>Estado</th>
-                  <th>Respuesta (borrador)</th>
+                  <th className={styles.resizableHeader}>
+                    Respuesta (borrador)
+                    <div {...preguntasCols.getHandleProps('respuesta')} className={styles.resizeHandle} />
+                  </th>
                   <th>Confianza</th>
                   <th>Cuenta regresiva</th>
                   <th>Acciones</th>
@@ -1091,12 +1209,35 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {mensajesResized && (
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              onClick={() => mensajesCols.resetWidths()}
+            >
+              Restablecer columnas
+            </button>
+          )}
+
           <div className="table-container-tesla">
             <table className="table-tesla">
+              <colgroup>
+                <col className={styles.colComprador} />
+                <col
+                  className={styles.colMensaje}
+                  style={mensajesCols.isResized('mensaje') ? { width: mensajesCols.colWidth('mensaje') } : undefined}
+                />
+                <col className={styles.colDate} />
+                <col className={styles.colDate} />
+                <col className={styles.colModeration} />
+              </colgroup>
               <thead className="table-tesla-head">
                 <tr>
                   <th>Comprador · Pack</th>
-                  <th>Mensaje</th>
+                  <th className={styles.resizableHeader}>
+                    Mensaje
+                    <div {...mensajesCols.getHandleProps('mensaje')} className={styles.resizeHandle} />
+                  </th>
                   <th>Recibido</th>
                   <th>Leído</th>
                   <th>Moderación</th>
