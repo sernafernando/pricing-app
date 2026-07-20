@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
@@ -8,6 +8,16 @@ const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIA
 
 // Debounce delay (ms) for the manual-price -> markup lookup.
 const MARKUP_DEBOUNCE_MS = 400;
+
+// Same client-side gate the server uses for its immediate/queued refresh
+// (spec's original state-changing definition — the FE intentionally does
+// NOT widen this to include `ambiguous`, unlike the server's refresh trigger
+// set, since the FE can't know the server reconciled it as applied).
+const PROVISIONAL_TRIGGER_STATUSES = new Set(['submitted', 'reconciled_applied']);
+
+// Safety timeout so a provisional indicator never lingers forever if the
+// table is never freshened (e.g. the ml-webhook /refresh route is absent).
+const PROVISIONAL_SAFETY_TIMEOUT_MS = 90000;
 
 // EnrollResult/RemoveResult.status -> feedback message + tone. Eventual-
 // consistency-safe: never claim a confirmed state from the immediate response.
@@ -59,6 +69,31 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | submitting | done
   const [feedback, setFeedback] = useState(null); // { tone, message } | null
   const [unavailable, setUnavailable] = useState(false);
+  // Local, provisional-only indicator — structurally CANNOT set the
+  // confirmed "Aplicada"/"Programada" badges, which live in
+  // MlaPromocionesPanel and are driven solely by promo.application_status.
+  // 'applying' | 'removing' | null.
+  const [pendingKind, setPendingKind] = useState(null);
+  const safetyTimeoutRef = useRef(null);
+
+  const clearPendingSafetyTimeout = () => {
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+  };
+
+  // Clear the provisional indicator once the reloaded props reflect the new
+  // confirmed state (the panel re-maps promo data on reload -> new props
+  // flow down here). This NEVER sets the confirmed badge itself — it only
+  // clears our own local, non-confirming indicator.
+  useEffect(() => {
+    setPendingKind(null);
+    clearPendingSafetyTimeout();
+  }, [promotion.status, promotion.application_status]);
+
+  // Cleanup on unmount.
+  useEffect(() => () => clearPendingSafetyTimeout(), []);
 
   // Manual price input — only for range-based writable types (SELLER_CAMPAIGN,
   // DEAL). SMART/PRE_NEGOTIATED have their price fixed/derived by ML.
@@ -177,6 +212,14 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
             .then((res) => res.data);
       setFeedback(feedbackFor(data?.status, isEnrolled));
       setPhase('done');
+      if (PROVISIONAL_TRIGGER_STATUSES.has(data?.status)) {
+        setPendingKind(isEnrolled ? 'removing' : 'applying');
+        clearPendingSafetyTimeout();
+        safetyTimeoutRef.current = setTimeout(() => {
+          safetyTimeoutRef.current = null;
+          setPendingKind(null);
+        }, PROVISIONAL_SAFETY_TIMEOUT_MS);
+      }
       if (onApplied) onApplied(data);
     } catch (err) {
       const fb = feedbackForError(err, actionLabel);
@@ -252,6 +295,11 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
       >
         {actionLabelCapitalized}
       </button>
+      {pendingKind && (
+        <span className={styles.provisionalPending} data-testid="provisional-indicator">
+          {pendingKind === 'applying' ? 'Aplicando…' : 'Desaplicando…'}
+        </span>
+      )}
       {feedback && (
         <span
           className={
