@@ -10,12 +10,20 @@ Spec coverage:
   REQ-5 — attempts>=MAX_REFRESH_ATTEMPTS -> quarantine (DELETE + loud log).
   REQ-6 — one poison mla never aborts the batch (per-item isolation).
   REQ-7 — idempotent / short-lived DB sessions per row.
+  REQ-8 — concurrency guard: only one drain pass runs at a time
+          (TestConcurrencyGuard).
+
+NOTE: the test DB is sqlite (conftest `TEST_DB_URL = "sqlite://"`), which has
+no `pg_try_advisory_lock`. So `_try_acquire_drain_lock` is mocked here — these
+tests verify the drainer's CONTROL FLOW around the lock (acquired → proceed,
+not-acquired → exit), NOT the Postgres lock behaviour itself, which only
+exercises against a real Postgres in staging/prod.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -57,6 +65,58 @@ class TestKillSwitch:
         mock_refresh.assert_not_called()
 
 
+class TestConcurrencyGuard:
+    """B1 regression: overlapping cron passes double-count `attempts` for
+    the same due mlas (premature quarantine + duplicate HTTP). A
+    session-level `pg_try_advisory_lock` at the start of `run_drain` must
+    prevent a second pass from running while one is already live."""
+
+    def test_lock_not_acquired_exits_without_processing(self, db):
+        with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=False) as mock_lock,
+            patch.object(drain_promo_refresh, "_due_mlas") as mock_due_mlas,
+            patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions") as mock_refresh,
+        ):
+            drain_promo_refresh.run_drain()
+
+        mock_lock.assert_called_once()
+        mock_due_mlas.assert_not_called()
+        mock_refresh.assert_not_called()
+
+    def test_lock_acquired_proceeds_to_process_due_rows(self, db):
+        due = datetime.now(UTC) - timedelta(seconds=5)
+        db.add(PromoRefreshPending(mla="MLA1", due_at=due, attempts=0))
+        db.commit()
+
+        with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
+            patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(
+                drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=True
+            ) as mock_refresh,
+        ):
+            drain_promo_refresh.run_drain()
+
+        mock_refresh.assert_called_once_with("MLA1")
+
+    def test_due_rows_query_is_ordered_and_bounded(self):
+        """A huge backlog must not make one pass run unboundedly long, and the
+        LIMIT must be ORDER BY due_at (oldest-first) so no row starves."""
+        fake_query = MagicMock()
+        ordered = fake_query.filter.return_value.order_by.return_value
+        ordered.limit.return_value.all.return_value = []
+        fake_db = MagicMock()
+        fake_db.query.return_value = fake_query
+
+        drain_promo_refresh._due_mlas(fake_db)
+
+        # ORDER BY due_at must be applied before the LIMIT.
+        fake_query.filter.return_value.order_by.assert_called_once()
+        ordered.limit.assert_called_once_with(drain_promo_refresh.MAX_ROWS_PER_PASS)
+        ordered.limit.return_value.all.assert_called_once()
+
+
 class TestDrainSuccess:
     def test_due_row_refreshed_and_deleted_on_success(self, db):
         due = datetime.now(UTC) - timedelta(seconds=5)
@@ -64,6 +124,7 @@ class TestDrainSuccess:
         db.commit()
 
         with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(
                 drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=True
@@ -81,6 +142,7 @@ class TestDrainSuccess:
         db.commit()
 
         with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions") as mock_refresh,
         ):
@@ -98,6 +160,7 @@ class TestDrainFailureBackoff:
         db.commit()
 
         with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=False),
         ):
@@ -116,6 +179,7 @@ class TestDrainFailureBackoff:
         db.commit()
 
         with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=False),
             caplog.at_level("ERROR"),
@@ -142,6 +206,7 @@ class TestDrainIsolation:
             return True
 
         with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", side_effect=fake_refresh),
         ):

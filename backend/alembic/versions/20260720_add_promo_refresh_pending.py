@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column("mla", sa.String(length=32), nullable=False),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("mla", name="uq_promo_refresh_pending_mla"),
     )

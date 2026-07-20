@@ -24,6 +24,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.services import ml_promotions_write_service as write_service
 
@@ -1606,44 +1607,81 @@ class TestRecomputeHook:
 class TestEnqueueRefreshRetry:
     """`_enqueue_refresh_retry` upserts a `promo_refresh_pending` row keyed
     on the UNIQUE `mla` column, via a short-lived `get_background_db()`
-    session (ADR-5 / DB-pool-exhaustion incident pattern)."""
+    session (ADR-5 / DB-pool-exhaustion incident pattern).
+
+    B2: implemented as a single native `INSERT ... ON CONFLICT DO UPDATE`
+    statement — NOT a `.query().first()` read followed by `.add()`, since
+    that SELECT-then-INSERT shape races under concurrent applies for the
+    same mla (second commit raises IntegrityError, and the caller swallows
+    it, silently dropping that mla's durable retry).
+
+    NOTE: these tests assert against the COMPILED SQL (that it's an
+    `ON CONFLICT ... DO UPDATE`), not against a real DB — the test DB is
+    sqlite, so the actual ON CONFLICT upsert behaviour only exercises against
+    Postgres in staging/prod. The syntactic assertion still catches a
+    regression away from the upsert form."""
 
     def test_inserts_new_row_when_none_exists(self) -> None:
         fake_db = MagicMock()
-        fake_db.query.return_value.filter.return_value.first.return_value = None
 
         with patch.object(write_service, "get_background_db") as mock_get_db:
             mock_get_db.return_value.__enter__.return_value = fake_db
             write_service._enqueue_refresh_retry("MLA123456789")
 
-        fake_db.add.assert_called_once()
-        added_row = fake_db.add.call_args[0][0]
-        assert added_row.mla == "MLA123456789"
-        assert added_row.attempts == 0
+        fake_db.execute.assert_called_once()
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        assert "INSERT INTO promo_refresh_pending" in str(compiled)
+        assert "ON CONFLICT" in str(compiled).upper()
         fake_db.commit.assert_called_once()
 
     def test_updates_existing_row_resets_due_at_and_attempts(self) -> None:
-        existing_row = MagicMock(mla="MLA123456789", attempts=3)
+        """A second enqueue for the same mla (simulating an existing row)
+        must upsert due_at/attempts=0 via the ON CONFLICT DO UPDATE clause
+        rather than raising or silently no-oping."""
         fake_db = MagicMock()
-        fake_db.query.return_value.filter.return_value.first.return_value = existing_row
 
         with patch.object(write_service, "get_background_db") as mock_get_db:
             mock_get_db.return_value.__enter__.return_value = fake_db
             write_service._enqueue_refresh_retry("MLA123456789")
 
-        fake_db.add.assert_not_called()
-        assert existing_row.attempts == 0
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        compiled_sql = str(compiled).upper()
+        assert "DO UPDATE SET" in compiled_sql
+        assert "ATTEMPTS" in compiled_sql
+        assert "DUE_AT" in compiled_sql
         fake_db.commit.assert_called_once()
 
     def test_session_is_closed_via_context_manager(self) -> None:
         fake_db = MagicMock()
-        fake_db.query.return_value.filter.return_value.first.return_value = None
 
         with patch.object(write_service, "get_background_db") as mock_get_db:
             mock_get_db.return_value.__enter__.return_value = fake_db
             write_service._enqueue_refresh_retry("MLA123456789")
 
         mock_get_db.return_value.__exit__.assert_called_once()
+
+    def test_concurrent_enqueue_upserts_instead_of_racing_select_then_insert(self) -> None:
+        """B2 regression: two near-simultaneous enqueues for the same mla
+        must not race a SELECT-then-INSERT (which drops the second row's
+        durable retry on IntegrityError). The statement executed must be a
+        native ON CONFLICT upsert keyed on `mla`, not a `.query().first()`
+        read followed by `.add()`."""
+        fake_db = MagicMock()
+
+        with patch.object(write_service, "get_background_db") as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = fake_db
+            write_service._enqueue_refresh_retry("MLA123456789")
+
+        fake_db.query.assert_not_called()
+        fake_db.add.assert_not_called()
+        fake_db.execute.assert_called_once()
+        executed_stmt = fake_db.execute.call_args[0][0]
+        compiled = executed_stmt.compile(dialect=postgresql.dialect())
+        assert "ON CONFLICT" in str(compiled).upper()
+        assert "mla" in compiled.params or "mla_1" in compiled.params or "MLA123456789" in str(compiled.params.values())
+        fake_db.commit.assert_called_once()
 
 
 class TestRefreshHook:
@@ -1692,6 +1730,23 @@ class TestRefreshHook:
         ):
             # Must not raise.
             write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
+
+    def test_enqueue_still_runs_when_immediate_refresh_raises(self) -> None:
+        """Resilience: the durable ~60s retry must be queued even if the
+        immediate refresh blows up (e.g. the async bridge fails) — the two
+        steps are independent, so a failed immediate refresh must NOT silently
+        degrade the item to the 3x/day backfill only."""
+        with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "refresh_item_promotions",
+                side_effect=RuntimeError("bridge boom"),
+            ),
+            patch.object(write_service, "_enqueue_refresh_retry") as mock_enqueue,
+        ):
+            write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
+
+        mock_enqueue.assert_called_once_with("MLA123456789")
 
     def test_ambiguous_does_not_trigger_recompute(self) -> None:
         """Guards against the recompute trigger set silently drifting to
