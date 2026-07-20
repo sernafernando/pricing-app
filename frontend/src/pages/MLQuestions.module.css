@@ -151,8 +151,11 @@
 }
 
 /* Table cells */
+/* Text columns size fluidly so the table fits on notebooks without pushing
+   the Estado/Acciones columns off-screen. Full text stays available via the
+   cell's `title` tooltip. Horizontal scroll remains only as a last resort. */
 .cellQuestion {
-  max-width: 320px;
+  max-width: clamp(140px, 18vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -169,10 +172,23 @@
   font-family: var(--font-mono, monospace);
   font-size: 0.78rem;
   white-space: nowrap;
+  max-width: clamp(120px, 14vw, 240px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Keep the item link inline-truncatable within the capped cell. */
+.cellItem a {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .cellAnswer {
-  max-width: 320px;
+  max-width: clamp(140px, 18vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -458,4 +474,30 @@
   padding: 0;
   border-right: 2px solid var(--cf-accent-orange);
   opacity: 0.4;
+}
+
+/* ── Notebook fit ──────────────────────────────────────────────────────
+   On notebook-width screens the sidebar (240px) plus padding leaves little
+   room, and the action columns used to fall off-screen. Tighten the text
+   columns and typography so the full row — including Estado/Acciones — fits
+   without horizontal scroll. */
+@media (max-width: 1440px) {
+  .cellQuestion,
+  .cellAnswer {
+    max-width: clamp(120px, 14vw, 220px);
+    font-size: 0.78rem;
+  }
+
+  .cellItem {
+    max-width: clamp(100px, 11vw, 180px);
+    font-size: 0.74rem;
+  }
+}
+
+/* On short notebook screens, give the internal table scroll area more height
+   so it doesn't collapse to a cramped sliver under the header/tabs/filters. */
+@media (max-height: 800px) {
+  .container :global(.table-container-tesla) {
+    max-height: calc(100vh - 150px);
+  }
 }
