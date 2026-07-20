@@ -1,7 +1,11 @@
+import re
+from functools import partial
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
 from sqlalchemy import false as sa_false
+from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
@@ -10,7 +14,13 @@ from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
-from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+from app.services.ml_promotions_service import (
+    KNOWN_PROMOTION_TYPES,
+    fetch_mlas_by_promo_name,
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_only,
+    fetch_mlas_with_started,
+)
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
@@ -29,6 +39,49 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
+    """Resolves a set of MLAs (cross-DB, mlwebhook) via `resolver` and folds
+    it into `query` against PublicacionML/ProductoERP.
+
+    Collapses the repeated try/except->503 + empty-set->sa_false() + fold
+    shape shared by promo_tipos, promo:, con_promo_aplicada and
+    con_promo_sin_aplicar (I5) so the empty-set fail-closed guard can't be
+    forgotten at a new call site.
+
+    Args:
+        query: the SQLAlchemy query to filter.
+        db: session used to build the local PublicacionML fold subquery.
+        resolver: zero-arg callable returning Set[str] of mla (may raise).
+        log_context: short label used in the warning log on failure.
+
+    Returns:
+        The filtered query.
+
+    Raises:
+        HTTPException: 503 if `resolver()` raises (mlwebhook unavailable).
+    """
+    try:
+        mlas = resolver()
+    except (RuntimeError, SQLAlchemyError) as exc:
+        # Scope to what the resolvers document raising (RuntimeError when
+        # ML_WEBHOOK_DB_URL is unset; SQLAlchemyError on a DB/connection fault)
+        # so a programming error (TypeError/AttributeError) surfaces as a 500,
+        # not a misleading "webhook unavailable" 503.
+        logger.warning("%s no disponible: %s", log_context, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Filtro de promociones no disponible temporalmente",
+        ) from exc
+
+    if not mlas:
+        # EMPTY-SET GUARD: resolver found zero matching MLAs => zero
+        # products, NOT "skip the filter" (would leak the full catalog).
+        return query.filter(sa_false())
+
+    items_subquery = db.query(PublicacionML.item_id).filter(PublicacionML.mla.in_(mlas)).distinct().scalar_subquery()
+    return query.filter(ProductoERP.item_id.in_(items_subquery))
 
 
 @router.get("/productos", response_model=ProductoListResponse)
@@ -66,6 +119,8 @@ def listar_productos(
     tienda_oficial: Optional[str] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -187,13 +242,22 @@ def listar_productos(
         else:
             return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
 
+    mla_search_value: Optional[str] = None
+    promo_search_value: Optional[str] = None
+
     if search:
         # Parsear operadores de búsqueda
         search_filter = None
         logger.debug(f"Búsqueda recibida: '{search}'")
 
+        # Autodetectar MLA pegado sin operador (ej: "MLA123456789"), máxima
+        # precedencia porque no tiene ":" y de lo contrario caería en
+        # búsqueda de texto normal (feature productos-search-mla-promo-operators).
+        if re.match(r"^MLA\d+$", search.strip(), re.IGNORECASE):
+            mla_search_value = search.strip().upper()
+
         # Detectar búsquedas literales: campo:valor
-        if ":" in search and not search.startswith("*") and not search.endswith("*"):
+        elif ":" in search and not search.startswith("*") and not search.endswith("*"):
             parts = search.split(":", 1)
             if len(parts) == 2:
                 field, value = parts[0].strip().lower(), parts[1].strip()
@@ -229,6 +293,16 @@ def listar_productos(
                             f"%{value_normalized}%"
                         ),
                     )
+                elif field == "mla":
+                    # Operador explícito mla: (feature productos-search-mla-promo-operators).
+                    # Extracción pura, el fold local ocurre más abajo.
+                    mla_search_value = value.strip().upper()
+                elif field == "promo":
+                    # Operador explícito promo: (feature productos-search-mla-promo-operators).
+                    # Extracción pura, SIN I/O: el resolve cross-DB (tipo vs
+                    # nombre) ocurre en un bloque separado más abajo, junto
+                    # al filtro promo_tipos existente.
+                    promo_search_value = value.strip()
                 else:
                     # Si el campo no es reconocido, hacer búsqueda normal con el texto completo
                     search_normalized = search.replace("-", "").replace(" ", "").upper()
@@ -277,8 +351,31 @@ def listar_productos(
         if search_filter is not None:
             logger.debug("Aplicando filtro de búsqueda")
             query = query.filter(search_filter)
-        else:
+        elif mla_search_value is None and promo_search_value is None:
+            # Only a genuine no-op (search text matched no operator/branch) warns.
+            # A pure `mla:`/`promo:` search sets no search_filter but IS applied
+            # via its own fold/resolve block below, so it must not warn.
             logger.warning("⚠️ search_filter quedó en None! No se aplicó ningún filtro")
+
+        # Fold local de mla: (feature productos-search-mla-promo-operators):
+        # join same-DB via PublicacionML.mla, ZERO cross-DB I/O, nunca 503 por
+        # caída del webhook. Un MLA desconocido produce IN(<vacío>) -> cero
+        # resultados de forma natural (sin necesitar sa_false() explícito).
+        # `mla_search_value is not None` (vs truthy) distingue "operador mla:
+        # ausente" de "operador mla: presente con valor vacío" (B1): este
+        # último debe fallar CERRADO (sa_false), nunca devolver el catálogo
+        # completo silenciosamente.
+        if mla_search_value is not None:
+            if not mla_search_value:
+                query = query.filter(sa_false())
+            else:
+                mla_item_ids_subquery = (
+                    db.query(PublicacionML.item_id)
+                    .filter(PublicacionML.mla == mla_search_value)
+                    .distinct()
+                    .scalar_subquery()
+                )
+                query = query.filter(ProductoERP.item_id.in_(mla_item_ids_subquery))
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
@@ -428,27 +525,47 @@ def listar_productos(
         tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()]
         if tipos_list:
             applied_only = promo_estado == "aplicada"
-            try:
-                mlas_con_promo = fetch_mlas_with_active_promo_type(tipos_list, applied_only)
-            except Exception as exc:
-                logger.warning("Filtro de promociones no disponible: %s", exc)
-                raise HTTPException(
-                    status_code=503,
-                    detail="Filtro de promociones no disponible temporalmente",
-                )
+            query = _resolve_and_fold_mlas(
+                query,
+                db,
+                lambda: fetch_mlas_with_active_promo_type(tipos_list, applied_only),
+                "Filtro de promociones",
+            )
 
-            if mlas_con_promo:
-                items_con_promo_subquery = (
-                    db.query(PublicacionML.item_id)
-                    .filter(PublicacionML.mla.in_(mlas_con_promo))
-                    .distinct()
-                    .scalar_subquery()
+    # Operador promo: del buscador (feature productos-search-mla-promo-operators,
+    # cross-DB: mlwebhook -> pricing). Convive con promo_tipos (AND natural,
+    # ambos aplican .filter() por separado). `promo_search_value is not None`
+    # (vs truthy) distingue "operador ausente" de "operador presente con
+    # valor vacío" (B1): este último falla CERRADO (sa_false), nunca el
+    # catálogo completo.
+    if promo_search_value is not None:
+        if not promo_search_value:
+            query = query.filter(sa_false())
+        else:
+            if promo_search_value.upper() in KNOWN_PROMOTION_TYPES:
+                promo_search_resolver = partial(
+                    fetch_mlas_with_active_promo_type, [promo_search_value.upper()], applied_only=False
                 )
-                query = query.filter(ProductoERP.item_id.in_(items_con_promo_subquery))
             else:
-                # EMPTY-SET GUARD: types selected but zero matching MLAs => zero
-                # products, NOT "skip the filter" (would leak the full catalog).
-                query = query.filter(sa_false())
+                promo_search_resolver = partial(fetch_mlas_by_promo_name, promo_search_value)
+            query = _resolve_and_fold_mlas(query, db, promo_search_resolver, "Operador promo:")
+
+    # Filtro con_promo_aplicada: al menos una promo en status 'started'
+    # (cualquier promotion_type). Mismo shape que el bloque promo: (ADR-5).
+    # ponytail: fetch_mlas_with_started() is type-agnostic and returns an
+    # UNBOUNDED set of MLAs (every 'started' promo in the account), passed to
+    # an unbounded IN(). Measured 2942 'started' MLAs in prod (2026-07-20),
+    # well under Postgres' ~65535 bind-param ceiling, so the risk is theoretical
+    # at current scale. Follow-up if the 'started' set nears that ceiling: bound
+    # the cross-DB query to the page/known-local MLAs instead of the universe.
+    # Tracked in docs/tech-debt-ledger.md.
+    if con_promo_aplicada:
+        query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_started, "Filtro con_promo_aplicada")
+
+    # Filtro con_promo_sin_aplicar: al menos una promo 'candidate' Y cero
+    # 'started'/'pending'. Mismo shape que el bloque promo: (ADR-5).
+    if con_promo_sin_aplicar:
+        query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_candidate_only, "Filtro con_promo_sin_aplicar")
 
     # Filtro de colores
     if colores:

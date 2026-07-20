@@ -53,7 +53,38 @@ from app.core.database import get_mlwebhook_engine
 
 logger = logging.getLogger(__name__)
 
+# Known ml_item_promotions/ml_promotions promotion_type vocabulary. Used by
+# the Productos `promo:` search operator (feature
+# productos-search-mla-promo-operators) to disambiguate a type literal from
+# a promo-name substring. Mirrors frontend/src/utils/promoTypes.js but is
+# NOT code-coupled to it (independent, cross-referenced by comment only).
+KNOWN_PROMOTION_TYPES: frozenset[str] = frozenset(
+    {
+        "SELLER_CAMPAIGN",
+        "DEAL",
+        "SMART",
+        "PRE_NEGOTIATED",
+        "PRICE_MATCHING",
+        "DOD",
+        "LIGHTNING",
+        "PRICE_DISCOUNT",
+    }
+)
+
 _KNOWN_ITEM_STATUSES = {"candidate", "started", "pending", "finished"}
+
+
+def _escape_ilike(value: str) -> str:
+    """Escapes ILIKE wildcard metacharacters (%, _, \\) in a user-supplied
+    substring so it is matched LITERALLY, not as a pattern.
+
+    Without this, a user search like `promo:%` or `promo:_` would be
+    interpreted by Postgres as "match everything" / "match any single char"
+    instead of the literal characters `%`/`_` (I4). Must be paired with
+    `ESCAPE '\\'` in the ILIKE clause.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 _PROMOTIONS_SELECT_COLUMNS = """
     promotion_id,
@@ -362,8 +393,9 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
             ninguna query (mirrors fetch_promo_summary_by_mla's guard).
         applied_only: si True (modo "aplicada"), sólo cuenta status='started'.
             Si False (modo "disponible", default), cuenta status IN
-            ('candidate','started') — mirrors fetch_item_promotions'
-            active_only semantics. La tabla es upsert-only sin limpieza de
+            ('candidate','started','pending') — `pending` cuenta como "el
+            producto TIENE esa promo disponible" (USER DECISION, consistente
+            con el panel — ver #924). La tabla es upsert-only sin limpieza de
             stale, así que este scope de status mantiene el set acotado a
             promos genuinamente activas (nunca 'finished').
 
@@ -377,7 +409,7 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
     if not promo_types:
         return set()
 
-    status_clause = "AND status = 'started'" if applied_only else "AND status IN ('candidate', 'started')"
+    status_clause = "AND status = 'started'" if applied_only else "AND status IN ('candidate', 'started', 'pending')"
 
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
@@ -393,6 +425,123 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
 
     result = {row[0] for row in rows}
     logger.info("ml_item_promotions: %d mlas with active promo type(s) %s", len(result), promo_types)
+    return result
+
+
+def fetch_mlas_by_promo_name(name_substr: str) -> Set[str]:
+    """Lee el set de MLAs con una promo activa cuyo nombre de catálogo matchea
+    (ILIKE, case-insensitive, substring) `name_substr`.
+
+    Resuelve la rama "nombre" del operador de búsqueda `promo:` de Productos
+    (feature productos-search-mla-promo-operators) cuando el valor buscado no
+    matchea ningún promotion_type conocido (KNOWN_PROMOTION_TYPES).
+
+    Args:
+        name_substr: substring a buscar en ml_promotions.name (ILIKE
+            %name_substr%, con % / _ / \\ escapados como literales — I4).
+            Falsy/whitespace -> set() sin ejecutar query (mirrors
+            fetch_promo_summary_by_mla's empty-input guard).
+
+    Returns:
+        Set de mla (str). Vacío si no hay filas.
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
+            (endpoint) es responsable de mapear esto a HTTP 503.
+    """
+    if not name_substr or not name_substr.strip():
+        return set()
+
+    pattern = f"%{_escape_ilike(name_substr.strip())}%"
+
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(r"""
+                SELECT DISTINCT ip.mla
+                FROM ml_item_promotions ip
+                JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
+                WHERE ip.status IN ('candidate', 'started', 'pending')
+                  AND p.name ILIKE :pattern ESCAPE '\'
+            """),
+            {"pattern": pattern},
+        ).fetchall()
+
+    result = {row[0] for row in rows}
+    logger.info("ml_item_promotions: %d mlas matching promo name '%s'", len(result), name_substr)
+    return result
+
+
+def fetch_mlas_with_started() -> Set[str]:
+    """Lee el set de MLAs con al menos una promo en status 'started', sin
+    importar el promotion_type.
+
+    Resuelve el filtro `con_promo_aplicada` de Productos (feature
+    productos-search-mla-promo-operators). Helper DEDICADO y type-agnostic
+    (ADR-3): NO reutiliza fetch_mlas_with_active_promo_type(KNOWN_TYPES,
+    applied_only=True) porque eso subcontaría cualquier promotion_type futuro
+    aún no agregado a KNOWN_PROMOTION_TYPES.
+
+    `pending` NO cuenta acá: significa que la promo está en proceso pero
+    todavía no fue aplicada al item, a diferencia de `started` (aplicada).
+
+    Returns:
+        Set de mla (str). Vacío si no hay filas.
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
+            (endpoint) es responsable de mapear esto a HTTP 503.
+    """
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT DISTINCT mla
+                FROM ml_item_promotions
+                WHERE status = 'started'
+            """)
+        ).fetchall()
+
+    result = {row[0] for row in rows}
+    logger.info("ml_item_promotions: %d mlas with a started promo", len(result))
+    return result
+
+
+def fetch_mlas_with_candidate_only() -> Set[str]:
+    """Lee el set de MLAs con al menos una promo 'candidate' Y CERO promos
+    'started' Y CERO promos 'pending'.
+
+    Resuelve el filtro `con_promo_sin_aplicar` de Productos (feature
+    productos-search-mla-promo-operators): un producto con una promo
+    candidate Y otra started queda EXCLUIDO (la started descalifica, aunque
+    también tenga candidates). Una promo `pending` TAMBIÉN descalifica: ya
+    está en proceso (no es más una oportunidad sin usar), aunque todavía no
+    cuenta como aplicada (USER DECISION). Agregación por MLA (bool_or GROUP
+    BY), mirrors fetch_promo_summary_by_mla's pattern.
+
+    Returns:
+        Set de mla (str). Vacío si no hay filas.
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
+            (endpoint) es responsable de mapear esto a HTTP 503.
+    """
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT mla
+                FROM ml_item_promotions
+                WHERE status IN ('candidate', 'started', 'pending')
+                GROUP BY mla
+                HAVING bool_or(status = 'candidate')
+                   AND NOT bool_or(status = 'started')
+                   AND NOT bool_or(status = 'pending')
+            """)
+        ).fetchall()
+
+    result = {row[0] for row in rows}
+    logger.info("ml_item_promotions: %d mlas with candidate promo(s) and none started", len(result))
     return result
 
 
