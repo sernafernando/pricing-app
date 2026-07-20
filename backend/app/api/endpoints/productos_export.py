@@ -17,6 +17,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     filtro_colores,
     join_color_layer,
     resolver_layer_activo,
+    coerce_equipo_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -249,9 +250,7 @@ def exportar_rebate(
     pricelist_pvp_equivalente = pvp_equivalente_map.get(request.tipo_cuotas)
 
     # Construir query con filtros
-    layer_activo = resolver_layer_activo(
-        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
-    )
+    layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
     query = (
         db.query(ProductoERP, ProductoPricing)
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
@@ -2157,8 +2156,11 @@ def exportar_vista_actual(
                 ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
 
                 ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
-                _color_activo_row = colores_activo_export.get(producto_erp.item_id)
-                ws.cell(row=row_num, column=18, value=(_color_activo_row.color_ml if _color_activo_row else None) or "")
+
+            # Color lives in producto_color independently of productos_pricing (PR3),
+            # so it must be written for every product regardless of pricing presence.
+            _color_activo_row = colores_activo_export.get(producto_erp.item_id)
+            ws.cell(row=row_num, column=18, value=(_color_activo_row.color_ml if _color_activo_row else None) or "")
 
             row_num += 1
 
@@ -2185,6 +2187,8 @@ def exportar_vista_actual(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": "attachment; filename=vista_actual.xlsx"},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error en exportar_vista_actual: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar vista actual: {str(e)}")
@@ -2371,6 +2375,8 @@ def exportar_lista_gremio(
             headers={"Content-Disposition": "attachment; filename=lista_gremio.xlsx"},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error en exportar_lista_gremio: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
@@ -2569,6 +2575,8 @@ def exportar_lista_sugerido(
             headers={"Content-Disposition": "attachment; filename=lista_sugerido.xlsx"},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error en exportar_lista_sugerido: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar lista sugerido: {str(e)}")
@@ -2707,6 +2715,8 @@ def exportar_lista_web_transferencia(
             headers={"Content-Disposition": "attachment; filename=lista_web_transferencia.xlsx"},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error en exportar_lista_web_transferencia: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al exportar lista web transferencia: {str(e)}")
