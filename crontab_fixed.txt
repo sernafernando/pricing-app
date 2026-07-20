@@ -128,3 +128,13 @@
 
 # Notificaciones markup_bajo - cada 15 días (1 y 15 de cada mes, 2:30 AM)
 30 2 1,15 * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python clear_notis.py >> /var/log/pricing-app/clear_notis.log 2>&1
+
+# ============================================================================
+# PROMOCIONES ML - Sync de precios + Refresh de estado (promo-state-dynamic-refresh)
+# ============================================================================
+
+# Sync de precios de promos - 3 veces al día (8, 14, 20 hs)
+0 8,14,20 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_promo_prices >> /var/log/pricing-app/sync_promo_prices.log 2>&1
+
+# Drainer de refresh pendientes - cada minuto (SLA ~60s tras enroll/remove)
+* * * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.drain_promo_refresh >> /var/log/pricing-app/drain_promo_refresh.log 2>&1
