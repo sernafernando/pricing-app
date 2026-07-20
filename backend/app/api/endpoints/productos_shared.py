@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime, date
 import logging
 
+from fastapi import HTTPException
+from sqlalchemy.orm import InstrumentedAttribute, Session
+
+from app.models.equipo import Equipo, EquipoMiembro
+from app.models.usuario import Usuario
+
 logger = logging.getLogger(__name__)
 
 
@@ -275,3 +281,56 @@ class ConfigCuotasRequest(BaseModel):
 class ColorLoteRequest(BaseModel):
     item_ids: List[int]
     color: Optional[str] = None
+    equipo_id: Optional[int] = None
+
+
+# =============================================================================
+# EQUIPO (TEAM) COLOR-LAYER HELPERS
+# =============================================================================
+
+
+def get_global_equipo_id(db: Session) -> int:
+    """Returns the id of the singleton global ("U") equipo row.
+
+    The global equipo backs the legacy (pre-teams) color behavior: it is the
+    default layer used when a caller does not pass an explicit `equipo_id`.
+    """
+    equipo = db.query(Equipo).filter(Equipo.es_global.is_(True)).first()
+    if equipo is None:
+        raise HTTPException(status_code=500, detail="Equipo global no configurado")
+    return equipo.id
+
+
+def puede_escribir_layer(db: Session, user: Usuario, equipo_id: int) -> None:
+    """Raises HTTPException(403) unless `user` may write the color layer for `equipo_id`.
+
+    Allowed when either:
+    - the user is a member of `equipo_id` (any rol), or
+    - `equipo_id` is the global ("U") equipo and the user holds the
+      `productos.marcar_color` permission (preserves today's exact rule for
+      the default layer).
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    es_miembro = (
+        db.query(EquipoMiembro)
+        .filter(EquipoMiembro.equipo_id == equipo_id, EquipoMiembro.usuario_id == user.id)
+        .first()
+        is not None
+    )
+    if es_miembro:
+        return
+
+    if equipo_id == get_global_equipo_id(db) and verificar_permiso(db, user, "productos.marcar_color"):
+        return
+
+    raise HTTPException(status_code=403, detail="No tienes permiso para marcar colores en este equipo")
+
+
+def color_slot(vista: Optional[str]) -> InstrumentedAttribute:
+    """Returns the ProductoColor column matching the given view ('ml'/None or 'tienda')."""
+    from app.models.equipo import ProductoColor
+
+    if vista == "tienda":
+        return ProductoColor.color_tienda
+    return ProductoColor.color_ml
