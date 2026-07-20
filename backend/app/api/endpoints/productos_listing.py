@@ -40,6 +40,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     filtro_colores,
     join_color_layer,
     resolver_layer_activo,
+    get_global_equipo_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,12 +138,15 @@ def listar_productos(
             detail="promo_estado inválido: debe ser 'disponible' o 'aplicada'",
         )
 
-    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
-    global_layer_id = resolver_layer_activo(None, current_user, db)
+    global_layer_id = get_global_equipo_id(db)
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db, global_layer_id)
 
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    # Joined unconditionally (not gated on a `colores` filter): the response always
+    # needs color_hint_global (the U-layer color hint), so the join is required even
+    # when the caller isn't filtering by color.
     query = join_color_layer(query, layer_activo)
 
     # EXCLUIR PRODUCTOS BANEADOS
@@ -1561,8 +1565,8 @@ def listar_productos_tienda(
     from app.services.pricing_calculator import obtener_constantes_pricing
     from sqlalchemy import text
 
-    layer_activo_t = resolver_layer_activo(equipo_id, current_user, db)
-    global_layer_id_t = resolver_layer_activo(None, current_user, db)
+    global_layer_id_t = get_global_equipo_id(db)
+    layer_activo_t = resolver_layer_activo(equipo_id, current_user, db, global_layer_id_t)
 
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
@@ -2426,8 +2430,8 @@ def obtener_producto(
     producto_erp, producto_pricing = result
     costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
 
-    layer_activo_d = resolver_layer_activo(equipo_id, current_user, db)
-    global_layer_id_d = resolver_layer_activo(None, current_user, db)
+    global_layer_id_d = get_global_equipo_id(db)
+    layer_activo_d = resolver_layer_activo(equipo_id, current_user, db, global_layer_id_d)
     colores_activo_d = batch_colores(db, [item_id], layer_activo_d)
     colores_global_hint_d = (
         colores_activo_d if layer_activo_d == global_layer_id_d else batch_colores(db, [item_id], global_layer_id_d)

@@ -298,6 +298,29 @@ class ColorLoteRequest(BaseModel):
 # =============================================================================
 
 
+def coerce_equipo_id(filtros: Optional[dict]) -> Optional[int]:
+    """Extracts and coerces `equipo_id` from an untyped `filtros` dict.
+
+    Unlike GET endpoints (typed `equipo_id: Optional[int]` query param,
+    FastAPI-coerced), masivo/export endpoints receive `equipo_id` inside a raw
+    JSON body dict, so it may arrive as a string (e.g. "3") or a bad value.
+    This normalizes it to `int` (or `None`), raising a clean 422 instead of
+    letting an uncoerced value reach `resolver_layer_activo`/`puede_escribir_layer`
+    and blow up as a Postgres type-mismatch 500 on the `== global_layer_id` comparison.
+    """
+    if not filtros:
+        return None
+
+    raw = filtros.get("equipo_id")
+    if raw is None:
+        return None
+
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="equipo_id inválido: debe ser un entero")
+
+
 def get_global_equipo_id(db: Session) -> int:
     """Returns the id of the singleton global ("U") equipo row.
 
@@ -345,16 +368,25 @@ def color_slot(vista: Optional[str]) -> InstrumentedAttribute:
     return ProductoColor.color_ml
 
 
-def resolver_layer_activo(equipo_id: Optional[int], current_user: Usuario, db: Session) -> int:
+def resolver_layer_activo(
+    equipo_id: Optional[int],
+    current_user: Usuario,
+    db: Session,
+    global_equipo_id: Optional[int] = None,
+) -> int:
     """Resolves the active color layer for a read request.
 
     - `equipo_id` is None -> the global ("U") layer (today's default behavior).
     - `equipo_id` == the global layer id -> always allowed.
     - Any other `equipo_id` -> the caller must be a member of that team, else 403.
 
+    `global_equipo_id`: pass the already-resolved global equipo id (from a prior
+    `get_global_equipo_id(db)` call) to avoid a redundant lookup when the caller
+    also needs the global layer id for its own logic (e.g. computing hints).
+
     Returns the resolved equipo_id to read colors from.
     """
-    global_id = get_global_equipo_id(db)
+    global_id = global_equipo_id if global_equipo_id is not None else get_global_equipo_id(db)
 
     if equipo_id is None:
         return global_id
@@ -424,7 +456,14 @@ def batch_colores(db: Session, item_ids: List[int], equipo_id: int) -> dict:
     if not item_ids:
         return {}
 
-    rows = (
-        db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id, ProductoColor.item_id.in_(item_ids)).all()
-    )
-    return {row.item_id: row for row in rows}
+    # Chunk to stay well under SQLite's 999-variable limit and Postgres' 65535-param
+    # limit on large unpaginated listings/exports.
+    chunk_size = 900
+    result: dict = {}
+    for start in range(0, len(item_ids), chunk_size):
+        chunk = item_ids[start : start + chunk_size]
+        rows = (
+            db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id, ProductoColor.item_id.in_(chunk)).all()
+        )
+        result.update({row.item_id: row for row in rows})
+    return result

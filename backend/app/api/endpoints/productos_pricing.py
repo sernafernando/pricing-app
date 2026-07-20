@@ -22,6 +22,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     filtro_colores,
     join_color_layer,
     resolver_layer_activo,
+    coerce_equipo_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -279,9 +280,7 @@ def calcular_web_masivo(
     constantes = obtener_constantes_pricing(db)
 
     # Obtener productos base
-    layer_activo = resolver_layer_activo(
-        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
-    )
+    layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
@@ -593,9 +592,7 @@ def calcular_pvp_masivo(
     from app.services.pricing_calculator import calcular_precio_producto, obtener_tipo_cambio_actual
 
     # Obtener productos base
-    layer_activo = resolver_layer_activo(
-        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
-    )
+    layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
@@ -865,9 +862,7 @@ def recalcular_cuotas_masivo(
         raise HTTPException(400, "lista_tipo debe ser 'web' o 'pvp'")
 
     # Obtener productos con pricing existente (necesitan precio base para recalcular)
-    layer_activo = resolver_layer_activo(
-        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
-    )
+    layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
     query = db.query(ProductoERP, ProductoPricing).join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
     query = join_color_layer(query, layer_activo)
 

@@ -23,6 +23,7 @@ Deliberate shortcuts marked with `ponytail:` in the codebase, harvested here so 
 | `frontend/src/pages/MLQuestions.jsx` (status filter) | Panel status filter accepts a single value only (no multi-status/OR filter) | If operators need to view multiple statuses at once without backend multi-status support | 2026-07-06 |
 | `backend/app/services/ml_questions/policy.py` (denylist on manual edits) | Soft denylist warning on manual edits is advisory only — does not block human-authored content, by design | Revisit only if this design decision is reversed | 2026-07-06 |
 | `backend/app/api/endpoints/productos_listing.py` (`con_promo_aplicada` block) | `fetch_mlas_with_started()` is type-agnostic and returns an unbounded set of every `started`-promo MLA, folded into an unbounded `IN(...)`. Measured **2942** `started` MLAs in prod (2026-07-20), well under Postgres' ~65535 bind-param ceiling — theoretical at current scale | If the `started` set approaches the bind-param ceiling: bound the cross-DB query to the page / known-local MLAs instead of fetching the universe | 2026-07-20 |
+| `backend/app/api/endpoints/productos_colors.py` (`_dual_write_legacy`) | PR2→PR3 transitional dual-write: writes to the new per-team `producto_color` table (U layer) are mirrored back into legacy `productos_pricing.color_marcado[_tienda]`, kept only as a rollback safety net during the teams-color migration | Remove once the `producto_color` migration is verified stable in prod for a full release cycle with no rollback needed | 2026-07-20 |
 
 ## Resolved
 
