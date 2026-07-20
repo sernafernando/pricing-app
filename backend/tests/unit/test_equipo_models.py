@@ -75,7 +75,6 @@ class TestEquipoModel:
         retrieved = db.query(Equipo).filter_by(nombre="Global").first()
         assert retrieved is not None
         assert retrieved.es_global is True
-        assert retrieved.created_at is None or retrieved.created_at is not None  # server_default, may be None pre-commit
 
 
 class TestEquipoMiembroUniqueConstraint:

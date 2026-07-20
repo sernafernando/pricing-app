@@ -148,7 +148,7 @@ def upgrade() -> None:
             where_clauses.append("pp.color_marcado IS NOT NULL")
         if has_color_marcado_tienda:
             where_clauses.append("pp.color_marcado_tienda IS NOT NULL")
-        where_sql = " OR ".join(where_clauses)
+        where_sql = "pp.item_id IS NOT NULL AND (" + " OR ".join(where_clauses) + ")"
 
         conn.execute(
             sa.text(

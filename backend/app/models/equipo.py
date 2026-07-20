@@ -16,7 +16,6 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
     Integer,
@@ -72,7 +71,8 @@ class EquipoMiembro(Base):
     id = Column(Integer, primary_key=True, index=True)
     equipo_id = Column(Integer, ForeignKey("equipo.id"), nullable=False, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
-    rol = Column(SQLEnum(RolEquipo), nullable=False)
+    # String (not SQLEnum) to avoid enum name/value drift — see alerta.py
+    rol = Column(String(20), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     equipo = relationship("Equipo", back_populates="miembros")
