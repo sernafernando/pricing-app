@@ -90,3 +90,72 @@ describe('useProductosFilters — promo filter wiring', () => {
     expect(params.promo_estado).toBe('disponible');
   });
 });
+
+describe('useProductosFilters — promo aplicación tri-state filter', () => {
+  it('defaults filtroPromoAplicacion to null and omits both booleans', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+    expect(result.current.filtroPromoAplicacion).toBeNull();
+    const params = result.current.construirFiltrosParams();
+    expect(params.con_promo_aplicada).toBeUndefined();
+    expect(params.con_promo_sin_aplicar).toBeUndefined();
+  });
+
+  it('construirFiltrosParams sends con_promo_aplicada=true when filtroPromoAplicacion is "aplicada"', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPromoAplicacion('aplicada');
+    });
+
+    const params = result.current.construirFiltrosParams();
+    expect(params.con_promo_aplicada).toBe(true);
+    expect(params.con_promo_sin_aplicar).toBeUndefined();
+  });
+
+  it('construirFiltrosParams sends con_promo_sin_aplicar=true when filtroPromoAplicacion is "sin_aplicar"', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPromoAplicacion('sin_aplicar');
+    });
+
+    const params = result.current.construirFiltrosParams();
+    expect(params.con_promo_sin_aplicar).toBe(true);
+    expect(params.con_promo_aplicada).toBeUndefined();
+  });
+
+  it('loadFiltersFromURL round-trips promo_aplicacion from the URL', () => {
+    const { result } = renderHook(() => useProductosFilters(), {
+      wrapper: wrapperWithURL(['/?promo_aplicacion=aplicada']),
+    });
+
+    expect(result.current.filtroPromoAplicacion).toBe('aplicada');
+  });
+
+  it('limpiarTodosFiltros resets filtroPromoAplicacion to null', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPromoAplicacion('sin_aplicar');
+    });
+    act(() => {
+      result.current.limpiarTodosFiltros();
+    });
+
+    expect(result.current.filtroPromoAplicacion).toBeNull();
+  });
+
+  it('does not regress the existing promo_tipos Avanzados filter', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPromoTipos(['SMART']);
+      result.current.setFiltroPromoAplicacion('aplicada');
+    });
+
+    const params = result.current.construirFiltrosParams();
+    expect(params.promo_tipos).toBe('SMART');
+    expect(params.promo_estado).toBe('disponible');
+    expect(params.con_promo_aplicada).toBe(true);
+  });
+});
