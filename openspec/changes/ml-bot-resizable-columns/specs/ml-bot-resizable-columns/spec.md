@@ -16,8 +16,13 @@ horizontal scrollbar when resized columns overflow the container.
 | Table | Resizable | Fixed/auto |
 |---|---|---|
 | Preguntas | Pregunta, Item, Respuesta (borrador) | Estado, Confianza, Cuenta regresiva, Acciones |
-| Mensajes | Mensaje, Comprador · Pack | Recibido, Leído, Moderación |
+| Mensajes | Mensaje | Comprador · Pack, Recibido, Leído, Moderación |
 | Detalle/historial | Pregunta, Item, Respuesta | Fecha, Estado |
+
+> Note: In **Mensajes**, only "Mensaje" is resizable. "Comprador · Pack" is
+> fixed because that table is thread-grouped — the buyer/pack identity renders
+> in a `<td colSpan={5}>` thread-header row, and the per-message column 1 is only
+> a thin indent bar, so resizing it would reveal nothing.
 
 ## Requirements
 
