@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
@@ -26,12 +26,28 @@ export const PermisosProvider = ({ children }) => {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
 
+  // Tracks whether permisos were EVER loaded in this session. Kept in a ref
+  // (not state) so cargarPermisos — memoized with [] deps — reads the live
+  // value instead of a stale closure.
+  const everLoadedRef = useRef(false);
+
   const cargarPermisos = useCallback(async () => {
-    setLoading(true);
+    // Solo la carga inicial es bloqueante. Los refetches posteriores (cada
+    // rotación del access token, ~24 min por el proactive refresh) son
+    // SILENCIOSOS: flipear loading acá desmontaba la página entera vía el
+    // gate de ProtectedRoute y el usuario lo veía como "la app se refrescó
+    // sola", perdiendo lo que estaba tipeando.
+    const esCargaInicial = !everLoadedRef.current;
+    if (esCargaInicial) {
+      setLoading(true);
+    }
 
     const token = localStorage.getItem('token');
     if (!token) {
       // Sin token no es un error: ProtectedRoute redirige a /login.
+      // Reset del ref: el próximo login vuelve a cargar en modo bloqueante
+      // para no mostrar la app con los permisos del usuario anterior.
+      everLoadedRef.current = false;
       setPermisos(new Set());
       setRol(null);
       setUsuarioId(null);
@@ -55,6 +71,7 @@ export const PermisosProvider = ({ children }) => {
         const res = await api.get('/permisos/mis-permisos');
         // Éxito: una lista vacía es un estado VÁLIDO (ej: rol FICHAJE),
         // no un error. Se distingue de un fallo justamente por llegar acá.
+        everLoadedRef.current = true;
         setPermisos(new Set(res.data.permisos));
         setRol(res.data.rol);
         setUsuarioId(res.data.usuario_id);
@@ -67,9 +84,19 @@ export const PermisosProvider = ({ children }) => {
       }
     }
 
-    // Todos los reintentos fallaron. NO fabricamos permisos ni marcamos
-    // initialized: dejamos un estado de error explícito para que la UI
-    // ofrezca reintentar en vez de renderizar la app a medias.
+    // Todos los reintentos fallaron.
+    if (!esCargaInicial) {
+      // Refetch en background fallido (ej: backend reiniciándose durante un
+      // deploy). Conservar los permisos vigentes es estrictamente mejor que
+      // tirar al usuario a una pantalla de error a mitad de trabajo; la
+      // próxima rotación de token reintenta sola.
+      console.error('Error recargando permisos (se conservan los actuales):', lastErr);
+      return;
+    }
+
+    // Carga inicial fallida: NO fabricamos permisos ni marcamos initialized —
+    // dejamos un estado de error explícito para que la UI ofrezca reintentar
+    // en vez de renderizar la app a medias.
     console.error('Error cargando permisos tras reintentos:', lastErr);
     setError(lastErr?.message || 'No se pudieron cargar los permisos');
     setInitialized(false);

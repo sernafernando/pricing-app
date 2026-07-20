@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
+import FullScreenLoader from './FullScreenLoader';
 
 /**
  * Componente para proteger rutas con autenticación y permisos
@@ -31,17 +32,7 @@ export default function ProtectedRoute({
 
   // Mientras carga permisos, mostrar loader
   if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        color: 'var(--text-color, #fff)'
-      }}>
-        <div>Cargando permisos...</div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // Si la carga de permisos falló, NO renderizar la app con permisos vacíos
@@ -65,17 +56,7 @@ export default function ProtectedRoute({
 
   // Safety net: aún sin inicializar y sin error → seguir mostrando loader
   if (!initialized) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        color: 'var(--text-color, #fff)'
-      }}>
-        <div>Cargando permisos...</div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // Verificar roles (sistema legacy - mantener compatibilidad)
