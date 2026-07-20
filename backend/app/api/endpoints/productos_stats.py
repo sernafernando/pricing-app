@@ -11,6 +11,10 @@ import logging
 from app.api.endpoints.productos_shared import (  # noqa: F401
     ProductoResponse,
     ProductoListResponse,
+    color_slot,
+    filtro_colores,
+    join_color_layer,
+    resolver_layer_activo,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,7 @@ def obtener_estadisticas(
     audit_fecha_hasta: Optional[str] = None,
     con_mla: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -54,10 +59,13 @@ def obtener_estadisticas(
     from app.models.item_sin_mla_banlist import ItemSinMLABanlist
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
     # Query base - seleccionar ambos ProductoERP y ProductoPricing
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo)
 
     # Aplicar filtros de búsqueda
     if search:
@@ -139,19 +147,8 @@ def obtener_estadisticas(
         else:
             query = query.filter(or_(ProductoPricing.out_of_cards == False, ProductoPricing.out_of_cards.is_(None)))
 
-    # Filtro de colores
-    if colores:
-        colores_list = colores.split(",")
-        if "sin_color" in colores_list:
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-            if colores_con_valor:
-                query = query.filter(
-                    or_(ProductoPricing.color_marcado.in_(colores_con_valor), ProductoPricing.color_marcado.is_(None))
-                )
-            else:
-                query = query.filter(ProductoPricing.color_marcado.is_(None))
-        else:
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     # Filtro de Product Managers
     if product_managers:
@@ -391,6 +388,7 @@ def obtener_stats_dinamicos(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -404,10 +402,13 @@ def obtener_stats_dinamicos(
     from app.models.item_sin_mla_banlist import ItemSinMLABanlist
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
+    layer_activo_t = resolver_layer_activo(equipo_id, current_user, db)
+
     # Query base - igual que en /productos
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo_t)
 
     # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
     from app.models.producto_banlist import ProductoBanlist
@@ -650,24 +651,8 @@ def obtener_stats_dinamicos(
         else:
             query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_subquery))
 
-    # Filtro de colores (usa color_marcado_tienda para la vista Tienda)
-    if colores:
-        colores_list = colores.split(",")
-
-        if "sin_color" in colores_list:
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-
-            if colores_con_valor:
-                query = query.filter(
-                    or_(
-                        ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
-                        ProductoPricing.color_marcado_tienda.is_(None),
-                    )
-                )
-            else:
-                query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
-        else:
-            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+    # Filtro de colores (vista tienda, lee del layer de equipo activo)
+    query = filtro_colores(query, colores, color_slot("tienda"))
 
     # Filtro de PMs - filtra por pares (marca, categoria)
     if pms:

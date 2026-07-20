@@ -8,6 +8,7 @@ from sqlalchemy import false as sa_false
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional
 from app.core.database import get_db
+from app.models.equipo import Equipo
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
@@ -34,6 +35,11 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     ProductoTiendaResponse,
     ProductoTiendaListResponse,
     computar_precio_sugerido,
+    batch_colores,
+    color_slot,
+    filtro_colores,
+    join_color_layer,
+    resolver_layer_activo,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,6 +127,7 @@ def listar_productos(
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -130,9 +137,13 @@ def listar_productos(
             detail="promo_estado inválido: debe ser 'disponible' o 'aplicada'",
         )
 
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+    global_layer_id = resolver_layer_activo(None, current_user, db)
+
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo)
 
     # EXCLUIR PRODUCTOS BANEADOS
     from app.models.producto_banlist import ProductoBanlist
@@ -567,26 +578,8 @@ def listar_productos(
     if con_promo_sin_aplicar:
         query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_candidate_only, "Filtro con_promo_sin_aplicar")
 
-    # Filtro de colores
-    if colores:
-        colores_list = colores.split(",")
-
-        # Verificar si se está filtrando por "sin color"
-        if "sin_color" in colores_list:
-            # Remover 'sin_color' de la lista
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-
-            if colores_con_valor:
-                # Si hay otros colores además de sin_color, buscar ambos
-                query = query.filter(
-                    or_(ProductoPricing.color_marcado.in_(colores_con_valor), ProductoPricing.color_marcado.is_(None))
-                )
-            else:
-                # Solo sin_color: productos sin color asignado
-                query = query.filter(ProductoPricing.color_marcado.is_(None))
-        else:
-            # Filtro normal por colores específicos
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     # Filtro de MLA (con/sin publicación) - usar subconsultas para evitar conflictos de join
     if con_mla is not None:
@@ -746,6 +739,20 @@ def listar_productos(
         # Solo si hay ordenamiento que requiere cálculo dinámico
         results = query.all()
         len(results)
+
+    # Batch-fetch colors for the active layer + the global-layer hint (T-color-layer).
+    _item_ids_color = [p.item_id for p, _ in results]
+    colores_activo = batch_colores(db, _item_ids_color, layer_activo)
+    colores_global_hint = (
+        colores_activo if layer_activo == global_layer_id else batch_colores(db, _item_ids_color, global_layer_id)
+    )
+    _equipo_activo_nombre = None
+    if layer_activo != global_layer_id:
+        _equipo_activo = db.query(Equipo).filter(Equipo.id == layer_activo).first()
+        _equipo_activo_nombre = _equipo_activo.nombre if _equipo_activo else None
+    color_hint_equipo_inicial = (
+        (_equipo_activo_nombre[0] if _equipo_activo_nombre else None) if layer_activo != global_layer_id else None
+    )
 
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
@@ -1164,7 +1171,15 @@ def listar_productos(
             mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
             mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
             out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
-            color_marcado=producto_pricing.color_marcado if producto_pricing else None,
+            color_marcado=(
+                colores_activo[producto_erp.item_id].color_ml if producto_erp.item_id in colores_activo else None
+            ),
+            color_hint_global=(
+                colores_global_hint[producto_erp.item_id].color_ml
+                if producto_erp.item_id in colores_global_hint
+                else None
+            ),
+            color_hint_equipo_inicial=color_hint_equipo_inicial,
             precio_3_cuotas=float(producto_pricing.precio_3_cuotas)
             if producto_pricing and producto_pricing.precio_3_cuotas
             else None,
@@ -1537,6 +1552,7 @@ def listar_productos_tienda(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -1545,9 +1561,13 @@ def listar_productos_tienda(
     from app.services.pricing_calculator import obtener_constantes_pricing
     from sqlalchemy import text
 
+    layer_activo_t = resolver_layer_activo(equipo_id, current_user, db)
+    global_layer_id_t = resolver_layer_activo(None, current_user, db)
+
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo_t)
 
     # EXCLUIR PRODUCTOS BANEADOS
     from app.models.producto_banlist import ProductoBanlist
@@ -1772,24 +1792,8 @@ def listar_productos_tienda(
         else:
             query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
 
-    # Filtro de colores (tienda usa color_marcado_tienda)
-    if colores:
-        colores_list = colores.split(",")
-
-        if "sin_color" in colores_list:
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-
-            if colores_con_valor:
-                query = query.filter(
-                    or_(
-                        ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
-                        ProductoPricing.color_marcado_tienda.is_(None),
-                    )
-                )
-            else:
-                query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
-        else:
-            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+    # Filtro de colores (vista tienda, lee del layer de equipo activo)
+    query = filtro_colores(query, colores, color_slot("tienda"))
 
     # Filtro de MLA (con/sin publicación)
     if con_mla is not None:
@@ -1881,6 +1885,20 @@ def listar_productos_tienda(
 
     # Precargar markups de tienda
     item_ids_results = [r[0].item_id for r in results]
+
+    # Batch-fetch colors for the active layer + the global-layer hint (T-color-layer).
+    colores_activo_t = batch_colores(db, item_ids_results, layer_activo_t)
+    colores_global_hint_t = (
+        colores_activo_t
+        if layer_activo_t == global_layer_id_t
+        else batch_colores(db, item_ids_results, global_layer_id_t)
+    )
+    _equipo_activo_nombre_t = None
+    if layer_activo_t != global_layer_id_t:
+        _equipo_activo_t = db.query(Equipo).filter(Equipo.id == layer_activo_t).first()
+        _equipo_activo_nombre_t = _equipo_activo_t.nombre if _equipo_activo_t else None
+    color_hint_equipo_inicial_t = _equipo_activo_nombre_t[0] if _equipo_activo_nombre_t else None
+
     markups_producto_dict = {}
     markups_sugerido_producto_dict = {}
     if item_ids_results:
@@ -2287,8 +2305,22 @@ def listar_productos_tienda(
                 mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
                 mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
                 out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
-                color_marcado=producto_pricing.color_marcado if producto_pricing else None,
-                color_marcado_tienda=producto_pricing.color_marcado_tienda if producto_pricing else None,
+                color_marcado=(
+                    colores_activo_t[producto_erp.item_id].color_ml
+                    if producto_erp.item_id in colores_activo_t
+                    else None
+                ),
+                color_marcado_tienda=(
+                    colores_activo_t[producto_erp.item_id].color_tienda
+                    if producto_erp.item_id in colores_activo_t
+                    else None
+                ),
+                color_hint_global=(
+                    colores_global_hint_t[producto_erp.item_id].color_tienda
+                    if producto_erp.item_id in colores_global_hint_t
+                    else None
+                ),
+                color_hint_equipo_inicial=color_hint_equipo_inicial_t,
                 precio_3_cuotas=float(producto_pricing.precio_3_cuotas)
                 if producto_pricing and producto_pricing.precio_3_cuotas
                 else None,
@@ -2375,7 +2407,12 @@ def listar_productos_tienda(
 
 
 @router.get("/productos/{item_id}", response_model=ProductoResponse)
-def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_producto(
+    item_id: int,
+    equipo_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     result = (
         db.query(ProductoERP, ProductoPricing)
         .outerjoin(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
@@ -2388,6 +2425,18 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
 
     producto_erp, producto_pricing = result
     costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
+
+    layer_activo_d = resolver_layer_activo(equipo_id, current_user, db)
+    global_layer_id_d = resolver_layer_activo(None, current_user, db)
+    colores_activo_d = batch_colores(db, [item_id], layer_activo_d)
+    colores_global_hint_d = (
+        colores_activo_d if layer_activo_d == global_layer_id_d else batch_colores(db, [item_id], global_layer_id_d)
+    )
+    _equipo_activo_nombre_d = None
+    if layer_activo_d != global_layer_id_d:
+        _equipo_activo_d = db.query(Equipo).filter(Equipo.id == layer_activo_d).first()
+        _equipo_activo_nombre_d = _equipo_activo_d.nombre if _equipo_activo_d else None
+    color_hint_equipo_inicial_d = _equipo_activo_nombre_d[0] if _equipo_activo_nombre_d else None
 
     # Importar funciones de cálculo
     from app.services.pricing_calculator import (
@@ -2526,7 +2575,9 @@ def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: 
         mejor_oferta_porcentaje_rebate=None,
         mejor_oferta_fecha_hasta=None,
         out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
-        color_marcado=producto_pricing.color_marcado if producto_pricing else None,
+        color_marcado=colores_activo_d[item_id].color_ml if item_id in colores_activo_d else None,
+        color_hint_global=colores_global_hint_d[item_id].color_ml if item_id in colores_global_hint_d else None,
+        color_hint_equipo_inicial=color_hint_equipo_inicial_d,
         precio_3_cuotas=float(producto_pricing.precio_3_cuotas)
         if producto_pricing and producto_pricing.precio_3_cuotas
         else None,

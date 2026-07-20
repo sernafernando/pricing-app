@@ -12,6 +12,12 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.api.endpoints.productos_shared import (  # noqa: F401
+    color_slot,
+    filtro_colores,
+    join_color_layer,
+    resolver_layer_activo,
+)
 
 router = APIRouter()
 
@@ -42,10 +48,12 @@ def listar_marcas(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     pms: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """Lista marcas disponibles según filtros activos"""
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
 
     # Query base igual que en el endpoint de listar productos
     query = (
@@ -53,6 +61,7 @@ def listar_marcas(
         .distinct()
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True)
     )
+    query = join_color_layer(query, layer_activo)
 
     # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
     from app.models.producto_banlist import ProductoBanlist
@@ -118,9 +127,8 @@ def listar_marcas(
         else:
             query = query.filter(or_(ProductoPricing.out_of_cards == False, ProductoPricing.out_of_cards.is_(None)))
 
-    if colores:
-        colores_list = colores.split(",")
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     if markup_clasica_positivo is not None:
         if markup_clasica_positivo:
@@ -166,6 +174,7 @@ def listar_subcategorias(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     pms: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -173,12 +182,15 @@ def listar_subcategorias(
     from app.models.comision_config import SubcategoriaGrupo
     from collections import defaultdict
 
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
     # Query para obtener subcategorias_id disponibles según filtros
     query = (
         db.query(ProductoERP.subcategoria_id)
         .distinct()
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True)
     )
+    query = join_color_layer(query, layer_activo)
 
     # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
     from app.models.producto_banlist import ProductoBanlist
@@ -244,9 +256,8 @@ def listar_subcategorias(
         else:
             query = query.filter(or_(ProductoPricing.out_of_cards == False, ProductoPricing.out_of_cards.is_(None)))
 
-    if colores:
-        colores_list = colores.split(",")
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     if markup_clasica_positivo is not None:
         if markup_clasica_positivo:

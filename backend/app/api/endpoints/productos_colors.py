@@ -5,8 +5,9 @@ Handles color marking for productos (ML view and Tienda view),
 both individual and batch operations. Colors are scoped per `equipo`
 (team) via `producto_color`; when no `equipo_id` is given (or it resolves
 to the global "U" team) the legacy `productos_pricing.color_marcado[_tienda]`
-columns are also kept in sync so existing readers keep working until the
-read-side migrates to `producto_color` (PR3).
+columns are also kept in sync. As of PR3, all reads have migrated to
+`producto_color`; this dual-write is now only a rollback safety net and its
+removal is deferred to a post-verification cleanup PR.
 """
 
 from typing import Optional
@@ -51,7 +52,9 @@ def _upsert_producto_color(
 
 
 def _dual_write_legacy(db: Session, item_id: int, vista: Optional[str], color: Optional[str]) -> None:
-    # TRANSITIONAL: dual-write to legacy column for U layer; remove in PR3 when reads migrate
+    # TRANSITIONAL: dual-write to legacy column for U layer, kept for rollback safety.
+    # Reads already migrated to producto_color (PR3); removal deferred to a
+    # post-verification cleanup PR.
     producto_pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
     campo = "color_marcado_tienda" if vista == "tienda" else "color_marcado"
 

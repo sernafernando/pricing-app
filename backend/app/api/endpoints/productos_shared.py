@@ -10,7 +10,8 @@ from datetime import datetime, date
 import logging
 
 from fastapi import HTTPException
-from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import InstrumentedAttribute, Query, Session
 
 from app.models.equipo import Equipo, EquipoMiembro
 from app.models.usuario import Usuario
@@ -53,6 +54,10 @@ class ProductoResponse(BaseModel):
     mejor_oferta_fecha_hasta: Optional[date] = None
     out_of_cards: Optional[bool] = False
     color_marcado: Optional[str] = None
+    # Team color-layer hints (see productos_shared: resolver_layer_activo).
+    # color_marcado above is sourced from the active layer (default: global "U").
+    color_hint_global: Optional[str] = None
+    color_hint_equipo_inicial: Optional[str] = None
     precio_3_cuotas: Optional[float] = None
     precio_6_cuotas: Optional[float] = None
     precio_9_cuotas: Optional[float] = None
@@ -156,6 +161,10 @@ class ProductoTiendaResponse(BaseModel):
     out_of_cards: Optional[bool] = False
     color_marcado: Optional[str] = None
     color_marcado_tienda: Optional[str] = None
+    # Team color-layer hints (tienda slot; see productos_shared: resolver_layer_activo).
+    # color_marcado_tienda above is sourced from the active layer (default: global "U").
+    color_hint_global: Optional[str] = None
+    color_hint_equipo_inicial: Optional[str] = None
     precio_3_cuotas: Optional[float] = None
     precio_6_cuotas: Optional[float] = None
     precio_9_cuotas: Optional[float] = None
@@ -334,3 +343,88 @@ def color_slot(vista: Optional[str]) -> InstrumentedAttribute:
     if vista == "tienda":
         return ProductoColor.color_tienda
     return ProductoColor.color_ml
+
+
+def resolver_layer_activo(equipo_id: Optional[int], current_user: Usuario, db: Session) -> int:
+    """Resolves the active color layer for a read request.
+
+    - `equipo_id` is None -> the global ("U") layer (today's default behavior).
+    - `equipo_id` == the global layer id -> always allowed.
+    - Any other `equipo_id` -> the caller must be a member of that team, else 403.
+
+    Returns the resolved equipo_id to read colors from.
+    """
+    global_id = get_global_equipo_id(db)
+
+    if equipo_id is None:
+        return global_id
+
+    if equipo_id == global_id:
+        return equipo_id
+
+    es_miembro = (
+        db.query(EquipoMiembro)
+        .filter(EquipoMiembro.equipo_id == equipo_id, EquipoMiembro.usuario_id == current_user.id)
+        .first()
+        is not None
+    )
+    if not es_miembro:
+        raise HTTPException(status_code=403, detail="No sos miembro de este equipo")
+
+    return equipo_id
+
+
+def join_color_layer(query: Query, equipo_id: int) -> Query:
+    """Outer-joins `ProductoColor` scoped to `equipo_id` onto `query`.
+
+    Joins on `ProductoERP.item_id`, so `query` must already select/join
+    `ProductoERP`. The join is added for filtering purposes (see
+    `filtro_colores`); the joined entity does not need to be added to the
+    query's selected columns.
+    """
+    from app.models.equipo import ProductoColor
+    from app.models.producto import ProductoERP
+
+    return query.outerjoin(
+        ProductoColor,
+        and_(ProductoColor.item_id == ProductoERP.item_id, ProductoColor.equipo_id == equipo_id),
+    )
+
+
+def filtro_colores(query: Query, colores_str: Optional[str], slot: InstrumentedAttribute) -> Query:
+    """Applies the color sidebar filter against `slot` (a ProductoColor column).
+
+    Behavior-identical to the legacy filter against
+    `productos_pricing.color_marcado[_tienda]`: `colores_str` is a
+    comma-separated list of color values, optionally including the
+    "sin_color" sentinel meaning "no color assigned" (slot IS NULL).
+    """
+    if not colores_str:
+        return query
+
+    colores_list = colores_str.split(",")
+
+    if "sin_color" in colores_list:
+        colores_con_valor = [c for c in colores_list if c != "sin_color"]
+        if colores_con_valor:
+            return query.filter(or_(slot.in_(colores_con_valor), slot.is_(None)))
+        return query.filter(slot.is_(None))
+
+    return query.filter(slot.in_(colores_list))
+
+
+def batch_colores(db: Session, item_ids: List[int], equipo_id: int) -> dict:
+    """Batch-fetches `ProductoColor` rows for `item_ids` at `equipo_id`.
+
+    Returns a dict keyed by item_id, mirroring the batch-lookup pattern
+    already used across productos_listing.py (e.g. tn_precios).
+    """
+    from app.models.equipo import ProductoColor
+
+    if not item_ids:
+        return {}
+
+    rows = (
+        db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id, ProductoColor.item_id.in_(item_ids)).all()
+    )
+    return {row.item_id: row for row in rows}

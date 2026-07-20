@@ -126,11 +126,29 @@ def db(engine):
     Session = sessionmaker(bind=connection)
     session = Session()
 
+    _ensure_global_equipo(session)
+
     yield session
 
     session.close()
     transaction.rollback()
     connection.close()
+
+
+def _ensure_global_equipo(session) -> None:
+    """Seeds the singleton global ("U") `Equipo` row for every test.
+
+    Production DBs get this row from the productos-color-teams migration
+    backfill (PR1). Read-side helpers (`resolver_layer_activo`,
+    `get_global_equipo_id`) hard-require it to exist, so tests that never
+    touch the color-teams feature explicitly still need it present —
+    otherwise any read that resolves the default color layer 500s.
+    """
+    from app.models.equipo import Equipo
+
+    if session.query(Equipo).filter(Equipo.es_global.is_(True)).first() is None:
+        session.add(Equipo(nombre="Global", es_global=True))
+        session.flush()
 
 
 @pytest.fixture(autouse=True)

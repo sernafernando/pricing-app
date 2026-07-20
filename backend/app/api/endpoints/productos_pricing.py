@@ -18,6 +18,10 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     CalculoPVPMasivoRequest,
     RecalcularCuotasMasivoRequest,
     ConfigCuotasRequest,
+    color_slot,
+    filtro_colores,
+    join_color_layer,
+    resolver_layer_activo,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,9 +279,13 @@ def calcular_web_masivo(
     constantes = obtener_constantes_pricing(db)
 
     # Obtener productos base
+    layer_activo = resolver_layer_activo(
+        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
+    )
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo)
 
     # Aplicar filtros si existen
     if request.filtros:
@@ -386,22 +394,8 @@ def calcular_web_masivo(
             else:
                 query = query.filter((ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None)))
 
-        # Filtro de colores
-        if request.filtros.get("colores"):
-            colores_list = request.filtros["colores"].split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado.in_(colores_con_valor),
-                            ProductoPricing.color_marcado.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+        # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+        query = filtro_colores(query, request.filtros.get("colores"), color_slot(None))
 
         # Filtro de PMs - filtra por pares (marca, categoria)
         if request.filtros.get("pms"):
@@ -599,9 +593,13 @@ def calcular_pvp_masivo(
     from app.services.pricing_calculator import calcular_precio_producto, obtener_tipo_cambio_actual
 
     # Obtener productos base
+    layer_activo = resolver_layer_activo(
+        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
+    )
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+    query = join_color_layer(query, layer_activo)
 
     # Aplicar filtros si existen (misma lógica que web masivo)
     if request.filtros:
@@ -655,21 +653,8 @@ def calcular_pvp_masivo(
             else:
                 query = query.filter((ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None)))
 
-        if request.filtros.get("colores"):
-            colores_list = request.filtros["colores"].split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado.in_(colores_con_valor),
-                            ProductoPricing.color_marcado.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+        # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+        query = filtro_colores(query, request.filtros.get("colores"), color_slot(None))
 
         if request.filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
@@ -880,7 +865,11 @@ def recalcular_cuotas_masivo(
         raise HTTPException(400, "lista_tipo debe ser 'web' o 'pvp'")
 
     # Obtener productos con pricing existente (necesitan precio base para recalcular)
+    layer_activo = resolver_layer_activo(
+        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
+    )
     query = db.query(ProductoERP, ProductoPricing).join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
+    query = join_color_layer(query, layer_activo)
 
     # Solo productos que tengan precio base > 0 según lista_tipo
     if lista_tipo == "pvp":
@@ -945,21 +934,8 @@ def recalcular_cuotas_masivo(
             else:
                 query = query.filter((ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None)))
 
-        if request.filtros.get("colores"):
-            colores_list = request.filtros["colores"].split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado.in_(colores_con_valor),
-                            ProductoPricing.color_marcado.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+        # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+        query = filtro_colores(query, request.filtros.get("colores"), color_slot(None))
 
         if request.filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
