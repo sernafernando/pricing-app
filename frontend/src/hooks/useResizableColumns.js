@@ -107,6 +107,8 @@ export function useResizableColumns({ storageKey, columns }) {
     const state = dragState.current;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
+    // Restore text selection disabled during the drag.
+    if (document.body) document.body.style.userSelect = '';
     dragState.current = null;
     if (!state) return;
     setWidths((prev) => {
@@ -119,6 +121,11 @@ export function useResizableColumns({ storageKey, columns }) {
     (id) => (event) => {
       const col = columnsById.current[id];
       if (!col) return;
+      // Prevent the browser from starting a text selection on the header while
+      // dragging — without this the drag gesture is swallowed by selection in
+      // real browsers (jsdom does not reproduce it, so unit tests can't catch it).
+      if (event.preventDefault) event.preventDefault();
+      if (document.body) document.body.style.userSelect = 'none';
       const th = event.target.closest ? event.target.closest('th') : null;
       const baseWidth = (th && th.offsetWidth) || col.defaultWidth;
       dragState.current = { id, startX: event.clientX, baseWidth };
