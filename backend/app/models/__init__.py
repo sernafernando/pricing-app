@@ -181,6 +181,7 @@ from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_answer_example import MlBotAnswerExample
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
 
 __all__ = [
     "ProductoERP",
@@ -373,4 +374,8 @@ __all__ = [
     "MlBotQuestion",
     "MlBotConfig",
     "MlBotAnswerExample",
+    "Equipo",
+    "EquipoMiembro",
+    "ProductoColor",
+    "RolEquipo",
 ]
