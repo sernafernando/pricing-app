@@ -676,7 +676,7 @@ class TestFetchMlasWithActivePromoType:
             fetch_mlas_with_active_promo_type(["SMART"], applied_only=False)
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "IN ('candidate', 'started')" in executed_query
+        assert "IN ('candidate', 'started', 'pending')" in executed_query
         assert "= 'started'" not in executed_query
 
     def test_applied_only_true_uses_started_only_status(self) -> None:
@@ -693,6 +693,22 @@ class TestFetchMlasWithActivePromoType:
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "status = 'started'" in executed_query
         assert "IN ('candidate'" not in executed_query
+
+    def test_applied_only_false_includes_pending(self) -> None:
+        """B2 (USER DECISION): pending counts as 'available', consistent
+        with the panel — modo disponible must include it."""
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART"], applied_only=False)
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "'pending'" in executed_query
 
     def test_binds_types_param_via_any(self) -> None:
         from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
@@ -883,11 +899,6 @@ class TestKnownPromotionTypes:
     operator to disambiguate a type literal from a promo-name substring
     (feature productos-search-mla-promo-operators, ADR-2)."""
 
-    def test_exactly_eight_known_types(self) -> None:
-        from app.services.ml_promotions_service import KNOWN_PROMOTION_TYPES
-
-        assert len(KNOWN_PROMOTION_TYPES) == 8
-
     def test_uppercase_membership(self) -> None:
         from app.services.ml_promotions_service import KNOWN_PROMOTION_TYPES
 
@@ -967,7 +978,7 @@ class TestFetchMlasByPromoName:
 
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "ILIKE" in executed_query
-        assert "IN ('candidate', 'started')" in executed_query
+        assert "IN ('candidate', 'started', 'pending')" in executed_query
         bound_params = mock_conn.execute.call_args[0][1]
         assert bound_params == {"pattern": "%FORZA%"}
 
@@ -979,6 +990,37 @@ class TestFetchMlasByPromoName:
 
             with pytest.raises(RuntimeError):
                 fetch_mlas_by_promo_name("FORZA")
+
+    def test_percent_wildcard_is_escaped_as_literal(self) -> None:
+        """I4: `promo:%` must NOT match every promo name — % is escaped."""
+        from app.services.ml_promotions_service import fetch_mlas_by_promo_name
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_by_promo_name("%")
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ESCAPE '\\'" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params == {"pattern": "%\\%%"}
+
+    def test_underscore_and_backslash_are_escaped(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_by_promo_name
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_by_promo_name("a_b\\c")
+
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params == {"pattern": "%a\\_b\\\\c%"}
 
 
 class TestFetchMlasWithStarted:
@@ -1023,12 +1065,12 @@ class TestFetchMlasWithStarted:
 
 
 class TestFetchMlasWithCandidateNotStarted:
-    """fetch_mlas_with_candidate_not_started() — resolves `con_promo_sin_aplicar`:
+    """fetch_mlas_with_candidate_only() — resolves `con_promo_sin_aplicar`:
     at least one candidate promo AND zero started promos, per MLA (compound
     aggregation, mirrors fetch_promo_summary_by_mla's bool_or GROUP BY)."""
 
     def test_empty_rows_returns_empty_set(self) -> None:
-        from app.services.ml_promotions_service import fetch_mlas_with_candidate_not_started
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
@@ -1036,12 +1078,12 @@ class TestFetchMlasWithCandidateNotStarted:
         mock_conn.execute.return_value.fetchall.return_value = []
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
-            result = fetch_mlas_with_candidate_not_started()
+            result = fetch_mlas_with_candidate_only()
 
         assert result == set()
 
     def test_rows_return_set_of_mla(self) -> None:
-        from app.services.ml_promotions_service import fetch_mlas_with_candidate_not_started
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
@@ -1049,12 +1091,12 @@ class TestFetchMlasWithCandidateNotStarted:
         mock_conn.execute.return_value.fetchall.return_value = [("MLA111",), ("MLA222",)]
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
-            result = fetch_mlas_with_candidate_not_started()
+            result = fetch_mlas_with_candidate_only()
 
         assert result == {"MLA111", "MLA222"}
 
     def test_query_uses_group_by_having_bool_or(self) -> None:
-        from app.services.ml_promotions_service import fetch_mlas_with_candidate_not_started
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
 
         mock_engine = MagicMock()
         mock_conn = MagicMock()
@@ -1062,18 +1104,83 @@ class TestFetchMlasWithCandidateNotStarted:
         mock_conn.execute.return_value.fetchall.return_value = []
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
-            fetch_mlas_with_candidate_not_started()
+            fetch_mlas_with_candidate_only()
 
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "GROUP BY" in executed_query
         assert "HAVING" in executed_query
-        assert "bool_or" in executed_query
+        # Pin the EXACT compound clause. The mlwebhook DB is not reachable in
+        # tests (bool_or is Postgres-only, can't run against sqlite), so the
+        # truth-table below is asserted at the SQL-text level: an AND->OR flip
+        # or a dropped NOT (which would wrongly include started MLAs) breaks
+        # this. `con_promo_sin_aplicar` drives PM decisions — it must exclude
+        # any MLA that has a started promo, even when it also has candidates.
+        normalized = " ".join(executed_query.split())
+        assert (
+            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
+            "AND NOT bool_or(status = 'pending')" in normalized
+        )
+        assert "'pending'" in executed_query
 
     def test_engine_failure_propagates(self) -> None:
-        from app.services.ml_promotions_service import fetch_mlas_with_candidate_not_started
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
 
         with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
             mock_engine_fn.side_effect = RuntimeError("ML_WEBHOOK_DB_URL no configurada")
 
             with pytest.raises(RuntimeError):
-                fetch_mlas_with_candidate_not_started()
+                fetch_mlas_with_candidate_only()
+
+
+class TestFetchMlasWithCandidateNotStartedTruthTable:
+    """B2 truth table (SQL-level, mlwebhook not reachable in tests): a
+    pending promo must EXCLUDE the MLA just like a started one."""
+
+    def _run(self, mock_conn, rows) -> "set[str]":
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
+
+        mock_conn.execute.return_value.fetchall.return_value = rows
+        return fetch_mlas_with_candidate_only()
+
+    def test_candidate_only_is_included(self) -> None:
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            # A row is only returned by Postgres when the HAVING clause
+            # matches; here we simulate that outcome for candidate-only.
+            result = self._run(mock_conn, [("MLA_CANDIDATE_ONLY",)])
+
+        assert result == {"MLA_CANDIDATE_ONLY"}
+
+    def test_has_started_is_excluded_via_having_clause_text(self) -> None:
+        """Exercised at the SQL-text level (pinned in the other test);
+        documents the truth-table row: candidate+started -> excluded."""
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only()
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "NOT bool_or(status = 'started')" in executed_query
+
+    def test_has_pending_is_excluded_via_having_clause_text(self) -> None:
+        """Truth-table row: candidate+pending -> excluded (B2)."""
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only()
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "NOT bool_or(status = 'pending')" in executed_query

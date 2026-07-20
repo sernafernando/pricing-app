@@ -364,6 +364,19 @@ class TestMlaOperatorLocalFold:
 
         mock_helper.assert_not_called()
 
+    def test_empty_value_mla_operator_fails_closed(self, db) -> None:
+        """B1: `search="mla:"` (explicit operator, empty value) must yield
+        ZERO results, never the full catalog."""
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla:")
+
+        assert result.total == 0
+        assert result.productos == []
+
     def test_mla_operator_unaffected_by_webhook_outage(self, db) -> None:
         """mla: is local-only — must NOT 503 even if the cross-DB helper
         would fail, since it's never called for a pure mla: search."""
@@ -404,6 +417,25 @@ class TestPromoOperatorResolve:
         mock_type_helper.assert_called_once_with(["DEAL"], applied_only=False)
         mock_name_helper.assert_not_called()
         assert result.total == 1
+
+    def test_pure_promo_search_does_not_warn_no_filter(self, db, caplog) -> None:
+        """A pure `promo:` search sets no `search_filter` (it resolves via its
+        own block), so it must NOT emit the "search_filter quedó en None"
+        warning — that log is reserved for a genuine no-op search and firing it
+        spuriously desensitizes monitoring."""
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            return_value={"MLA1"},
+        ):
+            with caplog.at_level("WARNING"):
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:DEAL")
+
+        assert not any("search_filter quedó en None" in r.message for r in caplog.records)
 
     def test_known_type_case_insensitive(self, db) -> None:
         db.add(_make_producto(1))
@@ -467,6 +499,25 @@ class TestPromoOperatorResolve:
                 listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:DEAL")
 
         assert exc_info.value.status_code == 503
+
+    def test_empty_value_promo_operator_fails_closed(self, db) -> None:
+        """B1: `search="promo:"` (explicit operator, empty value) must yield
+        ZERO results, never the full catalog."""
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with (
+            patch("app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type") as mock_type_helper,
+            patch("app.api.endpoints.productos_listing.fetch_mlas_by_promo_name") as mock_name_helper,
+        ):
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:")
+
+        assert result.total == 0
+        assert result.productos == []
+        mock_type_helper.assert_not_called()
+        mock_name_helper.assert_not_called()
 
     def test_ands_with_existing_promo_tipos_filter(self, db) -> None:
         db.add(_make_producto(1))
@@ -593,7 +644,7 @@ class TestConPromoSinAplicar:
         _patch_tienda_nube(db)
 
         with patch(
-            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_only",
             return_value={"MLA1"},
         ):
             result = listar_productos(
@@ -613,7 +664,7 @@ class TestConPromoSinAplicar:
         # compound HAVING semantics tested at the unit level) -> empty set
         # here means the endpoint must NOT include item 1.
         with patch(
-            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_only",
             return_value=set(),
         ):
             result = listar_productos(
@@ -628,7 +679,7 @@ class TestConPromoSinAplicar:
         _patch_tienda_nube(db)
 
         with patch(
-            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_only",
             side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
         ):
             with pytest.raises(HTTPException) as exc_info:
@@ -656,7 +707,7 @@ class TestConPromoAplicadaAndSinAplicarTogether:
                 return_value={"MLA1"},
             ),
             patch(
-                "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+                "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_only",
                 return_value={"MLA2"},
             ),
         ):
