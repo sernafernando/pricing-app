@@ -43,9 +43,9 @@ Each product row in list/detail responses now includes:
 
 | Field | Meaning |
 |---|---|
-| `color` | The active layer's fill color (the layer resolved by `equipo_id`, see above). This is what should render as the marked color for the current view. |
+| `color_marcado` (ML view) / `color_marcado` + `color_marcado_tienda` (Tienda view) | The active layer's fill color (the layer resolved by `equipo_id`, see above). The field name is `color_marcado` — kept from the legacy schema, but now sourced from the active team layer. This is what should render as the marked color for the current view. There is no field literally named `color`. |
 | `color_hint_global` | The global ("U") team's color for this product, used to render a hint dot in an otherwise-empty cell when viewing a non-global team layer that hasn't marked this product. |
-| `color_hint_equipo_inicial` | The initial letter of the team name that has this product marked, for a hint badge — helps a user viewing one layer notice "team X already marked this." |
+| `color_hint_equipo_inicial` | The initial letter of the **currently active team** (the one selected by `equipo_id`), or `null` when viewing the global layer. This is the SAME value on every row of a response (a label for the active layer), NOT a per-product marker — it is not "the team that marked this product." |
 
 ## Write endpoints accept `equipo_id` (default global)
 

@@ -15,7 +15,6 @@ Verifies:
 
 from __future__ import annotations
 
-import pytest
 
 from app.core.security import get_password_hash
 from app.models.equipo import Equipo, EquipoMiembro, RolEquipo
@@ -218,6 +217,26 @@ class TestGestionMiembros:
 
         resp = client.delete(f"/api/equipos/{equipo.id}/miembros/{admin.id}", headers=auth_headers_for(admin))
         assert resp.status_code == 400
+
+    def test_no_se_puede_degradar_al_ultimo_admin_por_reagregado(self, client, db, rol_ventas) -> None:
+        # The idempotent POST upsert must enforce the same last-admin guard as
+        # PATCH/DELETE: the sole admin re-adding themselves (rol defaults to
+        # miembro) would otherwise orphan the team with zero admins.
+        equipo = _make_equipo(db, "Equipo G2")
+        admin = _make_usuario(db, "admin_g2", rol_ventas.id)
+        _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
+        db.commit()
+
+        resp = client.post(
+            f"/api/equipos/{equipo.id}/miembros",
+            json={"usuario_id": admin.id},
+            headers=auth_headers_for(admin),
+        )
+        assert resp.status_code == 400
+        # The admin must still be admin — team not orphaned.
+        db.expire_all()
+        miembro = db.query(EquipoMiembro).filter_by(equipo_id=equipo.id, usuario_id=admin.id).first()
+        assert miembro.rol == RolEquipo.ADMIN.value
 
     def test_admin_elimina_miembro(self, client, db, rol_ventas) -> None:
         equipo = _make_equipo(db, "Equipo H")

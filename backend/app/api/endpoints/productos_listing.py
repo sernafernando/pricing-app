@@ -144,9 +144,10 @@ def listar_productos(
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
-    # Joined unconditionally (not gated on a `colores` filter): the response always
-    # needs color_hint_global (the U-layer color hint), so the join is required even
-    # when the caller isn't filtering by color.
+    # Joined unconditionally rather than only when a `colores` filter is present:
+    # `filtro_colores` (below) consumes this join, and gating it on filter presence
+    # isn't worth the branch. The active-layer color and `color_hint_global` come
+    # from `batch_colores` (further down), not from this join.
     query = join_color_layer(query, layer_activo)
 
     # EXCLUIR PRODUCTOS BANEADOS

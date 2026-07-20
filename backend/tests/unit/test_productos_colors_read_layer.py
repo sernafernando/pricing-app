@@ -544,6 +544,15 @@ class TestCoerceEquipoId:
             coerce_equipo_id({"equipo_id": "abc"})
         assert exc.value.status_code == 422
 
+    def test_bool_value_raises_422_not_silently_team_1(self) -> None:
+        from app.api.endpoints.productos_shared import coerce_equipo_id
+
+        # `int(True) == 1` must not silently resolve to team 1.
+        for bad in (True, False):
+            with pytest.raises(HTTPException) as exc:
+                coerce_equipo_id({"equipo_id": bad})
+            assert exc.value.status_code == 422
+
     def test_masivo_endpoint_accepts_string_equipo_id(self, client, db, rol_ventas) -> None:
         """String equipo_id in the filtros body resolves the same as int and,
         for a non-member team, still yields a clean 403 (not a 500)."""

@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -57,8 +57,7 @@ class EquipoResponse(BaseModel):
     nombre: str
     es_global: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MiembroAddRequest(BaseModel):
@@ -76,8 +75,7 @@ class MiembroResponse(BaseModel):
     usuario_id: int
     rol: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MensajeResponse(BaseModel):
@@ -138,6 +136,24 @@ def _count_admins(db: Session, equipo_id: int) -> int:
         .filter(EquipoMiembro.equipo_id == equipo_id, EquipoMiembro.rol == RolEquipo.ADMIN.value)
         .count()
     )
+
+
+def _assert_admin_no_huerfano(db: Session, equipo_id: int, miembro: EquipoMiembro, nuevo_rol: Optional[str]) -> None:
+    """Guards against orphaning a team of its last admin.
+
+    Raises 400 if `miembro` is the team's last admin and the pending change
+    strips their admin rol — a demotion (`nuevo_rol != admin`) or a removal
+    (`nuevo_rol is None`). Called from every endpoint that changes/removes a
+    rol (POST upsert, PATCH, DELETE) so the invariant lives in one place.
+    """
+    if miembro.rol != RolEquipo.ADMIN.value:
+        return
+    pierde_admin = nuevo_rol is None or nuevo_rol != RolEquipo.ADMIN.value
+    if pierde_admin and _count_admins(db, equipo_id) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede quitar el último administrador del equipo",
+        )
 
 
 # =============================================================================
@@ -225,6 +241,9 @@ def agregar_miembro(
         # Idempotent: re-adding an existing member updates their rol instead
         # of raising a 409, since the caller's intent (this user should be a
         # member with this rol) is already satisfied either way.
+        # Same last-admin guard as PATCH/DELETE: re-adding the sole admin with
+        # a non-admin rol would silently orphan the team.
+        _assert_admin_no_huerfano(db, equipo_id, existente, request.rol.value)
         existente.rol = request.rol.value
         db.commit()
         db.refresh(existente)
@@ -254,11 +273,7 @@ def actualizar_rol_miembro(
     if miembro is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El usuario no es miembro de este equipo")
 
-    if miembro.rol == RolEquipo.ADMIN.value and request.rol != RolEquipo.ADMIN and _count_admins(db, equipo_id) <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede quitar el último administrador del equipo",
-        )
+    _assert_admin_no_huerfano(db, equipo_id, miembro, request.rol.value)
 
     miembro.rol = request.rol.value
     db.commit()
@@ -282,11 +297,7 @@ def eliminar_miembro(
     if miembro is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El usuario no es miembro de este equipo")
 
-    if miembro.rol == RolEquipo.ADMIN.value and _count_admins(db, equipo_id) <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede eliminar al último administrador del equipo",
-        )
+    _assert_admin_no_huerfano(db, equipo_id, miembro, None)
 
     db.delete(miembro)
     db.commit()
@@ -317,11 +328,12 @@ def eliminar_equipo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
-    """Deletes a team, its memberships, and its color rows.
+    """Deletes a team and its memberships. Blocked if it still has color rows.
 
-    Requires the caller be an admin of that team. Blocked if the team still
-    has `ProductoColor` rows — the caller must reassign or clear those first,
-    to avoid silently discarding team color data.
+    Requires the caller be an admin of that team. Does NOT delete color data:
+    if the team still has `ProductoColor` rows the request is rejected, and the
+    caller must reassign or clear those first, to avoid silently discarding
+    team color data.
     """
     equipo = _get_equipo_or_404(db, equipo_id)
     _reject_global(equipo)

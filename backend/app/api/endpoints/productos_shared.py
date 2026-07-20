@@ -315,10 +315,15 @@ def coerce_equipo_id(filtros: Optional[dict]) -> Optional[int]:
     if raw is None:
         return None
 
+    # Reject bool explicitly: `int(True) == 1` would otherwise silently resolve to
+    # team 1 instead of surfacing a clean 422.
+    if isinstance(raw, bool):
+        raise HTTPException(status_code=422, detail="equipo_id inválido: debe ser un entero")
+
     try:
         return int(raw)
     except (TypeError, ValueError):
-        raise HTTPException(status_code=422, detail="equipo_id inválido: debe ser un entero")
+        raise HTTPException(status_code=422, detail="equipo_id inválido: debe ser un entero") from None
 
 
 def get_global_equipo_id(db: Session) -> int:
