@@ -12,6 +12,11 @@ import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
     ExportRebateRequest,
+    batch_colores,
+    color_slot,
+    filtro_colores,
+    join_color_layer,
+    resolver_layer_activo,
 )
 
 logger = logging.getLogger(__name__)
@@ -244,11 +249,15 @@ def exportar_rebate(
     pricelist_pvp_equivalente = pvp_equivalente_map.get(request.tipo_cuotas)
 
     # Construir query con filtros
+    layer_activo = resolver_layer_activo(
+        request.filtros.get("equipo_id") if request.filtros else None, current_user, db
+    )
     query = (
         db.query(ProductoERP, ProductoPricing)
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
         .filter(ProductoPricing.participa_rebate == True, ProductoPricing.out_of_cards != True)
     )
+    query = join_color_layer(query, layer_activo)
 
     # Aplicar filtros si existen
     if request.filtros:
@@ -288,21 +297,8 @@ def exportar_rebate(
                     )
                 )
 
-        if filtros.get("colores"):
-            colores_list = filtros["colores"].split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado.in_(colores_con_valor),
-                            ProductoPricing.color_marcado.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+        # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+        query = filtro_colores(query, filtros.get("colores"), color_slot(None))
 
         if filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
@@ -792,6 +788,7 @@ def exportar_web_transferencia(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     estado_mla: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -799,6 +796,8 @@ def exportar_web_transferencia(
     from io import BytesIO
     from openpyxl import Workbook
     from app.models.tipo_cambio import TipoCambio
+
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
 
     # Obtener productos con precio web transferencia
     query = (
@@ -808,6 +807,7 @@ def exportar_web_transferencia(
             ProductoPricing.participa_web_transferencia == True, ProductoPricing.precio_web_transferencia.isnot(None)
         )
     )
+    query = join_color_layer(query, layer_activo)
 
     # FILTRADO POR AUDITORÍA (igual que en el listado principal)
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
@@ -932,26 +932,8 @@ def exportar_web_transferencia(
                 headers={"Content-Disposition": "attachment; filename=web_transferencia_vacia.xlsx"},
             )
 
-    # Filtro por colores
-    if colores:
-        colores_list = [c.strip() for c in colores.split(",")]
-
-        # Verificar si se está filtrando por "sin color"
-        if "sin_color" in colores_list:
-            # Remover 'sin_color' de la lista
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-
-            if colores_con_valor:
-                # Si hay otros colores además de sin_color, buscar ambos
-                query = query.filter(
-                    or_(ProductoPricing.color_marcado.in_(colores_con_valor), ProductoPricing.color_marcado.is_(None))
-                )
-            else:
-                # Solo sin_color: productos sin color asignado
-                query = query.filter(ProductoPricing.color_marcado.is_(None))
-        else:
-            # Filtro normal por colores específicos
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro por colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     # Filtros booleanos avanzados
     if con_rebate is not None:
@@ -1206,6 +1188,7 @@ def exportar_clasica(
             "Distinto de 'tienda_oficial' (filtro a nivel producto)."
         ),
     ),
+    equipo_id: Optional[int] = None,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1218,6 +1201,8 @@ def exportar_clasica(
     from io import BytesIO
     from openpyxl import Workbook
     from app.models.tipo_cambio import TipoCambio
+
+    layer_activo = resolver_layer_activo(equipo_id, current_user, db)
 
     # Obtener productos con precio clásica y precios con cuotas
     query = (
@@ -1240,6 +1225,7 @@ def exportar_clasica(
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
         .filter(ProductoPricing.precio_lista_ml.isnot(None))
     )
+    query = join_color_layer(query, layer_activo)
 
     # FILTRADO POR AUDITORÍA (igual que en el listado principal)
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
@@ -1370,26 +1356,8 @@ def exportar_clasica(
                 headers={"Content-Disposition": "attachment; filename=exportacion_clasica_vacia.xlsx"},
             )
 
-    # Filtro por colores
-    if colores:
-        colores_list = [c.strip() for c in colores.split(",")]
-
-        # Verificar si se está filtrando por "sin color"
-        if "sin_color" in colores_list:
-            # Remover 'sin_color' de la lista
-            colores_con_valor = [c for c in colores_list if c != "sin_color"]
-
-            if colores_con_valor:
-                # Si hay otros colores además de sin_color, buscar ambos
-                query = query.filter(
-                    or_(ProductoPricing.color_marcado.in_(colores_con_valor), ProductoPricing.color_marcado.is_(None))
-                )
-            else:
-                # Solo sin_color: productos sin color asignado
-                query = query.filter(ProductoPricing.color_marcado.is_(None))
-        else:
-            # Filtro normal por colores específicos
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+    # Filtro por colores (lee del layer de equipo activo, ver productos_shared)
+    query = filtro_colores(query, colores, color_slot(None))
 
     # Filtros booleanos avanzados
     if con_rebate is not None:
@@ -1842,6 +1810,7 @@ def exportar_vista_actual(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     estado_mla: Optional[str] = None,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -1859,10 +1828,13 @@ def exportar_vista_actual(
         from io import BytesIO
         from fastapi.responses import StreamingResponse
 
+        layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
         # Usar la misma lógica de obtener_productos para filtrar
         query = db.query(ProductoERP, ProductoPricing).outerjoin(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
         )
+        query = join_color_layer(query, layer_activo)
 
         # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
         query = _apply_search_filter(query, search)
@@ -1962,21 +1934,8 @@ def exportar_vista_actual(
             else:
                 query = query.filter(ProductoPricing.markup_web_real <= 0)
 
-        if colores:
-            colores_list = colores.split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado.in_(colores_con_valor),
-                            ProductoPricing.color_marcado.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+        # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+        query = filtro_colores(query, colores, color_slot(None))
 
         if pms:
             from app.models.marca_pm import MarcaPM
@@ -2089,6 +2048,9 @@ def exportar_vista_actual(
         productos = query.limit(page_size).offset((page - 1) * page_size).all()
         logger.info(f"Se encontraron {len(productos)} productos para exportar")
 
+        # Batch-fetch colors for the active layer (T-color-layer).
+        colores_activo_export = batch_colores(db, [p.item_id for p, _ in productos], layer_activo)
+
         # Crear Excel
         wb = Workbook()
         ws = wb.active
@@ -2195,7 +2157,8 @@ def exportar_vista_actual(
                 ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
 
                 ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
-                ws.cell(row=row_num, column=18, value=producto_pricing.color_marcado or "")
+                _color_activo_row = colores_activo_export.get(producto_erp.item_id)
+                ws.cell(row=row_num, column=18, value=(_color_activo_row.color_ml if _color_activo_row else None) or "")
 
             row_num += 1
 
@@ -2237,6 +2200,7 @@ def exportar_lista_gremio(
     con_precio_gremio: Optional[bool] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,  # Offset para el tipo de cambio
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -2276,10 +2240,13 @@ def exportar_lista_gremio(
         subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
         subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
 
+        layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
         # Query base
         query = db.query(ProductoERP, ProductoPricing).outerjoin(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
         )
+        query = join_color_layer(query, layer_activo)
 
         # Aplicar filtros
         query = _apply_search_filter(query, search)
@@ -2295,21 +2262,8 @@ def exportar_lista_gremio(
             subcat_list = [int(s.strip()) for s in subcategorias.split(",")]
             query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
 
-        if colores:
-            colores_list = colores.split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
-                            ProductoPricing.color_marcado_tienda.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+        # Filtro de colores (vista tienda, lee del layer de equipo activo)
+        query = filtro_colores(query, colores, color_slot("tienda"))
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
@@ -2432,6 +2386,7 @@ def exportar_lista_sugerido(
     con_precio_sugerido: Optional[bool] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -2470,10 +2425,13 @@ def exportar_lista_sugerido(
         subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
         subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
 
+        layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
         # Query base
         query = db.query(ProductoERP, ProductoPricing).outerjoin(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
         )
+        query = join_color_layer(query, layer_activo)
 
         # Aplicar filtros
         query = _apply_search_filter(query, search)
@@ -2489,21 +2447,8 @@ def exportar_lista_sugerido(
             subcat_list = [int(s.strip()) for s in subcategorias.split(",")]
             query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
 
-        if colores:
-            colores_list = colores.split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
-                            ProductoPricing.color_marcado_tienda.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+        # Filtro de colores (vista tienda, lee del layer de equipo activo)
+        query = filtro_colores(query, colores, color_slot("tienda"))
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
@@ -2638,6 +2583,7 @@ def exportar_lista_web_transferencia(
     colores: Optional[str] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,  # Offset para el tipo de cambio
+    equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -2661,6 +2607,8 @@ def exportar_lista_web_transferencia(
         subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
         subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
 
+        layer_activo = resolver_layer_activo(equipo_id, current_user, db)
+
         # Query base: solo productos con web transferencia activa y precio definido
         query = (
             db.query(ProductoERP, ProductoPricing)
@@ -2670,6 +2618,7 @@ def exportar_lista_web_transferencia(
                 ProductoPricing.precio_web_transferencia.isnot(None),
             )
         )
+        query = join_color_layer(query, layer_activo)
 
         # Aplicar filtros
         query = _apply_search_filter(query, search)
@@ -2685,21 +2634,8 @@ def exportar_lista_web_transferencia(
             subcat_list = [int(s.strip()) for s in subcategorias.split(",")]
             query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
 
-        if colores:
-            colores_list = colores.split(",")
-            if "sin_color" in colores_list:
-                colores_con_valor = [c for c in colores_list if c != "sin_color"]
-                if colores_con_valor:
-                    query = query.filter(
-                        or_(
-                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
-                            ProductoPricing.color_marcado_tienda.is_(None),
-                        )
-                    )
-                else:
-                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
-            else:
-                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+        # Filtro de colores (vista tienda, lee del layer de equipo activo)
+        query = filtro_colores(query, colores, color_slot("tienda"))
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()

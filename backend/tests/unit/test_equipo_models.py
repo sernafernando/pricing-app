@@ -68,10 +68,9 @@ class TestRolEquipoEnum:
 
 class TestEquipoModel:
     def test_insert_global_equipo(self, db) -> None:
-        equipo = Equipo(nombre="Global", es_global=True)
-        db.add(equipo)
-        db.flush()
-
+        # The `db` fixture already seeds the singleton global equipo (see
+        # tests/conftest.py `_ensure_global_equipo`, mirroring the real
+        # migration backfill), so this just verifies it's queryable as expected.
         retrieved = db.query(Equipo).filter_by(nombre="Global").first()
         assert retrieved is not None
         assert retrieved.es_global is True
@@ -126,7 +125,9 @@ class TestProductoColorUniqueConstraint:
 
 class TestRelationships:
     def test_equipo_with_members_and_colors_resolves_relationships(self, db) -> None:
-        equipo = Equipo(nombre="Global", es_global=True)
+        # Uses a non-global team: the `db` fixture already seeds the
+        # singleton global equipo, and es_global has a UNIQUE-WHERE constraint.
+        equipo = Equipo(nombre="Equipo Relaciones", es_global=False)
         db.add(equipo)
         db.flush()
 
