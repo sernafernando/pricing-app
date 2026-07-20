@@ -127,7 +127,10 @@ def listar_marcas(
         else:
             query = query.filter(or_(ProductoPricing.out_of_cards == False, ProductoPricing.out_of_cards.is_(None)))
 
-    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared).
+    # NOTE: unlike the legacy pre-teams filter here (which had no "sin_color" sentinel),
+    # filtro_colores supports it. This is an intentional consistency fix: the sidebar
+    # color filter now behaves identically across all listing/metadata endpoints.
     query = filtro_colores(query, colores, color_slot(None))
 
     if markup_clasica_positivo is not None:
@@ -256,7 +259,10 @@ def listar_subcategorias(
         else:
             query = query.filter(or_(ProductoPricing.out_of_cards == False, ProductoPricing.out_of_cards.is_(None)))
 
-    # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
+    # Filtro de colores (lee del layer de equipo activo, ver productos_shared).
+    # NOTE: unlike the legacy pre-teams filter here (which had no "sin_color" sentinel),
+    # filtro_colores supports it. This is an intentional consistency fix: the sidebar
+    # color filter now behaves identically across all listing/metadata endpoints.
     query = filtro_colores(query, colores, color_slot(None))
 
     if markup_clasica_positivo is not None:
