@@ -769,7 +769,7 @@ export default function MLQuestions() {
                       </button>
                     )}
                     <div className="table-container-tesla">
-                      <table className="table-tesla striped">
+                      <table className={`table-tesla striped ${styles.resizableTable}`}>
                         <colgroup>
                           <col className={styles.colDate} />
                           <col
@@ -971,7 +971,7 @@ export default function MLQuestions() {
           )}
 
           <div className="table-container-tesla">
-            <table className="table-tesla striped">
+            <table className={`table-tesla striped ${styles.resizableTable}`}>
               <colgroup>
                 <col
                   className={styles.colQuestion}
@@ -1220,7 +1220,7 @@ export default function MLQuestions() {
           )}
 
           <div className="table-container-tesla">
-            <table className="table-tesla">
+            <table className={`table-tesla ${styles.resizableTable}`}>
               <colgroup>
                 <col className={styles.colComprador} />
                 <col

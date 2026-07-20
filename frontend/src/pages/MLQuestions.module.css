@@ -157,39 +157,57 @@
    columns get an inline style on the <col>, un-resized columns keep the
    responsive clamp() default via the .colX classes below.
    `table-tesla.css` itself is never touched — only this page's rules. */
-.container :global(.table-tesla) {
+/* Scoped to the three resizable tables ONLY (marked with .resizableTable in the
+   JSX) — never the config/examples tables. The table sizes to the SUM of its
+   column widths so each column resizes independently; when that sum exceeds the
+   container, the shared .table-container-tesla (overflow-x: auto) provides the
+   horizontal scrollbar. Deliberately NO min-width:100% — under table-layout:fixed
+   that forces the browser to redistribute width across columns, which silently
+   cancels out an individual column's resize (drag appears to do nothing). */
+.resizableTable {
   table-layout: fixed;
   width: max-content;
-  min-width: 100%;
 }
 
-.container :global(.table-container-tesla) {
-  overflow-x: auto;
-}
-
-/* Resize handle: absolutely positioned on the right edge of a resizable
-   header; the header needs relative positioning as an anchor. */
+/* Resize handle: a wide invisible grab area straddling the column boundary,
+   with a PERSISTENT thin guide line so users can see where to drag. */
 .resizableHeader {
   position: relative;
 }
 
 .resizeHandle {
   position: absolute;
-  right: 0;
+  right: -4px;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: 9px;
   cursor: col-resize;
   background: transparent;
+  z-index: 2;
+  touch-action: none;
 }
 
-.resizeHandle:hover {
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
   background: var(--cf-border-default);
+  border-radius: 1px;
+}
+
+.resizeHandle:hover::after,
+.resizeHandle:focus-visible::after {
+  top: 0;
+  bottom: 0;
+  background: var(--cf-accent-blue);
 }
 
 .resizeHandle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--cf-accent-blue);
 }
 
 .resetWidthsBtn {
