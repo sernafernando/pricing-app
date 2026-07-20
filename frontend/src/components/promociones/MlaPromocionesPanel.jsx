@@ -74,18 +74,20 @@ function formatDateRange(startDate, finishDate) {
 function MlaPromocionesPanel({ mla, promosCacheRef }) {
   const fetcher = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
   const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
-  const reloadTimerRef = useRef(null);
+  // Server owns all refresh work (immediate + a ~60s retry-queue drain) after
+  // our own enroll/remove write — the panel never calls a refresh endpoint,
+  // it only re-reads the server-freshened mirror at two points: ~5s (fast
+  // SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the server's ~60s
+  // retry drains for slower SMART reconciliation).
+  const reloadTimersRef = useRef([]);
   const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
 
-  useEffect(
-    () => () => {
-      if (reloadTimerRef.current) {
-        clearTimeout(reloadTimerRef.current);
-        reloadTimerRef.current = null;
-      }
-    },
-    [],
-  );
+  const clearReloadTimers = useCallback(() => {
+    reloadTimersRef.current.forEach((timerId) => clearTimeout(timerId));
+    reloadTimersRef.current = [];
+  }, []);
+
+  useEffect(() => () => clearReloadTimers(), [clearReloadTimers]);
 
   if (loading) {
     return <div className={styles.panelState}>Cargando promociones...</div>;
@@ -172,19 +174,19 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                 mla={mla}
                 promotion={promo}
                 onApplied={() => {
-                  // Invalidate the L2 cache so a manual/later refresh re-reads;
-                  // do NOT assert the final state from this reload alone
-                  // (eventual consistency — the table stays the source of truth).
-                  // Clear any prior pending timer before scheduling a new one, and
-                  // clear on unmount so we never call reload() after the panel
-                  // (and the underlying setState) is gone.
-                  if (reloadTimerRef.current) {
-                    clearTimeout(reloadTimerRef.current);
-                  }
-                  reloadTimerRef.current = setTimeout(() => {
-                    reloadTimerRef.current = null;
-                    reload();
-                  }, 4000);
+                  // Do NOT assert the final state from either reload alone
+                  // (eventual consistency — the table stays the source of
+                  // truth). The FE never calls a refresh endpoint itself —
+                  // the server refreshes the mirror (immediate + ~60s retry);
+                  // we just re-read it at ~5s and ~65s. Clear any prior
+                  // pending timers before scheduling new ones, and clear on
+                  // unmount so we never call reload() after the panel (and
+                  // the underlying setState) is gone.
+                  clearReloadTimers();
+                  reloadTimersRef.current = [
+                    setTimeout(() => reload(), 5000),
+                    setTimeout(() => reload(), 65000),
+                  ];
                 }}
               />
             )}

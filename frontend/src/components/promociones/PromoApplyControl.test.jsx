@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent as fireEventClick } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromoApplyControl from './PromoApplyControl';
 import { promocionesAPI } from '../../services/api';
@@ -407,7 +407,14 @@ describe('PromoApplyControl', () => {
       expect(screen.getByRole('button', { name: /desaplicando/i })).toBeDisabled();
 
       resolveDelete({ data: { status: 'submitted' } });
-      await waitFor(() => expect(screen.queryByText(/desaplicando/i)).not.toBeInTheDocument());
+      // The disabled submitting-phase button is gone once done; a distinct
+      // (non-button) provisional indicator takes its place until the panel
+      // reloads and confirms the new state — see the dedicated describe
+      // block below for its contract.
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: /desaplicando/i })).not.toBeInTheDocument(),
+      );
+      expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument();
     });
 
     it('shows submitted feedback for a remove without claiming confirmed success', async () => {
@@ -625,6 +632,100 @@ describe('PromoApplyControl', () => {
 
       await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
       expect(screen.queryByLabelText(/precio/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('provisional "Aplicando…/Desaplicando…" indicator (eventual-consistency-safe)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('shows a distinct provisional badge after a submitted apply is confirmed — not the "Aplicada" badge', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={dealPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+      await waitFor(() => expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument());
+      expect(screen.getByTestId('provisional-indicator')).toHaveTextContent(/aplicando/i);
+      // The provisional indicator is NOT the confirmed "Aplicada" badge — that
+      // one lives in MlaPromocionesPanel, driven only by application_status.
+      expect(screen.queryByText(/^aplicada$/i)).not.toBeInTheDocument();
+    });
+
+    it('shows a distinct provisional badge after a submitted remove is confirmed', async () => {
+      const user = userEvent.setup();
+      const startedPromo = { ...dealPromo(), status: 'started' };
+      promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+      render(<PromoApplyControl mla="MLA1" promotion={startedPromo} />);
+
+      await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+      await waitFor(() => expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument());
+      expect(screen.getByTestId('provisional-indicator')).toHaveTextContent(/desaplicando/i);
+    });
+
+    it('does NOT show the provisional indicator for a non-state-changing outcome (e.g. rejected)', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'rejected_out_of_range' } });
+      render(<PromoApplyControl mla="MLA1" promotion={dealPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+      await waitFor(() => expect(screen.getByText(/precio fuera de rango/i)).toBeInTheDocument());
+      expect(screen.queryByTestId('provisional-indicator')).not.toBeInTheDocument();
+    });
+
+    it('clears the provisional indicator when reloaded props reflect the new confirmed state', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      const { rerender } = render(<PromoApplyControl mla="MLA1" promotion={dealPromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+      await waitFor(() => expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument());
+
+      // Panel reloaded and now passes a promotion prop reflecting the new
+      // confirmed status — the provisional local indicator must clear.
+      rerender(
+        <PromoApplyControl
+          mla="MLA1"
+          promotion={{ ...dealPromo(), status: 'started', application_status: 'active' }}
+        />,
+      );
+
+      await waitFor(() => expect(screen.queryByTestId('provisional-indicator')).not.toBeInTheDocument());
+    });
+
+    it('clears the provisional indicator via a ~90s safety timeout even if the table never reflects it', async () => {
+      vi.useFakeTimers();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+      render(<PromoApplyControl mla="MLA1" promotion={dealPromo()} />);
+
+      fireEventClick.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      fireEventClick.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(89999);
+      });
+      expect(screen.getByTestId('provisional-indicator')).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.queryByTestId('provisional-indicator')).not.toBeInTheDocument();
     });
   });
 });

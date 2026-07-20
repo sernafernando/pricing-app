@@ -633,7 +633,7 @@ describe('MlaPromocionesPanel', () => {
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call reload/getPromocionesItem again after unmounting before the 4s post-apply reload fires', async () => {
+  it('does not call reload/getPromocionesItem again after unmounting before either post-apply reload fires (~5s, ~65s)', async () => {
     vi.useFakeTimers();
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -656,7 +656,7 @@ describe('MlaPromocionesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
 
     // Flush the microtask that resolves postPromocionItem and schedules the
-    // 4s reload timer before unmounting.
+    // two reload timers before unmounting.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -667,13 +667,73 @@ describe('MlaPromocionesPanel', () => {
     unmount();
 
     act(() => {
-      vi.advanceTimersByTime(4000);
+      vi.advanceTimersByTime(65000);
     });
 
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
     expect(consoleError).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('schedules TWO reloads after a state-changing apply: ~5s (fast) and ~65s (slow/retry), and never calls a FE refresh endpoint', async () => {
+    vi.useFakeTimers();
+
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+
+    renderPanel();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+
+    // Nothing before ~5s.
+    await act(async () => {
+      vi.advanceTimersByTime(4999);
+    });
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+
+    // First reload fires at ~5s.
+    await act(async () => {
+      vi.advanceTimersByTime(2);
+      await Promise.resolve();
+    });
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
+
+    // Nothing new until ~65s.
+    await act(async () => {
+      vi.advanceTimersByTime(59000);
+    });
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
+
+    // Second reload fires at ~65s total.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(3);
+
+    // The FE never calls a refresh endpoint itself — server owns refresh.
+    expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalledWith(expect.stringContaining('/refresh'));
+    const calledUrls = Object.values(promocionesAPI)
+      .flatMap((fn) => (fn.mock ? fn.mock.calls : []))
+      .flat();
+    expect(calledUrls.some((arg) => typeof arg === 'string' && arg.includes('refresh'))).toBe(false);
+
     vi.useRealTimers();
   });
 

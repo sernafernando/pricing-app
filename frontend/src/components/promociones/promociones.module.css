@@ -316,6 +316,22 @@
   color: var(--text-secondary);
 }
 
+/* Local, provisional-only indicator shown right after a state-changing
+   apply/remove is confirmed, while we wait for the server to refresh the
+   mirror. Deliberately NOT a solid pill like .badgeApplied — dashed border +
+   muted tone keeps it visually distinct from the confirmed table-derived
+   badges (.badgeApplied/.badgeProgrammed/.badgePending), which this control
+   never sets. */
+.provisionalPending {
+  display: inline-block;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-secondary);
+  border-radius: 6px;
+  padding: 1px 8px;
+}
+
 .feedbackSuccess {
   font-size: 12px;
   color: var(--success, var(--text-primary));
