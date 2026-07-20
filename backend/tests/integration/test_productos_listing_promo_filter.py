@@ -72,9 +72,7 @@ class TestPromoTiposAbsentIsNoOp:
         db.commit()
         _patch_tienda_nube(db)
 
-        with patch(
-            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type"
-        ) as mock_helper:
+        with patch("app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type") as mock_helper:
             result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50)
 
         mock_helper.assert_not_called()
@@ -91,12 +89,8 @@ class TestPromoTiposAbsentIsNoOp:
         db.commit()
         _patch_tienda_nube(db)
 
-        with patch(
-            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type"
-        ) as mock_helper:
-            result = listar_productos(
-                db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="  ,  "
-            )
+        with patch("app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type") as mock_helper:
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="  ,  ")
 
         mock_helper.assert_not_called()
         assert result.total == 2
@@ -141,9 +135,7 @@ class TestFoldBeforeCount:
             "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
             return_value={"MLA1"},
         ):
-            result = listar_productos(
-                db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="SMART"
-            )
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="SMART")
 
         assert result.total == 1
         assert [p.item_id for p in result.productos] == [1]
@@ -267,9 +259,7 @@ class TestWebhookFailure:
             side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                listar_productos(
-                    db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="SMART"
-                )
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, promo_tipos="SMART")
 
         assert exc_info.value.status_code == 503
 
@@ -282,7 +272,401 @@ class TestWebhookFailure:
             "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
             side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
         ) as mock_helper:
-            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50)
+            listar_productos(db=db, current_user=_current_user(), page=1, page_size=50)
 
         mock_helper.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# feature productos-search-mla-promo-operators (PR1, backend slice)
+# ---------------------------------------------------------------------------
+
+
+class TestMlaOperatorLocalFold:
+    """`mla:VALUE` and bare-MLA autodetect — local join via PublicacionML,
+    NO cross-DB call, never 503s on webhook outage."""
+
+    def test_explicit_mla_operator_matches_owning_product(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.add(PublicacionML(mla="MLA123", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla:MLA123")
+
         assert result.total == 1
+        assert [p.item_id for p in result.productos] == [1]
+
+    def test_unknown_mla_returns_empty_not_full_catalog(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA123", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla:MLA999999")
+
+        assert result.total == 0
+        assert result.productos == []
+
+    def test_bare_mla_autodetects(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA123456", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="MLA123456")
+
+        assert result.total == 1
+        assert [p.item_id for p in result.productos] == [1]
+
+    def test_bare_mla_lowercase_autodetects_case_insensitively(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA123456", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla123456")
+
+        assert result.total == 1
+        assert [p.item_id for p in result.productos] == [1]
+
+    def test_partial_looking_mla_text_does_not_autodetect(self, db) -> None:
+        db.add(_make_producto(1, marca="MLAX"))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        # "MLAX" does not match ^MLA\d+$ -> falls through to normal text
+        # search, matches marca="MLAX".
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="MLAX")
+
+        assert result.total == 1
+
+    def test_mla_alone_does_not_autodetect(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        # "mla" alone does not match ^MLA\d+$ and has no colon -> falls
+        # through to normal text search (no match against any product).
+        result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla")
+
+        assert result.total == 0
+
+    def test_mla_operator_does_not_call_cross_db_helper(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA123", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch("app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type") as mock_helper:
+            listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla:MLA123")
+
+        mock_helper.assert_not_called()
+
+    def test_mla_operator_unaffected_by_webhook_outage(self, db) -> None:
+        """mla: is local-only — must NOT 503 even if the cross-DB helper
+        would fail, since it's never called for a pure mla: search."""
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA123", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+        ):
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="mla:MLA123")
+
+        assert result.total == 1
+
+
+class TestPromoOperatorResolve:
+    """`promo:VALUE` — type branch (KNOWN_PROMOTION_TYPES) vs name branch
+    (fetch_mlas_by_promo_name), fold-before-count, empty-set guard, 503 on
+    failure."""
+
+    def test_known_type_calls_active_promo_type_helper(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with (
+            patch(
+                "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+                return_value={"MLA1"},
+            ) as mock_type_helper,
+            patch("app.api.endpoints.productos_listing.fetch_mlas_by_promo_name") as mock_name_helper,
+        ):
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:DEAL")
+
+        mock_type_helper.assert_called_once_with(["DEAL"], applied_only=False)
+        mock_name_helper.assert_not_called()
+        assert result.total == 1
+
+    def test_known_type_case_insensitive(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            return_value={"MLA1"},
+        ) as mock_type_helper:
+            listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:smart")
+
+        mock_type_helper.assert_called_once_with(["SMART"], applied_only=False)
+
+    def test_unknown_value_calls_name_helper(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with (
+            patch("app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type") as mock_type_helper,
+            patch(
+                "app.api.endpoints.productos_listing.fetch_mlas_by_promo_name",
+                return_value={"MLA1"},
+            ) as mock_name_helper,
+        ):
+            result = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:FORZA")
+
+        mock_name_helper.assert_called_once_with("FORZA")
+        mock_type_helper.assert_not_called()
+        assert result.total == 1
+
+    def test_empty_helper_result_yields_empty_page(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_by_promo_name",
+            return_value=set(),
+        ):
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, search="promo:ZZZNOTHING"
+            )
+
+        assert result.total == 0
+        assert result.productos == []
+
+    def test_helper_failure_raises_503(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, search="promo:DEAL")
+
+        assert exc_info.value.status_code == 503
+
+    def test_ands_with_existing_promo_tipos_filter(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.add(PublicacionML(mla="MLA2", item_id=2, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            side_effect=lambda types, applied_only=False: (
+                {"MLA1", "MLA2"} if types == ["SELLER_CAMPAIGN"] else {"MLA1"}
+            ),
+        ):
+            result = listar_productos(
+                db=db,
+                current_user=_current_user(),
+                page=1,
+                page_size=50,
+                promo_tipos="SELLER_CAMPAIGN",
+                search="promo:DEAL",
+            )
+
+        assert result.total == 1
+        assert result.productos[0].item_id == 1
+
+    def test_ands_with_brand_filter(self, db) -> None:
+        db.add(_make_producto(1, marca="Epson"))
+        db.add(_make_producto(2, marca="Canon"))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.add(PublicacionML(mla="MLA2", item_id=2, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            return_value={"MLA1", "MLA2"},
+        ):
+            result = listar_productos(
+                db=db,
+                current_user=_current_user(),
+                page=1,
+                page_size=50,
+                marcas="Epson",
+                search="promo:DEAL",
+            )
+
+        assert result.total == 1
+        assert result.productos[0].item_id == 1
+
+
+class TestConPromoAplicada:
+    """`con_promo_aplicada=true` — products with at least one started promo."""
+
+    def test_only_started_promo_products_included(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.add(PublicacionML(mla="MLA2", item_id=2, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+            return_value={"MLA1"},
+        ):
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, con_promo_aplicada=True
+            )
+
+        assert result.total == 1
+        assert result.productos[0].item_id == 1
+
+    def test_empty_helper_result_yields_empty_page(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+            return_value=set(),
+        ):
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, con_promo_aplicada=True
+            )
+
+        assert result.total == 0
+
+    def test_helper_failure_raises_503(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+            side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, con_promo_aplicada=True)
+
+        assert exc_info.value.status_code == 503
+
+    def test_absent_param_does_not_call_helper(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch("app.api.endpoints.productos_listing.fetch_mlas_with_started") as mock_helper:
+            listar_productos(db=db, current_user=_current_user(), page=1, page_size=50)
+
+        mock_helper.assert_not_called()
+
+
+class TestConPromoSinAplicar:
+    """`con_promo_sin_aplicar=true` — products with >=1 candidate promo AND
+    zero started promos (compound exclusion: a product with both is
+    excluded)."""
+
+    def test_candidate_only_product_included(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            return_value={"MLA1"},
+        ):
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, con_promo_sin_aplicar=True
+            )
+
+        assert result.total == 1
+        assert result.productos[0].item_id == 1
+
+    def test_product_with_started_excluded_even_with_candidate(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        # The helper itself excludes MLA1 (has a started promo, per its own
+        # compound HAVING semantics tested at the unit level) -> empty set
+        # here means the endpoint must NOT include item 1.
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            return_value=set(),
+        ):
+            result = listar_productos(
+                db=db, current_user=_current_user(), page=1, page_size=50, con_promo_sin_aplicar=True
+            )
+
+        assert result.total == 0
+
+    def test_helper_failure_raises_503(self, db) -> None:
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+            side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, con_promo_sin_aplicar=True)
+
+        assert exc_info.value.status_code == 503
+
+
+class TestConPromoAplicadaAndSinAplicarTogether:
+    def test_both_true_yields_empty_result_for_disjoint_sets(self, db) -> None:
+        db.add(_make_producto(1))
+        db.add(_make_producto(2))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.add(PublicacionML(mla="MLA2", item_id=2, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        # Real data is disjoint by construction (a started MLA cannot also
+        # be "candidate and zero started"): product 1 has only a started
+        # promo, product 2 has only a candidate promo -> the AND of the two
+        # filters matches neither.
+        with (
+            patch(
+                "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+                return_value={"MLA1"},
+            ),
+            patch(
+                "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_not_started",
+                return_value={"MLA2"},
+            ),
+        ):
+            result = listar_productos(
+                db=db,
+                current_user=_current_user(),
+                page=1,
+                page_size=50,
+                con_promo_aplicada=True,
+                con_promo_sin_aplicar=True,
+            )
+
+        assert result.total == 0

@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
@@ -10,7 +12,13 @@ from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
-from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+from app.services.ml_promotions_service import (
+    KNOWN_PROMOTION_TYPES,
+    fetch_mlas_by_promo_name,
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_not_started,
+    fetch_mlas_with_started,
+)
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
@@ -66,6 +74,8 @@ def listar_productos(
     tienda_oficial: Optional[str] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -187,13 +197,22 @@ def listar_productos(
         else:
             return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
 
+    mla_search_value: Optional[str] = None
+    promo_search_value: Optional[str] = None
+
     if search:
         # Parsear operadores de búsqueda
         search_filter = None
         logger.debug(f"Búsqueda recibida: '{search}'")
 
+        # Autodetectar MLA pegado sin operador (ej: "MLA123456789"), máxima
+        # precedencia porque no tiene ":" y de lo contrario caería en
+        # búsqueda de texto normal (feature productos-search-mla-promo-operators).
+        if re.match(r"^MLA\d+$", search.strip(), re.IGNORECASE):
+            mla_search_value = search.strip().upper()
+
         # Detectar búsquedas literales: campo:valor
-        if ":" in search and not search.startswith("*") and not search.endswith("*"):
+        elif ":" in search and not search.startswith("*") and not search.endswith("*"):
             parts = search.split(":", 1)
             if len(parts) == 2:
                 field, value = parts[0].strip().lower(), parts[1].strip()
@@ -229,6 +248,16 @@ def listar_productos(
                             f"%{value_normalized}%"
                         ),
                     )
+                elif field == "mla":
+                    # Operador explícito mla: (feature productos-search-mla-promo-operators).
+                    # Extracción pura, el fold local ocurre más abajo.
+                    mla_search_value = value.strip().upper()
+                elif field == "promo":
+                    # Operador explícito promo: (feature productos-search-mla-promo-operators).
+                    # Extracción pura, SIN I/O: el resolve cross-DB (tipo vs
+                    # nombre) ocurre en un bloque separado más abajo, junto
+                    # al filtro promo_tipos existente.
+                    promo_search_value = value.strip()
                 else:
                     # Si el campo no es reconocido, hacer búsqueda normal con el texto completo
                     search_normalized = search.replace("-", "").replace(" ", "").upper()
@@ -277,8 +306,21 @@ def listar_productos(
         if search_filter is not None:
             logger.debug("Aplicando filtro de búsqueda")
             query = query.filter(search_filter)
-        else:
+        elif mla_search_value is None:
             logger.warning("⚠️ search_filter quedó en None! No se aplicó ningún filtro")
+
+        # Fold local de mla: (feature productos-search-mla-promo-operators):
+        # join same-DB via PublicacionML.mla, ZERO cross-DB I/O, nunca 503 por
+        # caída del webhook. Un MLA desconocido produce IN(<vacío>) -> cero
+        # resultados de forma natural (sin necesitar sa_false() explícito).
+        if mla_search_value:
+            mla_item_ids_subquery = (
+                db.query(PublicacionML.item_id)
+                .filter(PublicacionML.mla == mla_search_value)
+                .distinct()
+                .scalar_subquery()
+            )
+            query = query.filter(ProductoERP.item_id.in_(mla_item_ids_subquery))
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
@@ -449,6 +491,83 @@ def listar_productos(
                 # EMPTY-SET GUARD: types selected but zero matching MLAs => zero
                 # products, NOT "skip the filter" (would leak the full catalog).
                 query = query.filter(sa_false())
+
+    # Operador promo: del buscador (feature productos-search-mla-promo-operators,
+    # cross-DB: mlwebhook -> pricing). Convive con promo_tipos (AND natural,
+    # ambos aplican .filter() por separado).
+    if promo_search_value:
+        try:
+            if promo_search_value.upper() in KNOWN_PROMOTION_TYPES:
+                mlas_con_promo_search = fetch_mlas_with_active_promo_type(
+                    [promo_search_value.upper()], applied_only=False
+                )
+            else:
+                mlas_con_promo_search = fetch_mlas_by_promo_name(promo_search_value)
+        except Exception as exc:
+            logger.warning("Operador promo: no disponible: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Filtro de promociones no disponible temporalmente",
+            )
+
+        if mlas_con_promo_search:
+            items_con_promo_search_subquery = (
+                db.query(PublicacionML.item_id)
+                .filter(PublicacionML.mla.in_(mlas_con_promo_search))
+                .distinct()
+                .scalar_subquery()
+            )
+            query = query.filter(ProductoERP.item_id.in_(items_con_promo_search_subquery))
+        else:
+            # EMPTY-SET GUARD: valor buscado no matchea ningún tipo/nombre =>
+            # cero productos, NOT el catálogo completo.
+            query = query.filter(sa_false())
+
+    # Filtro con_promo_aplicada: al menos una promo en status 'started'
+    # (cualquier promotion_type). Mismo shape que el bloque promo: (ADR-5).
+    if con_promo_aplicada:
+        try:
+            mlas_con_promo_aplicada = fetch_mlas_with_started()
+        except Exception as exc:
+            logger.warning("Filtro con_promo_aplicada no disponible: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Filtro de promociones no disponible temporalmente",
+            )
+
+        if mlas_con_promo_aplicada:
+            items_con_promo_aplicada_subquery = (
+                db.query(PublicacionML.item_id)
+                .filter(PublicacionML.mla.in_(mlas_con_promo_aplicada))
+                .distinct()
+                .scalar_subquery()
+            )
+            query = query.filter(ProductoERP.item_id.in_(items_con_promo_aplicada_subquery))
+        else:
+            query = query.filter(sa_false())
+
+    # Filtro con_promo_sin_aplicar: al menos una promo 'candidate' Y cero
+    # 'started'. Mismo shape que el bloque promo: (ADR-5).
+    if con_promo_sin_aplicar:
+        try:
+            mlas_con_promo_sin_aplicar = fetch_mlas_with_candidate_not_started()
+        except Exception as exc:
+            logger.warning("Filtro con_promo_sin_aplicar no disponible: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Filtro de promociones no disponible temporalmente",
+            )
+
+        if mlas_con_promo_sin_aplicar:
+            items_con_promo_sin_aplicar_subquery = (
+                db.query(PublicacionML.item_id)
+                .filter(PublicacionML.mla.in_(mlas_con_promo_sin_aplicar))
+                .distinct()
+                .scalar_subquery()
+            )
+            query = query.filter(ProductoERP.item_id.in_(items_con_promo_sin_aplicar_subquery))
+        else:
+            query = query.filter(sa_false())
 
     # Filtro de colores
     if colores:
