@@ -35,10 +35,18 @@ describe('productosAPI.getProductoMercadolibre / promocionesAPI.getPromocionesIt
     expect(mockGet).toHaveBeenCalledWith('/productos/ITEM001/mercadolibre');
   });
 
-  it('getProductoMercadolibreLite calls GET /productos/{item_id}/mercadolibre?lite=true', async () => {
+  it('getProductoMercadolibreLite calls GET /productos/{item_id}/mercadolibre with lite=true', async () => {
     const { productosAPI } = await import('./api');
     productosAPI.getProductoMercadolibreLite('ITEM001');
-    expect(mockGet).toHaveBeenCalledWith('/productos/ITEM001/mercadolibre?lite=true');
+    expect(mockGet).toHaveBeenCalledWith('/productos/ITEM001/mercadolibre', { params: { lite: true } });
+  });
+
+  it('getProductoMercadolibreLite forwards active promo filter params (productos-promo-filter-per-mla)', async () => {
+    const { productosAPI } = await import('./api');
+    productosAPI.getProductoMercadolibreLite('ITEM001', { promo_tipos: 'SELLER_CAMPAIGN', promo_estado: 'aplicada' });
+    expect(mockGet).toHaveBeenCalledWith('/productos/ITEM001/mercadolibre', {
+      params: { lite: true, promo_tipos: 'SELLER_CAMPAIGN', promo_estado: 'aplicada' },
+    });
   });
 
   it('getPromocionesItem calls GET /promociones/item/{mla_id}', async () => {

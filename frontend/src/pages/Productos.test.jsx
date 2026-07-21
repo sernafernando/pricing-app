@@ -817,7 +817,7 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
     await user.click(screen.getByRole('button', { name: /expandir publicaciones de/i }));
 
     await waitFor(() => expect(screen.getByText('MLA999')).toBeInTheDocument());
-    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledWith('EXP1');
+    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledWith('EXP1', {});
 
     const detailRow = document.querySelector('tr[data-detail-row]');
     expect(detailRow).toBeInTheDocument();
