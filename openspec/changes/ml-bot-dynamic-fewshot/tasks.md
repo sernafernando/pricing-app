@@ -3,19 +3,21 @@
 Strict TDD: every task below implements RED (failing test first) → GREEN (minimal code) → refactor as needed. No task's code should be written before its test.
 
 ## 0. HARD GATE — prerequisite verification (BLOCKS task 1)
-- [ ] **0.1** Confirm `CREATE EXTENSION vector` privilege is available on the target Postgres instance (superuser/owner grant, or extension pre-installed by DBA). Verify by running `CREATE EXTENSION IF NOT EXISTS vector;` against a non-prod/staging copy of the DB, or obtaining explicit confirmation from whoever administers the prod Postgres instance.
+- [x] **0.1** Confirm `CREATE EXTENSION vector` privilege is available on the target Postgres instance (superuser/owner grant, or extension pre-installed by DBA). Verify by running `CREATE EXTENSION IF NOT EXISTS vector;` against a non-prod/staging copy of the DB, or obtaining explicit confirmation from whoever administers the prod Postgres instance.
   - Requirement: design ADR-2 (OPEN QUESTIONS — blocking).
   - Done when: written confirmation (or a successful dry-run) exists that the extension can be created on the deploy target. **`sdd-apply` MUST NOT start task 1 until this is confirmed.**
   - Parallel: none (blocks everything downstream).
+  - RESOLVED (PR1): pgvector 0.8.0 confirmed installed on `pricing_db`; `CREATE EXTENSION vector` succeeds.
 
 ## 1. Dependency + migration
-- [ ] **1.1** Add `pgvector` to `backend/requirements.txt`.
+- [x] **1.1** Add `pgvector` to `backend/requirements.txt`.
   - Requirement: spec Assumptions (pgvector prerequisite); design ADR-2.
   - Done when: `pgvector` pinned in requirements.txt, `pip install -r requirements.txt` succeeds locally.
   - Depends on: 0.1.
-- [ ] **1.2** (TEST FIRST) Write Alembic migration smoke test (or manual upgrade/downgrade check) asserting: `ml_bot_answer_history` table exists with expected columns/types after upgrade, HNSW index exists, `downgrade()` cleanly drops table+index. If CI runs on sqlite, mark this test `@pytest.mark.skipif` on non-Postgres dialect (see task 8) but still write it now.
+- [x] **1.2** (TEST FIRST) Write Alembic migration smoke test (or manual upgrade/downgrade check) asserting: `ml_bot_answer_history` table exists with expected columns/types after upgrade, HNSW index exists, `downgrade()` cleanly drops table+index. If CI runs on sqlite, mark this test `@pytest.mark.skipif` on non-Postgres dialect (see task 8) but still write it now.
   - Requirement: spec Requirement 1; design ADR-2.
-- [ ] **1.3** Create `backend/alembic/versions/YYYYMMDD_ml_bot_answer_history.py`:
+  - DONE: `tests/unit/test_ml_bot_answer_history_migration.py` — dialect-agnostic revision-graph checks (run on SQLite CI) + a `@pytest.mark.skipif`-gated live-Postgres table/HNSW-index existence check.
+- [x] **1.3** Create `backend/alembic/versions/YYYYMMDD_ml_bot_answer_history.py`:
   - `op.execute("CREATE EXTENSION IF NOT EXISTS vector")` first.
   - Create `ml_bot_answer_history` table: `id`, `question_text` (Text), `answer_text` (Text), `item_id` (String(32)), `edited_flag` (Bool), `category` (String(40), nullable), `embedding` (Vector(384), NOT NULL), `active` (Bool, default true), `created_at`.
   - `op.execute` HNSW index, `vector_cosine_ops`, `m=16`, `ef_construction=64`.
@@ -24,17 +26,20 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Done when: task 1.2 test passes against a real Postgres instance; `alembic upgrade head` / `alembic downgrade -1` both clean.
   - Depends on: 1.1, 1.2, 0.1.
   - Parallel: none (foundation for all following tasks).
+  - DONE: `alembic/versions/20260721_ml_bot_answer_history.py`, dialect-guarded on `op.get_bind().dialect.name` (Postgres: real extension + vector(384) + HNSW; SQLite: JSON placeholder column, no extension/index DDL — CI never runs this migration against SQLite anyway, kept dialect-safe for local/manual runs).
 
 ## 2. ORM model
-- [ ] **2.1** (TEST FIRST) Unit test for `MlBotAnswerHistory` model: table name, column types (esp. `Vector(384)` via `pgvector.sqlalchemy.Vector`), defaults (`active=True`), required-not-null on `embedding`.
+- [x] **2.1** (TEST FIRST) Unit test for `MlBotAnswerHistory` model: table name, column types (esp. `Vector(384)` via `pgvector.sqlalchemy.Vector`), defaults (`active=True`), required-not-null on `embedding`.
   - Requirement: spec Requirement 1; design ADR-2.
-- [ ] **2.2** Create `backend/app/models/ml_bot_answer_history.py` — SQLAlchemy model matching migration schema exactly, `from pgvector.sqlalchemy import Vector`.
+  - DONE: `tests/unit/test_ml_bot_answer_history_model.py`.
+- [x] **2.2** Create `backend/app/models/ml_bot_answer_history.py` — SQLAlchemy model matching migration schema exactly, `from pgvector.sqlalchemy import Vector`.
   - Done when: 2.1 passes; model registered/importable from wherever other ml_bot models are declared/imported (mirror existing pattern for `ml_bot_answer_examples`).
   - Depends on: 1.3.
   - Parallel: can run alongside task 3 (independent files).
+  - DONE: `app/models/ml_bot_answer_history.py`. Also patched `tests/conftest.py`'s `_PG_TYPE_MAP` (`Vector -> JSON(none_as_null=True)`) so `Base.metadata.create_all` still builds cleanly on the SQLite test DB, mirroring the existing JSONB/UUID remap pattern.
 
 ## 3. Embedding client
-- [ ] **3.1** (TEST FIRST) Tests for `embedding_client.py` using mocked `httpx.AsyncClient`:
+- [x] **3.1** (TEST FIRST) Tests for `embedding_client.py` using mocked `httpx.AsyncClient`:
   - `embed_query` applies `"query: "` prefix; `embed_passage` applies `"passage: "` prefix.
   - Defensive truncation kicks in above the ~2000-char / 512-token heuristic before the request is sent.
   - Timeout → returns `None`, logged, no raise.
@@ -44,7 +49,8 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Base URL read from `ml_bot_config.embedder_url` (mock `policy.get_config`), default `http://192.168.1.231:8080`.
   - No DB session is opened anywhere in this module (assert via no session fixture needed / no import of db session in the client).
   - Requirement: spec Requirements 1 & 2 (embedding correctness); design ADR-1.
-- [ ] **3.2** Create `backend/app/services/ml_questions/embedding_client.py`:
+  - DONE: `tests/unit/test_ml_bot_embedding_client.py` (14 tests).
+- [x] **3.2** Create `backend/app/services/ml_questions/embedding_client.py`:
   - `EmbeddingProvider` Protocol.
   - `TEIEmbeddingProvider` over `httpx.AsyncClient`, mirrors `OpenAICompatProvider` retry/error-contract shape.
   - `embed_query`, `embed_passage` → `Optional[list[float]]`; `embed_passages` → batch.
@@ -52,6 +58,9 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Done when: all 3.1 tests pass.
   - Depends on: none (independent of migration; can start immediately, parallel with tasks 1–2).
   - Parallel: yes, with tasks 1 and 2.
+  - DONE: `app/services/ml_questions/embedding_client.py`.
+
+**PR1 status (tasks 0–3): SHIPPED (this run).** Tasks 4–8 (capture, retrieval, drafting_service wiring, config keys, guardrail regression, CI docs) are PR2/PR3 — NOT started.
 
 ## 4. Capture at publish success
 - [ ] **4.1** (TEST FIRST) Tests for `_capture_answer_history` / publisher integration:
