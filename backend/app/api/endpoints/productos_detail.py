@@ -4,7 +4,10 @@ Productos - Detail endpoints.
 Handles product detail view, MercadoLibre data (lazy), and active offers.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, cast, Date
 from datetime import UTC, datetime, date, timedelta
@@ -13,7 +16,14 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costo_envio
-from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+from app.services.ml_promotions_service import (
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_only,
+    fetch_mlas_with_candidate_only_for_types,
+    fetch_mlas_with_started,
+    fetch_promo_summary_by_mla,
+)
+from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from fastapi.concurrency import run_in_threadpool
 
 import logging
@@ -159,6 +169,10 @@ async def obtener_datos_ml_producto(
     db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
     lite: bool = False,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
 ):
     """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)
 
@@ -168,7 +182,30 @@ async def obtener_datos_ml_producto(
     which never reads the live-enriched extras (precio_ml, catalog_product_id).
     Default (`lite=False`) preserves the full response for existing callers
     (e.g. ModalInfoProducto).
+
+    `promo_tipos`/`promo_estado`/`con_promo_aplicada`/`con_promo_sin_aplicar`
+    (feature productos-promo-filter-per-mla) mirror the Productos LISTADO's
+    promo filter params. When any is active, each publication in the response
+    gets a per-MLA `matches_filter: bool` field, computed via the SAME
+    `select_promo_resolver` dispatch as the list endpoint (single source of
+    truth — spec: "Single source of truth for MLA-set resolution"), bounded
+    by this product's own `mla_ids` (never the full account universe).
+
+    Fail-OPEN on cross-DB unavailability (UNLIKE the list endpoint's 503
+    fail-closed): `matches_filter` is left absent (shows all, degrades
+    gracefully) — consistent with this endpoint's existing enrichment
+    degradation pattern (e.g. `fetch_promo_summary_by_mla` above).
     """
+    # Validate promo_estado identically to the LISTADO endpoint so both call
+    # sites of select_promo_resolver reject the same inputs (single source of
+    # truth): an unrecognized value must 422, not silently degrade to
+    # `disponible` semantics via the resolver's `applied_only` fallback.
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
+        raise HTTPException(
+            status_code=422,
+            detail="promo_estado inválido: debe ser 'disponible', 'aplicada' o 'sin_aplicar'",
+        )
+
     from app.models.publicacion_ml import PublicacionML
     from app.services.ml_webhook_client import ml_webhook_client
     from sqlalchemy import text
@@ -209,6 +246,34 @@ async def obtener_datos_ml_producto(
                 publicaciones_dict[mla]["promo_active_count"] = summary.get("active_count", 0)
                 publicaciones_dict[mla]["promo_has_applied"] = summary.get("has_applied", False)
                 publicaciones_dict[mla]["promo_applied_name"] = summary.get("applied_name")
+
+    # matches_filter por publicación (feature productos-promo-filter-per-mla):
+    # reusa select_promo_resolver (mismo dispatch que el LISTADO) acotado a
+    # las mla_ids de ESTE producto. Fail-OPEN: cualquier falla del cross-DB
+    # deja matches_filter ausente (nunca 503, nunca oculta publicaciones).
+    tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
+    resolver_entry = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos_list or None,
+        promo_estado,
+        con_promo_aplicada,
+        con_promo_sin_aplicar,
+        mla_ids=mla_ids or None,
+    )
+    if resolver_entry and mla_ids:
+        resolver, log_context = resolver_entry
+        try:
+            matching_mlas = await run_in_threadpool(resolver)
+        except (RuntimeError, SQLAlchemyError) as exc:
+            logger.warning("%s no disponible (lite matches_filter): %s", log_context, exc)
+        else:
+            for mla in mla_ids:
+                publicaciones_dict[mla]["matches_filter"] = mla in matching_mlas
 
     # Obtener precios de ML para estas publicaciones
     if mla_ids:

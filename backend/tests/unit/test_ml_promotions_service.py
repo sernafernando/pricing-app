@@ -1184,3 +1184,165 @@ class TestFetchMlasWithCandidateNotStartedTruthTable:
 
         executed_query = str(mock_conn.execute.call_args[0][0])
         assert "NOT bool_or(status = 'pending')" in executed_query
+
+
+class TestFetchMlasWithCandidateOnlyForTypes:
+    """fetch_mlas_with_candidate_only_for_types(promo_types) — type-scoped
+    variant of fetch_mlas_with_candidate_only, for the
+    `promo_tipos=[T]&promo_estado=sin_aplicar` cell (D1)."""
+
+    def test_empty_promo_types_returns_empty_set_without_query(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        mock_engine = MagicMock()
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_mlas_with_candidate_only_for_types([])
+
+        assert result == set()
+        mock_engine.connect.assert_not_called()
+
+    def test_rows_return_set_of_mla(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [("MLA111",), ("MLA222",)]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_mlas_with_candidate_only_for_types(["SMART"])
+
+        assert result == {"MLA111", "MLA222"}
+
+    def test_query_scopes_by_promotion_type_and_uses_having(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only_for_types(["SMART"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        normalized = " ".join(executed_query.split())
+        assert "promotion_type = ANY(:types)" in normalized
+        assert (
+            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
+            "AND NOT bool_or(status = 'pending')" in normalized
+        )
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params["types"] == ["SMART"]
+
+    def test_engine_failure_propagates(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            mock_engine_fn.side_effect = RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+            with pytest.raises(RuntimeError):
+                fetch_mlas_with_candidate_only_for_types(["SMART"])
+
+
+class TestBoundedMlaIdsParam:
+    """T3 — optional `mla_ids` param on the four resolvers reused by the lite
+    endpoint (user-approved correction): unbounded (None/absent) preserves the
+    existing SQL shape (list-level fold, full universe); bounded (a list)
+    adds `AND mla = ANY(:mla_ids)` so the lite endpoint's per-product query
+    doesn't fetch the whole account's universe on every panel expand."""
+
+    def _mock_engine_returning(self, rows):
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = rows
+        return mock_engine, mock_conn
+
+    def test_active_promo_type_unbounded_has_no_mla_clause(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" not in executed_query
+
+    def test_active_promo_type_bounded_adds_mla_clause_and_binds_param(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_active_promo_type
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_active_promo_type(["SMART"], mla_ids=["MLA1", "MLA2"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params["mla_ids"] == ["MLA1", "MLA2"]
+
+    def test_started_unbounded_has_no_mla_clause(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_started
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_started()
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" not in executed_query
+
+    def test_started_bounded_adds_mla_clause_and_binds_param(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_started
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_started(mla_ids=["MLA1"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params["mla_ids"] == ["MLA1"]
+
+    def test_candidate_only_unbounded_has_no_mla_clause(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only()
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" not in executed_query
+
+    def test_candidate_only_bounded_adds_mla_clause_and_binds_param(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only(mla_ids=["MLA1"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params["mla_ids"] == ["MLA1"]
+
+    def test_candidate_only_for_types_unbounded_has_no_mla_clause(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only_for_types(["SMART"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" not in executed_query
+
+    def test_candidate_only_for_types_bounded_adds_mla_clause_and_binds_param(self) -> None:
+        from app.services.ml_promotions_service import fetch_mlas_with_candidate_only_for_types
+
+        mock_engine, mock_conn = self._mock_engine_returning([])
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_mlas_with_candidate_only_for_types(["SMART"], mla_ids=["MLA1"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" in executed_query
+        bound_params = mock_conn.execute.call_args[0][1]
+        assert bound_params["mla_ids"] == ["MLA1"]
