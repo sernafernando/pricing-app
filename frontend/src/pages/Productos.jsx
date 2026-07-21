@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import PricingModalTesla from '../components/PricingModalTesla';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
@@ -36,6 +36,7 @@ import { useEquipos } from '../hooks/useEquipos';
 
 import { useProductosData } from '../hooks/useProductosData';
 import { useProductosKeyboard } from '../hooks/useProductosKeyboard';
+import { useSSEChannel } from '../hooks/useSSEChannel';
 
 export default function Productos() {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -163,6 +164,26 @@ export default function Productos() {
 
   const { productosSeleccionados, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast, equipoActivoId });
   const { editandoRebate, setEditandoRebate, rebateTemp, setRebateTemp, editandoWebTransf, setEditandoWebTransf, webTransfTemp, setWebTransfTemp, iniciarEdicionRebate, guardarRebate, iniciarEdicionWebTransf, guardarWebTransf, toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido } = useProductosToggles({ setProductos, cargarStats, showToast });
+
+  // Live color sync (SSE): when another user paints a color, patch only the
+  // affected rows in place (no table reload). The event's layer is matched
+  // against the layer currently displayed; a change on the global layer while
+  // viewing a team layer refreshes that row's hint dot instead.
+  const aplicarColorSSE = useCallback((evt) => {
+    const d = evt?.data;
+    if (!d || d.vista !== 'ml') return; // Productos shows the ML color (color_marcado)
+    const ids = new Set(d.item_ids || []);
+    if (ids.size === 0) return;
+    const esCapaActiva = d.is_global
+      ? equipoActivoId == null
+      : String(d.equipo_id) === String(equipoActivoId);
+    if (esCapaActiva) {
+      setProductos((prods) => prods.map((p) => (ids.has(p.item_id) ? { ...p, color_marcado: d.color } : p)));
+    } else if (d.is_global && equipoActivoId != null) {
+      setProductos((prods) => prods.map((p) => (ids.has(p.item_id) ? { ...p, color_hint_global: d.color } : p)));
+    }
+  }, [equipoActivoId, setProductos]);
+  useSSEChannel('producto_color:changed', aplicarColorSSE);
 
 
 
