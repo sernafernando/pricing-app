@@ -380,6 +380,78 @@ def is_eligible_for_bot(db: Session, now: datetime) -> bool:
     return not is_within_business_hours(db, now)
 
 
+_DEFAULT_FEWSHOT_K = 5
+_FEWSHOT_K_FLOOR = 1
+_FEWSHOT_K_CEILING = 20
+_DEFAULT_FEWSHOT_SIMILARITY_THRESHOLD = 0.0
+_FEWSHOT_SIMILARITY_THRESHOLD_FLOOR = 0.0
+_FEWSHOT_SIMILARITY_THRESHOLD_CEILING = 1.0
+
+
+def is_fewshot_capture_enabled(db: Session) -> bool:
+    """Dark-launch master switch for the dynamic few-shot capture hook
+    (sdd/ml-bot-dynamic-fewshot, PR2): whether `publisher_service` records a
+    published answer into `ml_bot_answer_history`. Missing row, empty
+    string, or any malformed value is treated as DISABLED (fail-safe,
+    mirrors `bot_enabled`'s kill-switch pattern) — additive rollout,
+    default `False`."""
+    return get_config(db, "fewshot_capture_enabled", cast=bool, default=False)
+
+
+def is_fewshot_dynamic_enabled(db: Session) -> bool:
+    """Dark-launch master switch for dynamic (embedding-similarity) few-shot
+    retrieval (sdd/ml-bot-dynamic-fewshot, PR3). Missing/empty/malformed
+    fails safe to DISABLED (static `orden`-based path stays the only
+    behavior until explicitly enabled) — default `False`."""
+    return get_config(db, "fewshot_dynamic_enabled", cast=bool, default=False)
+
+
+def get_fewshot_k(db: Session) -> int:
+    """Top-k for dynamic few-shot retrieval (sdd/ml-bot-dynamic-fewshot,
+    PR3). Fail-safe: missing/malformed falls back to
+    `_DEFAULT_FEWSHOT_K`; any value is clamped to
+    `[_FEWSHOT_K_FLOOR, _FEWSHOT_K_CEILING]` (mirrors
+    `get_description_max_chars`'s fail-safe + clamp convention)."""
+    raw = get_config(db, "fewshot_k", cast=str, default=str(_DEFAULT_FEWSHOT_K))
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed fewshot_k=%r; falling back to default=%d",
+            raw,
+            _DEFAULT_FEWSHOT_K,
+        )
+        return _DEFAULT_FEWSHOT_K
+    if value < _FEWSHOT_K_FLOOR:
+        return _FEWSHOT_K_FLOOR
+    if value > _FEWSHOT_K_CEILING:
+        return _FEWSHOT_K_CEILING
+    return value
+
+
+def get_fewshot_similarity_threshold(db: Session) -> float:
+    """Minimum cosine similarity for dynamic few-shot retrieval
+    (sdd/ml-bot-dynamic-fewshot, PR3). Fail-safe: missing/malformed falls
+    back to `_DEFAULT_FEWSHOT_SIMILARITY_THRESHOLD` (permissive, no
+    threshold); any value is clamped to
+    `[_FEWSHOT_SIMILARITY_THRESHOLD_FLOOR, _FEWSHOT_SIMILARITY_THRESHOLD_CEILING]`."""
+    raw = get_config(db, "fewshot_similarity_threshold", cast=str, default=str(_DEFAULT_FEWSHOT_SIMILARITY_THRESHOLD))
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "ml_bot_config: malformed fewshot_similarity_threshold=%r; falling back to default=%s",
+            raw,
+            _DEFAULT_FEWSHOT_SIMILARITY_THRESHOLD,
+        )
+        return _DEFAULT_FEWSHOT_SIMILARITY_THRESHOLD
+    if value < _FEWSHOT_SIMILARITY_THRESHOLD_FLOOR:
+        return _FEWSHOT_SIMILARITY_THRESHOLD_FLOOR
+    if value > _FEWSHOT_SIMILARITY_THRESHOLD_CEILING:
+        return _FEWSHOT_SIMILARITY_THRESHOLD_CEILING
+    return value
+
+
 def is_auto_publish_enabled(db: Session) -> bool:
     """Supervised-mode gate (trial-period hardening): whether the automatic
     due-row publish path may run. Cast via the shared `_cast_bool` truthy

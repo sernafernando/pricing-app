@@ -116,6 +116,7 @@ from sqlalchemy import func, update
 
 from app.core.database import get_background_db
 from app.core.sse import sse_publish_bg
+from app.models.ml_bot_answer_history import MlBotAnswerHistory
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import (
     AnswerPostPermanentError,
@@ -123,7 +124,8 @@ from app.services.ml_api_client import (
     QuestionNotFoundError,
     ml_client,
 )
-from app.services.ml_questions.policy import is_auto_publish_enabled
+from app.services.ml_questions.embedding_client import embed_passage
+from app.services.ml_questions.policy import is_auto_publish_enabled, is_fewshot_capture_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +319,60 @@ def _mark_failed_or_retry(question_id: int, error_message: str) -> str:
     return "retry"
 
 
+async def _capture_answer_history(question_id: int) -> None:
+    """Dark-launched best-effort capture hook (sdd/ml-bot-dynamic-fewshot,
+    PR2, design "Decision: Capture side-effect placement") — called ONLY
+    from the genuine post-success publish branch in `_publish_one` (never
+    from an idempotent "no fresh publish" outcome).
+
+    Guarded by `is_fewshot_capture_enabled` (default False, dark launch).
+    Loads plain fields in a short session (ADR-5), embeds OUTSIDE any
+    session, then inserts in a second short session. The embed call and the
+    whole capture block never raise into the caller — a failed/skipped
+    capture must NEVER affect the publish outcome, since the answer is
+    already live to a real buyer by the time this runs."""
+    try:
+        with get_background_db() as db:
+            if not is_fewshot_capture_enabled(db):
+                return
+            row = db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id).first()
+            if row is None:
+                return
+            question_text = row.question_text
+            answer_text = row.drafted_answer
+            item_id = row.item_id
+            category = row.category
+            edited_flag = row.answer_source == "human"
+
+        if not answer_text:
+            return
+
+        embedding = await embed_passage(answer_text)
+        if embedding is None:
+            # No session while calling embed_passage; a None result means
+            # capture is skipped entirely (design: never insert a dead row
+            # with a null/placeholder embedding).
+            return
+
+        with get_background_db() as db:
+            db.add(
+                MlBotAnswerHistory(
+                    question_text=question_text,
+                    answer_text=answer_text,
+                    item_id=item_id,
+                    edited_flag=edited_flag,
+                    category=category,
+                    embedding=embedding,
+                    active=True,
+                )
+            )
+    except Exception:  # noqa: BLE001 — capture must never fail a real publish.
+        logger.exception(
+            "ml-bot publisher: fewshot capture failed for question %s (best-effort, publish unaffected)",
+            question_id,
+        )
+
+
 async def _publish_one(question_id: int) -> str:
     """Orchestrate a single claimed row's publish attempt. Returns an
     outcome key for the caller's stats dict.
@@ -396,6 +452,7 @@ async def _publish_one(question_id: int) -> str:
             return _mark_failed_or_retry(question_id, "ML post_answer failed (see logs for details)")
 
         _mark_published(question_id)
+        await _capture_answer_history(question_id)
         return "published"
 
     except Exception as exc:  # noqa: BLE001 — must never crash the loop.

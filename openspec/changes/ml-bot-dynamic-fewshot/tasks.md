@@ -63,14 +63,15 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
 **PR1 status (tasks 0–3): SHIPPED (this run).** Tasks 4–8 (capture, retrieval, drafting_service wiring, config keys, guardrail regression, CI docs) are PR2/PR3 — NOT started.
 
 ## 4. Capture at publish success
-- [ ] **4.1** (TEST FIRST) Tests for `_capture_answer_history` / publisher integration:
+- [x] **4.1** (TEST FIRST) Tests for `_capture_answer_history` / publisher integration:
   - Genuine post-success publish path (result not None → `_mark_published`) triggers capture.
   - Idempotent "already answered" path (no fresh publish) does NOT trigger capture.
   - `embed_passage` raising or returning `None` → capture silently skipped, publish still reports success (assert no exception propagates, publish status unaffected).
   - `edited_flag` set correctly from `answer_source == "human"`.
   - Capture failure (any exception in the whole capture block) is caught and logged, never fails publish.
   - Requirement: spec Requirement 1; design ADR-3.
-- [ ] **4.2** Implement `_capture_answer_history(question_id)` in `publisher_service.py`, called from `_publish_one` only on the genuine post-success branch:
+  - DONE (PR2): `TestFewshotCapture` in `tests/unit/test_ml_bot_publisher_service.py` (7 tests) — also covers the `QuestionAlreadyAnsweredError` POST outcome (idempotent, no capture) and the retry-verification already-answered short-circuit (no capture, embed never called).
+- [x] **4.2** Implement `_capture_answer_history(question_id)` in `publisher_service.py`, called from `_publish_one` only on the genuine post-success branch:
   - Short session #1: load plain fields (question_text, answer_text, item_id, category, answer_source).
   - No session while calling `embed_passage`.
   - If embedding is `None`: skip capture entirely (do not insert row with null embedding).
@@ -79,6 +80,7 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Done when: all 4.1 tests pass.
   - Depends on: 2.2, 3.2.
   - Parallel: no (depends on model + client).
+  - DONE (PR2): `_capture_answer_history` in `app/services/ml_questions/publisher_service.py`, called only from the genuine `result is not None` POST-success branch of `_publish_one` (not from either already-answered path). Guarded by `is_fewshot_capture_enabled` (dark-launch, default False).
 
 ## 5. Retrieval in context_builder
 - [ ] **5.1** (TEST FIRST) Tests for `load_few_shot_examples(db, limit, question_embedding=None)`:
@@ -102,12 +104,16 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Depends on: 3.2, 5.2.
 
 ## 6. Config keys
-- [ ] **6.1** (TEST FIRST) Tests for fail-safe config parsing of the 5 new keys: correct type coercion, correct defaults when key missing/malformed, `fewshot_retrieval_k` clamped to `[1, 20]`.
+- [x] **6.1** (TEST FIRST) Tests for fail-safe config parsing of the 5 new keys: correct type coercion, correct defaults when key missing/malformed, `fewshot_retrieval_k` clamped to `[1, 20]`.
   - Requirement: design ADR-5.
-- [ ] **6.2** Wire `fewshot_dynamic_enabled` (bool, default `false`), `embedder_url` (str, default `http://192.168.1.231:8080`), `fewshot_retrieval_k` (int, default `10`, clamp `[1,20]`), `fewshot_similarity_threshold` (float, default `0.0`), `fewshot_capture_enabled` (bool, default `false`) through `policy.get_config` fail-safe cast, consumed by tasks 4 and 5.
+  - DONE (PR2): `tests/unit/test_ml_bot_fewshot_config.py` (17 tests) — covers `fewshot_capture_enabled`, `fewshot_dynamic_enabled`, `fewshot_k` (clamped `[1,20]`), `fewshot_similarity_threshold` (clamped `[0.0,1.0]`).
+- [x] **6.2** Wire `fewshot_dynamic_enabled` (bool, default `false`), `fewshot_k` (int, default `5`, clamp `[1,20]`), `fewshot_similarity_threshold` (float, default `0.0`, clamp `[0.0,1.0]`), `fewshot_capture_enabled` (bool, default `false`) through `policy.get_config` fail-safe cast, consumed by tasks 4 and 5. `embedder_url` is NOT re-added here — `embedding_client.py` (PR1) already owns that exact key.
   - Done when: 6.1 passes; both feature flags dark-launch as `false`.
   - Depends on: none directly, but consumed by 4.2/5.2 — should land before or alongside them.
   - Parallel: yes, can run alongside tasks 3/4/5 exploration, but must merge before 4.2/5.2 are considered done (they call `get_config` for these keys).
+  - DONE (PR2): `is_fewshot_capture_enabled`, `is_fewshot_dynamic_enabled`, `get_fewshot_k`, `get_fewshot_similarity_threshold` in `app/services/ml_questions/policy.py`. Key renamed from proposal's `fewshot_retrieval_k` to `fewshot_k` (matches design's own "Config keys" table naming) — PR3 (task 5) must use `get_fewshot_k`/`fewshot_k`, not `fewshot_retrieval_k`.
+
+**PR2 status (tasks 4 + 6): SHIPPED (this run).** Task 5 (retrieval in context_builder + drafting_service wiring) is PR3 — NOT started. Capture is dark-launched (`fewshot_capture_enabled` default False); no corpus grows until explicitly enabled post-deploy.
 
 ## 7. Guardrail regression test
 - [ ] **7.1** (TEST FIRST/ONLY — this is a pure regression test, no new production code) Add explicit test: seed a retrieved dynamic example containing a foreign price/address in its answer text; assert that text appears in `EJEMPLOS_DE_TONO` (tone block) but never in `_context_to_json` output / `CONTEXTO_PERMITIDO`. Assert system-prompt rule 1 text is unchanged (string/hash comparison against baseline).
