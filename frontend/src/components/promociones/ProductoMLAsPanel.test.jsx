@@ -252,6 +252,197 @@ describe('ProductoMLAsPanel', () => {
     expect(screen.queryByText(/aplicada/i)).not.toBeInTheDocument();
   });
 
+  it('shows all MLAs and no escape hatch when no promo filter is active', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', matches_filter: true },
+          { mla: 'MLA002', pricelist_id: 4, publication_status: 'active', matches_filter: false },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.getByText('MLA002')).toBeInTheDocument();
+    expect(screen.queryByText(/ver todos/i)).not.toBeInTheDocument();
+  });
+
+  it('hides publications where matches_filter is false when a promo filter is active, with a "ver todos (N)" escape hatch', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', matches_filter: true },
+          { mla: 'MLA002', pricelist_id: 4, publication_status: 'active', matches_filter: false },
+          { mla: 'MLA003', pricelist_id: 4, publication_status: 'active', matches_filter: false },
+        ],
+      },
+    });
+
+    renderPanel({ promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada' });
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByText('MLA002')).not.toBeInTheDocument();
+    expect(screen.queryByText('MLA003')).not.toBeInTheDocument();
+    expect(screen.getByText(/ver todos \(2\)/i)).toBeInTheDocument();
+  });
+
+  it('clicking "ver todos (N)" reveals the hidden publications', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', matches_filter: true },
+          { mla: 'MLA002', pricelist_id: 4, publication_status: 'active', matches_filter: false },
+        ],
+      },
+    });
+
+    renderPanel({ promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada' });
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByText('MLA002')).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText(/ver todos \(1\)/i));
+
+    expect(screen.getByText('MLA002')).toBeInTheDocument();
+  });
+
+  it('resets "ver todos" when the active filter changes on an already-expanded panel', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active', matches_filter: true },
+          { mla: 'MLA002', pricelist_id: 4, publication_status: 'active', matches_filter: false },
+        ],
+      },
+    });
+
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+    const tree = (tipos, estado) => (
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <ProductoMLAsPanel
+                itemId="ITEM001"
+                mlasCacheRef={mlasCacheRef}
+                promosCacheRef={promosCacheRef}
+                promoTipos={tipos}
+                promoEstado={estado}
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    );
+
+    const { rerender } = render(tree(['SELLER_CAMPAIGN'], 'aplicada'));
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    const user = userEvent.setup();
+    await user.click(screen.getByText(/ver todos \(1\)/i));
+    expect(screen.getByText('MLA002')).toBeInTheDocument();
+
+    // Change the active filter while the panel stays mounted (no key remount).
+    // verTodos must reset so the new filter's hide set is re-applied, otherwise
+    // the reveal is silently defeated with no way to re-hide.
+    rerender(tree(['DEAL'], 'aplicada'));
+
+    await waitFor(() => expect(screen.getByText(/ver todos \(1\)/i)).toBeInTheDocument());
+    expect(screen.queryByText('MLA002')).not.toBeInTheDocument();
+  });
+
+  it('treats matches_filter absent (undefined/null) as "show" even when a filter is active (fail-open)', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: {
+        publicaciones_ml: [
+          { mla: 'MLA001', pricelist_id: 4, publication_status: 'active' },
+        ],
+      },
+    });
+
+    renderPanel({ promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada' });
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByText(/ver todos/i)).not.toBeInTheDocument();
+  });
+
+  it('forwards promo_tipos/promo_estado to the lite fetch when a filter is active', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: { publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }] },
+    });
+
+    renderPanel({ promoTipos: ['SELLER_CAMPAIGN', 'DEAL'], promoEstado: 'aplicada' });
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledWith(
+      'ITEM001',
+      expect.objectContaining({ promo_tipos: 'SELLER_CAMPAIGN,DEAL', promo_estado: 'aplicada' }),
+    );
+  });
+
+  it('does not forward promo params when no filter is active', async () => {
+    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
+      data: { publicaciones_ml: [{ mla: 'MLA001', pricelist_id: 4, publication_status: 'active' }] },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledWith('ITEM001', {});
+  });
+
+  it('uses a composite cache key (itemId::filterKey) so different filters do not collide', async () => {
+    productosAPI.getProductoMercadolibreLite
+      .mockResolvedValueOnce({
+        data: { publicaciones_ml: [{ mla: 'MLA_ALL', pricelist_id: 4, publication_status: 'active' }] },
+      })
+      .mockResolvedValueOnce({
+        data: { publicaciones_ml: [{ mla: 'MLA_FILTERED', pricelist_id: 4, publication_status: 'active', matches_filter: true }] },
+      });
+
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+
+    const { rerender } = render(
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <ProductoMLAsPanel itemId="ITEM001" mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    await waitFor(() => expect(screen.getByText('MLA_ALL')).toBeInTheDocument());
+
+    rerender(
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <ProductoMLAsPanel
+                itemId="ITEM001"
+                mlasCacheRef={mlasCacheRef}
+                promosCacheRef={promosCacheRef}
+                promoTipos={['SELLER_CAMPAIGN']}
+                promoEstado="aplicada"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    await waitFor(() => expect(screen.getByText('MLA_FILTERED')).toBeInTheDocument());
+    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledTimes(2);
+    expect(mlasCacheRef.current.size).toBe(2);
+  });
+
   it('exposes L1_COL_SPAN of 5 to keep the detail row colSpan in sync with the new header column', async () => {
     productosAPI.getProductoMercadolibreLite.mockResolvedValue({
       data: {

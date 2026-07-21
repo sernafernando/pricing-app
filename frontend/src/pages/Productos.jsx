@@ -80,7 +80,6 @@ export default function Productos() {
     filtroNuevos, setFiltroNuevos, filtroTiendaOficial, setFiltroTiendaOficial,
     coloresSeleccionados, setColoresSeleccionados,
     filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
-    filtroPromoAplicacion, setFiltroPromoAplicacion,
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
@@ -1119,7 +1118,8 @@ export default function Productos() {
                 setFiltroEstadoMLA(null);
                 setFiltroNuevos(null);
                 setColoresSeleccionados([]);
-                setFiltroPromoAplicacion(null);
+                setFiltroPromoTipos([]);
+                setFiltroPromoEstado('disponible');
                 setPage(1);
               }}
               className="btn-tesla outline-subtle-danger sm"
@@ -1326,23 +1326,7 @@ export default function Productos() {
                   >
                     <option value="disponible">Disponible</option>
                     <option value="aplicada">Aplicada</option>
-                  </select>
-                </div>
-
-                <div className="filter-item">
-                  <label>🏷️ Estado de Promo</label>
-                  <select
-                    value={filtroPromoAplicacion || 'todas'}
-                    onChange={(e) => {
-                      const valor = e.target.value === 'todas' ? null : e.target.value;
-                      setFiltroPromoAplicacion(valor);
-                      setPage(1);
-                    }}
-                    className="filter-select-compact"
-                  >
-                    <option value="todas">Todas las promos</option>
-                    <option value="aplicada">Con promo aplicada</option>
-                    <option value="sin_aplicar">Con promo sin aplicar</option>
+                    <option value="sin_aplicar">Sin aplicar</option>
                   </select>
                 </div>
 
@@ -2332,7 +2316,13 @@ export default function Productos() {
                       <tr key={`${p.item_id}-mlas`} data-detail-row className={styles.filaDetalle}>
                         <td colSpan={TOTAL_COLS}>
                           <div className={styles.filaDetalleContent}>
-                            <ProductoMLAsPanel itemId={p.item_id} mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />
+                            <ProductoMLAsPanel
+                              itemId={p.item_id}
+                              mlasCacheRef={mlasCacheRef}
+                              promosCacheRef={promosCacheRef}
+                              promoTipos={filtroPromoTipos}
+                              promoEstado={filtroPromoEstado}
+                            />
                           </div>
                         </td>
                       </tr>,

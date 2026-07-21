@@ -147,7 +147,11 @@ export const productosAPI = {
   obtenerSubcategoriasPorPMs: (pm_ids) => api.get(`/pms/subcategorias?pm_ids=${pm_ids}`),
   // Nested MLA/promotions expand (productos-promociones-ui, FE-A: read-only).
   getProductoMercadolibre: (itemId) => api.get(`/productos/${itemId}/mercadolibre`),
-  getProductoMercadolibreLite: (itemId) => api.get(`/productos/${itemId}/mercadolibre?lite=true`),
+  // `filterParams` (optional) forwards the active promo filter — `{ promo_tipos, promo_estado }`
+  // (or the legacy no-type booleans `con_promo_aplicada`/`con_promo_sin_aplicar`) — so the
+  // backend can compute per-pub `matches_filter` (productos-promo-filter-per-mla).
+  getProductoMercadolibreLite: (itemId, filterParams = {}) =>
+    api.get(`/productos/${itemId}/mercadolibre`, { params: { lite: true, ...filterParams } }),
 };
 
 export const promocionesAPI = {

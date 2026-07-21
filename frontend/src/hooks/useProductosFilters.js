@@ -50,8 +50,7 @@ export function useProductosFilters() {
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
   const [filtroPromoTipos, setFiltroPromoTipos] = useState([]);
-  const [filtroPromoEstado, setFiltroPromoEstado] = useState('disponible');
-  const [filtroPromoAplicacion, setFiltroPromoAplicacion] = useState(null); // null | 'aplicada' | 'sin_aplicar'
+  const [filtroPromoEstado, setFiltroPromoEstado] = useState('disponible'); // 'disponible' (all) | 'aplicada' | 'sin_aplicar'
   const [filtrosInicializados, setFiltrosInicializados] = useState(false);
 
   // URL sync (INV-4: entire loop lives here — never split)
@@ -127,7 +126,6 @@ export function useProductosFilters() {
     // Promo tipos/estado
     if (filtroPromoTipos.length > 0) params.set('promo_tipos', filtroPromoTipos.join(','));
     if (filtroPromoEstado !== 'disponible') params.set('promo_estado', filtroPromoEstado);
-    if (filtroPromoAplicacion) params.set('promo_aplicacion', filtroPromoAplicacion);
 
     // Página
     if (page > 1) params.set('page', page.toString());
@@ -168,7 +166,6 @@ export function useProductosFilters() {
     const colores = searchParams.get('colores');
     const promoTipos = searchParams.get('promo_tipos');
     const promoEstado = searchParams.get('promo_estado');
-    const promoAplicacion = searchParams.get('promo_aplicacion');
     const pageParam = searchParams.get('page');
     const pagesizeParam = searchParams.get('pagesize');
     const auditUsuarios = searchParams.get('audit_usuarios');
@@ -199,7 +196,6 @@ export function useProductosFilters() {
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
     if (promoTipos) setFiltroPromoTipos(promoTipos.split(',').map(t => t.trim()).filter(Boolean));
     if (promoEstado) setFiltroPromoEstado(promoEstado);
-    if (promoAplicacion) setFiltroPromoAplicacion(promoAplicacion);
     if (pageParam) setPage(parseInt(pageParam, 10));
     if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
 
@@ -254,7 +250,6 @@ export function useProductosFilters() {
     coloresSeleccionados,
     filtroPromoTipos,
     filtroPromoEstado,
-    filtroPromoAplicacion,
     page,
     pageSize,
     filtrosAuditoria
@@ -327,7 +322,6 @@ export function useProductosFilters() {
     setColoresSeleccionados([]);
     setFiltroPromoTipos([]);
     setFiltroPromoEstado('disponible');
-    setFiltroPromoAplicacion(null);
     setOrdenColumnas([]);
     setPage(1);
 
@@ -392,7 +386,6 @@ export function useProductosFilters() {
     setFiltroNuevos(null);
     setFiltroPromoTipos([]);
     setFiltroPromoEstado('disponible');
-    setFiltroPromoAplicacion(null);
     setPage(1);
   };
 
@@ -441,19 +434,27 @@ export function useProductosFilters() {
     if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
     if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
     if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
+    // Unified promo filter (D2/D4): types + tri-state estado fold to ONE
+    // dispatch. When types are selected, promo_tipos + promo_estado are sent
+    // together (estado scopes those SAME types). When no type is selected,
+    // estado falls back to the legacy type-agnostic boolean params the
+    // backend's no-type resolver branch understands — 'disponible' is a
+    // true no-op (no filter active).
     if (filtroPromoTipos.length > 0) {
       params.promo_tipos = filtroPromoTipos.join(',');
       params.promo_estado = filtroPromoEstado;
+    } else if (filtroPromoEstado === 'aplicada') {
+      params.con_promo_aplicada = true;
+    } else if (filtroPromoEstado === 'sin_aplicar') {
+      params.con_promo_sin_aplicar = true;
     }
-    if (filtroPromoAplicacion === 'aplicada') params.con_promo_aplicada = true;
-    if (filtroPromoAplicacion === 'sin_aplicar') params.con_promo_sin_aplicar = true;
     return params;
   }, [
     debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas,
     filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
     filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
-    coloresSeleccionados, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado, filtroPromoAplicacion,
+    coloresSeleccionados, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
   ]);
 
   return {
@@ -473,7 +474,6 @@ export function useProductosFilters() {
     coloresSeleccionados, setColoresSeleccionados,
     filtroPromoTipos, setFiltroPromoTipos,
     filtroPromoEstado, setFiltroPromoEstado,
-    filtroPromoAplicacion, setFiltroPromoAplicacion,
     // Boolean filters
     filtroRebate, setFiltroRebate,
     filtroOferta, setFiltroOferta,
