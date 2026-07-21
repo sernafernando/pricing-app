@@ -24,6 +24,8 @@ const ROLES = [
   { value: 'admin', label: 'Administrador' },
 ];
 
+const rolLabel = (v) => ROLES.find((r) => r.value === v)?.label || v;
+
 export default function EquiposModal({ isOpen, onClose }) {
   const [equipos, setEquipos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -191,13 +193,15 @@ export default function EquiposModal({ isOpen, onClose }) {
     setAgregando(true);
     setAlerta(null);
     try {
+      const uidAgregado = parseInt(nuevoMiembroId, 10);
+      const nombreAgregado = nombreUsuario(uidAgregado);
       await equiposAPI.agregarMiembro(selectedEquipo.id, {
-        usuario_id: parseInt(nuevoMiembroId, 10),
+        usuario_id: uidAgregado,
         rol: nuevoMiembroRol,
       });
+      showSuccess(`Agregaste a ${nombreAgregado} (${rolLabel(nuevoMiembroRol)}) al equipo ${selectedEquipo.nombre}`);
       setNuevoMiembroId('');
       setNuevoMiembroRol('miembro');
-      showSuccess('Miembro agregado');
       await cargarMiembros(selectedEquipo.id);
     } catch (err) {
       showError(err, 'Error al agregar el miembro');
@@ -213,6 +217,7 @@ export default function EquiposModal({ isOpen, onClose }) {
     try {
       await equiposAPI.actualizarMiembro(selectedEquipo.id, miembro.usuario_id, { rol });
       await cargarMiembros(selectedEquipo.id);
+      showSuccess(`${nombreUsuario(miembro.usuario_id)} ahora es ${rolLabel(rol)} en ${selectedEquipo.nombre}`);
     } catch (err) {
       // e.g. 400 "no se puede degradar al último administrador"
       showError(err, 'Error al cambiar el rol');
@@ -226,8 +231,10 @@ export default function EquiposModal({ isOpen, onClose }) {
     setMiembroBusy(miembro.usuario_id);
     setAlerta(null);
     try {
+      const nombreQuitado = nombreUsuario(miembro.usuario_id);
       await equiposAPI.eliminarMiembro(selectedEquipo.id, miembro.usuario_id);
       await cargarMiembros(selectedEquipo.id);
+      showSuccess(`Quitaste a ${nombreQuitado} del equipo ${selectedEquipo.nombre}`);
     } catch (err) {
       // e.g. 400 "no se puede quitar al último administrador"
       showError(err, 'Error al quitar el miembro');
