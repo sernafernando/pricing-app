@@ -24,6 +24,9 @@ from app.services.ml_promotions_service import (
     fetch_promo_summary_by_mla,
 )
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
+from app.services.ml_publication_link_service import lazy_fill_links
+from app.services.ml_publication_tree_service import assemble_publication_tree
+from app.schemas.productos_tree import ProductTreeResponse
 from fastapi.concurrency import run_in_threadpool
 
 import logging
@@ -387,6 +390,89 @@ async def obtener_datos_ml_producto(
         ),
         "ventas": ventas_stats,
     }
+
+
+@router.get("/productos/{item_id}/mercadolibre/tree", response_model=ProductTreeResponse)
+def obtener_arbol_ml_producto(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
+) -> ProductTreeResponse:
+    """Assembles the recursive product/family/catalog/vinculada publication
+    tree for `item_id` (productos-catalog-family-tree PR2).
+
+    Sibling to the existing flat `GET /productos/{item_id}/mercadolibre`
+    endpoint, which is kept UNCHANGED for existing callers — this is a
+    NEW route, not a replacement.
+
+    Hybrid lazy-fill (design's cold-start decision): before assembling
+    the tree, calls `lazy_fill_links`, which pool-safely tops up
+    stale/missing `ml_publication_links` rows from the ML `render`
+    payload. `lazy_fill_links` NEVER uses this endpoint's request `db`
+    session for the HTTP round-trip (pool-exhaustion fix — see
+    `ml_publication_link_service.py`) and NEVER raises: any failure
+    (ml-webhook proxy down, network error, lock contention, etc.)
+    degrades silently to whatever `ml_publication_links`/
+    `ml_item_relations` data already persisted (fail-open, matches the
+    flat endpoint's existing degradation pattern).
+
+    `matches_filter` reuses the exact same `select_promo_resolver`
+    dispatch as the flat endpoint, bounded to this product's own MLAs,
+    fail-open on cross-DB failure (field simply absent, never hides
+    nodes, never 503s).
+    """
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
+        raise HTTPException(
+            status_code=422,
+            detail="promo_estado inválido: debe ser 'disponible', 'aplicada' o 'sin_aplicar'",
+        )
+
+    from app.models.publicacion_ml import PublicacionML
+
+    mla_ids = [
+        row.mla
+        for row in db.query(PublicacionML).filter(PublicacionML.item_id == item_id, PublicacionML.activo == True).all()
+    ]
+
+    # Hybrid lazy-fill: top up stale/missing link rows before assembling.
+    # `lazy_fill_links` never touches this request's `db` session (pool-
+    # safety) and never raises (fail-open) — the tree degrades to
+    # whatever is already persisted if the fill can't complete.
+    if mla_ids:
+        lazy_fill_links(mla_ids, item_id)
+
+    # matches_filter (mismo dispatch que el endpoint flat, acotado a este producto).
+    tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
+    resolver_entry = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos_list or None,
+        promo_estado,
+        con_promo_aplicada,
+        con_promo_sin_aplicar,
+        mla_ids=mla_ids or None,
+    )
+
+    matches_filter_by_mla: Optional[dict] = None
+    if resolver_entry and mla_ids:
+        resolver, log_context = resolver_entry
+        try:
+            matching_mlas = resolver()
+        except (RuntimeError, SQLAlchemyError) as exc:
+            logger.warning("%s no disponible (tree matches_filter): %s", log_context, exc)
+        else:
+            matches_filter_by_mla = {mla: mla in matching_mlas for mla in mla_ids}
+
+    result = assemble_publication_tree(db, item_id=item_id, matches_filter_by_mla=matches_filter_by_mla)
+    return result
 
 
 @router.get("/productos/{item_id}/ofertas-vigentes")
