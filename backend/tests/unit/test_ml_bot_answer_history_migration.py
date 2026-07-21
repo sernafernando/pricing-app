@@ -56,12 +56,16 @@ class TestMigrationGraph:
 
 
 @pytest.mark.skipif(
-    os.environ.get("DATABASE_URL", "").split("://")[0] != "postgresql",
-    reason="pgvector `vector` column type + HNSW index require a live Postgres instance; "
-    "CI runs backend tests against SQLite (see backend/README.md CI caveat).",
+    os.environ.get("RUN_PGVECTOR_MIGRATION_TEST") != "1",
+    reason="Opt-in live-Postgres migration check. Set RUN_PGVECTOR_MIGRATION_TEST=1 (with "
+    "DATABASE_URL pointing at a dedicated pgvector Postgres that has had `alembic upgrade head` "
+    "run) to execute it. Skipped by default so the full suite stays deterministic regardless of "
+    "any ambient DATABASE_URL — auto-running against whatever Postgres happens to be in the env "
+    "(e.g. the real DB before the migration is applied) produced spurious failures. CI is SQLite.",
 )
 class TestMigrationAgainstLivePostgres:
-    """Requires DATABASE_URL pointing at a real Postgres with pgvector."""
+    """Opt-in (RUN_PGVECTOR_MIGRATION_TEST=1): DATABASE_URL must point at a real
+    Postgres with pgvector where this migration has already been applied."""
 
     def test_upgrade_creates_table_and_hnsw_index(self) -> None:
         from app.core.config import settings

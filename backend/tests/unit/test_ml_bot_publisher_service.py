@@ -597,9 +597,7 @@ class TestSupervisedModeGate:
         # publish_question_now expects the row already CAS'd into `waiting`
         # by the router before it's invoked; simulate that directly here
         # since this test targets the gate, not the router.
-        db.execute(
-            MlBotQuestion.__table__.update().where(MlBotQuestion.id == row.id).values(status="waiting")
-        )
+        db.execute(MlBotQuestion.__table__.update().where(MlBotQuestion.id == row.id).values(status="waiting"))
         db.commit()
 
         with _patch_db(db), patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer):
@@ -648,3 +646,183 @@ class TestNoSessionAcrossPost:
 
         assert stats["published"] == 1
         del real_get_background_db
+
+
+class TestFewshotCapture:
+    """T-4: dynamic few-shot capture hook (sdd/ml-bot-dynamic-fewshot, PR2,
+    design "Decision: Capture side-effect placement"). Best-effort,
+    dark-launched behind `fewshot_capture_enabled` (default False)."""
+
+    def _enable_capture(self, db) -> None:
+        db.add(MlBotConfig(clave="fewshot_capture_enabled", valor="true", tipo="bool"))
+        db.flush()
+
+    def test_capture_enabled_and_embed_ok_inserts_history_row(self, db) -> None:
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        self._enable_capture(db)
+        row = _seed_question(db, drafted_answer="Sí, tenemos stock disponible.")
+        db.commit()
+
+        embed_passage = AsyncMock(return_value=[0.1] * 384)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        history = db.query(MlBotAnswerHistory).filter_by(item_id=row.item_id).all()
+        assert len(history) == 1
+        entry = history[0]
+        assert entry.question_text == row.question_text
+        assert entry.answer_text == "Sí, tenemos stock disponible."
+        assert entry.item_id == row.item_id
+        assert entry.edited_flag is False
+        assert entry.active is True
+
+    def test_capture_disabled_by_default_no_history_row(self, db) -> None:
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        _seed_question(db)
+        db.commit()
+
+        embed_passage = AsyncMock(return_value=[0.1] * 384)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        embed_passage.assert_not_called()
+        assert db.query(MlBotAnswerHistory).count() == 0
+
+    def test_embed_returns_none_skips_capture_publish_unaffected(self, db) -> None:
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        self._enable_capture(db)
+        _seed_question(db)
+        db.commit()
+
+        embed_passage = AsyncMock(return_value=None)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        assert db.query(MlBotAnswerHistory).count() == 0
+
+    def test_capture_exception_is_swallowed_publish_still_succeeds(self, db) -> None:
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        self._enable_capture(db)
+        _seed_question(db)
+        db.commit()
+
+        embed_passage = AsyncMock(side_effect=RuntimeError("embedder exploded"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        assert db.query(MlBotAnswerHistory).count() == 0
+
+    def test_edited_flag_true_for_human_answer_source(self, db) -> None:
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        self._enable_capture(db)
+        row = _seed_question(db)
+        db.execute(MlBotQuestion.__table__.update().where(MlBotQuestion.id == row.id).values(answer_source="human"))
+        db.commit()
+
+        embed_passage = AsyncMock(return_value=[0.1] * 384)
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.publisher_service.ml_client.post_answer",
+                new=AsyncMock(return_value={"id": 999}),
+            ),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        entry = db.query(MlBotAnswerHistory).filter_by(item_id=row.item_id).one()
+        assert entry.edited_flag is True
+
+    def test_already_answered_post_error_does_not_capture(self, db) -> None:
+        """`QuestionAlreadyAnsweredError` from `post_answer` means ML already
+        had an answer BEFORE our POST landed (someone/something else
+        answered first) — our `drafted_answer` was never actually published,
+        so this is the idempotent "no fresh publish" path (design ADR-3) and
+        must NOT be captured."""
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+        from app.services.ml_api_client import QuestionAlreadyAnsweredError
+
+        self._enable_capture(db)
+        row = _seed_question(db)
+        db.commit()
+        post_answer = AsyncMock(side_effect=QuestionAlreadyAnsweredError(row.ml_question_id))
+        embed_passage = AsyncMock(return_value=[0.1] * 384)
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.post_answer", new=post_answer),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        embed_passage.assert_not_called()
+        assert db.query(MlBotAnswerHistory).count() == 0
+
+    def test_retry_verification_already_answered_path_does_not_capture(self, db) -> None:
+        """The genuine idempotent short-circuit ADR-3 refers to: a row
+        reclaimed after attempts > 1 whose retry-verification `get_question`
+        confirms it's already answered on ML — no fresh POST of our
+        drafted_answer ever happened, so nothing should be captured."""
+        from app.models.ml_bot_answer_history import MlBotAnswerHistory
+
+        self._enable_capture(db)
+        _seed_question(db, attempts=2)
+        db.commit()
+
+        embed_passage = AsyncMock(return_value=[0.1] * 384)
+        get_question = AsyncMock(return_value={"status": "ANSWERED", "answer": {"text": "ya respondida"}})
+
+        with (
+            _patch_db(db),
+            patch("app.services.ml_questions.publisher_service.ml_client.get_question", new=get_question),
+            patch("app.services.ml_questions.publisher_service.embed_passage", new=embed_passage),
+        ):
+            stats = asyncio.run(publisher_service.run_ml_questions_publish_cycle())
+
+        assert stats["published"] == 1
+        embed_passage.assert_not_called()
+        assert db.query(MlBotAnswerHistory).count() == 0
