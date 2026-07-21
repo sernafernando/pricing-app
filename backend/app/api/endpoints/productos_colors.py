@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.sse import sse_publish_bg
 from app.models.equipo import ProductoColor
 from app.models.producto import ProductoPricing
 from app.models.usuario import Usuario
@@ -95,6 +96,17 @@ def actualizar_color_producto(
 
     db.commit()
 
+    sse_publish_bg(
+        "producto_color:changed",
+        {
+            "equipo_id": equipo_id,
+            "is_global": equipo_id == get_global_equipo_id(db),
+            "item_ids": [item_id],
+            "vista": "ml",
+            "color": color,
+        },
+    )
+
     return {"mensaje": "Color actualizado", "color_anterior": color_anterior, "color_nuevo": color}
 
 
@@ -124,6 +136,17 @@ def actualizar_color_producto_tienda(
 
     db.commit()
 
+    sse_publish_bg(
+        "producto_color:changed",
+        {
+            "equipo_id": equipo_id,
+            "is_global": equipo_id == get_global_equipo_id(db),
+            "item_ids": [item_id],
+            "vista": "tienda",
+            "color": color,
+        },
+    )
+
     return {"mensaje": "Color tienda actualizado", "color_anterior": color_anterior, "color_nuevo": color}
 
 
@@ -148,6 +171,17 @@ def actualizar_color_productos_lote(
             _dual_write_legacy(db, item_id, "ml", request.color)
 
     db.commit()
+
+    sse_publish_bg(
+        "producto_color:changed",
+        {
+            "equipo_id": equipo_id,
+            "is_global": es_global,
+            "item_ids": list(request.item_ids),
+            "vista": "ml",
+            "color": request.color,
+        },
+    )
 
     count = len(request.item_ids)
     return {"mensaje": f"{count} productos actualizados", "count": count}
@@ -174,6 +208,17 @@ def actualizar_color_productos_tienda_lote(
             _dual_write_legacy(db, item_id, "tienda", request.color)
 
     db.commit()
+
+    sse_publish_bg(
+        "producto_color:changed",
+        {
+            "equipo_id": equipo_id,
+            "is_global": es_global,
+            "item_ids": list(request.item_ids),
+            "vista": "tienda",
+            "color": request.color,
+        },
+    )
 
     count = len(request.item_ids)
     return {"mensaje": f"{count} productos actualizados (tienda)", "count": count}

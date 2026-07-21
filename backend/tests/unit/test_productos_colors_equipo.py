@@ -16,6 +16,8 @@ Verifies:
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from app.api.endpoints.productos_shared import puede_escribir_layer
@@ -237,6 +239,129 @@ class TestPatchColorSingle:
         resp = client.patch("/api/productos/115/color", json={"color": "gris"}, headers=auth_headers_for(user))
         assert resp.status_code == 200
         assert resp.json()["color_nuevo"] == "gris"
+
+
+# ---------------------------------------------------------------------------
+# SSE emission — producto_color:changed (live propagation)
+# ---------------------------------------------------------------------------
+
+
+class TestSseEmissionOnColorWrite:
+    """All four color write endpoints must emit `producto_color:changed`
+    after a successful commit, so other connected clients refresh live."""
+
+    def test_patch_color_emits_sse_with_ml_vista(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        _grant_marcar_color(db, rol_ventas.id)
+        user = _make_usuario(db, "sse_u1", rol_ventas.id)
+        _make_producto(db, 301)
+        db.commit()
+
+        with patch("app.api.endpoints.productos_colors.sse_publish_bg") as mock_sse:
+            resp = client.patch("/api/productos/301/color", json={"color": "rojo"}, headers=auth_headers_for(user))
+        assert resp.status_code == 200
+
+        mock_sse.assert_called_once()
+        channel, data = mock_sse.call_args[0]
+        assert channel == "producto_color:changed"
+        assert data["equipo_id"] == equipo_global.id
+        assert data["is_global"] is True
+        assert data["item_ids"] == [301]
+        assert data["vista"] == "ml"
+        assert data["color"] == "rojo"
+
+    def test_patch_color_tienda_emits_sse_with_tienda_vista(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        _grant_marcar_color(db, rol_ventas.id)
+        user = _make_usuario(db, "sse_u2", rol_ventas.id)
+        _make_producto(db, 302)
+        db.commit()
+
+        with patch("app.api.endpoints.productos_colors.sse_publish_bg") as mock_sse:
+            resp = client.patch(
+                "/api/productos/302/color-tienda", json={"color": "verde"}, headers=auth_headers_for(user)
+            )
+        assert resp.status_code == 200
+
+        mock_sse.assert_called_once()
+        channel, data = mock_sse.call_args[0]
+        assert channel == "producto_color:changed"
+        assert data["equipo_id"] == equipo_global.id
+        assert data["is_global"] is True
+        assert data["item_ids"] == [302]
+        assert data["vista"] == "tienda"
+        assert data["color"] == "verde"
+
+    def test_patch_color_team_scoped_emits_is_global_false(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        equipo = _make_equipo(db, "Equipo SSE")
+        user = _make_usuario(db, "sse_u3", rol_ventas.id)
+        _add_member(db, equipo.id, user.id)
+        _make_producto(db, 303)
+        db.commit()
+
+        with patch("app.api.endpoints.productos_colors.sse_publish_bg") as mock_sse:
+            resp = client.patch(
+                f"/api/productos/303/color?equipo_id={equipo.id}",
+                json={"color": "azul"},
+                headers=auth_headers_for(user),
+            )
+        assert resp.status_code == 200
+
+        mock_sse.assert_called_once()
+        _channel, data = mock_sse.call_args[0]
+        assert data["equipo_id"] == equipo.id
+        assert data["is_global"] is False
+
+    def test_lote_ml_emits_sse_with_all_item_ids(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        _grant_marcar_color(db, rol_ventas.id)
+        user = _make_usuario(db, "sse_u4", rol_ventas.id)
+        _make_producto(db, 304)
+        _make_producto(db, 305)
+        db.commit()
+
+        with patch("app.api.endpoints.productos_colors.sse_publish_bg") as mock_sse:
+            resp = client.post(
+                "/api/productos/actualizar-color-lote",
+                json={"item_ids": [304, 305], "color": "naranja"},
+                headers=auth_headers_for(user),
+            )
+        assert resp.status_code == 200
+
+        mock_sse.assert_called_once()
+        channel, data = mock_sse.call_args[0]
+        assert channel == "producto_color:changed"
+        assert data["equipo_id"] == equipo_global.id
+        assert data["is_global"] is True
+        assert data["item_ids"] == [304, 305]
+        assert data["vista"] == "ml"
+        assert data["color"] == "naranja"
+
+    def test_lote_tienda_emits_sse_with_all_item_ids(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        equipo = _make_equipo(db, "Equipo SSE Lote")
+        member = _make_usuario(db, "sse_u5", rol_ventas.id)
+        _add_member(db, equipo.id, member.id)
+        _make_producto(db, 306)
+        db.commit()
+
+        with patch("app.api.endpoints.productos_colors.sse_publish_bg") as mock_sse:
+            resp = client.post(
+                "/api/productos/actualizar-color-tienda-lote",
+                json={"item_ids": [306], "color": "purpura", "equipo_id": equipo.id},
+                headers=auth_headers_for(member),
+            )
+        assert resp.status_code == 200
+
+        mock_sse.assert_called_once()
+        channel, data = mock_sse.call_args[0]
+        assert channel == "producto_color:changed"
+        assert data["equipo_id"] == equipo.id
+        assert data["is_global"] is False
+        assert data["item_ids"] == [306]
+        assert data["vista"] == "tienda"
+        assert data["color"] == "purpura"
 
 
 # ---------------------------------------------------------------------------
