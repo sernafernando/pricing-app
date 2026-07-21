@@ -51,7 +51,7 @@ class TestMigrationGraph:
         # Our revision must be an ancestor of (or be) the current head — i.e.
         # part of the single linear chain, not an orphaned/diverged branch.
         assert len(heads) == 1
-        ancestors = {rev.revision for rev in script_dir.walk_revisions(heads[0])}
+        ancestors = {rev.revision for rev in script_dir.walk_revisions(base="base", head=heads[0])}
         assert _REVISION in ancestors
 
 
