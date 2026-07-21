@@ -5,7 +5,7 @@ import api from '../services/api';
  * Manages product selection state and color-marking actions.
  * Mirrors useTiendaSelection — receives { productos, setProductos, cargarStats, showToast }.
  */
-export function useProductosSeleccion({ productos, setProductos, cargarStats, showToast }) {
+export function useProductosSeleccion({ productos, setProductos, cargarStats, showToast, equipoActivoId }) {
   const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
   const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
   const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null);
@@ -57,7 +57,8 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
         '/productos/actualizar-color-lote',
         {
           item_ids: Array.from(productosSeleccionados),
-          color: color
+          color: color,
+          equipo_id: equipoActivoId || undefined
         }
       );
 
@@ -78,7 +79,7 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
     try {
       await api.patch(
         `/productos/${itemId}/color`,
-        { color }
+        { color, equipo_id: equipoActivoId || undefined }
       );
 
       // Actualizar estado local en lugar de recargar
@@ -101,7 +102,7 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
     try {
       await api.patch(
         `/productos/${itemId}/color`,
-        { color }
+        { color, equipo_id: equipoActivoId || undefined }
       );
 
       // Actualizar estado local en lugar de recargar

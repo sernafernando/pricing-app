@@ -13,9 +13,10 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
+import EquiposModal from '../components/EquiposModal';
 import styles from '../components/promociones/promociones.module.css';
 import PromoFilterBar from '../components/promociones/PromoFilterBar';
 import '../styles/tabla-productos-shared.css';
@@ -31,6 +32,7 @@ import { useProductosToggles } from '../hooks/useProductosToggles';
 import { useProductosInlineEditing } from '../hooks/useProductosInlineEditing';
 
 import { useProductosFilters } from '../hooks/useProductosFilters';
+import { useEquipos } from '../hooks/useEquipos';
 
 import { useProductosData } from '../hooks/useProductosData';
 import { useProductosKeyboard } from '../hooks/useProductosKeyboard';
@@ -79,6 +81,7 @@ export default function Productos() {
     filtroMLA, setFiltroMLA, filtroEstadoMLA, setFiltroEstadoMLA,
     filtroNuevos, setFiltroNuevos, filtroTiendaOficial, setFiltroTiendaOficial,
     coloresSeleccionados, setColoresSeleccionados,
+    equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
@@ -87,6 +90,11 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
+  // Color-layer teams (productos-color-teams). Feeds the layer selector.
+  // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
+  // refreshes the selector after the management modal creates/renames/deletes.
+  const { equipos, recargar: recargarEquipos } = useEquipos();
+  const [mostrarEquiposModal, setMostrarEquiposModal] = useState(false);
   const {
     productos,
     setProductos,
@@ -153,7 +161,7 @@ export default function Productos() {
 
 
 
-  const { productosSeleccionados, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast });
+  const { productosSeleccionados, colorDropdownAbierto, setColorDropdownAbierto, toggleSeleccion, seleccionarTodos, limpiarSeleccion, pintarLote, cambiarColorProducto, cambiarColorRapido } = useProductosSeleccion({ productos, setProductos, cargarStats, showToast, equipoActivoId });
   const { editandoRebate, setEditandoRebate, rebateTemp, setRebateTemp, editandoWebTransf, setEditandoWebTransf, webTransfTemp, setWebTransfTemp, iniciarEdicionRebate, guardarRebate, iniciarEdicionWebTransf, guardarWebTransf, toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido } = useProductosToggles({ setProductos, cargarStats, showToast });
 
 
@@ -636,6 +644,44 @@ export default function Productos() {
             {modoVista === 'normal' && 'Normal'}
             {modoVista === 'cuotas' && '📊 Cuotas'}
             {modoVista === 'pvp' && '💰 PVP'}
+          </button>
+
+          {/* Separador visual */}
+          <div className="filter-separator"></div>
+
+          {/* Selector de capa de color por equipo (productos-color-teams).
+              value '' === capa Global; equipoActivoId null se comporta igual que hoy. */}
+          <label className="filter-label" htmlFor="capa-equipo-select">Capa:</label>
+          <select
+            id="capa-equipo-select"
+            value={equipoActivoId || ''}
+            onChange={(e) => { setEquipoActivoId(e.target.value || null); setPage(1); }}
+            className="filter-select-compact"
+            title="Capa de color por equipo"
+          >
+            <option value="">Global</option>
+            {equipos.filter(eq => !eq.es_global).map(eq => (
+              <option key={eq.id} value={eq.id}>{eq.nombre}</option>
+            ))}
+          </select>
+          {equipoActivoId && (
+            <span
+              className="layer-active-badge"
+              title={`Capa activa: ${equipos.find(eq => String(eq.id) === String(equipoActivoId))?.nombre || ''}`}
+            >
+              {equipos.find(eq => String(eq.id) === String(equipoActivoId))?.nombre || ''}
+            </span>
+          )}
+
+          {/* Gestión de equipos (productos-color-teams). Cualquier usuario puede
+              crear/administrar sus equipos; no está detrás de un permiso. */}
+          <button
+            onClick={() => setMostrarEquiposModal(true)}
+            className="btn-tesla outline-subtle-primary sm"
+            title="Gestionar equipos"
+          >
+            <Users size={14} />
+            Equipos
           </button>
 
           {/* Auto-recalcular */}
@@ -1552,7 +1598,19 @@ export default function Productos() {
                         aria-label={`Seleccionar producto ${p.codigo}`}
                       />
                     </td>
-                    <td>{p.codigo}</td>
+                    <td>
+                      {!p.color_marcado && p.color_hint_global && (() => {
+                        const hint = COLORES_DISPONIBLES.find(c => c.id === p.color_hint_global);
+                        return hint ? (
+                          <span
+                            className="color-hint-dot"
+                            style={{ backgroundColor: hint.color }}
+                            title={`Color global: ${hint.nombre}`}
+                          />
+                        ) : null;
+                      })()}
+                      {p.codigo}
+                    </td>
                     <td>
                       {p.descripcion}
                       <PrearmadaBadge stats={prearmadasStats[p.item_id]} />
@@ -2971,6 +3029,13 @@ export default function Productos() {
           Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
         </div>
       )}
+
+      {/* Gestión de equipos (productos-color-teams). Al cerrar, recargamos los
+          equipos para que el selector de capa refleje altas/renombres/bajas. */}
+      <EquiposModal
+        isOpen={mostrarEquiposModal}
+        onClose={() => { setMostrarEquiposModal(false); recargarEquipos(); }}
+      />
 
       {/* Toast notification */}
       <Toast toast={toast} onClose={hideToast} />

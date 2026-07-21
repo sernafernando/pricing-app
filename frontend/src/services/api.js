@@ -154,6 +154,21 @@ export const productosAPI = {
     api.get(`/productos/${itemId}/mercadolibre`, { params: { lite: true, ...filterParams } }),
 };
 
+// Color-layer teams (productos-color-teams). `listar` returns the user's teams
+// plus the global team: [{ id, nombre, es_global }]. Only `listar` is used in
+// the current tanda; the CRUD + membership methods are for the team-management
+// modal (later task).
+export const equiposAPI = {
+  listar: () => api.get('/equipos'),
+  crear: (data) => api.post('/equipos', data),
+  actualizar: (id, data) => api.patch(`/equipos/${id}`, data),
+  eliminar: (id) => api.delete(`/equipos/${id}`),
+  listarMiembros: (id) => api.get(`/equipos/${id}/miembros`),
+  agregarMiembro: (id, data) => api.post(`/equipos/${id}/miembros`, data),
+  actualizarMiembro: (id, uid, data) => api.patch(`/equipos/${id}/miembros/${uid}`, data),
+  eliminarMiembro: (id, uid) => api.delete(`/equipos/${id}/miembros/${uid}`),
+};
+
 export const promocionesAPI = {
   getPromocionesItem: (mlaId) => api.get(`/promociones/item/${mlaId}`),
   // Enroll a promotion for a given MLA (real ML price write). `body` shape:

@@ -48,6 +48,7 @@ export function useProductosFilters() {
   const [filtroTiendaOficial, setFiltroTiendaOficial] = useState(null); // '57997', '2645', '144', '191942'
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
+  const [equipoActivoId, setEquipoActivoId] = useState(null); // null = global color layer
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
   const [filtroPromoTipos, setFiltroPromoTipos] = useState([]);
   const [filtroPromoEstado, setFiltroPromoEstado] = useState('disponible'); // 'disponible' (all) | 'aplicada' | 'sin_aplicar'
@@ -433,6 +434,7 @@ export function useProductosFilters() {
     if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
     if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
     if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+    if (equipoActivoId) params.equipo_id = equipoActivoId;
     if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
     // Unified promo filter (D2/D4): types + tri-state estado fold to ONE
     // dispatch. When types are selected, promo_tipos + promo_estado are sent
@@ -454,7 +456,7 @@ export function useProductosFilters() {
     filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
     filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
-    coloresSeleccionados, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
+    coloresSeleccionados, equipoActivoId, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
   ]);
 
   return {
@@ -472,6 +474,7 @@ export function useProductosFilters() {
     subcategoriasSeleccionadas, setSubcategoriasSeleccionadas,
     pmsSeleccionados, setPmsSeleccionados,
     coloresSeleccionados, setColoresSeleccionados,
+    equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos,
     filtroPromoEstado, setFiltroPromoEstado,
     // Boolean filters
