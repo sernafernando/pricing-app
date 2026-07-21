@@ -28,6 +28,12 @@
 # ML Publications - cada hora
 0 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_ml_publications_incremental >> /var/log/pricing-app/ml_publications.log 2>&1
 
+# ML Publication Links (family/catalog/vinculadas) cron sweep - refreshes
+# already-filled ml_publication_links rows on a slow cadence (hybrid
+# backfill: lazy-fill on tree-expand + this sweep keeps warm rows fresh).
+# Cada 4 horas.
+0 */4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_publication_links >> /var/log/pricing-app/sync_publication_links.log 2>&1
+
 # ============================================================================
 # MÉTRICAS ML - Incremental + Backup + Rebuilds
 # ============================================================================
