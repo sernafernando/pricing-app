@@ -1762,3 +1762,32 @@
   background: rgba(255, 255, 255, 0.2) !important;
   color: var(--text-inverse) !important;
 }
+
+/* Capa de color por equipo (productos-color-teams) */
+.layer-active-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-secondary);
+  white-space: nowrap;
+}
+
+/* Punto de pista: color de la capa Global cuando la capa activa no pinta la fila */
+.color-hint-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  border: 1px solid var(--border-secondary);
+}
+
