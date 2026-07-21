@@ -163,8 +163,15 @@
    container, the shared .table-container-tesla (overflow-x: auto) provides the
    horizontal scrollbar. Deliberately NO min-width:100% — under table-layout:fixed
    that forces the browser to redistribute width across columns, which silently
-   cancels out an individual column's resize (drag appears to do nothing). */
-.resizableTable {
+   cancels out an individual column's resize (drag appears to do nothing).
+
+   Selector is `table.resizableTable` (element+class), NOT `.resizableTable`:
+   the shared `.table-tesla { width: 100% }` (styles/table-tesla.css) has the
+   SAME specificity as a lone `.resizableTable` and, loading later, wins — which
+   re-pins the table to width:100% and reintroduces the exact fixed-layout
+   redistribution bug above (col drags get rebalanced to nothing). The element
+   qualifier raises specificity so `width: max-content` reliably beats it. */
+table.resizableTable {
   table-layout: fixed;
   width: max-content;
 }
