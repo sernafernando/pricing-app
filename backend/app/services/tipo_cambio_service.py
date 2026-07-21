@@ -5,23 +5,35 @@ from datetime import date
 from app.models.tipo_cambio import TipoCambio
 
 
-def actualizar_tipo_cambio_bna(db: Session):
-    """Obtiene tipo de cambio USD BILLETE desde BNA con XPATH"""
+def actualizar_tipo_cambio_bna(db: Session) -> dict:
+    """Obtiene tipo de cambio USD BILLETE (venta) desde BNA.
+
+    Fuente: tabla "Billetes" de https://www.bna.com.ar/Personas (tab id=billetes).
+    NO usar la tabla "Divisas / Mercado Libre de Cambios" de la misma página:
+    esa es otra cotización (menor, con fecha de último cierre) y no es la que
+    alimenta el pricing. Se ancla la fila por el texto "Dolar U.S.A" tomando la
+    primera coincidencia en orden de documento (= tabla Billetes del día).
+    """
     try:
-        url = "https://www.bna.com.ar/Personas"
-        response = requests.get(url, timeout=10)
+        # El BNA carga las cotizaciones vía POST al tab de billetes y exige
+        # User-Agent (un GET plano devuelve un HTML sin las tablas).
+        url = "https://www.bna.com.ar/Personas?id=billetes"
+        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+        response = requests.post(url, timeout=10, headers=headers)
         tree = html.fromstring(response.content)
 
-        # XPATH para compra y venta del dólar (primera fila de la tabla)
-        compra_str = tree.xpath("/html/body/main/div/div/div[4]/div[1]/div/div/div[1]/table/tbody/tr[1]/td[2]/text()")
-        venta_str = tree.xpath("/html/body/main/div/div/div[4]/div[1]/div/div/div[1]/table/tbody/tr[1]/td[3]/text()")
-
-        if not compra_str or not venta_str:
+        # Primera fila "Dolar U.S.A" en el documento = tabla Billetes (compra, venta).
+        filas = tree.xpath("//tr[td[contains(normalize-space(.), 'Dolar U.S.A')]]")
+        if not filas:
             return {"status": "error", "message": "No se encontraron valores en BNA"}
 
-        # Limpiar y convertir: 1435,00 -> 1435.0
-        compra = float(compra_str[0].strip().replace(".", "").replace(",", "."))
-        venta = float(venta_str[0].strip().replace(".", "").replace(",", "."))
+        celdas = [c.strip() for c in filas[0].xpath("./td//text()") if c.strip()]
+        if len(celdas) < 3:
+            return {"status": "error", "message": "Fila de dólar incompleta en BNA"}
+
+        # Limpiar y convertir: 1450,00 -> 1450.0
+        compra = float(celdas[1].replace(".", "").replace(",", "."))
+        venta = float(celdas[2].replace(".", "").replace(",", "."))
 
         if compra == 0 or venta == 0:
             return {"status": "error", "message": "Valores inválidos"}

@@ -12,24 +12,21 @@ async def scrapear_dolar_bna() -> Optional[Dict[str, float]]:
     Retorna dict con compra/venta o None si falla
     """
 
-    url = "https://www.bna.com.ar/Personas"
+    # El BNA carga las cotizaciones vía POST al tab de billetes y exige
+    # User-Agent (un GET plano devuelve un HTML sin las tablas). Se usa la
+    # tabla "Billetes", NO la de "Divisas / Mercado Libre de Cambios".
+    url = "https://www.bna.com.ar/Personas?id=billetes"
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
+            response = await client.post(url, headers=headers)
             response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Buscar la primera tabla
-        tabla = soup.find("table")
-
-        if not tabla:
-            print("❌ No se encontró la tabla de cotizaciones")
-            return None
-
-        # Buscar la fila del Dólar U.S.A
-        filas = tabla.find_all("tr")
+        # Buscar la fila del Dólar U.S.A (primera en el documento = tabla Billetes)
+        filas = soup.find_all("tr")
 
         for fila in filas:
             celdas = fila.find_all("td")
