@@ -19,7 +19,7 @@
  *   code path was commented out, and GREEN after restore.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -28,6 +28,11 @@ import Productos from './Productos';
 // Reach into the mocked module
 import { productosAPI } from '../services/api';
 import api from '../services/api';
+
+// SSE live-color sync is not exercised by these characterization tests; stub the
+// subscription hook so <Productos/> renders without an SSEProvider (same pattern
+// as MLQuestions.test.jsx).
+vi.mock('../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
 
 function getPromoFilterContainer() {
   return screen.getByText('🏷️ Promos').closest('.filter-item');
