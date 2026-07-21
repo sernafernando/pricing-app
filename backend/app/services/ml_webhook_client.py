@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from typing import Dict, Optional, List
 import logging
@@ -45,17 +46,26 @@ class MLWebhookClient:
             return None
 
     async def get_item_full(self, mla_id: str) -> Optional[Dict]:
-        """Obtiene datos completos de un item consultando directamente la API de ML
+        """Obtiene el item COMPLETO de MercadoLibre vía el proxy `render`.
+
+        A diferencia de `get_item_preview` (que usa `/api/ml/preview` y NO
+        trae los campos de vinculación entre publicaciones), este método
+        usa `/api/ml/render?format=json`, el único recurso que expone
+        `family_id`, `user_product_id`, `inventory_id`, `catalog_listing`,
+        `catalog_product_id` e `item_relations` (productos-catalog-family-tree,
+        PR1b — antes este método descartaba el render y volvía a pedir el
+        preview recortado, perdiendo justamente esos campos).
 
         Args:
-            mla_id: El ID del item
+            mla_id: El ID del item (ej: MLA2361127120).
 
         Returns:
-            Dict con todos los datos del item incluyendo listing_type_id, available_quantity, etc.
+            Dict con el payload completo del item (incluye los campos de
+            vinculación arriba), o None si hay error/timeout/404. Nunca
+            levanta (mismo shape de error-swallow que el resto del cliente).
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Consultar directamente usando el endpoint render que tiene acceso a la API
                 response = await client.get(
                     f"{self.base_url}/api/ml/render", params={"resource": f"/items/{mla_id}", "format": "json"}
                 )
@@ -63,20 +73,66 @@ class MLWebhookClient:
                 if response.status_code == 404:
                     return None
 
-                # El render devuelve HTML, pero podemos parsear o usar preview + consulta directa
-                # Mejor usamos el preview y complementamos
-                preview_response = await client.get(
-                    f"{self.base_url}/api/ml/preview", params={"resource": f"/items/{mla_id}"}
-                )
-
-                if preview_response.status_code != 200:
-                    return None
-
-                return preview_response.json()
+                response.raise_for_status()
+                return response.json()
 
         except Exception as e:
             logger.error(f"Error obteniendo item completo {mla_id}: {e}")
             return None
+
+    async def get_items_full_batch(self, mla_ids: List[str]) -> Dict[str, Dict]:
+        """Obtiene el item COMPLETO (`get_item_full`) para múltiples MLAs.
+
+        Mirrors `get_items_batch`'s batch-of-50 + 0.5s-pause pattern (ver
+        `scripts/refresh_and_sync_catalog.py`), pero llamando a
+        `get_item_full` (render) en vez de preview, y extrayendo solo los
+        campos de vinculación que persiste `ml_publication_link_service`.
+
+        Graceful degradation: un MLA para el que el proxy no devuelve nada
+        (404/timeout/error) queda simplemente AUSENTE del dict resultado —
+        nunca levanta, nunca aborta el resto del batch.
+
+        Args:
+            mla_ids: Lista de IDs de items.
+
+        Returns:
+            Dict `{mla_id: {family_id, user_product_id, inventory_id,
+            catalog_listing, catalog_product_id, item_relations}}` — solo
+            para los MLAs encontrados.
+        """
+        results: Dict[str, Dict] = {}
+
+        if not mla_ids:
+            return results
+
+        batch_size = 50
+        for start in range(0, len(mla_ids), batch_size):
+            batch = mla_ids[start : start + batch_size]
+
+            for mla_id in batch:
+                try:
+                    item = await self.get_item_full(mla_id)
+                except Exception as e:
+                    logger.error(f"Error obteniendo item completo en batch {mla_id}: {e}")
+                    continue
+
+                if item is None:
+                    continue
+
+                results[mla_id] = {
+                    "family_id": item.get("family_id"),
+                    "user_product_id": item.get("user_product_id"),
+                    "inventory_id": item.get("inventory_id"),
+                    "catalog_listing": item.get("catalog_listing"),
+                    "catalog_product_id": item.get("catalog_product_id"),
+                    "item_relations": item.get("item_relations") or [],
+                }
+
+            # Pequeña pausa entre batches (mirrors refresh_and_sync_catalog.py)
+            # para no saturar la API de ML vía el proxy.
+            await asyncio.sleep(0.5)
+
+        return results
 
     async def get_items_batch(self, mla_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch
