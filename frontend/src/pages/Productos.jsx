@@ -385,6 +385,7 @@ export default function Productos() {
       toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
     },
     seleccion: { toggleSeleccion, cambiarColorRapido, setColorDropdownAbierto },
+    capas: { equipos, equipoActivoId, setEquipoActivoId, setPage },
     ui: {
       mostrarExportModal, setMostrarExportModal,
       mostrarCalcularWebModal, setMostrarCalcularWebModal,
@@ -2848,6 +2849,10 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
                   <span>Navegar por celdas (una a la vez)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>F7</kbd> / <kbd>F6</kbd>
+                  <span>Capa de color: siguiente / anterior (cicla, con aviso)</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Shift</kbd> + <kbd>↑</kbd>

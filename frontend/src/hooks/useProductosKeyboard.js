@@ -17,6 +17,7 @@ export function useProductosKeyboard({
   seleccion,
   ui,
   permissions,
+  capas,
   showToast,
 }) {
   const [celdaActiva, setCeldaActiva] = useState(null);
@@ -136,6 +137,26 @@ export function useProductosKeyboard({
       const hayModalAbierto = ui.mostrarExportModal || ui.mostrarCalcularWebModal || ui.mostrarCalcularPVPModal || ui.mostrarModalConfig || ui.mostrarModalInfo || mostrarShortcutsHelp;
 
       if (hayModalAbierto) return;
+
+      // F6 / F7: cycle the active color layer (previous / next), wrapping around
+      // the circle: [Global, ...equipos]. Shows a toast with the loaded layer so
+      // you don't have to scroll up to the selector to know where you are.
+      if ((e.key === 'F6' || e.key === 'F7') && capas) {
+        e.preventDefault();
+        const listaCapas = [null, ...(capas.equipos || []).filter((eq) => !eq.es_global).map((eq) => eq.id)];
+        if (listaCapas.length <= 1) return;
+        const actualIdx = listaCapas.findIndex((id) => String(id ?? '') === String(capas.equipoActivoId ?? ''));
+        const base = actualIdx === -1 ? 0 : actualIdx;
+        const delta = e.key === 'F7' ? 1 : -1;
+        const nuevaCapa = listaCapas[(base + delta + listaCapas.length) % listaCapas.length];
+        capas.setEquipoActivoId(nuevaCapa);
+        capas.setPage(1);
+        const nombre = nuevaCapa === null
+          ? 'Global'
+          : ((capas.equipos || []).find((eq) => String(eq.id) === String(nuevaCapa))?.nombre || 'Equipo');
+        showToast(`Capa: ${nombre}`, 'info');
+        return;
+      }
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -446,6 +467,7 @@ export function useProductosKeyboard({
     permissions.puedeEditar, permissions.puedeMarcarColor,
     permissions.puedeToggleRebate, permissions.puedeToggleWebTransf, permissions.puedeToggleOutOfCards,
     permissions.puedeCalcularWebMasivo, permissions.puedeCalcularPVPMasivo,
+    capas?.equipoActivoId, capas?.equipos,
     iniciarEdicionDesdeTeclado,
     columnasEditables,
   ]);
