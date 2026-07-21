@@ -37,6 +37,7 @@ VALID_CHANNELS = {
     "tickets:badge",
     "tickets:changed",
     "ml_bot:questions",
+    "producto_color:changed",
 }
 
 
