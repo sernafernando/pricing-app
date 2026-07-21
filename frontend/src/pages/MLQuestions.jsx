@@ -328,14 +328,16 @@ export default function MLQuestions() {
   // never affects the others (spec req "per-table persistence").
   const preguntasCols = useResizableColumns({
     storageKey: 'mlbot:colwidths:preguntas',
+    // Every column carries a defaultWidth (px) so the table width = sum of all
+    // columns; defaults sum to ~1040px to fit a notebook content area by default.
     columns: [
-      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
-      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 160 },
-      { id: 'estado', label: 'Estado', resizable: false },
-      { id: 'respuesta', label: 'Respuesta (borrador)', resizable: true, min: 100, max: 600, defaultWidth: 220 },
-      { id: 'confianza', label: 'Confianza', resizable: false },
-      { id: 'countdown', label: 'Cuenta regresiva', resizable: false },
-      { id: 'acciones', label: 'Acciones', resizable: false },
+      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 240 },
+      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 150 },
+      { id: 'estado', label: 'Estado', resizable: false, defaultWidth: 90 },
+      { id: 'respuesta', label: 'Respuesta (borrador)', resizable: true, min: 100, max: 600, defaultWidth: 240 },
+      { id: 'confianza', label: 'Confianza', resizable: false, defaultWidth: 70 },
+      { id: 'countdown', label: 'Cuenta regresiva', resizable: false, defaultWidth: 120 },
+      { id: 'acciones', label: 'Acciones', resizable: false, defaultWidth: 130 },
     ],
   });
   const preguntasResized = ['pregunta', 'item', 'respuesta'].some((id) => preguntasCols.isResized(id));
@@ -346,11 +348,11 @@ export default function MLQuestions() {
       // Comprador·Pack is NOT resizable: in message rows this column is only a
       // thin indent bar — the buyer/pack identity lives in a colSpan thread-header
       // row, so widening this column reveals nothing. Only Mensaje carries text.
-      { id: 'comprador', label: 'Comprador · Pack', resizable: false },
-      { id: 'mensaje', label: 'Mensaje', resizable: true, min: 100, max: 600, defaultWidth: 220 },
-      { id: 'recibido', label: 'Recibido', resizable: false },
-      { id: 'leido', label: 'Leído', resizable: false },
-      { id: 'moderacion', label: 'Moderación', resizable: false },
+      { id: 'comprador', label: 'Comprador · Pack', resizable: false, defaultWidth: 160 },
+      { id: 'mensaje', label: 'Mensaje', resizable: true, min: 100, max: 600, defaultWidth: 340 },
+      { id: 'recibido', label: 'Recibido', resizable: false, defaultWidth: 150 },
+      { id: 'leido', label: 'Leído', resizable: false, defaultWidth: 150 },
+      { id: 'moderacion', label: 'Moderación', resizable: false, defaultWidth: 120 },
     ],
   });
   const mensajesResized = mensajesCols.isResized('mensaje');
@@ -358,11 +360,11 @@ export default function MLQuestions() {
   const detalleCols = useResizableColumns({
     storageKey: 'mlbot:colwidths:detalle',
     columns: [
-      { id: 'fecha', label: 'Fecha', resizable: false },
-      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
-      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 160 },
-      { id: 'estado', label: 'Estado', resizable: false },
-      { id: 'respuesta', label: 'Respuesta', resizable: true, min: 100, max: 600, defaultWidth: 220 },
+      { id: 'fecha', label: 'Fecha', resizable: false, defaultWidth: 150 },
+      { id: 'pregunta', label: 'Pregunta', resizable: true, min: 100, max: 600, defaultWidth: 240 },
+      { id: 'item', label: 'Item', resizable: true, min: 80, max: 400, defaultWidth: 150 },
+      { id: 'estado', label: 'Estado', resizable: false, defaultWidth: 90 },
+      { id: 'respuesta', label: 'Respuesta', resizable: true, min: 100, max: 600, defaultWidth: 240 },
     ],
   });
   const detalleResized = ['pregunta', 'item', 'respuesta'].some((id) => detalleCols.isResized(id));
@@ -769,22 +771,13 @@ export default function MLQuestions() {
                       </button>
                     )}
                     <div className="table-container-tesla">
-                      <table className={`table-tesla striped ${styles.resizableTable}`}>
+                      <table className={`table-tesla striped ${styles.resizableTable}`} style={{ width: detalleCols.tableWidth }}>
                         <colgroup>
-                          <col className={styles.colDate} />
-                          <col
-                            className={styles.colQuestion}
-                            style={detalleCols.isResized('pregunta') ? { width: detalleCols.colWidth('pregunta') } : undefined}
-                          />
-                          <col
-                            className={styles.colItem}
-                            style={detalleCols.isResized('item') ? { width: detalleCols.colWidth('item') } : undefined}
-                          />
-                          <col className={styles.colStatusNarrow} />
-                          <col
-                            className={styles.colAnswer}
-                            style={detalleCols.isResized('respuesta') ? { width: detalleCols.colWidth('respuesta') } : undefined}
-                          />
+                          <col style={{ width: detalleCols.effectiveWidth('fecha') }} />
+                          <col style={{ width: detalleCols.effectiveWidth('pregunta') }} />
+                          <col style={{ width: detalleCols.effectiveWidth('item') }} />
+                          <col style={{ width: detalleCols.effectiveWidth('estado') }} />
+                          <col style={{ width: detalleCols.effectiveWidth('respuesta') }} />
                         </colgroup>
                         <thead className="table-tesla-head">
                           <tr>
@@ -971,24 +964,15 @@ export default function MLQuestions() {
           )}
 
           <div className="table-container-tesla">
-            <table className={`table-tesla striped ${styles.resizableTable}`}>
+            <table className={`table-tesla striped ${styles.resizableTable}`} style={{ width: preguntasCols.tableWidth }}>
               <colgroup>
-                <col
-                  className={styles.colQuestion}
-                  style={preguntasCols.isResized('pregunta') ? { width: preguntasCols.colWidth('pregunta') } : undefined}
-                />
-                <col
-                  className={styles.colItem}
-                  style={preguntasCols.isResized('item') ? { width: preguntasCols.colWidth('item') } : undefined}
-                />
-                <col className={styles.colStatusNarrow} />
-                <col
-                  className={styles.colAnswer}
-                  style={preguntasCols.isResized('respuesta') ? { width: preguntasCols.colWidth('respuesta') } : undefined}
-                />
-                <col className={styles.colConfidence} />
-                <col className={styles.colCountdown} />
-                <col className={styles.colActions} />
+                <col style={{ width: preguntasCols.effectiveWidth('pregunta') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('item') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('estado') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('respuesta') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('confianza') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('countdown') }} />
+                <col style={{ width: preguntasCols.effectiveWidth('acciones') }} />
               </colgroup>
               <thead className="table-tesla-head">
                 <tr>
@@ -1220,16 +1204,13 @@ export default function MLQuestions() {
           )}
 
           <div className="table-container-tesla">
-            <table className={`table-tesla ${styles.resizableTable}`}>
+            <table className={`table-tesla ${styles.resizableTable}`} style={{ width: mensajesCols.tableWidth }}>
               <colgroup>
-                <col className={styles.colComprador} />
-                <col
-                  className={styles.colMensaje}
-                  style={mensajesCols.isResized('mensaje') ? { width: mensajesCols.colWidth('mensaje') } : undefined}
-                />
-                <col className={styles.colDate} />
-                <col className={styles.colDate} />
-                <col className={styles.colModeration} />
+                <col style={{ width: mensajesCols.effectiveWidth('comprador') }} />
+                <col style={{ width: mensajesCols.effectiveWidth('mensaje') }} />
+                <col style={{ width: mensajesCols.effectiveWidth('recibido') }} />
+                <col style={{ width: mensajesCols.effectiveWidth('leido') }} />
+                <col style={{ width: mensajesCols.effectiveWidth('moderacion') }} />
               </colgroup>
               <thead className="table-tesla-head">
                 <tr>

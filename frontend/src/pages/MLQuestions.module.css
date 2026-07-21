@@ -158,22 +158,24 @@
    responsive clamp() default via the .colX classes below.
    `table-tesla.css` itself is never touched — only this page's rules. */
 /* Scoped to the three resizable tables ONLY (marked with .resizableTable in the
-   JSX) — never the config/examples tables. The table sizes to the SUM of its
-   column widths so each column resizes independently; when that sum exceeds the
-   container, the shared .table-container-tesla (overflow-x: auto) provides the
-   horizontal scrollbar. Deliberately NO min-width:100% — under table-layout:fixed
-   that forces the browser to redistribute width across columns, which silently
-   cancels out an individual column's resize (drag appears to do nothing).
+   JSX) — never the config/examples tables.
 
-   Selector is `table.resizableTable` (element+class), NOT `.resizableTable`:
-   the shared `.table-tesla { width: 100% }` (styles/table-tesla.css) has the
-   SAME specificity as a lone `.resizableTable` and, loading later, wins — which
-   re-pins the table to width:100% and reintroduces the exact fixed-layout
-   redistribution bug above (col drags get rebalanced to nothing). The element
-   qualifier raises specificity so `width: max-content` reliably beats it. */
+   The table's `width` is set INLINE from JS (useResizableColumns.tableWidth =
+   the exact SUM of every column's px width), and each <col> gets its px width
+   inline too. Under `table-layout: fixed` that makes the browser honor each
+   column width and truncate overflowing cell content; when the sum exceeds the
+   container, the shared .table-container-tesla (overflow-x: auto) scrolls.
+
+   We deliberately do NOT set width here (no `100%`, no `max-content`):
+   - `width: 100%` (or min-width:100%) re-pins the table to the container and
+     fixed-layout redistributes the columns, cancelling a single column's resize.
+   - `width: max-content` sizes the table to its CONTENT (long ML titles/answers
+     blow it far past the <col> widths → col widths ignored, drag does nothing).
+   Only the JS sum gives fixed layout an authoritative, resize-tracking width.
+   Selector is `table.resizableTable` (element+class) so it out-specifies the
+   shared `.table-tesla { width: 100% }` and the inline width always wins. */
 table.resizableTable {
   table-layout: fixed;
-  width: max-content;
 }
 
 /* Resize handle: a wide invisible grab area straddling the column boundary,

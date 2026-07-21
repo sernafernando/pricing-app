@@ -158,3 +158,31 @@ describe('useResizableColumns', () => {
     expect(props.tabIndex).toBe(0);
   });
 });
+
+describe('useResizableColumns effectiveWidth + tableWidth (sum model)', () => {
+  beforeEach(() => localStorage.clear());
+
+  const cols = [
+    { id: 'a', label: 'A', resizable: true, min: 100, max: 600, defaultWidth: 200 },
+    { id: 'b', label: 'B', resizable: false, defaultWidth: 90 },
+    { id: 'c', label: 'C', resizable: true, min: 100, max: 600, defaultWidth: 150 },
+  ];
+
+  it('effectiveWidth returns defaultWidth when a column is not resized', () => {
+    const { result } = renderHook(() => useResizableColumns({ storageKey: 'k', columns: cols }));
+    expect(result.current.effectiveWidth('a')).toBe(200);
+    expect(result.current.effectiveWidth('b')).toBe(90);
+  });
+
+  it('tableWidth is the sum of every column effective width (defaults)', () => {
+    const { result } = renderHook(() => useResizableColumns({ storageKey: 'k', columns: cols }));
+    expect(result.current.tableWidth).toBe(200 + 90 + 150);
+  });
+
+  it('a persisted resize is reflected in effectiveWidth AND the tableWidth sum', () => {
+    localStorage.setItem('k', JSON.stringify({ a: 350 }));
+    const { result } = renderHook(() => useResizableColumns({ storageKey: 'k', columns: cols }));
+    expect(result.current.effectiveWidth('a')).toBe(350);
+    expect(result.current.tableWidth).toBe(350 + 90 + 150);
+  });
+});
