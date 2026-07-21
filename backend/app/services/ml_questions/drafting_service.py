@@ -64,6 +64,7 @@ from app.core.sse import sse_publish_bg
 from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import ml_client
 from app.services.ml_questions import answer_shaping, context_builder, policy
+from app.services.ml_questions.embedding_client import embed_query
 from app.services.ml_questions.llm_provider import LlmProvider, LlmProviderError, parse_llm_output
 from app.services.ml_questions.provider_rotation import RotatingProvider
 
@@ -535,9 +536,23 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
         # a fetch failure (404, transient error, unexpected payload) yields
         # `None`, and the draft proceeds without a description.
         description = await ml_client.get_item_description(question["item_id"])
+        # sdd/ml-bot-dynamic-fewshot (PR3, design ADR-4/ADR-5): the query
+        # embedding is computed OUTSIDE any DB session, mirroring
+        # `get_item_description` above. It is GATED on `fewshot_dynamic_enabled`
+        # so that with the feature OFF (dark launch) NO embedding HTTP call is
+        # made at all — the draft path is unchanged and gains zero extra latency
+        # or network dependency (a down embedder can never slow an off-feature
+        # draft). When ON, `embed_query` still never raises: a `None` result
+        # (disabled/unreachable embedder) makes `load_few_shot_examples` fall
+        # back to the static path.
+        with get_background_db() as db:
+            dynamic_fewshot_enabled = policy.is_fewshot_dynamic_enabled(db)
+        query_embedding = await embed_query(question["question_text"]) if dynamic_fewshot_enabled else None
 
         with get_background_db() as db:
-            context = context_builder.build_scoped_context(db, question["question_text"], item_payload, description)
+            context = context_builder.build_scoped_context(
+                db, question["question_text"], item_payload, description, query_embedding=query_embedding
+            )
             min_confidence = policy.get_config(db, "min_confidence", cast=float, default=_DEFAULT_MIN_CONFIDENCE)
             answer_max_chars = answer_shaping.get_answer_max_chars(db)
             debug_logging = policy.get_config(db, _LLM_DEBUG_LOGGING_KEY, cast=bool, default=False) or False

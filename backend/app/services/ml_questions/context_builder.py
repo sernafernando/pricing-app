@@ -44,6 +44,20 @@ and MUST be placed only inside a delimited block, never concatenated into the
 instruction/system portion of the prompt. `build_prompt` below is the single
 place that assembles the final system/user strings — every other caller must
 go through it rather than hand-rolling prompt strings.
+
+CI note (sdd/ml-bot-dynamic-fewshot, PR3, task 8): `_similarity_query`'s
+pgvector `<=>`/cosine-distance ORDER BY and the `ml_bot_answer_history`
+HNSW index require a real Postgres instance with the `vector` extension —
+the CI test DB (`DATABASE_URL=sqlite:///./test.db`) has no such operator and
+`embedding` maps to a plain JSON column there. CI exercises the dynamic
+retrieval LOGIC (fallback triggers, threshold filtering, ordering, guardrail
+isolation) exclusively via monkeypatched `_similarity_query`/`embed_query`,
+never by calling the real pgvector query. A live-Postgres round-trip of the
+actual `<=>` operator + HNSW index is manual/opt-in — see
+`tests/unit/test_ml_bot_answer_history_migration.py`'s
+`RUN_PGVECTOR_MIGRATION_TEST`-style `@pytest.mark.skipif`-gated check, which
+must be run against a real Postgres before/after a migration change, not on
+sqlite CI.
 """
 
 from __future__ import annotations
@@ -57,6 +71,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.ml_bot_answer_example import MlBotAnswerExample
+from app.models.ml_bot_answer_history import MlBotAnswerHistory
 from app.services.ml_questions import policy
 
 logger = logging.getLogger(__name__)
@@ -255,8 +270,10 @@ def load_business_vars(db: Session) -> Dict[str, str]:
     }
 
 
-def load_few_shot_examples(db: Session, limit: int = 10) -> List[FewShotExample]:
-    """R-1101: active few-shot examples, ordered per the seed's `orden`."""
+def _load_static_few_shot_examples(db: Session, limit: int) -> List[FewShotExample]:
+    """R-1101: active few-shot examples, ordered per the seed's `orden`. This
+    is the unconditional fallback path (sdd/ml-bot-dynamic-fewshot, PR3) —
+    used whenever dynamic retrieval is disabled, unavailable, or fails."""
     rows = (
         db.query(MlBotAnswerExample)
         .filter(MlBotAnswerExample.active.is_(True))
@@ -269,11 +286,89 @@ def load_few_shot_examples(db: Session, limit: int = 10) -> List[FewShotExample]
     ]
 
 
+def _similarity_query(db: Session, query_embedding: List[float], k: int) -> List[MlBotAnswerHistory]:
+    """Isolated pgvector cosine-similarity query (sdd/ml-bot-dynamic-fewshot,
+    PR3, design "Decision: Retrieval query + fallback"): active rows from
+    `ml_bot_answer_history`, ordered by ascending cosine DISTANCE (i.e.
+    descending similarity) via `Vector.cosine_distance`, limited to `k`.
+
+    Kept as its own function (not inlined into `load_few_shot_examples`) so
+    tests can monkeypatch it to return fake ordered rows without a real
+    Postgres/pgvector backend — the CI test DB is sqlite, where `embedding`
+    is a plain JSON column and `cosine_distance` does not exist; calling this
+    against sqlite raises, which the caller catches and falls back on.
+    """
+    return (
+        db.query(MlBotAnswerHistory)
+        .filter(MlBotAnswerHistory.active.is_(True))
+        .order_by(MlBotAnswerHistory.embedding.cosine_distance(query_embedding))
+        .limit(k)
+        .all()
+    )
+
+
+def load_few_shot_examples(
+    db: Session,
+    limit: int = 10,
+    query_embedding: Optional[List[float]] = None,
+) -> List[FewShotExample]:
+    """R-1101 + sdd/ml-bot-dynamic-fewshot PR3 dynamic retrieval.
+
+    Triple fallback to the static `orden`-based path (unchanged default
+    behavior) when ANY of the following holds:
+      1. `fewshot_dynamic_enabled` is off (dark-launch default).
+      2. `query_embedding` is `None` (embedder disabled/unavailable/failed).
+      3. The similarity query raises for ANY reason (e.g. sqlite CI, a
+         transient DB error) — caught and logged, never propagated.
+      4. The similarity query returns zero rows (e.g. empty corpus).
+
+    Cosine SIMILARITY = 1 - cosine DISTANCE. `Vector.cosine_distance` returns
+    distance (0 = identical, 2 = opposite), so a minimum-similarity threshold
+    `t` is enforced by keeping only rows whose distance <= (1 - t).
+    """
+    if query_embedding is not None and policy.is_fewshot_dynamic_enabled(db):
+        try:
+            k = policy.get_fewshot_k(db)
+            rows = _similarity_query(db, query_embedding, k)
+            threshold = policy.get_fewshot_similarity_threshold(db)
+            if threshold > 0:
+                max_distance = 1 - threshold
+                rows = [row for row in rows if _cosine_distance(row.embedding, query_embedding) <= max_distance]
+            if rows:
+                return [
+                    FewShotExample(question=row.question_text, answer=row.answer_text, category=row.category)
+                    for row in rows
+                ]
+        except Exception:  # noqa: BLE001 — dynamic retrieval must never break drafting; fall back to static.
+            logger.exception("load_few_shot_examples: dynamic retrieval failed; falling back to static path")
+
+    return _load_static_few_shot_examples(db, limit)
+
+
+def _cosine_distance(embedding: Any, query_embedding: List[float]) -> float:
+    """Plain-Python cosine distance, used only for the in-process similarity
+    threshold filter above (the DB-level ordering already used
+    `Vector.cosine_distance` for the ORDER BY; this recomputes the same
+    metric on the already-fetched rows so we don't need a second column in
+    the SELECT). `embedding` may be a `pgvector` `Vector`-like sequence or a
+    plain list — both are iterable of floats."""
+    a = list(embedding)
+    b = query_embedding
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 1.0
+    similarity = dot / (norm_a * norm_b)
+    return 1 - similarity
+
+
 def build_scoped_context(
     db: Session,
     question_text: str,
     item_payload: Optional[Dict[str, Any]],
     description: Optional[str] = None,
+    query_embedding: Optional[List[float]] = None,
 ) -> ScopedContext:
     """Single entry point assembling everything the LLM is allowed to see
     (design §6 stage 2). Every DB read here uses the caller's short-lived
@@ -284,14 +379,20 @@ def build_scoped_context(
     `plain_text`, already fetched by the caller OUTSIDE any DB session via
     `ml_client.get_item_description` (ADR-5 — this function itself never
     calls the ML API). `None` when absent/fetch-failed; truncated here to
-    the live `description_max_chars` config budget."""
+    the live `description_max_chars` config budget.
+
+    `query_embedding` (sdd/ml-bot-dynamic-fewshot, PR3): the buyer question's
+    embedding, already computed by the caller OUTSIDE any DB session (mirrors
+    `description` above). `None` by default (dynamic retrieval off/unavailable)
+    — threaded through to `load_few_shot_examples`, which falls back to the
+    static path whenever this is `None`."""
     max_chars = get_description_max_chars(db)
     return ScopedContext(
         question_text=question_text,
         stock_available=extract_stock_available(item_payload),
         listing_attributes=extract_listing_attributes(item_payload),
         business_vars=load_business_vars(db),
-        few_shot_examples=load_few_shot_examples(db),
+        few_shot_examples=load_few_shot_examples(db, query_embedding=query_embedding),
         official_store_id=extract_official_store_id(item_payload),
         item_title=extract_item_title(item_payload),
         item_description=truncate_description(description, max_chars),

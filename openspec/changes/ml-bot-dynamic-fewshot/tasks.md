@@ -83,7 +83,7 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - DONE (PR2): `_capture_answer_history` in `app/services/ml_questions/publisher_service.py`, called only from the genuine `result is not None` POST-success branch of `_publish_one` (not from either already-answered path). Guarded by `is_fewshot_capture_enabled` (dark-launch, default False).
 
 ## 5. Retrieval in context_builder
-- [ ] **5.1** (TEST FIRST) Tests for `load_few_shot_examples(db, limit, question_embedding=None)`:
+- [x] **5.1** (TEST FIRST) Tests for `load_few_shot_examples(db, limit, question_embedding=None)`:
   - `question_embedding=None` → static `orden`-based path unchanged (existing behavior preserved).
   - Dynamic path (feature flag on, embedding provided): cosine `<=>` ordering, `active=true` filter, `k`/threshold pulled from `ml_bot_config` via monkeypatched `policy.get_config`.
   - Empty result set after dynamic query → falls back to static path.
@@ -91,7 +91,8 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Return shape is identical `List[FewShotExample]` in both paths.
   - Use monkeypatched embedder + faked query layer (not real Postgres) so this test runs on CI's sqlite backend.
   - Requirement: spec Requirements 2 & 3; design ADR-4.
-- [ ] **5.2** Update `context_builder.py`:
+  - DONE (PR3): `TestLoadFewShotExamplesDynamic` + `TestDynamicFewShotToneOnlyGuardrail` in `tests/unit/test_ml_bot_context_builder.py`.
+- [x] **5.2** Update `context_builder.py`:
   - `load_few_shot_examples` accepts `question_embedding: Optional[list[float]] = None`.
   - `build_scoped_context(..., question_embedding=None)` threads it through.
   - Dynamic branch: pgvector cosine `ORDER BY embedding <=> :qvec LIMIT :k`, `WHERE active = true`, similarity threshold filter.
@@ -99,9 +100,11 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
   - Done when: all 5.1 tests pass.
   - Depends on: 2.2.
   - Parallel: independent of task 4; can run alongside it once task 2 is done.
-- [ ] **5.3** Update `drafting_service.py` to compute the query embedding OUTSIDE any DB session (mirrors `get_item_description` pattern) and pass it into `build_scoped_context(question_embedding=...)`.
+  - DONE (PR3): param named `query_embedding` (not `question_embedding`, matching design's Interfaces/Contracts section and PR2's `get_fewshot_k`/`get_fewshot_similarity_threshold` naming); `_similarity_query` isolated as its own function so tests can monkeypatch the pgvector-only query layer on sqlite CI; triple fallback implemented via broad `except Exception` (justified, dark-launch money-path safety) + empty-result + disabled-flag/None-embedding checks.
+- [x] **5.3** Update `drafting_service.py` to compute the query embedding OUTSIDE any DB session (mirrors `get_item_description` pattern) and pass it into `build_scoped_context(question_embedding=...)`.
   - Requirement: design ADR-4 (embedding call must never happen inside a session — ADR-5 cross-reference).
   - Depends on: 3.2, 5.2.
+  - DONE (PR3): `embed_query(question["question_text"])` called right after `get_item_description`, before `get_background_db()` opens; result threaded into `build_scoped_context(..., query_embedding=...)`. Inert (no-op cost) unless `fewshot_dynamic_enabled` is later turned on.
 
 ## 6. Config keys
 - [x] **6.1** (TEST FIRST) Tests for fail-safe config parsing of the 5 new keys: correct type coercion, correct defaults when key missing/malformed, `fewshot_retrieval_k` clamped to `[1, 20]`.
@@ -116,17 +119,21 @@ Strict TDD: every task below implements RED (failing test first) → GREEN (mini
 **PR2 status (tasks 4 + 6): SHIPPED (this run).** Task 5 (retrieval in context_builder + drafting_service wiring) is PR3 — NOT started. Capture is dark-launched (`fewshot_capture_enabled` default False); no corpus grows until explicitly enabled post-deploy.
 
 ## 7. Guardrail regression test
-- [ ] **7.1** (TEST FIRST/ONLY — this is a pure regression test, no new production code) Add explicit test: seed a retrieved dynamic example containing a foreign price/address in its answer text; assert that text appears in `EJEMPLOS_DE_TONO` (tone block) but never in `_context_to_json` output / `CONTEXTO_PERMITIDO`. Assert system-prompt rule 1 text is unchanged (string/hash comparison against baseline).
+- [x] **7.1** (TEST FIRST/ONLY — this is a pure regression test, no new production code) Add explicit test: seed a retrieved dynamic example containing a foreign price/address in its answer text; assert that text appears in `EJEMPLOS_DE_TONO` (tone block) but never in `_context_to_json` output / `CONTEXTO_PERMITIDO`. Assert system-prompt rule 1 text is unchanged (string/hash comparison against baseline).
   - Requirement: spec Requirement 4 (tone-only guardrail).
   - Depends on: 5.2 (dynamic path must exist to test against it).
   - Parallel: none — run last among the logic tasks, right after 5.2 lands.
+  - DONE (PR3): `TestDynamicFewShotToneOnlyGuardrail` in `tests/unit/test_ml_bot_context_builder.py` — monkeypatched dynamic-retrieval example carrying a foreign price/address string is asserted present in `build_prompt`'s system prompt (tone block) and absent from `_context_to_json`'s output; rule 1 wording locked via string-containment assertion against `_SYSTEM_PROMPT_TEMPLATE`.
 
 ## 8. CI limitation documentation
-- [ ] **8.1** Mark Postgres-only tests (task 1.2 migration smoke test, any test exercising real `<=>`/HNSW against a live Vector column) with `@pytest.mark.skipif` on non-Postgres dialect (CI runs backend tests on sqlite `DATABASE_URL`).
+- [x] **8.1** Mark Postgres-only tests (task 1.2 migration smoke test, any test exercising real `<=>`/HNSW against a live Vector column) with `@pytest.mark.skipif` on non-Postgres dialect (CI runs backend tests on sqlite `DATABASE_URL`).
   - Add a short note to `backend/README.md` or existing testing docs (wherever CI/test-backend caveats are already documented) stating: pgvector cosine operator and HNSW index require Postgres; these specific tests are skipped on sqlite CI and must be run manually / in a Postgres-backed CI job before merge.
   - Requirement: design "CI GOTCHA".
   - Depends on: 1.2.
   - Parallel: can be done any time after 1.2 exists, does not block other tasks.
+  - DONE (PR3): no `backend/README.md` exists; added a "CI note" paragraph to `context_builder.py`'s module docstring (the retrieval code itself) documenting that `_similarity_query`'s pgvector `<=>`/HNSW path requires real Postgres, CI/sqlite exercises only the monkeypatched fallback logic, and cross-referencing the existing `RUN_PGVECTOR_MIGRATION_TEST=1`-gated opt-in check from task 1.2's migration test. Postgres-only test marking itself was already done in task 1.2 (PR1).
+
+**PR3 status (tasks 5, 5.3, 7, 8): SHIPPED (this run).** All 3 PRs of sdd/ml-bot-dynamic-fewshot are now complete. Dynamic retrieval is dark-launched behind `fewshot_dynamic_enabled` (default False) — enabling it in production requires the corpus to have grown via `fewshot_capture_enabled` (PR2) first.
 
 ---
 
