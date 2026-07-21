@@ -152,6 +152,13 @@ export const productosAPI = {
   // backend can compute per-pub `matches_filter` (productos-promo-filter-per-mla).
   getProductoMercadolibreLite: (itemId, filterParams = {}) =>
     api.get(`/productos/${itemId}/mercadolibre`, { params: { lite: true, ...filterParams } }),
+  // Recursive catalog/family publication tree (productos-catalog-family-tree
+  // PR3). Mirrors `getProductoMercadolibreLite`'s param-forwarding pattern —
+  // `filterParams` is the same `{ promo_tipos, promo_estado }` (or legacy
+  // `con_promo_aplicada`/`con_promo_sin_aplicar`) shape, forwarded as-is so the
+  // backend computes per-node `matches_filter` at any depth.
+  getProductoTree: (itemId, filterParams = {}) =>
+    api.get(`/productos/${itemId}/mercadolibre/tree`, { params: { ...filterParams } }),
 };
 
 // Color-layer teams (productos-color-teams). `listar` returns the user's teams

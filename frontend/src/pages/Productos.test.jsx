@@ -808,8 +808,18 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
   it('expanding a product row shows the MLAs panel', async () => {
     const p1 = makeProducto({ item_id: 'EXP1', descripcion: 'Producto EXP1' });
     setupApiMocks({ productos: [p1], total: 1 });
-    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
-      data: { publicaciones_ml: [{ mla: 'MLA999', pricelist_id: 4, publication_status: 'active' }] },
+    productosAPI.getProductoTree.mockResolvedValue({
+      data: {
+        item_id: 'EXP1',
+        tree: {
+          level: 0,
+          kind: 'producto',
+          label: 'Producto',
+          children: [{ level: 1, kind: 'publicacion', mla: 'MLA999', label: 'MLA999', matches_filter: true, children: [] }],
+        },
+        skipped_anomalous_edges: 0,
+        skipped_edges: [],
+      },
     });
 
     await act(async () => {
@@ -822,7 +832,7 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
     await user.click(screen.getByRole('button', { name: /expandir publicaciones de/i }));
 
     await waitFor(() => expect(screen.getByText('MLA999')).toBeInTheDocument());
-    expect(productosAPI.getProductoMercadolibreLite).toHaveBeenCalledWith('EXP1', {});
+    expect(productosAPI.getProductoTree).toHaveBeenCalledWith('EXP1', {});
 
     const detailRow = document.querySelector('tr[data-detail-row]');
     expect(detailRow).toBeInTheDocument();
@@ -833,8 +843,8 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
     const p1 = makeProducto({ item_id: 'NAV1', descripcion: 'Producto NAV1' });
     const p2 = makeProducto({ item_id: 'NAV2', descripcion: 'Producto NAV2' });
     setupApiMocks({ productos: [p1, p2], total: 2 });
-    productosAPI.getProductoMercadolibreLite.mockResolvedValue({
-      data: { publicaciones_ml: [] },
+    productosAPI.getProductoTree.mockResolvedValue({
+      data: { item_id: 'NAV1', tree: { level: 0, kind: 'producto', label: 'Producto', children: [] }, skipped_anomalous_edges: 0, skipped_edges: [] },
     });
 
     await act(async () => {
