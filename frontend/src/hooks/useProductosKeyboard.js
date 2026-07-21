@@ -467,7 +467,7 @@ export function useProductosKeyboard({
     permissions.puedeEditar, permissions.puedeMarcarColor,
     permissions.puedeToggleRebate, permissions.puedeToggleWebTransf, permissions.puedeToggleOutOfCards,
     permissions.puedeCalcularWebMasivo, permissions.puedeCalcularPVPMasivo,
-    capas.equipoActivoId, capas.equipos,
+    capas?.equipoActivoId, capas?.equipos,
     iniciarEdicionDesdeTeclado,
     columnasEditables,
   ]);
