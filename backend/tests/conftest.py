@@ -31,6 +31,7 @@ from sqlalchemy import create_engine, event, BigInteger, Integer, JSON, String
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base, get_async_db, get_db
 from app.core.security import get_password_hash, create_access_token, create_refresh_token
@@ -42,6 +43,7 @@ from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.models.rol import Rol
+from app.models.ml_bot_answer_history import MlBotAnswerHistory  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
@@ -73,6 +75,14 @@ TEST_DB_URL = "sqlite://"  # in-memory
 _PG_TYPE_MAP = {
     JSONB: lambda: JSON(),
     PG_UUID: lambda: String(36),
+    # pgvector's `Vector(dim)` compiles to a Postgres-only `VECTOR(n)` column
+    # type with no SQLite equivalent; remap to JSON so the test DB can build
+    # the table and round-trip a plain list[float] (ml-bot-dynamic-fewshot).
+    # `none_as_null=True` is required so a Python `None` binds as real SQL
+    # NULL (and trips a NOT NULL constraint) instead of JSON's default
+    # behavior of storing the JSON "null" literal, which would silently
+    # satisfy a NOT NULL column.
+    Vector: lambda: JSON(none_as_null=True),
 }
 
 
