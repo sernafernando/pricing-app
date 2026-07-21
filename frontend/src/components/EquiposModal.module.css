@@ -1,0 +1,240 @@
+/* EquiposModal — team management (productos-color-teams) */
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--spacing-md);
+  min-height: 360px;
+}
+
+/* ── Left: team list + create ─────────────────────────── */
+.listPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  border-right: 1px solid var(--cf-border-default);
+  padding-right: var(--spacing-md);
+}
+
+.createRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.teamList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  overflow-y: auto;
+  max-height: 48vh;
+}
+
+.teamItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--duration-200, 0.15s) var(--ease-out, ease);
+}
+
+.teamItem:hover {
+  background: var(--cf-bg-hover);
+}
+
+.teamItemActive {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-accent-blue-light);
+}
+
+.teamName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Right: selected team detail ──────────────────────── */
+.detailPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.detailActions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.renameRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  width: 100%;
+}
+
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* ── Members ──────────────────────────────────────────── */
+.membersSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.sectionTitle {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.memberRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-base);
+  background: var(--cf-bg-hover);
+}
+
+.memberName {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberControls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.addRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+/* ── Inputs ───────────────────────────────────────────── */
+.input,
+.select,
+.selectSm {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200, 0.15s) var(--ease-out, ease);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+}
+
+.select {
+  flex: 1;
+  min-width: 0;
+}
+
+.selectSm {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+.input:focus,
+.select:focus,
+.selectSm:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Empty / placeholder states ───────────────────────── */
+.emptyState {
+  padding: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  text-align: center;
+}
+
+.emptyDetail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  padding: var(--spacing-lg);
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+  text-align: center;
+}
+
+/* Responsive: stack panels on narrow viewports */
+@media (max-width: 640px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .listPanel {
+    border-right: none;
+    border-bottom: 1px solid var(--cf-border-default);
+    padding-right: 0;
+    padding-bottom: var(--spacing-md);
+  }
+}

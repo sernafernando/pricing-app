@@ -13,9 +13,10 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
+import EquiposModal from '../components/EquiposModal';
 import styles from '../components/promociones/promociones.module.css';
 import PromoFilterBar from '../components/promociones/PromoFilterBar';
 import '../styles/tabla-productos-shared.css';
@@ -89,9 +90,11 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
-  // Color-layer teams (productos-color-teams). Read-only in this tanda: feeds
-  // the layer selector. No team selected (equipoActivoId null) === global layer.
-  const { equipos } = useEquipos();
+  // Color-layer teams (productos-color-teams). Feeds the layer selector.
+  // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
+  // refreshes the selector after the management modal creates/renames/deletes.
+  const { equipos, recargar: recargarEquipos } = useEquipos();
+  const [mostrarEquiposModal, setMostrarEquiposModal] = useState(false);
   const {
     productos,
     setProductos,
@@ -669,6 +672,17 @@ export default function Productos() {
               {equipos.find(eq => String(eq.id) === String(equipoActivoId))?.nombre || ''}
             </span>
           )}
+
+          {/* Gestión de equipos (productos-color-teams). Cualquier usuario puede
+              crear/administrar sus equipos; no está detrás de un permiso. */}
+          <button
+            onClick={() => setMostrarEquiposModal(true)}
+            className="btn-tesla outline-subtle-primary sm"
+            title="Gestionar equipos"
+          >
+            <Users size={14} />
+            Equipos
+          </button>
 
           {/* Auto-recalcular */}
           <button
@@ -3015,6 +3029,13 @@ export default function Productos() {
           Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
         </div>
       )}
+
+      {/* Gestión de equipos (productos-color-teams). Al cerrar, recargamos los
+          equipos para que el selector de capa refleje altas/renombres/bajas. */}
+      <EquiposModal
+        isOpen={mostrarEquiposModal}
+        onClose={() => { setMostrarEquiposModal(false); recargarEquipos(); }}
+      />
 
       {/* Toast notification */}
       <Toast toast={toast} onClose={hideToast} />
