@@ -46,6 +46,8 @@ function writeStoredWidths(storageKey, widths) {
  * @param {{ storageKey: string, columns: Array<{id:string,label:string,resizable:boolean,min:number,max:number,defaultWidth:number}> }} params
  * @returns {{
  *   colWidth: (id: string) => number|undefined,
+ *   effectiveWidth: (id: string) => number|undefined,
+ *   tableWidth: number,
  *   isResized: (id: string) => boolean,
  *   getHandleProps: (id: string) => object,
  *   resetWidths: () => void,
@@ -65,6 +67,28 @@ export function useResizableColumns({ storageKey, columns }) {
 
   const colWidth = useCallback((id) => widths[id], [widths]);
   const isResized = useCallback((id) => widths[id] !== undefined, [widths]);
+
+  // Effective px width of a column: the user-resized value if present, else the
+  // column's configured defaultWidth. EVERY column (resizable or not) reports a
+  // concrete px width so the table can be sized to the exact SUM of its columns.
+  const effectiveWidth = useCallback(
+    (id) => {
+      const col = columnsById.current[id];
+      if (!col) return undefined;
+      return widths[id] !== undefined ? widths[id] : col.defaultWidth;
+    },
+    [widths]
+  );
+
+  // Total table width = sum of every column's effective width. The table MUST
+  // be given this as an explicit width under `table-layout: fixed`: `width:
+  // max-content` sizes the table to its CONTENT (long ML titles/answers), which
+  // ignores the <col> widths and defeats resizing; an explicit sum makes fixed
+  // layout honor each <col> width and truncate overflowing cell content.
+  const tableWidth = columns.reduce(
+    (sum, col) => sum + (widths[col.id] !== undefined ? widths[col.id] : col.defaultWidth || 0),
+    0
+  );
 
   const commitWidth = useCallback(
     (id, value, { debounce = false } = {}) => {
@@ -195,7 +219,7 @@ export function useResizableColumns({ storageKey, columns }) {
     };
   }, [handleMouseMove, handleMouseUp]);
 
-  return { colWidth, isResized, getHandleProps, resetWidths };
+  return { colWidth, effectiveWidth, tableWidth, isResized, getHandleProps, resetWidths };
 }
 
 export default useResizableColumns;
