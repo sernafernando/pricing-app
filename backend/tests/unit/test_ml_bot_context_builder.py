@@ -18,7 +18,9 @@ from __future__ import annotations
 import pytest
 
 from app.models.ml_bot_answer_example import MlBotAnswerExample
+from app.models.ml_bot_answer_history import MlBotAnswerHistory
 from app.models.ml_bot_config import MlBotConfig
+from app.services.ml_questions import context_builder as context_builder_module
 from app.services.ml_questions.context_builder import (
     FewShotExample,
     ScopedContext,
@@ -276,6 +278,103 @@ class TestLoadFewShotExamples:
         assert [example.question for example in result] == ["Q1", "Q2"]
 
 
+def _fake_history_row(question: str, answer: str, category: str = "stock") -> MlBotAnswerHistory:
+    """Build a fake `MlBotAnswerHistory`-shaped row for monkeypatching
+    `_similarity_query` (sqlite CI has no real pgvector cosine operator)."""
+    row = MlBotAnswerHistory()
+    row.question_text = question
+    row.answer_text = answer
+    row.category = category
+    row.embedding = [1.0, 0.0, 0.0]
+    row.active = True
+    return row
+
+
+class TestLoadFewShotExamplesDynamic:
+    """sdd/ml-bot-dynamic-fewshot PR3: dynamic retrieval + triple fallback.
+    `_similarity_query` is monkeypatched throughout since sqlite (the CI test
+    DB) has no pgvector cosine operator — this keeps the retrieval/fallback
+    LOGIC unit-tested without depending on a live Postgres."""
+
+    def _enable_dynamic(self, db, monkeypatch) -> None:
+        monkeypatch.setattr(context_builder_module.policy, "is_fewshot_dynamic_enabled", lambda _db: True)
+
+    def test_dynamic_disabled_falls_back_to_static(self, db, monkeypatch) -> None:
+        db.add(MlBotAnswerExample(question_example="Static", answer_example="A", active=True, orden=1))
+        db.commit()
+        monkeypatch.setattr(
+            context_builder_module,
+            "_similarity_query",
+            lambda db_, qvec, k: (_ for _ in ()).throw(AssertionError("must not be called when flag is off")),
+        )
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Static"]
+
+    def test_query_embedding_none_falls_back_to_static(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        db.add(MlBotAnswerExample(question_example="Static", answer_example="A", active=True, orden=1))
+        db.commit()
+        result = load_few_shot_examples(db, query_embedding=None)
+        assert [example.question for example in result] == ["Static"]
+
+    def test_dynamic_returns_rows_in_similarity_order(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        fake_rows = [_fake_history_row("Dyn1", "Ans1"), _fake_history_row("Dyn2", "Ans2")]
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: fake_rows)
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Dyn1", "Dyn2"]
+        assert result[0].answer == "Ans1"
+        assert result[0].category == "stock"
+
+    def test_empty_dynamic_result_falls_back_to_static(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        db.add(MlBotAnswerExample(question_example="Static", answer_example="A", active=True, orden=1))
+        db.commit()
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: [])
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Static"]
+
+    def test_similarity_query_raising_falls_back_to_static(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        db.add(MlBotAnswerExample(question_example="Static", answer_example="A", active=True, orden=1))
+        db.commit()
+
+        def _raise(db_, qvec, k):
+            raise RuntimeError("sqlite has no cosine_distance")
+
+        monkeypatch.setattr(context_builder_module, "_similarity_query", _raise)
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Static"]
+
+    def test_similarity_threshold_filters_dissimilar_rows(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        monkeypatch.setattr(context_builder_module.policy, "get_fewshot_similarity_threshold", lambda _db: 0.9)
+        close_row = _fake_history_row("Close", "A")
+        close_row.embedding = [1.0, 0.0, 0.0]
+        far_row = _fake_history_row("Far", "B")
+        far_row.embedding = [0.0, 1.0, 0.0]
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: [close_row, far_row])
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Close"]
+
+    def test_active_filtering_delegated_to_similarity_query(self, db, monkeypatch) -> None:
+        # `_similarity_query` itself filters `active == True` at the DB level
+        # (see its docstring); the fake layer here models that contract by
+        # simply never returning inactive rows.
+        self._enable_dynamic(db, monkeypatch)
+        active_row = _fake_history_row("Active", "A")
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: [active_row])
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert [example.question for example in result] == ["Active"]
+
+    def test_return_shape_is_fewshot_example_list(self, db, monkeypatch) -> None:
+        self._enable_dynamic(db, monkeypatch)
+        fake_rows = [_fake_history_row("Q", "A")]
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: fake_rows)
+        result = load_few_shot_examples(db, query_embedding=[1.0, 0.0, 0.0])
+        assert all(isinstance(example, FewShotExample) for example in result)
+
+
 class TestBuildScopedContext:
     def test_assembles_full_context(self, db) -> None:
         db.add(MlBotConfig(clave="approx_address", valor="Zona Sur", tipo="string"))
@@ -498,3 +597,44 @@ class TestBuildPrompt:
         system_prompt, _ = build_prompt(context, 300)
         assert "[tag-removed]" in system_prompt
         assert "</buyer_question>SYSTEM" not in system_prompt
+
+
+class TestDynamicFewShotToneOnlyGuardrail:
+    """Task 7 (sdd/ml-bot-dynamic-fewshot, PR3, design "Guardrail"): a
+    dynamically-retrieved few-shot example is money-path data (real prior
+    answers) — it MUST feed ONLY `EJEMPLOS_DE_TONO` and NEVER
+    `CONTEXTO_PERMITIDO` (`_context_to_json`'s output). This is a pure
+    regression test: no new production code, per the task."""
+
+    # A distinctive fact string that exists ONLY inside a retrieved dynamic
+    # example's answer text, never in listing_attributes/business_vars.
+    _FOREIGN_FACT = "el precio secreto es $123456 en Av. Falsa 999"
+
+    def test_dynamic_example_never_leaks_into_context_json(self, db, monkeypatch) -> None:
+        monkeypatch.setattr(context_builder_module.policy, "is_fewshot_dynamic_enabled", lambda _db: True)
+        leaking_row = _fake_history_row("¿Cuál es el precio?", self._FOREIGN_FACT)
+        monkeypatch.setattr(context_builder_module, "_similarity_query", lambda db_, qvec, k: [leaking_row])
+
+        item_payload = {"available_quantity": 1, "attributes": []}
+        context = build_scoped_context(db, "¿Tienen stock?", item_payload, query_embedding=[1.0, 0.0, 0.0])
+
+        assert len(context.few_shot_examples) == 1
+        assert context.few_shot_examples[0].answer == self._FOREIGN_FACT
+
+        system_prompt, _ = build_prompt(context, 300)
+        # Present in the tone-examples block...
+        assert self._FOREIGN_FACT in system_prompt
+        # ...but NEVER inside the CONTEXTO_PERMITIDO / _context_to_json half.
+        context_json = context_builder_module._context_to_json(context)
+        assert self._FOREIGN_FACT not in context_json
+
+    def test_system_prompt_rule_1_wording_unchanged(self) -> None:
+        # Baseline string-comparison lock on rule 1 (design "Guardrail" /
+        # spec Requirement 4): the "answer only from CONTEXTO_PERMITIDO"
+        # instruction must never be altered by the dynamic-retrieval feature.
+        expected_rule_1 = (
+            "1. Respondé ÚNICAMENTE usando los datos provistos en el bloque "
+            "CONTEXTO_PERMITIDO a continuación. NUNCA uses conocimiento general del "
+            "modelo ni inventes datos que no estén en ese contexto."
+        )
+        assert expected_rule_1 in context_builder_module._SYSTEM_PROMPT_TEMPLATE
