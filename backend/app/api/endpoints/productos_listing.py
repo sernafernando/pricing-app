@@ -20,8 +20,10 @@ from app.services.ml_promotions_service import (
     fetch_mlas_by_promo_name,
     fetch_mlas_with_active_promo_type,
     fetch_mlas_with_candidate_only,
+    fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
+from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
@@ -132,10 +134,10 @@ def listar_productos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    if promo_estado is not None and promo_estado not in ("disponible", "aplicada"):
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
         raise HTTPException(
             status_code=422,
-            detail="promo_estado inválido: debe ser 'disponible' o 'aplicada'",
+            detail="promo_estado inválido: debe ser 'disponible', 'aplicada' o 'sin_aplicar'",
         )
 
     global_layer_id = get_global_equipo_id(db)
@@ -536,17 +538,33 @@ def listar_productos(
         else:
             query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
 
-    # Filtro por tipo de promo activa en MercadoLibre (cross-DB: mlwebhook -> pricing)
-    if promo_tipos:
-        tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()]
-        if tipos_list:
-            applied_only = promo_estado == "aplicada"
-            query = _resolve_and_fold_mlas(
-                query,
-                db,
-                lambda: fetch_mlas_with_active_promo_type(tipos_list, applied_only),
-                "Filtro de promociones",
-            )
+    # Filtro unificado de promociones (list-level fold, cross-DB: mlwebhook ->
+    # pricing). UNA sola llamada a select_promo_resolver + _resolve_and_fold_mlas
+    # por request (spec: "Unified promo filter control resolves to exactly one
+    # MLA-set fold" / design D2): reemplaza los antiguos bloques if
+    # independientes de promo_tipos, con_promo_aplicada y con_promo_sin_aplicar,
+    # que permitían que un producto matcheara "tipo" en una MLA y "estado" en
+    # OTRA MLA del mismo producto (regression fix, ver
+    # TestConPromoAplicadaAndSinAplicarTogether). Cuando `promo_tipos` está
+    # presente, los params legacy con_promo_aplicada/con_promo_sin_aplicar se
+    # IGNORAN por completo (D2): sólo sobreviven como fallback type-agnostic
+    # cuando NO hay `promo_tipos`.
+    tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
+    resolver_entry = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos_list or None,
+        promo_estado,
+        con_promo_aplicada,
+        con_promo_sin_aplicar,
+    )
+    if resolver_entry:
+        resolver, log_context = resolver_entry
+        query = _resolve_and_fold_mlas(query, db, resolver, log_context)
 
     # Operador promo: del buscador (feature productos-search-mla-promo-operators,
     # cross-DB: mlwebhook -> pricing). Convive con promo_tipos (AND natural,
@@ -566,22 +584,14 @@ def listar_productos(
                 promo_search_resolver = partial(fetch_mlas_by_promo_name, promo_search_value)
             query = _resolve_and_fold_mlas(query, db, promo_search_resolver, "Operador promo:")
 
-    # Filtro con_promo_aplicada: al menos una promo en status 'started'
-    # (cualquier promotion_type). Mismo shape que el bloque promo: (ADR-5).
-    # ponytail: fetch_mlas_with_started() is type-agnostic and returns an
-    # UNBOUNDED set of MLAs (every 'started' promo in the account), passed to
-    # an unbounded IN(). Measured 2942 'started' MLAs in prod (2026-07-20),
-    # well under Postgres' ~65535 bind-param ceiling, so the risk is theoretical
-    # at current scale. Follow-up if the 'started' set nears that ceiling: bound
-    # the cross-DB query to the page/known-local MLAs instead of the universe.
-    # Tracked in docs/tech-debt-ledger.md.
-    if con_promo_aplicada:
-        query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_started, "Filtro con_promo_aplicada")
-
-    # Filtro con_promo_sin_aplicar: al menos una promo 'candidate' Y cero
-    # 'started'/'pending'. Mismo shape que el bloque promo: (ADR-5).
-    if con_promo_sin_aplicar:
-        query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_candidate_only, "Filtro con_promo_sin_aplicar")
+    # con_promo_aplicada / con_promo_sin_aplicar (legacy, type-agnostic):
+    # ahora resueltos por el fold unificado de arriba (select_promo_resolver),
+    # únicamente cuando `promo_tipos` está ausente (D2 precedence). NOTA de
+    # escala (ex-ADR-5): fetch_mlas_with_started()/fetch_mlas_with_candidate_only()
+    # sin `mla_ids` devuelven el universo completo de MLAs de la cuenta
+    # (2942 'started' medidos en prod 2026-07-20), bien debajo del límite de
+    # ~65535 bind params de Postgres — riesgo teórico a esta escala. Tracked
+    # en docs/tech-debt-ledger.md.
 
     # Filtro de colores (lee del layer de equipo activo, ver productos_shared)
     query = filtro_colores(query, colores, color_slot(None))

@@ -45,7 +45,7 @@ state (candidate|started|finished), not the live ML API read-back.
 """
 
 import logging
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import text
 
@@ -380,7 +380,9 @@ def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[s
     return result
 
 
-def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool = False) -> Set[str]:
+def fetch_mlas_with_active_promo_type(
+    promo_types: List[str], applied_only: bool = False, mla_ids: Optional[List[str]] = None
+) -> Set[str]:
     """Lee el set de MLAs con al menos una promo activa de los tipos dados.
 
     Usado por el filtro "por tipo de promo" del LISTADO de Productos (feature
@@ -398,6 +400,12 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
             con el panel — ver #924). La tabla es upsert-only sin limpieza de
             stale, así que este scope de status mantiene el set acotado a
             promos genuinamente activas (nunca 'finished').
+        mla_ids: opcional (feature productos-promo-filter-per-mla). Cuando se
+            provee, acota la query a `mla = ANY(:mla_ids)` — usado por el
+            endpoint lite para resolver `matches_filter` sobre las MLAs de UN
+            producto en vez de traer el universo completo de la cuenta. El
+            fold a nivel LISTADO nunca pasa este parámetro (universo completo
+            preservado).
 
     Returns:
         Set de mla (str). Vacío si no hay filas.
@@ -410,6 +418,11 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
         return set()
 
     status_clause = "AND status = 'started'" if applied_only else "AND status IN ('candidate', 'started', 'pending')"
+    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+
+    params: Dict[str, Any] = {"types": promo_types}
+    if mla_ids:
+        params["mla_ids"] = mla_ids
 
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
@@ -419,8 +432,9 @@ def fetch_mlas_with_active_promo_type(promo_types: List[str], applied_only: bool
                 FROM ml_item_promotions
                 WHERE promotion_type = ANY(:types)
                 {status_clause}
+                {mla_clause}
             """),
-            {"types": promo_types},
+            params,
         ).fetchall()
 
     result = {row[0] for row in rows}
@@ -472,7 +486,7 @@ def fetch_mlas_by_promo_name(name_substr: str) -> Set[str]:
     return result
 
 
-def fetch_mlas_with_started() -> Set[str]:
+def fetch_mlas_with_started(mla_ids: Optional[List[str]] = None) -> Set[str]:
     """Lee el set de MLAs con al menos una promo en status 'started', sin
     importar el promotion_type.
 
@@ -485,6 +499,11 @@ def fetch_mlas_with_started() -> Set[str]:
     `pending` NO cuenta acá: significa que la promo está en proceso pero
     todavía no fue aplicada al item, a diferencia de `started` (aplicada).
 
+    Args:
+        mla_ids: opcional (feature productos-promo-filter-per-mla). Acota la
+            query a `mla = ANY(:mla_ids)` cuando se provee — usado por el
+            endpoint lite; el fold a nivel LISTADO nunca lo pasa.
+
     Returns:
         Set de mla (str). Vacío si no hay filas.
 
@@ -492,14 +511,19 @@ def fetch_mlas_with_started() -> Set[str]:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
             (endpoint) es responsable de mapear esto a HTTP 503.
     """
+    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    params: Dict[str, Any] = {"mla_ids": mla_ids} if mla_ids else {}
+
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT DISTINCT mla
                 FROM ml_item_promotions
                 WHERE status = 'started'
-            """)
+                {mla_clause}
+            """),
+            params,
         ).fetchall()
 
     result = {row[0] for row in rows}
@@ -507,7 +531,7 @@ def fetch_mlas_with_started() -> Set[str]:
     return result
 
 
-def fetch_mlas_with_candidate_only() -> Set[str]:
+def fetch_mlas_with_candidate_only(mla_ids: Optional[List[str]] = None) -> Set[str]:
     """Lee el set de MLAs con al menos una promo 'candidate' Y CERO promos
     'started' Y CERO promos 'pending'.
 
@@ -519,6 +543,11 @@ def fetch_mlas_with_candidate_only() -> Set[str]:
     cuenta como aplicada (USER DECISION). Agregación por MLA (bool_or GROUP
     BY), mirrors fetch_promo_summary_by_mla's pattern.
 
+    Args:
+        mla_ids: opcional (feature productos-promo-filter-per-mla). Acota la
+            query a `mla = ANY(:mla_ids)` cuando se provee — usado por el
+            endpoint lite; el fold a nivel LISTADO nunca lo pasa.
+
     Returns:
         Set de mla (str). Vacío si no hay filas.
 
@@ -526,22 +555,85 @@ def fetch_mlas_with_candidate_only() -> Set[str]:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
             (endpoint) es responsable de mapear esto a HTTP 503.
     """
+    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    params: Dict[str, Any] = {"mla_ids": mla_ids} if mla_ids else {}
+
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT mla
                 FROM ml_item_promotions
                 WHERE status IN ('candidate', 'started', 'pending')
+                {mla_clause}
                 GROUP BY mla
                 HAVING bool_or(status = 'candidate')
                    AND NOT bool_or(status = 'started')
                    AND NOT bool_or(status = 'pending')
-            """)
+            """),
+            params,
         ).fetchall()
 
     result = {row[0] for row in rows}
     logger.info("ml_item_promotions: %d mlas with candidate promo(s) and none started", len(result))
+    return result
+
+
+def fetch_mlas_with_candidate_only_for_types(promo_types: List[str], mla_ids: Optional[List[str]] = None) -> Set[str]:
+    """Variante type-scoped de `fetch_mlas_with_candidate_only` (D1): mismo
+    HAVING compuesto (candidate present, NOT started, NOT pending), acotado
+    a `promotion_type = ANY(:types)`.
+
+    Resuelve la celda `promo_tipos=[T]&promo_estado=sin_aplicar` del listado
+    de Productos (feature productos-promo-filter-per-mla): un tipo de promo
+    seleccionado + "sin aplicar" no puede reutilizar el helper type-agnostic
+    (contaría candidatos de OTROS tipos como si fueran del tipo elegido).
+
+    Args:
+        promo_types: lista de promotion_type a buscar (ANY). [] no ejecuta
+            ninguna query (mirrors fetch_mlas_with_active_promo_type's guard).
+        mla_ids: opcional (feature productos-promo-filter-per-mla). Acota la
+            query a `mla = ANY(:mla_ids)` cuando se provee — usado por el
+            endpoint lite; el fold a nivel LISTADO nunca lo pasa.
+
+    Returns:
+        Set de mla (str). Vacío si no hay filas o si `promo_types` es vacío.
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
+            (endpoint) es responsable de mapear esto a HTTP 503.
+    """
+    if not promo_types:
+        return set()
+
+    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    params: Dict[str, Any] = {"types": promo_types}
+    if mla_ids:
+        params["mla_ids"] = mla_ids
+
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(f"""
+                SELECT mla
+                FROM ml_item_promotions
+                WHERE promotion_type = ANY(:types)
+                  AND status IN ('candidate', 'started', 'pending')
+                {mla_clause}
+                GROUP BY mla
+                HAVING bool_or(status = 'candidate')
+                   AND NOT bool_or(status = 'started')
+                   AND NOT bool_or(status = 'pending')
+            """),
+            params,
+        ).fetchall()
+
+    result = {row[0] for row in rows}
+    logger.info(
+        "ml_item_promotions: %d mlas with candidate promo(s) for type(s) %s and none started",
+        len(result),
+        promo_types,
+    )
     return result
 
 

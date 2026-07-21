@@ -529,7 +529,7 @@ class TestPromoOperatorResolve:
 
         with patch(
             "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
-            side_effect=lambda types, applied_only=False: (
+            side_effect=lambda types, applied_only=False, mla_ids=None: (
                 {"MLA1", "MLA2"} if types == ["SELLER_CAMPAIGN"] else {"MLA1"}
             ),
         ):
@@ -689,35 +689,82 @@ class TestConPromoSinAplicar:
 
 
 class TestConPromoAplicadaAndSinAplicarTogether:
-    def test_both_true_yields_empty_result_for_disjoint_sets(self, db) -> None:
+    """D2 regression proof: the unified fold resolves to exactly ONE
+    resolver per request — a per-MLA intersection, never the independent-AND
+    of two separately-folded subqueries (the bug this feature fixes).
+
+    Rewritten (T7) from the old assertion that `con_promo_aplicada=True` AND
+    `con_promo_sin_aplicar=True` together produced an empty result via TWO
+    independent folds (the pre-fix, buggy shape: `promo_tipos` could match
+    one MLA of a product while `promo_estado`/legacy flags matched a
+    DIFFERENT MLA of that same product, incorrectly passing the filter as a
+    whole). This class must NOT stay green against that old behavior.
+    """
+
+    def test_promo_tipos_and_estado_intersection_excludes_product_with_split_mlas(self, db) -> None:
+        """`promo_tipos=[Campaña]&promo_estado=aplicada` resolves to exactly
+        ONE call to `fetch_mlas_with_active_promo_type(["Campaña"],
+        applied_only=True)`, which by construction (single SQL query, single
+        WHERE on promotion_type AND status) can only match an MLA that is
+        BOTH Campaña AND started — never a product where MLA X is Campaña
+        (not started) and a DIFFERENT MLA Y (Descuento, started) satisfies
+        each half independently."""
         db.add(_make_producto(1))
-        db.add(_make_producto(2))
-        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
-        db.add(PublicacionML(mla="MLA2", item_id=2, activo=True))
+        db.add(PublicacionML(mla="MLA_X", item_id=1, activo=True))
+        db.add(PublicacionML(mla="MLA_Y", item_id=1, activo=True))
         db.commit()
         _patch_tienda_nube(db)
 
-        # Real data is disjoint by construction (a started MLA cannot also
-        # be "candidate and zero started"): product 1 has only a started
-        # promo, product 2 has only a candidate promo -> the AND of the two
-        # filters matches neither.
+        # The resolver itself enforces per-MLA intersection (promotion_type
+        # AND status on the SAME row) — no MLA of product 1 is both Campaña
+        # and started, so it correctly returns an empty set here.
+        with patch(
+            "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
+            return_value=set(),
+        ) as mock_helper:
+            result = listar_productos(
+                db=db,
+                current_user=_current_user(),
+                page=1,
+                page_size=50,
+                promo_tipos="Campaña",
+                promo_estado="aplicada",
+            )
+
+        mock_helper.assert_called_once_with(["Campaña"], True, mla_ids=None)
+        assert result.total == 0
+
+    def test_legacy_con_promo_aplicada_ignored_when_promo_tipos_present(self, db) -> None:
+        """D2 precedence: when `promo_tipos` is present, legacy
+        `con_promo_aplicada`/`con_promo_sin_aplicar` are IGNORED entirely —
+        under the OLD buggy code both were unconditional independent `if`
+        blocks, so setting `promo_tipos` + legacy `con_promo_aplicada`
+        together folded TWO separate subqueries (type-agnostic `started()`
+        AND the type-scoped fold), which could match on two different MLAs
+        of the same product. This test fails against that old shape."""
+        db.add(_make_producto(1))
+        db.add(PublicacionML(mla="MLA1", item_id=1, activo=True))
+        db.commit()
+        _patch_tienda_nube(db)
+
         with (
             patch(
-                "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+                "app.api.endpoints.productos_listing.fetch_mlas_with_active_promo_type",
                 return_value={"MLA1"},
             ),
             patch(
-                "app.api.endpoints.productos_listing.fetch_mlas_with_candidate_only",
-                return_value={"MLA2"},
-            ),
+                "app.api.endpoints.productos_listing.fetch_mlas_with_started",
+            ) as mock_started,
         ):
             result = listar_productos(
                 db=db,
                 current_user=_current_user(),
                 page=1,
                 page_size=50,
+                promo_tipos="Campaña",
                 con_promo_aplicada=True,
-                con_promo_sin_aplicar=True,
             )
 
-        assert result.total == 0
+        mock_started.assert_not_called()
+        assert result.total == 1
+        assert result.productos[0].item_id == 1
