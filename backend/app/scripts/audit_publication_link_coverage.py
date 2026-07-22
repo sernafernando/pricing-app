@@ -51,6 +51,25 @@ class CoverageAuditResult:
     unresolvable_edges: int
 
 
+@dataclass
+class LinkAnomaly:
+    """Per-edge detail for one anomalous `ml_item_relations` edge.
+
+    Surfaced to the anomaly-review tab so a human can correct the
+    underlying mispublication (see productos-catalog-family-tree closing
+    slice). Only anomalous edges (cross_item | unresolvable) are ever
+    represented — same-item_id edges are the expected case and never
+    produce a `LinkAnomaly`.
+    """
+
+    mla: str
+    item_id: int
+    related_mla: str
+    related_item_id: int | None
+    reason: str  # "cross_item" | "unresolvable"
+    stock_relation: int | None
+
+
 def audit_coverage(db) -> CoverageAuditResult:
     """Scans every `ml_item_relations` edge and classifies it.
 
@@ -114,6 +133,54 @@ def audit_coverage(db) -> CoverageAuditResult:
         cross_item_id_edges=cross_item_id_edges,
         unresolvable_edges=unresolvable_edges,
     )
+
+
+def list_anomalies(db) -> list[LinkAnomaly]:
+    """Scans every `ml_item_relations` edge and returns the ANOMALOUS ones.
+
+    Reuses the same `item_id_by_mla` resolution as `audit_coverage`, but
+    returns per-edge detail instead of counts, for the anomaly-review tab
+    (productos-catalog-family-tree closing slice). Same-item_id edges are
+    the expected case and are never included.
+
+    Args:
+        db: Open SQLAlchemy session.
+
+    Returns:
+        List of `LinkAnomaly`, one per cross_item or unresolvable edge.
+        Empty list when there are no edges or no anomalies.
+    """
+    edges = db.query(MlItemRelation).all()
+    if not edges:
+        return []
+
+    mlas = {edge.mla for edge in edges} | {edge.related_mla for edge in edges}
+    item_id_by_mla = {row.mla: row.item_id for row in db.query(PublicacionML).filter(PublicacionML.mla.in_(mlas)).all()}
+
+    anomalies: list[LinkAnomaly] = []
+    for edge in edges:
+        source_item_id = item_id_by_mla.get(edge.mla)
+        related_item_id = item_id_by_mla.get(edge.related_mla)
+
+        if source_item_id is None or related_item_id is None:
+            reason = "unresolvable"
+        elif source_item_id != related_item_id:
+            reason = "cross_item"
+        else:
+            continue
+
+        anomalies.append(
+            LinkAnomaly(
+                mla=edge.mla,
+                item_id=source_item_id,
+                related_mla=edge.related_mla,
+                related_item_id=related_item_id,
+                reason=reason,
+                stock_relation=edge.stock_relation,
+            )
+        )
+
+    return anomalies
 
 
 def main() -> None:
