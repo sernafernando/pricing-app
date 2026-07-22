@@ -17,6 +17,7 @@ from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.usuario import Usuario
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.services.permisos_service import verificar_permiso
+from app.scripts.audit_publication_link_coverage import list_anomalies
 
 router = APIRouter()
 
@@ -136,6 +137,27 @@ class ComparacionListaResponse(BaseModel):
     precio_sistema: Optional[float]
     precio_ml: Optional[float]
     permalink: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnomaliaVinculadaResponse(BaseModel):
+    """One anomalous `ml_item_relations` edge, enriched for human review.
+
+    Surfaces the vinculada edges PR2's tree assembly skips (cross-item or
+    unresolvable) so the team can correct the underlying mispublication.
+    """
+
+    mla: str
+    item_id: Optional[int]  # None when the source mla itself is unresolvable (not in publicaciones_ml)
+    codigo: str
+    descripcion: str
+    marca: str
+    permalink: Optional[str]
+    related_mla: str
+    related_item_id: Optional[int]
+    reason: str  # "cross_item" | "unresolvable"
+    stock_relation: Optional[int]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -606,6 +628,74 @@ def get_comparacion_listas(
             )
 
     return diferencias
+
+
+@router.get("/anomalias-vinculadas", response_model=List[AnomaliaVinculadaResponse])
+def get_anomalias_vinculadas(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Devuelve las publicaciones vinculadas (`ml_item_relations`) que la
+    construcción del árbol de familia (PR2) OMITE por ser anómalas:
+    - "cross_item": la MLA relacionada pertenece a un item_id ERP distinto.
+    - "unresolvable": la MLA relacionada no tiene fila en `publicaciones_ml`.
+
+    Estas son mispublicaciones que el equipo debe revisar y corregir, no
+    errores del sistema (ver productos-catalog-family-tree, tramo de cierre).
+    """
+
+    if not verificar_permiso(db, current_user, "admin.ver_anomalias_vinculadas"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver las anomalías vinculadas")
+
+    anomalias = list_anomalies(db)
+    if not anomalias:
+        return []
+
+    item_ids = {anomalia.item_id for anomalia in anomalias if anomalia.item_id is not None}
+    productos_by_item_id = {
+        producto.item_id: producto for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(item_ids)).all()
+    }
+
+    source_mlas = {anomalia.mla for anomalia in anomalias}
+    latest_snapshots = (
+        db.query(MLPublicationSnapshot.mla_id, func.max(MLPublicationSnapshot.snapshot_date).label("max_date"))
+        .filter(MLPublicationSnapshot.mla_id.in_(source_mlas))
+        .group_by(MLPublicationSnapshot.mla_id)
+        .subquery()
+    )
+    permalink_by_mla = {
+        mla_id: permalink
+        for mla_id, permalink in db.query(MLPublicationSnapshot.mla_id, MLPublicationSnapshot.permalink)
+        .join(
+            latest_snapshots,
+            and_(
+                MLPublicationSnapshot.mla_id == latest_snapshots.c.mla_id,
+                MLPublicationSnapshot.snapshot_date == latest_snapshots.c.max_date,
+            ),
+        )
+        .all()
+    }
+
+    resultados = []
+    for anomalia in anomalias:
+        producto = productos_by_item_id.get(anomalia.item_id)
+        resultados.append(
+            AnomaliaVinculadaResponse(
+                mla=anomalia.mla,
+                item_id=anomalia.item_id,
+                codigo=producto.codigo if producto else "",
+                descripcion=producto.descripcion if producto else "",
+                marca=producto.marca if producto else "",
+                permalink=permalink_by_mla.get(anomalia.mla),
+                related_mla=anomalia.related_mla,
+                related_item_id=anomalia.related_item_id,
+                reason=anomalia.reason,
+                stock_relation=anomalia.stock_relation,
+            )
+        )
+
+    return resultados
 
 
 @router.get("/comparacion-baneados", response_model=List[ComparacionBaneadoResponse])

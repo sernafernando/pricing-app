@@ -99,6 +99,10 @@ const ItemsSinMLA = () => {
   const [itemsComparacion, setItemsComparacion] = useState([]);
   const [loadingComparacion, setLoadingComparacion] = useState(false);
 
+  // Estado para anomalías vinculadas (publicaciones vinculadas cross-item/irresolubles)
+  const [anomaliasVinculadas, setAnomaliasVinculadas] = useState([]);
+  const [loadingAnomalias, setLoadingAnomalias] = useState(false);
+
   // Estado para sync ML
   const [syncMLRunning, setSyncMLRunning] = useState(false);
   const [syncMLLog, setSyncMLLog] = useState('');
@@ -177,6 +181,8 @@ const ItemsSinMLA = () => {
       }
     } else if (activeTab === 'comparacion') {
       cargarComparacionListas();
+    } else if (activeTab === 'anomalias') {
+      cargarAnomalias();
     }
     // funciones de carga se recrean cada render — recargar solo al cambiar de pestaña
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -555,6 +561,19 @@ const ItemsSinMLA = () => {
       showToast('Error al cargar la comparación de listas', 'error');
     } finally {
       setLoadingComparacion(false);
+    }
+  };
+
+  const cargarAnomalias = async () => {
+    setLoadingAnomalias(true);
+    try {
+      const response = await api.get('/items-sin-mla/anomalias-vinculadas');
+      setAnomaliasVinculadas(response.data);
+    } catch (error) {
+      console.error('Error al cargar anomalías vinculadas:', error);
+      showToast('Error al cargar las anomalías vinculadas', 'error');
+    } finally {
+      setLoadingAnomalias(false);
     }
   };
 
@@ -1170,6 +1189,14 @@ const ItemsSinMLA = () => {
             onClick={() => setActiveTab('comparacion')}
           >
             {Icon.barChart(14)} Comparación Listas ({itemsComparacion.length})
+          </button>
+        )}
+        {tienePermiso('admin.ver_anomalias_vinculadas') && (
+          <button
+            className={`tab-button ${activeTab === 'anomalias' ? 'active' : ''}`}
+            onClick={() => setActiveTab('anomalias')}
+          >
+            {Icon.alertCircle(14)} Anomalías ({anomaliasVinculadas.length})
           </button>
         )}
       </div>
@@ -2076,6 +2103,88 @@ const ItemsSinMLA = () => {
                             </button>
                           </td>
                         )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contenido del Tab 4: Anomalías vinculadas */}
+      {activeTab === 'anomalias' && tienePermiso('admin.ver_anomalias_vinculadas') && (
+        <div className="tab-content">
+          <p className="page-description">
+            Publicaciones vinculadas (stock sincronizado) que el árbol de familia omite por ser
+            mispublicaciones: la MLA relacionada pertenece a otro item ERP ("cross-item") o no
+            existe en el sistema ("irresoluble"). Revisá y corregí la publicación en MercadoLibre.
+          </p>
+
+          {loadingAnomalias ? (
+            <div className="loading">Cargando anomalías...</div>
+          ) : (
+            <div className="table-container">
+              <table className="items-table">
+                <thead>
+                  <tr>
+                    <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
+                      Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('codigo', e)}>
+                      Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span className="orden-numero">{getNumeroOrden('codigo')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('descripcion', e)}>
+                      Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span className="orden-numero">{getNumeroOrden('descripcion')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('marca', e)}>
+                      Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span className="orden-numero">{getNumeroOrden('marca')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('mla', e)}>
+                      MLA {getIconoOrden('mla')} {getNumeroOrden('mla') && <span className="orden-numero">{getNumeroOrden('mla')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('related_mla', e)}>
+                      MLA relacionada {getIconoOrden('related_mla')} {getNumeroOrden('related_mla') && <span className="orden-numero">{getNumeroOrden('related_mla')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('reason', e)}>
+                      Motivo {getIconoOrden('reason')} {getNumeroOrden('reason') && <span className="orden-numero">{getNumeroOrden('reason')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('stock_relation', e)}>
+                      Stock vinculado {getIconoOrden('stock_relation')} {getNumeroOrden('stock_relation') && <span className="orden-numero">{getNumeroOrden('stock_relation')}</span>}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anomaliasVinculadas.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="no-data">
+                        No se encontraron anomalías en las publicaciones vinculadas
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedItems(anomaliasVinculadas).map((anomalia) => (
+                      <tr key={`${anomalia.mla}-${anomalia.related_mla}`}>
+                        <td>{anomalia.item_id}</td>
+                        <td>{anomalia.codigo}</td>
+                        <td className="descripcion-cell">{anomalia.descripcion}</td>
+                        <td>{anomalia.marca}</td>
+                        <td>
+                          {anomalia.permalink ? (
+                            <a href={anomalia.permalink} target="_blank" rel="noopener noreferrer" className="mla-link">
+                              {anomalia.mla}
+                            </a>
+                          ) : (
+                            anomalia.mla
+                          )}
+                        </td>
+                        <td>{anomalia.related_mla}</td>
+                        <td>
+                          <span className={`badge ${anomalia.reason === 'cross_item' ? 'badge-campana' : 'badge-error'}`}>
+                            {anomalia.reason === 'cross_item' ? 'Cross-item' : 'Irresoluble'}
+                          </span>
+                        </td>
+                        <td>{anomalia.stock_relation ?? '-'}</td>
                       </tr>
                     ))
                   )}
