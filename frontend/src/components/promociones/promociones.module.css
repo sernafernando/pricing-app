@@ -388,3 +388,47 @@
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* Recursive TreeNode kind badges (productos-catalog-family-tree PR3) — each
+   kind gets its own hue so a catalog vs a stock-synced vinculada (the
+   concrete same-pricelist dup bug) are visually distinguishable at a glance,
+   not just by label text. */
+.badgeKindProducto {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.badgeKindFamilia {
+  background: var(--purple-bg, var(--bg-secondary));
+  color: var(--purple-text, var(--text-primary));
+}
+
+.badgeKindCatalogo {
+  background: var(--info-bg, var(--bg-secondary));
+  color: var(--info-text, var(--text-primary));
+}
+
+.badgeKindVinculada {
+  background: var(--teal-bg, var(--bg-secondary));
+  color: var(--teal-text, var(--text-primary));
+}
+
+.badgeKindPublicacion {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+/* Promos own sub-spoiler (design's locked decision C) — visually separated
+   from the vinculadas children section below it, so a promo row is never
+   mistaken for a vinculada publication row. */
+.treeNodePromosSection {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border-secondary);
+}
+
+.treeNodeChildrenSection {
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-secondary);
+}

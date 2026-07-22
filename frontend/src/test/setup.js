@@ -53,6 +53,9 @@ vi.mock('../services/api', () => ({
     obtenerSubcategoriasPorPMs: vi.fn().mockResolvedValue({ data: { subcategorias: [] } }),
     getProductoMercadolibre: vi.fn().mockResolvedValue({ data: { publicaciones_ml: [] } }),
     getProductoMercadolibreLite: vi.fn().mockResolvedValue({ data: { publicaciones_ml: [] } }),
+    getProductoTree: vi.fn().mockResolvedValue({
+      data: { item_id: 0, tree: { level: 0, kind: 'producto', label: 'Producto', children: [] }, skipped_anomalous_edges: 0, skipped_edges: [] },
+    }),
   },
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promociones: [] } }),
