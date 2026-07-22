@@ -58,7 +58,20 @@ EstadoPedido = Literal[
     "cancelado",
     "pagado_parcial",
     "pagado",
+    "recibido",
+    "con_faltantes",
+    "controlado",
+    "en_cuenta_corriente",
 ]
+
+# Axis split (compras-cuenta-corriente Slice 1): `pagado_en` (timestamp) is
+# the canonical "fully settled" signal, orthogonal to `estado`. PAYMENT_AXIS
+# pedidos still transition estado on settle (legacy behavior, preserved).
+# LOGISTICS_AXIS pedidos (already advanced past en_cuenta_corriente, or in
+# en_cuenta_corriente itself) record settlement via `pagado_en` WITHOUT
+# mutating `estado` — settling later must never silently no-op.
+PAYMENT_AXIS: Final[frozenset[str]] = frozenset({"aprobado", "pagado_parcial", "pagado"})
+LOGISTICS_AXIS: Final[frozenset[str]] = frozenset({"en_cuenta_corriente", "recibido", "con_faltantes", "controlado"})
 
 # Estados terminales (no permiten transiciones manuales salvo las explícitas)
 ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"pagado", "cancelado"})
@@ -1491,11 +1504,16 @@ def aplicar_imputacion_a_pedido(
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
 
-    if pedido.estado not in {"aprobado", "pagado_parcial", "pagado"}:
-        # Estados donde no aplica la lógica automática
+    if pedido.estado not in PAYMENT_AXIS and pedido.estado not in LOGISTICS_AXIS:
+        # Estados donde no aplica la lógica automática (borrador, pend_aprob,
+        # cancelado, rechazado).
         return pedido
 
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
     estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
@@ -1515,31 +1533,81 @@ def aplicar_imputacion_a_pedido(
             # pagado_parcial con saldo > 0 → sigue pagado_parcial (no-op)
             return pedido
 
-    if nuevo_estado == estado_previo:
-        return pedido
+    if nuevo_estado != estado_previo:
+        pedido.estado = nuevo_estado  # type: ignore[assignment]
+        session.flush()
 
-    pedido.estado = nuevo_estado  # type: ignore[assignment]
-    session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=tipo_evento,
+            usuario_id=pedido.creado_por_id,  # auto-transición: sin user explícito
+            payload={
+                "estado_previo": estado_previo,
+                "estado_nuevo": nuevo_estado,
+                "saldo_pendiente": str(saldo),
+            },
+        )
+        logger.info(
+            "pedido_auto_transicion id=%s %s -> %s (saldo=%s)",
+            pedido.id,
+            estado_previo,
+            nuevo_estado,
+            saldo,
+        )
 
-    _registrar_evento(
-        session,
-        pedido=pedido,
-        tipo=tipo_evento,
-        usuario_id=pedido.creado_por_id,  # auto-transición: sin user explícito
-        payload={
-            "estado_previo": estado_previo,
-            "estado_nuevo": nuevo_estado,
-            "saldo_pendiente": str(saldo),
-        },
-    )
-    logger.info(
-        "pedido_auto_transicion id=%s %s -> %s (saldo=%s)",
-        pedido.id,
-        estado_previo,
-        nuevo_estado,
-        saldo,
-    )
+    _sincronizar_pagado_en(session, pedido=pedido, saldo=saldo)
     return pedido
+
+
+def _registrar_pagado_en(session: Session, *, pedido: PedidoCompra, saldo: Decimal) -> PedidoCompra:
+    """LOGISTICS_AXIS: registra/limpia `pagado_en` SIN mutar `estado`.
+
+    Un pedido ya avanzado a un estado logístico (en_cuenta_corriente,
+    recibido, con_faltantes, controlado) jamás debe verse forzado de vuelta
+    a 'pagado' — eso clobberearía la información de recepción. En su lugar,
+    la señal de "saldado" vive por completo en `pagado_en`.
+    """
+    if saldo <= Decimal("0") and pedido.pagado_en is None:
+        pedido.pagado_en = datetime.now()  # type: ignore[assignment]
+        session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=TiposEvento.PAGO_COMPLETADO,
+            usuario_id=pedido.creado_por_id,
+            payload={"estado": pedido.estado, "saldo_pendiente": str(saldo), "axis": "logistica"},
+        )
+        logger.info("pedido_pagado_en_registrado id=%s estado=%s (saldo=%s)", pedido.id, pedido.estado, saldo)
+    elif saldo > Decimal("0") and pedido.pagado_en is not None:
+        # Reversal reabrió deuda mientras el pedido seguía en el axis logístico.
+        pedido.pagado_en = None  # type: ignore[assignment]
+        session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=TiposEvento.REVERSO_CANCELACION,
+            usuario_id=pedido.creado_por_id,
+            payload={"estado": pedido.estado, "saldo_pendiente": str(saldo), "axis": "logistica"},
+        )
+        logger.info("pedido_pagado_en_limpiado id=%s estado=%s (saldo=%s)", pedido.id, pedido.estado, saldo)
+    return pedido
+
+
+def _sincronizar_pagado_en(session: Session, *, pedido: PedidoCompra, saldo: Decimal) -> None:
+    """PAYMENT_AXIS: mantiene `pagado_en` consistente con el estado 'pagado'.
+
+    Se setea cuando el pedido llega a 'pagado' y se limpia si se reabre
+    (pagado -> pagado_parcial/aprobado). No registra evento propio — el
+    evento de la transición de estado ya documenta el cambio.
+    """
+    if pedido.estado == "pagado" and saldo <= Decimal("0"):
+        if pedido.pagado_en is None:
+            pedido.pagado_en = datetime.now()  # type: ignore[assignment]
+            session.flush()
+    elif pedido.pagado_en is not None:
+        pedido.pagado_en = None  # type: ignore[assignment]
+        session.flush()
 
 
 def recalcular_estado_por_imputaciones(
@@ -1592,10 +1660,14 @@ def recalcular_estado_por_imputaciones(
             pedido_id,
         )
         return None
-    if pedido.estado not in {"aprobado", "pagado_parcial", "pagado"}:
+    if pedido.estado not in PAYMENT_AXIS and pedido.estado not in LOGISTICS_AXIS:
         return pedido
 
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
     estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
@@ -1614,31 +1686,31 @@ def recalcular_estado_por_imputaciones(
             TiposEvento.REVERSO_CANCELACION if estado_previo == "pagado" else TiposEvento.PAGO_PARCIAL_APLICADO
         )
 
-    if nuevo_estado == estado_previo:
-        return pedido
+    if nuevo_estado != estado_previo:
+        pedido.estado = nuevo_estado  # type: ignore[assignment]
+        session.flush()
 
-    pedido.estado = nuevo_estado  # type: ignore[assignment]
-    session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=tipo_evento,
+            usuario_id=pedido.creado_por_id,  # auto-transición sin user explícito
+            payload={
+                "estado_previo": estado_previo,
+                "estado_nuevo": nuevo_estado,
+                "saldo_pendiente": str(saldo),
+                "motivo": "desimputacion",
+            },
+        )
+        logger.info(
+            "pedido_recalculo_por_imputaciones id=%s %s -> %s (saldo=%s)",
+            pedido.id,
+            estado_previo,
+            nuevo_estado,
+            saldo,
+        )
 
-    _registrar_evento(
-        session,
-        pedido=pedido,
-        tipo=tipo_evento,
-        usuario_id=pedido.creado_por_id,  # auto-transición sin user explícito
-        payload={
-            "estado_previo": estado_previo,
-            "estado_nuevo": nuevo_estado,
-            "saldo_pendiente": str(saldo),
-            "motivo": "desimputacion",
-        },
-    )
-    logger.info(
-        "pedido_recalculo_por_imputaciones id=%s %s -> %s (saldo=%s)",
-        pedido.id,
-        estado_previo,
-        nuevo_estado,
-        saldo,
-    )
+    _sincronizar_pagado_en(session, pedido=pedido, saldo=saldo)
     return pedido
 
 
@@ -1656,8 +1728,15 @@ def revertir_transicion_por_anulacion_op(
     y registra un evento `reverso_cancelacion` si aplica.
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    estado_previo = pedido.estado
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        # El pedido ya avanzó a un estado logístico: la anulación de la OP
+        # solo debe limpiar/registrar `pagado_en`, jamás forzar el estado
+        # de vuelta a aprobado/pagado_parcial (clobbearía la recepción).
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
+    estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
         # Todavía cubierto por otras imputaciones → no cambia.
@@ -1672,6 +1751,8 @@ def revertir_transicion_por_anulacion_op(
         return pedido
 
     pedido.estado = nuevo_estado  # type: ignore[assignment]
+    if pedido.pagado_en is not None:
+        pedido.pagado_en = None  # type: ignore[assignment]
     session.flush()
 
     _registrar_evento(

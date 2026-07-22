@@ -776,6 +776,179 @@ class TestAplicarImputacionAPedido:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Axis-split (compras-cuenta-corriente Slice 1) — settle-later no-op guard
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _crear_pedido_en_estado(db, empresa, proveedor, active_user, estado: str, monto: Decimal = Decimal("1000")):
+    """Helper: pedido aprobado, luego forzado directamente a `estado` (bypass
+    de la state machine — simula que ya pasó por recepción, fuera de scope
+    de este slice)."""
+    p = pedidos_service.crear_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=monto,
+        creado_por_id=active_user.id,
+    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+    p.estado = estado
+    db.flush()
+    return p
+
+
+def _crear_imputacion(db, pedido, proveedor, active_user, monto: Decimal) -> Imputacion:
+    imp = Imputacion(
+        origen_tipo="orden_pago",
+        origen_id=9999,
+        destino_tipo="pedido_compra",
+        destino_id=pedido.id,
+        monto_imputado=monto,
+        moneda_imputada="ARS",
+        proveedor_id=proveedor.id,
+        es_reversal=False,
+        creado_por_id=active_user.id,
+    )
+    db.add(imp)
+    db.flush()
+    return imp
+
+
+class TestSettleLaterNoNoop:
+    """R3/R4 — settling an OP for a pedido already in the logistics axis must
+    record `pagado_en` and fire PAGO_COMPLETADO, WITHOUT clobbering estado."""
+
+    @pytest.mark.parametrize("estado_logistico", ["en_cuenta_corriente", "recibido", "con_faltantes", "controlado"])
+    def test_recalcular_estado_settle_later_no_noop(
+        self, db, empresa, proveedor, active_user, estado_logistico
+    ) -> None:
+        p = _crear_pedido_en_estado(db, empresa, proveedor, active_user, estado_logistico, monto=Decimal("1000"))
+        _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
+
+        resultado = pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
+        db.refresh(p)
+
+        assert p.estado == estado_logistico, "estado logístico NO debe ser clobbereado"
+        assert p.pagado_en is not None, "pagado_en debe registrarse aunque no cambie estado"
+        assert resultado.id == p.id
+
+        eventos = (
+            db.query(CompraEvento).filter(CompraEvento.entidad_id == p.id, CompraEvento.tipo == "pago_completado").all()
+        )
+        assert len(eventos) == 1
+
+    @pytest.mark.parametrize("estado_logistico", ["en_cuenta_corriente", "recibido", "controlado"])
+    def test_recalcular_estado_por_imputaciones_settle_later_no_noop(
+        self, db, empresa, proveedor, active_user, estado_logistico
+    ) -> None:
+        p = _crear_pedido_en_estado(db, empresa, proveedor, active_user, estado_logistico, monto=Decimal("1000"))
+        _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
+
+        pedidos_service.recalcular_estado_por_imputaciones(db, pedido_id=p.id)
+        db.refresh(p)
+
+        assert p.estado == estado_logistico
+        assert p.pagado_en is not None
+
+
+class TestPaymentAxisRegression:
+    """Existing aprobado -> pagado_parcial -> pagado transitions must be
+    unaffected by the axis-split, AND now also set `pagado_en` on full pago."""
+
+    def test_aprobado_a_pagado_parcial_sin_pagado_en(self, db, empresa, proveedor, active_user) -> None:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+        _crear_imputacion(db, p, proveedor, active_user, Decimal("400"))
+
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("400"))
+        db.refresh(p)
+
+        assert p.estado == "pagado_parcial"
+        assert p.pagado_en is None
+
+    def test_aprobado_a_pagado_total_setea_pagado_en(self, db, empresa, proveedor, active_user) -> None:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+        _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
+
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
+        db.refresh(p)
+
+        assert p.estado == "pagado"
+        assert p.pagado_en is not None
+
+
+class TestReversionClearPagadoEn:
+    """R4 — `revertir_transicion_por_anulacion_op` must clear `pagado_en` for
+    a settled-then-anulada pedido stuck in the logistics axis, and must NOT
+    clobber estado in that case (existing payment-axis behavior unchanged)."""
+
+    def test_revertir_anulacion_op_logistics_axis_clears_pagado_en_preserva_estado(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        p = _crear_pedido_en_estado(db, empresa, proveedor, active_user, "recibido", monto=Decimal("1000"))
+        imp = _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
+        db.refresh(p)
+        assert p.pagado_en is not None
+
+        # Simular anulación de la OP: se borra/reversa la imputación.
+        db.delete(imp)
+        db.flush()
+
+        pedidos_service.revertir_transicion_por_anulacion_op(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+
+        assert p.estado == "recibido", "estado logístico preservado tras anular OP"
+        assert p.pagado_en is None, "pagado_en debe limpiarse"
+
+    def test_revertir_anulacion_op_payment_axis_sigue_igual(self, db, empresa, proveedor, active_user) -> None:
+        """Regression: payment-axis reversal (pagado -> pagado_parcial) unchanged."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+        pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+        imp = _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
+        db.refresh(p)
+        assert p.estado == "pagado"
+        assert p.pagado_en is not None
+
+        db.delete(imp)
+        db.flush()
+
+        pedidos_service.revertir_transicion_por_anulacion_op(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+
+        assert p.estado == "aprobado"
+        assert p.pagado_en is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # calcular_tc_ponderado_pedido (FR-005 / FR-008 — Batch 1)
 # ──────────────────────────────────────────────────────────────────────────
 
