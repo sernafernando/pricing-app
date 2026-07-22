@@ -18,6 +18,7 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -29,7 +30,29 @@ from app.core.database import Base
 
 class MlBotMessage(Base):
     """A single MercadoLibre postventa (post-sale) message ingested from the
-    `messages` webhook topic."""
+    `messages` webhook topic.
+
+    Phase A (sdd/ml-bot-messages-reply, migration
+    `20260722_ml_bot_messages_bot_columns`) adds the draft/classify state
+    machine on top of the read-only MVP row shape below. `bot_status` is a
+    NEW column, deliberately isolated from ML's own `status` (never collide
+    the two) and non-NULL ONLY on the "anchor" row — the latest unanswered
+    buyer message per `pack_id` (design "Draft unit = anchor"). Earlier
+    messages in the same burst stay `bot_status IS NULL` forever; the
+    aggregated conversation is reconstructed live from the pack thread, not
+    by mutating every row in the burst.
+
+    `bot_status` state machine:
+        (NULL|pending) -> drafting -> {awaiting_human|blocked_claim|failed}
+        drafting -> pending                      (bounded retry / stale reclaim)
+        awaiting_human -> superseded              (a newer buyer message re-opens
+                                                     aggregation for the pack)
+        {awaiting_human|blocked_claim} -> taken_over -> {sent|failed}
+        failed -> pending                         (manual retry)
+
+    Phase A NEVER auto-sends: `sent` is reachable ONLY via a human take-over
+    + explicit send action (itself gated off by default, `messages_send_enabled`).
+    """
 
     __tablename__ = "ml_bot_messages"
 
@@ -68,6 +91,18 @@ class MlBotMessage(Base):
 
     ingested_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # --- Phase A draft/classify columns (migration 20260722) ---
+    bot_status = Column(String(24), nullable=True)
+    drafted_answer = Column(Text, nullable=True)
+    intent_category = Column(String(40), nullable=True)
+    confidence = Column(Numeric(4, 3), nullable=True)
+    answer_source = Column(String(10), nullable=True)
+    llm_provider = Column(String(100), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text, nullable=True)
+    drafted_at = Column(DateTime(timezone=True), nullable=True)
+    bot_updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+
     __table_args__ = (
         UniqueConstraint("ml_message_id", name="uq_ml_bot_messages_ml_message_id"),
         Index("idx_ml_bot_messages_pack_id", "pack_id"),
@@ -77,6 +112,11 @@ class MlBotMessage(Base):
             "idx_ml_bot_messages_moderation_status",
             "moderation_status",
             postgresql_where="moderation_status IS NOT NULL AND moderation_status != 'clean'",
+        ),
+        Index(
+            "idx_ml_bot_messages_bot_status",
+            "bot_status",
+            postgresql_where="bot_status IS NOT NULL",
         ),
     )
 
