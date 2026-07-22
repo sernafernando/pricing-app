@@ -63,18 +63,32 @@ def _ml_message(
     pack_id: str = "PACK123",
     moderation_status=None,
     text: str = "hola, tengo una duda",
+    text_as_dict: bool = False,
+    wrapped: bool = False,
+    received: str = "2026-07-10T12:00:00.000-03:00",
+    read: str | None = None,
 ) -> dict:
+    """Mirrors ML's REAL post-sale message shape (verified against the working
+    `routers/seriales_messages.py` parser): dates in a `message_date` object,
+    `text` optionally a `{"plain": ...}` dict, attachments in
+    `message_attachments`, and the whole thing optionally wrapped in
+    `{"messages": [...]}`."""
     message_resources = [{"name": "packs", "id": pack_id}] if pack_id else []
+    message_date: dict = {"received": received, "created": received}
+    if read is not None:
+        message_date["read"] = read
     payload = {
         "id": message_id,
-        "text": text,
+        "text": {"plain": text} if text_as_dict else text,
         "status": status,
-        "date_created": "2026-07-10T12:00:00.000-03:00",
+        "message_date": message_date,
         "from": {"user_id": from_user_id, "nickname": nickname},
         "message_resources": message_resources,
     }
     if moderation_status is not None:
         payload["message_moderation"] = {"status": moderation_status}
+    if wrapped:
+        return {"messages": [payload], "paging": {"total": 1}}
     return payload
 
 
@@ -318,3 +332,57 @@ class TestFetcherSchemaAssumption:
         assert re.search(r"payload\s*->\s*'actions'", sql), (
             f"SQL must extract actions from payload JSONB (webhooks has no actions column); got: {sql!r}"
         )
+
+
+class TestRealMlShapeRegression:
+    """Regression for the empty-message bug: the ingestion previously read the
+    wrong ML keys (flat `text`/`date_created`, no unwrap, no text-dict), so rows
+    persisted with empty text, empty buyer, and a fallback `received_at`. These
+    tests ASSERT the actual persisted field values against ML's real shape."""
+
+    def _run_created(self, db, payload, msg_id="msg-real-1"):
+        received = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+        p1, p2, p3 = _patch(db, [_webhook_row(msg_id, ["created"], received)], payload)
+        with p1, p2, p3, patch.object(ingestion_service, "sse_publish", new=AsyncMock()):
+            asyncio.run(ingestion_service.run_ml_messages_ingest_cycle())
+        return db.query(MlBotMessage).filter_by(ml_message_id=msg_id).first()
+
+    def test_created_populates_text_buyer_and_real_received_at(self, db) -> None:
+        _seed_cursor(db)
+        row = self._run_created(db, _ml_message("msg-real-1", text="viene con caja?"))
+        assert row is not None
+        assert row.text == "viene con caja?"  # not empty
+        assert row.buyer_id == 999  # not None
+        assert row.buyer_nickname == "comprador1"
+        assert row.pack_id == "PACK123"
+        # real message date (2026-07-10), NOT the now() ingestion-time fallback
+        assert (row.received_at.year, row.received_at.month, row.received_at.day) == (2026, 7, 10)
+
+    def test_created_extracts_plain_from_text_dict(self, db) -> None:
+        _seed_cursor(db)
+        row = self._run_created(db, _ml_message("msg-real-1", text="soy un dict", text_as_dict=True))
+        assert row is not None
+        assert row.text == "soy un dict"  # not the dict repr, not empty
+
+    def test_created_unwraps_messages_wrapper(self, db) -> None:
+        _seed_cursor(db)
+        row = self._run_created(db, _ml_message("msg-real-1", text="envuelto", wrapped=True))
+        assert row is not None
+        assert row.text == "envuelto"  # unwrapped, not empty
+        assert row.buyer_id == 999
+
+    def test_read_sets_read_at_from_message_date(self, db) -> None:
+        _seed_cursor(db)
+        # create first
+        self._run_created(db, _ml_message("msg-read-1", text="hola"), msg_id="msg-read-1")
+        db.query(MlBotConfig).filter_by(clave="ingest_cursor_ts_messages").update({"valor": ""})
+        db.flush()
+        # then a read event carrying message_date.read
+        read_payload = _ml_message("msg-read-1", read="2026-07-11T09:30:00.000-03:00")
+        received = datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc)
+        p1, p2, p3 = _patch(db, [_webhook_row("msg-read-1", ["read"], received)], read_payload)
+        with p1, p2, p3, patch.object(ingestion_service, "sse_publish", new=AsyncMock()):
+            asyncio.run(ingestion_service.run_ml_messages_ingest_cycle())
+        row = db.query(MlBotMessage).filter_by(ml_message_id="msg-read-1").first()
+        assert row.read_at is not None
+        assert (row.read_at.year, row.read_at.month, row.read_at.day) == (2026, 7, 11)
