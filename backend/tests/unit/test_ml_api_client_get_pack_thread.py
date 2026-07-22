@@ -41,20 +41,28 @@ async def _fake_token() -> str:
 
 
 class TestGetPackThread:
-    def test_200_returns_unwrapped_messages_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_200_returns_full_response_incl_conversation_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.url.path == "/messages/packs/1234567890123456/sellers/413658225"
             assert request.url.params.get("tag") == "post_sale"
             return httpx.Response(
                 200,
-                json={"messages": [{"id": "m1", "text": "hola", "from": {"user_id": 999}}], "paging": {}},
+                json={
+                    "messages": [{"id": "m1", "text": "hola", "from": {"user_id": 999}}],
+                    "conversation_status": {"claim_ids": [], "shipping_id": 123},
+                    "paging": {},
+                },
             )
 
         _patch_client(monkeypatch, _mock_transport(handler))
         client = _client(monkeypatch)
 
         result = asyncio.run(client.get_pack_thread("1234567890123456", 413658225))
-        assert result == [{"id": "m1", "text": "hola", "from": {"user_id": 999}}]
+        assert result == {
+            "messages": [{"id": "m1", "text": "hola", "from": {"user_id": 999}}],
+            "conversation_status": {"claim_ids": [], "shipping_id": 123},
+            "paging": {},
+        }
 
     def test_404_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

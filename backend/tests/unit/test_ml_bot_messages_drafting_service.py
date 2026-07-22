@@ -190,16 +190,17 @@ class TestReclaimStaleDrafting:
 
 
 class TestDraftOne:
-    def _patches(self, db, *, thread, llm_response=None, provider_error=None):
+    def _patches(self, db, *, thread, llm_response=None, provider_error=None, conversation_status=None):
         provider = AsyncMock()
         provider.last_used_provider = "groq/test-model"
         if provider_error is not None:
             provider.complete.side_effect = provider_error
         else:
             provider.complete.return_value = llm_response
+        pack_response = None if thread is None else {"messages": thread, "conversation_status": conversation_status}
         patches = [
             patch.object(drafting_service, "get_background_db", return_value=_ctx(db)),
-            patch.object(drafting_service.ml_client, "get_pack_thread", new=AsyncMock(return_value=thread)),
+            patch.object(drafting_service.ml_client, "get_pack_thread", new=AsyncMock(return_value=pack_response)),
         ]
         return provider, patches
 
@@ -221,6 +222,44 @@ class TestDraftOne:
         assert anchor.drafted_answer == "Tu pedido está en camino."
         assert anchor.intent_category == "shipping_status"
         assert anchor.answer_source == "bot"
+
+    def test_claim_ids_non_empty_blocks_without_llm_call(self, db) -> None:
+        """PR2: `conversation_status.claim_ids` non-empty is the PRIMARY
+        claim signal — hard-blocks BEFORE any LLM call, no draft written."""
+        anchor = _make_row(db, ml_message_id="m1", pack_id="p1", received_at=datetime.now(timezone.utc), text="hola")
+        thread = [_thread_message(from_user_id=999, text="hola")]
+        provider, patches = self._patches(
+            db,
+            thread=thread,
+            llm_response=_llm_response("hola", "other_unknown"),
+            conversation_status={"claim_ids": ["claim-1"], "shipping_id": "ship-1"},
+        )
+
+        with patches[0], patches[1]:
+            outcome = asyncio.run(drafting_service._draft_one(anchor.id, provider))
+
+        db.refresh(anchor)
+        assert outcome == "blocked_claim"
+        assert anchor.bot_status == "blocked_claim"
+        assert anchor.drafted_answer is None
+        provider.complete.assert_not_called()
+
+    def test_claim_ids_empty_does_not_block(self, db) -> None:
+        anchor = _make_row(db, ml_message_id="m1", pack_id="p1", received_at=datetime.now(timezone.utc), text="hola")
+        thread = [_thread_message(from_user_id=999, text="hola")]
+        provider, patches = self._patches(
+            db,
+            thread=thread,
+            llm_response=_llm_response("respuesta", "other_unknown"),
+            conversation_status={"claim_ids": [], "shipping_id": "ship-1"},
+        )
+
+        with patches[0], patches[1]:
+            outcome = asyncio.run(drafting_service._draft_one(anchor.id, provider))
+
+        db.refresh(anchor)
+        assert outcome == "drafted"
+        assert anchor.bot_status == "awaiting_human"
 
     def test_claim_category_blocks_draft_no_answer_stored(self, db) -> None:
         anchor = _make_row(
@@ -354,7 +393,11 @@ class TestRunMlMessagesDraftCycle:
 
         with (
             patch.object(drafting_service, "get_background_db", return_value=_ctx(db)),
-            patch.object(drafting_service.ml_client, "get_pack_thread", new=AsyncMock(return_value=thread)),
+            patch.object(
+                drafting_service.ml_client,
+                "get_pack_thread",
+                new=AsyncMock(return_value={"messages": thread, "conversation_status": None}),
+            ),
         ):
             stats = asyncio.run(drafting_service.run_ml_messages_draft_cycle(provider=provider))
 

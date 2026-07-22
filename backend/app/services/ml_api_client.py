@@ -47,6 +47,20 @@ class QuestionAlreadyAnsweredError(Exception):
         super().__init__(f"Question {question_id} was already answered in ML")
 
 
+class MessageSendPermanentError(Exception):
+    """Raised by `send_message` when ML rejects the send with a permanent
+    4xx (401/403/404/422, or a 400 that is not a known idempotency signal)
+    — mirrors `AnswerPostPermanentError` (ml-bot-messages-reply Phase A,
+    PR2): the caller must not burn retries on these, the request is
+    malformed/unauthorized/rejected, not transiently unavailable."""
+
+    def __init__(self, pack_id: str, status_code: int, message: str) -> None:
+        self.pack_id = pack_id
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Pack {pack_id}: ML rejected message send permanently (HTTP {status_code}): {message}")
+
+
 class AnswerPostPermanentError(Exception):
     """Raised by `post_answer` when ML rejects the answer with a non-
     already-answered 4xx (e.g. 401/403/404/422, or a 400 that is not a
@@ -80,6 +94,11 @@ _ALREADY_ANSWERED_PHRASES = (
 # classifier (Judgment Day round 2, fix 2): 429 (rate limited) and 408
 # (request timeout) are retryable conditions, not permanent rejections.
 _TRANSIENT_4XX_STATUS_CODES = frozenset({408, 429})
+
+# Our seller (Gauss) — mirrors `app.services.ml_messages.ingestion_service._SELLER_ID`.
+# Duplicated here (not imported) to avoid a services->services import cycle;
+# both constants must be kept in sync if the seller account ever changes.
+_SELLER_ID = 413658225
 
 
 def _load_token_from_mlwebhook() -> Optional[Dict]:
@@ -285,23 +304,32 @@ class MercadoLibreAPIClient:
             logger.error(f"Error obteniendo mensaje {message_id} de ML: {e}")
             return None
 
-    async def get_pack_thread(self, pack_id: str, seller_id: int) -> Optional[List[Dict]]:
-        """Fetch the FULL live message thread for a pack (both buyer and
-        seller sides), sdd/ml-bot-messages-reply Phase A (design "Gotchas":
-        ingestion drops outgoing seller messages, so "has the seller already
-        replied?" and the full conversation-history context can only come
-        from a live fetch, never from `ml_bot_messages` alone).
+    async def get_pack_thread(self, pack_id: str, seller_id: int) -> Optional[Dict]:
+        """Fetch the FULL live pack response for a pack (both buyer and
+        seller message sides, PLUS `conversation_status`), sdd/ml-bot-
+        messages-reply Phase A (design "Gotchas": ingestion drops outgoing
+        seller messages, so "has the seller already replied?" and the full
+        conversation-history context can only come from a live fetch, never
+        from `ml_bot_messages` alone).
+
+        Consolidates what used to be two identical GETs (`get_pack_thread` +
+        `get_pack_conversation_status`) to `/messages/packs/{pack}/sellers/
+        {seller}` into one — ML's response already carries both `messages`
+        and `conversation_status` (plus `paging`) in the same envelope, so a
+        second round-trip per anchor per tick was pure waste.
 
         Uses the direct API (bearer auth) — same convention as `get_message`/
         `post_answer` — NOT the mlwebhook render proxy used by
         `routers/seriales_messages.py` (that's a different, UI-facing route).
 
-        Returns the list of raw ML message dicts (unwrapped from ML's
-        `{"messages": [...], "paging": ...}` envelope) ordered as ML returns
-        them, or `None` on any failure (network/timeout/4xx/5xx/malformed
-        payload) — callers must treat `None` as "conversation history
-        unavailable this tick", never as "empty thread", and retry on a
-        later cycle rather than assume the seller never replied.
+        Returns:
+            The FULL response dict — `{"messages": [...], "conversation_status":
+            {...}, "paging": ...}` — unwrapped/unmodified, or `None` on any
+            failure (network/timeout/4xx/5xx/malformed payload, or a payload
+            whose `messages` field is not a list). Callers must treat `None`
+            as "conversation history unavailable this tick", never as "empty
+            thread", and retry on a later cycle rather than assume the
+            seller never replied.
         """
         try:
             token = await self.get_access_token()
@@ -320,7 +348,7 @@ class MercadoLibreAPIClient:
                 response.raise_for_status()
                 data = response.json()
                 messages = data.get("messages")
-                return messages if isinstance(messages, list) else None
+                return data if isinstance(messages, list) else None
 
         except Exception as e:
             logger.error(f"Error obteniendo el hilo del pack {pack_id} de ML: {e}")
@@ -427,6 +455,104 @@ class MercadoLibreAPIClient:
             raise QuestionAlreadyAnsweredError(question_id)
 
         raise AnswerPostPermanentError(question_id, response.status_code, message or str(body)[:500])
+
+    async def send_message(self, pack_id: str, buyer_id: int, text: str, seller_id: int = _SELLER_ID) -> Optional[Dict]:
+        """Envía un mensaje postventa humano a un comprador vía ML
+        (ml-bot-messages-reply Phase A, PR2 — human-send only, NEVER called
+        automatically).
+
+        Mirrors `post_answer`'s error-handling shape (ADR-5, session-free):
+
+            POST {base_url}/messages/packs/{pack_id}/sellers/{seller_id}?tag=post_sale
+            body: {"from": {"user_id": seller_id}, "to": {"user_id": buyer_id}, "text": text}
+
+        Args:
+            pack_id: El pack_id de ML (string, puede ser numérico grande).
+            buyer_id: El user_id del comprador (destinatario).
+            text: El texto del mensaje a enviar.
+            seller_id: El user_id del vendedor (remitente); default `_SELLER_ID`.
+
+        Returns:
+            Dict con la respuesta de ML si tuvo éxito.
+
+        Raises:
+            MessageSendPermanentError: si ML rechaza el envío con un 4xx
+                permanente (no transitorio) — falla PERMANENTE, no
+                reintentable.
+
+        Returns None para fallas transitorias (network/timeout/5xx/429/408)
+        — el caller debe reintentar (bounded).
+
+        NOTE (design "send_message seam"): el shape exacto de la respuesta de
+        éxito/error de ML solo está confirmado para el body del request; el
+        payload de respuesta se termina de verificar en un live-verify
+        user-owned (T0.1) antes de habilitar `messages_send_enabled`. Este
+        método es defensivo y está cubierto por tests unitarios con
+        `httpx.MockTransport` — no hace ninguna llamada real a ML en tests.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/messages/packs/{pack_id}/sellers/{seller_id}",
+                    params={"tag": "post_sale"},
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"from": {"user_id": seller_id}, "to": {"user_id": buyer_id}, "text": text},
+                )
+
+                if 200 <= response.status_code < 300:
+                    return response.json()
+
+                if response.status_code in _TRANSIENT_4XX_STATUS_CODES:
+                    logger.warning(
+                        "ml-bot send_message: transient HTTP %s from ML for pack %s — will be retried",
+                        response.status_code,
+                        pack_id,
+                    )
+                    return None
+
+                if 400 <= response.status_code < 500:
+                    self._classify_send_message_client_error(pack_id, response)
+                    # _classify_send_message_client_error always raises.
+
+                response.raise_for_status()
+                return response.json()
+
+        except MessageSendPermanentError:
+            raise
+        except Exception as e:
+            logger.error(f"Error enviando mensaje al pack {pack_id} en ML: {e}")
+            return None
+
+    def _classify_send_message_client_error(self, pack_id: str, response: httpx.Response) -> None:
+        """Classify a 4xx `send_message` response and raise
+        `MessageSendPermanentError`. Never returns normally. Mirrors
+        `_classify_post_answer_client_error`'s structured-body parsing, but
+        without an idempotency-equivalent success path — no confirmed
+        "already sent" signal exists yet (that's part of the T0.1 live-verify
+        gate); every permanent 4xx here is treated as a hard failure until
+        that signal is captured and this classifier is extended."""
+        try:
+            body = response.json()
+        except ValueError:
+            logger.warning(
+                "ml-bot send_message: 400 body from ML is not JSON (possible contract drift) for pack %s: %s",
+                pack_id,
+                response.text[:500],
+            )
+            raise MessageSendPermanentError(pack_id, response.status_code, response.text[:500])
+
+        if not isinstance(body, dict):
+            logger.warning(
+                "ml-bot send_message: 400 body from ML is not a JSON object (possible contract drift) for pack %s: %s",
+                pack_id,
+                str(body)[:500],
+            )
+            raise MessageSendPermanentError(pack_id, response.status_code, str(body)[:500])
+
+        message = str(body.get("message") or "")
+        raise MessageSendPermanentError(pack_id, response.status_code, message or str(body)[:500])
 
     async def get_items_batch(self, item_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch

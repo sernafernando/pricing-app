@@ -310,12 +310,23 @@ async def _draft_one(anchor_id: int, provider: LlmProvider) -> str:
             _mark_failed_or_retry(anchor_id, "get_pack_thread returned no data")
             return "failed"
 
-        burst_texts, history_turns, seller_already_replied = _split_thread(thread, anchor["seller_id"])
+        messages = thread.get("messages") or []
+        conversation_status = thread.get("conversation_status")
+
+        burst_texts, history_turns, seller_already_replied = _split_thread(messages, anchor["seller_id"])
         if seller_already_replied:
             # A human already answered this pack directly in ML — never
             # draft over a live human reply.
             _mark_superseded(anchor_id)
             return "seller_already_replied"
+
+        if conversation_status is not None and conversation_status.get("claim_ids"):
+            # PR2: `claim_ids` non-empty is the PRIMARY, most reliable claim
+            # signal (design "Claim detection via claim_ids") — hard-block
+            # BEFORE any LLM call, no draft written. Checked before the
+            # moderation_status/classifier fallbacks below.
+            _mark_blocked_claim(anchor_id)
+            return "blocked_claim"
 
         buyer_turn_text = context_builder.aggregate_buyer_turn(burst_texts or [anchor["text"]])
 
