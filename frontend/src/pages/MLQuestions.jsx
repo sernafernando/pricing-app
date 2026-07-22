@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
@@ -207,6 +208,65 @@ function checkSoftDenylist(text) {
   return null;
 }
 
+// TanStack column-sizing engine adopted for the Preguntas table ONLY
+// (#956 fixed — a hand-rolled resizer failed 4x on drag math/specificity).
+// We consume the library purely as a column-sizing engine: `data: []`, no
+// row model — the body stays the existing hand-rendered `.map()` +
+// `Fragment` + `renderDetailRow`. The shared `<colgroup>` (driven by
+// `getVisibleLeafColumns()`) is the single source of truth for both the
+// TanStack-rendered header row and the untouched body rows under
+// `table-layout: fixed`.
+//
+// Locked sizing (tasks.md override — notebook-fit ~1024px, supersedes the
+// design doc's 1105px default): sum = 1024px on a true ~1024px notebook,
+// `.table-container-tesla` already has `overflow-x:auto` as a fallback.
+// Acciones is fixed at 280px — measured floor for the worst-case
+// `taken_over` row (chevron + Editar + PublicarAhora + Retener ≈ 267px).
+// Readable default sizes (sum ~1110px). Minor horizontal scroll on a small
+// notebook is fine — the columns are resizable and persist, and the shared
+// .table-container-tesla already provides overflow-x. The Acciones floor (280)
+// fits up to 5 `btn-tesla sm` buttons without clipping (the #956 failure mode).
+const PREGUNTAS_COLUMNS = [
+  { id: 'pregunta', header: 'Pregunta', size: 200, minSize: 120, maxSize: 600, enableResizing: true },
+  { id: 'item', header: 'Item', size: 120, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
+  { id: 'respuesta', header: 'Respuesta (borrador)', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
+  { id: 'confianza', header: 'Confianza', size: 70, enableResizing: false },
+  { id: 'cuentaRegresiva', header: 'Cuenta regresiva', size: 150, enableResizing: false },
+  { id: 'acciones', header: 'Acciones', size: 280, minSize: 280, maxSize: 280, enableResizing: false },
+];
+
+// Stable empty array reference — we never call `getRowModel()`, TanStack
+// only needs `data` to satisfy its API shape.
+const EMPTY_TABLE_DATA = [];
+
+const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
+
+// Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
+// already in this file): absent/corrupt/disabled localStorage MUST never
+// throw, and MUST fall back to `{}` so TanStack uses each column's default
+// `size`. Unknown/stale column ids in the stored object are inert — TanStack
+// only reads sizes for columns that currently exist.
+// eslint-disable-next-line react-refresh/only-export-components
+export function loadColumnSizing(key = COLUMN_SIZING_STORAGE_KEY) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function saveColumnSizing(state, key = COLUMN_SIZING_STORAGE_KEY) {
+  try {
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // Disabled/private-mode localStorage: resizing still works in-memory,
+    // it just won't persist across reload.
+  }
+}
+
 function secondsRemaining(waitUntil, referenceNow) {
   if (!waitUntil) return null;
   const diff = new Date(waitUntil).getTime() - referenceNow;
@@ -321,6 +381,43 @@ export default function MLQuestions() {
   // in-flight response (from a row the operator already navigated away
   // from) never overwrites the history of the row that's now expanded.
   const expandedIdRef = useRef(null);
+
+  // Preguntas table — TanStack column-sizing engine (see PREGUNTAS_COLUMNS
+  // above). `columnSizing` initializes from localStorage; changes are
+  // debounced (~200ms, since `onChange` resize mode fires per mouse-move
+  // during a drag) before persisting.
+  const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
+  const columnSizingSaveTimerRef = useRef(null);
+
+  const handleColumnSizingChange = useCallback((updater) => {
+    setColumnSizingState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (columnSizingSaveTimerRef.current) clearTimeout(columnSizingSaveTimerRef.current);
+      columnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next), 200);
+      return next;
+    });
+  }, []);
+
+  const handleResetColumnSizing = useCallback(() => {
+    if (columnSizingSaveTimerRef.current) clearTimeout(columnSizingSaveTimerRef.current);
+    setColumnSizingState({});
+    try {
+      localStorage.removeItem(COLUMN_SIZING_STORAGE_KEY);
+    } catch {
+      // no-op — disabled/private-mode localStorage
+    }
+  }, []);
+
+  const preguntasTable = useReactTable({
+    columns: PREGUNTAS_COLUMNS,
+    data: EMPTY_TABLE_DATA,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnSizing },
+    onColumnSizingChange: handleColumnSizingChange,
+  });
+
+  const hasCustomColumnSizing = Object.keys(columnSizing).length > 0;
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -879,17 +976,45 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {hasCustomColumnSizing && (
+            <div className={styles.columnSizingBar}>
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={handleResetColumnSizing}
+              >
+                Restablecer columnas
+              </button>
+            </div>
+          )}
+
           <div className="table-container-tesla">
-            <table className="table-tesla striped">
+            <table
+              className={`table-tesla striped ${styles.resizableTable}`}
+              style={{ width: preguntasTable.getTotalSize() }}
+            >
+              <colgroup>
+                {preguntasTable.getVisibleLeafColumns().map((col) => (
+                  <col key={col.id} style={{ width: col.getSize() }} />
+                ))}
+              </colgroup>
               <thead className="table-tesla-head">
                 <tr>
-                  <th>Pregunta</th>
-                  <th>Item</th>
-                  <th>Estado</th>
-                  <th>Respuesta (borrador)</th>
-                  <th>Confianza</th>
-                  <th>Cuenta regresiva</th>
-                  <th>Acciones</th>
+                  {preguntasTable.getFlatHeaders().map((h) => (
+                    <th key={h.id} style={{ position: 'relative' }}>
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <span
+                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
+                          onMouseDown={h.getResizeHandler()}
+                          onTouchStart={h.getResizeHandler()}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
+                        />
+                      )}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="table-tesla-body">
