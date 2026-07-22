@@ -860,6 +860,67 @@ def cancelar_pedido(
 
 
 @router.post(
+    "/pedidos/{pedido_id}/cuenta-corriente",
+    response_model=PedidoCompraResponse,
+    summary="Marcar pedido como 'cuenta corriente' (aprobado → en_cuenta_corriente)",
+)
+def marcar_cuenta_corriente_endpoint(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """Crea una OP `pendiente` por el saldo total y transiciona el pedido a
+    `en_cuenta_corriente`, habilitándolo para recepción/depósito antes de
+    liquidar el pago.
+
+    Restringido a pedidos en estado `aprobado`.
+    Permiso requerido: `administracion.gestionar_ordenes_compra`.
+    """
+    try:
+        pedido = pedidos_service.marcar_cuenta_corriente(db, pedido_id=pedido_id, user_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    _commit_or_rollback(db, operacion="marcar_cuenta_corriente")
+    db.refresh(pedido)
+    return _pedido_response(pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/cuenta-corriente/revertir",
+    response_model=PedidoCompraResponse,
+    summary="Revertir 'cuenta corriente' (en_cuenta_corriente → aprobado)",
+)
+def revertir_cuenta_corriente_endpoint(
+    pedido_id: int,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoCompraResponse:
+    """Cancela la OP de cuenta corriente (aún `pendiente`) y restaura el
+    pedido a `aprobado`.
+
+    Fail-closed: rechazado si la OP ya fue pagada o si el pedido ya tiene
+    mercadería recibida (`PedidoCompraIngreso`).
+    Permiso requerido: `administracion.gestionar_ordenes_compra`.
+    """
+    motivo = (payload or {}).get("motivo")
+    if not motivo or not str(motivo).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Campo 'motivo' requerido al revertir 'cuenta corriente'.",
+        )
+    try:
+        pedido = pedidos_service.revertir_cuenta_corriente(db, pedido_id=pedido_id, motivo=str(motivo), user_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    _commit_or_rollback(db, operacion="revertir_cuenta_corriente")
+    db.refresh(pedido)
+    return _pedido_response(pedido)
+
+
+@router.post(
     "/pedidos/{pedido_id}/corregir",
     response_model=PedidoCompraResponse,
     status_code=status.HTTP_201_CREATED,
@@ -5004,7 +5065,7 @@ def post_confirmar_pedido_recepcion(
     """Confirm reception at pedido level (D-SINOC / D-CONOC router).
 
     Routes by estado + oc_poh_id:
-      - CON-OC + pagado → arrival (state-only, no ingresos lines)
+      - CON-OC + pagado/en_cuenta_corriente → arrival (state-only, no ingresos lines)
       - SIN-OC → D-SINOC truth table (arrival if pagado; control if recibido/con_faltantes)
       - controlado → 409 (terminal)
 
@@ -5012,8 +5073,8 @@ def post_confirmar_pedido_recepcion(
     """
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     try:
-        # CON-OC arrival path: pagado → recibido (state-only, no line counting)
-        if pedido.oc_poh_id is not None and pedido.estado == "pagado":
+        # CON-OC arrival path: pagado/en_cuenta_corriente → recibido (state-only, no line counting)
+        if pedido.oc_poh_id is not None and pedido.estado in {"pagado", "en_cuenta_corriente"}:
             result = recepcion_service.confirmar_arribo_con_oc(db, pedido, user)
         else:
             result = recepcion_service.confirmar_pedido_sin_oc(db, pedido, user, request)

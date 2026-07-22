@@ -828,6 +828,12 @@ class TestSettleLaterNoNoop:
         _crear_imputacion(db, p, proveedor, active_user, Decimal("1000"))
 
         resultado = pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("1000"))
+        # pagado_en debe escribirse timezone-aware (columna TIMESTAMP WITH TIME ZONE).
+        # Se verifica sobre el objeto en memoria ANTES del refresh: SQLite (CI) no
+        # preserva tzinfo en el round-trip a la DB.
+        assert resultado.pagado_en is not None and resultado.pagado_en.tzinfo is not None, (
+            "el servicio debe escribir pagado_en timezone-aware"
+        )
         db.refresh(p)
 
         assert p.estado == estado_logistico, "estado logístico NO debe ser clobbereado"
@@ -946,6 +952,157 @@ class TestReversionClearPagadoEn:
 
         assert p.estado == "aprobado"
         assert p.pagado_en is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# marcar_cuenta_corriente / revertir_cuenta_corriente (Slice 2 — money-path)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto: Decimal = Decimal("1000")):
+    p = pedidos_service.crear_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=monto,
+        creado_por_id=active_user.id,
+    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
+    db.refresh(p)
+    return p
+
+
+class TestMarcarCuentaCorriente:
+    def test_marca_desde_aprobado_crea_una_op_pendiente_por_saldo_full(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+
+        resultado = pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+
+        assert resultado.estado == "en_cuenta_corriente"
+        assert p.estado == "en_cuenta_corriente"
+        assert p.op_cuenta_corriente_id is not None
+
+        ops = db.query(OrdenPago).filter(OrdenPago.id == p.op_cuenta_corriente_id).all()
+        assert len(ops) == 1
+        op = ops[0]
+        assert op.estado == "pendiente"
+        assert op.monto_total == Decimal("1000")
+        assert op.proveedor_id == proveedor.id
+
+    def test_marca_rechazada_si_estado_no_es_aprobado(self, db, empresa, proveedor, active_user) -> None:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("1000"),
+            creado_por_id=active_user.id,
+        )
+        # estado == 'borrador'
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        assert exc.value.status_code == 409
+        db.refresh(p)
+        assert p.estado == "borrador"
+        assert p.op_cuenta_corriente_id is None
+
+    def test_marca_rechazada_desde_pagado_parcial(self, db, empresa, proveedor, active_user) -> None:
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        _crear_imputacion(db, p, proveedor, active_user, Decimal("400"))
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=p.id, monto_imputado=Decimal("400"))
+        db.refresh(p)
+        assert p.estado == "pagado_parcial"
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        assert exc.value.status_code == 409
+
+
+class TestRevertirCuentaCorriente:
+    def test_revertir_ok_restaura_aprobado_y_cancela_op(self, db, empresa, proveedor, active_user) -> None:
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+        op_id = p.op_cuenta_corriente_id
+
+        resultado = pedidos_service.revertir_cuenta_corriente(
+            db, pedido_id=p.id, motivo="test reversión", user_id=active_user.id
+        )
+        db.refresh(p)
+
+        assert resultado.estado == "aprobado"
+        assert p.estado == "aprobado"
+        assert p.op_cuenta_corriente_id is None
+
+        op = db.get(OrdenPago, op_id)
+        assert op.estado == "cancelado"
+
+    def test_revertir_bloqueada_si_op_ya_pagada(self, db, empresa, proveedor, active_user) -> None:
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+        op = db.get(OrdenPago, p.op_cuenta_corriente_id)
+        op.estado = "pagado"
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.revertir_cuenta_corriente(
+                db, pedido_id=p.id, motivo="intento invalido", user_id=active_user.id
+            )
+        assert exc.value.status_code == 409
+        db.refresh(p)
+        assert p.estado == "en_cuenta_corriente"
+        assert p.op_cuenta_corriente_id is not None
+
+    def test_revertir_bloqueada_si_existe_ingreso(self, db, empresa, proveedor, active_user) -> None:
+        from app.models.pedido_compra_ingresos import PedidoCompraIngreso  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+
+        sentinel = PedidoCompraIngreso(
+            pedido_id=p.id,
+            pod_id=None,
+            cantidad_recibida=Decimal("1"),
+            usuario_id=active_user.id,
+        )
+        db.add(sentinel)
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.revertir_cuenta_corriente(
+                db, pedido_id=p.id, motivo="intento invalido", user_id=active_user.id
+            )
+        assert exc.value.status_code == 409
+        db.refresh(p)
+        assert p.estado == "en_cuenta_corriente"
+
+    def test_revertir_no_toca_caja_ni_banco(self, db, empresa, proveedor, active_user) -> None:
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+        op_id = p.op_cuenta_corriente_id
+
+        pedidos_service.revertir_cuenta_corriente(db, pedido_id=p.id, motivo="ok", user_id=active_user.id)
+
+        op = db.get(OrdenPago, op_id)
+        assert op.caja_id is None
+        assert op.banco_id is None
+        assert op.caja_movimiento_id is None
 
 
 # ──────────────────────────────────────────────────────────────────────────

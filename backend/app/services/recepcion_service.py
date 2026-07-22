@@ -48,7 +48,10 @@ PERMISO_RECEPCION: str = "deposito.recibir_mercaderia"
 
 # States that accept incoming receipt operations.
 # 'recibido' added: it is now the intermediate state after arrival (D-CONOC).
-_ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "recibido", "con_faltantes"})
+# 'en_cuenta_corriente' added (compras-cuenta-corriente): a pedido marked as
+# cuenta corriente has its OP still `pendiente` but is otherwise fully
+# eligible for depósito/recepción — payment settles independently (pagado_en).
+_ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "en_cuenta_corriente", "recibido", "con_faltantes"})
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -59,7 +62,7 @@ _ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "recibido", "con_falt
 def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
     """Raise 409 if the pedido cannot accept a receipt operation.
 
-    Allowed entry states: 'pagado', 'recibido', 'con_faltantes'.
+    Allowed entry states: 'pagado', 'en_cuenta_corriente', 'recibido', 'con_faltantes'.
     'controlado' raises a distinct 409 — it is the terminal state (D-SINOC).
     All other states raise a generic 409.
     """
@@ -504,7 +507,8 @@ def confirmar_arribo_con_oc(
 
     Raises:
         HTTPException 409 — pedido has no OC linked (use confirmar_pedido_sin_oc).
-        HTTPException 409 — pedido not in estado='pagado' (only arrival step accepted here).
+        HTTPException 409 — pedido not in estado='pagado'/'en_cuenta_corriente' (only
+            arrival step accepted here).
     """
     if pedido.oc_poh_id is None:
         raise HTTPException(
@@ -514,12 +518,12 @@ def confirmar_arribo_con_oc(
 
     _validar_estado_receptivo(pedido)
 
-    if pedido.estado != "pagado":
+    if pedido.estado not in {"pagado", "en_cuenta_corriente"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"CON-OC arrival only valid from 'pagado' (current estado='{pedido.estado}'). "
-                "Use /recepcion/ingresos for the control step."
+                f"CON-OC arrival only valid from 'pagado' or 'en_cuenta_corriente' "
+                f"(current estado='{pedido.estado}'). Use /recepcion/ingresos for the control step."
             ),
         )
 

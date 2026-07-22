@@ -464,6 +464,103 @@ class TestPedidosTransiciones:
 
 
 # ==========================================================================
+# Pedidos — Cuenta corriente (mark + reversal, money-path)
+# ==========================================================================
+
+
+class TestPedidosCuentaCorriente:
+    """Endpoints POST /pedidos/{id}/cuenta-corriente + /revertir."""
+
+    def test_marcar_403_sin_permiso(self, client, auth_headers, pedido_aprobado, sin_permisos):
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+
+    def test_marcar_happy_path(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["estado"] == "en_cuenta_corriente"
+        assert body["op_cuenta_corriente_id"] is not None
+
+    def test_marcar_409_si_no_aprobado(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_borrador.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r.status_code == 409
+
+    def test_revertir_403_sin_permiso(self, client, auth_headers, db, pedido_aprobado, active_user, sin_permisos):
+        # Marca directamente vía el service (bypass del endpoint/permiso) para
+        # aislar el chequeo de permiso de la reversión.
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=pedido_aprobado.id, user_id=active_user.id)
+        db.commit()
+
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente/revertir",
+            headers=auth_headers,
+            json={"motivo": "intento sin permiso"},
+        )
+        assert r.status_code == 403
+
+    def test_revertir_happy_path(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
+        r1 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r1.status_code == 200, r1.text
+
+        r2 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente/revertir",
+            headers=auth_headers,
+            json={"motivo": "test reversión endpoint"},
+        )
+        assert r2.status_code == 200, r2.text
+        body = r2.json()
+        assert body["estado"] == "aprobado"
+        assert body["op_cuenta_corriente_id"] is None
+
+    def test_revertir_400_sin_motivo(self, client, auth_headers, pedido_aprobado, con_todos_los_permisos):
+        r1 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r1.status_code == 200
+
+        r2 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente/revertir",
+            headers=auth_headers,
+            json={},
+        )
+        assert r2.status_code == 400
+
+    def test_revertir_409_si_op_ya_pagada(self, client, auth_headers, db, pedido_aprobado, con_todos_los_permisos):
+        from app.models.orden_pago import OrdenPago
+
+        r1 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente",
+            headers=auth_headers,
+        )
+        assert r1.status_code == 200
+        op_id = r1.json()["op_cuenta_corriente_id"]
+        op = db.get(OrdenPago, op_id)
+        op.estado = "pagado"
+        db.commit()
+
+        r2 = client.post(
+            f"{BASE}/pedidos/{pedido_aprobado.id}/cuenta-corriente/revertir",
+            headers=auth_headers,
+            json={"motivo": "intento invalido"},
+        )
+        assert r2.status_code == 409
+
+
+# ==========================================================================
 # Pedidos — Corregir (feature D)
 # ==========================================================================
 
