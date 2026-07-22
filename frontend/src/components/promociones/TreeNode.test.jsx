@@ -117,8 +117,11 @@ describe('TreeNode', () => {
     await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
     await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
 
-    expect(screen.getByText(/catálogo/i)).toBeInTheDocument();
-    expect(screen.getByText(/vinculada/i)).toBeInTheDocument();
+    // Exact, case-sensitive match on the KIND badge label — distinct from
+    // the lowercase FE-computed child-kind count ("1 catálogo") a grouping
+    // node's header may also render (catalog-tree-node-summary PR).
+    expect(screen.getByText('Catálogo')).toBeInTheDocument();
+    expect(screen.getByText('Vinculada')).toBeInTheDocument();
   });
 
   it('renders a plain publicacion leaf node', () => {
@@ -381,5 +384,95 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
     await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
 
     expect(await screen.findByText(/no se pudo refrescar/i)).toBeInTheDocument();
+  });
+});
+
+describe('TreeNode collapsed-node promo summary (catalog-tree-node-summary PR)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  it('renders the applied badge, counts and price for an MLA-bearing node with a promo_summary', () => {
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_SUM',
+      label: 'MLA_SUM',
+      matches_filter: true,
+      children: [],
+      promo_summary: {
+        started_count: 1,
+        candidate_count: 2,
+        applied_name: 'Oferta Relámpago',
+        applied_price: 850,
+      },
+    };
+    renderNode(tree);
+
+    expect(screen.getByText(/aplicada: oferta relámpago/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 aplicada.*2 disponible/i)).toBeInTheDocument();
+    expect(screen.getByText(/850/)).toBeInTheDocument();
+  });
+
+  it('renders nothing extra for an MLA-bearing node without a promo_summary (fail-open)', () => {
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_NOSUM',
+      label: 'MLA_NOSUM',
+      matches_filter: true,
+      children: [],
+    };
+    renderNode(tree);
+
+    expect(screen.queryByText(/aplicada:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/disponible/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the counts even when no promo is currently applied (started_count 0)', () => {
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_SUM2',
+      label: 'MLA_SUM2',
+      matches_filter: true,
+      children: [],
+      promo_summary: {
+        started_count: 0,
+        candidate_count: 3,
+        applied_name: null,
+        applied_price: null,
+      },
+    };
+    renderNode(tree);
+
+    expect(screen.getByText(/0 aplicada.*3 disponible/i)).toBeInTheDocument();
+    expect(screen.queryByText(/aplicada:/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a FE-computed child-kind count for a grouping node with children', () => {
+    const tree = {
+      level: 1,
+      kind: 'familia',
+      family_id: 'FAM1',
+      label: 'Familia FAM1',
+      children: [
+        { level: 2, kind: 'catalogo', mla: 'MLA_A', label: 'MLA_A', matches_filter: true, children: [] },
+        { level: 2, kind: 'catalogo', mla: 'MLA_B', label: 'MLA_B', matches_filter: true, children: [] },
+        { level: 2, kind: 'vinculada', mla: 'MLA_C', label: 'MLA_C', matches_filter: true, children: [] },
+      ],
+    };
+    renderNode(tree);
+
+    expect(screen.getByText(/2 cat[aá]logos/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 vinculada/i)).toBeInTheDocument();
+  });
+
+  it('does not show a child-kind count for a leaf grouping node (no children)', () => {
+    const tree = { level: 1, kind: 'familia', family_id: 'FAM_EMPTY', label: 'Familia FAM_EMPTY', children: [] };
+    renderNode(tree);
+
+    expect(screen.queryByText(/cat[aá]logo/i)).not.toBeInTheDocument();
   });
 });

@@ -341,6 +341,71 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     return result
 
 
+def fetch_promo_node_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Lee un resumen batcheado MÁS RICO por MLA (una sola query), usado por
+    el árbol recursivo de publicaciones (catalog-tree-node-summary PR) para
+    mostrar en cada nodo COLAPSADO cuántas promos tiene y cuál está aplicada.
+
+    Sibling ADITIVO de `fetch_promo_summary_by_mla` — NUNCA modifica esa
+    función ni su forma de retorno (el endpoint lite sigue llamándola tal
+    cual). Reusa la MISMA query batcheada (GROUP BY mla, un solo round-trip),
+    solo que separa `started_count`/`candidate_count` (en vez del
+    `active_count` fusionado) y agrega el `applied_price` de la MISMA promo
+    `started` de menor precio que resuelve `applied_name` (ML solo aplica
+    una por MLA).
+
+    Args:
+        mla_ids: lista de MLAs a resumir. [] no ejecuta ninguna query.
+
+    Returns:
+        Dict keyed por mla: {"started_count": int, "candidate_count": int,
+        "has_applied": bool, "applied_name": Optional[str],
+        "applied_price": Optional[float]}. MLAs sin promos activas no
+        aparecen como key (ausencia = fail-open, el caller debe tratarlo
+        como "sin resumen").
+
+    Raises:
+        RuntimeError: si ML_WEBHOOK_DB_URL no está configurada.
+    """
+    if not mla_ids:
+        return {}
+
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    ip.mla,
+                    COUNT(*) FILTER (WHERE ip.status = 'started')   AS started_count,
+                    COUNT(*) FILTER (WHERE ip.status = 'candidate') AS candidate_count,
+                    bool_or(ip.status = 'started')                  AS has_applied,
+                    (array_agg(COALESCE(NULLIF(p.name, ''), NULLIF(ip.payload->>'name', ''), ip.promotion_type) ORDER BY ip.price ASC NULLS FIRST)
+                        FILTER (WHERE ip.status = 'started'))[1] AS applied_name,
+                    (array_agg(ip.price ORDER BY ip.price ASC NULLS FIRST)
+                        FILTER (WHERE ip.status = 'started'))[1] AS applied_price
+                FROM ml_item_promotions ip
+                LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
+                WHERE ip.mla = ANY(:mlas)
+                  AND ip.status IN ('candidate', 'started', 'pending')
+                GROUP BY ip.mla
+            """),
+            {"mlas": mla_ids},
+        ).fetchall()
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for mla, started_count, candidate_count, has_applied, applied_name, applied_price in rows:
+        result[mla] = {
+            "started_count": started_count,
+            "candidate_count": candidate_count,
+            "has_applied": bool(has_applied),
+            "applied_name": applied_name,
+            "applied_price": float(applied_price) if applied_price is not None else None,
+        }
+
+    logger.info("ml_item_promotions: node summary read for %d mlas", len(result))
+    return result
+
+
 def fetch_promotion_items(promotion_id: str, promotion_type: str) -> List[Dict[str, Any]]:
     """Lee los items de una promoción puntual desde ml_item_promotions.
 

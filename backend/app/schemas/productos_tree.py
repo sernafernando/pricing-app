@@ -31,6 +31,25 @@ class SkippedEdge(BaseModel):
     reason: str
 
 
+class TreeNodePromoSummary(BaseModel):
+    """Collapsed-node promo summary attached to MLA-bearing nodes
+    (catalog-tree-node-summary PR). Restores the per-MLA promo badges the
+    old flat panel showed, now visible WITHOUT expanding the node.
+
+    `applied_markup` is intentionally NOT included yet — computing it
+    requires the same per-MLA pricing pipeline `fetch_item_promotions` runs
+    (product cost/commission), which would turn this batched summary into
+    an N+1 call per MLA. See `assemble_publication_tree`'s docstring for the
+    deferred-markup rationale; the FE can show it once a node is expanded
+    (the per-MLA promos panel already computes it today).
+    """
+
+    started_count: int
+    candidate_count: int
+    applied_name: Optional[str] = None
+    applied_price: Optional[float] = None
+
+
 class TreeNode(BaseModel):
     """One node of the recursive publication tree.
 
@@ -54,6 +73,7 @@ class TreeNode(BaseModel):
     catalog_product_id: Optional[str] = None
     label: str
     matches_filter: Optional[bool] = None
+    promo_summary: Optional[TreeNodePromoSummary] = None
     children: List["TreeNode"] = Field(default_factory=list)
 
 
