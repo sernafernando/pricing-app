@@ -18,6 +18,7 @@ import MLQuestions, { loadColumnSizing, saveColumnSizing } from './MLQuestions';
 import api from '../services/api';
 
 const COLUMN_SIZING_KEY = 'mlq:colsizing:preguntas';
+const HISTORIAL_COLUMN_SIZING_KEY = 'mlq:colsizing:historial';
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -258,6 +259,131 @@ describe('Preguntas table — TanStack column-sizing render structure', () => {
   it('mounts with a previously persisted custom width and shows the reset control', async () => {
     localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 250 }));
     await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
+    });
+    localStorage.clear();
+  });
+});
+
+describe('Historial del comprador table — column-sizing persistence', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('round-trips a valid columnSizing object under its own key', () => {
+    const sizing = { pregunta: 220, item: 130 };
+    saveColumnSizing(sizing, HISTORIAL_COLUMN_SIZING_KEY);
+    expect(loadColumnSizing(HISTORIAL_COLUMN_SIZING_KEY)).toEqual(sizing);
+  });
+
+  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
+    localStorage.setItem(HISTORIAL_COLUMN_SIZING_KEY, '{not valid json');
+    expect(() => loadColumnSizing(HISTORIAL_COLUMN_SIZING_KEY)).not.toThrow();
+    expect(loadColumnSizing(HISTORIAL_COLUMN_SIZING_KEY)).toEqual({});
+  });
+});
+
+describe('Historial del comprador table — TanStack column-sizing render structure', () => {
+  function mockWithHistory() {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        return Promise.resolve({
+          data: {
+            questions: [
+              {
+                id: 1,
+                question_text: 'Hola, tienen stock?',
+                item_id: 'MLA123',
+                status: 'received',
+                buyer_id: 555,
+                buyer_nickname: 'COMPRADOR_1',
+              },
+            ],
+          },
+        });
+      }
+      if (url === '/ml-bot/questions/1/buyer-history') {
+        return Promise.resolve({
+          data: {
+            questions: [
+              {
+                id: 99,
+                question_date: '2026-07-01T10:00:00Z',
+                question_text: 'Pregunta anterior',
+                item_title: 'Producto anterior',
+                status: 'published',
+                drafted_answer: 'Sí, tenemos stock',
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders one <col> per header and resize grips only on resizable headers', async () => {
+    localStorage.clear();
+    mockWithHistory();
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Hola, tienen stock?')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /ver detalle completo/i }));
+    await user.click(screen.getByText('Historial del comprador'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Pregunta anterior')).toBeInTheDocument();
+    });
+
+    const table = screen.getByText('Pregunta anterior').closest('table');
+    const cols = table.querySelectorAll('colgroup > col');
+    const headers = table.querySelectorAll('thead th');
+    expect(cols.length).toBe(headers.length);
+    expect(cols.length).toBe(5);
+
+    // Resizable: Pregunta, Item, Respuesta. Fixed: Fecha, Estado.
+    const grips = table.querySelectorAll('thead [role="separator"]');
+    expect(grips.length).toBe(3);
+  });
+
+  it('shows the reset-columns control only once sizing has been customized', async () => {
+    localStorage.clear();
+    mockWithHistory();
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Hola, tienen stock?')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /ver detalle completo/i }));
+    await user.click(screen.getByText('Historial del comprador'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Pregunta anterior')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
+  });
+
+  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+    localStorage.setItem(HISTORIAL_COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 260 }));
+    mockWithHistory();
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Hola, tienen stock?')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /ver detalle completo/i }));
+    await user.click(screen.getByText('Historial del comprador'));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
