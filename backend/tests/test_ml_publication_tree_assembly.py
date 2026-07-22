@@ -336,3 +336,99 @@ class TestDeterministicOrdering:
         # Documented deterministic order: publicaciones_ml.id (insertion
         # order), matching seed order here.
         assert first_order == ["MLA_Z", "MLA_A", "MLA_M"]
+
+
+class TestPromoNodeSummaryAttachment:
+    """catalog-tree-node-summary PR — `assemble_publication_tree` batch-
+    attaches an optional `promo_summary` (caller-supplied, one batched
+    fetch, no N+1) to every MLA-bearing node."""
+
+    def test_mla_bearing_node_gets_promo_summary_when_provided(self, db) -> None:
+        _seed_producto(db, 20)
+        _seed_pub(db, "MLA20", 20)
+        _seed_link(db, "MLA20", 20)
+        db.commit()
+
+        promo_summary_by_mla = {
+            "MLA20": {
+                "started_count": 1,
+                "candidate_count": 2,
+                "applied_name": "Oferta Relámpago",
+                "applied_price": 850.0,
+            }
+        }
+
+        result = assemble_publication_tree(db, item_id=20, promo_summary_by_mla=promo_summary_by_mla)
+
+        leaf = result.tree.children[0]
+        assert leaf.mla == "MLA20"
+        assert leaf.promo_summary is not None
+        assert leaf.promo_summary.started_count == 1
+        assert leaf.promo_summary.candidate_count == 2
+        assert leaf.promo_summary.applied_name == "Oferta Relámpago"
+        assert leaf.promo_summary.applied_price == 850.0
+
+    def test_mla_bearing_node_promo_summary_absent_when_not_provided(self, db) -> None:
+        """Fail-open: no summary map at all -> field stays None, never
+        crashes, never fabricates a summary."""
+        _seed_producto(db, 21)
+        _seed_pub(db, "MLA21", 21)
+        _seed_link(db, "MLA21", 21)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=21)
+
+        leaf = result.tree.children[0]
+        assert leaf.promo_summary is None
+
+    def test_mla_missing_from_summary_map_stays_none(self, db) -> None:
+        """An mla with zero promos never appears as a key in the batched
+        map (documented absence) — must not raise, must stay None."""
+        _seed_producto(db, 22)
+        _seed_pub(db, "MLA22", 22)
+        _seed_link(db, "MLA22", 22)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=22, promo_summary_by_mla={})
+
+        leaf = result.tree.children[0]
+        assert leaf.promo_summary is None
+
+    def test_grouping_nodes_never_carry_promo_summary(self, db) -> None:
+        _seed_producto(db, 23)
+        _seed_pub(db, "MLA23", 23)
+        _seed_link(db, "MLA23", 23, family_id="FAM23")
+        db.commit()
+
+        promo_summary_by_mla = {
+            "MLA23": {"started_count": 0, "candidate_count": 1, "applied_name": None, "applied_price": None}
+        }
+
+        result = assemble_publication_tree(db, item_id=23, promo_summary_by_mla=promo_summary_by_mla)
+
+        familia_node = result.tree.children[0]
+        assert familia_node.kind == "familia"
+        assert familia_node.promo_summary is None
+        mla_node = familia_node.children[0]
+        assert mla_node.promo_summary is not None
+
+    def test_vinculada_node_also_gets_promo_summary(self, db) -> None:
+        _seed_producto(db, 24)
+        _seed_pub(db, "MLA_BASE", 24)
+        _seed_pub(db, "MLA_VINC", 24)
+        _seed_link(db, "MLA_BASE", 24)
+        _seed_link(db, "MLA_VINC", 24)
+        db.add(MlItemRelation(mla="MLA_BASE", related_mla="MLA_VINC", stock_relation=1))
+        db.commit()
+
+        promo_summary_by_mla = {
+            "MLA_VINC": {"started_count": 1, "candidate_count": 0, "applied_name": "SMART", "applied_price": 100.0}
+        }
+
+        result = assemble_publication_tree(db, item_id=24, promo_summary_by_mla=promo_summary_by_mla)
+
+        base_node = result.tree.children[0]
+        vinc_node = base_node.children[0]
+        assert vinc_node.mla == "MLA_VINC"
+        assert vinc_node.promo_summary is not None
+        assert vinc_node.promo_summary.applied_name == "SMART"

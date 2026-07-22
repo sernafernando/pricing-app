@@ -2,10 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
-import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent } from './treeNodeUtils';
+import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import styles from './promociones.module.css';
+
+// Backend-computed price formatting for the applied promo's price — kept
+// local/minimal (no currency-conversion concerns here, unlike
+// MlaPromocionesPanel's fuller money formatting) since this only surfaces a
+// compact collapsed-node hint.
+function formatAppliedPrice(value) {
+  if (value === null || value === undefined) return null;
+  return `$${Number(value).toFixed(2)}`;
+}
 
 const KIND_LABELS = {
   producto: 'Producto',
@@ -83,6 +93,20 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
   // that would 403 — mirrors PromoApplyControl's gating.
   const canRefresh = bearsMla && tienePermiso('promos.escribir');
 
+  // Collapsed-node promo summary (catalog-tree-node-summary PR) — restores
+  // the old flat panel's per-MLA badges, visible without expanding the
+  // node. Fail-open: absent `promo_summary` renders nothing extra.
+  const promoSummary = bearsMla ? node.promo_summary : null;
+  const appliedPriceLabel = promoSummary ? formatAppliedPrice(promoSummary.applied_price) : null;
+  // `applied_markup` is deferred server-side (see TreeNodePromoSummary's
+  // docstring) — rendered defensively in case a future backend adds it,
+  // reusing the same markup-color treatment as MlaPromocionesPanel.
+  const appliedMarkup = promoSummary?.applied_markup;
+
+  // Grouping nodes (familia/catalogo with children) get a purely FE-computed
+  // "N catálogos · M vinculadas" hint — no backend involvement.
+  const childKindSummary = !bearsMla ? describeChildKinds(children) : '';
+
   // Promos-only manual refresh (locked decision): reconciles the MLA's
   // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
   // promos sub-spoiler. Never asserts the final promo state itself — on
@@ -127,6 +151,24 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
           <td className={styles.treeNodeLabelCell}>
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
+            {promoSummary && (
+              <span className={styles.treeNodeSummary}>
+                {promoSummary.applied_name && (
+                  <span className={`${styles.badge} ${styles.appliedIndicator}`}>
+                    Aplicada: {promoSummary.applied_name}
+                  </span>
+                )}
+                <span className={styles.treeNodeSummaryCounts}>
+                  {promoSummary.started_count} aplicada{promoSummary.started_count === 1 ? '' : 's'} ·{' '}
+                  {promoSummary.candidate_count} disponible{promoSummary.candidate_count === 1 ? '' : 's'}
+                </span>
+                {appliedPriceLabel && <span className={styles.treeNodeSummaryCounts}>{appliedPriceLabel}</span>}
+                {appliedMarkup !== undefined && appliedMarkup !== null && (
+                  <span style={{ color: getMarkupColor(appliedMarkup) }}>Markup: {appliedMarkup}</span>
+                )}
+              </span>
+            )}
+            {childKindSummary && <span className={styles.treeNodeChildKindCount}>{childKindSummary}</span>}
             {canRefresh && (
               <>
                 <button

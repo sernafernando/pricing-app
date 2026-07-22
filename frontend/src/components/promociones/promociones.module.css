@@ -449,3 +449,30 @@
 .rowTintVinculada {
   background: color-mix(in srgb, var(--teal-bg, var(--bg-secondary)) 40%, transparent);
 }
+
+/* Collapsed-node promo summary (catalog-tree-node-summary PR) — restores
+   the old flat panel's per-MLA promo indicators, now visible WITHOUT
+   expanding the node. `.treeNodeSummary` groups the pieces inline next to
+   the label; `.treeNodeSummaryCounts` reuses the same muted-count read as
+   `.promoCountBadge` but as plain text (not a pill) to stay compact next
+   to the applied badge. */
+.treeNodeSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+.treeNodeSummaryCounts {
+  color: var(--text-secondary);
+}
+
+/* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
+   cosmetic, subtler than the promo summary since it carries no money-path
+   meaning. */
+.treeNodeChildKindCount {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
