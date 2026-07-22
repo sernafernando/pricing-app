@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductoMLAsPanel from './ProductoMLAsPanel';
 import { productosAPI } from '../../services/api';
+import { useTreeViewStore } from '../../store/treeViewStore';
 
 vi.mock('../../services/api', () => ({
   productosAPI: {
@@ -50,6 +51,8 @@ function treeResponse(children = [], overrides = {}) {
 describe('ProductoMLAsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    useTreeViewStore.setState({ showFamilia: false });
   });
 
   it('shows a loading state while the fetch is in flight', async () => {
@@ -68,6 +71,7 @@ describe('ProductoMLAsPanel', () => {
   });
 
   it('renders the recursive tree from the tree endpoint', async () => {
+    useTreeViewStore.setState({ showFamilia: true });
     productosAPI.getProductoTree.mockResolvedValue(
       treeResponse([
         { level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] },
@@ -183,8 +187,10 @@ describe('ProductoMLAsPanel', () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByText(/ver todos \(1\)/i));
-    await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
 
+    // With familia hidden (default), its catalogo child is hoisted directly
+    // and its header (with the label) renders without needing an extra
+    // expand click.
     expect(screen.getByText('MLA_HIDDEN')).toBeInTheDocument();
   });
 
@@ -259,5 +265,45 @@ describe('ProductoMLAsPanel', () => {
     await waitFor(() => expect(screen.getByText('MLA_FILTERED')).toBeInTheDocument());
     expect(productosAPI.getProductoTree).toHaveBeenCalledTimes(2);
     expect(mlasCacheRef.current.size).toBe(2);
+  });
+
+  it('shows the "Ver familias" toggle only when the tree has a familia node among the root children', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),
+    );
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /ver familias/i })).not.toBeInTheDocument();
+  });
+
+  it('toggling "Ver familias" reveals the familia header and hides it again', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        {
+          level: 1,
+          kind: 'familia',
+          label: 'Familia FAM1',
+          children: [
+            { level: 2, kind: 'catalogo', mla: 'MLA002', label: 'MLA002', matches_filter: true, children: [] },
+          ],
+        },
+      ]),
+    );
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA002')).toBeInTheDocument());
+    expect(screen.queryByText(/familia fam1/i)).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    const toggle = screen.getByRole('button', { name: /ver familias/i });
+    await user.click(toggle);
+
+    expect(screen.getByText(/familia fam1/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /ocultar familias/i }));
+    expect(screen.queryByText(/familia fam1/i)).not.toBeInTheDocument();
   });
 });

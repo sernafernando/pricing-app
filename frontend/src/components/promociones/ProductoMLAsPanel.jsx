@@ -3,6 +3,7 @@ import { productosAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import TreeNode from './TreeNode';
 import { isFilterActive, countHiddenDescendants } from './treeNodeUtils';
+import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
 
 const L1_COL_SPAN = 5;
@@ -45,6 +46,8 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, p
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
+  const showFamilia = useTreeViewStore((state) => state.showFamilia);
+  const toggleFamilia = useTreeViewStore((state) => state.toggleFamilia);
 
   // Reset the "ver todos" reveal whenever the active filter changes, so a
   // filter change on an already-expanded (still-mounted) panel re-applies the
@@ -85,8 +88,25 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, p
     ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child), 0)
     : 0;
 
+  // Only offer the toggle when the tree actually has a familia level to hide
+  // — otherwise there is nothing for it to control.
+  const hasFamilia = rootChildren.some((child) => child.kind === 'familia');
+
   return (
     <>
+      {hasFamilia && (
+        <div className={styles.filterMessage}>
+          <button
+            type="button"
+            className="btn-tesla ghost sm"
+            onClick={toggleFamilia}
+            aria-pressed={showFamilia}
+            aria-label={showFamilia ? 'Ocultar familias' : 'Ver familias'}
+          >
+            {showFamilia ? 'Ocultar familias' : 'Ver familias'}
+          </button>
+        </div>
+      )}
       {filterActive && hiddenCount > 0 && !verTodos && (
         <div className={styles.filterMessage}>
           <button type="button" className="btn-tesla ghost sm" onClick={() => setVerTodos(true)}>

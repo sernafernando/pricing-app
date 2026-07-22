@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
+import { useTreeViewStore } from '../../store/treeViewStore';
 
 // Mock the leaf promo panel so prop-threading assertions can inspect exactly
 // what reaches it, without depending on its own fetch/reload internals.
@@ -90,14 +91,39 @@ describe('TreeNode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
   });
 
-  it('renders a familia grouping node with its label', () => {
+  it('renders a familia grouping node with its label when showFamilia is enabled', () => {
+    useTreeViewStore.setState({ showFamilia: true });
     renderNode(buildDeepTree());
     expect(screen.getByText(/familia fam1/i)).toBeInTheDocument();
   });
 
+  it('hides the familia header and renders its children directly when showFamilia is disabled (default)', () => {
+    renderNode(buildDeepTree());
+    expect(screen.queryByText(/familia fam1/i)).not.toBeInTheDocument();
+    // The familia's direct child (catalogo MLA_CAT) is hoisted up one level
+    // and rendered immediately, without needing to expand the familia first.
+    expect(screen.getByText('MLA_CAT')).toBeInTheDocument();
+  });
+
+  it('does not affect a catalogo node outside any familia, regardless of showFamilia', () => {
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_ROOT_CAT',
+      label: 'MLA_ROOT_CAT',
+      matches_filter: true,
+      children: [],
+    };
+    renderNode(tree);
+    expect(screen.getByText('MLA_ROOT_CAT')).toBeInTheDocument();
+    expect(screen.getByText('Catálogo')).toBeInTheDocument();
+  });
+
   it('recursively renders nested catalogo/vinculada kinds down to depth 4', async () => {
+    useTreeViewStore.setState({ showFamilia: true });
     renderNode(buildDeepTree());
     const user = userEvent.setup();
 
@@ -112,6 +138,7 @@ describe('TreeNode', () => {
   });
 
   it('renders catalogo and vinculada kinds with visually distinct badges (same-pricelist dup fix)', async () => {
+    useTreeViewStore.setState({ showFamilia: true });
     renderNode(buildDeepTree());
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
@@ -158,13 +185,14 @@ describe('TreeNode', () => {
   });
 
   it('does not render a promos sub-spoiler for grouping nodes (familia has no mla)', async () => {
+    useTreeViewStore.setState({ showFamilia: true });
     renderNode(buildDeepTree());
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
     expect(screen.queryByRole('button', { name: /^promociones/i })).not.toBeInTheDocument();
   });
 
-  it('hides an MLA-bearing node when matches_filter is false and a filter is active', async () => {
+  it('hides an MLA-bearing node when matches_filter is false and a filter is active', () => {
     const tree = {
       level: 1,
       kind: 'familia',
@@ -175,14 +203,12 @@ describe('TreeNode', () => {
       ],
     };
     renderNode(tree, { promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada' });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
 
     expect(screen.getByText('MLA_SHOWN')).toBeInTheDocument();
     expect(screen.queryByText('MLA_HIDDEN')).not.toBeInTheDocument();
   });
 
-  it('reveals matches_filter:false nodes when revealAll is true', async () => {
+  it('reveals matches_filter:false nodes when revealAll is true', () => {
     const tree = {
       level: 1,
       kind: 'familia',
@@ -192,13 +218,11 @@ describe('TreeNode', () => {
       ],
     };
     renderNode(tree, { promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada', revealAll: true });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
 
     expect(screen.getByText('MLA_HIDDEN')).toBeInTheDocument();
   });
 
-  it('treats matches_filter absent/null as show (fail-open) even when a filter is active', async () => {
+  it('treats matches_filter absent/null as show (fail-open) even when a filter is active', () => {
     const tree = {
       level: 1,
       kind: 'familia',
@@ -208,8 +232,6 @@ describe('TreeNode', () => {
       ],
     };
     renderNode(tree, { promoTipos: ['SELLER_CAMPAIGN'], promoEstado: 'aplicada' });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
 
     expect(screen.getByText('MLA_NOFLAG')).toBeInTheDocument();
   });
@@ -229,6 +251,7 @@ describe('TreeNode', () => {
   });
 
   it('forwards promoTipos, promoEstado, mlasCacheRef and promosCacheRef unchanged through every intermediate node down to the deepest leaf MlaPromocionesPanel', async () => {
+    useTreeViewStore.setState({ showFamilia: true });
     const deepTree = buildDeepTree();
     const promoTipos = ['SELLER_CAMPAIGN', 'DEAL'];
     const promoEstado = 'aplicada';
@@ -273,6 +296,7 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true });
   });
 
   function buildMlaTree() {
@@ -391,6 +415,7 @@ describe('TreeNode collapsed-node promo summary (catalog-tree-node-summary PR)',
   beforeEach(() => {
     vi.clearAllMocks();
     mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
   });
 
   it('renders the applied badge, counts and price for an MLA-bearing node with a promo_summary', () => {
@@ -452,6 +477,7 @@ describe('TreeNode collapsed-node promo summary (catalog-tree-node-summary PR)',
   });
 
   it('shows a FE-computed child-kind count for a grouping node with children', () => {
+    useTreeViewStore.setState({ showFamilia: true });
     const tree = {
       level: 1,
       kind: 'familia',
@@ -470,6 +496,7 @@ describe('TreeNode collapsed-node promo summary (catalog-tree-node-summary PR)',
   });
 
   it('does not show a child-kind count for a leaf grouping node (no children)', () => {
+    useTreeViewStore.setState({ showFamilia: true });
     const tree = { level: 1, kind: 'familia', family_id: 'FAM_EMPTY', label: 'Familia FAM_EMPTY', children: [] };
     renderNode(tree);
 

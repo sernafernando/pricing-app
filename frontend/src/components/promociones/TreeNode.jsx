@@ -7,6 +7,7 @@ import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
+import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
 
 // Backend-computed price formatting for the applied promo's price — kept
@@ -66,6 +67,7 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
   const [refreshError, setRefreshError] = useState(false);
   const [promosReloadKey, setPromosReloadKey] = useState(0);
   const { tienePermiso } = usePermisos();
+  const showFamilia = useTreeViewStore((state) => state.showFamilia);
 
   // Guards the async refresh follow-up from setState-ing after the node
   // unmounts (e.g. the tree re-renders on a promo-filter change while a
@@ -83,11 +85,40 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
     return null;
   }
 
+  const children = node.children || [];
+
+  // Familia grouping is OPTIONAL (global view toggle, default hidden): when
+  // disabled, skip rendering the familia's own header row entirely and
+  // render its children directly — everything below shifts one level up
+  // (under the producto). Only `kind === 'familia'` is affected; every other
+  // kind (producto/catalogo/vinculada/publicacion) renders unchanged either
+  // way. Children keep forwarding the exact same props so promo filter
+  // (matches_filter reveal), the promo summary, the lista badge and the
+  // refresh button keep working via each hoisted child's own TreeNode logic.
+  if (node.kind === 'familia' && !showFamilia) {
+    const rowKey = `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
+    return (
+      <>
+        {children.map((child) => (
+          <TreeNode
+            key={child.mla || `${child.kind}-${child.family_id || child.catalog_product_id || child.level}-${rowKey}`}
+            node={child}
+            colSpan={colSpan}
+            mlasCacheRef={mlasCacheRef}
+            promosCacheRef={promosCacheRef}
+            promoTipos={promoTipos}
+            promoEstado={promoEstado}
+            revealAll={revealAll}
+          />
+        ))}
+      </>
+    );
+  }
+
   const kindLabel = KIND_LABELS[node.kind] || node.kind;
   const badgeClass = KIND_BADGE_CLASS[node.kind] || styles.badgeReadonly;
   const displayLabel = node.label || node.mla || kindLabel;
   const rowKey = node.mla || `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
-  const children = node.children || [];
   const bearsMla = isMlaBearing(node.kind);
   // The refresh endpoint requires `promos.escribir` (same as enroll/remove);
   // gate the button's visibility so a view-only user never sees a control
