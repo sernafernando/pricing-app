@@ -17,6 +17,7 @@ import {
   Inbox,
   TrendingUp,
   RotateCcw,
+  Landmark,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -44,6 +45,7 @@ const ESTADOS = [
   'cancelado',
   'pagado_parcial',
   'pagado',
+  'en_cuenta_corriente',
 ];
 
 const COLUMNS = [
@@ -112,9 +114,20 @@ export default function TabPedidosCompra() {
     cancelar: cancelarPedido,
     generarEtiqueta,
     eliminar: eliminarPedido,
+    marcarCuentaCorriente,
+    revertirCuentaCorriente,
     loading: pedidosLoading,
     error: pedidosError,
   } = useComprasPedidos();
+
+  // ── Cuenta corriente — estado propio para no pisar pedidosError global ──
+  const [ccLoadingId, setCcLoadingId] = useState(null);
+  const [ccError, setCcError] = useState(null);
+  const [marcarCcModal, setMarcarCcModal] = useState(null); // pedido | null
+  const [revertirCcModal, setRevertirCcModal] = useState(null); // pedido | null
+  const [revertirCcMotivo, setRevertirCcMotivo] = useState('');
+  const [revertirCcLoading, setRevertirCcLoading] = useState(false);
+  const [revertirCcError, setRevertirCcError] = useState(null);
 
   // ── Hard-delete papelera state ──
   const [eliminarModal, setEliminarModal] = useState(null); // pedido | null
@@ -344,6 +357,54 @@ export default function TabPedidosCompra() {
     );
   };
 
+  const handleOpenMarcarCc = (pedido) => {
+    setMarcarCcModal(pedido);
+    setCcError(null);
+  };
+
+  const handleConfirmMarcarCc = async () => {
+    if (!marcarCcModal) return;
+    setCcLoadingId(marcarCcModal.id);
+    setCcError(null);
+    try {
+      await marcarCuentaCorriente(marcarCcModal.id);
+      setMarcarCcModal(null);
+      fetchPedidos();
+    } catch (err) {
+      setCcError(err.response?.data?.detail || 'Error al marcar cuenta corriente.');
+    } finally {
+      setCcLoadingId(null);
+    }
+  };
+
+  const handleOpenRevertirCc = (pedido) => {
+    setRevertirCcModal(pedido);
+    setRevertirCcMotivo('');
+    setRevertirCcError(null);
+  };
+
+  const handleConfirmRevertirCc = async () => {
+    if (!revertirCcModal) return;
+    const motivo = revertirCcMotivo.trim();
+    if (!motivo) {
+      setRevertirCcError('El motivo es requerido.');
+      return;
+    }
+    setRevertirCcLoading(true);
+    setRevertirCcError(null);
+    try {
+      await revertirCuentaCorriente(revertirCcModal.id, motivo);
+      setRevertirCcModal(null);
+      fetchPedidos();
+    } catch (err) {
+      setRevertirCcError(
+        err.response?.data?.detail || 'Error al revertir cuenta corriente.'
+      );
+    } finally {
+      setRevertirCcLoading(false);
+    }
+  };
+
   const handleOpenEliminar = (pedido) => {
     setEliminarModal(pedido);
     setEliminarError(null);
@@ -378,6 +439,8 @@ export default function TabPedidosCompra() {
     const puedeEtiqueta = canManage && estado === 'aprobado' && p.requiere_envio;
     const puedePagar = canPay && (estado === 'aprobado' || estado === 'pagado_parcial');
     const puedeEliminarBasura = canDeleteBasura && p.puede_eliminar === true;
+    const puedeMarcarCuentaCorriente = canManage && estado === 'aprobado';
+    const puedeRevertirCuentaCorriente = canManage && estado === 'en_cuenta_corriente';
 
     return (
       <div className={styles.rowActions}>
@@ -477,6 +540,27 @@ export default function TabPedidosCompra() {
             title="Crear OP imputada a este pedido"
           >
             <DollarSign size={14} />
+          </button>
+        )}
+        {puedeMarcarCuentaCorriente && (
+          <button
+            className={styles.iconBtn}
+            onClick={() => handleOpenMarcarCc(p)}
+            disabled={ccLoadingId === p.id}
+            aria-label="Cuenta corriente"
+            title="Marcar como cuenta corriente (diferir pago)"
+          >
+            <Landmark size={14} />
+          </button>
+        )}
+        {puedeRevertirCuentaCorriente && (
+          <button
+            className={styles.iconBtnDanger}
+            onClick={() => handleOpenRevertirCc(p)}
+            aria-label="Revertir cuenta corriente"
+            title="Revertir cuenta corriente"
+          >
+            <RotateCcw size={14} />
           </button>
         )}
         {puedeEliminarBasura && (
@@ -675,6 +759,8 @@ export default function TabPedidosCompra() {
         <div className={styles.errorBanner}>{pedidosError}</div>
       )}
 
+      {ccError && <div className={styles.errorBanner}>{ccError}</div>}
+
       {/* Table */}
       {loading && items.length === 0 ? (
         <LoadingBlock text="Cargando pedidos…" />
@@ -793,6 +879,106 @@ export default function TabPedidosCompra() {
                 disabled={motivoLoading}
               >
                 {motivoLoading ? 'Procesando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Marcar cuenta corriente modal */}
+      {marcarCcModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                Marcar cuenta corriente — #{marcarCcModal.numero}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => setMarcarCcModal(null)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {ccError && <div className={styles.errorBanner}>{ccError}</div>}
+
+            <p className={styles.modalText}>
+              Se creará una OP pendiente por el saldo total del pedido y el pago
+              quedará diferido. El pedido pasará a depósito como cuenta corriente.
+            </p>
+
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setMarcarCcModal(null)}
+                disabled={ccLoadingId === marcarCcModal.id}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnSuccess}
+                onClick={handleConfirmMarcarCc}
+                disabled={ccLoadingId === marcarCcModal.id}
+              >
+                {ccLoadingId === marcarCcModal.id ? 'Procesando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revertir cuenta corriente modal */}
+      {revertirCcModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                Revertir cuenta corriente — #{revertirCcModal.numero}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => setRevertirCcModal(null)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {revertirCcError && (
+              <div className={styles.errorBanner}>{revertirCcError}</div>
+            )}
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Motivo</label>
+              <textarea
+                className={styles.textarea}
+                value={revertirCcMotivo}
+                onChange={(e) => setRevertirCcMotivo(e.target.value)}
+                placeholder="Describí el motivo de la reversión..."
+                rows={3}
+              />
+            </div>
+
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setRevertirCcModal(null)}
+                disabled={revertirCcLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnDanger}
+                onClick={handleConfirmRevertirCc}
+                disabled={revertirCcLoading}
+              >
+                {revertirCcLoading ? 'Procesando...' : 'Confirmar'}
               </button>
             </div>
           </div>

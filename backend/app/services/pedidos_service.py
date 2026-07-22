@@ -26,7 +26,7 @@ Referencias:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
@@ -58,7 +58,20 @@ EstadoPedido = Literal[
     "cancelado",
     "pagado_parcial",
     "pagado",
+    "recibido",
+    "con_faltantes",
+    "controlado",
+    "en_cuenta_corriente",
 ]
+
+# Axis split (compras-cuenta-corriente Slice 1): `pagado_en` (timestamp) is
+# the canonical "fully settled" signal, orthogonal to `estado`. PAYMENT_AXIS
+# pedidos still transition estado on settle (legacy behavior, preserved).
+# LOGISTICS_AXIS pedidos (already advanced past en_cuenta_corriente, or in
+# en_cuenta_corriente itself) record settlement via `pagado_en` WITHOUT
+# mutating `estado` — settling later must never silently no-op.
+PAYMENT_AXIS: Final[frozenset[str]] = frozenset({"aprobado", "pagado_parcial", "pagado"})
+LOGISTICS_AXIS: Final[frozenset[str]] = frozenset({"en_cuenta_corriente", "recibido", "con_faltantes", "controlado"})
 
 # Estados terminales (no permiten transiciones manuales salvo las explícitas)
 ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"pagado", "cancelado"})
@@ -115,6 +128,8 @@ class TiposEvento:
     PAGO_COMPLETADO: Final[str] = "pago_completado"
     REVERSO_CANCELACION: Final[str] = "reverso_cancelacion"
     MATCHEADO_CON_ERP: Final[str] = "matcheado_con_erp"
+    CUENTA_CORRIENTE_MARCADA: Final[str] = "cuenta_corriente_marcada"
+    CUENTA_CORRIENTE_REVERTIDA: Final[str] = "cuenta_corriente_revertida"
     # Batch I — vinculación manual factura ERP + ajuste de monto controlado
     FACTURA_VINCULADA: Final[str] = "factura_vinculada"
     FACTURA_DESVINCULADA: Final[str] = "factura_desvinculada"
@@ -1491,11 +1506,16 @@ def aplicar_imputacion_a_pedido(
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
 
-    if pedido.estado not in {"aprobado", "pagado_parcial", "pagado"}:
-        # Estados donde no aplica la lógica automática
+    if pedido.estado not in PAYMENT_AXIS and pedido.estado not in LOGISTICS_AXIS:
+        # Estados donde no aplica la lógica automática (borrador, pend_aprob,
+        # cancelado, rechazado).
         return pedido
 
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
     estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
@@ -1515,31 +1535,81 @@ def aplicar_imputacion_a_pedido(
             # pagado_parcial con saldo > 0 → sigue pagado_parcial (no-op)
             return pedido
 
-    if nuevo_estado == estado_previo:
-        return pedido
+    if nuevo_estado != estado_previo:
+        pedido.estado = nuevo_estado  # type: ignore[assignment]
+        session.flush()
 
-    pedido.estado = nuevo_estado  # type: ignore[assignment]
-    session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=tipo_evento,
+            usuario_id=pedido.creado_por_id,  # auto-transición: sin user explícito
+            payload={
+                "estado_previo": estado_previo,
+                "estado_nuevo": nuevo_estado,
+                "saldo_pendiente": str(saldo),
+            },
+        )
+        logger.info(
+            "pedido_auto_transicion id=%s %s -> %s (saldo=%s)",
+            pedido.id,
+            estado_previo,
+            nuevo_estado,
+            saldo,
+        )
 
-    _registrar_evento(
-        session,
-        pedido=pedido,
-        tipo=tipo_evento,
-        usuario_id=pedido.creado_por_id,  # auto-transición: sin user explícito
-        payload={
-            "estado_previo": estado_previo,
-            "estado_nuevo": nuevo_estado,
-            "saldo_pendiente": str(saldo),
-        },
-    )
-    logger.info(
-        "pedido_auto_transicion id=%s %s -> %s (saldo=%s)",
-        pedido.id,
-        estado_previo,
-        nuevo_estado,
-        saldo,
-    )
+    _sincronizar_pagado_en(session, pedido=pedido, saldo=saldo)
     return pedido
+
+
+def _registrar_pagado_en(session: Session, *, pedido: PedidoCompra, saldo: Decimal) -> PedidoCompra:
+    """LOGISTICS_AXIS: registra/limpia `pagado_en` SIN mutar `estado`.
+
+    Un pedido ya avanzado a un estado logístico (en_cuenta_corriente,
+    recibido, con_faltantes, controlado) jamás debe verse forzado de vuelta
+    a 'pagado' — eso clobberearía la información de recepción. En su lugar,
+    la señal de "saldado" vive por completo en `pagado_en`.
+    """
+    if saldo <= Decimal("0") and pedido.pagado_en is None:
+        pedido.pagado_en = datetime.now(timezone.utc)  # type: ignore[assignment]
+        session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=TiposEvento.PAGO_COMPLETADO,
+            usuario_id=pedido.creado_por_id,
+            payload={"estado": pedido.estado, "saldo_pendiente": str(saldo), "axis": "logistica"},
+        )
+        logger.info("pedido_pagado_en_registrado id=%s estado=%s (saldo=%s)", pedido.id, pedido.estado, saldo)
+    elif saldo > Decimal("0") and pedido.pagado_en is not None:
+        # Reversal reabrió deuda mientras el pedido seguía en el axis logístico.
+        pedido.pagado_en = None  # type: ignore[assignment]
+        session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=TiposEvento.REVERSO_CANCELACION,
+            usuario_id=pedido.creado_por_id,
+            payload={"estado": pedido.estado, "saldo_pendiente": str(saldo), "axis": "logistica"},
+        )
+        logger.info("pedido_pagado_en_limpiado id=%s estado=%s (saldo=%s)", pedido.id, pedido.estado, saldo)
+    return pedido
+
+
+def _sincronizar_pagado_en(session: Session, *, pedido: PedidoCompra, saldo: Decimal) -> None:
+    """PAYMENT_AXIS: mantiene `pagado_en` consistente con el estado 'pagado'.
+
+    Se setea cuando el pedido llega a 'pagado' y se limpia si se reabre
+    (pagado -> pagado_parcial/aprobado). No registra evento propio — el
+    evento de la transición de estado ya documenta el cambio.
+    """
+    if pedido.estado == "pagado" and saldo <= Decimal("0"):
+        if pedido.pagado_en is None:
+            pedido.pagado_en = datetime.now(timezone.utc)  # type: ignore[assignment]
+            session.flush()
+    elif pedido.pagado_en is not None:
+        pedido.pagado_en = None  # type: ignore[assignment]
+        session.flush()
 
 
 def recalcular_estado_por_imputaciones(
@@ -1592,10 +1662,14 @@ def recalcular_estado_por_imputaciones(
             pedido_id,
         )
         return None
-    if pedido.estado not in {"aprobado", "pagado_parcial", "pagado"}:
+    if pedido.estado not in PAYMENT_AXIS and pedido.estado not in LOGISTICS_AXIS:
         return pedido
 
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
     estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
@@ -1614,31 +1688,31 @@ def recalcular_estado_por_imputaciones(
             TiposEvento.REVERSO_CANCELACION if estado_previo == "pagado" else TiposEvento.PAGO_PARCIAL_APLICADO
         )
 
-    if nuevo_estado == estado_previo:
-        return pedido
+    if nuevo_estado != estado_previo:
+        pedido.estado = nuevo_estado  # type: ignore[assignment]
+        session.flush()
 
-    pedido.estado = nuevo_estado  # type: ignore[assignment]
-    session.flush()
+        _registrar_evento(
+            session,
+            pedido=pedido,
+            tipo=tipo_evento,
+            usuario_id=pedido.creado_por_id,  # auto-transición sin user explícito
+            payload={
+                "estado_previo": estado_previo,
+                "estado_nuevo": nuevo_estado,
+                "saldo_pendiente": str(saldo),
+                "motivo": "desimputacion",
+            },
+        )
+        logger.info(
+            "pedido_recalculo_por_imputaciones id=%s %s -> %s (saldo=%s)",
+            pedido.id,
+            estado_previo,
+            nuevo_estado,
+            saldo,
+        )
 
-    _registrar_evento(
-        session,
-        pedido=pedido,
-        tipo=tipo_evento,
-        usuario_id=pedido.creado_por_id,  # auto-transición sin user explícito
-        payload={
-            "estado_previo": estado_previo,
-            "estado_nuevo": nuevo_estado,
-            "saldo_pendiente": str(saldo),
-            "motivo": "desimputacion",
-        },
-    )
-    logger.info(
-        "pedido_recalculo_por_imputaciones id=%s %s -> %s (saldo=%s)",
-        pedido.id,
-        estado_previo,
-        nuevo_estado,
-        saldo,
-    )
+    _sincronizar_pagado_en(session, pedido=pedido, saldo=saldo)
     return pedido
 
 
@@ -1656,8 +1730,15 @@ def revertir_transicion_por_anulacion_op(
     y registra un evento `reverso_cancelacion` si aplica.
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    estado_previo = pedido.estado
     saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    if pedido.estado in LOGISTICS_AXIS:
+        # El pedido ya avanzó a un estado logístico: la anulación de la OP
+        # solo debe limpiar/registrar `pagado_en`, jamás forzar el estado
+        # de vuelta a aprobado/pagado_parcial (clobbearía la recepción).
+        return _registrar_pagado_en(session, pedido=pedido, saldo=saldo)
+
+    estado_previo = pedido.estado
 
     if saldo <= Decimal("0"):
         # Todavía cubierto por otras imputaciones → no cambia.
@@ -1672,6 +1753,8 @@ def revertir_transicion_por_anulacion_op(
         return pedido
 
     pedido.estado = nuevo_estado  # type: ignore[assignment]
+    if pedido.pagado_en is not None:
+        pedido.pagado_en = None  # type: ignore[assignment]
     session.flush()
 
     _registrar_evento(
@@ -1691,6 +1774,198 @@ def revertir_transicion_por_anulacion_op(
         pedido.id,
         estado_previo,
         nuevo_estado,
+    )
+    return pedido
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cuenta corriente en compras (Slice 2 — mark + reversal, money-path)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def marcar_cuenta_corriente(
+    session: Session,
+    *,
+    pedido_id: int,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Marca un pedido `aprobado` como "cuenta corriente": crea una única OP
+    `pendiente` por el saldo total y transiciona el pedido a
+    `en_cuenta_corriente`, habilitándolo para recepción/depósito antes de
+    que su pago se liquide.
+
+    Restringido a estado `aprobado` (AD-5 — saldo completo garantizado, no
+    hay `estado_previo` a persistir porque la reversión siempre restaura
+    `aprobado`).
+
+    Args:
+        session: tx activa.
+        pedido_id: PK del pedido.
+        user_id: usuario que ejecuta la acción (permiso validado por el caller).
+
+    Returns:
+        El pedido en estado `en_cuenta_corriente` con `op_cuenta_corriente_id` seteado.
+
+    Raises:
+        HTTPException 409: pedido no está en estado `aprobado`.
+    """
+    from app.services import ordenes_pago_service  # noqa: PLC0415 (evita import circular)
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+
+    if pedido.estado != "aprobado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Pedido {pedido.numero} en estado '{pedido.estado}' — solo se puede "
+                "marcar 'cuenta corriente' desde 'aprobado'."
+            ),
+        )
+
+    saldo = calcular_saldo_pendiente_pedido(session, pedido.id)
+
+    op = ordenes_pago_service.crear(
+        session,
+        proveedor_id=pedido.proveedor_id,
+        empresa_id=pedido.empresa_id,
+        moneda=pedido.moneda,
+        monto_total=saldo,
+        modo_imputacion="especifica",
+        items=[{"tipo": "pedido_compra", "id": pedido.id, "monto": saldo}],
+        creado_por_id=user_id,
+    )
+
+    pedido.op_cuenta_corriente_id = op.id
+    pedido.estado = "en_cuenta_corriente"  # type: ignore[assignment]
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.CUENTA_CORRIENTE_MARCADA,
+        usuario_id=user_id,
+        payload={
+            "op_id": op.id,
+            "op_numero": op.numero,
+            "saldo": str(saldo),
+        },
+    )
+    logger.info(
+        "pedido_cuenta_corriente_marcada id=%s op_id=%s saldo=%s",
+        pedido.id,
+        op.id,
+        saldo,
+    )
+    return pedido
+
+
+def revertir_cuenta_corriente(
+    session: Session,
+    *,
+    pedido_id: int,
+    motivo: str,
+    user_id: int,
+) -> PedidoCompra:
+    """
+    Revierte la marca "cuenta corriente" de un pedido, restaurándolo a
+    `aprobado` y cancelando la OP `pendiente` creada al marcar.
+
+    Fail-closed — solo permitido cuando:
+      - `pedido.estado == 'en_cuenta_corriente'`.
+      - La OP linkeada (`op_cuenta_corriente_id`) sigue `pendiente` (nunca
+        se pagó).
+      - No existen registros de `PedidoCompraIngreso` para el pedido
+        (incluye el sentinel de arribo — la mercadería ya se recibió
+        físicamente, no se puede deshacer por esta vía).
+
+    Args:
+        session: tx activa.
+        pedido_id: PK del pedido.
+        motivo: texto obligatorio (motivo de reversión).
+        user_id: usuario que ejecuta la acción.
+
+    Returns:
+        El pedido restaurado a `aprobado`, con `op_cuenta_corriente_id` en None.
+
+    Raises:
+        HTTPException 400: motivo vacío.
+        HTTPException 409: estado != 'en_cuenta_corriente', OP inexistente/no
+            pendiente, o existen ingresos registrados.
+    """
+    from app.models.pedido_compra_ingresos import PedidoCompraIngreso  # noqa: PLC0415
+    from app.services import ordenes_pago_service  # noqa: PLC0415 (evita import circular)
+
+    if not motivo or not motivo.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="motivo es requerido para revertir 'cuenta corriente'.",
+        )
+
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+
+    if pedido.estado != "en_cuenta_corriente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Pedido {pedido.numero} en estado '{pedido.estado}' — solo se puede "
+                "revertir 'cuenta corriente' desde 'en_cuenta_corriente'."
+            ),
+        )
+
+    if pedido.op_cuenta_corriente_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Pedido {pedido.numero} no tiene una OP de cuenta corriente vinculada.",
+        )
+
+    op = session.get(ordenes_pago_service.OrdenPago, pedido.op_cuenta_corriente_id)
+    if op is None or op.estado != "pendiente":
+        estado_op = op.estado if op is not None else "inexistente"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La OP de cuenta corriente del pedido {pedido.numero} está en estado "
+                f"'{estado_op}' — solo se puede revertir mientras la OP sigue 'pendiente'."
+            ),
+        )
+
+    tiene_ingreso = (
+        session.query(PedidoCompraIngreso).filter(PedidoCompraIngreso.pedido_id == pedido.id).first() is not None
+    )
+    if tiene_ingreso:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"El pedido {pedido.numero} ya tiene mercadería recibida — no se puede revertir 'cuenta corriente'."
+            ),
+        )
+
+    ordenes_pago_service.cancelar_pendiente(
+        session,
+        op_id=op.id,
+        motivo=motivo.strip(),
+        user_id=user_id,
+    )
+
+    pedido.estado = "aprobado"  # type: ignore[assignment]
+    pedido.op_cuenta_corriente_id = None
+    session.flush()
+
+    _registrar_evento(
+        session,
+        pedido=pedido,
+        tipo=TiposEvento.CUENTA_CORRIENTE_REVERTIDA,
+        usuario_id=user_id,
+        payload={
+            "op_id": op.id,
+            "motivo": motivo.strip(),
+        },
+    )
+    logger.info(
+        "pedido_cuenta_corriente_revertida id=%s op_id=%s",
+        pedido.id,
+        op.id,
     )
     return pedido
 

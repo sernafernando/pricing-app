@@ -17,6 +17,7 @@ import styles from './TabRecepcionDeposito.module.css';
 
 const FILTER_TABS = [
   { id: 'pagado', label: 'Por recibir' },
+  { id: 'en_cuenta_corriente', label: 'En cuenta corriente' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
   { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
@@ -26,6 +27,8 @@ function estadoBadge(estado, stylesMap) {
   switch (estado) {
     case 'pagado':
       return <span className={stylesMap.badgePagado}>Pagado</span>;
+    case 'en_cuenta_corriente':
+      return <span className={stylesMap.badgePagado}>En cuenta corriente</span>;
     case 'con_faltantes':
       return <span className={stylesMap.badgeConFaltantes}>Con faltantes</span>;
     case 'recibido':
@@ -406,7 +409,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       await confirmarPedido(pedido.id, payload);
       // D-SINOC messages based on source estado
       let msg;
-      if (pedido.estado === 'pagado') {
+      if (pedido.estado === 'pagado' || pedido.estado === 'en_cuenta_corriente') {
         msg = 'Pedido marcado como recibido.';
       } else if (completo) {
         msg = 'Pedido marcado como controlado.';
@@ -431,7 +434,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
   //   con_faltantes  → show ONLY "Marcar como controlado"
   //   controlado     → no action buttons (terminal)
   const estado = pedido.estado;
-  const showArriboBtn = estado === 'pagado';
+  const showArriboBtn = estado === 'pagado' || estado === 'en_cuenta_corriente';
   const showControladoBtn = estado === 'recibido' || estado === 'con_faltantes';
   const showFaltantesBtn = estado === 'recibido';
 
@@ -594,7 +597,7 @@ function PedidoAccordion({ pedido, onRefreshList }) {
               CON-OC + pagado → arrival panel (no item counting yet).
               CON-OC + recibido/con_faltantes → item-level ingresos panel. */}
           {pedido.oc_poh_id != null ? (
-            pedido.estado === 'pagado' ? (
+            pedido.estado === 'pagado' || pedido.estado === 'en_cuenta_corriente' ? (
               <AccordionBodyConOcArribo pedido={pedido} onRefreshList={onRefreshList} />
             ) : (
               <AccordionBodyConOc pedido={pedido} onRefreshList={onRefreshList} />

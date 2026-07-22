@@ -24,6 +24,7 @@ ESTADOS_PEDIDO: tuple[str, ...] = (
     "cancelado",
     "pagado_parcial",
     "pagado",
+    "en_cuenta_corriente",
     "recibido",
     "con_faltantes",
     "controlado",
@@ -138,6 +139,12 @@ class PedidoCompraResponse(PedidoCompraBase):
     # `tipo_cambio_es_manual`: derived flag — True when tipo_cambio_manual is not None.
     tipo_cambio_manual: Decimal | None = None
     tipo_cambio_es_manual: bool = False
+
+    # compras-cuenta-corriente — Slice 1/2: `pagado_en` es la señal canónica
+    # de "saldado", ortogonal a `estado`. `op_cuenta_corriente_id` linkea la
+    # OP pendiente creada al marcar (None tras revertir o si nunca se marcó).
+    pagado_en: datetime | None = None
+    op_cuenta_corriente_id: int | None = None
 
     @model_validator(mode="after")
     def _compute_tipo_cambio_es_manual(self) -> "PedidoCompraResponse":

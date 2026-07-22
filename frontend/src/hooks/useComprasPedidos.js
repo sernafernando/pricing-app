@@ -221,6 +221,30 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  // ── Cuenta corriente — marcar / revertir ────────────────────────────
+  const marcarCuentaCorriente = useCallback(
+    (id) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/cuenta-corriente`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  const revertirCuentaCorriente = useCallback(
+    (id, motivo) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/cuenta-corriente/revertir`,
+          { motivo }
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   return {
     loading,
     error,
@@ -245,5 +269,8 @@ export default function useComprasPedidos() {
     // Batch J — OC link
     desvinculaOc,
     fetchOcDetalle,
+    // Cuenta corriente
+    marcarCuentaCorriente,
+    revertirCuentaCorriente,
   };
 }

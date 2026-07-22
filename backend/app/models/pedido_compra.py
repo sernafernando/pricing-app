@@ -108,6 +108,18 @@ class PedidoCompra(Base):
         ForeignKey("pedidos_compra.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Cuenta corriente en compras — decoupling de payment axis vs logistics axis.
+    # `pagado_en` es la señal canónica de "saldado", ortogonal a `estado`: se
+    # setea cuando saldo pendiente llega a 0, sin importar si el pedido ya
+    # avanzó a un estado logístico (recibido/con_faltantes/controlado).
+    pagado_en = Column(DateTime(timezone=True), nullable=True)
+    # FK a la ÚNICA OP pendiente creada al marcar "cuenta corriente" — permite
+    # localizarla en O(1) para la reversión (ver `revertir_cuenta_corriente`).
+    op_cuenta_corriente_id = Column(
+        BigInteger,
+        ForeignKey("ordenes_pago.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -143,10 +155,12 @@ class PedidoCompra(Base):
         CheckConstraint("monto > 0", name="ck_pedidos_compra_monto_positivo"),
         CheckConstraint(
             "estado IN ('borrador','pendiente_aprobacion','aprobado','rechazado',"
-            "'cancelado','pagado_parcial','pagado','recibido','con_faltantes','controlado')",
+            "'cancelado','pagado_parcial','pagado','recibido','con_faltantes',"
+            "'controlado','en_cuenta_corriente')",
             name="ck_pedidos_compra_estado",
         ),
         Index("ix_pedidos_compra_empresa_estado", "empresa_id", "estado"),
+        Index("ix_pedidos_compra_op_cuenta_corriente", "op_cuenta_corriente_id"),
         Index(
             "ix_pedidos_compra_proveedor_created",
             "proveedor_id",

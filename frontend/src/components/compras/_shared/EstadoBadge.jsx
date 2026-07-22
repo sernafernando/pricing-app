@@ -36,6 +36,7 @@ const TONES = {
 const MAPPING_PEDIDO = {
   pagado: { tone: 'pagado', label: 'Pagado' },
   pagado_parcial: { tone: 'parcial', label: 'Parcial' },
+  en_cuenta_corriente: { tone: 'parcial', label: 'Cuenta corriente' },
   // pagado_parcial+saldo=0 se resuelve en runtime más abajo
   // Estados de recepción en depósito (TabRecepcionDeposito).
   // 'recibido' = arrived but not yet controlled → amber (parcial).

@@ -1200,6 +1200,36 @@ class TestConfirmarPedidoEndpoint:
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "recibido"
 
+    def test_confirmar_pedido_con_oc_en_cuenta_corriente_da_recibido(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        # AC5.2 (compras-cuenta-corriente): CON-OC + en_cuenta_corriente → arrival
+        # accepted at both receptive gates (mirrors 'pagado' behavior).
+        p = PedidoCompra(
+            numero="P-CC-CONOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="en_cuenta_corriente",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9002,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        _mk_oc_header(db, poh_id=9002, supp_id=55)
+        _mk_oc_detail(db, poh_id=9002, pod_id=1, qty=100.0, item_id=101)
+        _mk_storage(db, stor_id=1)
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
+            json={"completo": True},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["estado_nuevo"] == "recibido"
+
 
 class TestEventosEndpoint:
     def test_eventos_403(self, client, auth_headers, pedido_pagado, sin_permiso):
