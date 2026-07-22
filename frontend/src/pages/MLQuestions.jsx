@@ -236,11 +236,24 @@ const PREGUNTAS_COLUMNS = [
   { id: 'acciones', header: 'Acciones', size: 280, minSize: 280, maxSize: 280, enableResizing: false },
 ];
 
+// Historial del comprador table (inside the expanded detail row) — same
+// TanStack column-sizing engine pattern as PREGUNTAS_COLUMNS above, applied
+// to the read-only 5-column buyer-history table. No action buttons here, so
+// there's no #956-style clipping concern; sizes are just readable defaults.
+const HISTORIAL_COLUMNS = [
+  { id: 'fecha', header: 'Fecha', size: 150, enableResizing: false },
+  { id: 'pregunta', header: 'Pregunta', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
+  { id: 'item', header: 'Item', size: 120, minSize: 80, maxSize: 400, enableResizing: true },
+  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
+  { id: 'respuesta', header: 'Respuesta', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
+];
+
 // Stable empty array reference — we never call `getRowModel()`, TanStack
 // only needs `data` to satisfy its API shape.
 const EMPTY_TABLE_DATA = [];
 
 const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
+const HISTORIAL_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:historial';
 
 // Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
 // already in this file): absent/corrupt/disabled localStorage MUST never
@@ -418,6 +431,44 @@ export default function MLQuestions() {
   });
 
   const hasCustomColumnSizing = Object.keys(columnSizing).length > 0;
+
+  // Historial del comprador table — same sizing-engine pattern, own
+  // localStorage key and its own debounce timer. There is only ever one
+  // expanded row (`expandedId`), so a single shared top-level instance is
+  // correct (must NOT be instantiated inside `renderDetailRow` — that would
+  // violate the Rules of Hooks by calling a hook conditionally/per-row).
+  const [historialColumnSizing, setHistorialColumnSizingState] = useState(() => loadColumnSizing(HISTORIAL_COLUMN_SIZING_STORAGE_KEY));
+  const historialColumnSizingSaveTimerRef = useRef(null);
+
+  const handleHistorialColumnSizingChange = useCallback((updater) => {
+    setHistorialColumnSizingState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (historialColumnSizingSaveTimerRef.current) clearTimeout(historialColumnSizingSaveTimerRef.current);
+      historialColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, HISTORIAL_COLUMN_SIZING_STORAGE_KEY), 200);
+      return next;
+    });
+  }, []);
+
+  const handleResetHistorialColumnSizing = useCallback(() => {
+    if (historialColumnSizingSaveTimerRef.current) clearTimeout(historialColumnSizingSaveTimerRef.current);
+    setHistorialColumnSizingState({});
+    try {
+      localStorage.removeItem(HISTORIAL_COLUMN_SIZING_STORAGE_KEY);
+    } catch {
+      // no-op — disabled/private-mode localStorage
+    }
+  }, []);
+
+  const historialTable = useReactTable({
+    columns: HISTORIAL_COLUMNS,
+    data: EMPTY_TABLE_DATA,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnSizing: historialColumnSizing },
+    onColumnSizingChange: handleHistorialColumnSizingChange,
+  });
+
+  const hasCustomHistorialColumnSizing = Object.keys(historialColumnSizing).length > 0;
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -810,15 +861,45 @@ export default function MLQuestions() {
                 ) : historyItems.length === 0 ? (
                   <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
                 ) : (
-                  <div className="table-container-tesla">
-                    <table className="table-tesla striped">
+                  <>
+                    {hasCustomHistorialColumnSizing && (
+                      <div className={styles.columnSizingBar}>
+                        <button
+                          type="button"
+                          className="btn-tesla ghost sm"
+                          onClick={handleResetHistorialColumnSizing}
+                        >
+                          Restablecer columnas
+                        </button>
+                      </div>
+                    )}
+                    <div className="table-container-tesla">
+                    <table
+                      className={`table-tesla striped ${styles.resizableTable}`}
+                      style={{ width: historialTable.getTotalSize() }}
+                    >
+                      <colgroup>
+                        {historialTable.getVisibleLeafColumns().map((col) => (
+                          <col key={col.id} style={{ width: col.getSize() }} />
+                        ))}
+                      </colgroup>
                       <thead className="table-tesla-head">
                         <tr>
-                          <th>Fecha</th>
-                          <th>Pregunta</th>
-                          <th>Item</th>
-                          <th>Estado</th>
-                          <th>Respuesta</th>
+                          {historialTable.getFlatHeaders().map((h) => (
+                            <th key={h.id} style={{ position: 'relative' }}>
+                              {flexRender(h.column.columnDef.header, h.getContext())}
+                              {h.column.getCanResize() && (
+                                <span
+                                  className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
+                                  onMouseDown={h.getResizeHandler()}
+                                  onTouchStart={h.getResizeHandler()}
+                                  role="separator"
+                                  aria-orientation="vertical"
+                                  aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
+                                />
+                              )}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody className="table-tesla-body">
@@ -839,7 +920,8 @@ export default function MLQuestions() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
