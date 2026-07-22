@@ -35,10 +35,16 @@ class TestMigrationGraph:
         assert revision is not None
         assert revision.down_revision == _DOWN_REVISION
 
-    def test_is_current_head(self) -> None:
+    def test_is_single_head_chain_ancestor(self) -> None:
+        """PR2 (`20260722_ml_bot_messages_responder_permiso`) extends the
+        chain past this revision — it's no longer literally the head, but
+        the graph must still be single-headed (no branching) and this
+        revision must be an ancestor of whatever the current head is."""
         script = _script_directory()
         heads = script.get_heads()
-        assert _REVISION in heads
+        assert len(heads) == 1
+        ancestor_revisions = {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
+        assert _REVISION in ancestor_revisions
 
 
 class TestMigrationSqliteDialectGuard:

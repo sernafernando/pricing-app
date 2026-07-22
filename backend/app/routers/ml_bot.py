@@ -70,9 +70,11 @@ from app.core.database import get_db
 from app.core.sse import sse_publish_bg
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
+from app.models.mercadolibre_user_data import MercadoLibreUserData
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.usuario import Usuario
+from app.services.ml_api_client import MessageSendPermanentError, ml_client
 from app.services.ml_questions import publisher_service
 from app.services.ml_questions.policy import get_config, is_auto_publish_enabled
 from app.services.permisos_service import PermisosService
@@ -93,6 +95,13 @@ _PUBLISH_NOW_SOURCE_STATES = ("waiting", "taken_over", "pending_morning", "faile
 # before re-posting (Judgment Day fix — see module docstring). Every other
 # source in `_PUBLISH_NOW_SOURCE_STATES` resets to a fresh `attempts = 0`.
 _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS = 1
+
+# Messages (Phase A, PR2, sdd/ml-bot-messages-reply): source states each
+# panel action may legally CAS out of on `MlBotMessage.bot_status` (design
+# "Interfaces / Contracts" state machine). Mirrors the questions constants
+# above but on the separate `bot_status` column.
+_MESSAGE_TAKE_OVER_SOURCE_STATES = ("awaiting_human", "blocked_claim")
+_MESSAGE_SEND_SOURCE_STATES = ("taken_over",)
 
 
 # =============================================================================
@@ -221,6 +230,16 @@ class MessageResponse(BaseModel):
     taken_over_by: Optional[int] = None
     notes: Optional[str] = None
     ingested_at: Optional[datetime] = None
+    bot_status: Optional[str] = None
+    drafted_answer: Optional[str] = None
+    intent_category: Optional[str] = None
+    confidence: Optional[float] = None
+    answer_source: Optional[str] = None
+    llm_provider: Optional[str] = None
+    attempts: int = 0
+    last_error: Optional[str] = None
+    drafted_at: Optional[datetime] = None
+    bot_updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -228,6 +247,15 @@ class MessageResponse(BaseModel):
 class MessageListResponse(BaseModel):
     messages: list[MessageResponse]
     total: int
+
+
+class MessageAnswerUpdate(BaseModel):
+    drafted_answer: str = Field(min_length=1, max_length=2000)
+
+
+class MessageSendResponse(BaseModel):
+    message: MessageResponse
+    sent: bool
 
 
 class ExampleCreate(BaseModel):
@@ -286,6 +314,56 @@ def _cas_transition(
     )
     db.commit()
     return result.rowcount == 1
+
+
+def _get_message_or_404(db: Session, message_id: int) -> MlBotMessage:
+    m = db.query(MlBotMessage).filter(MlBotMessage.id == message_id).first()
+    if m is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mensaje no encontrado")
+    return m
+
+
+def _cas_transition_message(
+    db: Session,
+    message_id: int,
+    source_states: tuple[str, ...],
+    **values: object,
+) -> bool:
+    """CAS UPDATE on `MlBotMessage.bot_status` — mirrors `_cas_transition`
+    (questions) but on the messages table's separate lifecycle column."""
+    result = db.execute(
+        update(MlBotMessage)
+        .where(MlBotMessage.id == message_id, MlBotMessage.bot_status.in_(source_states))
+        .values(**values)
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def _enrich_message_nicknames(db: Session, rows: list[MlBotMessage]) -> dict[int, MessageResponse]:
+    """Batch-enriches `buyer_nickname` from `tb_mercadolibre_users_data`
+    (design/instruction: ML's `from` on a message only carries `user_id`, the
+    real nickname must come from this table, never from ML). Single batched
+    query — no N+1 — keyed by `buyer_id`. Falls back to the row's own stored
+    `buyer_nickname` (if any) and finally to `None` when neither is available;
+    callers may further fall back to the raw `buyer_id` for display."""
+    buyer_ids = {r.buyer_id for r in rows if r.buyer_id is not None}
+    nickname_by_buyer_id: dict[int, str] = {}
+    if buyer_ids:
+        nickname_rows = (
+            db.query(MercadoLibreUserData.mluser_id, MercadoLibreUserData.nickname)
+            .filter(MercadoLibreUserData.mluser_id.in_(buyer_ids))
+            .all()
+        )
+        nickname_by_buyer_id = {mluser_id: nickname for mluser_id, nickname in nickname_rows if nickname}
+
+    responses: dict[int, MessageResponse] = {}
+    for row in rows:
+        resp = MessageResponse.model_validate(row)
+        if row.buyer_id is not None and row.buyer_id in nickname_by_buyer_id:
+            resp.buyer_nickname = nickname_by_buyer_id[row.buyer_id]
+        responses[row.id] = resp
+    return responses
 
 
 # =============================================================================
@@ -366,10 +444,153 @@ def listar_mensajes(
 
     total = query.count()
     rows = query.order_by(MlBotMessage.received_at.desc()).offset(offset).limit(limit).all()
+    enriched = _enrich_message_nicknames(db, rows)
     return MessageListResponse(
-        messages=[MessageResponse.model_validate(r) for r in rows],
+        messages=[enriched[r.id] for r in rows],
         total=total,
     )
+
+
+@router.post("/messages/{message_id}/take-over", response_model=MessageResponse)
+def tomar_mensaje(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> MessageResponse:
+    """Un humano toma un mensaje postventa `awaiting_human`/`blocked_claim`.
+    Requiere `ml_bot.messages.responder` (Phase A, PR2).
+
+    CAS desde `awaiting_human`/`blocked_claim` -> `taken_over`; nunca puede
+    robar una fila en `drafting` (el draft cycle la está procesando) ni una
+    ya `taken_over`/`sent`/`failed`/`superseded`/`pending` (mirrors
+    `tomar_pregunta`'s race-safety notes).
+    """
+    _check_permiso(db, current_user, "ml_bot.messages.responder")
+    _get_message_or_404(db, message_id)
+
+    ok = _cas_transition_message(
+        db,
+        message_id,
+        _MESSAGE_TAKE_OVER_SOURCE_STATES,
+        bot_status="taken_over",
+        taken_over_by=current_user.id,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El mensaje ya no está en un estado tomable",
+        )
+
+    _emit_reload_hint()
+    row = _get_message_or_404(db, message_id)
+    return _enrich_message_nicknames(db, [row])[row.id]
+
+
+@router.put("/messages/{message_id}/answer", response_model=MessageResponse)
+def editar_respuesta_mensaje(
+    message_id: int,
+    data: MessageAnswerUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> MessageResponse:
+    """Edita el borrador de un mensaje ya tomado por un humano. Requiere
+    `ml_bot.messages.responder` (Phase A, PR2).
+
+    `answer_source` queda `human_edited` si ya existía un borrador del bot
+    (el humano lo modificó) o `human_verbatim` si no había borrador previo
+    (el humano lo escribió desde cero) — mirrors `editar_respuesta`'s
+    human-content-exempt-from-denylist note: un operador con
+    `ml_bot.messages.responder` es responsable de lo que escribe, sin
+    validación de contenido adicional acá.
+    """
+    _check_permiso(db, current_user, "ml_bot.messages.responder")
+    m = _get_message_or_404(db, message_id)
+
+    if m.bot_status != "taken_over":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede editar la respuesta de un mensaje tomado (taken_over)",
+        )
+
+    had_prior_draft = bool(m.drafted_answer)
+    m.drafted_answer = data.drafted_answer
+    m.answer_source = "human_edited" if had_prior_draft else "human_verbatim"
+    db.commit()
+    db.refresh(m)
+    _emit_reload_hint()
+    return _enrich_message_nicknames(db, [m])[m.id]
+
+
+@router.post("/messages/{message_id}/send", response_model=MessageSendResponse)
+async def enviar_mensaje(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> MessageSendResponse:
+    """Envía la respuesta de un mensaje `taken_over` al comprador vía ML.
+    Requiere `ml_bot.messages.responder` (Phase A, PR2).
+
+    NUNCA auto-envía: esta es la ÚNICA vía de envío en Phase A, siempre
+    disparada por una acción humana explícita. Fail-closed (409) mientras
+    `messages_send_enabled` (default `False`) no esté prendido — el gate
+    solo puede activarse después del live-verify user-owned (T0.1, design
+    "send_message seam"). Éxito -> `bot_status='sent'` (`bot_updated_at`
+    sirve de timestamp de envío, vía `onupdate`). Falla permanente (4xx no
+    transitorio) -> `bot_status='failed'` + `last_error` poblado, nunca
+    silenciosamente descartado. Falla transitoria (None) -> el mensaje
+    queda en `taken_over` para reintentar manualmente.
+    """
+    _check_permiso(db, current_user, "ml_bot.messages.responder")
+    m = _get_message_or_404(db, message_id)
+
+    send_enabled = get_config(db, "messages_send_enabled", cast=bool, default=False)
+    if not send_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El envío de mensajes está deshabilitado (messages_send_enabled=False)",
+        )
+
+    if m.bot_status not in _MESSAGE_SEND_SOURCE_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El mensaje no está en un estado enviable (debe estar taken_over)",
+        )
+    if not m.drafted_answer:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay respuesta cargada para enviar")
+    if m.pack_id is None or m.buyer_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="El mensaje no tiene pack_id/buyer_id para enviar"
+        )
+
+    pack_id = m.pack_id
+    buyer_id = m.buyer_id
+    seller_id = m.seller_id
+    text_to_send = m.drafted_answer
+
+    try:
+        result = await ml_client.send_message(pack_id, buyer_id, text_to_send, seller_id=seller_id)
+    except MessageSendPermanentError as exc:
+        _cas_transition_message(
+            db,
+            message_id,
+            _MESSAGE_SEND_SOURCE_STATES,
+            bot_status="failed",
+            last_error=str(exc)[:2000],
+        )
+        _emit_reload_hint()
+        row = _get_message_or_404(db, message_id)
+        return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=False)
+
+    if result is None:
+        # Transient failure — stays `taken_over` for a manual retry (never
+        # auto-retried, this is a human-send-only endpoint).
+        row = _get_message_or_404(db, message_id)
+        return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=False)
+
+    _cas_transition_message(db, message_id, _MESSAGE_SEND_SOURCE_STATES, bot_status="sent")
+    _emit_reload_hint()
+    row = _get_message_or_404(db, message_id)
+    return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=True)
 
 
 @router.post("/questions/{question_id}/take-over", response_model=QuestionResponse)
