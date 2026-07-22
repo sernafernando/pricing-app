@@ -68,7 +68,7 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, p
     return (
       <div className={styles.panelStateError}>
         Error al cargar publicaciones.{' '}
-        <button type="button" className={styles.retryLink} onClick={reload}>
+        <button type="button" className="btn-tesla ghost sm" onClick={reload}>
           Reintentar
         </button>
       </div>
@@ -89,7 +89,7 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, p
     <>
       {filterActive && hiddenCount > 0 && !verTodos && (
         <div className={styles.filterMessage}>
-          <button type="button" className={styles.retryLink} onClick={() => setVerTodos(true)}>
+          <button type="button" className="btn-tesla ghost sm" onClick={() => setVerTodos(true)}>
             ver todos ({hiddenCount})
           </button>
         </div>

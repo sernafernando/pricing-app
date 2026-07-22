@@ -839,6 +839,32 @@ describe('CS-9: productos-promociones-ui FE-B — L1 panel expansion + keyboard 
     expect(detailRow.textContent).toContain('MLA999');
   });
 
+  it('gives the product row the sticky class only while its tree is expanded', async () => {
+    const p1 = makeProducto({ item_id: 'STICKY1', descripcion: 'Producto STICKY1' });
+    setupApiMocks({ productos: [p1], total: 1 });
+    productosAPI.getProductoTree.mockResolvedValue({
+      data: { item_id: 'STICKY1', tree: { level: 0, kind: 'producto', label: 'Producto', children: [] }, skipped_anomalous_edges: 0, skipped_edges: [] },
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto STICKY1')).toBeInTheDocument());
+
+    const productRow = document.querySelector('tr[data-nav-row="0"]');
+    expect(productRow.className).not.toContain('producto-row-sticky');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir publicaciones de/i }));
+
+    await waitFor(() => expect(productRow.className).toContain('producto-row-sticky'));
+
+    await user.click(screen.getByRole('button', { name: /colapsar publicaciones de/i }));
+
+    await waitFor(() => expect(productRow.className).not.toContain('producto-row-sticky'));
+  });
+
   it('keyboard nav still targets the correct main row when a detail row is present', async () => {
     const p1 = makeProducto({ item_id: 'NAV1', descripcion: 'Producto NAV1' });
     const p2 = makeProducto({ item_id: 'NAV2', descripcion: 'Producto NAV2' });
