@@ -134,6 +134,43 @@ def _extract_pack_id(message_resources: Optional[List[Dict[str, Any]]]) -> Optio
     return None
 
 
+def _unwrap_message(ml_message: Dict[str, Any]) -> Dict[str, Any]:
+    """ML's message fetch may return the message object directly OR wrapped as
+    `{"messages": [...], "paging": ...}` (the shape `routers/seriales_messages.py`
+    parses from the packs endpoint). Normalize to the single message dict — the
+    first element when wrapped, the object itself otherwise. Empty dict if a
+    wrapper carries no messages.
+
+    Reading the wrong shape here is exactly why persisted rows came out with an
+    empty `text`, empty buyer, and a fallback `received_at`: `.get("text")` /
+    `.get("from")` / `.get("date_created")` on the WRAPPER all return None."""
+    inner = ml_message.get("messages")
+    if isinstance(inner, list):
+        return (inner[0] or {}) if inner else {}
+    return ml_message
+
+
+def _extract_text(msg: Dict[str, Any]) -> str:
+    """ML's message `text` is a plain string on some responses and a dict
+    `{"plain": "..."}` on others (mirrors `seriales_messages.py`). Absent -> ""."""
+    value = msg.get("text")
+    if isinstance(value, dict):
+        return value.get("plain") or ""
+    return value or ""
+
+
+def _extract_dates(msg: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """Return `(received_iso, read_iso)` from ML's `message_date` object
+    (`{received, created, read, ...}`), falling back to the legacy flat
+    `date_created`/`date_read` keys. Mirrors `seriales_messages.py`'s
+    `message_date` handling — the ingestion previously read only `date_created`,
+    which ML does not send, so `received_at` always fell back to now()."""
+    dates = msg.get("message_date") or {}
+    received = dates.get("received") or dates.get("created") or msg.get("date_created")
+    read = dates.get("read") or msg.get("date_read")
+    return received, read
+
+
 async def run_ml_messages_ingest_cycle() -> Dict[str, Any]:
     """One ingestion tick: read cursor -> fetch new webhook rows -> fetch full
     message per row -> branch on actions[0] -> advance cursor.
@@ -249,16 +286,23 @@ async def run_ml_messages_ingest_cycle() -> Dict[str, Any]:
 
 
 async def _handle_created(ml_message: Dict[str, Any], message_id: str, stats: Dict[str, Any]) -> None:
-    from_user = ml_message.get("from") or {}
+    # Normalize ML's real response shape (mirrors seriales_messages.py): the
+    # payload may be wrapped in {"messages": [...]}, `text` may be a {"plain": ...}
+    # dict, dates live in a `message_date` object, and attachments in
+    # `message_attachments`. The old code read the flat/wrong keys, so rows
+    # persisted with empty text/buyer and a fallback received_at.
+    msg = _unwrap_message(ml_message)
+    from_user = msg.get("from") or {}
 
     if from_user.get("user_id") == _SELLER_ID:
         stats["outgoing_skipped"] += 1
         logger.info("ml-bot messages ingestion: outgoing message %s skipped (seller-authored)", message_id)
         return
 
-    moderation_status = (ml_message.get("message_moderation") or {}).get("status")
+    moderation_status = (msg.get("message_moderation") or {}).get("status")
     buyer_nickname = from_user.get("nickname") or from_user.get("user_name")
-    pack_id = _extract_pack_id(ml_message.get("message_resources"))
+    pack_id = _extract_pack_id(msg.get("message_resources"))
+    received_iso, _ = _extract_dates(msg)
 
     new_row = MlBotMessage(
         ml_message_id=message_id,
@@ -266,13 +310,13 @@ async def _handle_created(ml_message: Dict[str, Any], message_id: str, stats: Di
         buyer_id=from_user.get("user_id"),
         buyer_nickname=buyer_nickname,
         seller_id=_SELLER_ID,
-        subject=ml_message.get("subject"),
-        text=ml_message.get("text") or "",
-        status=ml_message.get("status") or "available",
+        subject=msg.get("subject"),
+        text=_extract_text(msg),
+        status=msg.get("status") or "available",
         moderation_status=moderation_status,
-        is_first_message=bool(ml_message.get("conversation_first_message", False)),
-        attachments=ml_message.get("attachments") or None,
-        received_at=_parse_message_date(ml_message.get("date_created")),
+        is_first_message=bool(msg.get("conversation_first_message", False)),
+        attachments=msg.get("message_attachments") or msg.get("attachments") or None,
+        received_at=_parse_message_date(received_iso),
     )
 
     try:
@@ -286,6 +330,8 @@ async def _handle_created(ml_message: Dict[str, Any], message_id: str, stats: Di
 
 
 async def _handle_read(ml_message: Dict[str, Any], message_id: str, stats: Dict[str, Any]) -> None:
+    msg = _unwrap_message(ml_message)
+    _, read_iso = _extract_dates(msg)
     with get_background_db() as db:
         row = db.query(MlBotMessage).filter_by(ml_message_id=message_id).first()
         if row is None:
@@ -294,7 +340,7 @@ async def _handle_read(ml_message: Dict[str, Any], message_id: str, stats: Dict[
                 "ml-bot messages ingestion: read event for message %s with no matching row — skipping", message_id
             )
             return
-        row.read_at = _parse_message_date(ml_message.get("date_read") or ml_message.get("date_created"))
+        row.read_at = _parse_message_date(read_iso)
         db.flush()
         stats["read_updated"] += 1
 
