@@ -41,8 +41,16 @@ def _seed_producto(db, item_id: int) -> None:
         db.flush()
 
 
-def _seed_pub(db, mla: str, item_id: int, pricelist_id: int = 4) -> None:
-    db.add(PublicacionML(mla=mla, item_id=item_id, pricelist_id=pricelist_id, activo=True))
+def _seed_pub(db, mla: str, item_id: int, pricelist_id: int = 4, lista_nombre: str | None = None) -> None:
+    db.add(
+        PublicacionML(
+            mla=mla,
+            item_id=item_id,
+            pricelist_id=pricelist_id,
+            lista_nombre=lista_nombre,
+            activo=True,
+        )
+    )
 
 
 def _seed_link(
@@ -134,6 +142,57 @@ class TestFamilyGrouping:
 
         family_ids = {child.family_id for child in result.tree.children if child.kind == "familia"}
         assert family_ids == {"FAM_A", "FAM_B"}
+
+
+class TestListaNombreAttachment:
+    """RED — restores the old flat panel's per-publication price-list badge
+    (`lista_nombre`/`pricelist_id`) on every MLA-bearing tree node."""
+
+    def test_mla_node_carries_its_own_lista_nombre_and_pricelist_id(self, db) -> None:
+        _seed_producto(db, 10)
+        _seed_pub(db, "MLA_LISTA", 10, pricelist_id=17, lista_nombre="3 Cuotas")
+        _seed_link(db, "MLA_LISTA", 10)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=10)
+
+        leaf = result.tree.children[0]
+        assert leaf.mla == "MLA_LISTA"
+        assert leaf.lista_nombre == "3 Cuotas"
+        assert leaf.pricelist_id == 17
+
+    def test_vinculada_carries_its_own_lista_nombre_independent_of_parent(self, db) -> None:
+        _seed_producto(db, 11)
+        _seed_pub(db, "MLA_PARENT", 11, pricelist_id=4, lista_nombre="Clásica")
+        _seed_pub(db, "MLA_VINC", 11, pricelist_id=14, lista_nombre="6 Cuotas")
+        _seed_link(db, "MLA_PARENT", 11)
+        _seed_link(db, "MLA_VINC", 11)
+        db.add(MlItemRelation(mla="MLA_PARENT", related_mla="MLA_VINC", stock_relation=1))
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=11)
+
+        parent = result.tree.children[0]
+        assert parent.lista_nombre == "Clásica"
+        assert parent.pricelist_id == 4
+        vinculada = parent.children[0]
+        assert vinculada.kind == "vinculada"
+        assert vinculada.lista_nombre == "6 Cuotas"
+        assert vinculada.pricelist_id == 14
+
+    def test_unresolvable_related_mla_gets_none_lista_fields(self, db) -> None:
+        _seed_producto(db, 12)
+        _seed_pub(db, "MLA_ROOT", 12, pricelist_id=4, lista_nombre="Clásica")
+        _seed_link(db, "MLA_ROOT", 12)
+        db.add(MlItemRelation(mla="MLA_ROOT", related_mla="MLA_GHOST", stock_relation=1))
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=12)
+
+        root_leaf = result.tree.children[0]
+        assert root_leaf.children == []
+        assert len(result.skipped_edges) == 1
+        assert result.skipped_edges[0].reason == "unresolvable"
 
 
 class TestCatalogOutsideFamily:

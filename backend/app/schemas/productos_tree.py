@@ -74,6 +74,8 @@ class TreeNode(BaseModel):
     label: str
     matches_filter: Optional[bool] = None
     promo_summary: Optional[TreeNodePromoSummary] = None
+    lista_nombre: Optional[str] = None
+    pricelist_id: Optional[int] = None
     children: List["TreeNode"] = Field(default_factory=list)
 
 
