@@ -21,6 +21,7 @@ from app.services.ml_promotions_service import (
     fetch_mlas_with_candidate_only,
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
+    fetch_promo_node_summary_by_mla,
     fetch_promo_summary_by_mla,
 )
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
@@ -471,7 +472,24 @@ def obtener_arbol_ml_producto(
         else:
             matches_filter_by_mla = {mla: mla in matching_mlas for mla in mla_ids}
 
-    result = assemble_publication_tree(db, item_id=item_id, matches_filter_by_mla=matches_filter_by_mla)
+    # Collapsed-node promo summary (catalog-tree-node-summary PR): ONE
+    # batched cross-DB fetch for every MLA in this product's tree (mirrors
+    # the matches_filter dispatch above — no N+1 per node). Fail-open: any
+    # failure (ML_WEBHOOK_DB_URL unset, mlwebhook down) leaves the summary
+    # absent and the tree still returns 200, never 500/503.
+    promo_summary_by_mla: Optional[dict] = None
+    if mla_ids:
+        try:
+            promo_summary_by_mla = fetch_promo_node_summary_by_mla(mla_ids)
+        except (RuntimeError, SQLAlchemyError) as exc:
+            logger.warning("fetch_promo_node_summary_by_mla no disponible (tree promo_summary): %s", exc)
+
+    result = assemble_publication_tree(
+        db,
+        item_id=item_id,
+        matches_filter_by_mla=matches_filter_by_mla,
+        promo_summary_by_mla=promo_summary_by_mla,
+    )
     return result
 
 
