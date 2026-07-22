@@ -206,6 +206,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(ml_questions_draft_task()),
             asyncio.create_task(ml_questions_publish_task()),
             asyncio.create_task(ml_messages_ingest_task()),
+            asyncio.create_task(ml_messages_draft_task()),
         ]
     else:
         import os
@@ -529,6 +530,33 @@ async def ml_messages_ingest_task():
                 logger.info("ML messages ingest stats: %s", stats)
         except Exception as e:
             logger.error("ML messages ingest failed: %s", e, exc_info=True)
+
+        # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
+        await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def ml_messages_draft_task():
+    """
+    Tarea de background que orquesta el drafting + clasificación de mensajes
+    postventa (sdd/ml-bot-messages-reply, Phase A/PR1): settle+aggregate por
+    pack -> claim CAS -> contexto escopeado (thread-scoped) + LLM -> ruteo a
+    awaiting_human/blocked_claim/failed. NUNCA envía a ML (Phase A no tiene
+    auto-send; el envío requiere toma de control humana, Phase B/PR2).
+    """
+    from app.services.ml_messages.drafting_service import run_ml_messages_draft_cycle
+
+    # Esperar 120 segundos para que ingesta de mensajes (60s) ya haya corrido
+    # al menos una vez y existan filas para agregar/draftear.
+    await asyncio.sleep(120)
+    logger.info("Background task started: ml_messages_draft (interval=poll_interval_seconds, default 30s)")
+
+    while True:
+        try:
+            stats = await run_ml_messages_draft_cycle()
+            if any(stats.values()):
+                logger.info("ML messages draft stats: %s", stats)
+        except Exception as e:
+            logger.error("ML messages draft failed: %s", e, exc_info=True)
 
         # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
         await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())

@@ -285,6 +285,47 @@ class MercadoLibreAPIClient:
             logger.error(f"Error obteniendo mensaje {message_id} de ML: {e}")
             return None
 
+    async def get_pack_thread(self, pack_id: str, seller_id: int) -> Optional[List[Dict]]:
+        """Fetch the FULL live message thread for a pack (both buyer and
+        seller sides), sdd/ml-bot-messages-reply Phase A (design "Gotchas":
+        ingestion drops outgoing seller messages, so "has the seller already
+        replied?" and the full conversation-history context can only come
+        from a live fetch, never from `ml_bot_messages` alone).
+
+        Uses the direct API (bearer auth) — same convention as `get_message`/
+        `post_answer` — NOT the mlwebhook render proxy used by
+        `routers/seriales_messages.py` (that's a different, UI-facing route).
+
+        Returns the list of raw ML message dicts (unwrapped from ML's
+        `{"messages": [...], "paging": ...}` envelope) ordered as ML returns
+        them, or `None` on any failure (network/timeout/4xx/5xx/malformed
+        payload) — callers must treat `None` as "conversation history
+        unavailable this tick", never as "empty thread", and retry on a
+        later cycle rather than assume the seller never replied.
+        """
+        try:
+            token = await self.get_access_token()
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/messages/packs/{pack_id}/sellers/{seller_id}",
+                    params={"tag": "post_sale", "mark_as_read": "false"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Pack {pack_id} no encontrado en ML (thread)")
+                    return None
+
+                response.raise_for_status()
+                data = response.json()
+                messages = data.get("messages")
+                return messages if isinstance(messages, list) else None
+
+        except Exception as e:
+            logger.error(f"Error obteniendo el hilo del pack {pack_id} de ML: {e}")
+            return None
+
     async def post_answer(self, question_id: int, text: str) -> Optional[Dict]:
         """Publica la respuesta de una pregunta en ML (ml-bot Slice E, ADR-5).
 
