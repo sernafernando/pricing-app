@@ -56,3 +56,30 @@ export function countHiddenDescendants(node) {
   });
   return count;
 }
+
+const CHILD_KIND_PLURAL = {
+  catalogo: ['catálogo', 'catálogos'],
+  vinculada: ['vinculada', 'vinculadas'],
+  publicacion: ['publicación', 'publicaciones'],
+  familia: ['familia', 'familias'],
+};
+
+/**
+ * FE-only, no backend involved: summarizes a grouping node's DIRECT children
+ * by `kind` (e.g. "2 catálogos · 1 vinculada"), purely cosmetic context for a
+ * collapsed familia/catalogo node. Returns '' when there are no children
+ * (nothing to summarize).
+ */
+export function describeChildKinds(children) {
+  if (!children || children.length === 0) return '';
+  const counts = new Map();
+  children.forEach((child) => {
+    counts.set(child.kind, (counts.get(child.kind) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([kind, count]) => {
+      const [singular, plural] = CHILD_KIND_PLURAL[kind] || [kind, kind];
+      return `${count} ${count === 1 ? singular : plural}`;
+    })
+    .join(' · ');
+}

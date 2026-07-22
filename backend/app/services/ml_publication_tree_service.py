@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
 from app.models.publicacion_ml import PublicacionML
-from app.schemas.productos_tree import ProductTreeResponse, SkippedEdge, TreeNode
+from app.schemas.productos_tree import ProductTreeResponse, SkippedEdge, TreeNode, TreeNodePromoSummary
 
 
 @dataclass
@@ -69,6 +69,7 @@ class _AssemblyContext:
     edges_by_mla: Dict[str, List[str]]
     item_id_by_mla: Dict[str, Optional[int]]
     matches_filter_by_mla: Dict[str, bool]
+    promo_summary_by_mla: Dict[str, Dict]
     visited: Set[str] = field(default_factory=set)
     skipped_edges: List[SkippedEdge] = field(default_factory=list)
 
@@ -77,6 +78,7 @@ def assemble_publication_tree(
     db: Session,
     item_id: int,
     matches_filter_by_mla: Optional[Dict[str, bool]] = None,
+    promo_summary_by_mla: Optional[Dict[str, Dict]] = None,
 ) -> ProductTreeResponse:
     """Assembles the recursive publication tree for `item_id`.
 
@@ -94,6 +96,16 @@ def assemble_publication_tree(
             mirrors the flat endpoint's degrade-gracefully behavior).
             Grouping nodes ("producto"/"familia") NEVER carry
             `matches_filter` — only MLA-bearing nodes do.
+        promo_summary_by_mla: optional per-MLA collapsed-node promo summary
+            (catalog-tree-node-summary PR), computed by the CALLER via ONE
+            batched `fetch_promo_node_summary_by_mla` call bounded to this
+            product's own MLAs (no N+1 — mirrors `matches_filter_by_mla`'s
+            single-fetch pattern). `None` or a missing key both mean
+            "absent" (fail-open — a cross-DB failure or an mla with zero
+            promos never hides/crashes the node, it just carries no
+            summary). Grouping nodes NEVER carry `promo_summary` either.
+            `applied_markup` is deferred (not part of this map) — see
+            `TreeNodePromoSummary`'s docstring for why.
 
     Returns:
         `ProductTreeResponse` with the root `producto` node, plus the
@@ -123,6 +135,7 @@ def assemble_publication_tree(
         edges_by_mla=edges_by_mla,
         item_id_by_mla=item_id_by_mla,
         matches_filter_by_mla=matches_filter_by_mla or {},
+        promo_summary_by_mla=promo_summary_by_mla or {},
     )
 
     # Grouping pass: bucket MLAs into families / standalone-catalog /
@@ -177,6 +190,20 @@ def assemble_publication_tree(
     )
 
 
+def _promo_summary_for(mla: str, ctx: _AssemblyContext) -> Optional[TreeNodePromoSummary]:
+    """Looks up `mla`'s batched promo summary (fail-open: absent key ->
+    None, never raises, never fabricates data)."""
+    raw = ctx.promo_summary_by_mla.get(mla)
+    if raw is None:
+        return None
+    return TreeNodePromoSummary(
+        started_count=raw.get("started_count", 0),
+        candidate_count=raw.get("candidate_count", 0),
+        applied_name=raw.get("applied_name"),
+        applied_price=raw.get("applied_price"),
+    )
+
+
 def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
     """Builds one MLA-bearing node (catalogo/vinculada/publicacion) and
     recurses into its `vinculada` children via `ml_item_relations`,
@@ -193,6 +220,7 @@ def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
         catalog_product_id=catalog_product_id,
         label=mla,
         matches_filter=ctx.matches_filter_by_mla.get(mla),
+        promo_summary=_promo_summary_for(mla, ctx),
     )
 
     ctx.visited.add(mla)
@@ -229,6 +257,7 @@ def _build_vinculadas(mla: str, level: int, ctx: _AssemblyContext) -> List[TreeN
             catalog_product_id=link.catalog_product_id if link else None,
             label=related_mla,
             matches_filter=ctx.matches_filter_by_mla.get(related_mla),
+            promo_summary=_promo_summary_for(related_mla, ctx),
         )
         vinculada.children = _build_vinculadas(related_mla, level=level + 1, ctx=ctx)
         children.append(vinculada)

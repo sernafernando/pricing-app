@@ -578,6 +578,159 @@ class TestFetchPromoSummaryByMla:
                 fetch_promo_summary_by_mla(["MLA111"])
 
 
+class TestFetchPromoNodeSummaryByMla:
+    """fetch_promo_node_summary_by_mla(mla_ids) — richer batched summary read
+    used by the recursive tree endpoint's collapsed-node badges (restores the
+    old flat panel's per-MLA promo indicator, catalog-tree-node-summary PR).
+
+    Sibling to fetch_promo_summary_by_mla (never modifies its shape/callers):
+    same single GROUP BY query, split started/candidate counts plus the
+    applied (started, lowest-price) promo's price.
+    """
+
+    def test_multiple_mlas_batched_in_one_query_call(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 1, 2, True, "Oferta Relámpago", 850.0),
+            ("MLA222", 0, 1, False, None, None),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_node_summary_by_mla(["MLA111", "MLA222"])
+
+        assert mock_conn.execute.call_count == 1
+        assert result["MLA111"] == {
+            "started_count": 1,
+            "candidate_count": 2,
+            "has_applied": True,
+            "applied_name": "Oferta Relámpago",
+            "applied_price": 850.0,
+        }
+        assert result["MLA222"] == {
+            "started_count": 0,
+            "candidate_count": 1,
+            "has_applied": False,
+            "applied_name": None,
+            "applied_price": None,
+        }
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ml_promotions" in executed_query
+        assert "LEFT JOIN" in executed_query
+        assert "payload->>'name'" in executed_query
+        assert "p.name" in executed_query
+
+    def test_started_and_candidate_counts_split_correctly(self) -> None:
+        """REQ (task 1): counts must be split, not merged like the legacy
+        active_count."""
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 2, 3, True, "Nombre", 900.0),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_node_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["started_count"] == 2
+        assert result["MLA111"]["candidate_count"] == 3
+
+    def test_applied_name_and_price_from_lowest_price_started_promo(self) -> None:
+        """applied_name/applied_price must reflect the SAME lowest-price
+        `started` promo the SQL ORDER BY resolves (ML applies only one)."""
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 2, 0, True, "Campaña Vendedor", 799.99),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_node_summary_by_mla(["MLA111"])
+
+        assert result["MLA111"]["applied_name"] == "Campaña Vendedor"
+        assert result["MLA111"]["applied_price"] == 799.99
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "ORDER BY ip.price ASC NULLS FIRST" in executed_query
+
+    def test_mla_with_no_promos_is_absent_from_result(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_node_summary_by_mla(["MLA_NO_PROMOS"])
+
+        assert result == {}
+
+    def test_empty_mla_ids_returns_empty_dict_no_engine_call(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            result = fetch_promo_node_summary_by_mla([])
+
+        assert result == {}
+        mock_engine_fn.assert_not_called()
+
+    def test_status_clause_includes_pending_but_counts_stay_started_candidate_only(self) -> None:
+        """Same universe (candidate|started|pending) as fetch_promo_summary_by_mla
+        so a pending row is visible to the aggregate, but started_count/
+        candidate_count only ever count their own exact status (never pending)."""
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            fetch_promo_node_summary_by_mla(["MLA111"])
+
+        executed_query = str(mock_conn.execute.call_args[0][0])
+        assert "'pending'" in executed_query
+        assert "ip.status = 'started'" in executed_query
+        assert "ip.status = 'candidate'" in executed_query
+
+    def test_db_unavailable_raises_runtime_error(self) -> None:
+        from app.services.ml_promotions_service import fetch_promo_node_summary_by_mla
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine") as mock_engine_fn:
+            mock_engine_fn.side_effect = RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+            with pytest.raises(RuntimeError):
+                fetch_promo_node_summary_by_mla(["MLA111"])
+
+    def test_existing_fetch_promo_summary_by_mla_shape_unchanged(self) -> None:
+        """Additive-only guard: the legacy lite-endpoint function must keep
+        returning its original 3-key shape, untouched by this change."""
+        from app.services.ml_promotions_service import fetch_promo_summary_by_mla
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("MLA111", 3, True, "Oferta Relámpago"),
+        ]
+
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            result = fetch_promo_summary_by_mla(["MLA111"])
+
+        assert set(result["MLA111"].keys()) == {"active_count", "has_applied", "applied_name"}
+
+
 class TestFetchPromotionItems:
     """REQ-3, REQ-4: fetch_promotion_items(promotion_id, promotion_type) reads
     ml_item_promotions filtered by a specific promotion."""

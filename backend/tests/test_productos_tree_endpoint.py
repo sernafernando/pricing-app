@@ -130,3 +130,76 @@ class TestTreeEndpointPartialDataFailOpen:
         assert len(result.tree.children) == 1
         assert result.tree.children[0].mla == "MLA777"
         assert result.tree.children[0].kind == "publicacion"
+
+
+class TestTreeEndpointPromoNodeSummary:
+    """catalog-tree-node-summary PR — the tree endpoint batch-fetches the
+    collapsed-node promo summary ONCE (no N+1) and forwards it into
+    `assemble_publication_tree`, fail-open on cross-DB failure."""
+
+    def test_batch_fetches_summary_once_and_forwards_to_assembly(self) -> None:
+        db = _make_db([_pub("MLA1"), _pub("MLA2")])
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
+            patch("app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla") as mock_summary,
+        ):
+            mock_summary.return_value = {"MLA1": {"started_count": 1, "candidate_count": 0}}
+            mock_assemble.return_value = SimpleNamespace(
+                item_id=1,
+                tree=SimpleNamespace(level=0, kind="producto", children=[]),
+                skipped_anomalous_edges=0,
+                skipped_edges=[],
+            )
+            obtener_arbol_ml_producto(item_id=1, db=db, current_user=current_user)
+
+        mock_summary.assert_called_once_with(["MLA1", "MLA2"])
+        _, kwargs = mock_assemble.call_args
+        assert kwargs["promo_summary_by_mla"] == {"MLA1": {"started_count": 1, "candidate_count": 0}}
+
+    def test_cross_db_failure_is_fail_open_tree_still_returns(self) -> None:
+        """A RuntimeError (ML_WEBHOOK_DB_URL unset) or a SQLAlchemyError
+        must never 500 the tree — the summary field is simply absent."""
+        db = _make_db([_pub("MLA1")])
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
+            patch(
+                "app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla",
+                side_effect=RuntimeError("ML_WEBHOOK_DB_URL no configurada"),
+            ),
+        ):
+            mock_assemble.return_value = SimpleNamespace(
+                item_id=1,
+                tree=SimpleNamespace(level=0, kind="producto", children=[]),
+                skipped_anomalous_edges=0,
+                skipped_edges=[],
+            )
+            result = obtener_arbol_ml_producto(item_id=1, db=db, current_user=current_user)
+
+        assert result.item_id == 1
+        _, kwargs = mock_assemble.call_args
+        assert kwargs["promo_summary_by_mla"] is None
+
+    def test_no_mlas_never_calls_summary_fetch(self) -> None:
+        db = _make_db([])
+        current_user = SimpleNamespace(id=1)
+
+        with (
+            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
+            patch("app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla") as mock_summary,
+        ):
+            mock_assemble.return_value = SimpleNamespace(
+                item_id=42,
+                tree=SimpleNamespace(level=0, kind="producto", children=[]),
+                skipped_anomalous_edges=0,
+                skipped_edges=[],
+            )
+            obtener_arbol_ml_producto(item_id=42, db=db, current_user=current_user)
+
+        mock_summary.assert_not_called()
