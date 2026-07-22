@@ -189,6 +189,11 @@ export const promocionesAPI = {
   // Seller markup for a candidate price (used by the manual price input on
   // SELLER_CAMPAIGN/DEAL apply controls). Returns { price, nuestro_markup }.
   getMarkupParaPrecio: (mlaId, price) => api.get(`/promociones/item/${mlaId}/markup`, { params: { price } }),
+  // Manual per-MLA promo-refresh button: triggers a read-reconcile of the
+  // promo mirror via the ml-webhook proxy (PROMOS ONLY — never touches the
+  // publication/tree structure, never writes prices/promos). Returns
+  // { ok: boolean }; fail-soft (HTTP 200 even on proxy failure).
+  refreshItemPromociones: (mlaId) => api.post(`/promociones/item/${mlaId}/refresh`),
 };
 
 export const pricingAPI = {

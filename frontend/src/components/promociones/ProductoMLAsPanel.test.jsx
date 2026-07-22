@@ -140,7 +140,7 @@ describe('ProductoMLAsPanel', () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /expandir mla001/i }));
-    await user.click(screen.getByRole('button', { name: /promociones/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
 
     await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA001'));
   });

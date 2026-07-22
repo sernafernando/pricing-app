@@ -28,7 +28,9 @@ from app.services.ml_promotions_service import (
     fetch_promotions,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
+from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
+from app.utils.async_bridge import resolve_maybe_async
 
 logger = get_logger(__name__)
 
@@ -175,6 +177,17 @@ class EnrollResult(BaseModel):
     """SMART-only: the authoritative new offer_id ("OFFER-MLA...-N")
     returned by ML in the 201 response. None for SELLER_CAMPAIGN/DEAL
     (which have no offer_id concept) or when not yet submitted."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RefreshResult(BaseModel):
+    """Resultado de un refresh de promociones de un item. Expresa
+    únicamente si el reconcile fue disparado con éxito (`ok`); nunca
+    afirma el estado final de la promo — `ml_item_promotions` (leído por
+    el panel) sigue siendo la fuente de verdad."""
+
+    ok: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -383,6 +396,36 @@ def listar_items_de_promocion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar items de la promoción",
         )
+
+
+# ── Refresh endpoint (manual per-MLA promo-refresh button) ───────
+
+
+@router.post("/item/{mla_id}/refresh", response_model=RefreshResult)
+def refrescar_promociones_item(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_write()),
+) -> RefreshResult:
+    """
+    Dispara un reconcile server-side (point-refresh) del espejo de
+    promociones de un item puntual vía el proxy ml-webhook
+    (`refresh_item_promotions` -> POST /api/promociones/item/{mla}/refresh,
+    que corre `reconcile_item_promotions` de forma síncrona).
+
+    Este endpoint SOLO dispara la reconciliación de lectura del espejo:
+    NO escribe precios ni promociones en ML, y nunca afirma que una promo
+    quedó aplicada — el estado sigue derivándose del espejo (ya
+    refrescado) en `GET /promociones/item/{mla_id}`.
+
+    FAIL-SOFT: `refresh_item_promotions` nunca lanza excepción (devuelve
+    False ante proxy caído, 404 de ruta ausente, timeout o cualquier otro
+    error) — ese caso se refleja como `{ok: false}` con HTTP 200, nunca
+    un 500.
+
+    Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
+    """
+    ok = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
+    return RefreshResult(ok=ok)
 
 
 # ── Write endpoints (PR2) ────────────────────────────────────────
