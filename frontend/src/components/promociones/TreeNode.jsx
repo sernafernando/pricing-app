@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent } from './treeNodeUtils';
+import { promocionesAPI } from '../../services/api';
+import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
 
 const KIND_LABELS = {
@@ -39,6 +41,16 @@ const KIND_BADGE_CLASS = {
 function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, promoEstado, revealAll = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
+  const [promosReloadKey, setPromosReloadKey] = useState(0);
+  const { tienePermiso } = usePermisos();
+
+  // Guards the async refresh follow-up from setState-ing after the node
+  // unmounts (e.g. the tree re-renders on a promo-filter change while a
+  // refresh is still in flight).
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const filterActive = isFilterActive(promoTipos, promoEstado);
 
@@ -56,6 +68,42 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
   const rowKey = node.mla || `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
   const children = node.children || [];
   const bearsMla = isMlaBearing(node.kind);
+  // The refresh endpoint requires `promos.escribir` (same as enroll/remove);
+  // gate the button's visibility so a view-only user never sees a control
+  // that would 403 — mirrors PromoApplyControl's gating.
+  const canRefresh = bearsMla && tienePermiso('promos.escribir');
+
+  // Promos-only manual refresh (locked decision): reconciles the MLA's
+  // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
+  // promos sub-spoiler. Never asserts the final promo state itself — on
+  // success it just invalidates the cache entry and, if the sub-spoiler is
+  // open, bumps a reload key to force `MlaPromocionesPanel` to remount and
+  // re-fetch; the panel remains the source of truth (eventual-consistency
+  // safe, money-path rule — this only triggers a read-reconcile, never a
+  // price/promo write).
+  const handleRefreshPromos = async (event) => {
+    event.stopPropagation();
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError(false);
+    try {
+      const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
+      if (data?.ok) {
+        // Cache invalidation is safe even if we unmounted — it makes the
+        // NEXT expand fetch fresh data. State updates below are guarded.
+        promosCacheRef.current.delete(node.mla);
+        if (mountedRef.current && promosOpen) {
+          setPromosReloadKey((prev) => prev + 1);
+        }
+      } else if (mountedRef.current) {
+        setRefreshError(true);
+      }
+    } catch {
+      if (mountedRef.current) setRefreshError(true);
+    } finally {
+      if (mountedRef.current) setRefreshing(false);
+    }
+  };
 
   return (
     <ExpandableRow
@@ -68,7 +116,24 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
           <td>
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
           </td>
-          <td>{displayLabel}</td>
+          <td>
+            {displayLabel}
+            {canRefresh && (
+              <>
+                <button
+                  type="button"
+                  className={styles.retryLink}
+                  onClick={handleRefreshPromos}
+                  disabled={refreshing}
+                  aria-label={`Refrescar promociones de ${displayLabel}`}
+                >
+                  ↻
+                </button>
+                {refreshing && <span className={styles.provisionalPending}>Refrescando…</span>}
+                {refreshError && <span className={styles.feedbackError}>No se pudo refrescar</span>}
+              </>
+            )}
+          </td>
         </>
       }
     >
@@ -82,7 +147,9 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
           >
             Promociones {promosOpen ? '▾' : '▸'}
           </button>
-          {promosOpen && <MlaPromocionesPanel mla={node.mla} promosCacheRef={promosCacheRef} />}
+          {promosOpen && (
+            <MlaPromocionesPanel key={promosReloadKey} mla={node.mla} promosCacheRef={promosCacheRef} />
+          )}
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
+import { promocionesAPI } from '../../services/api';
 
 // Mock the leaf promo panel so prop-threading assertions can inspect exactly
 // what reaches it, without depending on its own fetch/reload internals.
@@ -11,6 +12,19 @@ vi.mock('./MlaPromocionesPanel', () => ({
       mocked-promos-for-{props.mla}
     </div>
   ),
+}));
+
+vi.mock('../../services/api', () => ({
+  promocionesAPI: {
+    refreshItemPromociones: vi.fn(),
+  },
+}));
+
+// Refresh button is gated on `promos.escribir`; default the mock to granted so
+// existing button tests render it, and flip it in the gating test.
+const { mockTienePermiso } = vi.hoisted(() => ({ mockTienePermiso: vi.fn(() => true) }));
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ tienePermiso: mockTienePermiso }),
 }));
 
 function renderNode(node, props = {}) {
@@ -75,6 +89,7 @@ function buildDeepTree() {
 describe('TreeNode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
   });
 
   it('renders a familia grouping node with its label', () => {
@@ -130,7 +145,7 @@ describe('TreeNode', () => {
 
     // The promos sub-spoiler is its own separate toggle, not the same
     // expand action as the vinculada child row.
-    const promosToggle = screen.getByRole('button', { name: /promociones/i });
+    const promosToggle = screen.getByRole('button', { name: /^promociones/i });
     expect(promosToggle).toBeInTheDocument();
     expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
     expect(screen.queryByTestId('mla-promos-MLA_CAT')).not.toBeInTheDocument();
@@ -143,7 +158,7 @@ describe('TreeNode', () => {
     renderNode(buildDeepTree());
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
-    expect(screen.queryByRole('button', { name: /promociones/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^promociones/i })).not.toBeInTheDocument();
   });
 
   it('hides an MLA-bearing node when matches_filter is false and a filter is active', async () => {
@@ -237,7 +252,7 @@ describe('TreeNode', () => {
     await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
     await user.click(screen.getByRole('button', { name: /expandir mla_vinc1/i }));
     await user.click(screen.getByRole('button', { name: /expandir mla_vinc2/i }));
-    const promoToggles = screen.getAllByRole('button', { name: /promociones/i });
+    const promoToggles = screen.getAllByRole('button', { name: /^promociones/i });
     // Deepest node's promos toggle is the last one rendered (catalogo, vinc1,
     // vinc2 are all open by now, each with its own separate promos toggle).
     await user.click(promoToggles[promoToggles.length - 1]);
@@ -248,5 +263,123 @@ describe('TreeNode', () => {
     const propKeys = JSON.parse(leaf.getAttribute('data-props'));
     expect(propKeys).toContain('promosCacheRef');
     expect(propKeys).toContain('mla');
+  });
+});
+
+describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  function buildMlaTree() {
+    return {
+      level: 1,
+      kind: 'familia',
+      label: 'Familia FAM1',
+      children: [
+        { level: 2, kind: 'catalogo', mla: 'MLA_CAT', label: 'MLA_CAT', matches_filter: true, children: [] },
+      ],
+    };
+  }
+
+  async function expandToMla() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir familia fam1/i }));
+    return user;
+  }
+
+  it('renders the refresh button on MLA-bearing nodes', async () => {
+    renderNode(buildMlaTree());
+    await expandToMla();
+    expect(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i })).toBeInTheDocument();
+  });
+
+  it('does not render the refresh button on grouping nodes (familia/catalogo without mla)', () => {
+    renderNode(buildMlaTree());
+    expect(screen.queryByRole('button', { name: /refrescar promociones/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the refresh button when the user lacks promos.escribir', async () => {
+    mockTienePermiso.mockReturnValue(false);
+    renderNode(buildMlaTree());
+    await expandToMla();
+    expect(screen.queryByRole('button', { name: /refrescar promociones/i })).not.toBeInTheDocument();
+  });
+
+  it('calls the refresh API with the node mla on click', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+  });
+
+  it('disables the button while the refresh is in-flight', async () => {
+    let resolvePromise;
+    promocionesAPI.refreshItemPromociones.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePromise = resolve;
+      }),
+    );
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    const button = screen.getByRole('button', { name: /refrescar promociones de mla_cat/i });
+    await user.click(button);
+
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/refrescando/i)).toBeInTheDocument();
+
+    resolvePromise({ data: { ok: true } });
+  });
+
+  it('invalidates the promos cache entry on success', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    const promosCacheRef = { current: new Map([['MLA_CAT', { status: 'ok', data: { promotions: [] } }]]) };
+    renderNode(buildMlaTree(), { promosCacheRef });
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    await screen.findByRole('button', { name: /refrescar promociones de mla_cat/i });
+    expect(promosCacheRef.current.has('MLA_CAT')).toBe(false);
+  });
+
+  it('reloads the open promos panel by remounting it after a successful refresh', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+    expect(screen.getByTestId('mla-promos-MLA_CAT')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    // Still rendered (remounted via key bump), not removed.
+    expect(await screen.findByTestId('mla-promos-MLA_CAT')).toBeInTheDocument();
+  });
+
+  it('shows a soft inline error on refresh failure ({ok: false})', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false } });
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    expect(await screen.findByText(/no se pudo refrescar/i)).toBeInTheDocument();
+  });
+
+  it('shows a soft inline error when the API call rejects', async () => {
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('network error'));
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    expect(await screen.findByText(/no se pudo refrescar/i)).toBeInTheDocument();
   });
 });
