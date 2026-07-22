@@ -476,6 +476,47 @@
   opacity: 0.4;
 }
 
+/* Preguntas table — TanStack column-sizing engine (scoped, table-tesla.css
+   stays untouched). `table-layout: fixed` makes the shared `<colgroup>` the
+   single source of truth for both the TanStack-rendered header and the
+   untouched hand-rendered body rows. Element+class specificity so this
+   beats the shared `.table-tesla` rule (the #956 specificity failure). */
+table.resizableTable {
+  table-layout: fixed;
+}
+
+.resizableTable th {
+  position: relative;
+}
+
+.resizeGrip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  background: transparent;
+  border-right: 2px solid transparent;
+}
+
+.resizableTable th:hover .resizeGrip {
+  border-right-color: var(--cf-border-default);
+}
+
+.resizeGrip:hover,
+.resizeGripActive {
+  border-right-color: var(--cf-accent-blue) !important;
+}
+
+.columnSizingBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-xs);
+}
+
 /* ── Notebook fit ──────────────────────────────────────────────────────
    On notebook-width screens the sidebar (240px) plus padding leaves little
    room, and the action columns used to fall off-screen. Tighten the text

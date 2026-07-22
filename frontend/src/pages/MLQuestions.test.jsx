@@ -14,8 +14,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
-import MLQuestions from './MLQuestions';
+import MLQuestions, { loadColumnSizing, saveColumnSizing } from './MLQuestions';
 import api from '../services/api';
+
+const COLUMN_SIZING_KEY = 'mlq:colsizing:preguntas';
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -181,5 +183,85 @@ describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
     expect(screen.getByText('Buen día me pasas la factura')).toBeInTheDocument();
     expect(screen.getByText('Es factura A')).toBeInTheDocument();
     expect(screen.getByText('Solicito factura A. Gracias')).toBeInTheDocument();
+  });
+});
+
+describe('Preguntas table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns {} when the key is absent', () => {
+    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
+    localStorage.setItem(COLUMN_SIZING_KEY, '{not valid json');
+    expect(() => loadColumnSizing(COLUMN_SIZING_KEY)).not.toThrow();
+    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('round-trips a valid columnSizing object', () => {
+    const sizing = { pregunta: 200, item: 130 };
+    saveColumnSizing(sizing, COLUMN_SIZING_KEY);
+    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual(sizing);
+  });
+
+  it('ignores unknown/stale column ids on load (fail-open, still an object)', () => {
+    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 200, columnaFantasma: 999 }));
+    const loaded = loadColumnSizing(COLUMN_SIZING_KEY);
+    // Loader itself doesn't filter by known ids (TanStack ignores unknown ids
+    // at consumption time) — assert it still returns a safe plain object.
+    expect(loaded).toEqual({ pregunta: 200, columnaFantasma: 999 });
+  });
+
+  it('saveColumnSizing never throws when localStorage.setItem throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    expect(() => saveColumnSizing({ pregunta: 200 }, COLUMN_SIZING_KEY)).not.toThrow();
+    spy.mockRestore();
+  });
+});
+
+describe('Preguntas table — TanStack column-sizing render structure', () => {
+  it('renders one <col> per header and resize grips only on resizable headers', async () => {
+    localStorage.clear();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pregunta')).toBeInTheDocument();
+    });
+
+    const table = screen.getByText('Pregunta').closest('table');
+    const cols = table.querySelectorAll('colgroup > col');
+    const headers = table.querySelectorAll('thead th');
+    expect(cols.length).toBe(headers.length);
+    expect(cols.length).toBe(7);
+
+    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Estado,
+    // Confianza, Cuenta regresiva, Acciones.
+    const grips = table.querySelectorAll('thead [role="separator"]');
+    expect(grips.length).toBe(3);
+  });
+
+  it('shows the reset-columns control only once sizing has been customized', async () => {
+    localStorage.clear();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pregunta')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
+  });
+
+  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 250 }));
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
+    });
+    localStorage.clear();
   });
 });
