@@ -881,6 +881,10 @@ def marcar_cuenta_corriente_endpoint(
     except HTTPException:
         db.rollback()
         raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("marcar_cuenta_corriente falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al marcar 'cuenta corriente'.") from exc
     _commit_or_rollback(db, operacion="marcar_cuenta_corriente")
     db.refresh(pedido)
     return _pedido_response(pedido)
@@ -915,6 +919,10 @@ def revertir_cuenta_corriente_endpoint(
     except HTTPException:
         db.rollback()
         raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("revertir_cuenta_corriente falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al revertir 'cuenta corriente'.") from exc
     _commit_or_rollback(db, operacion="revertir_cuenta_corriente")
     db.refresh(pedido)
     return _pedido_response(pedido)

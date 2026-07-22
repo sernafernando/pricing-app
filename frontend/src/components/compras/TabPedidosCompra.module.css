@@ -196,6 +196,13 @@
   color: var(--cf-text-primary);
 }
 
+.modalText {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
+
 .modalCloseBtn {
   background: none;
   border: none;

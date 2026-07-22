@@ -123,6 +123,7 @@ export default function TabPedidosCompra() {
   // ── Cuenta corriente — estado propio para no pisar pedidosError global ──
   const [ccLoadingId, setCcLoadingId] = useState(null);
   const [ccError, setCcError] = useState(null);
+  const [marcarCcModal, setMarcarCcModal] = useState(null); // pedido | null
   const [revertirCcModal, setRevertirCcModal] = useState(null); // pedido | null
   const [revertirCcMotivo, setRevertirCcMotivo] = useState('');
   const [revertirCcLoading, setRevertirCcLoading] = useState(false);
@@ -356,18 +357,18 @@ export default function TabPedidosCompra() {
     );
   };
 
-  const handleMarcarCuentaCorriente = async (pedido) => {
-    if (
-      !window.confirm(
-        `¿Marcar el pedido #${pedido.numero} como cuenta corriente? Se creará una OP pendiente por el saldo total y el pago quedará diferido.`
-      )
-    ) {
-      return;
-    }
-    setCcLoadingId(pedido.id);
+  const handleOpenMarcarCc = (pedido) => {
+    setMarcarCcModal(pedido);
+    setCcError(null);
+  };
+
+  const handleConfirmMarcarCc = async () => {
+    if (!marcarCcModal) return;
+    setCcLoadingId(marcarCcModal.id);
     setCcError(null);
     try {
-      await marcarCuentaCorriente(pedido.id);
+      await marcarCuentaCorriente(marcarCcModal.id);
+      setMarcarCcModal(null);
       fetchPedidos();
     } catch (err) {
       setCcError(err.response?.data?.detail || 'Error al marcar cuenta corriente.');
@@ -544,7 +545,7 @@ export default function TabPedidosCompra() {
         {puedeMarcarCuentaCorriente && (
           <button
             className={styles.iconBtn}
-            onClick={() => handleMarcarCuentaCorriente(p)}
+            onClick={() => handleOpenMarcarCc(p)}
             disabled={ccLoadingId === p.id}
             aria-label="Cuenta corriente"
             title="Marcar como cuenta corriente (diferir pago)"
@@ -878,6 +879,52 @@ export default function TabPedidosCompra() {
                 disabled={motivoLoading}
               >
                 {motivoLoading ? 'Procesando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Marcar cuenta corriente modal */}
+      {marcarCcModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>
+                Marcar cuenta corriente — #{marcarCcModal.numero}
+              </span>
+              <button
+                className={styles.modalCloseBtn}
+                onClick={() => setMarcarCcModal(null)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {ccError && <div className={styles.errorBanner}>{ccError}</div>}
+
+            <p className={styles.modalText}>
+              Se creará una OP pendiente por el saldo total del pedido y el pago
+              quedará diferido. El pedido pasará a depósito como cuenta corriente.
+            </p>
+
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setMarcarCcModal(null)}
+                disabled={ccLoadingId === marcarCcModal.id}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.btnSuccess}
+                onClick={handleConfirmMarcarCc}
+                disabled={ccLoadingId === marcarCcModal.id}
+              >
+                {ccLoadingId === marcarCcModal.id ? 'Procesando...' : 'Confirmar'}
               </button>
             </div>
           </div>
