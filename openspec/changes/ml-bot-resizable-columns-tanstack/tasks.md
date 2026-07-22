@@ -66,3 +66,18 @@ Chain strategy: pending
 
 - [ ] 5.1 Re-confirm `frontend/src/styles/table-tesla.css` untouched (read-only per design).
 - [ ] 5.2 Remove any temporary debug harness files used only for Phase 4 (keep the harness pattern documented, not committed, unless project convention keeps E2E scripts in-repo).
+
+## PR2 (Historial del comprador table) — DONE
+
+- [x] Applied the same TanStack sizing-engine pattern to the buyer-history table inside the expand-row detail panel: `HISTORIAL_COLUMNS` (5 cols, 3 resizable), own `historialTable` instance + `mlq:colsizing:historial` localStorage key, `<colgroup>`/grips/reset wired, `.map()` body rows untouched. All 231/231 vitest tests passed, lint clean, build green.
+
+## PR3 (Mensajes tab, thread-grouped table) — DONE
+
+- [x] Defined `MENSAJES_COLUMNS` (5 cols: comprador/mensaje/recibido/leido/moderacion) — only "Mensaje" resizable (size 320, min 120, max 600); "Comprador · Pack" stays fixed because per-message rows only carry a thin indent `<td>` there, not the buyer identity (that lives in the `colSpan={5}` thread-header row).
+- [x] Added a third top-level `useReactTable` sizing instance (`mensajesTable`), own `mlq:colsizing:mensajes` localStorage key, debounced save + reset control, reusing the existing `loadColumnSizing`/`saveColumnSizing` helpers.
+- [x] Wired the Mensajes `<table>` with scoped `.resizableTable` class, `style={{width: getTotalSize()}}`, `<colgroup>` (5 `<col>`s), and a resize grip only on the "Mensaje" `<th>`.
+- [x] Preserved thread grouping unchanged: multiple `<tbody>` blocks per thread, `threadHeader` row with `<td colSpan={5}>`, and per-message rows (thin `threadRowIndent` col 1 + mensaje + recibido + leido + moderacion = 5 cells) render exactly as before under the new colgroup.
+- [x] Added persistence tests (absent/corrupt/round-trip under `mlq:colsizing:mensajes`) and render-structure tests (5 `<col>`s, exactly 1 resize grip on "Mensaje", reset control present/absent, thread-grouping structural assertions: colSpan=5 header row, 5-cell message rows) — reused existing Mensajes threading test data.
+- [x] No CSS changes needed — reused PR1's scoped `.resizableTable`/`.resizeGrip`/`.resizeGripActive`/`.columnSizingBar` classes (table-agnostic).
+- [x] Verified: `pnpm run test` 237/237 pass, `pnpm run lint` clean, `pnpm run build` green (MLQuestions lazy chunk 81.12 kB gzip 20.51 kB).
+- [ ] Phase-4 mandatory headless-Chromium verification gate (drag-resize + persistence-across-reload on the live Mensajes table) not run in this apply batch — same as PR1/PR2, remains the orchestrator's responsibility before merge.
