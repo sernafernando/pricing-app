@@ -58,7 +58,17 @@ export default function ModalEjecutarPago({ op, onClose }) {
       const { data } = await api.get(
         `/administracion/bancos?solo_activos=true&empresa_id=${op.empresa_id}`
       );
-      setBancosEmpresa(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+      // El endpoint /administracion/bancos devuelve { bancos: [...], total }.
+      // (Antes se leía data.items, que no existe → los bancos nunca aparecían.)
+      setBancosEmpresa(
+        Array.isArray(data?.bancos)
+          ? data.bancos
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data)
+              ? data
+              : []
+      );
     } catch {
       setBancosEmpresa([]);
     } finally {
