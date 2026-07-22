@@ -414,7 +414,10 @@ export default function Productos() {
     const observer = new ResizeObserver(updateStickyTop);
     observer.observe(headEl);
     return () => observer.disconnect();
-  }, [modoVista]);
+    // `loading` gates whether the table (and thus tableHeadRef) is mounted; on
+    // the first render loading=true so the head ref is null and this bails —
+    // depend on `loading` so it re-runs and measures once the table mounts.
+  }, [modoVista, loading]);
 
   const {
     celdaActiva, setCeldaActiva,
