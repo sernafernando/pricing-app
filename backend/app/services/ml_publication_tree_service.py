@@ -70,6 +70,7 @@ class _AssemblyContext:
     item_id_by_mla: Dict[str, Optional[int]]
     matches_filter_by_mla: Dict[str, bool]
     promo_summary_by_mla: Dict[str, Dict]
+    lista_by_mla: Dict[str, Tuple[Optional[str], Optional[int]]]
     visited: Set[str] = field(default_factory=set)
     skipped_edges: List[SkippedEdge] = field(default_factory=list)
 
@@ -112,13 +113,16 @@ def assemble_publication_tree(
         skip+flag anomaly count/list for edges deliberately excluded
         from the tree (cross-item_id or unresolvable related MLAs).
     """
-    mlas = [
-        row.mla
-        for row in db.query(PublicacionML.mla)
+    pub_rows = (
+        db.query(PublicacionML.mla, PublicacionML.lista_nombre, PublicacionML.pricelist_id)
         .filter(PublicacionML.item_id == item_id, PublicacionML.activo == True)  # noqa: E712
         .order_by(PublicacionML.id)
         .all()
-    ]
+    )
+    mlas = [row.mla for row in pub_rows]
+    lista_by_mla: Dict[str, Tuple[Optional[str], Optional[int]]] = {
+        row.mla: (row.lista_nombre, row.pricelist_id) for row in pub_rows
+    }
 
     root = TreeNode(level=0, kind="producto", label=f"Producto {item_id}")
 
@@ -128,6 +132,7 @@ def assemble_publication_tree(
     links_by_mla = _load_links(db, mlas)
     edges_by_mla = _load_edges(db, mlas)
     item_id_by_mla = _load_item_id_by_related_mla(db, edges_by_mla)
+    lista_by_mla.update(_load_lista_by_related_mla(db, edges_by_mla))
 
     ctx = _AssemblyContext(
         item_id=item_id,
@@ -136,6 +141,7 @@ def assemble_publication_tree(
         item_id_by_mla=item_id_by_mla,
         matches_filter_by_mla=matches_filter_by_mla or {},
         promo_summary_by_mla=promo_summary_by_mla or {},
+        lista_by_mla=lista_by_mla,
     )
 
     # Grouping pass: bucket MLAs into families / standalone-catalog /
@@ -213,6 +219,7 @@ def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
     catalog_product_id = link.catalog_product_id if link else None
 
     kind = "catalogo" if catalog_listing else "publicacion"
+    lista_nombre, pricelist_id = ctx.lista_by_mla.get(mla, (None, None))
     node = TreeNode(
         level=level,
         kind=kind,
@@ -221,6 +228,8 @@ def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
         label=mla,
         matches_filter=ctx.matches_filter_by_mla.get(mla),
         promo_summary=_promo_summary_for(mla, ctx),
+        lista_nombre=lista_nombre,
+        pricelist_id=pricelist_id,
     )
 
     ctx.visited.add(mla)
@@ -250,6 +259,7 @@ def _build_vinculadas(mla: str, level: int, ctx: _AssemblyContext) -> List[TreeN
 
         ctx.visited.add(related_mla)
         link = ctx.links_by_mla.get(related_mla)
+        lista_nombre, pricelist_id = ctx.lista_by_mla.get(related_mla, (None, None))
         vinculada = TreeNode(
             level=level,
             kind="vinculada",
@@ -258,6 +268,8 @@ def _build_vinculadas(mla: str, level: int, ctx: _AssemblyContext) -> List[TreeN
             label=related_mla,
             matches_filter=ctx.matches_filter_by_mla.get(related_mla),
             promo_summary=_promo_summary_for(related_mla, ctx),
+            lista_nombre=lista_nombre,
+            pricelist_id=pricelist_id,
         )
         vinculada.children = _build_vinculadas(related_mla, level=level + 1, ctx=ctx)
         children.append(vinculada)
@@ -306,3 +318,25 @@ def _load_item_id_by_related_mla(db: Session, edges_by_mla: Dict[str, List[str]]
         db.query(PublicacionML.mla, PublicacionML.item_id).filter(PublicacionML.mla.in_(related_mlas)).all()
     )
     return {mla: iid for mla, iid in rows}
+
+
+def _load_lista_by_related_mla(
+    db: Session, edges_by_mla: Dict[str, List[str]]
+) -> Dict[str, Tuple[Optional[str], Optional[int]]]:
+    """Resolves every related_mla referenced by `edges_by_mla` to its
+    `(lista_nombre, pricelist_id)` pair (absent/unresolvable related MLAs
+    are simply not keyed here, fail-open — `_build_vinculadas` defaults to
+    `(None, None)` on a missing key)."""
+    related_mlas: Set[str] = set()
+    for targets in edges_by_mla.values():
+        related_mlas.update(targets)
+
+    if not related_mlas:
+        return {}
+
+    rows = (
+        db.query(PublicacionML.mla, PublicacionML.lista_nombre, PublicacionML.pricelist_id)
+        .filter(PublicacionML.mla.in_(related_mlas))
+        .all()
+    )
+    return {row.mla: (row.lista_nombre, row.pricelist_id) for row in rows}

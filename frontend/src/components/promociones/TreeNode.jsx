@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
+import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
@@ -107,6 +108,13 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
   // "N catálogos · M vinculadas" hint — no backend involvement.
   const childKindSummary = !bearsMla ? describeChildKinds(children) : '';
 
+  // Price-list badge (restores the old flat panel's per-publication
+  // `lista_nombre || getPublicationTypeLabel(pricelist_id)` badge) — fail-open:
+  // absent on both fields renders nothing.
+  const listaLabel = bearsMla
+    ? node.lista_nombre || (node.pricelist_id != null ? getPublicationTypeLabel(node.pricelist_id) : null)
+    : null;
+
   // Promos-only manual refresh (locked decision): reconciles the MLA's
   // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
   // promos sub-spoiler. Never asserts the final promo state itself — on
@@ -151,6 +159,7 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
           <td className={styles.treeNodeLabelCell}>
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
+            {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
             {promoSummary && (
               <span className={styles.treeNodeSummary}>
                 {promoSummary.applied_name && (

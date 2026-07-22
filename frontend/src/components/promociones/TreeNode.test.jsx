@@ -476,3 +476,56 @@ describe('TreeNode collapsed-node promo summary (catalog-tree-node-summary PR)',
     expect(screen.queryByText(/cat[aá]logo/i)).not.toBeInTheDocument();
   });
 });
+
+describe('TreeNode price-list badge (restores old flat panel lista_nombre)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  it('renders the lista_nombre badge for an MLA-bearing node', () => {
+    const tree = {
+      level: 1,
+      kind: 'publicacion',
+      mla: 'MLA_LISTA',
+      label: 'MLA_LISTA',
+      matches_filter: true,
+      children: [],
+      lista_nombre: '3 Cuotas',
+      pricelist_id: 17,
+    };
+    renderNode(tree);
+
+    expect(screen.getByText('3 Cuotas')).toBeInTheDocument();
+  });
+
+  it('falls back to getPublicationTypeLabel(pricelist_id) when lista_nombre is absent', () => {
+    const tree = {
+      level: 1,
+      kind: 'publicacion',
+      mla: 'MLA_NOLISTA',
+      label: 'MLA_NOLISTA',
+      matches_filter: true,
+      children: [],
+      lista_nombre: null,
+      pricelist_id: 4,
+    };
+    renderNode(tree);
+
+    expect(screen.getByText('Clásica')).toBeInTheDocument();
+  });
+
+  it('renders nothing extra when both lista_nombre and pricelist_id are absent (fail-open)', () => {
+    const tree = {
+      level: 1,
+      kind: 'publicacion',
+      mla: 'MLA_NONE',
+      label: 'MLA_NONE',
+      matches_filter: true,
+      children: [],
+    };
+    renderNode(tree);
+
+    expect(screen.queryByText(/desconocido/i)).not.toBeInTheDocument();
+  });
+});
