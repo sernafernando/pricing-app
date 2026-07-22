@@ -52,6 +52,36 @@ def _restore_pem(value: str) -> str:
     return result
 
 
+_CUIT_PESOS = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
+
+
+def validar_cuit(cuit: str) -> bool:
+    """
+    Valida el dígito verificador de un CUIT (algoritmo mod-11 de AFIP).
+
+    Pura, sin I/O. Normaliza defensivamente (quita guiones/espacios) por si
+    se invoca antes de la normalización habitual del caller.
+    """
+    cuit_limpio = (cuit or "").replace("-", "").replace(" ", "")
+
+    if not cuit_limpio.isdigit() or len(cuit_limpio) != 11:
+        return False
+
+    base = cuit_limpio[:10]
+    digito_verificador = int(cuit_limpio[10])
+
+    suma = sum(int(digito) * peso for digito, peso in zip(base, _CUIT_PESOS))
+    resto = suma % 11
+    verificador = 11 - resto
+
+    if verificador == 11:
+        verificador = 0
+    elif verificador == 10:
+        verificador = 9
+
+    return verificador == digito_verificador
+
+
 class AfipServiceError(Exception):
     """Error genérico de AfipService."""
 
@@ -212,6 +242,12 @@ class AfipService:
         Retorna (persona_dict, wsid_usado).
         """
         cuit_clean = cuit_persona.replace("-", "").replace(" ", "")
+
+        if not validar_cuit(cuit_clean):
+            raise AfipServiceError(
+                "CUIT inválido: dígito verificador incorrecto",
+                detail=f"El CUIT {cuit_clean} no supera la validación mod-11",
+            )
 
         # Intentar A4 primero
         try:
