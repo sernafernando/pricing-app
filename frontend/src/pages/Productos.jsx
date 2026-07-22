@@ -403,7 +403,11 @@ export default function Productos() {
     const containerEl = tableContainerRef.current;
     if (!headEl || !containerEl) return undefined;
     const updateStickyTop = () => {
-      containerEl.style.setProperty('--l0-sticky-top', `${headEl.offsetHeight}px`);
+      // offsetHeight rounds DOWN and ignores the header's 1px bottom box-shadow,
+      // which left the stuck row tucked a hair under the header. Use the
+      // fractional rendered height rounded UP, plus 1px for that shadow border.
+      const headHeight = Math.ceil(headEl.getBoundingClientRect().height) + 1;
+      containerEl.style.setProperty('--l0-sticky-top', `${headHeight}px`);
     };
     updateStickyTop();
     if (typeof ResizeObserver === 'undefined') return undefined;
