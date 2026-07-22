@@ -248,12 +248,26 @@ const HISTORIAL_COLUMNS = [
   { id: 'respuesta', header: 'Respuesta', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
 ];
 
+// Mensajes tab table (thread-grouped) — same TanStack sizing-engine pattern,
+// but structurally different: the buyer identity lives in a `colSpan={5}`
+// thread-header row, not in a per-message cell. Column 1 ("Comprador ·
+// Pack") in message rows is just a thin indent `<td>` (`threadRowIndent`),
+// so it carries NO resizable content — only "Mensaje" (col 2) is resizable.
+const MENSAJES_COLUMNS = [
+  { id: 'comprador', header: 'Comprador · Pack', size: 150, enableResizing: false },
+  { id: 'mensaje', header: 'Mensaje', size: 320, minSize: 120, maxSize: 600, enableResizing: true },
+  { id: 'recibido', header: 'Recibido', size: 150, enableResizing: false },
+  { id: 'leido', header: 'Leído', size: 150, enableResizing: false },
+  { id: 'moderacion', header: 'Moderación', size: 120, enableResizing: false },
+];
+
 // Stable empty array reference — we never call `getRowModel()`, TanStack
 // only needs `data` to satisfy its API shape.
 const EMPTY_TABLE_DATA = [];
 
 const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
 const HISTORIAL_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:historial';
+const MENSAJES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:mensajes';
 
 // Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
 // already in this file): absent/corrupt/disabled localStorage MUST never
@@ -469,6 +483,42 @@ export default function MLQuestions() {
   });
 
   const hasCustomHistorialColumnSizing = Object.keys(historialColumnSizing).length > 0;
+
+  // Mensajes table — same sizing-engine pattern, own localStorage key and
+  // debounce timer. Only one instance needed (the table itself is not
+  // duplicated per thread — threads are body rows under one shared header).
+  const [mensajesColumnSizing, setMensajesColumnSizingState] = useState(() => loadColumnSizing(MENSAJES_COLUMN_SIZING_STORAGE_KEY));
+  const mensajesColumnSizingSaveTimerRef = useRef(null);
+
+  const handleMensajesColumnSizingChange = useCallback((updater) => {
+    setMensajesColumnSizingState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (mensajesColumnSizingSaveTimerRef.current) clearTimeout(mensajesColumnSizingSaveTimerRef.current);
+      mensajesColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, MENSAJES_COLUMN_SIZING_STORAGE_KEY), 200);
+      return next;
+    });
+  }, []);
+
+  const handleResetMensajesColumnSizing = useCallback(() => {
+    if (mensajesColumnSizingSaveTimerRef.current) clearTimeout(mensajesColumnSizingSaveTimerRef.current);
+    setMensajesColumnSizingState({});
+    try {
+      localStorage.removeItem(MENSAJES_COLUMN_SIZING_STORAGE_KEY);
+    } catch {
+      // no-op — disabled/private-mode localStorage
+    }
+  }, []);
+
+  const mensajesTable = useReactTable({
+    columns: MENSAJES_COLUMNS,
+    data: EMPTY_TABLE_DATA,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnSizing: mensajesColumnSizing },
+    onColumnSizingChange: handleMensajesColumnSizingChange,
+  });
+
+  const hasCustomMensajesColumnSizing = Object.keys(mensajesColumnSizing).length > 0;
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -1298,15 +1348,45 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {hasCustomMensajesColumnSizing && (
+            <div className={styles.columnSizingBar}>
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={handleResetMensajesColumnSizing}
+              >
+                Restablecer columnas
+              </button>
+            </div>
+          )}
+
           <div className="table-container-tesla">
-            <table className="table-tesla">
+            <table
+              className={`table-tesla ${styles.resizableTable}`}
+              style={{ width: mensajesTable.getTotalSize() }}
+            >
+              <colgroup>
+                {mensajesTable.getVisibleLeafColumns().map((col) => (
+                  <col key={col.id} style={{ width: col.getSize() }} />
+                ))}
+              </colgroup>
               <thead className="table-tesla-head">
                 <tr>
-                  <th>Comprador · Pack</th>
-                  <th>Mensaje</th>
-                  <th>Recibido</th>
-                  <th>Leído</th>
-                  <th>Moderación</th>
+                  {mensajesTable.getFlatHeaders().map((h) => (
+                    <th key={h.id} style={{ position: 'relative' }}>
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <span
+                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
+                          onMouseDown={h.getResizeHandler()}
+                          onTouchStart={h.getResizeHandler()}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
+                        />
+                      )}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               {messagesLoading ? (

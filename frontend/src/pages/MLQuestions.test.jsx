@@ -19,6 +19,7 @@ import api from '../services/api';
 
 const COLUMN_SIZING_KEY = 'mlq:colsizing:preguntas';
 const HISTORIAL_COLUMN_SIZING_KEY = 'mlq:colsizing:historial';
+const MENSAJES_COLUMN_SIZING_KEY = 'mlq:colsizing:mensajes';
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -184,6 +185,93 @@ describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
     expect(screen.getByText('Buen día me pasas la factura')).toBeInTheDocument();
     expect(screen.getByText('Es factura A')).toBeInTheDocument();
     expect(screen.getByText('Solicito factura A. Gracias')).toBeInTheDocument();
+
+    // Thread grouping structure survives the new <colgroup>: header row
+    // colSpan=5, each message row has 5 cells (thin indent + mensaje +
+    // recibido + leido + moderacion).
+    const table = screen.getByText(/JUAN_PEREZ/).closest('table');
+    const headerCell = screen.getByText(/JUAN_PEREZ/).closest('td');
+    expect(headerCell).toHaveAttribute('colspan', '5');
+    const messageRow = screen.getByText('Buen día me pasas la factura').closest('tr');
+    expect(messageRow.querySelectorAll('td').length).toBe(5);
+    const cols = table.querySelectorAll('colgroup > col');
+    expect(cols.length).toBe(5);
+  });
+});
+
+describe('Mensajes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns {} when the key is absent', () => {
+    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
+    localStorage.setItem(MENSAJES_COLUMN_SIZING_KEY, '{not valid json');
+    expect(() => loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).not.toThrow();
+    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('round-trips a valid columnSizing object under its own key', () => {
+    const sizing = { mensaje: 380 };
+    saveColumnSizing(sizing, MENSAJES_COLUMN_SIZING_KEY);
+    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual(sizing);
+  });
+});
+
+describe('Mensajes table — TanStack column-sizing render structure', () => {
+  it('renders one <col> per header and a resize grip only on "Mensaje" (Comprador · Pack is not resizable)', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Mensaje')).toBeInTheDocument();
+    });
+
+    const table = screen.getByText('Mensaje').closest('table');
+    const cols = table.querySelectorAll('colgroup > col');
+    const headers = table.querySelectorAll('thead th');
+    expect(cols.length).toBe(headers.length);
+    expect(cols.length).toBe(5);
+
+    // Only "Mensaje" is resizable — "Comprador · Pack" has no identity in
+    // per-message rows (thin indent cell only), so it stays fixed-width.
+    const grips = table.querySelectorAll('thead [role="separator"]');
+    expect(grips.length).toBe(1);
+  });
+
+  it('shows the reset-columns control only once sizing has been customized', async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Mensaje')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
+  });
+
+  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+    localStorage.setItem(MENSAJES_COLUMN_SIZING_KEY, JSON.stringify({ mensaje: 400 }));
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
+    });
+    localStorage.clear();
   });
 });
 
