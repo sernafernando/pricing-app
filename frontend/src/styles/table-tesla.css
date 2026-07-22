@@ -188,6 +188,21 @@
   /* Clase de color manual tiene prioridad */
 }
 
+/* Sticky L0 (product) row while its nested family/MLA tree is expanded — the
+   product row anchors below the sticky header (z-index 10) so it stays
+   visible as a reference while scrolling the expanded tree. Sticky must be
+   applied to the <td>s (a sticky <tr> is unreliable across browsers). Opaque
+   background required: falls back to the themed bg-primary, but honors a
+   manually-colored row's own tint via --row-sticky-bg (set inline in JS from
+   the same color token used by .row-color-*), so a colored product row keeps
+   its color while stuck. */
+.producto-row-sticky > td {
+  position: sticky;
+  top: var(--l0-sticky-top, 0px);
+  z-index: 5;
+  background: var(--row-sticky-bg, var(--bg-primary));
+}
+
 /* Fila seleccionada */
 .table-tesla-body tr.selected {
   background: var(--brand-primary-light);

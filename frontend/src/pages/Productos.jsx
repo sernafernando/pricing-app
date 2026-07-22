@@ -212,6 +212,13 @@ export default function Productos() {
   const mlasCacheRef = useRef(new Map());
   const promosCacheRef = useRef(new Map());
 
+  // Sticky L0 (product row) support: refs are created here; the effect that
+  // measures the live header height is declared further below, once
+  // `modoVista` (from useProductosToggles) exists — modoVista changes the
+  // header's column count/height.
+  const tableContainerRef = useRef(null);
+  const tableHeadRef = useRef(null);
+
   // Stable key derived from item_ids, not the array reference: productosOrdenados
   // gets a new array identity on every inline edit (setProductos(prods => prods.map(...))),
   // which would otherwise clear the caches and force a refetch on every re-expand.
@@ -386,6 +393,24 @@ export default function Productos() {
     8 + // checkbox, codigo, descripcion, marca, stock, costo, precio_clasica, acciones
     (modoVista === 'normal' ? 3 : 4) +
     1; // leading expand-toggle column
+
+  // Sticky L0 (product row) support: --l0-sticky-top must track the LIVE
+  // header height (it changes with modoVista, which adds/removes columns and
+  // can wrap the header to a different height) so a stuck product row sits
+  // right below the header instead of overlapping or leaving a gap.
+  useEffect(() => {
+    const headEl = tableHeadRef.current;
+    const containerEl = tableContainerRef.current;
+    if (!headEl || !containerEl) return undefined;
+    const updateStickyTop = () => {
+      containerEl.style.setProperty('--l0-sticky-top', `${headEl.offsetHeight}px`);
+    };
+    updateStickyTop();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(updateStickyTop);
+    observer.observe(headEl);
+    return () => observer.disconnect();
+  }, [modoVista]);
 
   const {
     celdaActiva, setCeldaActiva,
@@ -1500,13 +1525,13 @@ export default function Productos() {
         </div>
       </div>
 
-      <div className="table-container-tesla">
+      <div className="table-container-tesla" ref={tableContainerRef}>
         {loading ? (
           <div className="loading">Cargando...</div>
         ) : (
           <>
             <table className="table-tesla striped">
-              <thead className="table-tesla-head">
+              <thead className="table-tesla-head" ref={tableHeadRef}>
                 <tr>
                   <th aria-label="Expandir" />
                   <th className="th-checkbox">
@@ -1593,11 +1618,20 @@ export default function Productos() {
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
                   const colorClass = p.color_marcado ? `row-color-${p.color_marcado}` : '';
                   const isMlaOpen = mlaExpanded.isOpen(p.item_id);
+                  // Known limitation: if MULTIPLE products are expanded at once, their
+                  // sticky rows can overlap at the top while scrolling between them —
+                  // acceptable, the common case (one open) is what this targets; we
+                  // deliberately keep a single tbody (no per-product tbody split) to
+                  // avoid regressing the nth-child(even) striping and keyboard nav.
+                  const stickyColorVar = p.color_marcado
+                    ? COLORES_DISPONIBLES.find((c) => c.id === p.color_marcado)?.color
+                    : null;
                   const filas = [
                   <tr
                     key={p.item_id}
                     data-nav-row={rowIndex}
-                    className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
+                    className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''} ${isMlaOpen ? 'producto-row-sticky' : ''}`}
+                    style={isMlaOpen && stickyColorVar ? { '--row-sticky-bg': stickyColorVar } : undefined}
                   >
                     <td className={styles.spoilerToggleCell}>
                       <button

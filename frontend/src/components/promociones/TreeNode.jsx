@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent } from './treeNodeUtils';
@@ -20,6 +21,15 @@ const KIND_BADGE_CLASS = {
   catalogo: styles.badgeKindCatalogo,
   vinculada: styles.badgeKindVinculada,
   publicacion: styles.badgeKindPublicacion,
+};
+
+// Subtle per-kind row tint (design's requested "group band" read) — one level
+// down in weight from the badge hues above, so the row reads as a group
+// without competing with the badge itself.
+const KIND_ROW_CLASS = {
+  familia: styles.rowTintFamilia,
+  catalogo: styles.rowTintCatalogo,
+  vinculada: styles.rowTintVinculada,
 };
 
 /**
@@ -111,23 +121,22 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
       isOpen={isOpen}
       onToggle={() => setIsOpen((prev) => !prev)}
       ariaLabel={isOpen ? `Colapsar ${displayLabel}` : `Expandir ${displayLabel}`}
+      headerRowClassName={KIND_ROW_CLASS[node.kind]}
       header={
         <>
-          <td>
+          <td className={styles.treeNodeLabelCell}>
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
-          </td>
-          <td>
-            {displayLabel}
+            <span className={styles.treeNodeLabel}>{displayLabel}</span>
             {canRefresh && (
               <>
                 <button
                   type="button"
-                  className={styles.retryLink}
+                  className="btn-tesla outline-subtle-primary icon-only sm"
                   onClick={handleRefreshPromos}
                   disabled={refreshing}
                   aria-label={`Refrescar promociones de ${displayLabel}`}
                 >
-                  ↻
+                  <RefreshCw size={14} />
                 </button>
                 {refreshing && <span className={styles.provisionalPending}>Refrescando…</span>}
                 {refreshError && <span className={styles.feedbackError}>No se pudo refrescar</span>}
@@ -141,7 +150,7 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
         <div className={styles.treeNodePromosSection}>
           <button
             type="button"
-            className={styles.retryLink}
+            className="btn-tesla ghost sm"
             onClick={() => setPromosOpen((prev) => !prev)}
             aria-expanded={promosOpen}
           >

@@ -144,16 +144,6 @@
   font-size: 13px;
 }
 
-.retryLink {
-  border: none;
-  background: none;
-  color: var(--brand-primary);
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-  font-size: inherit;
-}
-
 .promoList {
   list-style: none;
   margin: 0;
@@ -429,6 +419,33 @@
 
 .treeNodeChildrenSection {
   margin-top: 4px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border-secondary);
+  padding-left: 14px;
+  border-left: 2px solid var(--border-primary);
+}
+
+/* Left-aligns the kind badge immediately followed by its label, instead of
+   the label floating in a separate wide cell. */
+.treeNodeLabelCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.treeNodeLabel {
+  color: var(--text-primary);
+}
+
+/* Subtle per-kind row tint (restrained "group band" read) — low-opacity
+   token backgrounds only, one step down from the badge hues so the badge
+   still stands out on the row. */
+.rowTintFamilia {
+  background: color-mix(in srgb, var(--purple-bg, var(--bg-secondary)) 40%, transparent);
+}
+
+.rowTintCatalogo {
+  background: color-mix(in srgb, var(--info-bg, var(--bg-secondary)) 40%, transparent);
+}
+
+.rowTintVinculada {
+  background: color-mix(in srgb, var(--teal-bg, var(--bg-secondary)) 40%, transparent);
 }

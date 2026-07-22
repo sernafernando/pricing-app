@@ -97,7 +97,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     return (
       <div className={styles.panelStateError}>
         Error al cargar promociones.{' '}
-        <button type="button" className={styles.retryLink} onClick={reload}>
+        <button type="button" className="btn-tesla ghost sm" onClick={reload}>
           Reintentar
         </button>
       </div>

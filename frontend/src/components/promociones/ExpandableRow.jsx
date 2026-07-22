@@ -9,12 +9,21 @@ import styles from './promociones.module.css';
  * NOT intended for the top-level Productos product row — scoped to the new
  * inner tables (L1 MLA rows, L2 promotion rows).
  */
-function ExpandableRow({ isOpen, onToggle, colSpan, header, children, ariaLabel, 'data-testid': dataTestId }) {
+function ExpandableRow({
+  isOpen,
+  onToggle,
+  colSpan,
+  header,
+  children,
+  ariaLabel,
+  'data-testid': dataTestId,
+  headerRowClassName,
+}) {
   const label = ariaLabel || (isOpen ? 'Colapsar' : 'Expandir');
 
   return (
     <>
-      <tr data-testid={dataTestId}>
+      <tr data-testid={dataTestId} className={headerRowClassName}>
         <td className={styles.spoilerToggleCell}>
           <button
             type="button"
