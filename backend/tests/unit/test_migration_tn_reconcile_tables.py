@@ -1,11 +1,11 @@
 """
-Phase A (PR2) — migration `20260722_ml_bot_messages_responder_permiso`.
+tn-reconcile-publish Slice 1 — migration `20260722_tn_reconcile_tables`.
 
 Mirrors `test_migration_ml_bot_messages_bot_columns.py`'s dialect-agnostic
 revision-graph layer (runs on SQLite CI): confirms the migration is
-correctly chained on top of PR1's migration. It is no longer the chain's
-current head — `20260722_tn_reconcile_tables` (tn-reconcile-publish Slice 1)
-was chained on top of it afterwards.
+registered and correctly chained on top of the prior head. It is no longer
+the chain's current head — `20260722_tn_producto_published` (DESPUBLICAR
+bugfix) was chained on top of it afterwards.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_REVISION = "20260722_ml_bot_messages_responder_permiso"
-_DOWN_REVISION = "20260722_ml_bot_messages_bot_columns"
+_REVISION = "20260722_tn_reconcile_tables"
+_DOWN_REVISION = "20260722_ml_bot_messages_responder_permiso"
 
 
 def _script_directory() -> ScriptDirectory:
@@ -34,8 +34,6 @@ class TestMigrationGraph:
         assert revision.down_revision == _DOWN_REVISION
 
     def test_is_ancestor_of_current_head(self) -> None:
-        """No longer the chain tip (superseded by 20260722_tn_reconcile_tables),
-        but still must be a real ancestor of whatever the current head is."""
         script = _script_directory()
         (head,) = script.get_heads()
         ancestor_revisions = {rev.revision for rev in script.walk_revisions(base="base", head=head)}

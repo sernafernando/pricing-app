@@ -1,0 +1,187 @@
+/* TiendaNubeReconcile — TN vs GBP reconciliation view (Slice 1, read-only) */
+
+.container {
+  padding: var(--spacing-lg);
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.headerLeft h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.description {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  margin: 4px 0 0;
+}
+
+.errorBanner {
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-red) 12%, transparent);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+/* Distinct from .errorBanner — a truncation notice (catalog_cap_hit) is a
+   warning about possibly-incomplete data, not a failure. */
+.warningBanner {
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-orange) 12%, transparent);
+  color: var(--cf-accent-orange);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+/* Sub-tabs (verdict groups) */
+.subTabBar {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-wrap: wrap;
+}
+
+.subTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--cf-text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.subTab:hover {
+  color: var(--cf-text-primary);
+}
+
+.subTabActive {
+  color: var(--cf-accent-orange);
+  border-bottom-color: var(--cf-accent-orange);
+  font-weight: 600;
+}
+
+/* DUPLICADO human-review notice — explicitly non-suggestive language */
+.reviewNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-blue) 10%, transparent);
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+}
+
+.duplicateGroup {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+  overflow: hidden;
+}
+
+.duplicateGroupHeader {
+  padding: 8px 12px;
+  background: var(--cf-bg-hover);
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.badgeWarning {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.badgeDanger {
+  background: color-mix(in srgb, var(--cf-accent-red) 15%, transparent);
+  color: var(--cf-accent-red);
+}
+
+.badgeInfo {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+/* Resizable table — mirrors MLQuestions.module.css's TanStack pattern
+   (#956: never hand-roll the resizer, always use column.getResizeHandler()). */
+table.resizableTable {
+  table-layout: fixed;
+}
+
+.resizableTable th {
+  position: relative;
+}
+
+.resizeGrip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  background: transparent;
+  border-right: 2px solid transparent;
+}
+
+.resizableTable th:hover .resizeGrip {
+  border-right-color: var(--cf-border-default);
+}
+
+.resizeGrip:hover,
+.resizeGripActive {
+  border-right-color: var(--cf-accent-blue) !important;
+}
+
+.columnSizingBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Paginator bar — distinct from .columnSizingBar (that one is only ever a
+   right-aligned single action; the paginator always needs a
+   space-between layout for the "Mostrando X-Y de Z" label + Prev/Next). */
+.paginatorBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--spacing-sm);
+}
+
+.btnSpaced {
+  margin-left: 8px;
+}

@@ -1,11 +1,17 @@
 """
-Phase A (PR2) — migration `20260722_ml_bot_messages_responder_permiso`.
+DESPUBLICAR bugfix — migration `20260722_tn_producto_published`.
 
-Mirrors `test_migration_ml_bot_messages_bot_columns.py`'s dialect-agnostic
-revision-graph layer (runs on SQLite CI): confirms the migration is
-correctly chained on top of PR1's migration. It is no longer the chain's
-current head — `20260722_tn_reconcile_tables` (tn-reconcile-publish Slice 1)
-was chained on top of it afterwards.
+Adds nullable `published` column to `tienda_nube_productos`. Confirms the
+migration is registered, correctly chained on top of the Slice 1 tables
+migration, and is an ancestor of the current head.
+
+Round 6, item 2: this file used to assert `test_is_current_head` (hard-coding
+that this exact revision IS the chain's tip). That assertion had already
+broken twice elsewhere in this same PR (`test_migration_ml_bot_messages_responder_permiso.py`,
+`test_migration_tn_reconcile_tables.py`) every time a later migration chained
+on top, and then got planted again here. Copied the same
+`test_is_ancestor_of_current_head` pattern those files use instead — the
+next migration anyone adds on top of this one no longer breaks this test.
 """
 
 from __future__ import annotations
@@ -16,8 +22,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_REVISION = "20260722_ml_bot_messages_responder_permiso"
-_DOWN_REVISION = "20260722_ml_bot_messages_bot_columns"
+_REVISION = "20260722_tn_producto_published"
+_DOWN_REVISION = "20260722_tn_reconcile_tables"
 
 
 def _script_directory() -> ScriptDirectory:
@@ -34,8 +40,6 @@ class TestMigrationGraph:
         assert revision.down_revision == _DOWN_REVISION
 
     def test_is_ancestor_of_current_head(self) -> None:
-        """No longer the chain tip (superseded by 20260722_tn_reconcile_tables),
-        but still must be a real ancestor of whatever the current head is."""
         script = _script_directory()
         (head,) = script.get_heads()
         ancestor_revisions = {rev.revision for rev in script.walk_revisions(base="base", head=head)}
