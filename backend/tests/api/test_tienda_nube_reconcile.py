@@ -179,7 +179,7 @@ class TestOneShotReport:
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         body = response.json()
-        assert set(body.keys()) == {"items", "total", "verdict_counts", "catalog_cap_hit"}
+        assert set(body.keys()) == {"items", "total", "verdict_counts", "catalog_cap_hit", "gbp_rows_cap_hit"}
         assert body["total"] == 1
         assert isinstance(body["items"], list)
 
@@ -231,6 +231,28 @@ class TestOneShotReport:
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         assert response.json()["catalog_cap_hit"] is False
+
+    def test_gbp_rows_cap_hit_false_under_the_cap(self, client, db, user_ver):
+        """The GBP side of the join is bounded too (round 6, item 1) — under
+        the cap, the flag must be false and nothing is truncated."""
+        response = _fetch_report(client, user_ver, gbp_rows=_mixed_verdict_gbp_rows())
+        assert response.status_code == 200
+        body = response.json()
+        assert body["gbp_rows_cap_hit"] is False
+        assert body["total"] == 4
+
+    def test_gbp_rows_cap_hit_true_and_rows_limited(self, client, db, user_ver):
+        """Over the cap: the flag is true (never silently truncated) AND the
+        actual row count is bounded to the cap — bounding memory/response
+        size is the whole point, not just reporting the overage."""
+        gbp_rows = [{"Código": f"FP-{i}", "tnr_id": 0, "tnr_variationID": 0, "stock": 0} for i in range(3)]
+        with patch("app.api.endpoints.tienda_nube_reconcile.GBP_ROWS_CAP", 2):
+            response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["gbp_rows_cap_hit"] is True
+        assert body["total"] == 2
+        assert len(body["items"]) == 2
 
 
 class TestBanlist:

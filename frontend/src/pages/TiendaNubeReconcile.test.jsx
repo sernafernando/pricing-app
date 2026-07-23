@@ -70,11 +70,23 @@ const BANEADOS = [
   },
 ];
 
-function setupApiMocks({ baneados = BANEADOS, verdictCounts = VERDICT_COUNTS, items = REPORTE_ITEMS, catalogCapHit = false } = {}) {
+function setupApiMocks({
+  baneados = BANEADOS,
+  verdictCounts = VERDICT_COUNTS,
+  items = REPORTE_ITEMS,
+  catalogCapHit = false,
+  gbpRowsCapHit = false,
+} = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/reporte') {
       return Promise.resolve({
-        data: { items, total: items.length, verdict_counts: verdictCounts, catalog_cap_hit: catalogCapHit },
+        data: {
+          items,
+          total: items.length,
+          verdict_counts: verdictCounts,
+          catalog_cap_hit: catalogCapHit,
+          gbp_rows_cap_hit: gbpRowsCapHit,
+        },
       });
     }
     if (url === '/tienda-nube-reconcile/baneados') {
@@ -131,9 +143,9 @@ describe('One-shot fetch — no refetch on navigation', () => {
       expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
     });
 
-    const malPublicadoTab = await screen.findByRole('button', { name: /Mal publicado/i });
+    const malPublicadoTab = await screen.findByRole('tab', { name: /Mal publicado/i });
     await user.click(malPublicadoTab);
-    const duplicadoTab = await screen.findByRole('button', { name: /Duplicado/i });
+    const duplicadoTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(duplicadoTab);
 
     // Still exactly 1 report fetch — sub-tab filtering happened client-side.
@@ -182,6 +194,63 @@ describe('catalog_cap_hit banner', () => {
     expect(banner.className).not.toMatch(/errorBanner/i);
     expect(banner.className).toMatch(/warningBanner/i);
   });
+
+  it('surfaces gbp_rows_cap_hit through the same warning style (round 6, item 1)', async () => {
+    setupApiMocks({ gbpRowsCapHit: true });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const banner = await screen.findByText(/reporte GBP.*límite|límite.*reporte GBP/i);
+    expect(banner.className).not.toMatch(/errorBanner/i);
+    expect(banner.className).toMatch(/warningBanner/i);
+  });
+});
+
+describe('Accessible sub-tabs (round 6, item 3)', () => {
+  it('marks the container as a tablist and each tab with role="tab" + aria-selected tracking the active tab', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tablist = await screen.findByRole('tablist');
+    expect(tablist).toBeInTheDocument();
+
+    const todosTab = await screen.findByRole('tab', { name: /Todos/i });
+    const malPublicadoTab = await screen.findByRole('tab', { name: /Mal publicado/i });
+
+    expect(todosTab).toHaveAttribute('aria-selected', 'true');
+    expect(malPublicadoTab).toHaveAttribute('aria-selected', 'false');
+
+    await user.click(malPublicadoTab);
+
+    expect(todosTab).toHaveAttribute('aria-selected', 'false');
+    expect(malPublicadoTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('associates the active tab with its panel via aria-controls/id and role="tabpanel"', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const todosTab = await screen.findByRole('tab', { name: /Todos/i });
+    const panel = await screen.findByRole('tabpanel');
+
+    expect(todosTab).toHaveAttribute('aria-controls', panel.id);
+    expect(panel).toHaveAttribute('aria-labelledby', todosTab.id);
+  });
+
+  it('moves selection with ArrowRight/ArrowLeft between tabs (roving focus)', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const todosTab = await screen.findByRole('tab', { name: /Todos/i });
+    todosTab.focus();
+
+    await user.keyboard('{ArrowRight}');
+    const faltaVincularTab = await screen.findByRole('tab', { name: /Falta vincular/i });
+    expect(faltaVincularTab).toHaveAttribute('aria-selected', 'true');
+    expect(faltaVincularTab).toHaveFocus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(await screen.findByRole('tab', { name: /Todos/i })).toHaveAttribute('aria-selected', 'true');
+  });
 });
 
 describe('Anomaly sub-tabs', () => {
@@ -189,7 +258,7 @@ describe('Anomaly sub-tabs', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Mal publicado/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Mal publicado/i })).toBeInTheDocument();
     });
   });
 
@@ -202,8 +271,8 @@ describe('Anomaly sub-tabs', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Falta publicar \(3\)/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Mal vinculado \(1\)/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Falta publicar \(3\)/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Mal vinculado \(1\)/i })).toBeInTheDocument();
     });
   });
 
@@ -244,7 +313,7 @@ describe('Anomaly sub-tabs', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const faltaPublicarTab = await screen.findByRole('button', { name: /Falta publicar/i });
+    const faltaPublicarTab = await screen.findByRole('tab', { name: /Falta publicar/i });
     await user.click(faltaPublicarTab);
 
     const nextButton = await screen.findByRole('button', { name: /Siguiente/i });
@@ -273,7 +342,7 @@ describe('Anomaly sub-tabs', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const tab = await screen.findByRole('button', { name: /Falta vincular/i });
+    const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
     await user.click(tab);
 
     const banButton = await screen.findByRole('button', { name: /Banear/i });
@@ -287,7 +356,7 @@ describe('Anomaly sub-tabs', () => {
   it('shows a dedicated DUPLICADO sub-tab labeled as human review, not error', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const dupTab = await screen.findByRole('button', { name: /Duplicado/i });
+    const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     expect(dupTab).toBeInTheDocument();
 
     const user = userEvent.setup();
@@ -305,7 +374,7 @@ describe('Anomaly sub-tabs', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     const user = userEvent.setup();
-    const dupTab = await screen.findByRole('button', { name: /Duplicado/i });
+    const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
     const groupHeading = await screen.findByText(/EAN GBP: 333/i);
@@ -332,7 +401,7 @@ describe('Anomaly sub-tabs', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     const user = userEvent.setup();
-    const dupTab = await screen.findByRole('button', { name: /Duplicado/i });
+    const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
     const groupHeading = await screen.findByText(/EAN GBP: 333/i);
@@ -387,7 +456,7 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
     const unbanButton = await screen.findByRole('button', { name: /Desbanear/i });
@@ -406,9 +475,9 @@ describe('Banlist view', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Todos/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Todos/i })).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /Banlist/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Banlist/i })).not.toBeInTheDocument();
   });
 
   it('loads the banlist count on MOUNT, not only when the Banlist tab is opened (a stale "(0)" is the same "lying counter" bug this slice fixes for verdict_counts)', async () => {
@@ -417,14 +486,14 @@ describe('Banlist view', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/baneados');
     });
-    expect(await screen.findByRole('button', { name: /Banlist \(1\)/i })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: /Banlist \(1\)/i })).toBeInTheDocument();
   });
 
   it('refreshes the banlist count after a successful ban from the report tab', async () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    await screen.findByRole('button', { name: /Banlist \(1\)/i });
+    await screen.findByRole('tab', { name: /Banlist \(1\)/i });
     const initialBaneadosCalls = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
 
     const banButton = await screen.findByRole('button', { name: /Banear/i });
@@ -440,7 +509,7 @@ describe('Banlist view', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
     expect(await screen.findByText('BANNED-1')).toBeInTheDocument();
@@ -451,7 +520,7 @@ describe('Banlist view', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
     const unbanButton = await screen.findByRole('button', { name: /Desbanear/i });
@@ -472,7 +541,7 @@ describe('Banlist view', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
     const checkboxes = await screen.findAllByRole('checkbox');
@@ -513,7 +582,7 @@ describe('Banlist view', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
     const checkboxes = await screen.findAllByRole('checkbox');

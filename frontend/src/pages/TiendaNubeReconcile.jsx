@@ -164,12 +164,18 @@ export default function TiendaNubeReconcile() {
   const [page, setPage] = useState(1);
   const [verdictCounts, setVerdictCounts] = useState({});
   const [catalogCapHit, setCatalogCapHit] = useState(false);
+  const [gbpRowsCapHit, setGbpRowsCapHit] = useState(false);
 
   // Changing sub-tab always resets to page 1 in the same event.
   const setSubTab = useCallback((tab) => {
     setSubTabState(tab);
     setPage(1);
   }, []);
+
+  // Roving-focus refs for arrow-key navigation between tabs (WAI-ARIA
+  // tablist pattern) — keyed by tab id so focus can be moved
+  // programmatically after an arrow key changes the selected tab.
+  const tabRefs = useRef({});
 
   // Banlist view state
   const [baneados, setBaneados] = useState([]);
@@ -189,6 +195,7 @@ export default function TiendaNubeReconcile() {
       setReporte(response.data?.items || []);
       setVerdictCounts(response.data?.verdict_counts || {});
       setCatalogCapHit(Boolean(response.data?.catalog_cap_hit));
+      setGbpRowsCapHit(Boolean(response.data?.gbp_rows_cap_hit));
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
@@ -342,6 +349,35 @@ export default function TiendaNubeReconcile() {
 
   const hasCustomColumnSizing = Object.keys(columnSizing).length > 0;
 
+  // WAI-ARIA tablist keyboard pattern: Left/Right (and Home/End) move BOTH
+  // selection and focus between tabs. Order must match the rendered order
+  // (verdict tabs, then Banlist only if it's actually rendered).
+  const allTabIds = [...VERDICT_SUB_TABS.map((t) => t.id), ...(puedeGestionarBanlist ? ['BANLIST'] : [])];
+
+  const focusTab = (id) => {
+    tabRefs.current[id]?.focus();
+  };
+
+  const handleTabKeyDown = (event) => {
+    const currentIndex = allTabIds.indexOf(subTab);
+    if (currentIndex === -1) return;
+    let nextId = null;
+    if (event.key === 'ArrowRight') {
+      nextId = allTabIds[(currentIndex + 1) % allTabIds.length];
+    } else if (event.key === 'ArrowLeft') {
+      nextId = allTabIds[(currentIndex - 1 + allTabIds.length) % allTabIds.length];
+    } else if (event.key === 'Home') {
+      nextId = allTabIds[0];
+    } else if (event.key === 'End') {
+      nextId = allTabIds[allTabIds.length - 1];
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setSubTab(nextId);
+    focusTab(nextId);
+  };
+
   if (!puedeVer) {
     return null;
   }
@@ -373,12 +409,30 @@ export default function TiendaNubeReconcile() {
           puede estar incompleta.
         </div>
       )}
+      {gbpRowsCapHit && (
+        <div className={styles.warningBanner}>
+          El reporte GBP superó el límite de filas interno — la reconciliación puede estar incompleta.
+        </div>
+      )}
 
-      <div className={styles.subTabBar}>
+      <div
+        className={styles.subTabBar}
+        role="tablist"
+        aria-label="Veredictos de reconciliación"
+        onKeyDown={handleTabKeyDown}
+      >
         {VERDICT_SUB_TABS.map((tab) => (
           <button
             key={tab.id}
+            ref={(el) => {
+              tabRefs.current[tab.id] = el;
+            }}
             type="button"
+            role="tab"
+            id={`tn-tab-${tab.id}`}
+            aria-selected={subTab === tab.id}
+            aria-controls={`tn-panel-${tab.id}`}
+            tabIndex={subTab === tab.id ? 0 : -1}
             className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
             onClick={() => setSubTab(tab.id)}
           >
@@ -387,7 +441,15 @@ export default function TiendaNubeReconcile() {
         ))}
         {puedeGestionarBanlist && (
           <button
+            ref={(el) => {
+              tabRefs.current.BANLIST = el;
+            }}
             type="button"
+            role="tab"
+            id="tn-tab-BANLIST"
+            aria-selected={subTab === 'BANLIST'}
+            aria-controls="tn-panel-BANLIST"
+            tabIndex={subTab === 'BANLIST' ? 0 : -1}
             className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
             onClick={() => setSubTab('BANLIST')}
           >
@@ -396,6 +458,12 @@ export default function TiendaNubeReconcile() {
         )}
       </div>
 
+      <div
+        role="tabpanel"
+        id={`tn-panel-${subTab}`}
+        aria-labelledby={`tn-tab-${subTab}`}
+        tabIndex={0}
+      >
       {subTab === 'DUPLICADO' && (
         <div className={styles.reviewNotice}>
           Estos grupos requieren revisión humana: puede tratarse de un caso legítimo (por ejemplo, un
@@ -595,6 +663,7 @@ export default function TiendaNubeReconcile() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

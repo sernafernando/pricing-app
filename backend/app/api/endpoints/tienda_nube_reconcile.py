@@ -40,12 +40,17 @@ verdict taxonomy — an unknown value is a 422, never a silently-empty "no
 anomalies of this type" result), and `verdict_counts` always reports the
 TRUE count per verdict across the WHOLE result set regardless of that filter.
 
-Scaling note: the internal `tienda_nube_productos` query is bounded by
-`TN_PRODUCTOS_QUERY_CAP` as an explicit safety ceiling against unbounded
-growth (this repo has a documented pool-exhaustion history), ordered by `id`
-so which rows you get under the cap is at least deterministic.
-`catalog_cap_hit` reports whether that ceiling was reached, so a truncated
-catalog is visible to callers instead of a silent partial reconciliation.
+Scaling note: BOTH sides of the join are bounded, not just one. The internal
+`tienda_nube_productos` query is bounded by `TN_PRODUCTOS_QUERY_CAP`, ordered
+by `id` so which rows you get under the cap is at least deterministic;
+`catalog_cap_hit` reports whether that ceiling was reached. The GBP side
+(`fetch_gbp_report_78()`'s rows, which have no bound of their own) is
+likewise capped by `GBP_ROWS_CAP`, reported via `gbp_rows_cap_hit` — one-shot
+fetch (no server pagination) is NOT the same as unbounded: without this cap,
+a large report 78 would assemble a multi-MB JSON response (with nested
+`tn_matches`) in memory while the pooled connection above is still held.
+Neither cap ever truncates silently — both flags surface a possibly-partial
+reconciliation to the caller instead of a silent partial one.
 """
 
 import logging
@@ -82,6 +87,15 @@ router = APIRouter(prefix="/tienda-nube-reconcile", tags=["tienda-nube-reconcile
 # scaling limit, logged loudly rather than silently truncated.
 TN_PRODUCTOS_QUERY_CAP = 50_000
 
+# Mirrors TN_PRODUCTOS_QUERY_CAP for the OTHER side of the join — the GBP
+# rows from `fetch_gbp_report_78()` have no bound of their own. One-shot
+# fetch (no server pagination) is not the same as unbounded: without this,
+# a large report 78 assembles a multi-MB JSON (with nested `tn_matches`)
+# in memory while the pooled connection is still held for the request
+# (see the module docstring's pool-safety note). Same contract as the
+# catalog cap: reported via `gbp_rows_cap_hit`, never silently truncated.
+GBP_ROWS_CAP = 50_000
+
 
 class TnMatchResponse(BaseModel):
     product_id: int
@@ -105,6 +119,7 @@ class ReconcileReportResponse(BaseModel):
     total: int
     verdict_counts: Dict[str, int]
     catalog_cap_hit: bool
+    gbp_rows_cap_hit: bool
 
 
 class BanEanRequest(BaseModel):
@@ -159,6 +174,14 @@ async def get_reconciliation_report(
     except GBPFetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    gbp_rows_cap_hit = len(gbp_rows) >= GBP_ROWS_CAP
+    if gbp_rows_cap_hit:
+        logger.warning(
+            "GBP report 78 row count reached GBP_ROWS_CAP=%d — reconciliation may be missing rows beyond the cap",
+            GBP_ROWS_CAP,
+        )
+        gbp_rows = gbp_rows[:GBP_ROWS_CAP]
+
     def _load_and_compute():
         tn_productos = db.query(TiendaNubeProducto).order_by(TiendaNubeProducto.id).limit(TN_PRODUCTOS_QUERY_CAP).all()
         cap_hit = len(tn_productos) >= TN_PRODUCTOS_QUERY_CAP
@@ -194,7 +217,11 @@ async def get_reconciliation_report(
     ]
 
     return ReconcileReportResponse(
-        items=items, total=len(filtered), verdict_counts=verdict_counts, catalog_cap_hit=cap_hit
+        items=items,
+        total=len(filtered),
+        verdict_counts=verdict_counts,
+        catalog_cap_hit=cap_hit,
+        gbp_rows_cap_hit=gbp_rows_cap_hit,
     )
 
 
