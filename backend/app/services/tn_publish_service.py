@@ -32,6 +32,7 @@ failure) so the reconciliation view reflects the change without waiting for
 the next sync.
 """
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -49,14 +50,20 @@ logger = logging.getLogger(__name__)
 def _audit(db: Session, usuario: Usuario, product_id: int, outcome: Dict[str, Any]) -> None:
     """Best-effort audit log — a logging failure must never mask or reverse
     the TN write outcome already computed and about to be returned."""
+    # Only a genuinely-submitted write actually flipped `published` to False.
+    # A rejected/ambiguous/already-unpublished/not-found outcome changed
+    # nothing, so recording a True->False transition on those would make the
+    # structured audit fields contradict what really happened (the money-path
+    # audit trail must not lie — the `comentario` already carries the status).
+    changed = outcome.get("status") == "submitted"
     try:
         db.add(
             Auditoria(
                 item_id=product_id,
                 usuario_id=usuario.id,
                 tipo_accion=TipoAccion.TN_DESPUBLICAR,
-                valores_anteriores={"published": True},
-                valores_nuevos={"published": False},
+                valores_anteriores={"published": True} if changed else None,
+                valores_nuevos={"published": False} if changed else None,
                 comentario=f"TN unpublish product_id={product_id}: status={outcome.get('status')}",
             )
         )
@@ -75,11 +82,17 @@ def _classify(write_result: Dict[str, Any]) -> Dict[str, Any]:
         return {"submitted": True, "status": "submitted", "status_code": write_result["status_code"]}
 
     if not write_result["ambiguous"]:
+        # `detail` is typed `Optional[str]` on the endpoint's response model,
+        # but TN's rejection body is usually a parsed JSON dict — serialize it
+        # so returning the outcome can never 500 on model validation.
+        body = write_result.get("body")
+        if body is not None and not isinstance(body, str):
+            body = json.dumps(body, default=str)
         return {
             "submitted": False,
             "status": "rejected_by_proxy",
             "status_code": write_result["status_code"],
-            "detail": write_result.get("body"),
+            "detail": body,
         }
 
     return {

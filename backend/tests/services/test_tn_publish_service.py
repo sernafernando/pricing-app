@@ -102,6 +102,8 @@ class TestSuccessfulWrite:
         unpublish_product(db, user, 555, client=fake_client)
         audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_DESPUBLICAR).all()
         assert len(audit_rows) == 1
+        # A real write happened, so the structured transition is recorded.
+        assert audit_rows[0].valores_nuevos == {"published": False}
         assert audit_rows[0].item_id == 555
         assert audit_rows[0].usuario_id == user.id
 
@@ -114,8 +116,24 @@ class TestRejectedByProxy:
         outcome = unpublish_product(db, user, 555, client=fake_client)
         assert outcome["status"] == "rejected_by_proxy"
         assert outcome["submitted"] is False
+        # TN's rejection body is a dict; `detail` must be serialized to a
+        # string so the endpoint's `Optional[str]` response model never 500s.
+        assert isinstance(outcome["detail"], str)
+        assert "nf" in outcome["detail"]
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 555).first()
         assert row.published is True
+
+    def test_rejected_audit_row_does_not_claim_a_published_change(self, db):
+        user = _make_user(db)
+        _make_producto(db, product_id=556, published=True)
+        fake_client = _FakeClient({"ok": False, "status_code": 422, "ambiguous": False, "body": {"error": "x"}})
+        unpublish_product(db, user, 556, client=fake_client)
+        audit = db.query(Auditoria).filter(Auditoria.item_id == 556).one()
+        # Nothing was written to TN, so the structured fields must not record
+        # a True->False transition that never happened.
+        assert audit.valores_nuevos is None
+        assert audit.valores_anteriores is None
+        assert "rejected_by_proxy" in audit.comentario
 
 
 class TestAmbiguousOutcome:
