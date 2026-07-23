@@ -43,6 +43,11 @@ function setupBaseApiMocks() {
     if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
     return Promise.resolve({ data: {} });
   });
+  // Reset to a harmless default on every test — `vi.clearAllMocks()` (in the
+  // shared setup.js) only clears call history, NOT `mockImplementation`, so
+  // a test-local `api.post.mockImplementation(...)` (e.g. the `sent: false`
+  // cases below) would otherwise leak into every later test in this file.
+  api.post.mockImplementation(() => Promise.resolve({ data: {} }));
 }
 
 beforeEach(() => {
@@ -565,6 +570,22 @@ describe('Mensajes tab — thread-header actions (permission-gated)', () => {
     });
   });
 
+  it('renders "Tomar" for a failed anchor and calls take-over (finding 1: failed is recoverable, not a dead end)', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    const FAILED_MESSAGE = { ...AWAITING_MESSAGE, id: 13, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' };
+    mockMessagesList([FAILED_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const takeOverBtn = await screen.findByRole('button', { name: /tomar el mensaje/i });
+    await user.click(takeOverBtn);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(`/ml-bot/messages/${FAILED_MESSAGE.id}/take-over`);
+    });
+  });
+
   it('renders "Editar" + "Enviar" for a taken_over anchor; edit opens modal prefilled with drafted_answer, save calls PUT', async () => {
     mockTienePermiso.mockImplementation(() => true);
     mockMessagesList([TAKEN_OVER_MESSAGE]);
@@ -604,7 +625,7 @@ describe('Mensajes tab — thread-header actions (permission-gated)', () => {
     });
   });
 
-  it('surfaces a visible error and does NOT show success when the send response is HTTP 200 with sent: false', async () => {
+  it('surfaces the TRANSIENT-retry message when sent: false and bot_status stays taken_over', async () => {
     mockTienePermiso.mockImplementation(() => true);
     mockMessagesList([TAKEN_OVER_MESSAGE]);
     api.post.mockImplementation((url) => {
@@ -620,9 +641,39 @@ describe('Mensajes tab — thread-header actions (permission-gated)', () => {
     const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
     await user.click(sendBtn);
 
+    // Exact transient wording — must NOT be confused with the permanent
+    // "rechazado en forma permanente" message (finding 1: collapsing both
+    // outcomes into one hardcoded string hid a dead-end thread).
     await waitFor(() => {
-      expect(screen.getByText(/no se completó|falla transitoria/i)).toBeInTheDocument();
+      expect(screen.getByText(/El envío no se completó \(falla transitoria\)\. El mensaje sigue disponible para reintentar\./i)).toBeInTheDocument();
     });
+    expect(screen.queryByText(/rechazado en forma permanente/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Enviado$/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the PERMANENT-failure message with last_error when sent: false and bot_status is failed', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    const FAILED_MESSAGE = { ...TAKEN_OVER_MESSAGE, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' };
+    api.post.mockImplementation((url) => {
+      if (url === `/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`) {
+        return Promise.resolve({ data: { message: FAILED_MESSAGE, sent: false } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    await user.click(sendBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/El envío fue rechazado en forma permanente: ML rechazó el mensaje \(400\)\. Podés retomar el mensaje para reintentar\./i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/falla transitoria/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Enviado$/i)).not.toBeInTheDocument();
   });
 });

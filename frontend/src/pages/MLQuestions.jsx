@@ -115,7 +115,7 @@ const MESSAGE_BOT_STATUS_BADGE_CLASS = {
 
 // States a thread's anchor message may be taken over from (mirrors backend
 // `_MESSAGE_TAKE_OVER_SOURCE_STATES`).
-const MESSAGE_TAKE_OVER_STATES = ['awaiting_human', 'blocked_claim'];
+const MESSAGE_TAKE_OVER_STATES = ['awaiting_human', 'blocked_claim', 'failed'];
 // ML post-sale conversation link (T0.2 verified — orchestrator instruction):
 // query string intentionally omitted.
 function buildMlConversationLink(packId) {
@@ -708,13 +708,22 @@ export default function MLQuestions() {
   }, message.id);
 
   const handleSendMessage = (message) => runMessageAction(async () => {
-    // The backend returns HTTP 200 with `sent: false` on a TRANSIENT send
-    // failure (message stays `taken_over` for manual retry) — a thrown
-    // error is NOT the only failure shape here. Surface `sent: false`
-    // explicitly, otherwise the operator sees no error and believes the
-    // buyer received the reply when they did not.
+    // The backend returns HTTP 200 with `sent: false` on TWO different
+    // outcomes (never a thrown error): a PERMANENT failure (bot_status ->
+    // `failed`, dead end unless `failed` is a valid take-over source) and a
+    // TRANSIENT failure (bot_status stays `taken_over`, retryable). Use
+    // `data.message.bot_status` to tell them apart — collapsing both into
+    // one message either lies to the operator (permanent framed as
+    // "reintentá") or hides a `last_error` worth surfacing.
     const { data } = await api.post(`/ml-bot/messages/${message.id}/send`);
     if (data?.sent === false) {
+      const sentStatus = data?.message?.bot_status;
+      if (sentStatus === 'failed') {
+        const lastError = data?.message?.last_error;
+        throw new Error(
+          `El envío fue rechazado en forma permanente${lastError ? `: ${lastError}.` : '.'} Podés retomar el mensaje para reintentar.`,
+        );
+      }
       throw new Error('El envío no se completó (falla transitoria). El mensaje sigue disponible para reintentar.');
     }
   }, message.id);
@@ -1505,7 +1514,7 @@ export default function MLQuestions() {
             </div>
           )}
 
-          {msgActionError && (
+          {msgActionError && !editMessage && (
             <div className={styles.errorBar}>
               <AlertTriangle size={14} />
               {msgActionError}
