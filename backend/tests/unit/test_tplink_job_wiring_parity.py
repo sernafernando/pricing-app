@@ -18,8 +18,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
-
 
 def _detail_row(
     *,
@@ -98,14 +96,25 @@ class TestBothJobsUseSharedAggregationSql:
 
     def test_incremental_has_no_private_distinct_on_sql(self) -> None:
         """No function BODY in the wrapper embeds its own 'DISTINCT ON' SQL
-        (module-level prose mentioning the removed pattern is fine)."""
+        (module-level prose mentioning the removed pattern is fine).
+
+        Dunder members are skipped on purpose: on Python 3.14 (PEP 649 lazy
+        annotations) the interpreter synthesizes a module-level `__annotate__`
+        function, and `inspect.getsource` on it resolves to the module's first
+        block — the docstring, which describes the removed `DISTINCT ON`
+        pattern in prose. Without this filter the test fails on 3.14 (the local
+        venv) while passing on 3.11 (CI), flagging the very prose its own
+        docstring declares exempt.
+        """
         import inspect
         import app.scripts.agregar_metricas_tplink_incremental as incremental
 
-        for _, func in inspect.getmembers(incremental, inspect.isfunction):
-            if func.__module__ != incremental.__name__:
+        for name, func in inspect.getmembers(incremental, inspect.isfunction):
+            if name.startswith("__") or func.__module__ != incremental.__name__:
                 continue
-            assert "DISTINCT ON" not in inspect.getsource(func)
+            assert "DISTINCT ON" not in inspect.getsource(func), (
+                f"{name}() embeds its own DISTINCT ON SQL; it must use the shared core's aggregating query"
+            )
 
 
 class TestCrossJobKeyAndValueParity:
