@@ -25,12 +25,12 @@ from app.api.endpoints import (
     calculos,
     configuracion,
     items_sin_mla,
-    tienda_nube_reconcile,
     dashboard_ml,
     dashboard_tplink,
     erp_sync,
     ml_catalog,
     tienda_nube,
+    tienda_nube_reconcile,
     gbp_parser,
     notificaciones,
     offsets_ganancia,
@@ -308,12 +308,12 @@ app.include_router(comisiones.router, prefix="/api", tags=["comisiones"])
 app.include_router(calculos.router, prefix="/api", tags=["calculos"])
 app.include_router(configuracion.router, prefix="/api", tags=["configuracion"])
 app.include_router(items_sin_mla.router, prefix="/api/items-sin-mla", tags=["items-sin-mla"])
-app.include_router(tienda_nube_reconcile.router, prefix="/api", tags=["tienda-nube-reconcile"])
 app.include_router(dashboard_ml.router, prefix="/api", tags=["dashboard-ml"])
 app.include_router(dashboard_tplink.router, prefix="/api", tags=["dashboard-tplink"])
 app.include_router(erp_sync.router, prefix="/api", tags=["erp-sync"])
 app.include_router(ml_catalog.router, prefix="/api/ml-catalog", tags=["ml-catalog"])
 app.include_router(tienda_nube.router, prefix="/api/tienda-nube", tags=["tienda-nube"])
+app.include_router(tienda_nube_reconcile.router, prefix="/api", tags=["tienda-nube-reconcile"])
 app.include_router(gbp_parser.router, prefix="/api", tags=["gbp-parser"])
 app.include_router(notificaciones.router, prefix="/api", tags=["notificaciones"])
 app.include_router(offsets_ganancia.router, prefix="/api", tags=["offsets-ganancia"])

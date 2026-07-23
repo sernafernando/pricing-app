@@ -55,6 +55,60 @@ class TestFaltaPublicar:
         assert results == []
 
 
+class TestBanlistScope:
+    """Banning an EAN means "we don't want to publish this" — it MUST only
+    hide the publish-candidate verdicts (FALTA_PUBLICAR, FALTA_VINCULAR).
+    It MUST NOT hide data-quality anomalies (MAL_VINCULADO, MAL_PUBLICADO,
+    DUPLICADO): banning is not a way to sweep a broken publication under the
+    rug, it only means "don't offer this as something to go publish"."""
+
+    def test_banned_ean_hides_falta_publicar(self):
+        gbp_rows = [_gbp_row(codigo="BANNED-1", tnr_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos, banned_eans={"BANNED-1"})
+
+        assert results == []
+
+    def test_banned_ean_hides_falta_vincular(self):
+        gbp_rows = [_gbp_row(codigo="BANNED-2", tnr_id=0)]
+        tn_productos = [_tn(sku="BANNED-2")]
+
+        results = compute_verdicts(gbp_rows, tn_productos, banned_eans={"BANNED-2"})
+
+        assert results == []
+
+    def test_banned_ean_does_not_hide_mal_vinculado(self):
+        gbp_rows = [_gbp_row(codigo="BANNED-3", tnr_id=501, tnr_variation_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos, banned_eans={"BANNED-3"})
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_VINCULADO"
+
+    def test_banned_ean_does_not_hide_mal_publicado(self):
+        gbp_rows = [_gbp_row(codigo="BANNED-4", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="999-different")]
+
+        results = compute_verdicts(gbp_rows, tn_productos, banned_eans={"BANNED-4"})
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_PUBLICADO"
+
+    def test_banned_ean_does_not_hide_duplicado(self):
+        gbp_rows = [
+            _gbp_row(codigo="BANNED-5", tnr_id=501, tnr_variation_id=12),
+            _gbp_row(codigo="BANNED-5-B", tnr_id=501, tnr_variation_id=12),
+        ]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="BANNED-5")]
+
+        results = compute_verdicts(gbp_rows, tn_productos, banned_eans={"BANNED-5"})
+
+        assert len(results) == 2
+        assert all(r.verdict == "DUPLICADO" for r in results)
+
+
 class TestMalVinculado:
     def test_linked_product_without_variant(self):
         gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=0)]
@@ -207,21 +261,12 @@ class TestDespublicar:
         assert len(results) == 1
         assert results[0].despublicar is False
 
-    def test_activo_true_alone_never_triggers_despublicar(self):
-        """Regression guard for the fixed bug: `activo=True` with `published`
-        left at its default (None/unset) must NOT be treated as published."""
-        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock=0)]
-        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", activo=True, published=None)]
-
-        results = compute_verdicts(gbp_rows, tn_productos)
-
-        assert len(results) == 1
-        assert results[0].despublicar is False
-
     def test_published_none_with_no_stock_is_fail_safe_not_flagged(self):
         """Rows not yet re-synced (published IS NULL) are UNKNOWN, not
         published — the fail-safe default must never over-claim DESPUBLICAR
-        on unknown data."""
+        on unknown data. Also a regression guard for the fixed bug:
+        `activo=True` with `published` left at its default (None/unset) must
+        NOT be treated as published."""
         gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock=0)]
         tn_productos = [_tn(product_id=501, variant_id=12, sku="123", activo=True, published=None)]
 

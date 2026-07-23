@@ -7,9 +7,13 @@ from app.core.database import Base
 class TnReconcileBanlist(Base):
     """EAN-keyed ban list for the TN reconciliation view.
 
-    Mirrors `ItemSinMLABanlist`. A banned EAN is hidden from the actionable
-    reconciliation view until explicitly unbanned; entries persist across
-    GBP report refreshes (verdicts are recomputed live, bans are not).
+    Mirrors `ItemSinMLABanlist`. Banning an EAN means "we don't want to
+    publish this" — it hides ONLY the publish-candidate verdicts
+    (FALTA_VINCULAR, FALTA_PUBLICAR) until explicitly unbanned. It NEVER
+    hides a data-quality anomaly (MAL_VINCULADO, MAL_PUBLICADO, DUPLICADO):
+    banning is not a way to sweep an existing mis-publication out of review.
+    Entries persist across GBP report refreshes (verdicts are recomputed
+    live, bans are not) — see `tn_reconciliation_service.compute_verdicts`.
     """
 
     __tablename__ = "tn_reconcile_banlist"

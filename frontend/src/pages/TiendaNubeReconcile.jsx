@@ -1,23 +1,38 @@
 /**
- * TiendaNubeReconcile — read-only reconciliation view (Slice 1).
+ * TiendaNubeReconcile — read-only reconciliation view + banlist management
+ * (Slice 1).
  *
  * Joins GBP export report 78 against the Tienda Nube catalog live (verdicts
  * are never persisted, only ban-list decisions are). Surfaces the verdict
  * taxonomy as sub-tabs, with MAL_PUBLICADO and DUPLICADO as first-class
- * dedicated views per the spec's Data-Quality Anomaly Surfacing requirement.
+ * dedicated views per the spec's Data-Quality Anomaly Surfacing requirement,
+ * plus a dedicated Banlist sub-tab completing the ban/unban cycle (a
+ * mis-banned EAN must always be recoverable from the UI).
  *
  * DUPLICADO groups are presented as "needs human review", never as an error,
  * and MUST NOT pre-select/highlight/recommend any conflicting row — the
  * human, not the system, decides (see spec: DUPLICADO Verdict requirement).
+ *
+ * Banning only means "don't offer this as something to publish" — it hides
+ * FALTA_PUBLICAR/FALTA_VINCULAR, never MAL_VINCULADO/MAL_PUBLICADO/DUPLICADO
+ * (enforced server-side in `tn_reconciliation_service.compute_verdicts`).
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import api from '../services/api';
 import styles from './TiendaNubeReconcile.module.css';
 
 export const COLUMN_SIZING_STORAGE_KEY = 'tnreconcile:colsizing:reporte';
+
+// Slice 1's report is a bounded internal view over a single ERP export
+// report — request one generously-sized page instead of building a full
+// pager UI (fast-follow if the report ever exceeds this size; see the
+// endpoint's TN_PRODUCTOS_QUERY_CAP scaling note).
+const REPORT_PAGE_SIZE = 200;
 
 const VERDICT_LABELS = {
   FALTA_VINCULAR: 'Falta vincular',
@@ -38,8 +53,10 @@ const VERDICT_BADGE_CLASS = {
 };
 
 // Sub-tabs shown, in order. "todos" aggregates every actionable verdict
-// (everything except OK, which is not an anomaly).
-const SUB_TABS = [
+// (everything except OK, which is not an anomaly). "BANLIST" is not a
+// verdict — it's the banned-EAN management view (added to complete the
+// ban/unban cycle: a mis-banned EAN must be recoverable from the UI).
+const VERDICT_SUB_TABS = [
   { id: 'todos', label: 'Todos' },
   { id: 'FALTA_VINCULAR', label: 'Falta vincular' },
   { id: 'FALTA_PUBLICAR', label: 'Falta publicar' },
@@ -67,11 +84,23 @@ function saveColumnSizing(state) {
   }
 }
 
+// Single source of truth for the reporte table's columns: both the header
+// (via TanStack) AND the body cells render from this list, so adding/
+// removing a column can never desync header and body.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 140 },
-  { id: 'verdict', header: 'Veredicto', size: 150 },
-  { id: 'despublicar', header: 'Despublicar', size: 110 },
-  { id: 'matches', header: 'Coincidencias TN', size: 260 },
+  { id: 'ean', header: 'EAN', size: 140, cell: (row) => row.ean },
+  {
+    id: 'verdict',
+    header: 'Veredicto',
+    size: 150,
+    cell: (row) => (
+      <span className={`${styles.badge} ${styles[VERDICT_BADGE_CLASS[row.verdict]] || ''}`}>
+        {VERDICT_LABELS[row.verdict] || row.verdict}
+      </span>
+    ),
+  },
+  { id: 'despublicar', header: 'Despublicar', size: 110, cell: (row) => (row.despublicar ? 'Sí' : '—') },
+  { id: 'matches', header: 'Coincidencias TN', size: 260, cell: null }, // rendered specially — carries the ban action
 ];
 
 const EMPTY_TABLE_DATA = [];
@@ -80,19 +109,25 @@ export default function TiendaNubeReconcile() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('admin.ver_tn_reconciliacion');
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_tn_reconcile_banlist');
+  const { toast, showToast, hideToast } = useToast(4000);
 
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [subTab, setSubTab] = useState('todos');
 
+  // Banlist view state
+  const [baneados, setBaneados] = useState([]);
+  const [loadingBaneados, setLoadingBaneados] = useState(false);
+  const [baneadosSeleccionados, setBaneadosSeleccionados] = useState(new Set());
+
   const cargarReporte = useCallback(async () => {
     if (!puedeVer) return;
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/tienda-nube-reconcile/reporte');
-      setReporte(response.data || []);
+      const response = await api.get('/tienda-nube-reconcile/reporte', { params: { page_size: REPORT_PAGE_SIZE } });
+      setReporte(response.data?.items || []);
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
@@ -100,31 +135,87 @@ export default function TiendaNubeReconcile() {
     }
   }, [puedeVer]);
 
+  const cargarBaneados = useCallback(async () => {
+    if (!puedeGestionarBanlist) return;
+    setLoadingBaneados(true);
+    try {
+      const response = await api.get('/tienda-nube-reconcile/baneados');
+      setBaneados(response.data || []);
+    } catch {
+      showToast('No se pudo cargar la banlist', 'error');
+    } finally {
+      setLoadingBaneados(false);
+    }
+  }, [puedeGestionarBanlist, showToast]);
+
   useEffect(() => {
     cargarReporte();
   }, [cargarReporte]);
 
+  useEffect(() => {
+    if (subTab === 'BANLIST') {
+      cargarBaneados();
+    }
+  }, [subTab, cargarBaneados]);
+
   const banearEan = useCallback(
     async (ean) => {
       if (!puedeGestionarBanlist) return;
-      await api.post('/tienda-nube-reconcile/banear', { ean });
-      cargarReporte();
+      try {
+        await api.post('/tienda-nube-reconcile/banear', { ean });
+        showToast(`EAN ${ean} agregado a la banlist`, 'success');
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.detail || 'Error al banear el EAN', 'error');
+      }
     },
-    [puedeGestionarBanlist, cargarReporte]
+    [puedeGestionarBanlist, cargarReporte, showToast]
   );
 
-  const filasVisibles = useMemo(() => {
-    if (subTab === 'todos') return reporte.filter((r) => r.verdict !== 'OK');
-    return reporte.filter((r) => r.verdict === subTab);
-  }, [reporte, subTab]);
+  const desbanearEan = useCallback(
+    async (banlistId) => {
+      if (!puedeGestionarBanlist) return;
+      try {
+        await api.post('/tienda-nube-reconcile/desbanear', { banlist_id: banlistId });
+        showToast('EAN removido de la banlist', 'success');
+        cargarBaneados();
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.detail || 'Error al desbanear el EAN', 'error');
+      }
+    },
+    [puedeGestionarBanlist, cargarBaneados, cargarReporte, showToast]
+  );
 
-  const duplicateGroups = useMemo(() => {
-    if (subTab !== 'DUPLICADO') return [];
-    // Group by ean+tnr pair context isn't needed here — each row already
-    // carries its own tn_matches; grouping visually by shared tn_matches
-    // signature keeps rows that reference the same conflict together.
-    return filasVisibles;
-  }, [filasVisibles, subTab]);
+  const toggleSeleccionBaneado = useCallback((id) => {
+    setBaneadosSeleccionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const desbanearSeleccionados = useCallback(async () => {
+    if (baneadosSeleccionados.size === 0) return;
+    const ids = Array.from(baneadosSeleccionados);
+    try {
+      for (const banlistId of ids) {
+        await api.post('/tienda-nube-reconcile/desbanear', { banlist_id: banlistId });
+      }
+      showToast(`${ids.length} EAN(s) desbaneados exitosamente`, 'success');
+      setBaneadosSeleccionados(new Set());
+      cargarBaneados();
+      cargarReporte();
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Error al desbanear masivamente', 'error');
+    }
+  }, [baneadosSeleccionados, cargarBaneados, cargarReporte, showToast]);
+
+  const filasVisibles =
+    subTab === 'todos' || subTab === 'BANLIST'
+      ? reporte.filter((r) => r.verdict !== 'OK')
+      : reporte.filter((r) => r.verdict === subTab);
 
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
   const columnSizingSaveTimerRef = useRef(null);
@@ -165,9 +256,10 @@ export default function TiendaNubeReconcile() {
 
   return (
     <div className={styles.container}>
+      <Toast toast={toast} onClose={hideToast} />
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>Reconciliación GBP vs Tienda Nube</h1>
+          <h2>Reconciliación GBP vs Tienda Nube</h2>
           <p className={styles.description}>
             Comparación en vivo del reporte GBP (78) contra el catálogo de Tienda Nube. Solo se
             persisten las decisiones humanas (banlist); los veredictos se recalculan en cada carga.
@@ -178,7 +270,7 @@ export default function TiendaNubeReconcile() {
       {error && <div className={styles.errorBanner}>{error}</div>}
 
       <div className={styles.subTabBar}>
-        {SUB_TABS.map((tab) => (
+        {VERDICT_SUB_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -188,6 +280,15 @@ export default function TiendaNubeReconcile() {
             {tab.label} ({tab.id === 'todos' ? reporte.filter((r) => r.verdict !== 'OK').length : reporte.filter((r) => r.verdict === tab.id).length})
           </button>
         ))}
+        {puedeGestionarBanlist && (
+          <button
+            type="button"
+            className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
+            onClick={() => setSubTab('BANLIST')}
+          >
+            Banlist ({baneados.length})
+          </button>
+        )}
       </div>
 
       {subTab === 'DUPLICADO' && (
@@ -198,15 +299,76 @@ export default function TiendaNubeReconcile() {
         </div>
       )}
 
-      {loading ? (
+      {subTab === 'BANLIST' ? (
+        <div>
+          {baneadosSeleccionados.size > 0 && (
+            <div className={styles.columnSizingBar}>
+              <button type="button" className="btn-tesla outline-subtle-success sm" onClick={desbanearSeleccionados}>
+                Desbanear seleccionados ({baneadosSeleccionados.size})
+              </button>
+            </div>
+          )}
+          {loadingBaneados ? (
+            <div>Cargando banlist...</div>
+          ) : (
+            <table className="table-tesla striped">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>EAN</th>
+                  <th>Motivo</th>
+                  <th>Usuario</th>
+                  <th>Fecha</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {baneados.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="no-data">
+                      No hay EANs en la banlist
+                    </td>
+                  </tr>
+                ) : (
+                  baneados.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={baneadosSeleccionados.has(entry.id)}
+                          onChange={() => toggleSeleccionBaneado(entry.id)}
+                          aria-label={`Seleccionar ${entry.ean}`}
+                        />
+                      </td>
+                      <td>{entry.ean}</td>
+                      <td>{entry.motivo || '—'}</td>
+                      <td>{entry.usuario_nombre}</td>
+                      <td>{new Date(entry.fecha_creacion).toLocaleDateString()}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-tesla outline-subtle-success xs"
+                          onClick={() => desbanearEan(entry.id)}
+                        >
+                          Desbanear
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : loading ? (
         <div>Cargando reconciliación...</div>
       ) : subTab === 'DUPLICADO' ? (
         <div>
-          {duplicateGroups.length === 0 ? (
+          {filasVisibles.length === 0 ? (
             <p>No hay grupos duplicados para revisar.</p>
           ) : (
-            duplicateGroups.map((row, idx) => (
-              <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup}>
+            filasVisibles.map((row, idx) => (
+              <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
                 <div className={styles.duplicateGroupHeader}>
                   EAN GBP: {row.ean} — {row.tn_matches.length} coincidencias TN en conflicto
                 </div>
@@ -279,28 +441,25 @@ export default function TiendaNubeReconcile() {
                 ) : (
                   filasVisibles.map((row, idx) => (
                     <tr key={`${row.ean}-${idx}`}>
-                      <td>{row.ean}</td>
-                      <td>
-                        <span className={`${styles.badge} ${styles[VERDICT_BADGE_CLASS[row.verdict]] || ''}`}>
-                          {VERDICT_LABELS[row.verdict] || row.verdict}
-                        </span>
-                      </td>
-                      <td>{row.despublicar ? 'Sí' : '—'}</td>
-                      <td>
-                        {row.tn_matches.length === 0
-                          ? '—'
-                          : row.tn_matches.map((tn) => tn.variant_sku).join(', ')}
-                        {puedeGestionarBanlist && row.verdict === 'FALTA_PUBLICAR' && (
-                          <button
-                            type="button"
-                            className="btn-tesla ghost sm"
-                            onClick={() => banearEan(row.ean)}
-                            style={{ marginLeft: 8 }}
-                          >
-                            Banear
-                          </button>
-                        )}
-                      </td>
+                      {COLUMNS.map((col) =>
+                        col.id === 'matches' ? (
+                          <td key={col.id}>
+                            {row.tn_matches.length === 0 ? '—' : row.tn_matches.map((tn) => tn.variant_sku).join(', ')}
+                            {puedeGestionarBanlist && row.verdict === 'FALTA_PUBLICAR' && (
+                              <button
+                                type="button"
+                                className="btn-tesla ghost sm"
+                                onClick={() => banearEan(row.ean)}
+                                style={{ marginLeft: 8 }}
+                              >
+                                Banear
+                              </button>
+                            )}
+                          </td>
+                        ) : (
+                          <td key={col.id}>{col.cell(row)}</td>
+                        )
+                      )}
                     </tr>
                   ))
                 )}

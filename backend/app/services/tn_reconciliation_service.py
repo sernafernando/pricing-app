@@ -9,6 +9,13 @@ Join key: GBP `Código` (EAN) <-> `tienda_nube_productos.variant_sku`.
 `tnr_id`/`tnr_variationID` (the ERP's cached TN product/variant ids) are used
 ONLY to detect DUPLICADO groupings and to re-verify an already-claimed link
 against `product_id`/`variant_id` — never as the primary join key.
+
+Ban-list scope: banning an EAN means "we don't want to publish this", NOT
+"hide a broken publication from me". A banned EAN is therefore hidden ONLY
+from the publish-candidate verdicts (FALTA_VINCULAR, FALTA_PUBLICAR) and
+REMAINS VISIBLE in every data-quality anomaly verdict (MAL_VINCULADO,
+MAL_PUBLICADO, DUPLICADO) — banning is never a way to sweep an existing
+mis-publication out of the review view.
 """
 
 from dataclasses import dataclass, field
@@ -116,6 +123,12 @@ def compute_verdicts(
     DUPLICADO is a human-review anomaly only — this function never picks a
     "correct" row/variant among duplicates. It reports every conflicting row
     with full context (`tn_matches`) for the operator to judge.
+
+    `banned_eans` ONLY suppresses the publish-candidate verdicts
+    (FALTA_VINCULAR, FALTA_PUBLICAR) — a banned EAN that resolves to
+    MAL_VINCULADO, MAL_PUBLICADO, or DUPLICADO is still returned. Banning
+    means "don't offer this as something to publish", not "hide a broken
+    publication from review".
     """
     banned_eans = banned_eans or set()
 
@@ -167,12 +180,14 @@ def compute_verdicts(
             continue
 
         if tnr_id == 0:
-            if matches_by_ean:
-                verdict = "FALTA_VINCULAR"
-            elif ean and ean in banned_eans:
-                continue  # banned: hidden from the actionable view
-            else:
-                verdict = "FALTA_PUBLICAR"
+            verdict = "FALTA_VINCULAR" if matches_by_ean else "FALTA_PUBLICAR"
+            if ean and ean in banned_eans:
+                # Banning only means "don't offer this as something to
+                # publish" — it hides the publish-candidate verdicts
+                # (FALTA_VINCULAR/FALTA_PUBLICAR) exclusively. It must NEVER
+                # hide a data-quality anomaly (see the banned_eans docstring
+                # below and the module-level ban-scope note).
+                continue
             results.append(
                 ReconcileRow(
                     ean=ean or "", verdict=verdict, gbp_row=row, tn_matches=matches_by_ean, despublicar=despublicar
