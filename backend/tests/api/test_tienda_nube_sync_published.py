@@ -25,6 +25,30 @@ def _bearer(user: Usuario) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(autouse=True)
+def _tn_credentials():
+    """Provide Tienda Nube credentials to the endpoint under test.
+
+    `app/api/endpoints/tienda_nube.py` reads `TN_STORE_ID`/`TN_ACCESS_TOKEN`
+    into module globals at import time and returns 500 when either is falsy,
+    before any mocked HTTP call is reached. Those values come from
+    `backend/.env`, which is gitignored and therefore absent on CI — the
+    workflow exports only ENVIRONMENT, DATABASE_URL and SECRET_KEY. Without
+    this fixture these tests pass locally and fail on CI with 500 instead
+    of 200.
+
+    Patch the module globals, not `settings`: the binding already happened
+    at import, so patching `settings` would have no effect here.
+    """
+    from app.api.endpoints import tienda_nube as tn_endpoint
+
+    with (
+        patch.object(tn_endpoint, "TN_STORE_ID", "123456"),
+        patch.object(tn_endpoint, "TN_ACCESS_TOKEN", "fake-token"),
+    ):
+        yield
+
+
 @pytest.fixture()
 def sync_user(db) -> Usuario:
     user = Usuario(
