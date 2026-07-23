@@ -69,6 +69,14 @@ async def get_current_user_transient(
     activo, etc.) y `rol_obj` (eager-loaded aquí explícitamente, por eso
     `es_superadmin`/`rol_codigo` funcionan sin sesión). Cualquier OTRA
     relación lazy (no eager-loaded acá) SÍ lanza DetachedInstanceError.
+
+    IMPORTANTE (get_background_db hace commit al salir, y SessionLocal usa
+    expire_on_commit=True): hay que expulsar TODO lo cargado —el Usuario Y su
+    `rol_obj`— ANTES de que ese commit expire sus atributos. Un `expunge`
+    solo del Usuario deja al `Rol` en la sesión, el commit lo expira, y leer
+    `rol_obj.codigo` después del detach tira DetachedInstanceError (bug de
+    prod en /reporte). El `joinedload` no alcanza por sí solo: carga el Rol,
+    pero el commit lo expira igual si sigue adjunto.
     """
     token = credentials.credentials
     payload = decode_token(token)
@@ -102,8 +110,12 @@ async def get_current_user_transient(
         if not usuario.activo:
             raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
 
-        # Expunge para que el objeto sobreviva después de cerrar la sesión
-        db.expunge(usuario)
+        # Expulsar el Usuario Y su rol_obj (expunge_all) para que ambos
+        # sobrevivan al cierre de la sesión con sus atributos intactos.
+        # expunge(usuario) NO cascadea al Rol relacionado, y el commit de
+        # get_background_db lo expiraría (expire_on_commit) dejándolo
+        # irrefrescable tras el detach.
+        db.expunge_all()
 
     return usuario
 

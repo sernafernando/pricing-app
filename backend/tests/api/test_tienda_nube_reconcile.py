@@ -63,6 +63,13 @@ def _transient_auth_uses_test_db(db):
         session = sessionmaker(bind=db.connection())()
         try:
             yield session
+            # Mirror the real get_background_db's "on success: commit": with
+            # expire_on_commit=True the commit expires every loaded instance's
+            # attributes before close. expire_all() reproduces that state
+            # without a real commit (which would break the test transaction),
+            # so the permission check runs against a genuinely detached,
+            # expired-attribute user — the production /reporte 500 path.
+            session.expire_all()
         finally:
             session.close()
 

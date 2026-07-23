@@ -11,15 +11,22 @@ live session. `get_current_user_transient` must eager-load `rol_obj` too so
 its stated contract ("solo usar para leer atributos ya cargados") actually
 holds for `rol`/`rol_obj`-derived attributes.
 
-Fourth review round: the original version of this test reused the live `db`
-fixture session as the "background" session, which never actually closes
-during the test — so `usuario.es_superadmin` could still lazy-load `rol_obj`
-successfully through that still-open session even WITHOUT the `joinedload`
-fix, meaning the test could not fail for the reason it claimed to guard.
-Fixed by using a genuinely separate session (bound to the same underlying
-connection, so it still sees the fixture-created rows) that is closed via
-its own `finally` before the assertion runs, exactly mirroring the
-production code path (`get_background_db()`'s own session close).
+Production incident (2026-07-23): the fix above (eager-load `rol_obj`) was
+NOT enough, and the earlier versions of this test could not catch it. The
+real trigger is `get_background_db()`'s "on success: commit + close" plus
+`SessionLocal`'s default `expire_on_commit=True`: the commit EXPIRES every
+loaded instance's attributes, including the eager-loaded `Rol`, right before
+the session closes. `get_current_user_transient` only `expunge`d the
+`Usuario` (not its `rol_obj`), so the `Rol` stayed attached, got expired by
+that commit, and then detached — so `rol_obj.codigo` raised
+`DetachedInstanceError` in prod even WITH the joinedload. Fix:
+`db.expunge_all()` (detach the Rol too, BEFORE the commit expires it).
+
+Every earlier version of this test merely CLOSED the fake background
+session; closing detaches but does NOT expire loaded attributes, so the bug
+was invisible here. This fixture now `expire_all()`s on success — exactly
+what the real commit does to attribute state — before closing, so a `Rol`
+left attached expires just as it does in production.
 
 This module is deliberately synchronous and drives the coroutine with
 `asyncio.run`: the project has NO pytest-asyncio configured (CI installs only
@@ -68,38 +75,43 @@ def transient_user(db, rol_ventas_transient) -> Usuario:
 
 @contextmanager
 def _fake_background_db(bind):
-    """A genuinely separate, genuinely-closed-on-exit session — bound to
-    the SAME connection as the test's `db` fixture (so it sees the
-    fixture-created rows within the same not-yet-committed transaction),
-    but its own lifecycle is independent: `.close()` runs in `finally`,
-    detaching whatever was loaded through it, exactly like the real
-    `get_background_db()` context manager does. Reusing the live `db`
-    fixture session directly (the original version of this test) would
-    never close, so a missing eager-load could never actually surface as
-    a `DetachedInstanceError` here."""
+    """A faithful stand-in for the real `get_background_db()` — a separate
+    session bound to the SAME connection as the test's `db` fixture (so it
+    sees the fixture-created rows within the same not-yet-committed
+    transaction), that reproduces production's "on success: commit + close".
+
+    The `expire_all()` on the success path is the crucial part: the real
+    session commits, and `expire_on_commit=True` expires every loaded
+    instance's attributes before the close. `expire_all()` reproduces exactly
+    that attribute-state effect WITHOUT a real commit (which would break the
+    test's outer transaction). Merely closing — as every earlier version of
+    this test did — detaches without expiring, so a `Rol` left attached never
+    surfaced as a `DetachedInstanceError` here even though it did in prod."""
     session = sessionmaker(bind=bind)()
     try:
         yield session
+        session.expire_all()  # mirror commit's expire_on_commit effect
     finally:
         session.close()
 
 
 class TestTransientAuthEagerLoadsRolObj:
-    def test_es_superadmin_readable_after_detach(self, db, transient_user):
-        """`es_superadmin` (and therefore `verificar_permiso`'s fallback
-        path) must be readable on the returned user WITHOUT a live session —
-        that's the whole point of "transient" auth. Confirmed RED (raises
-        `DetachedInstanceError`) with the `joinedload(Usuario.rol_obj)` fix
-        temporarily removed from `get_current_user_transient`, and GREEN
-        with it in place — see apply-progress for the exact RED/GREEN
-        transcript."""
+    def test_rol_derived_attrs_readable_after_detach(self, db, transient_user):
+        """`es_superadmin` and `rol_codigo` (both read `self.rol_obj.codigo`,
+        and drive `verificar_permiso`'s fallback path) must be readable on the
+        returned user WITHOUT a live session — the whole point of "transient"
+        auth. This is the production `/reporte` 500 path. Confirmed RED
+        (`DetachedInstanceError`) with `db.expunge_all()` reverted to
+        `db.expunge(usuario)`, GREEN with `expunge_all()` in place."""
         token = create_access_token(data={"sub": transient_user.username})
         credentials = MagicMock(credentials=token)
 
         with patch("app.api.deps.get_background_db", lambda: _fake_background_db(db.connection())):
             usuario = asyncio.run(get_current_user_transient(credentials=credentials))
 
-        # The session that loaded `usuario` is now closed (see
-        # `_fake_background_db`'s `finally`) — reading `es_superadmin` must
-        # not need a lazy load, or this raises DetachedInstanceError.
+        # The background session has committed-then-closed (see the fixture),
+        # so both the Usuario and its Rol are detached. Reading rol-derived
+        # attributes must not trigger a refresh, or this raises
+        # DetachedInstanceError — the exact prod failure in /reporte.
+        assert usuario.rol_codigo == "VENTAS"
         assert usuario.es_superadmin is False
