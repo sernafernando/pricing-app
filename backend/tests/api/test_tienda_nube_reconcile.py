@@ -25,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.security import create_access_token, get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.rol import Rol
+from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
@@ -407,6 +408,81 @@ class TestBanlist:
             assert resp.status_code == 200
 
         assert db.query(TnReconcileBanlist).count() == 0
+
+
+@pytest.fixture()
+def perm_publicacion(db) -> Permiso:
+    p = Permiso(
+        codigo="admin.gestionar_tn_publicacion",
+        nombre="Gestionar publicación Tienda Nube",
+        descripcion="Publish/unpublish",
+        categoria="administracion",
+        orden=64,
+        es_critico=True,
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+@pytest.fixture()
+def user_publicacion(db, brand_rol, perm_publicacion) -> Usuario:
+    user = Usuario(
+        username="tn_pub",
+        email="tn_pub@test.com",
+        nombre="Pub User",
+        password_hash=get_password_hash("Pass123!"),
+        rol=RolUsuario.VENTAS,
+        rol_id=brand_rol.id,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(user)
+    db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm_publicacion.id, concedido=True))
+    db.flush()
+    return user
+
+
+class TestDespublicarEndpoint:
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post(
+            "/api/tienda-nube-reconcile/despublicar",
+            json={"product_id": 555},
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_successful_unpublish_returns_submitted_and_audits(self, client, db, user_publicacion):
+        producto = TiendaNubeProducto(
+            product_id=555, product_name="Test", variant_id=1, variant_sku="SKU-1", published=True
+        )
+        db.add(producto)
+        db.commit()
+
+        fake_outcome = {"submitted": True, "status": "submitted", "status_code": 200}
+        with patch("app.api.endpoints.tienda_nube_reconcile.unpublish_product", return_value=fake_outcome) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/despublicar",
+                json={"product_id": 555},
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["submitted"] is True
+        assert body["status"] == "submitted"
+        mocked.assert_called_once()
+
+    def test_not_found_product_returns_200_with_rejected_status(self, client, db, user_publicacion):
+        fake_outcome = {"submitted": False, "status": "rejected_not_found", "detail": "no rows"}
+        with patch("app.api.endpoints.tienda_nube_reconcile.unpublish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/despublicar",
+                json={"product_id": 999999},
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "rejected_not_found"
 
 
 class TestGracefulDegradation:

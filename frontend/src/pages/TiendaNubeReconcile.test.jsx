@@ -431,6 +431,142 @@ describe('Anomaly sub-tabs', () => {
   });
 });
 
+describe('Despublicar action (Slice 2)', () => {
+  const DESPUBLICAR_ITEMS = [
+    {
+      ean: 'DP-1',
+      verdict: 'MAL_VINCULADO',
+      despublicar: true,
+      tn_matches: [{ product_id: 555, variant_id: 1, variant_sku: 'DP-1', activo: true, published: true }],
+    },
+  ];
+
+  it('is hidden without admin.gestionar_tn_publicacion', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'admin.gestionar_tn_publicacion');
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('DP-1').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /^Despublicar$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a Despublicar action on rows flagged despublicar, gated by admin.gestionar_tn_publicacion', async () => {
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+  });
+
+  it('requires an explicit confirmation step before calling the endpoint', async () => {
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
+    await user.click(despublicarButton);
+
+    // Not yet called — a confirm step must appear first.
+    expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
+
+    const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', { product_id: 555 });
+    });
+  });
+
+  it('cancelling the confirm step never calls the endpoint', async () => {
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
+    await user.click(despublicarButton);
+
+    const cancelButton = await screen.findByRole('button', { name: /Cancelar/i });
+    await user.click(cancelButton);
+
+    expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
+    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+  });
+
+  it('shows a success toast and reloads the report after a successful unpublish', async () => {
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+    api.post.mockImplementation((url) => {
+      if (url === '/tienda-nube-reconcile/despublicar') {
+        return Promise.resolve({ data: { submitted: true, status: 'submitted', detail: null } });
+      }
+      return Promise.resolve({ data: { success: true } });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
+    await user.click(despublicarButton);
+    const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/despublicado/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows an error toast (never an unhandled rejection) when the unpublish call fails', async () => {
+    setupApiMocks({ items: DESPUBLICAR_ITEMS, verdictCounts: { MAL_VINCULADO: 1 } });
+    api.post.mockImplementation((url) => {
+      if (url === '/tienda-nube-reconcile/despublicar') {
+        return Promise.reject({ response: { data: { error: { code: 'FORBIDDEN', message: 'No tenés permiso' } } } });
+      }
+      return Promise.resolve({ data: { success: true } });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
+    await user.click(tab);
+
+    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
+    await user.click(despublicarButton);
+    const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No tenés permiso/i)).toBeInTheDocument();
+    });
+  });
+
+  it('does not show the action on rows not flagged despublicar', async () => {
+    setupApiMocks();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('111')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /^Despublicar$/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('Ban/unban error handling', () => {
   it('shows a success toast and reloads the report after a successful ban', async () => {
     const user = userEvent.setup();

@@ -69,6 +69,7 @@ from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
+from app.services.tn_publish_service import unpublish_product
 from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
 
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
@@ -158,6 +159,16 @@ class BanlistEntryResponse(BaseModel):
     fecha_creacion: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DespublicarRequest(BaseModel):
+    product_id: int
+
+
+class DespublicarResponse(BaseModel):
+    submitted: bool
+    status: str
+    detail: Optional[str] = None
 
 
 @router.get("/reporte", response_model=ReconcileReportResponse)
@@ -303,3 +314,23 @@ def desbanear_ean(
     db.commit()
 
     return {"success": True, "message": f"EAN {ean} removido de la banlist"}
+
+
+@router.post("/despublicar", response_model=DespublicarResponse)
+def despublicar_producto(
+    request: DespublicarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """Explicit, operator-triggered unpublish of ONE TN product
+    (`published: false`). NEVER bulk, NEVER automatic — the spec's
+    non-goals forbid automatic bulk actions; this endpoint always acts on
+    exactly the single `product_id` in the request body.
+
+    Delegates the fresh-read-before-write / no-retry-on-ambiguous /
+    audit-logged write itself to `tn_publish_service.unpublish_product` —
+    see that module's docstring for the write-safety contract.
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    outcome = unpublish_product(db, current_user, request.product_id)
+    return DespublicarResponse(submitted=outcome["submitted"], status=outcome["status"], detail=outcome.get("detail"))
