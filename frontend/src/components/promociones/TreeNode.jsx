@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { CheckCircle2, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
@@ -33,6 +33,20 @@ const KIND_BADGE_CLASS = {
   catalogo: styles.badgeKindCatalogo,
   vinculada: styles.badgeKindVinculada,
   publicacion: styles.badgeKindPublicacion,
+};
+
+// Per-MLA publication status badge (restores the old flat MLA panel's status
+// pill). The wording matches `ModalInfoProducto.jsx` so both views read the
+// same for the same `publication_status`, but the glyph is a `lucide-react`
+// icon instead of that legacy component's emoji (AGENTS.md: no emoji as
+// icons), and the color comes from semantic tokens instead of hardcoded
+// hexes. A status outside this map (e.g. the backend's `status_{id}` fallback
+// for an unmapped ERP id) renders nothing — no empty pill in a dense tree.
+const STATUS_BADGES = {
+  active: { label: 'Activa', Icon: CheckCircle2, className: styles.badgeStatusActive },
+  paused: { label: 'Pausada', Icon: PauseCircle, className: styles.badgeStatusPaused },
+  closed: { label: 'Cerrada', Icon: XCircle, className: styles.badgeStatusClosed },
+  under_review: { label: 'En revisión', Icon: Clock, className: styles.badgeStatusUnderReview },
 };
 
 // Subtle per-kind row tint (design's requested "group band" read) — one level
@@ -146,6 +160,11 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
     ? node.lista_nombre || (node.pricelist_id != null ? getPublicationTypeLabel(node.pricelist_id) : null)
     : null;
 
+  // Publication status badge (restores the old flat panel's per-MLA status)
+  // — grouping nodes never carry one, and an absent/unknown status renders
+  // nothing (fail-open, same treatment as the lista badge above).
+  const statusBadge = bearsMla ? STATUS_BADGES[node.publication_status] : null;
+
   // Promos-only manual refresh (locked decision): reconciles the MLA's
   // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
   // promos sub-spoiler. Never asserts the final promo state itself — on
@@ -191,6 +210,12 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
             {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
+            {statusBadge && (
+              <span className={`${styles.badge} ${statusBadge.className}`}>
+                <statusBadge.Icon size={12} aria-hidden="true" />
+                {statusBadge.label}
+              </span>
+            )}
             {promoSummary && (
               <span className={styles.treeNodeSummary}>
                 {promoSummary.applied_name && (

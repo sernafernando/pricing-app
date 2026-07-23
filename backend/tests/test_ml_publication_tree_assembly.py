@@ -28,10 +28,14 @@ Spec coverage:
 
 from __future__ import annotations
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
+from app.services import ml_publication_tree_service
 from app.services.ml_publication_tree_service import assemble_publication_tree
 
 
@@ -49,6 +53,17 @@ def _seed_pub(db, mla: str, item_id: int, pricelist_id: int = 4, lista_nombre: s
             pricelist_id=pricelist_id,
             lista_nombre=lista_nombre,
             activo=True,
+        )
+    )
+
+
+def _seed_publicado(db, mla: str, status_id: int | None = None, is_active: bool | None = None) -> None:
+    """Seeds the ERP mirror row that backs a node's `publication_status`."""
+    db.add(
+        MercadoLibreItemPublicado(
+            mlp_publicationID=mla,
+            mlp_lastStatusID=status_id,
+            mlp_Active=is_active,
         )
     )
 
@@ -491,3 +506,97 @@ class TestPromoNodeSummaryAttachment:
         assert vinc_node.mla == "MLA_VINC"
         assert vinc_node.promo_summary is not None
         assert vinc_node.promo_summary.applied_name == "SMART"
+
+
+class TestPublicationStatusAttachment:
+    """Restores the per-MLA `publication_status` badge the old flat panel
+    showed and the tree migration dropped — now on EVERY MLA-bearing node,
+    resolved from `tb_mercadolibre_items_publicados` in one batched query."""
+
+    def test_mla_bearing_node_carries_its_publication_status(self, db) -> None:
+        _seed_producto(db, 30)
+        _seed_pub(db, "MLA_ST30", 30)
+        _seed_link(db, "MLA_ST30", 30)
+        _seed_publicado(db, "MLA_ST30", status_id=154)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=30)
+
+        leaf = result.tree.children[0]
+        assert leaf.mla == "MLA_ST30"
+        assert leaf.publication_status == "paused"
+
+    def test_grouping_nodes_never_carry_publication_status(self, db) -> None:
+        _seed_producto(db, 31)
+        _seed_pub(db, "MLA_ST31", 31)
+        _seed_link(db, "MLA_ST31", 31, family_id="FAM31")
+        _seed_publicado(db, "MLA_ST31", status_id=153)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=31)
+
+        assert result.tree.kind == "producto"
+        assert result.tree.publication_status is None
+        familia_node = result.tree.children[0]
+        assert familia_node.kind == "familia"
+        assert familia_node.publication_status is None
+        assert familia_node.children[0].publication_status == "active"
+
+    def test_vinculada_carries_its_own_status_independent_of_parent(self, db) -> None:
+        _seed_producto(db, 32)
+        _seed_pub(db, "MLA_ST_PARENT", 32)
+        _seed_pub(db, "MLA_ST_VINC", 32)
+        _seed_link(db, "MLA_ST_PARENT", 32)
+        _seed_link(db, "MLA_ST_VINC", 32)
+        db.add(MlItemRelation(mla="MLA_ST_PARENT", related_mla="MLA_ST_VINC", stock_relation=1))
+        _seed_publicado(db, "MLA_ST_PARENT", status_id=153)
+        _seed_publicado(db, "MLA_ST_VINC", status_id=155)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=32)
+
+        parent = result.tree.children[0]
+        assert parent.publication_status == "active"
+        vinculada = parent.children[0]
+        assert vinculada.kind == "vinculada"
+        assert vinculada.publication_status == "closed"
+
+    def test_mla_absent_from_the_erp_mirror_stays_none(self, db) -> None:
+        """Fail-open: an untracked MLA renders no badge instead of a
+        fabricated one — it must never break assembly."""
+        _seed_producto(db, 33)
+        _seed_pub(db, "MLA_ST33", 33)
+        _seed_link(db, "MLA_ST33", 33)
+        db.commit()
+
+        result = assemble_publication_tree(db, item_id=33)
+
+        assert result.tree.children[0].publication_status is None
+
+    def test_status_fetch_failure_degrades_fail_open(self, db, monkeypatch) -> None:
+        """REGRESSION: the status badge is decoration, never structure —
+        a DB error while resolving it must leave the tree fully assembled
+        with `publication_status` None everywhere, not raise."""
+        _seed_producto(db, 34)
+        _seed_pub(db, "MLA_ST_ROOT", 34)
+        _seed_pub(db, "MLA_ST_CHILD", 34)
+        _seed_link(db, "MLA_ST_ROOT", 34)
+        _seed_link(db, "MLA_ST_CHILD", 34)
+        db.add(MlItemRelation(mla="MLA_ST_ROOT", related_mla="MLA_ST_CHILD", stock_relation=1))
+        _seed_publicado(db, "MLA_ST_ROOT", status_id=153)
+        _seed_publicado(db, "MLA_ST_CHILD", status_id=154)
+        db.commit()
+
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("tb_mercadolibre_items_publicados unavailable")
+
+        monkeypatch.setattr(ml_publication_tree_service, "fetch_publication_status_by_mla", _boom)
+
+        result = assemble_publication_tree(db, item_id=34)
+
+        root_leaf = result.tree.children[0]
+        assert root_leaf.mla == "MLA_ST_ROOT"
+        assert root_leaf.publication_status is None
+        child = root_leaf.children[0]
+        assert child.mla == "MLA_ST_CHILD"
+        assert child.publication_status is None

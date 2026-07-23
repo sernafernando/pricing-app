@@ -42,15 +42,20 @@ it:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
 from app.models.publicacion_ml import PublicacionML
 from app.schemas.productos_tree import ProductTreeResponse, SkippedEdge, TreeNode, TreeNodePromoSummary
+from app.services.ml_publication_status_service import fetch_publication_status_by_mla
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,6 +76,7 @@ class _AssemblyContext:
     matches_filter_by_mla: Dict[str, bool]
     promo_summary_by_mla: Dict[str, Dict]
     lista_by_mla: Dict[str, Tuple[Optional[str], Optional[int]]]
+    status_by_mla: Dict[str, Optional[str]]
     visited: Set[str] = field(default_factory=set)
     skipped_edges: List[SkippedEdge] = field(default_factory=list)
 
@@ -134,6 +140,12 @@ def assemble_publication_tree(
     item_id_by_mla = _load_item_id_by_related_mla(db, edges_by_mla)
     lista_by_mla.update(_load_lista_by_related_mla(db, edges_by_mla))
 
+    # `lista_by_mla` is now keyed by the FULL set of MLAs that can appear as
+    # a node (this product's own MLAs + every resolvable related/vinculada
+    # one), so it doubles as the input set for the single batched status
+    # fetch — one query for the whole tree, no N+1 per node.
+    status_by_mla = _load_status_by_mla(db, list(lista_by_mla.keys()))
+
     ctx = _AssemblyContext(
         item_id=item_id,
         links_by_mla=links_by_mla,
@@ -142,6 +154,7 @@ def assemble_publication_tree(
         matches_filter_by_mla=matches_filter_by_mla or {},
         promo_summary_by_mla=promo_summary_by_mla or {},
         lista_by_mla=lista_by_mla,
+        status_by_mla=status_by_mla,
     )
 
     # Grouping pass: bucket MLAs into families / standalone-catalog /
@@ -230,6 +243,7 @@ def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
         promo_summary=_promo_summary_for(mla, ctx),
         lista_nombre=lista_nombre,
         pricelist_id=pricelist_id,
+        publication_status=ctx.status_by_mla.get(mla),
     )
 
     ctx.visited.add(mla)
@@ -270,6 +284,7 @@ def _build_vinculadas(mla: str, level: int, ctx: _AssemblyContext) -> List[TreeN
             promo_summary=_promo_summary_for(related_mla, ctx),
             lista_nombre=lista_nombre,
             pricelist_id=pricelist_id,
+            publication_status=ctx.status_by_mla.get(related_mla),
         )
         vinculada.children = _build_vinculadas(related_mla, level=level + 1, ctx=ctx)
         children.append(vinculada)
@@ -318,6 +333,23 @@ def _load_item_id_by_related_mla(db: Session, edges_by_mla: Dict[str, List[str]]
         db.query(PublicacionML.mla, PublicacionML.item_id).filter(PublicacionML.mla.in_(related_mlas)).all()
     )
     return {mla: iid for mla, iid in rows}
+
+
+def _load_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, Optional[str]]:
+    """Batch-loads every node's `publication_status`, FAIL-OPEN.
+
+    The status badge is decoration, never structure: an unreachable/broken
+    `tb_mercadolibre_items_publicados` read must degrade to "no badge
+    anywhere" instead of breaking the whole tree (same
+    enrichment-degradation contract the endpoint already applies to
+    `matches_filter` and `promo_summary`). MLAs absent from the ERP mirror
+    are simply not keyed — `_build_mla_node`/`_build_vinculadas` default to
+    `None` on a missing key."""
+    try:
+        return fetch_publication_status_by_mla(db, mla_ids)
+    except SQLAlchemyError:
+        logger.warning("publication_status unavailable for the tree; degrading without the badge", exc_info=True)
+        return {}
 
 
 def _load_lista_by_related_mla(
