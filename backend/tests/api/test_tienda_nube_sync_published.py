@@ -78,6 +78,18 @@ def _tn_product(product_id=1, published=True, variant_id=10, sku="SKU-1", price=
     return product
 
 
+def _tn_product_raw_variant(product_id, variant_id, variant: dict):
+    """Like `_tn_product` but lets the caller pass the variant dict verbatim
+    (e.g. `sku: None` or no `sku` key at all) instead of always setting a
+    string `sku`."""
+    return {
+        "id": product_id,
+        "name": {"es": "Producto"},
+        "published": True,
+        "variants": [{"id": variant_id, **variant}],
+    }
+
+
 def _mock_products_response(products: list[dict]):
     """One page of results, then an empty page to end pagination."""
     first_page = httpx.Response(200, json=products, request=httpx.Request("GET", "http://test"))
@@ -125,3 +137,47 @@ class TestSyncEndpointPublishedMapping:
         db.expire_all()
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_id == 1002).first()
         assert row.published is True
+
+
+class TestSyncEndpointVariantSkuNormalization:
+    """Round 7, item 1: `variant_sku` is the reconciliation join key
+    (`compute_verdicts._normalize_sku`) — both `tienda_nube_productos`
+    writers must normalize it IDENTICALLY to the cron writer
+    (`extract_variantes`, pinned in
+    tests/unit/test_sync_tienda_nube_published_mapping.py::TestVariantSkuNormalization).
+    Before this fix the endpoint stored raw `None`/whitespace instead."""
+
+    def test_null_sku_normalizes_to_empty_string_not_none(self, client, db, sync_user):
+        products = [_tn_product_raw_variant(product_id=200, variant_id=2000, variant={"sku": None})]
+        with patch("httpx.AsyncClient.get", new=_mock_products_response(products)):
+            response = client.post("/api/tienda-nube/sync", headers=_bearer(sync_user))
+
+        assert response.status_code == 200
+        row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_id == 2000).first()
+        assert row is not None
+        # Must match extract_variantes' normalization exactly — "" not None,
+        # so _normalize_sku (which drops None from the join index) can never
+        # silently un-match this row.
+        assert row.variant_sku == ""
+
+    def test_absent_sku_normalizes_to_empty_string(self, client, db, sync_user):
+        products = [_tn_product_raw_variant(product_id=201, variant_id=2001, variant={})]
+        with patch("httpx.AsyncClient.get", new=_mock_products_response(products)):
+            response = client.post("/api/tienda-nube/sync", headers=_bearer(sync_user))
+
+        assert response.status_code == 200
+        row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_id == 2001).first()
+        assert row is not None
+        assert row.variant_sku == ""
+
+    def test_sku_with_surrounding_whitespace_is_stripped(self, client, db, sync_user):
+        products = [_tn_product_raw_variant(product_id=202, variant_id=2002, variant={"sku": "  0123456  "})]
+        with patch("httpx.AsyncClient.get", new=_mock_products_response(products)):
+            response = client.post("/api/tienda-nube/sync", headers=_bearer(sync_user))
+
+        assert response.status_code == 200
+        row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_id == 2002).first()
+        assert row is not None
+        # Untrimmed whitespace would make every ERP match query (exact,
+        # SUBSTRING, '0'||...) miss and item_id would stay NULL forever.
+        assert row.variant_sku == "0123456"

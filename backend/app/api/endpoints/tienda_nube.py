@@ -138,7 +138,14 @@ async def sincronizar_tienda_nube(
 
             try:
                 variant_id = variant.get("id")
-                variant_sku = variant.get("sku", "")
+                # Same normalization as the cron writer
+                # (tienda_nube_sync_shared.extract_variantes) — variant_sku
+                # is the reconciliation join key
+                # (compute_verdicts._normalize_sku), so both writers MUST
+                # produce the identical value for null/absent/whitespace-
+                # padded skus, or the two paths silently diverge on which
+                # EANs match.
+                variant_sku = (variant.get("sku") or "").strip()
                 price = float(variant.get("price", 0)) if variant.get("price") else None
                 compare_at_price = (
                     float(variant.get("compare_at_price", 0)) if variant.get("compare_at_price") else None

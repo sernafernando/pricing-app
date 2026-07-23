@@ -30,6 +30,15 @@
  * The banlist count is loaded on mount too (not only when its tab is
  * opened) and refreshed after every ban/unban — the same "no lying counter"
  * standard applied to `verdict_counts`.
+ *
+ * Accessible tabs: `.subTabBar` is a `role="tablist"`; each button is a
+ * `role="tab"` with `aria-selected` tracking the active tab and arrow-key
+ * (Left/Right/Home/End) roving-focus navigation. Only the active tab's
+ * content is ever rendered (one panel at a time), so every tab's
+ * `aria-controls` points at the SAME single, always-present `TAB_PANEL_ID`
+ * rather than a per-tab id — a per-tab id would dangle for every INACTIVE
+ * tab, itself an accessibility defect (round 7, item 3). The panel's
+ * `aria-labelledby` still tracks whichever tab is currently selected.
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -43,6 +52,15 @@ import styles from './TiendaNubeReconcile.module.css';
 export const COLUMN_SIZING_STORAGE_KEY = 'tnreconcile:colsizing:reporte';
 
 const PAGE_SIZE = 50;
+
+// Round 7, item 3: only the ACTIVE tab's content is ever rendered (one
+// panel at a time), so every tab's `aria-controls` must point at the SAME
+// single, always-present panel id — not a per-tab id that only exists
+// while that specific tab happens to be selected. Pointing every tab at
+// this one stable id means `aria-controls` never dangles for an inactive
+// tab; `aria-labelledby` on the panel itself still tracks which tab is
+// currently "in control" of it.
+const TAB_PANEL_ID = 'tn-panel';
 
 const VERDICT_LABELS = {
   FALTA_VINCULAR: 'Falta vincular',
@@ -431,7 +449,7 @@ export default function TiendaNubeReconcile() {
             role="tab"
             id={`tn-tab-${tab.id}`}
             aria-selected={subTab === tab.id}
-            aria-controls={`tn-panel-${tab.id}`}
+            aria-controls={TAB_PANEL_ID}
             tabIndex={subTab === tab.id ? 0 : -1}
             className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
             onClick={() => setSubTab(tab.id)}
@@ -448,7 +466,7 @@ export default function TiendaNubeReconcile() {
             role="tab"
             id="tn-tab-BANLIST"
             aria-selected={subTab === 'BANLIST'}
-            aria-controls="tn-panel-BANLIST"
+            aria-controls={TAB_PANEL_ID}
             tabIndex={subTab === 'BANLIST' ? 0 : -1}
             className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
             onClick={() => setSubTab('BANLIST')}
@@ -460,7 +478,7 @@ export default function TiendaNubeReconcile() {
 
       <div
         role="tabpanel"
-        id={`tn-panel-${subTab}`}
+        id={TAB_PANEL_ID}
         aria-labelledby={`tn-tab-${subTab}`}
         tabIndex={0}
       >

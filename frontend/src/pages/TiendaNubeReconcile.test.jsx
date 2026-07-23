@@ -236,6 +236,24 @@ describe('Accessible sub-tabs (round 6, item 3)', () => {
     expect(panel).toHaveAttribute('aria-labelledby', todosTab.id);
   });
 
+  it('every tab\'s aria-controls resolves to an element actually in the document, including INACTIVE tabs (round 7, item 3)', async () => {
+    // Only the active panel is rendered — before this fix, an inactive
+    // tab's aria-controls pointed at a `tn-panel-{id}` that only exists
+    // while THAT tab is selected, so every other tab's aria-controls was
+    // dangling. A single always-present panel (relabeled per active tab)
+    // means every tab's aria-controls resolves to the SAME real element.
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.length).toBeGreaterThan(1);
+
+    for (const tab of tabs) {
+      const controlsId = tab.getAttribute('aria-controls');
+      expect(controlsId).toBeTruthy();
+      expect(document.getElementById(controlsId)).not.toBeNull();
+    }
+  });
+
   it('moves selection with ArrowRight/ArrowLeft between tabs (roving focus)', async () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);

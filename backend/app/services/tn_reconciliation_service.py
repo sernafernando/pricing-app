@@ -106,6 +106,22 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
+def _as_optional_int(value) -> Optional[int]:
+    """Like `_as_int`, but returns `None` for missing/empty/unparseable
+    values instead of collapsing them to a numeric default. Used for
+    `stock`, where the DESPUBLICAR check treats `0` as the flag-triggering
+    value — coercing "unknown" to `_as_int`'s generic default of `0` would
+    silently mean "unknown stock" and "confirmed zero stock" become
+    indistinguishable, exactly the failure mode already avoided for
+    `published` (see `_is_visible`)."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _is_visible(tn: TiendaNubeProducto) -> bool:
     """Fail-safe check for "actually published/visible in the storefront".
 
@@ -114,7 +130,10 @@ def _is_visible(tn: TiendaNubeProducto) -> bool:
     the /products endpoint returns, including unpublished/draft ones.
     `published IS None` means the row hasn't been re-synced with the new
     field yet (unknown), and MUST NOT be treated as published — never
-    over-claim DESPUBLICAR on unknown data.
+    over-claim DESPUBLICAR on unknown data. `stock` gets the same fail-safe
+    treatment via `_as_optional_int` (unknown stock is `None`, never `0` —
+    see `compute_verdicts`), since `0` is exactly the value that raises this
+    flag on the other side of the same `and`.
     """
     return getattr(tn, "published", None) is True
 
@@ -177,7 +196,9 @@ def compute_verdicts(
         ean = _normalize_sku(row.get("Código"))
         tnr_id = _as_int(row.get("tnr_id"))
         tnr_variation_id = _as_int(row.get("tnr_variationID"))
-        stock = _as_int(row.get("stock"))
+        # Unknown stock (missing/empty/unparseable) MUST be None, never 0 —
+        # 0 is exactly the value that raises DESPUBLICAR (round 7, item 2).
+        stock = _as_optional_int(row.get("stock"))
 
         matches_by_ean = tn_by_sku.get(ean, []) if ean else []
 

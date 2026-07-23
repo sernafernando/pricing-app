@@ -325,3 +325,60 @@ class TestDespublicar:
 
         assert len(results) == 1
         assert results[0].despublicar is False
+
+
+class TestDespublicarUnknownStock:
+    """Round 7, item 2: unknown `stock` must be treated the same way unknown
+    `published` already is — as UNKNOWN, never coerced to a specific value
+    that happens to also be the value that triggers the flag. `_as_int`
+    collapsing a missing/empty/unparseable stock to `0` (its generic
+    numeric default) directly contradicts that, since `0` is exactly the
+    value DESPUBLICAR keys on — every published EAN on a row with no/bad
+    `stock` data would otherwise get silently flagged."""
+
+    def test_stock_key_entirely_absent_is_not_flagged(self):
+        gbp_rows = [{"Código": "123", "tnr_id": 501, "tnr_variationID": 12}]  # no "stock" key at all
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].despublicar is False
+
+    def test_stock_empty_string_is_not_flagged(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock="")]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].despublicar is False
+
+    def test_stock_non_numeric_is_not_flagged(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock="N/D")]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].despublicar is False
+
+    def test_stock_none_is_not_flagged(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock=None)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].despublicar is False
+
+    def test_stock_genuinely_zero_with_visible_row_is_still_flagged(self):
+        """Regression guard: fixing the unknown-stock fail-safe must not
+        also suppress the genuine, correctly-parsed zero-stock case."""
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock=0)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].despublicar is True

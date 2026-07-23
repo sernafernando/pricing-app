@@ -59,6 +59,35 @@ class TestPublishedMapping:
         assert variantes[0]["published"] is None
 
 
+class TestVariantSkuNormalization:
+    """Round 7, item 1: `variant_sku` is the reconciliation join key
+    (`compute_verdicts._normalize_sku`), so both `tienda_nube_productos`
+    writers MUST normalize it identically. This pins the cron writer's
+    (`extract_variantes`) side of that contract; the endpoint's side is
+    covered by `tests/api/test_tienda_nube_sync_published.py`."""
+
+    def test_null_sku_normalizes_to_empty_string(self):
+        product = _product(variants=[{"id": 10, "sku": None}])
+
+        variantes = extract_variantes(product)
+
+        assert variantes[0]["variant_sku"] == ""
+
+    def test_absent_sku_normalizes_to_empty_string(self):
+        product = _product(variants=[{"id": 10}])
+
+        variantes = extract_variantes(product)
+
+        assert variantes[0]["variant_sku"] == ""
+
+    def test_sku_with_surrounding_whitespace_is_stripped(self):
+        product = _product(variants=[{"id": 10, "sku": "  0123456  "}])
+
+        variantes = extract_variantes(product)
+
+        assert variantes[0]["variant_sku"] == "0123456"
+
+
 class TestUpsertNeverOverwritesKnownTrueWithUnknown:
     """`_extract_variantes` maps a missing field to `None`, but the real
     "never clears a known TRUE" guarantee is enforced by the UPSERT's SQL —
