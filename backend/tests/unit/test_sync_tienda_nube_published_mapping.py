@@ -15,7 +15,10 @@ from pathlib import Path
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_BACKEND_ROOT))
 
-from scripts.sync_tienda_nube import UPSERT_VARIANTES_SQL, _extract_variantes  # noqa: E402
+from app.services.tienda_nube_sync_shared import (  # noqa: E402
+    UPSERT_VARIANTES_SQL,
+    extract_variantes,
+)
 
 
 def _product(product_id=1, published=True, name="Producto", variants=None):
@@ -31,7 +34,7 @@ class TestPublishedMapping:
     def test_published_true_copied_to_every_variant(self):
         product = _product(published=True, variants=[{"id": 10, "sku": "A"}, {"id": 11, "sku": "B"}])
 
-        variantes = _extract_variantes(product)
+        variantes = extract_variantes(product)
 
         assert len(variantes) == 2
         assert all(v["published"] is True for v in variantes)
@@ -39,7 +42,7 @@ class TestPublishedMapping:
     def test_published_false_copied_to_every_variant(self):
         product = _product(published=False, variants=[{"id": 10, "sku": "A"}])
 
-        variantes = _extract_variantes(product)
+        variantes = extract_variantes(product)
 
         assert len(variantes) == 1
         assert variantes[0]["published"] is False
@@ -51,7 +54,7 @@ class TestPublishedMapping:
         product = _product()
         del product["published"]
 
-        variantes = _extract_variantes(product)
+        variantes = extract_variantes(product)
 
         assert variantes[0]["published"] is None
 

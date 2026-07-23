@@ -22,7 +22,7 @@ import httpx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.services.tienda_nube_sync_shared import extract_published_flag
+from app.services.tienda_nube_sync_shared import UPSERT_VARIANTES_SQL, extract_variantes
 
 # Cargar variables de entorno
 dotenv_path = backend_dir / ".env"
@@ -88,80 +88,6 @@ def fetch_all_products() -> tuple[list, bool]:
     return all_products, fetch_complete
 
 
-# Upsert SQL for one variant row. `published` uses COALESCE against the
-# already-stored value — NOT a bare `= EXCLUDED.published` — because
-# `_extract_variantes` maps a missing/non-bool `published` field to `None`,
-# and a plain assignment would let that `None` silently overwrite a
-# previously-known `True`/`False` as NULL on every sync run that happens to
-# hit an API response missing the field. COALESCE is what actually
-# guarantees "never clears a known value with unknown data";
-# `_extract_variantes` alone only guarantees it produces `None` instead of
-# `False` — the two work together, and losing either one reintroduces the
-# bug.
-UPSERT_VARIANTES_SQL = text("""
-    INSERT INTO tienda_nube_productos (
-        product_id, product_name, variant_id, variant_sku,
-        price, compare_at_price, promotional_price, activo, published
-    ) VALUES (
-        :product_id, :product_name, :variant_id, :variant_sku,
-        :price, :compare_at_price, :promotional_price, true, :published
-    )
-    ON CONFLICT (product_id, variant_id) DO UPDATE SET
-        product_name = EXCLUDED.product_name,
-        variant_sku = EXCLUDED.variant_sku,
-        price = EXCLUDED.price,
-        compare_at_price = EXCLUDED.compare_at_price,
-        promotional_price = EXCLUDED.promotional_price,
-        activo = true,
-        published = COALESCE(EXCLUDED.published, tienda_nube_productos.published)
-""")
-
-
-def _extract_variantes(product: dict) -> list[dict]:
-    """Map one TN /products entry to its per-variant upsert rows.
-
-    TN's `published` boolean lives at the PRODUCT level, but
-    `tienda_nube_productos` stores one row per VARIANT, so it's copied onto
-    every variant row. Missing/absent `published` maps to `None` (unknown)
-    rather than `False` — this function alone does NOT guarantee a known
-    `True` survives a sync; that guarantee comes from `UPSERT_VARIANTES_SQL`'s
-    `COALESCE`, which keeps the existing stored value whenever the incoming
-    one is `None`.
-    """
-    product_id = product.get("id")
-    product_name = product.get("name", {}).get("es", "")
-    published = extract_published_flag(product)
-
-    variantes = []
-    for variant in product.get("variants", []):
-        variant_id = variant.get("id")
-        variant_sku = (variant.get("sku") or "").strip()
-
-        price = float(variant.get("price", 0) or 0)
-        compare_at_price = variant.get("compare_at_price")
-        promotional_price = variant.get("promotional_price")
-
-        if compare_at_price:
-            compare_at_price = float(compare_at_price)
-        if promotional_price:
-            promotional_price = float(promotional_price)
-
-        variantes.append(
-            {
-                "product_id": product_id,
-                "product_name": product_name,
-                "variant_id": variant_id,
-                "variant_sku": variant_sku,
-                "price": price,
-                "compare_at_price": compare_at_price,
-                "promotional_price": promotional_price,
-                "published": published,
-            }
-        )
-
-    return variantes
-
-
 def sync_tienda_nube():
     """Sincroniza productos de Tienda Nube usando upsert."""
     start_time = datetime.now()
@@ -179,7 +105,7 @@ def sync_tienda_nube():
         # Contar variantes que vamos a procesar
         variantes = []
         for product in all_products:
-            variantes.extend(_extract_variantes(product))
+            variantes.extend(extract_variantes(product))
 
         # Solo marcar inactivos si obtuvimos la lista COMPLETA de TN.
         # Si hubo error de paginación (fetch parcial), solo actualizamos
@@ -191,7 +117,7 @@ def sync_tienda_nube():
             print("  ⚠️  Fetch parcial — solo se actualizan precios, no se desactivan productos")
 
         # Upsert todas las variantes (ON CONFLICT usa el unique constraint
-        # product_id+variant_id) — ver UPSERT_VARIANTES_SQL arriba para el
+        # product_id+variant_id) — ver UPSERT_VARIANTES_SQL en tienda_nube_sync_shared para el
         # porqué de su COALESCE en `published`.
         for variante in variantes:
             db.execute(UPSERT_VARIANTES_SQL, variante)
