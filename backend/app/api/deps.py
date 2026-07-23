@@ -65,7 +65,10 @@ async def get_current_user_transient(
     de get_db() abierta durante toda la vida de la conexión.
 
     El objeto Usuario retornado es DETACHED — no tiene sesión activa.
-    Solo usar para leer atributos ya cargados (username, rol, etc.).
+    Solo usar para leer atributos ya cargados: columnas propias (username,
+    activo, etc.) y `rol_obj` (eager-loaded aquí explícitamente, por eso
+    `es_superadmin`/`rol_codigo` funcionan sin sesión). Cualquier OTRA
+    relación lazy (no eager-loaded acá) SÍ lanza DetachedInstanceError.
     """
     token = credentials.credentials
     payload = decode_token(token)
@@ -78,7 +81,20 @@ async def get_current_user_transient(
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Token inválido")
 
     with get_background_db() as db:
-        usuario = db.query(Usuario).filter((Usuario.username == username) | (Usuario.email == username)).first()
+        # Eager-load rol_obj (mirrors get_current_user) — without it,
+        # `usuario.es_superadmin`/`rol_codigo` (both read `self.rol_obj`)
+        # raise DetachedInstanceError the moment anything touches them after
+        # this function returns, since the object is expunged below. Any
+        # caller doing a permission check on a transient-auth user (e.g.
+        # `verificar_permiso`'s fallback path for cache-less users) needs
+        # this to actually work per this function's own contract ("solo
+        # usar para leer atributos ya cargados").
+        usuario = (
+            db.query(Usuario)
+            .options(joinedload(Usuario.rol_obj))
+            .filter((Usuario.username == username) | (Usuario.email == username))
+            .first()
+        )
 
         if usuario is None:
             raise api_error(401, ErrorCode.INVALID_TOKEN, "Usuario no encontrado")
