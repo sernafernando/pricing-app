@@ -387,9 +387,7 @@ class TestPublishNow:
         refreshed = db.query(MlBotQuestion).filter(MlBotQuestion.id == q_id).first()
         assert refreshed.attempts == 0
 
-    def test_retry_de_failed_ya_respondida_no_reposta(
-        self, client, auth_headers, db, con_todos_los_permisos
-    ) -> None:
+    def test_retry_de_failed_ya_respondida_no_reposta(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         """Judgment Day CRITICAL fix, real integration path: a `failed` row
         whose question was ALREADY ANSWERED on ML (e.g. a prior claim's POST
         succeeded but the terminal DB write was lost to a crash) must be
@@ -530,12 +528,8 @@ class TestBuyerHistory:
 
     def test_historial_correcto_orden_y_exclusion(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         now = datetime.now(timezone.utc)
-        older = _seed_question(
-            db, status="published", buyer_id=99, question_date=now - timedelta(days=2)
-        )
-        newer = _seed_question(
-            db, status="published", buyer_id=99, question_date=now - timedelta(days=1)
-        )
+        older = _seed_question(db, status="published", buyer_id=99, question_date=now - timedelta(days=2))
+        newer = _seed_question(db, status="published", buyer_id=99, question_date=now - timedelta(days=1))
         current = _seed_question(db, status="waiting", buyer_id=99, question_date=now)
         other_buyer = _seed_question(db, status="waiting", buyer_id=1, question_date=now)
         db.commit()
@@ -655,25 +649,46 @@ class TestStatus:
     ) -> None:
         db.add(MlBotConfig(clave="bot_enabled", valor="true", tipo="bool"))
         db.add(MlBotConfig(clave="auto_publish_enabled", valor="true", tipo="bool"))
+        db.add(MlBotConfig(clave="messages_send_enabled", valor="true", tipo="bool"))
         db.commit()
         r = client.get(f"{BASE}/status", headers=auth_headers)
         assert r.status_code == 200
-        assert r.json() == {"bot_enabled": True, "auto_publish_enabled": True}
+        assert r.json() == {
+            "bot_enabled": True,
+            "auto_publish_enabled": True,
+            "messages_send_enabled": True,
+        }
 
-    def test_con_permiso_ver_bot_apagado_y_supervisado(
-        self, client, auth_headers, db, con_todos_los_permisos
-    ) -> None:
+    def test_con_permiso_ver_bot_apagado_y_supervisado(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         db.add(MlBotConfig(clave="bot_enabled", valor="false", tipo="bool"))
         db.add(MlBotConfig(clave="auto_publish_enabled", valor="false", tipo="bool"))
+        db.add(MlBotConfig(clave="messages_send_enabled", valor="false", tipo="bool"))
         db.commit()
         r = client.get(f"{BASE}/status", headers=auth_headers)
         assert r.status_code == 200
-        assert r.json() == {"bot_enabled": False, "auto_publish_enabled": False}
+        assert r.json() == {
+            "bot_enabled": False,
+            "auto_publish_enabled": False,
+            "messages_send_enabled": False,
+        }
 
     def test_config_ausente_defaultea_a_false(self, client, auth_headers, con_todos_los_permisos) -> None:
         r = client.get(f"{BASE}/status", headers=auth_headers)
         assert r.status_code == 200
-        assert r.json() == {"bot_enabled": False, "auto_publish_enabled": False}
+        assert r.json() == {
+            "bot_enabled": False,
+            "auto_publish_enabled": False,
+            "messages_send_enabled": False,
+        }
+
+    def test_messages_send_enabled_expuesto_cuando_prendido(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        db.add(MlBotConfig(clave="messages_send_enabled", valor="true", tipo="bool"))
+        db.commit()
+        r = client.get(f"{BASE}/status", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json()["messages_send_enabled"] is True
 
     def test_solo_ver_alcanza_200(self, client, auth_headers) -> None:
         with _permiso_solo("ml_bot.ver"):

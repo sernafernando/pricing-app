@@ -194,6 +194,7 @@ class ToggleResponse(BaseModel):
 class StatusResponse(BaseModel):
     bot_enabled: bool
     auto_publish_enabled: bool
+    messages_send_enabled: bool
 
 
 class ExampleResponse(BaseModel):
@@ -797,11 +798,23 @@ def obtener_status(
     el badge de modo supervisado (y el de bot on/off) eran invisibles para
     operadores con solo `ml_bot.ver`/`ml_bot.responder`, y el frontend
     parseaba `valor === 'true'` en vez de reusar el `_cast_bool` real del
-    backend (ver `policy.py`)."""
+    backend (ver `policy.py`).
+
+    `messages_send_enabled` se agrega por el mismo motivo (Phase A PR3
+    review): el gate de envío de mensajes (default `False`, ver
+    `enviar_respuesta_mensaje`) era invisible para el frontend, que
+    renderizaba "Enviar" habilitado y disparaba un 409 en producción por
+    default. Se lee con el mismo accessor fail-safe (`get_config` con
+    `default=False`) que usa el propio gate."""
     _check_permiso(db, current_user, "ml_bot.ver")
     bot_enabled = get_config(db, "bot_enabled", cast=bool, default=False)
     auto_publish_enabled = is_auto_publish_enabled(db)
-    return StatusResponse(bot_enabled=bot_enabled, auto_publish_enabled=auto_publish_enabled)
+    messages_send_enabled = get_config(db, "messages_send_enabled", cast=bool, default=False)
+    return StatusResponse(
+        bot_enabled=bot_enabled,
+        auto_publish_enabled=auto_publish_enabled,
+        messages_send_enabled=messages_send_enabled,
+    )
 
 
 # =============================================================================

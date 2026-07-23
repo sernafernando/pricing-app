@@ -694,7 +694,7 @@ export default function MLQuestions() {
     try {
       await fn();
     } catch (err) {
-      setMsgActionError(err?.response?.data?.detail || 'No se pudo completar la acción');
+      setMsgActionError(err?.response?.data?.detail || err?.message || 'No se pudo completar la acción');
     } finally {
       // Always resync — mirrors runAction: an action can 409 after partially
       // mutating server state (operator race), so re-fetch regardless.
@@ -708,7 +708,15 @@ export default function MLQuestions() {
   }, message.id);
 
   const handleSendMessage = (message) => runMessageAction(async () => {
-    await api.post(`/ml-bot/messages/${message.id}/send`);
+    // The backend returns HTTP 200 with `sent: false` on a TRANSIENT send
+    // failure (message stays `taken_over` for manual retry) — a thrown
+    // error is NOT the only failure shape here. Surface `sent: false`
+    // explicitly, otherwise the operator sees no error and believes the
+    // buyer received the reply when they did not.
+    const { data } = await api.post(`/ml-bot/messages/${message.id}/send`);
+    if (data?.sent === false) {
+      throw new Error('El envío no se completó (falla transitoria). El mensaje sigue disponible para reintentar.');
+    }
   }, message.id);
 
   const openMessageEdit = (message) => {
@@ -815,6 +823,11 @@ export default function MLQuestions() {
   // didn't match the backend's real truthy convention, `_cast_bool`).
   const botEnabled = status?.bot_enabled ?? false;
   const autoPublishEnabled = status?.auto_publish_enabled ?? false;
+  // Gate for the Mensajes "Enviar" button — defaults to False on the
+  // backend (fail-closed), so an absent/loading `status` must NOT be
+  // treated as "enabled" (PR3 review finding: the gate was invisible to
+  // the UI and every click 409'd in the production default state).
+  const messagesSendEnabled = status?.messages_send_enabled ?? false;
 
   const handleToggle = async (enabled) => {
     setToggling(true);
@@ -934,7 +947,7 @@ export default function MLQuestions() {
           <div className={styles.detailPanel}>
             <div className={styles.detailContent}>
               <div>
-                <strong>Conversación completa</strong>
+                <strong>Conversación del pack (mensajes cargados)</strong>
                 {thread.messages.map((m) => (
                   <p key={m.id} className={styles.detailText}>
                     <em>Comprador{m.received_at ? ` · ${new Date(m.received_at).toLocaleString()}` : ''}:</em>{' '}
@@ -1624,8 +1637,8 @@ export default function MLQuestions() {
                                   <button
                                     className="btn-tesla sm"
                                     onClick={() => handleSendMessage(anchor)}
-                                    disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer}
-                                    title="Enviar respuesta"
+                                    disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
+                                    title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
                                     aria-label="Enviar respuesta"
                                   >
                                     <Send size={14} />

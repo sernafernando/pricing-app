@@ -510,9 +510,13 @@ const CLAIM_MESSAGE = {
   drafted_answer: null,
 };
 
-function mockMessagesList(messages) {
+function mockMessagesList(messages, { messagesSendEnabled = true } = {}) {
   api.get.mockImplementation((url) => {
-    if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+    if (url === '/ml-bot/status') {
+      return Promise.resolve({
+        data: { bot_enabled: true, auto_publish_enabled: false, messages_send_enabled: messagesSendEnabled },
+      });
+    }
     if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
     if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages, total: messages.length } });
     return Promise.resolve({ data: {} });
@@ -598,6 +602,55 @@ describe('Mensajes tab — thread-header actions (permission-gated)', () => {
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith(`/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`);
     });
+  });
+
+  it('surfaces a visible error and does NOT show success when the send response is HTTP 200 with sent: false', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    api.post.mockImplementation((url) => {
+      if (url === `/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`) {
+        return Promise.resolve({ data: { message: TAKEN_OVER_MESSAGE, sent: false } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    await user.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/no se completó|falla transitoria/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/^Enviado$/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Mensajes tab — messages_send_enabled gate (visible to the UI)', () => {
+  it('disables "Enviar" (with an explanatory title) when the gate is off, while Tomar/Editar stay enabled', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE], { messagesSendEnabled: false });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    expect(sendBtn).toBeDisabled();
+    expect(sendBtn).toHaveAttribute('title', expect.stringMatching(/deshabilitado/i));
+
+    expect(screen.getByRole('button', { name: /^editar$/i })).toBeEnabled();
+  });
+
+  it('enables "Enviar" when the gate is on (existing send-endpoint test covers the click path)', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE], { messagesSendEnabled: true });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    expect(sendBtn).toBeEnabled();
   });
 });
 
