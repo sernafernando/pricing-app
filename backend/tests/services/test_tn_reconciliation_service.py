@@ -209,6 +209,40 @@ class TestDuplicado:
         assert len(results) == 2
         assert all(r.verdict == "DUPLICADO" for r in results)
 
+    def test_despublicar_is_not_dropped_on_duplicado_rows(self):
+        """`despublicar` is computed above the branch dispatch and every
+        other branch propagates it — the two DUPLICADO-returning branches
+        must too. In the "Todos" sub-tab (which shows the Despublicar column
+        AND includes DUPLICADO rows), a published/visible/zero-stock EAN
+        must still show despublicar=True even though it's also duplicated —
+        that's the case where the flag matters most."""
+        gbp_rows = [
+            _gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12, stock=0),
+            _gbp_row(codigo="456", tnr_id=501, tnr_variation_id=12, stock=0),
+        ]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 2
+        assert all(r.verdict == "DUPLICADO" for r in results)
+        assert any(r.despublicar is True for r in results)
+
+    def test_despublicar_not_dropped_on_multiple_tn_variants_duplicado(self):
+        """Same bug, other DUPLICADO branch (multiple TN variants share one
+        EAN, tnr_id == 0)."""
+        gbp_rows = [_gbp_row(codigo="SAME-EAN", tnr_id=0, stock=0)]
+        tn_productos = [
+            _tn(product_id=1, variant_id=1, sku="SAME-EAN", published=True),
+            _tn(product_id=2, variant_id=1, sku="SAME-EAN", published=True),
+        ]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "DUPLICADO"
+        assert results[0].despublicar is True
+
 
 class TestVerdictEdgeCases:
     def test_null_variant_sku_never_matches_any_ean(self):

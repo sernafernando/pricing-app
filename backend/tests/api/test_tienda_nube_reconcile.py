@@ -1,9 +1,17 @@
 """Integration tests for the TN reconciliation endpoints (Slice 1, read-only).
 
-Covers: permission gate, paginated report shape (incl. true verdict_counts
-over the WHOLE result set, never just the current page), ban-list add/remove
-hides/reveals a row, GBP fetch-failure surfaces a clear error without any
-partial write, TOCTOU-safe double-ban, and empty/blank EAN validation.
+Covers: permission gate, one-shot (non-paginated) report shape with true
+`verdict_counts` over the WHOLE result set, the `verdict` filter's closed
+Literal validation (422 on an unknown verdict — never a silent empty
+result), ban-list add/remove hides/reveals a row, GBP fetch-failure surfaces
+a clear error without any partial write, TOCTOU-safe double-ban, and
+empty/blank EAN validation.
+
+Third review round changed `/reporte` from server-side paginated to a
+one-shot full-set fetch (per the feature's original intent: "query it live
+with a button") — sub-tab filtering and paging now happen client-side over
+the already-fetched set, so the endpoint no longer accepts/returns
+page/page_size.
 """
 
 from __future__ import annotations
@@ -161,49 +169,50 @@ class TestPermissionGate:
         assert any(row["ean"] == "EAN-100" and row["verdict"] == "FALTA_PUBLICAR" for row in body["items"])
 
 
-class TestPagination:
-    """The report is paginated per repo convention (page/page_size), and the
-    internal TN catalog query has an explicit ceiling — see B2 in the review.
-    `verdict_counts` MUST always reflect the TRUE total per verdict across
-    the WHOLE result set, never just the returned page (silent truncation
-    in a reconciliation tool is a correctness bug, not a UX nit)."""
+class TestOneShotReport:
+    """`/reporte` is a one-shot fetch of the FULL verdict set — no
+    page/page_size navigation params (third review round: navigating pages
+    used to trigger a fresh SOAP fetch per page, reproducing the exact
+    pool-exhaustion shape an earlier round fixed). `verdict_counts` MUST
+    always reflect the TRUE total per verdict across the WHOLE result set."""
 
-    def test_response_shape_includes_pagination_metadata(self, client, db, user_ver):
+    def test_response_shape_has_no_pagination_params(self, client, db, user_ver):
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         body = response.json()
-        assert set(body.keys()) == {"items", "total", "page", "page_size", "verdict_counts"}
+        assert set(body.keys()) == {"items", "total", "verdict_counts", "catalog_cap_hit"}
         assert body["total"] == 1
-        assert body["page"] == 1
         assert isinstance(body["items"], list)
 
-    def test_page_size_is_capped(self, client, db, user_ver):
-        response = _fetch_report(client, user_ver, params={"page_size": 10000})
-        assert response.status_code == 422  # over the enforced le=200 ceiling
+    def test_page_param_no_longer_accepted(self, client, db, user_ver):
+        """A client still passing page/page_size (stale bookmark, old
+        integration) gets a 422 — FastAPI rejects unknown query params only
+        if configured to; here we just confirm they're silently ignored
+        rather than changing behavior, since removing pagination is a
+        contract change and unknown params must not resurrect old paging
+        semantics by accident."""
+        response = _fetch_report(client, user_ver, params={"page": 2, "page_size": 1})
+        body = response.json()
+        # Full set still returned — `page`/`page_size` have no effect.
+        assert len(body["items"]) == 1
 
-    def test_page_beyond_total_returns_empty_items(self, client, db, user_ver):
-        response = _fetch_report(client, user_ver, params={"page": 99, "page_size": 50})
+    def test_returns_full_verdict_set_without_pagination(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=_mixed_verdict_gbp_rows())
         assert response.status_code == 200
         body = response.json()
-        assert body["items"] == []
-        assert body["total"] == 1
+        assert len(body["items"]) == 4
+        assert body["total"] == 4
 
-    def test_verdict_counts_reflect_full_totals_not_current_page(self, client, db, user_ver):
-        response = _fetch_report(
-            client, user_ver, params={"page": 1, "page_size": 2}, gbp_rows=_mixed_verdict_gbp_rows()
-        )
+    def test_verdict_counts_reflect_full_totals(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=_mixed_verdict_gbp_rows())
         assert response.status_code == 200
         body = response.json()
-        # Only 2 items fit on this page...
-        assert len(body["items"]) == 2
-        # ...but verdict_counts must still say there are 3 FALTA_PUBLICAR and
-        # 1 MAL_VINCULADO in the FULL result set, not just what's on the page.
         assert body["verdict_counts"]["FALTA_PUBLICAR"] == 3
         assert body["verdict_counts"]["MAL_VINCULADO"] == 1
 
     def test_verdict_filter_returns_only_that_verdict_with_accurate_total(self, client, db, user_ver):
         response = _fetch_report(
-            client, user_ver, params={"verdict": "FALTA_PUBLICAR", "page_size": 50}, gbp_rows=_mixed_verdict_gbp_rows()
+            client, user_ver, params={"verdict": "FALTA_PUBLICAR"}, gbp_rows=_mixed_verdict_gbp_rows()
         )
         assert response.status_code == 200
         body = response.json()
@@ -211,6 +220,20 @@ class TestPagination:
         assert all(item["verdict"] == "FALTA_PUBLICAR" for item in body["items"])
         # verdict_counts is unaffected by the filter — full breakdown always.
         assert body["verdict_counts"]["MAL_VINCULADO"] == 1
+
+    def test_unknown_verdict_filter_returns_422_not_a_silent_empty_result(self, client, db, user_ver):
+        """The verdict taxonomy is a closed set — a typo like
+        FALTA_PUBICAR must be rejected (422), never silently accepted and
+        returned as `items: [], total: 0` (indistinguishable from "there
+        really are no anomalies of this type", the dangerous reading in a
+        reconciliation tool)."""
+        response = _fetch_report(client, user_ver, params={"verdict": "FALTA_PUBICAR"})
+        assert response.status_code == 422
+
+    def test_catalog_cap_hit_flag_present_and_false_under_the_cap(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver)
+        assert response.status_code == 200
+        assert response.json()["catalog_cap_hit"] is False
 
 
 class TestBanlist:

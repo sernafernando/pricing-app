@@ -12,7 +12,13 @@
  *     legitimately renders checkboxes for bulk unban elsewhere)
  *   - Ban/unban error handling (try/catch + toast, never an unhandled
  *     rejection)
- *   - Banlist view: list, individual unban, bulk unban
+ *   - Banlist view: list (loaded on mount, not just when the tab is opened),
+ *     individual unban, bulk unban (clears selection + reports a partial
+ *     count on failure)
+ *   - One-shot fetch (third review round): the report is fetched once on
+ *     mount + on explicit "Actualizar" clicks, NEVER on sub-tab change or
+ *     page navigation — those are derived client-side from the already
+ *     fetched set.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -64,11 +70,11 @@ const BANEADOS = [
   },
 ];
 
-function setupApiMocks({ baneados = BANEADOS, verdictCounts = VERDICT_COUNTS, items = REPORTE_ITEMS, total } = {}) {
+function setupApiMocks({ baneados = BANEADOS, verdictCounts = VERDICT_COUNTS, items = REPORTE_ITEMS, catalogCapHit = false } = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/reporte') {
       return Promise.resolve({
-        data: { items, total: total ?? items.length, page: 1, page_size: 50, verdict_counts: verdictCounts },
+        data: { items, total: items.length, verdict_counts: verdictCounts, catalog_cap_hit: catalogCapHit },
       });
     }
     if (url === '/tienda-nube-reconcile/baneados') {
@@ -77,6 +83,15 @@ function setupApiMocks({ baneados = BANEADOS, verdictCounts = VERDICT_COUNTS, it
     return Promise.resolve({ data: [] });
   });
   api.post.mockImplementation(() => Promise.resolve({ data: { success: true } }));
+}
+
+function manyFaltaPublicar(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    ean: `FP-${i}`,
+    verdict: 'FALTA_PUBLICAR',
+    despublicar: false,
+    tn_matches: [],
+  }));
 }
 
 beforeEach(() => {
@@ -97,11 +112,62 @@ describe('Permission gating', () => {
     });
   });
 
-  it('fetches the report when permission is granted', async () => {
+  it('fetches the report once when permission is granted', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/reporte', expect.anything());
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/reporte');
+    });
+    expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+  });
+});
+
+describe('One-shot fetch — no refetch on navigation', () => {
+  it('does NOT refetch the report when switching sub-tabs', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+    });
+
+    const malPublicadoTab = await screen.findByRole('button', { name: /Mal publicado/i });
+    await user.click(malPublicadoTab);
+    const duplicadoTab = await screen.findByRole('button', { name: /Duplicado/i });
+    await user.click(duplicadoTab);
+
+    // Still exactly 1 report fetch — sub-tab filtering happened client-side.
+    expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+  });
+
+  it('does NOT refetch the report when paging', async () => {
+    setupApiMocks({ items: manyFaltaPublicar(120), verdictCounts: { FALTA_PUBLICAR: 120 } });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+    });
+
+    const nextButton = await screen.findByRole('button', { name: /Siguiente/i });
+    await user.click(nextButton);
+
+    expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+  });
+
+  it('refetches the report when the "Actualizar" button is clicked', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+    });
+
+    const refreshButton = await screen.findByRole('button', { name: /Actualizar/i });
+    await user.click(refreshButton);
+
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(2);
     });
   });
 });
@@ -115,13 +181,9 @@ describe('Anomaly sub-tabs', () => {
     });
   });
 
-  it('sub-tab counters use the server-reported true totals (verdict_counts), never the current page length', async () => {
-    // Only 1 item fits in this fake page, but verdict_counts says the FULL
-    // result set has 3 FALTA_PUBLICAR and 1 MAL_VINCULADO — the counters
-    // must show those true totals, not "1" for everything.
+  it('sub-tab counters use the server-reported true totals (verdict_counts)', async () => {
     setupApiMocks({
       items: [{ ean: 'X', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] }],
-      total: 4,
       verdictCounts: { FALTA_PUBLICAR: 3, MAL_VINCULADO: 1 },
     });
 
@@ -133,17 +195,13 @@ describe('Anomaly sub-tabs', () => {
     });
   });
 
-  it('shows a paginator with "Mostrando X de Y" and Next/Prev when the result set exceeds one page', async () => {
-    setupApiMocks({
-      items: REPORTE_ITEMS,
-      total: 500,
-      verdictCounts: { FALTA_PUBLICAR: 500 },
-    });
+  it('shows a paginator with "de N" and Siguiente when the current tab exceeds one client-side page', async () => {
+    setupApiMocks({ items: manyFaltaPublicar(120), verdictCounts: { FALTA_PUBLICAR: 120 } });
 
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByText(/de 500/i)).toBeInTheDocument();
+      expect(screen.getByText(/de 120/i)).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Siguiente/i })).toBeInTheDocument();
   });
@@ -193,12 +251,6 @@ describe('Anomaly sub-tabs', () => {
   });
 
   it('shows TN\'s real `published` field in the DUPLICADO view, never the misleading `activo`', async () => {
-    // This slice spends a migration + several docstrings establishing that
-    // `activo` only means "present in the last sync", NOT "visible in the
-    // store" — showing it in the one view where a human decides which
-    // publication to delete would silently reintroduce that exact
-    // confusion. `published` (tri-state: Sí/No/Desconocido) is what must
-    // appear here instead.
     await renderWithRouter(<TiendaNubeReconcile />);
 
     const user = userEvent.setup();
@@ -210,8 +262,6 @@ describe('Anomaly sub-tabs', () => {
 
     expect(within(group).getByText(/publicado/i)).toBeInTheDocument();
     expect(within(group).queryByRole('columnheader', { name: /^activo$/i })).not.toBeInTheDocument();
-    // published=true → "Sí", published=null → "Desconocido" (never "No",
-    // which would misreport an unknown value as a known negative).
     expect(within(group).getByText(/desconocido/i)).toBeInTheDocument();
   });
 });
@@ -233,11 +283,6 @@ describe('Ban/unban error handling', () => {
   });
 
   it('shows an error toast (never an unhandled rejection) when ban fails with 400', async () => {
-    // The REAL error contract (app/core/exceptions.py's http_exception_handler):
-    // every error response is `{"error": {"code": ..., "message": ...}}` —
-    // there is NO `data.detail`. Mocking `data.detail` here would let a
-    // broken `err?.response?.data?.detail` read pass green while production
-    // silently falls back to the generic message.
     api.post.mockImplementation(() =>
       Promise.reject({ response: { data: { error: { code: 'ALREADY_EXISTS', message: 'El EAN ya está en la banlist' } } } })
     );
@@ -288,6 +333,31 @@ describe('Banlist view', () => {
     expect(screen.queryByRole('button', { name: /Banlist/i })).not.toBeInTheDocument();
   });
 
+  it('loads the banlist count on MOUNT, not only when the Banlist tab is opened (a stale "(0)" is the same "lying counter" bug this slice fixes for verdict_counts)', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/baneados');
+    });
+    expect(await screen.findByRole('button', { name: /Banlist \(1\)/i })).toBeInTheDocument();
+  });
+
+  it('refreshes the banlist count after a successful ban from the report tab', async () => {
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await screen.findByRole('button', { name: /Banlist \(1\)/i });
+    const initialBaneadosCalls = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
+
+    const banButton = await screen.findByRole('button', { name: /Banear/i });
+    await user.click(banButton);
+
+    await waitFor(() => {
+      const callsAfter = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
+      expect(callsAfter).toBeGreaterThan(initialBaneadosCalls);
+    });
+  });
+
   it('lists banned EANs fetched from GET /baneados', async () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
@@ -295,9 +365,6 @@ describe('Banlist view', () => {
     const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
     await user.click(banlistTab);
 
-    await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/baneados');
-    });
     expect(await screen.findByText('BANNED-1')).toBeInTheDocument();
     expect(screen.getByText('test motivo')).toBeInTheDocument();
   });
@@ -344,15 +411,15 @@ describe('Banlist view', () => {
     });
   });
 
-  it('refreshes the banlist even when a bulk unban fails partway (finally, not just the success path)', async () => {
+  it('on partial bulk-unban failure: refreshes the banlist, clears the selection, and reports how many succeeded', async () => {
     setupApiMocks({
       baneados: [
         { id: 1, ean: 'A', motivo: null, usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
         { id: 2, ean: 'B', motivo: null, usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+        { id: 3, ean: 'C', motivo: null, usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
       ],
     });
-    // First unban succeeds, second fails — the UI must still refresh the
-    // banlist afterward instead of leaving already-deleted entries shown.
+    // 1st succeeds, 2nd fails, 3rd is never attempted (loop aborts).
     let call = 0;
     api.post.mockImplementation((url) => {
       if (url === '/tienda-nube-reconcile/desbanear') {
@@ -379,10 +446,22 @@ describe('Banlist view', () => {
     const bulkButton = await screen.findByRole('button', { name: /Desbanear seleccionados/i });
     await user.click(bulkButton);
 
-    // GET /baneados is called once on mount/tab-open + once more in the
-    // `finally` refresh after the bulk action settles (success or failure).
+    // Reports how many succeeded out of the total attempted.
+    await waitFor(() => {
+      expect(screen.getByText(/1.*3|1 de 3/i)).toBeInTheDocument();
+    });
+
+    // GET /baneados is called once on mount + once more in the `finally`
+    // refresh after the bulk action settles (success or failure).
     await waitFor(() => {
       expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length).toBeGreaterThanOrEqual(2);
+    });
+
+    // Selection is cleared even on partial failure — no stale ids of rows
+    // that no longer exist (or were never attempted) remain "selected".
+    await waitFor(() => {
+      const remainingChecked = screen.queryAllByRole('checkbox').filter((cb) => cb.checked);
+      expect(remainingChecked).toHaveLength(0);
     });
   });
 });
@@ -396,8 +475,6 @@ describe('Column resize persist/reset', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalled();
     });
-    // Component didn't throw and rendered the table — persisted sizing was
-    // accepted without crashing (fail-safe parse mirrors MLQuestions').
     expect(screen.getAllByRole('table').length).toBeGreaterThan(0);
   });
 

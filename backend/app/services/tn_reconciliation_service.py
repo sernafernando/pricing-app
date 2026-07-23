@@ -184,13 +184,29 @@ def compute_verdicts(
         despublicar = any(_is_visible(tn) and stock == 0 for tn in matches_by_ean)
 
         if idx in duplicated_indices:
-            results.append(ReconcileRow(ean=ean or "", verdict="DUPLICADO", gbp_row=row, tn_matches=matches_by_ean))
+            results.append(
+                ReconcileRow(
+                    ean=ean or "",
+                    verdict="DUPLICADO",
+                    gbp_row=row,
+                    tn_matches=matches_by_ean,
+                    despublicar=despublicar,
+                )
+            )
             continue
 
         if len(matches_by_ean) > 1:
             # Multiple TN variants share the same EAN — never silently
             # resolved to one arbitrary variant (Verdict Edge Cases).
-            results.append(ReconcileRow(ean=ean or "", verdict="DUPLICADO", gbp_row=row, tn_matches=matches_by_ean))
+            results.append(
+                ReconcileRow(
+                    ean=ean or "",
+                    verdict="DUPLICADO",
+                    gbp_row=row,
+                    tn_matches=matches_by_ean,
+                    despublicar=despublicar,
+                )
+            )
             continue
 
         if tnr_id == 0:

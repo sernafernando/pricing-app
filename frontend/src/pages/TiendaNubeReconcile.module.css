@@ -160,3 +160,17 @@ table.resizableTable {
   justify-content: flex-end;
   margin-bottom: var(--spacing-xs);
 }
+
+/* Paginator bar — distinct from .columnSizingBar (that one is only ever a
+   right-aligned single action; the paginator always needs a
+   space-between layout for the "Mostrando X-Y de Z" label + Prev/Next). */
+.paginatorBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--spacing-sm);
+}
+
+.btnSpaced {
+  margin-left: 8px;
+}

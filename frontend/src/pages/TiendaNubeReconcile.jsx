@@ -17,17 +17,22 @@
  * FALTA_PUBLICAR/FALTA_VINCULAR, never MAL_VINCULADO/MAL_PUBLICADO/DUPLICADO
  * (enforced server-side in `tn_reconciliation_service.compute_verdicts`).
  *
- * Pagination (second review round — corrected a silent-truncation bug):
- * the report is genuinely paginated server-side, one verdict filter per
- * request. Sub-tab counters read the server's `verdict_counts` (the TRUE
- * total per verdict across the WHOLE result set), never a client-side count
- * of whatever page happens to be loaded — showing "Falta publicar (37)"
- * when there are actually hundreds more would be a correctness bug, not a
- * UX nit. A paginator ("Mostrando X–Y de Z" + Anterior/Siguiente) is shown
- * whenever the current filter's total exceeds one page.
+ * One-shot fetch (third review round — replaces server-side pagination):
+ * `/reporte` is called ONCE on mount and again only on an explicit
+ * "Actualizar" click or after a ban/unban (a real data change) — NEVER on
+ * sub-tab switch or page navigation. Earlier server-side pagination
+ * re-triggered a full SOAP fetch per page/tab click, reproducing the exact
+ * pool-exhaustion shape an earlier round had fixed; this matches the
+ * feature's original intent ("query it live with a button"). Sub-tab
+ * filtering and paging are both derived client-side from the one fetched
+ * set. Sub-tab counters read the server's `verdict_counts` (the TRUE total
+ * per verdict across the WHOLE set), never a client-side page-length count.
+ * The banlist count is loaded on mount too (not only when its tab is
+ * opened) and refreshed after every ban/unban — the same "no lying counter"
+ * standard applied to `verdict_counts`.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
@@ -58,8 +63,8 @@ const VERDICT_BADGE_CLASS = {
 };
 
 // Sub-tabs shown, in order. "todos" aggregates every actionable verdict
-// (everything except OK, which is not an anomaly) — sent with no `verdict`
-// filter. "BANLIST" is not a verdict — it's the banned-EAN management view.
+// (everything except OK, which is not an anomaly). "BANLIST" is not a
+// verdict — it's the banned-EAN management view.
 const VERDICT_SUB_TABS = [
   { id: 'todos', label: 'Todos' },
   { id: 'FALTA_VINCULAR', label: 'Falta vincular' },
@@ -119,6 +124,31 @@ function publishedLabel(published) {
   return 'Desconocido';
 }
 
+// Shared paginator — used identically by the DUPLICADO branch and the
+// general-table branch (previously duplicated verbatim in both).
+function Paginador({ page, totalPages, rangeStart, rangeEnd, total, onPrev, onNext }) {
+  return (
+    <div className={styles.paginatorBar}>
+      <span>
+        Mostrando {rangeStart}–{rangeEnd} de {total}
+      </span>
+      <div>
+        <button type="button" className="btn-tesla ghost sm" disabled={page <= 1} onClick={onPrev}>
+          Anterior
+        </button>
+        <button
+          type="button"
+          className={`btn-tesla ghost sm ${styles.btnSpaced}`}
+          disabled={page >= totalPages}
+          onClick={onNext}
+        >
+          Siguiente
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const EMPTY_TABLE_DATA = [];
 
 export default function TiendaNubeReconcile() {
@@ -132,11 +162,10 @@ export default function TiendaNubeReconcile() {
   const [error, setError] = useState(null);
   const [subTab, setSubTabState] = useState('todos');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [verdictCounts, setVerdictCounts] = useState({});
+  const [catalogCapHit, setCatalogCapHit] = useState(false);
 
-  // Changing sub-tab always resets to page 1 in the same event — avoids an
-  // extra wasted fetch from a separate effect reacting to subTab changes.
+  // Changing sub-tab always resets to page 1 in the same event.
   const setSubTab = useCallback((tab) => {
     setSubTabState(tab);
     setPage(1);
@@ -147,25 +176,25 @@ export default function TiendaNubeReconcile() {
   const [loadingBaneados, setLoadingBaneados] = useState(false);
   const [baneadosSeleccionados, setBaneadosSeleccionados] = useState(new Set());
 
+  // One-shot fetch: no page/verdict params sent — the full verdict set
+  // (everything except OK) is fetched once and filtered/paginated
+  // client-side. See module docstring; this is the review-mandated fix for
+  // "every page click / sub-tab switch re-ran the full SOAP fetch".
   const cargarReporte = useCallback(async () => {
     if (!puedeVer) return;
     setLoading(true);
     setError(null);
     try {
-      const params = { page, page_size: PAGE_SIZE };
-      if (subTab !== 'todos' && subTab !== 'BANLIST') {
-        params.verdict = subTab;
-      }
-      const response = await api.get('/tienda-nube-reconcile/reporte', { params });
+      const response = await api.get('/tienda-nube-reconcile/reporte');
       setReporte(response.data?.items || []);
-      setTotal(response.data?.total || 0);
       setVerdictCounts(response.data?.verdict_counts || {});
+      setCatalogCapHit(Boolean(response.data?.catalog_cap_hit));
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
       setLoading(false);
     }
-  }, [puedeVer, subTab, page]);
+  }, [puedeVer]);
 
   const cargarBaneados = useCallback(async () => {
     if (!puedeGestionarBanlist) return;
@@ -180,15 +209,14 @@ export default function TiendaNubeReconcile() {
     }
   }, [puedeGestionarBanlist, showToast]);
 
+  // Both load once on mount. The banlist count must be known up-front
+  // (never a stale "(0)") — loading it only when its tab is opened was the
+  // same "lying counter" bug this slice already fixes for verdict_counts.
   useEffect(() => {
     cargarReporte();
-  }, [cargarReporte]);
-
-  useEffect(() => {
-    if (subTab === 'BANLIST') {
-      cargarBaneados();
-    }
-  }, [subTab, cargarBaneados]);
+    cargarBaneados();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const banearEan = useCallback(
     async (ean) => {
@@ -197,11 +225,12 @@ export default function TiendaNubeReconcile() {
         await api.post('/tienda-nube-reconcile/banear', { ean });
         showToast(`EAN ${ean} agregado a la banlist`, 'success');
         cargarReporte();
+        cargarBaneados();
       } catch (err) {
         showToast(err?.response?.data?.error?.message || 'Error al banear el EAN', 'error');
       }
     },
-    [puedeGestionarBanlist, cargarReporte, showToast]
+    [puedeGestionarBanlist, cargarReporte, cargarBaneados, showToast]
   );
 
   const desbanearEan = useCallback(
@@ -231,32 +260,46 @@ export default function TiendaNubeReconcile() {
   const desbanearSeleccionados = useCallback(async () => {
     if (baneadosSeleccionados.size === 0) return;
     const ids = Array.from(baneadosSeleccionados);
+    let processed = 0;
     try {
       for (const banlistId of ids) {
         await api.post('/tienda-nube-reconcile/desbanear', { banlist_id: banlistId });
+        processed += 1;
       }
-      showToast(`${ids.length} EAN(s) desbaneados exitosamente`, 'success');
-      setBaneadosSeleccionados(new Set());
+      showToast(`${processed} EAN(s) desbaneados exitosamente`, 'success');
     } catch (err) {
-      showToast(err?.response?.data?.error?.message || 'Error al desbanear masivamente', 'error');
+      const detail = err?.response?.data?.error?.message;
+      showToast(
+        `${processed} de ${ids.length} desbaneados. ${detail || 'Error al desbanear el resto'}`,
+        'error'
+      );
     } finally {
-      // Always refresh — even on partial failure, some entries may have
-      // already been removed server-side and the UI must not keep showing
-      // stale (already-deleted) rows.
+      // Always clear the selection AND refresh — even on partial failure,
+      // some entries were already removed server-side and any remaining
+      // selected ids may point at rows that no longer exist or were never
+      // attempted; the UI must never keep showing them as "selected".
+      setBaneadosSeleccionados(new Set());
       cargarBaneados();
       cargarReporte();
     }
   }, [baneadosSeleccionados, cargarBaneados, cargarReporte, showToast]);
 
-  // The backend already filters by the requested `verdict` (or excludes OK
-  // for "todos") and paginates — `reporte` IS the current page's rows for
-  // whatever sub-tab is active. No client-side re-filtering needed.
-  const filasVisibles = reporte;
+  // Client-side filter (by sub-tab) over the ONE fetched set — the backend
+  // is called once, not once per tab.
+  const currentTabItems = useMemo(() => {
+    if (subTab === 'todos' || subTab === 'BANLIST') return reporte;
+    return reporte.filter((r) => r.verdict === subTab);
+  }, [reporte, subTab]);
 
+  const total = currentTabItems.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showPaginator = total > PAGE_SIZE;
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PAGE_SIZE, total);
+  const filasVisibles = useMemo(
+    () => currentTabItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [currentTabItems, page]
+  );
 
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
   const columnSizingSaveTimerRef = useRef(null);
@@ -306,11 +349,22 @@ export default function TiendaNubeReconcile() {
           <p className={styles.description}>
             Comparación en vivo del reporte GBP (78) contra el catálogo de Tienda Nube. Solo se
             persisten las decisiones humanas (banlist); los veredictos se recalculan en cada carga.
+            Hacé click en "Actualizar" para volver a consultar — no se recarga automáticamente al
+            navegar entre pestañas o páginas.
           </p>
         </div>
+        <button type="button" className="btn-tesla outline sm" onClick={cargarReporte} disabled={loading}>
+          {loading ? 'Actualizando...' : 'Actualizar'}
+        </button>
       </div>
 
       {error && <div className={styles.errorBanner}>{error}</div>}
+      {catalogCapHit && (
+        <div className={styles.errorBanner}>
+          El catálogo de Tienda Nube superó el límite de sincronización interno — la reconciliación
+          puede estar incompleta.
+        </div>
+      )}
 
       <div className={styles.subTabBar}>
         {VERDICT_SUB_TABS.map((tab) => (
@@ -439,30 +493,15 @@ export default function TiendaNubeReconcile() {
             ))
           )}
           {showPaginator && (
-            <div className={styles.columnSizingBar} style={{ justifyContent: 'space-between' }}>
-              <span>
-                Mostrando {rangeStart}–{rangeEnd} de {total}
-              </span>
-              <div>
-                <button
-                  type="button"
-                  className="btn-tesla ghost sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  className="btn-tesla ghost sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  style={{ marginLeft: 8 }}
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+            <Paginador
+              page={page}
+              totalPages={totalPages}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              total={total}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+            />
           )}
         </div>
       ) : (
@@ -484,7 +523,7 @@ export default function TiendaNubeReconcile() {
               <thead className="table-tesla-head">
                 <tr>
                   {table.getFlatHeaders().map((h) => (
-                    <th key={h.id} style={{ position: 'relative' }}>
+                    <th key={h.id}>
                       {flexRender(h.column.columnDef.header, h.getContext())}
                       {h.column.getCanResize() && (
                         <span
@@ -517,9 +556,8 @@ export default function TiendaNubeReconcile() {
                             {puedeGestionarBanlist && row.verdict === 'FALTA_PUBLICAR' && (
                               <button
                                 type="button"
-                                className="btn-tesla ghost sm"
+                                className={`btn-tesla ghost sm ${styles.btnSpaced}`}
                                 onClick={() => banearEan(row.ean)}
-                                style={{ marginLeft: 8 }}
                               >
                                 Banear
                               </button>
@@ -536,30 +574,15 @@ export default function TiendaNubeReconcile() {
             </table>
           </div>
           {showPaginator && (
-            <div className={styles.columnSizingBar} style={{ justifyContent: 'space-between' }}>
-              <span>
-                Mostrando {rangeStart}–{rangeEnd} de {total}
-              </span>
-              <div>
-                <button
-                  type="button"
-                  className="btn-tesla ghost sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  className="btn-tesla ghost sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  style={{ marginLeft: 8 }}
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+            <Paginador
+              page={page}
+              totalPages={totalPages}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              total={total}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+            />
           )}
         </>
       )}
