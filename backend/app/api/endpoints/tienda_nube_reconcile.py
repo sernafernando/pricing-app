@@ -3,32 +3,46 @@
 Fetches GBP export report 78, joins it against `tienda_nube_productos` on
 EAN, and returns a live-computed verdict per row (nothing is persisted except
 the ban list). Mirrors `items_sin_mla.py`'s shape: explicit response models,
-`Depends(get_current_user)`, permission gating via `verificar_permiso`.
+permission gating via `verificar_permiso`.
 
-Pool-safety note: this returns a one-shot in-memory JSON response (no
-streaming), so `get_current_user` is the correct dependency here per the
-design's open question — it does not hold the DB connection across an
-awaited SOAP round-trip inside the request/response cycle in a way that
-blocks the pool longer than any other synchronous endpoint.
+Pool-safety note (`/reporte` only — corrected after a second review round;
+the previous version of this note was FALSE, see engram apply-progress):
+this endpoint's own `db` session (`Depends(get_db)`) genuinely IS held open
+for the whole request, including the awaited GBP SOAP round-trip — FastAPI's
+dependency generator only closes it when the handler returns. That
+connection-hold window is bounded to `GBP_FETCH_TIMEOUT_SECONDS` (NOT the
+300s/~600s-with-retry default `call_soap_service` would otherwise inherit).
+Authentication uses `get_current_user_transient` instead of `get_current_user`
+specifically so it does NOT ALSO hold a SECOND connection open for that same
+window (`get_current_user` depends on `get_async_db`, a separate pooled
+session that stays open for the whole request just like `get_db` does). The
+sync DB query + `compute_verdicts` CPU work run inside `run_in_threadpool` so
+they never block the event loop for other requests while they execute — this
+endpoint is the only `async def` in the module; the other three are plain
+`def` and FastAPI already runs those in its threadpool automatically.
 
-Scaling note (review-driven): the internal `tienda_nube_productos` query is
-bounded by `TN_PRODUCTOS_QUERY_CAP` as an explicit safety ceiling against
-unbounded growth (this repo has a documented pool-exhaustion history), and
-the `/reporte` response itself is paginated per the repo's `page`/`page_size`
-convention. The Slice 1 report is a bounded internal admin view over a single
-ERP export, so the frontend currently requests one generously-sized page; a
-real pager UI is a fast-follow if the report ever exceeds that page size.
+Scaling note: the internal `tienda_nube_productos` query is bounded by
+`TN_PRODUCTOS_QUERY_CAP` as an explicit safety ceiling against unbounded
+growth (this repo has a documented pool-exhaustion history), ordered by `id`
+so which rows you get under the cap is at least deterministic. The `/reporte`
+response is paginated (`page`/`page_size`) AND accepts an optional `verdict`
+filter so a sub-tab's page reflects only that verdict; `verdict_counts`
+always reports the TRUE count per verdict across the WHOLE result set
+(unaffected by the current filter/page), so the UI never has to guess a
+total from a possibly-truncated page.
 """
 
 import logging
-from typing import List, Optional
+from collections import Counter
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_transient
 from app.core.database import get_db
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
@@ -70,6 +84,7 @@ class ReconcileReportResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    verdict_counts: Dict[str, int]
 
 
 class BanEanRequest(BaseModel):
@@ -103,8 +118,9 @@ class BanlistEntryResponse(BaseModel):
 async def get_reconciliation_report(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    verdict: Optional[str] = Query(None, description="Filtra a un solo veredicto; omitir = todos excepto OK"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user_transient),
 ):
     """Live reconciliation report: GBP report 78 joined against TN on EAN.
 
@@ -112,9 +128,12 @@ async def get_reconciliation_report(
     GBP fetch failure surfaces a clear 502 to the operator with no partial
     write (Graceful Degradation requirement). The full verdict set is always
     computed (correctness requires the whole catalog for the EAN join and
-    DUPLICADO detection); only the returned page of results is sliced.
+    DUPLICADO detection); `verdict` optionally filters which subset is
+    paginated, and `verdict_counts` always reports the true per-verdict
+    totals over the FULL set regardless of that filter or the current page.
     """
-    if not verificar_permiso(db, current_user, "admin.ver_tn_reconciliacion"):
+    has_permission = await run_in_threadpool(verificar_permiso, db, current_user, "admin.ver_tn_reconciliacion")
+    if not has_permission:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver la reconciliación de Tienda Nube")
 
     try:
@@ -122,20 +141,32 @@ async def get_reconciliation_report(
     except GBPFetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    tn_productos = db.query(TiendaNubeProducto).limit(TN_PRODUCTOS_QUERY_CAP).all()
-    if len(tn_productos) >= TN_PRODUCTOS_QUERY_CAP:
-        logger.warning(
-            "tienda_nube_productos row count reached TN_PRODUCTOS_QUERY_CAP=%d — "
-            "reconciliation may be missing matches beyond the cap",
-            TN_PRODUCTOS_QUERY_CAP,
-        )
-    banned_eans = {row.ean for row in db.query(TnReconcileBanlist.ean).all()}
+    def _load_and_compute():
+        tn_productos = db.query(TiendaNubeProducto).order_by(TiendaNubeProducto.id).limit(TN_PRODUCTOS_QUERY_CAP).all()
+        if len(tn_productos) >= TN_PRODUCTOS_QUERY_CAP:
+            logger.warning(
+                "tienda_nube_productos row count reached TN_PRODUCTOS_QUERY_CAP=%d — "
+                "reconciliation may be missing matches beyond the cap",
+                TN_PRODUCTOS_QUERY_CAP,
+            )
+        banned_eans = {row.ean for row in db.query(TnReconcileBanlist.ean).all()}
+        return compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans)
 
-    verdicts = compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans)
+    # Sync DB query + CPU-bound verdict computation off the event loop —
+    # this is the only `async def` in the module, so without this it would
+    # block every other request for the whole computation window.
+    verdicts = await run_in_threadpool(_load_and_compute)
 
-    total = len(verdicts)
+    verdict_counts: Dict[str, int] = dict(Counter(v.verdict for v in verdicts if v.verdict != "OK"))
+
+    if verdict:
+        filtered = [v for v in verdicts if v.verdict == verdict]
+    else:
+        filtered = [v for v in verdicts if v.verdict != "OK"]
+
+    total = len(filtered)
     start = (page - 1) * page_size
-    page_verdicts = verdicts[start : start + page_size]
+    page_verdicts = filtered[start : start + page_size]
 
     items = [
         ReconcileRowResponse(
@@ -147,7 +178,9 @@ async def get_reconciliation_report(
         for v in page_verdicts
     ]
 
-    return ReconcileReportResponse(items=items, total=total, page=page, page_size=page_size)
+    return ReconcileReportResponse(
+        items=items, total=total, page=page, page_size=page_size, verdict_counts=verdict_counts
+    )
 
 
 @router.get("/baneados", response_model=List[BanlistEntryResponse])

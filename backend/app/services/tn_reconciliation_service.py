@@ -31,6 +31,16 @@ from app.models.tienda_nube_producto import TiendaNubeProducto
 
 GBP_REPORT_ID_TN_RECONCILE = 78
 
+# `call_soap_service` defaults to `timeout: float = 300.0`, and a "TOKEN
+# Expired" retry can double that to ~600s. The `/reporte` endpoint holds a
+# checked-out DB connection open for the duration of this await (see
+# `tienda_nube_reconcile.py`'s pool-safety note) — inheriting that default
+# would let a single slow request hold a connection for up to 10 minutes,
+# exactly the pattern behind this repo's documented pool-exhaustion
+# incident. This value is a deliberate, explicit bound, not a guess at the
+# report's real size; tune it if report 78 legitimately needs longer.
+GBP_FETCH_TIMEOUT_SECONDS = 60.0
+
 
 class GBPFetchError(Exception):
     """Raised when GBP export report 78 cannot be fetched or parsed.
@@ -65,10 +75,10 @@ async def fetch_gbp_report_78() -> list[dict]:
 
     try:
         token = await authenticate_user()
-        xml_content = await call_soap_service(soap_body, soap_action, token)
+        xml_content = await call_soap_service(soap_body, soap_action, token, timeout=GBP_FETCH_TIMEOUT_SECONDS)
         if "TOKEN Expired" in xml_content:
             token = await authenticate_user()
-            xml_content = await call_soap_service(soap_body, soap_action, token)
+            xml_content = await call_soap_service(soap_body, soap_action, token, timeout=GBP_FETCH_TIMEOUT_SECONDS)
         data = parse_soap_response(xml_content)
     except Exception as exc:  # noqa: BLE001 — normalized into a single operator-facing error
         raise GBPFetchError(f"No se pudo obtener el reporte GBP {GBP_REPORT_ID_TN_RECONCILE}: {exc}") from exc
@@ -148,12 +158,16 @@ def compute_verdicts(
         tn_by_ids[(tn.product_id, tn.variant_id)] = tn
 
     # Detect DUPLICADO groups: two or more GBP rows sharing the same
-    # (tnr_id, tnr_variationID) pair.
+    # (tnr_id, tnr_variationID) pair. Requires BOTH ids resolved
+    # (tnr_variationID > 0) — rows with an unresolved variant belong to
+    # MAL_VINCULADO, not DUPLICADO. Without this guard, two MAL_VINCULADO
+    # rows sharing one tnr_id would both key on (tnr_id, 0) and get masked
+    # as a false DUPLICADO, hiding the real anomaly.
     dup_groups: dict[tuple, list[int]] = {}
     for idx, row in enumerate(gbp_rows):
         tnr_id = _as_int(row.get("tnr_id"))
         tnr_variation_id = _as_int(row.get("tnr_variationID"))
-        if tnr_id > 0:
+        if tnr_id > 0 and tnr_variation_id > 0:
             dup_groups.setdefault((tnr_id, tnr_variation_id), []).append(idx)
 
     duplicated_indices = {idx for indices in dup_groups.values() if len(indices) > 1 for idx in indices}

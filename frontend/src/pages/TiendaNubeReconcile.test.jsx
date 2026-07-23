@@ -39,18 +39,20 @@ const REPORTE_ITEMS = [
     ean: '222',
     verdict: 'MAL_PUBLICADO',
     despublicar: false,
-    tn_matches: [{ product_id: 1, variant_id: 1, variant_sku: '999', activo: true }],
+    tn_matches: [{ product_id: 1, variant_id: 1, variant_sku: '999', activo: true, published: true }],
   },
   {
     ean: '333',
     verdict: 'DUPLICADO',
     despublicar: false,
     tn_matches: [
-      { product_id: 10, variant_id: 1, variant_sku: '333', activo: true },
-      { product_id: 11, variant_id: 1, variant_sku: '333', activo: true },
+      { product_id: 10, variant_id: 1, variant_sku: '333', activo: true, published: true },
+      { product_id: 11, variant_id: 1, variant_sku: '333', activo: true, published: null },
     ],
   },
 ];
+
+const VERDICT_COUNTS = { FALTA_PUBLICAR: 1, MAL_PUBLICADO: 1, DUPLICADO: 2 };
 
 const BANEADOS = [
   {
@@ -62,10 +64,12 @@ const BANEADOS = [
   },
 ];
 
-function setupApiMocks({ baneados = BANEADOS } = {}) {
+function setupApiMocks({ baneados = BANEADOS, verdictCounts = VERDICT_COUNTS, items = REPORTE_ITEMS, total } = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/reporte') {
-      return Promise.resolve({ data: { items: REPORTE_ITEMS, total: REPORTE_ITEMS.length, page: 1, page_size: 200 } });
+      return Promise.resolve({
+        data: { items, total: total ?? items.length, page: 1, page_size: 50, verdict_counts: verdictCounts },
+      });
     }
     if (url === '/tienda-nube-reconcile/baneados') {
       return Promise.resolve({ data: baneados });
@@ -111,6 +115,39 @@ describe('Anomaly sub-tabs', () => {
     });
   });
 
+  it('sub-tab counters use the server-reported true totals (verdict_counts), never the current page length', async () => {
+    // Only 1 item fits in this fake page, but verdict_counts says the FULL
+    // result set has 3 FALTA_PUBLICAR and 1 MAL_VINCULADO — the counters
+    // must show those true totals, not "1" for everything.
+    setupApiMocks({
+      items: [{ ean: 'X', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] }],
+      total: 4,
+      verdictCounts: { FALTA_PUBLICAR: 3, MAL_VINCULADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Falta publicar \(3\)/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Mal vinculado \(1\)/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows a paginator with "Mostrando X de Y" and Next/Prev when the result set exceeds one page', async () => {
+    setupApiMocks({
+      items: REPORTE_ITEMS,
+      total: 500,
+      verdictCounts: { FALTA_PUBLICAR: 500 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/de 500/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /Siguiente/i })).toBeInTheDocument();
+  });
+
   it('shows a dedicated DUPLICADO sub-tab labeled as human review, not error', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
@@ -154,6 +191,29 @@ describe('Anomaly sub-tabs', () => {
       expect(row.className || '').not.toMatch(/selected|recommended|highlight/i);
     }
   });
+
+  it('shows TN\'s real `published` field in the DUPLICADO view, never the misleading `activo`', async () => {
+    // This slice spends a migration + several docstrings establishing that
+    // `activo` only means "present in the last sync", NOT "visible in the
+    // store" — showing it in the one view where a human decides which
+    // publication to delete would silently reintroduce that exact
+    // confusion. `published` (tri-state: Sí/No/Desconocido) is what must
+    // appear here instead.
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const user = userEvent.setup();
+    const dupTab = await screen.findByRole('button', { name: /Duplicado/i });
+    await user.click(dupTab);
+
+    const groupHeading = await screen.findByText(/EAN GBP: 333/i);
+    const group = groupHeading.closest(`[data-testid="duplicado-group"]`);
+
+    expect(within(group).getByText(/publicado/i)).toBeInTheDocument();
+    expect(within(group).queryByRole('columnheader', { name: /^activo$/i })).not.toBeInTheDocument();
+    // published=true → "Sí", published=null → "Desconocido" (never "No",
+    // which would misreport an unknown value as a known negative).
+    expect(within(group).getByText(/desconocido/i)).toBeInTheDocument();
+  });
 });
 
 describe('Ban/unban error handling', () => {
@@ -173,8 +233,13 @@ describe('Ban/unban error handling', () => {
   });
 
   it('shows an error toast (never an unhandled rejection) when ban fails with 400', async () => {
+    // The REAL error contract (app/core/exceptions.py's http_exception_handler):
+    // every error response is `{"error": {"code": ..., "message": ...}}` —
+    // there is NO `data.detail`. Mocking `data.detail` here would let a
+    // broken `err?.response?.data?.detail` read pass green while production
+    // silently falls back to the generic message.
     api.post.mockImplementation(() =>
-      Promise.reject({ response: { data: { detail: 'El EAN ya está en la banlist' } } })
+      Promise.reject({ response: { data: { error: { code: 'ALREADY_EXISTS', message: 'El EAN ya está en la banlist' } } } })
     );
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
@@ -190,7 +255,9 @@ describe('Ban/unban error handling', () => {
   it('shows an error toast when unban fails', async () => {
     api.post.mockImplementation((url) => {
       if (url === '/tienda-nube-reconcile/desbanear') {
-        return Promise.reject({ response: { data: { detail: 'Entrada de banlist no encontrada' } } });
+        return Promise.reject({
+          response: { data: { error: { code: 'NOT_FOUND', message: 'Entrada de banlist no encontrada' } } },
+        });
       }
       return Promise.resolve({ data: { success: true } });
     });
@@ -274,6 +341,48 @@ describe('Banlist view', () => {
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 1 });
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 2 });
+    });
+  });
+
+  it('refreshes the banlist even when a bulk unban fails partway (finally, not just the success path)', async () => {
+    setupApiMocks({
+      baneados: [
+        { id: 1, ean: 'A', motivo: null, usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+        { id: 2, ean: 'B', motivo: null, usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+      ],
+    });
+    // First unban succeeds, second fails — the UI must still refresh the
+    // banlist afterward instead of leaving already-deleted entries shown.
+    let call = 0;
+    api.post.mockImplementation((url) => {
+      if (url === '/tienda-nube-reconcile/desbanear') {
+        call += 1;
+        if (call === 2) {
+          return Promise.reject({ response: { data: { error: { code: 'NOT_FOUND', message: 'falló' } } } });
+        }
+        return Promise.resolve({ data: { success: true } });
+      }
+      return Promise.resolve({ data: { success: true } });
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const banlistTab = await screen.findByRole('button', { name: /Banlist/i });
+    await user.click(banlistTab);
+
+    const checkboxes = await screen.findAllByRole('checkbox');
+    for (const cb of checkboxes) {
+      await user.click(cb);
+    }
+
+    const bulkButton = await screen.findByRole('button', { name: /Desbanear seleccionados/i });
+    await user.click(bulkButton);
+
+    // GET /baneados is called once on mount/tab-open + once more in the
+    // `finally` refresh after the bulk action settles (success or failure).
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length).toBeGreaterThanOrEqual(2);
     });
   });
 });

@@ -1,12 +1,14 @@
 """Integration tests for the TN reconciliation endpoints (Slice 1, read-only).
 
-Covers: permission gate, paginated report shape, ban-list add/remove hides/
-reveals a row, GBP fetch-failure surfaces a clear error without any partial
-write, TOCTOU-safe double-ban, and empty/blank EAN validation.
+Covers: permission gate, paginated report shape (incl. true verdict_counts
+over the WHOLE result set, never just the current page), ban-list add/remove
+hides/reveals a row, GBP fetch-failure surfaces a clear error without any
+partial write, TOCTOU-safe double-ban, and empty/blank EAN validation.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -22,6 +24,28 @@ from app.models.usuario import AuthProvider, RolUsuario, Usuario
 def _bearer(user: Usuario) -> dict[str, str]:
     token = create_access_token(data={"sub": user.username})
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def _transient_auth_uses_test_db(db):
+    """`GET /reporte` authenticates via `get_current_user_transient` (see
+    blocker #2 — it must not ALSO hold a second `get_async_db` connection
+    open across the SOAP await). That dependency opens its own session via
+    `get_background_db()`, a plain contextmanager bound to the production
+    `SessionLocal`/`engine` — NOT covered by the `client`/`db` fixtures'
+    `app.dependency_overrides` (those only patch `get_db`/`get_async_db`).
+    Patch it here so the transient auth lookup hits the SAME in-memory test
+    session/transaction as everything else in the test instead of a
+    separate, real, file-backed database. No commit/rollback here — the
+    outer `db` fixture's transaction owns that.
+    """
+
+    @contextmanager
+    def _fake_background_db():
+        yield db
+
+    with patch("app.api.deps.get_background_db", _fake_background_db):
+        yield
 
 
 @pytest.fixture()
@@ -106,10 +130,21 @@ def _fake_gbp_rows():
     ]
 
 
-def _fetch_report(client, user, params=None):
+def _mixed_verdict_gbp_rows():
+    """3 FALTA_PUBLICAR + 1 MAL_VINCULADO — enough to prove verdict_counts
+    reflects the true total per verdict, not just what fits on a page."""
+    return [
+        {"Código": "FP-1", "tnr_id": 0, "tnr_variationID": 0, "stock": 0},
+        {"Código": "FP-2", "tnr_id": 0, "tnr_variationID": 0, "stock": 0},
+        {"Código": "FP-3", "tnr_id": 0, "tnr_variationID": 0, "stock": 0},
+        {"Código": "MV-1", "tnr_id": 999, "tnr_variationID": 0, "stock": 0},
+    ]
+
+
+def _fetch_report(client, user, params=None, gbp_rows=None):
     with patch(
         "app.api.endpoints.tienda_nube_reconcile.fetch_gbp_report_78",
-        new=AsyncMock(return_value=_fake_gbp_rows()),
+        new=AsyncMock(return_value=gbp_rows if gbp_rows is not None else _fake_gbp_rows()),
     ):
         return client.get("/api/tienda-nube-reconcile/reporte", headers=_bearer(user), params=params or {})
 
@@ -129,13 +164,15 @@ class TestPermissionGate:
 class TestPagination:
     """The report is paginated per repo convention (page/page_size), and the
     internal TN catalog query has an explicit ceiling — see B2 in the review.
-    """
+    `verdict_counts` MUST always reflect the TRUE total per verdict across
+    the WHOLE result set, never just the returned page (silent truncation
+    in a reconciliation tool is a correctness bug, not a UX nit)."""
 
     def test_response_shape_includes_pagination_metadata(self, client, db, user_ver):
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         body = response.json()
-        assert set(body.keys()) == {"items", "total", "page", "page_size"}
+        assert set(body.keys()) == {"items", "total", "page", "page_size", "verdict_counts"}
         assert body["total"] == 1
         assert body["page"] == 1
         assert isinstance(body["items"], list)
@@ -150,6 +187,30 @@ class TestPagination:
         body = response.json()
         assert body["items"] == []
         assert body["total"] == 1
+
+    def test_verdict_counts_reflect_full_totals_not_current_page(self, client, db, user_ver):
+        response = _fetch_report(
+            client, user_ver, params={"page": 1, "page_size": 2}, gbp_rows=_mixed_verdict_gbp_rows()
+        )
+        assert response.status_code == 200
+        body = response.json()
+        # Only 2 items fit on this page...
+        assert len(body["items"]) == 2
+        # ...but verdict_counts must still say there are 3 FALTA_PUBLICAR and
+        # 1 MAL_VINCULADO in the FULL result set, not just what's on the page.
+        assert body["verdict_counts"]["FALTA_PUBLICAR"] == 3
+        assert body["verdict_counts"]["MAL_VINCULADO"] == 1
+
+    def test_verdict_filter_returns_only_that_verdict_with_accurate_total(self, client, db, user_ver):
+        response = _fetch_report(
+            client, user_ver, params={"verdict": "FALTA_PUBLICAR", "page_size": 50}, gbp_rows=_mixed_verdict_gbp_rows()
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 3
+        assert all(item["verdict"] == "FALTA_PUBLICAR" for item in body["items"])
+        # verdict_counts is unaffected by the filter — full breakdown always.
+        assert body["verdict_counts"]["MAL_VINCULADO"] == 1
 
 
 class TestBanlist:

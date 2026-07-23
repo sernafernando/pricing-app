@@ -15,7 +15,7 @@ from pathlib import Path
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_BACKEND_ROOT))
 
-from scripts.sync_tienda_nube import _extract_variantes  # noqa: E402
+from scripts.sync_tienda_nube import UPSERT_VARIANTES_SQL, _extract_variantes  # noqa: E402
 
 
 def _product(product_id=1, published=True, name="Producto", variants=None):
@@ -54,3 +54,19 @@ class TestPublishedMapping:
         variantes = _extract_variantes(product)
 
         assert variantes[0]["published"] is None
+
+
+class TestUpsertNeverOverwritesKnownTrueWithUnknown:
+    """`_extract_variantes` maps a missing field to `None`, but the real
+    "never clears a known TRUE" guarantee is enforced by the UPSERT's SQL —
+    a plain `published = EXCLUDED.published` would let that `None` overwrite
+    a previously-stored `True` as NULL. This must be a `COALESCE` so a NULL
+    incoming value keeps the existing stored value instead of blanking it.
+    """
+
+    def test_upsert_sql_coalesces_published_against_the_existing_value(self):
+        sql_text = str(UPSERT_VARIANTES_SQL)
+        assert "COALESCE(EXCLUDED.published, tienda_nube_productos.published)" in sql_text
+        # Regression guard: a bare `published = EXCLUDED.published` (no
+        # COALESCE) is exactly the bug this test protects against.
+        assert "published = EXCLUDED.published" not in sql_text

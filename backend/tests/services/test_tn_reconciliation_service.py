@@ -119,6 +119,23 @@ class TestMalVinculado:
         assert len(results) == 1
         assert results[0].verdict == "MAL_VINCULADO"
 
+    def test_two_mal_vinculado_rows_sharing_tnr_id_are_not_masked_as_duplicado(self):
+        """DUPLICADO grouping keys on (tnr_id, tnr_variationID) but MUST
+        require a RESOLVED variant (tnr_variationID > 0). Two rows sharing
+        the same tnr_id with unresolved variants (tnr_variationID == 0) both
+        group under the same (tnr_id, 0) key if that guard is missing,
+        hiding the real MAL_VINCULADO anomaly behind a DUPLICADO label."""
+        gbp_rows = [
+            _gbp_row(codigo="A", tnr_id=501, tnr_variation_id=0),
+            _gbp_row(codigo="B", tnr_id=501, tnr_variation_id=0),
+        ]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 2
+        assert all(r.verdict == "MAL_VINCULADO" for r in results)
+
 
 class TestMalPublicado:
     def test_matched_variant_with_mismatched_sku(self):

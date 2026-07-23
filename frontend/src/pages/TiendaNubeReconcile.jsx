@@ -16,6 +16,15 @@
  * Banning only means "don't offer this as something to publish" — it hides
  * FALTA_PUBLICAR/FALTA_VINCULAR, never MAL_VINCULADO/MAL_PUBLICADO/DUPLICADO
  * (enforced server-side in `tn_reconciliation_service.compute_verdicts`).
+ *
+ * Pagination (second review round — corrected a silent-truncation bug):
+ * the report is genuinely paginated server-side, one verdict filter per
+ * request. Sub-tab counters read the server's `verdict_counts` (the TRUE
+ * total per verdict across the WHOLE result set), never a client-side count
+ * of whatever page happens to be loaded — showing "Falta publicar (37)"
+ * when there are actually hundreds more would be a correctness bug, not a
+ * UX nit. A paginator ("Mostrando X–Y de Z" + Anterior/Siguiente) is shown
+ * whenever the current filter's total exceeds one page.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -28,11 +37,7 @@ import styles from './TiendaNubeReconcile.module.css';
 
 export const COLUMN_SIZING_STORAGE_KEY = 'tnreconcile:colsizing:reporte';
 
-// Slice 1's report is a bounded internal view over a single ERP export
-// report — request one generously-sized page instead of building a full
-// pager UI (fast-follow if the report ever exceeds this size; see the
-// endpoint's TN_PRODUCTOS_QUERY_CAP scaling note).
-const REPORT_PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 const VERDICT_LABELS = {
   FALTA_VINCULAR: 'Falta vincular',
@@ -53,9 +58,8 @@ const VERDICT_BADGE_CLASS = {
 };
 
 // Sub-tabs shown, in order. "todos" aggregates every actionable verdict
-// (everything except OK, which is not an anomaly). "BANLIST" is not a
-// verdict — it's the banned-EAN management view (added to complete the
-// ban/unban cycle: a mis-banned EAN must be recoverable from the UI).
+// (everything except OK, which is not an anomaly) — sent with no `verdict`
+// filter. "BANLIST" is not a verdict — it's the banned-EAN management view.
 const VERDICT_SUB_TABS = [
   { id: 'todos', label: 'Todos' },
   { id: 'FALTA_VINCULAR', label: 'Falta vincular' },
@@ -64,6 +68,10 @@ const VERDICT_SUB_TABS = [
   { id: 'MAL_PUBLICADO', label: 'Mal publicado' },
   { id: 'DUPLICADO', label: 'Duplicado' },
 ];
+
+function verdictLabelFor(verdictId) {
+  return VERDICT_LABELS[verdictId] || verdictId;
+}
 
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
 // throw (mirrors MLQuestions.jsx's loadColumnSizing/saveColumnSizing).
@@ -95,13 +103,21 @@ const COLUMNS = [
     size: 150,
     cell: (row) => (
       <span className={`${styles.badge} ${styles[VERDICT_BADGE_CLASS[row.verdict]] || ''}`}>
-        {VERDICT_LABELS[row.verdict] || row.verdict}
+        {verdictLabelFor(row.verdict)}
       </span>
     ),
   },
   { id: 'despublicar', header: 'Despublicar', size: 110, cell: (row) => (row.despublicar ? 'Sí' : '—') },
   { id: 'matches', header: 'Coincidencias TN', size: 260, cell: null }, // rendered specially — carries the ban action
 ];
+
+// Tri-state Sí/No/Desconocido — `published` is nullable (rows not yet
+// re-synced with TN's real field are genuinely unknown, never "No").
+function publishedLabel(published) {
+  if (published === true) return 'Sí';
+  if (published === false) return 'No';
+  return 'Desconocido';
+}
 
 const EMPTY_TABLE_DATA = [];
 
@@ -114,7 +130,17 @@ export default function TiendaNubeReconcile() {
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [subTab, setSubTab] = useState('todos');
+  const [subTab, setSubTabState] = useState('todos');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [verdictCounts, setVerdictCounts] = useState({});
+
+  // Changing sub-tab always resets to page 1 in the same event — avoids an
+  // extra wasted fetch from a separate effect reacting to subTab changes.
+  const setSubTab = useCallback((tab) => {
+    setSubTabState(tab);
+    setPage(1);
+  }, []);
 
   // Banlist view state
   const [baneados, setBaneados] = useState([]);
@@ -126,14 +152,20 @@ export default function TiendaNubeReconcile() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/tienda-nube-reconcile/reporte', { params: { page_size: REPORT_PAGE_SIZE } });
+      const params = { page, page_size: PAGE_SIZE };
+      if (subTab !== 'todos' && subTab !== 'BANLIST') {
+        params.verdict = subTab;
+      }
+      const response = await api.get('/tienda-nube-reconcile/reporte', { params });
       setReporte(response.data?.items || []);
+      setTotal(response.data?.total || 0);
+      setVerdictCounts(response.data?.verdict_counts || {});
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
       setLoading(false);
     }
-  }, [puedeVer]);
+  }, [puedeVer, subTab, page]);
 
   const cargarBaneados = useCallback(async () => {
     if (!puedeGestionarBanlist) return;
@@ -166,7 +198,7 @@ export default function TiendaNubeReconcile() {
         showToast(`EAN ${ean} agregado a la banlist`, 'success');
         cargarReporte();
       } catch (err) {
-        showToast(err?.response?.data?.detail || 'Error al banear el EAN', 'error');
+        showToast(err?.response?.data?.error?.message || 'Error al banear el EAN', 'error');
       }
     },
     [puedeGestionarBanlist, cargarReporte, showToast]
@@ -181,7 +213,7 @@ export default function TiendaNubeReconcile() {
         cargarBaneados();
         cargarReporte();
       } catch (err) {
-        showToast(err?.response?.data?.detail || 'Error al desbanear el EAN', 'error');
+        showToast(err?.response?.data?.error?.message || 'Error al desbanear el EAN', 'error');
       }
     },
     [puedeGestionarBanlist, cargarBaneados, cargarReporte, showToast]
@@ -205,17 +237,26 @@ export default function TiendaNubeReconcile() {
       }
       showToast(`${ids.length} EAN(s) desbaneados exitosamente`, 'success');
       setBaneadosSeleccionados(new Set());
+    } catch (err) {
+      showToast(err?.response?.data?.error?.message || 'Error al desbanear masivamente', 'error');
+    } finally {
+      // Always refresh — even on partial failure, some entries may have
+      // already been removed server-side and the UI must not keep showing
+      // stale (already-deleted) rows.
       cargarBaneados();
       cargarReporte();
-    } catch (err) {
-      showToast(err?.response?.data?.detail || 'Error al desbanear masivamente', 'error');
     }
   }, [baneadosSeleccionados, cargarBaneados, cargarReporte, showToast]);
 
-  const filasVisibles =
-    subTab === 'todos' || subTab === 'BANLIST'
-      ? reporte.filter((r) => r.verdict !== 'OK')
-      : reporte.filter((r) => r.verdict === subTab);
+  // The backend already filters by the requested `verdict` (or excludes OK
+  // for "todos") and paginates — `reporte` IS the current page's rows for
+  // whatever sub-tab is active. No client-side re-filtering needed.
+  const filasVisibles = reporte;
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const showPaginator = total > PAGE_SIZE;
+  const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, total);
 
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
   const columnSizingSaveTimerRef = useRef(null);
@@ -254,6 +295,8 @@ export default function TiendaNubeReconcile() {
     return null;
   }
 
+  const totalTodos = Object.entries(verdictCounts).reduce((sum, [, count]) => sum + count, 0);
+
   return (
     <div className={styles.container}>
       <Toast toast={toast} onClose={hideToast} />
@@ -277,7 +320,7 @@ export default function TiendaNubeReconcile() {
             className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
             onClick={() => setSubTab(tab.id)}
           >
-            {tab.label} ({tab.id === 'todos' ? reporte.filter((r) => r.verdict !== 'OK').length : reporte.filter((r) => r.verdict === tab.id).length})
+            {tab.label} ({tab.id === 'todos' ? totalTodos : verdictCounts[tab.id] || 0})
           </button>
         ))}
         {puedeGestionarBanlist && (
@@ -378,7 +421,7 @@ export default function TiendaNubeReconcile() {
                       <th>product_id</th>
                       <th>variant_id</th>
                       <th>variant_sku</th>
-                      <th>activo</th>
+                      <th>Publicado en TN</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -387,13 +430,39 @@ export default function TiendaNubeReconcile() {
                         <td>product_id: {tn.product_id}</td>
                         <td>variant_id: {tn.variant_id}</td>
                         <td>{tn.variant_sku}</td>
-                        <td>{tn.activo ? 'Sí' : 'No'}</td>
+                        <td>{publishedLabel(tn.published)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ))
+          )}
+          {showPaginator && (
+            <div className={styles.columnSizingBar} style={{ justifyContent: 'space-between' }}>
+              <span>
+                Mostrando {rangeStart}–{rangeEnd} de {total}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  className="btn-tesla ghost sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="btn-tesla ghost sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  style={{ marginLeft: 8 }}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
           )}
         </div>
       ) : (
@@ -466,6 +535,32 @@ export default function TiendaNubeReconcile() {
               </tbody>
             </table>
           </div>
+          {showPaginator && (
+            <div className={styles.columnSizingBar} style={{ justifyContent: 'space-between' }}>
+              <span>
+                Mostrando {rangeStart}–{rangeEnd} de {total}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  className="btn-tesla ghost sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="btn-tesla ghost sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  style={{ marginLeft: 8 }}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
