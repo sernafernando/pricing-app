@@ -84,13 +84,13 @@ Depends on: Group 1 (model), Group 4 for state-machine shape reuse (can start on
 
 ## Group 6 — Frontend (Mensajes tab)
 
-- [ ] **T6.1 [FE]** Test (vitest): thread-header action buttons (take-over/edit/send) render inside the thread-header `colSpan` cell without altering the resizable `<colgroup>` from #960. (spec R-5.3; design File Changes note on #960)
-- [ ] **T6.2 [FE]** Implement thread-header actions in `MLQuestions.jsx`, reusing the Preguntas edit modal pattern, to pass T6.1.
-- [ ] **T6.3 [FE]** Test (vitest): send button disabled when gate is off (409 from BE) or `category === 'claim'` shows a visible badge; edit modal opens with prefilled draft or blank if none exists. (spec R-4.2 "flag visible to operator", scenario "claim message is flagged")
-- [ ] **T6.4 [FE]** Implement claim badge + disabled-state handling to pass T6.3.
-- [ ] **T7.1 [FE]** Test (vitest): detail spoiler (`renderDetailRow`-equivalent) shows full pack conversation (not just the drafting window), current draft + category/confidence. (spec R-6, scenario "detail spoiler shows full pack + draft + ML link")
-- [ ] **T7.2 [FE]** Implement the detail spoiler to pass T7.1.
-- [ ] **T7.3 [FE, gated on T0.2]** Implement the ML conversation link using the verified URL format from T0.2 (fallback: seller-hub order link if T0.2 finds `.../mensajes/{pack_id}` doesn't resolve). Do not hardcode the unverified URL before T0.2 is checked off.
+- [x] **T6.1 [FE]** Test (vitest): thread-header action buttons (take-over/edit/send) render inside the thread-header `colSpan` cell without altering the resizable `<colgroup>` from #960. (spec R-5.3; design File Changes note on #960)
+- [x] **T6.2 [FE]** Implement thread-header actions in `MLQuestions.jsx`, reusing the Preguntas edit modal pattern, to pass T6.1.
+- [x] **T6.3 [FE]** Test (vitest): send button disabled when gate is off (409 from BE) or `category === 'claim'` shows a visible badge; edit modal opens with prefilled draft or blank if none exists. (spec R-4.2 "flag visible to operator", scenario "claim message is flagged")
+- [x] **T6.4 [FE]** Implement claim badge + disabled-state handling to pass T6.3.
+- [x] **T7.1 [FE]** Test (vitest): detail spoiler (`renderDetailRow`-equivalent) shows full pack conversation (not just the drafting window), current draft + category/confidence. (spec R-6, scenario "detail spoiler shows full pack + draft + ML link")
+- [x] **T7.2 [FE]** Implement the detail spoiler to pass T7.1.
+- [x] **T7.3 [FE, gated on T0.2]** Implement the ML conversation link using the verified URL format from T0.2 (fallback: seller-hub order link if T0.2 finds `.../mensajes/{pack_id}` doesn't resolve). Do not hardcode the unverified URL before T0.2 is checked off. — orchestrator confirmed T0.2 verified format: `https://www.mercadolibre.com.ar/ventas/nueva/mensajeria/{pack_id}` (no query string).
 
 Depends on: Group 1 (columns exist), Group 5 (endpoints for actions). T6.1-T6.4 can run parallel to T7.1-T7.2 (different UI regions: header vs detail row). T7.3 is blocked on T0.2.
 
