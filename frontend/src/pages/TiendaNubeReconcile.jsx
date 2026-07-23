@@ -130,9 +130,20 @@ const COLUMNS = [
       </span>
     ),
   },
-  { id: 'despublicar', header: 'Despublicar', size: 110, cell: (row) => (row.despublicar ? 'Sí' : '—') },
+  { id: 'despublicar', header: 'Despublicar', size: 200, cell: null }, // rendered specially — carries the unpublish action
   { id: 'matches', header: 'Coincidencias TN', size: 260, cell: null }, // rendered specially — carries the ban action
 ];
+
+// Picks WHICH tn_match the unpublish action targets: prefer a match TN
+// itself reports as `published: true` (the one actually live and worth
+// unpublishing); fall back to the first match if none is explicitly
+// published=true (published is nullable/unknown — see the `published`
+// column docstring).
+function despublicarTargetProductId(row) {
+  const published = row.tn_matches.find((tn) => tn.published === true);
+  if (published) return published.product_id;
+  return row.tn_matches[0]?.product_id ?? null;
+}
 
 // Tri-state Sí/No/Desconocido — `published` is nullable (rows not yet
 // re-synced with TN's real field are genuinely unknown, never "No").
@@ -173,7 +184,15 @@ export default function TiendaNubeReconcile() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('admin.ver_tn_reconciliacion');
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_tn_reconcile_banlist');
+  const puedeGestionarPublicacion = tienePermiso('admin.gestionar_tn_publicacion');
   const { toast, showToast, hideToast } = useToast(4000);
+
+  // Explicit, operator-triggered, single-product unpublish (Slice 2). NEVER
+  // bulk, NEVER automatic — a row must be flagged `despublicar` AND the
+  // operator must explicitly confirm before the endpoint is called. Keyed
+  // by product_id: only one row can be mid-confirmation at a time.
+  const [confirmingProductId, setConfirmingProductId] = useState(null);
+  const [despublicando, setDespublicando] = useState(false);
 
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -271,6 +290,24 @@ export default function TiendaNubeReconcile() {
       }
     },
     [puedeGestionarBanlist, cargarBaneados, cargarReporte, showToast]
+  );
+
+  const despublicarProducto = useCallback(
+    async (productId) => {
+      if (!puedeGestionarPublicacion) return;
+      setDespublicando(true);
+      try {
+        await api.post('/tienda-nube-reconcile/despublicar', { product_id: productId });
+        showToast(`Producto ${productId} despublicado`, 'success');
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.error?.message || 'Error al despublicar el producto', 'error');
+      } finally {
+        setDespublicando(false);
+        setConfirmingProductId(null);
+      }
+    },
+    [puedeGestionarPublicacion, cargarReporte, showToast]
   );
 
   const toggleSeleccionBaneado = useCallback((id) => {
@@ -657,6 +694,45 @@ export default function TiendaNubeReconcile() {
                                 Banear
                               </button>
                             )}
+                          </td>
+                        ) : col.id === 'despublicar' ? (
+                          <td key={col.id}>
+                            {row.despublicar ? 'Sí' : '—'}
+                            {row.despublicar && puedeGestionarPublicacion && (() => {
+                              const productId = despublicarTargetProductId(row);
+                              if (productId === null) return null;
+                              if (confirmingProductId === productId) {
+                                return (
+                                  <span className={styles.btnSpaced}>
+                                    <button
+                                      type="button"
+                                      className="btn-tesla outline-subtle-danger sm"
+                                      disabled={despublicando}
+                                      onClick={() => despublicarProducto(productId)}
+                                    >
+                                      Confirmar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`btn-tesla ghost sm ${styles.btnSpaced}`}
+                                      disabled={despublicando}
+                                      onClick={() => setConfirmingProductId(null)}
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </span>
+                                );
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  className={`btn-tesla ghost sm ${styles.btnSpaced}`}
+                                  onClick={() => setConfirmingProductId(productId)}
+                                >
+                                  Despublicar
+                                </button>
+                              );
+                            })()}
                           </td>
                         ) : (
                           <td key={col.id}>{col.cell(row)}</td>

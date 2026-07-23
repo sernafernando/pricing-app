@@ -16,6 +16,7 @@ class TipoAccion(str, enum.Enum):
     ACTIVAR_WEB_TRANSFERENCIA = "activar_web_transferencia"
     DESACTIVAR_WEB_TRANSFERENCIA = "desactivar_web_transferencia"
     MODIFICACION_MASIVA = "modificacion_masiva"
+    TN_DESPUBLICAR = "tn_despublicar"
 
 
 class Auditoria(Base):
