@@ -445,6 +445,33 @@
   border-bottom: 1px solid var(--cf-border);
 }
 
+/* Thread-header actions (Phase A, PR3) — actions live INSIDE the thread
+   header's colSpan cell (right-aligned) so the shared <colgroup> from #960
+   is never touched. */
+.threadHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.threadHeaderInfo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.threadErrorText {
+  color: var(--cf-accent-red);
+  font-size: 0.72rem;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .threadBuyer {
   font-weight: 600;
   color: var(--cf-text-primary);

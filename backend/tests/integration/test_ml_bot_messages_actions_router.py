@@ -118,6 +118,16 @@ class TestTakeOverMessage:
         assert r.status_code == 200
         assert r.json()["bot_status"] == "taken_over"
 
+    def test_toma_desde_failed_200(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """`failed` (permanent send failure) must be recoverable, mirroring
+        `tomar_pregunta` — otherwise a permanently-failed send is a dead end
+        with no UI path out (review finding, Phase A FE)."""
+        m = _seed_message(db, bot_status="failed")
+        db.commit()
+        r = client.post(f"{BASE}/messages/{m.id}/take-over", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json()["bot_status"] == "taken_over"
+
     def test_no_puede_robar_drafting_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         m = _seed_message(db, bot_status="drafting")
         db.commit()

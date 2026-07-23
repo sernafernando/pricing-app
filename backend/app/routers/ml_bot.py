@@ -100,7 +100,7 @@ _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS = 1
 # panel action may legally CAS out of on `MlBotMessage.bot_status` (design
 # "Interfaces / Contracts" state machine). Mirrors the questions constants
 # above but on the separate `bot_status` column.
-_MESSAGE_TAKE_OVER_SOURCE_STATES = ("awaiting_human", "blocked_claim")
+_MESSAGE_TAKE_OVER_SOURCE_STATES = ("awaiting_human", "blocked_claim", "failed")
 _MESSAGE_SEND_SOURCE_STATES = ("taken_over",)
 
 
@@ -194,6 +194,7 @@ class ToggleResponse(BaseModel):
 class StatusResponse(BaseModel):
     bot_enabled: bool
     auto_publish_enabled: bool
+    messages_send_enabled: bool
 
 
 class ExampleResponse(BaseModel):
@@ -457,13 +458,17 @@ def tomar_mensaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> MessageResponse:
-    """Un humano toma un mensaje postventa `awaiting_human`/`blocked_claim`.
+    """Un humano toma un mensaje postventa `awaiting_human`/`blocked_claim`/`failed`.
     Requiere `ml_bot.messages.responder` (Phase A, PR2).
 
-    CAS desde `awaiting_human`/`blocked_claim` -> `taken_over`; nunca puede
-    robar una fila en `drafting` (el draft cycle la está procesando) ni una
-    ya `taken_over`/`sent`/`failed`/`superseded`/`pending` (mirrors
-    `tomar_pregunta`'s race-safety notes).
+    CAS desde `awaiting_human`/`blocked_claim`/`failed` -> `taken_over`; nunca
+    puede robar una fila en `drafting` (el draft cycle la está procesando) ni
+    una ya `taken_over`/`sent`/`superseded`/`pending` (mirrors
+    `tomar_pregunta`'s race-safety notes). `failed` es recuperable (review
+    finding Phase A FE): un envío con falla PERMANENTE (`MessageSendPermanentError`)
+    deja la fila en `failed` y sin este take-over sería un callejón sin salida
+    para el operador — mirrors `tomar_pregunta`, donde `failed` ya es fuente
+    válida.
     """
     _check_permiso(db, current_user, "ml_bot.messages.responder")
     _get_message_or_404(db, message_id)
@@ -797,11 +802,23 @@ def obtener_status(
     el badge de modo supervisado (y el de bot on/off) eran invisibles para
     operadores con solo `ml_bot.ver`/`ml_bot.responder`, y el frontend
     parseaba `valor === 'true'` en vez de reusar el `_cast_bool` real del
-    backend (ver `policy.py`)."""
+    backend (ver `policy.py`).
+
+    `messages_send_enabled` se agrega por el mismo motivo (Phase A PR3
+    review): el gate de envío de mensajes (default `False`, ver
+    `enviar_mensaje`) era invisible para el frontend, que
+    renderizaba "Enviar" habilitado y disparaba un 409 en producción por
+    default. Se lee con el mismo accessor fail-safe (`get_config` con
+    `default=False`) que usa el propio gate."""
     _check_permiso(db, current_user, "ml_bot.ver")
     bot_enabled = get_config(db, "bot_enabled", cast=bool, default=False)
     auto_publish_enabled = is_auto_publish_enabled(db)
-    return StatusResponse(bot_enabled=bot_enabled, auto_publish_enabled=auto_publish_enabled)
+    messages_send_enabled = get_config(db, "messages_send_enabled", cast=bool, default=False)
+    return StatusResponse(
+        bot_enabled=bot_enabled,
+        auto_publish_enabled=auto_publish_enabled,
+        messages_send_enabled=messages_send_enabled,
+    )
 
 
 # =============================================================================

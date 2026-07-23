@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import MLQuestions, { loadColumnSizing, saveColumnSizing } from './MLQuestions';
@@ -43,6 +43,11 @@ function setupBaseApiMocks() {
     if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
     return Promise.resolve({ data: {} });
   });
+  // Reset to a harmless default on every test — `vi.clearAllMocks()` (in the
+  // shared setup.js) only clears call history, NOT `mockImplementation`, so
+  // a test-local `api.post.mockImplementation(...)` (e.g. the `sent: false`
+  // cases below) would otherwise leak into every later test in this file.
+  api.post.mockImplementation(() => Promise.resolve({ data: {} }));
 }
 
 beforeEach(() => {
@@ -477,5 +482,273 @@ describe('Historial del comprador table — TanStack column-sizing render struct
       expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
     });
     localStorage.clear();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mensajes tab — thread actions (take-over/edit/send), claim badge, detail
+// spoiler + ML link (Phase A, PR3).
+// ---------------------------------------------------------------------------
+
+const AWAITING_MESSAGE = {
+  id: 10,
+  ml_message_id: 'msg-await',
+  pack_id: '2000013868175593',
+  buyer_id: 173555877,
+  buyer_nickname: 'JUAN_PEREZ',
+  text: 'Buen día me pasas la factura',
+  received_at: '2026-07-10T14:57:25Z',
+  read_at: null,
+  moderation_status: 'clean',
+  bot_status: 'awaiting_human',
+  drafted_answer: 'Claro, te la envío enseguida',
+  intent_category: 'facturacion',
+  confidence: 0.87,
+};
+
+const TAKEN_OVER_MESSAGE = { ...AWAITING_MESSAGE, id: 11, bot_status: 'taken_over' };
+
+const CLAIM_MESSAGE = {
+  ...AWAITING_MESSAGE,
+  id: 12,
+  bot_status: 'blocked_claim',
+  drafted_answer: null,
+};
+
+function mockMessagesList(messages, { messagesSendEnabled = true } = {}) {
+  api.get.mockImplementation((url) => {
+    if (url === '/ml-bot/status') {
+      return Promise.resolve({
+        data: { bot_enabled: true, auto_publish_enabled: false, messages_send_enabled: messagesSendEnabled },
+      });
+    }
+    if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+    if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages, total: messages.length } });
+    return Promise.resolve({ data: {} });
+  });
+}
+
+async function openMensajesTab(user) {
+  const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+  await user.click(tabButton);
+}
+
+describe('Mensajes tab — thread-header actions (permission-gated)', () => {
+  it('does NOT render take-over/editar/enviar buttons for a read-only user (no ml_bot.messages.responder)', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'ml_bot.messages.responder');
+    mockMessagesList([AWAITING_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await waitFor(() => {
+      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /tomar el mensaje/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^editar$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /enviar respuesta/i })).not.toBeInTheDocument();
+  });
+
+  it('renders "Tomar" for an awaiting_human anchor and calls take-over, then refetches', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([AWAITING_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const takeOverBtn = await screen.findByRole('button', { name: /tomar el mensaje/i });
+    await user.click(takeOverBtn);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(`/ml-bot/messages/${AWAITING_MESSAGE.id}/take-over`);
+    });
+    // Refetch after the action (mirrors Preguntas' runAction pattern).
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      expect(calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  it('renders "Tomar" for a failed anchor and calls take-over (finding 1: failed is recoverable, not a dead end)', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    const FAILED_MESSAGE = { ...AWAITING_MESSAGE, id: 13, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' };
+    mockMessagesList([FAILED_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const takeOverBtn = await screen.findByRole('button', { name: /tomar el mensaje/i });
+    await user.click(takeOverBtn);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(`/ml-bot/messages/${FAILED_MESSAGE.id}/take-over`);
+    });
+  });
+
+  it('renders "Editar" + "Enviar" for a taken_over anchor; edit opens modal prefilled with drafted_answer, save calls PUT', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const editBtn = await screen.findByRole('button', { name: /^editar$/i });
+    await user.click(editBtn);
+
+    const textarea = await screen.findByDisplayValue(TAKEN_OVER_MESSAGE.drafted_answer);
+    expect(textarea).toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: 'Respuesta editada' } });
+    await user.click(screen.getByRole('button', { name: /guardar borrador/i }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith(
+        `/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/answer`,
+        { drafted_answer: 'Respuesta editada' }
+      );
+    });
+  });
+
+  it('calls the send endpoint when "Enviar" is clicked on a taken_over anchor', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    await user.click(sendBtn);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(`/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`);
+    });
+  });
+
+  it('surfaces the TRANSIENT-retry message when sent: false and bot_status stays taken_over', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    api.post.mockImplementation((url) => {
+      if (url === `/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`) {
+        return Promise.resolve({ data: { message: TAKEN_OVER_MESSAGE, sent: false } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    await user.click(sendBtn);
+
+    // Exact transient wording — must NOT be confused with the permanent
+    // "rechazado en forma permanente" message (finding 1: collapsing both
+    // outcomes into one hardcoded string hid a dead-end thread).
+    await waitFor(() => {
+      expect(screen.getByText(/El envío no se completó \(falla transitoria\)\. El mensaje sigue disponible para reintentar\./i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/rechazado en forma permanente/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Enviado$/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the PERMANENT-failure message with last_error when sent: false and bot_status is failed', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE]);
+    const FAILED_MESSAGE = { ...TAKEN_OVER_MESSAGE, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' };
+    api.post.mockImplementation((url) => {
+      if (url === `/ml-bot/messages/${TAKEN_OVER_MESSAGE.id}/send`) {
+        return Promise.resolve({ data: { message: FAILED_MESSAGE, sent: false } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    await user.click(sendBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/El envío fue rechazado en forma permanente: ML rechazó el mensaje \(400\)\. Podés retomar el mensaje para reintentar\./i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/falla transitoria/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Enviado$/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Mensajes tab — messages_send_enabled gate (visible to the UI)', () => {
+  it('disables "Enviar" (with an explanatory title) when the gate is off, while Tomar/Editar stay enabled', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE], { messagesSendEnabled: false });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    expect(sendBtn).toBeDisabled();
+    expect(sendBtn).toHaveAttribute('title', expect.stringMatching(/deshabilitado/i));
+
+    expect(screen.getByRole('button', { name: /^editar$/i })).toBeEnabled();
+  });
+
+  it('enables "Enviar" when the gate is on (existing send-endpoint test covers the click path)', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([TAKEN_OVER_MESSAGE], { messagesSendEnabled: true });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendBtn = await screen.findByRole('button', { name: /enviar respuesta/i });
+    expect(sendBtn).toBeEnabled();
+  });
+});
+
+describe('Mensajes tab — blocked_claim badge (no bot-send affordance)', () => {
+  it('shows the claim badge and only a "Tomar" affordance, never Editar/Enviar, for blocked_claim', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([CLAIM_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Reclamo — el bot no responde/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /tomar el mensaje/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^editar$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /enviar respuesta/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Mensajes tab — detail spoiler (thread + draft + ML link)', () => {
+  it('expands to show the full thread, the drafted answer, and a ML conversation link with the right href', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockMessagesList([AWAITING_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await waitFor(() => {
+      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /ver detalle completo/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+    });
+    // Full conversation text renders (same message here, single-message thread).
+    expect(screen.getAllByText(/Buen día me pasas la factura/).length).toBeGreaterThanOrEqual(1);
+
+    const link = screen.getByRole('link', { name: /ver en mercadolibre/i });
+    expect(link).toHaveAttribute(
+      'href',
+      `https://www.mercadolibre.com.ar/ventas/nueva/mensajeria/${AWAITING_MESSAGE.pack_id}`
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 });

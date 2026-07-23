@@ -91,6 +91,38 @@ const MESSAGE_STATUS_LABELS = {
   flagged: 'Marcado',
 };
 
+// Phase A, PR3 — `bot_status` lifecycle labels/badges for the Mensajes tab
+// thread-header (mirrors STATUS_LABELS/STATUS_BADGE_CLASS above, but on the
+// separate `bot_status` column — design "Interfaces / Contracts"). Only the
+// anchor message of a thread ever carries a non-null `bot_status`.
+const MESSAGE_BOT_STATUS_LABELS = {
+  awaiting_human: 'Esperando humano',
+  taken_over: 'Tomada',
+  sent: 'Enviada',
+  failed: 'Falló',
+  superseded: 'Reemplazada',
+  blocked_claim: 'Reclamo — el bot no responde',
+};
+
+const MESSAGE_BOT_STATUS_BADGE_CLASS = {
+  awaiting_human: 'badgeWarning',
+  taken_over: 'badgeInfo',
+  sent: 'badgeSuccess',
+  failed: 'badgeDanger',
+  superseded: 'badgeNeutral',
+  blocked_claim: 'badgeDanger',
+};
+
+// States a thread's anchor message may be taken over from (mirrors backend
+// `_MESSAGE_TAKE_OVER_SOURCE_STATES`).
+const MESSAGE_TAKE_OVER_STATES = ['awaiting_human', 'blocked_claim', 'failed'];
+// ML post-sale conversation link (T0.2 verified — orchestrator instruction):
+// query string intentionally omitted.
+function buildMlConversationLink(packId) {
+  if (!packId) return null;
+  return `https://www.mercadolibre.com.ar/ventas/nueva/mensajeria/${packId}`;
+}
+
 // Item #5 (PR de pulido): structured editor for the `llm_providers` roster
 // key — a small picker UI over the same JSON the panel already round-trips
 // through the generic config text input. Falls back gracefully to an empty
@@ -315,6 +347,7 @@ export default function MLQuestions() {
   const puedeConfigurar = tienePermiso('ml_bot.config');
   const puedeEncenderApagar = tienePermiso('ml_bot.on_off');
   const puedeVerMensajes = tienePermiso('ml_bot.messages.ver');
+  const puedeResponderMensajes = tienePermiso('ml_bot.messages.responder');
 
   const [activeTab, setActiveTab] = useState('preguntas');
 
@@ -379,6 +412,10 @@ export default function MLQuestions() {
         return ta - tb;
       });
       g.latest_received_at = g.messages[g.messages.length - 1]?.received_at ?? null;
+      // Anchor = the most recent message carrying a non-null `bot_status`
+      // (design "Draft unit = anchor" — earlier burst messages stay NULL).
+      const statused = g.messages.filter((m) => m.bot_status);
+      g.anchorMessage = statused.length > 0 ? statused[statused.length - 1] : null;
     }
     return Array.from(groups.values()).sort((a, b) => {
       const ta = a.latest_received_at ? new Date(a.latest_received_at).getTime() : 0;
@@ -392,6 +429,15 @@ export default function MLQuestions() {
   const [sinPack, setSinPack] = useState(false);
   const [includeModerated, setIncludeModerated] = useState(false);
   const [hasReadFilter, setHasReadFilter] = useState('');
+
+  // Message thread actions (Phase A, PR3) — take-over/edit/send + detail
+  // spoiler. Kept separate from the Preguntas action state above since the
+  // two tabs act on different entities and can race independently.
+  const [editMessage, setEditMessage] = useState(null);
+  const [editMessageText, setEditMessageText] = useState('');
+  const [msgActionLoadingId, setMsgActionLoadingId] = useState(null);
+  const [msgActionError, setMsgActionError] = useState(null);
+  const [expandedThreadKey, setExpandedThreadKey] = useState(null);
 
   // Expandable row detail (panel-v2 requirements #3 + #5) — one expanded
   // panel per row with two sections: "Detalle" (full question/answer text,
@@ -642,6 +688,67 @@ export default function MLQuestions() {
 
   useSSEChannel('ml_bot:messages', reloadMessagesFromSSE, { enabled: puedeVerMensajes });
 
+  const runMessageAction = async (fn, messageId) => {
+    setMsgActionLoadingId(messageId);
+    setMsgActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setMsgActionError(err?.response?.data?.detail || err?.message || 'No se pudo completar la acción');
+    } finally {
+      // Always resync — mirrors runAction: an action can 409 after partially
+      // mutating server state (operator race), so re-fetch regardless.
+      await cargarMensajes();
+      setMsgActionLoadingId(null);
+    }
+  };
+
+  const handleTakeOverMessage = (message) => runMessageAction(async () => {
+    await api.post(`/ml-bot/messages/${message.id}/take-over`);
+  }, message.id);
+
+  const handleSendMessage = (message) => runMessageAction(async () => {
+    // The backend returns HTTP 200 with `sent: false` on TWO different
+    // outcomes (never a thrown error): a PERMANENT failure (bot_status ->
+    // `failed`, dead end unless `failed` is a valid take-over source) and a
+    // TRANSIENT failure (bot_status stays `taken_over`, retryable). Use
+    // `data.message.bot_status` to tell them apart — collapsing both into
+    // one message either lies to the operator (permanent framed as
+    // "reintentá") or hides a `last_error` worth surfacing.
+    const { data } = await api.post(`/ml-bot/messages/${message.id}/send`);
+    if (data?.sent === false) {
+      const sentStatus = data?.message?.bot_status;
+      if (sentStatus === 'failed') {
+        const lastError = data?.message?.last_error;
+        throw new Error(
+          `El envío fue rechazado en forma permanente${lastError ? `: ${lastError}.` : '.'} Podés retomar el mensaje para reintentar.`,
+        );
+      }
+      throw new Error('El envío no se completó (falla transitoria). El mensaje sigue disponible para reintentar.');
+    }
+  }, message.id);
+
+  const openMessageEdit = (message) => {
+    setEditMessage(message);
+    setEditMessageText(message.drafted_answer || '');
+    setMsgActionError(null);
+  };
+
+  const closeMessageEdit = () => {
+    setEditMessage(null);
+    setEditMessageText('');
+    setMsgActionError(null);
+  };
+
+  const handleSaveMessageAnswer = () => runMessageAction(async () => {
+    await api.put(`/ml-bot/messages/${editMessage.id}/answer`, { drafted_answer: editMessageText });
+    closeMessageEdit();
+  }, editMessage.id);
+
+  const toggleThreadDetail = (threadKey) => {
+    setExpandedThreadKey((prev) => (prev === threadKey ? null : threadKey));
+  };
+
   // SSE-driven reload: instant panel update on any bot state transition.
   const reloadFromSSE = useCallback(() => {
     if (puedeVer) {
@@ -725,6 +832,11 @@ export default function MLQuestions() {
   // didn't match the backend's real truthy convention, `_cast_bool`).
   const botEnabled = status?.bot_enabled ?? false;
   const autoPublishEnabled = status?.auto_publish_enabled ?? false;
+  // Gate for the Mensajes "Enviar" button — defaults to False on the
+  // backend (fail-closed), so an absent/loading `status` must NOT be
+  // treated as "enabled" (PR3 review finding: the gate was invisible to
+  // the UI and every click 409'd in the production default state).
+  const messagesSendEnabled = status?.messages_send_enabled ?? false;
 
   const handleToggle = async (enabled) => {
     setToggling(true);
@@ -830,6 +942,60 @@ export default function MLQuestions() {
   };
 
   const softWarning = checkSoftDenylist(editText);
+  const messageSoftWarning = checkSoftDenylist(editMessageText);
+
+  // Detail spoiler for a message thread (mirrors `renderDetailRow` above) —
+  // full pack conversation in order, current draft + category/confidence,
+  // and the ML conversation link (T0.2-verified format).
+  const renderMessageDetailRow = (thread) => {
+    const link = buildMlConversationLink(thread.pack_id);
+    const anchor = thread.anchorMessage;
+    return (
+      <tr key={`${thread.key}-detail`} className={styles.detailRow}>
+        <td colSpan={5}>
+          <div className={styles.detailPanel}>
+            <div className={styles.detailContent}>
+              <div>
+                <strong>Conversación del pack (mensajes cargados)</strong>
+                {thread.messages.map((m) => (
+                  <p key={m.id} className={styles.detailText}>
+                    <em>Comprador{m.received_at ? ` · ${new Date(m.received_at).toLocaleString()}` : ''}:</em>{' '}
+                    {m.text}
+                  </p>
+                ))}
+              </div>
+              <div>
+                <strong>Respuesta (borrador)</strong>
+                <p className={styles.detailText}>{anchor?.drafted_answer || '—'}</p>
+              </div>
+              {anchor?.intent_category && (
+                <div>
+                  <strong>Categoría</strong>
+                  <p className={styles.detailText}>{anchor.intent_category}</p>
+                </div>
+              )}
+              {anchor?.confidence != null && (
+                <div>
+                  <strong>Confianza</strong>
+                  <p className={styles.detailText}>{Math.round(anchor.confidence * 100)}%</p>
+                </div>
+              )}
+              <div>
+                <strong>Conversación en ML</strong>
+                <p>
+                  {link ? (
+                    <a href={link} target="_blank" rel="noopener noreferrer" className={styles.detailLink}>
+                      Ver en MercadoLibre <ExternalLink size={12} />
+                    </a>
+                  ) : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   // Expanded detail panel for a single row — rendered as the immediate
   // sibling <tr> right after its parent row (inside the map), never at the
@@ -1348,6 +1514,21 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {msgActionError && !editMessage && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {msgActionError}
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={() => setMsgActionError(null)}
+                aria-label="Descartar error"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {hasCustomMensajesColumnSizing && (
             <div className={styles.columnSizingBar}>
               <button
@@ -1398,21 +1579,84 @@ export default function MLQuestions() {
                   <tr><td colSpan={5} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
                 </tbody>
               ) : (
-                messageThreads.map((thread) => (
+                messageThreads.map((thread) => {
+                  const anchor = thread.anchorMessage;
+                  const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
+                  const canRespond = anchor?.bot_status === 'taken_over';
+                  return (
                   <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
                     <tr className={styles.threadHeader}>
                       <td colSpan={5}>
-                        <span className={styles.threadBuyer}>
-                          {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
-                        </span>
-                        <span className={styles.threadSeparator}>·</span>
-                        <span className={styles.threadPack}>
-                          {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
-                        </span>
-                        <span className={styles.threadSeparator}>·</span>
-                        <span className={styles.threadCount}>
-                          {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
-                        </span>
+                        <div className={styles.threadHeaderRow}>
+                          <div className={styles.threadHeaderInfo}>
+                            <button
+                              type="button"
+                              className="btn-tesla ghost sm"
+                              onClick={() => toggleThreadDetail(thread.key)}
+                              title={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
+                              aria-label={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
+                              aria-expanded={expandedThreadKey === thread.key}
+                            >
+                              {expandedThreadKey === thread.key ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            <span className={styles.threadBuyer}>
+                              {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
+                            </span>
+                            <span className={styles.threadSeparator}>·</span>
+                            <span className={styles.threadPack}>
+                              {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
+                            </span>
+                            <span className={styles.threadSeparator}>·</span>
+                            <span className={styles.threadCount}>
+                              {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
+                            </span>
+                            {anchor?.bot_status && (
+                              <span className={`${styles.badge} ${styles[MESSAGE_BOT_STATUS_BADGE_CLASS[anchor.bot_status]] || ''}`}>
+                                {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
+                              </span>
+                            )}
+                            {anchor?.bot_status === 'failed' && anchor?.last_error && (
+                              <span className={styles.threadErrorText} title={anchor.last_error}>
+                                {anchor.last_error}
+                              </span>
+                            )}
+                          </div>
+                          {puedeResponderMensajes && (canTakeOver || canRespond) && (
+                            <div className={styles.actionsCell}>
+                              {canTakeOver && (
+                                <button
+                                  className="btn-tesla ghost sm"
+                                  onClick={() => handleTakeOverMessage(anchor)}
+                                  disabled={msgActionLoadingId === anchor.id}
+                                  title="Tomar el mensaje"
+                                  aria-label="Tomar el mensaje"
+                                >
+                                  <UserCheck size={14} />
+                                </button>
+                              )}
+                              {canRespond && (
+                                <>
+                                  <button
+                                    className="btn-tesla outline-subtle-primary sm"
+                                    onClick={() => openMessageEdit(anchor)}
+                                    disabled={msgActionLoadingId === anchor.id}
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    className="btn-tesla sm"
+                                    onClick={() => handleSendMessage(anchor)}
+                                    disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
+                                    title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
+                                    aria-label="Enviar respuesta"
+                                  >
+                                    <Send size={14} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                     {thread.messages.map((m) => (
@@ -1430,8 +1674,10 @@ export default function MLQuestions() {
                         </td>
                       </tr>
                     ))}
+                    {expandedThreadKey === thread.key && renderMessageDetailRow(thread)}
                   </tbody>
-                ))
+                  );
+                })
               )}
             </table>
           </div>
@@ -1613,6 +1859,52 @@ export default function MLQuestions() {
               >
                 <Send size={14} />
                 Guardar y publicar
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalTesla>
+
+      {/* Message edit modal (Mensajes tab, Phase A PR3) */}
+      <ModalTesla
+        isOpen={editMessage !== null}
+        title={editMessage ? `Editar respuesta — mensaje #${editMessage.id}` : ''}
+        onClose={closeMessageEdit}
+        closeOnOverlay
+        size="md"
+      >
+        {editMessage && (
+          <div className={styles.editBody}>
+            <p className={styles.editQuestionText}>{editMessage.text}</p>
+            <textarea
+              className={styles.editTextarea}
+              rows={6}
+              value={editMessageText}
+              onChange={(e) => setEditMessageText(e.target.value)}
+              maxLength={2000}
+            />
+            {messageSoftWarning && (
+              <div className={styles.softWarning}>
+                <AlertTriangle size={14} />
+                {messageSoftWarning}
+              </div>
+            )}
+            {msgActionError && (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {msgActionError}
+              </div>
+            )}
+            <div className={styles.editActions}>
+              <button className="btn-tesla ghost sm" onClick={closeMessageEdit} disabled={msgActionLoadingId === editMessage.id}>
+                Cancelar
+              </button>
+              <button
+                className="btn-tesla outline-subtle-primary sm"
+                onClick={handleSaveMessageAnswer}
+                disabled={msgActionLoadingId === editMessage.id || !editMessageText.trim()}
+              >
+                Guardar borrador
               </button>
             </div>
           </div>
