@@ -382,6 +382,108 @@ class TestDraftOne:
         assert anchor.attempts == 1
 
 
+class TestDraftOneDeriveAdminPendingHook:
+    """ML Bot Phase B (sdd/ml-bot-admin-pending), Phase 4 — the derive hook
+    fires AFTER the claim hard-block, for `invoice_cuit_change` only, and
+    NEVER fails the draft even if it raises."""
+
+    def _patches(self, db, *, thread, llm_response, conversation_status=None):
+        provider = AsyncMock()
+        provider.last_used_provider = "groq/test-model"
+        provider.complete.return_value = llm_response
+        pack_response = {"messages": thread, "conversation_status": conversation_status}
+        patches = [
+            patch.object(drafting_service, "get_background_db", return_value=_ctx(db)),
+            patch.object(drafting_service.ml_client, "get_pack_thread", new=AsyncMock(return_value=pack_response)),
+        ]
+        return provider, patches
+
+    def test_draft_one_derives_admin_pending_on_invoice_cuit_change(self, db) -> None:
+        anchor = _make_row(
+            db,
+            ml_message_id="m1",
+            pack_id="p1",
+            received_at=datetime.now(timezone.utc),
+            text="mi cuit es 20-14768351-1",
+        )
+        thread = [_thread_message(from_user_id=999, text="mi cuit es 20-14768351-1")]
+        llm_response = json.dumps(
+            {
+                "answer": "Ya actualizamos tus datos.",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": "20-14768351-1",
+                "extracted_name": "Juan Perez",
+            }
+        )
+        provider, patches = self._patches(db, thread=thread, llm_response=llm_response)
+
+        with (
+            patches[0],
+            patches[1],
+            patch.object(drafting_service, "derive_from_message", new=AsyncMock(return_value=1)) as mock_derive,
+        ):
+            outcome = asyncio.run(drafting_service._draft_one(anchor.id, provider))
+
+        assert outcome == "drafted"
+        mock_derive.assert_called_once()
+        _, kwargs = mock_derive.call_args
+        assert kwargs["pack_id"] == "p1"
+        assert kwargs["extracted_cuit"] == "20-14768351-1"
+        assert kwargs["extracted_name"] == "Juan Perez"
+
+    def test_draft_one_derive_failure_does_not_fail_draft(self, db) -> None:
+        anchor = _make_row(
+            db,
+            ml_message_id="m1",
+            pack_id="p1",
+            received_at=datetime.now(timezone.utc),
+            text="mi cuit es 20-14768351-1",
+        )
+        thread = [_thread_message(from_user_id=999, text="mi cuit es 20-14768351-1")]
+        llm_response = json.dumps(
+            {
+                "answer": "Ya actualizamos tus datos.",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": "20-14768351-1",
+                "extracted_name": "Juan Perez",
+            }
+        )
+        provider, patches = self._patches(db, thread=thread, llm_response=llm_response)
+
+        async def _raise(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        with patches[0], patches[1], patch.object(drafting_service, "derive_from_message", new=_raise):
+            outcome = asyncio.run(drafting_service._draft_one(anchor.id, provider))
+
+        db.refresh(anchor)
+        assert outcome == "drafted"
+        assert anchor.bot_status == "awaiting_human"
+        assert anchor.drafted_answer == "Ya actualizamos tus datos."
+
+    def test_draft_one_does_not_derive_for_other_categories(self, db) -> None:
+        anchor = _make_row(
+            db, ml_message_id="m1", pack_id="p1", received_at=datetime.now(timezone.utc), text="¿donde esta mi pedido?"
+        )
+        thread = [_thread_message(from_user_id=999, text="¿donde esta mi pedido?")]
+        llm_response = _llm_response("Tu pedido está en camino.", "shipping_status")
+        provider, patches = self._patches(db, thread=thread, llm_response=llm_response)
+
+        with (
+            patches[0],
+            patches[1],
+            patch.object(drafting_service, "derive_from_message", new=AsyncMock(return_value=1)) as mock_derive,
+        ):
+            outcome = asyncio.run(drafting_service._draft_one(anchor.id, provider))
+
+        assert outcome == "drafted"
+        mock_derive.assert_not_called()
+
+
 class TestRunMlMessagesDraftCycle:
     def test_full_cycle_drafts_settled_anchor(self, db) -> None:
         received = datetime.now(timezone.utc) - timedelta(minutes=10)

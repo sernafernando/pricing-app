@@ -39,6 +39,7 @@ from app.core.database import get_background_db
 from app.models.ml_bot_message import MlBotMessage
 from app.services.ml_api_client import ml_client
 from app.services.ml_messages import context_builder
+from app.services.ml_messages.admin_pending_service import derive_from_message
 from app.services.ml_questions import policy
 from app.services.ml_questions.llm_provider import LlmProvider, LlmProviderError, parse_llm_output
 from app.services.ml_questions.provider_rotation import RotatingProvider
@@ -53,6 +54,11 @@ _DEFAULT_ANSWER_MAX_CHARS = 400
 
 # design "Categories per spec": claims are hard-blocked from drafting.
 _CLAIM_CATEGORIES = frozenset({"claim"})
+
+# ML Bot Phase B (sdd/ml-bot-admin-pending, design "Derive hook placement"):
+# categories that trigger a best-effort back-office task derivation, mirrors
+# `_CLAIM_CATEGORIES`'s allow-list shape.
+_DERIVE_CATEGORIES = frozenset({"invoice_cuit_change"})
 
 _SAFE_FALLBACK_TEXT = (
     "¡Hola! Gracias por tu mensaje, ya lo derivamos a nuestro equipo para que te respondan a la brevedad."
@@ -376,6 +382,26 @@ async def _draft_one(anchor_id: int, provider: LlmProvider) -> str:
         if parsed.category in _CLAIM_CATEGORIES:
             _mark_blocked_claim(anchor_id)
             return "blocked_claim"
+
+        if parsed.category in _DERIVE_CATEGORIES:
+            # Best-effort back-office task derivation — a failure here must
+            # NEVER fail the draft itself (design "Derive hook placement").
+            try:
+                await derive_from_message(
+                    message_id=anchor_id,
+                    pack_id=anchor["pack_id"],
+                    buyer_id=anchor["buyer_id"],
+                    raw_text=buyer_turn_text,
+                    extracted_cuit=parsed.extracted_cuit,
+                    extracted_name=parsed.extracted_name,
+                )
+            except Exception as exc:  # noqa: BLE001 — must never fail the draft.
+                logger.error(
+                    "ml-bot messages drafting: admin-pending derive failed for anchor %s: %s",
+                    anchor_id,
+                    exc,
+                    exc_info=True,
+                )
 
         if not parsed.can_answer:
             _mark_awaiting_human(

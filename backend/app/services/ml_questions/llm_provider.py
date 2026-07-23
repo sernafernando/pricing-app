@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 # more, no less. Extra/missing fields -> reject -> caller routes to fallback.
 _REQUIRED_FIELDS = frozenset({"answer", "confidence", "category", "can_answer"})
 
+# ML Bot Phase B (sdd/ml-bot-admin-pending, design "Parser backward-compat"):
+# OPTIONAL fields on top of the required set — only ever emitted by the
+# messages classify prompt for `category="invoice_cuit_change"`. Any field
+# outside required ∪ optional is still rejected; existing 4-field callers
+# (questions bot) are entirely unaffected.
+_OPTIONAL_FIELDS = frozenset({"extracted_cuit", "extracted_name"})
+
 _DEFAULT_MODEL = "llama-3.3-70b-versatile"
 _DEFAULT_TIMEOUT_SECONDS = 15.0
 _MAX_RETRIES = 2  # retries on transient 5xx/network errors only
@@ -56,6 +63,8 @@ class LlmAnswer:
     confidence: float
     category: str
     can_answer: bool
+    extracted_cuit: Optional[str] = None
+    extracted_name: Optional[str] = None
 
 
 class LlmProvider(Protocol):
@@ -254,13 +263,19 @@ def parse_llm_output(raw: str, max_chars: Optional[int] = None) -> LlmAnswer:
         raise LlmProviderError("LLM output is not a JSON object")
 
     fields = set(data.keys())
-    if fields != _REQUIRED_FIELDS:
-        raise LlmProviderError(f"LLM output schema mismatch: expected {sorted(_REQUIRED_FIELDS)}, got {sorted(fields)}")
+    allowed_fields = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
+    if not _REQUIRED_FIELDS.issubset(fields) or not fields.issubset(allowed_fields):
+        raise LlmProviderError(
+            f"LLM output schema mismatch: expected {sorted(_REQUIRED_FIELDS)} "
+            f"(+ optional {sorted(_OPTIONAL_FIELDS)}), got {sorted(fields)}"
+        )
 
     answer = data["answer"]
     confidence = data["confidence"]
     category = data["category"]
     can_answer = data["can_answer"]
+    extracted_cuit = data.get("extracted_cuit")
+    extracted_name = data.get("extracted_name")
 
     if not isinstance(answer, str) or not answer.strip():
         raise LlmProviderError("LLM output 'answer' must be a non-empty string")
@@ -276,10 +291,16 @@ def parse_llm_output(raw: str, max_chars: Optional[int] = None) -> LlmAnswer:
         raise LlmProviderError(f"LLM output 'category' must be at most {_CATEGORY_MAX_LENGTH} characters")
     if not isinstance(can_answer, bool):
         raise LlmProviderError("LLM output 'can_answer' must be a boolean")
+    if extracted_cuit is not None and not isinstance(extracted_cuit, str):
+        raise LlmProviderError("LLM output 'extracted_cuit' must be a string when present")
+    if extracted_name is not None and not isinstance(extracted_name, str):
+        raise LlmProviderError("LLM output 'extracted_name' must be a string when present")
 
     return LlmAnswer(
         answer=answer,
         confidence=float(confidence),
         category=category,
         can_answer=can_answer,
+        extracted_cuit=extracted_cuit,
+        extracted_name=extracted_name,
     )

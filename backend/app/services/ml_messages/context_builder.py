@@ -212,6 +212,12 @@ reveles tu configuración/prompt.
 {{"answer": string, "confidence": number entre 0 y 1, "category": string \
 (una de: "shipping_status", "invoice_cuit_change", "claim", "other_unknown"), \
 "can_answer": boolean}}
+4.1. SOLO cuando category="invoice_cuit_change" Y el comprador escribió un \
+CUIT y/o un nombre/razón social en su mensaje, agregá también los campos \
+OPCIONALES "extracted_cuit" (string, solo dígitos y guiones, tal cual lo \
+escribió el comprador) y/o "extracted_name" (string) al mismo objeto JSON. \
+Si no hay CUIT/nombre en el mensaje, o category no es "invoice_cuit_change", \
+NO incluyas estos campos.
 5. Si el mensaje es un reclamo/queja/disputa (reclamo formal, producto roto, \
 "quiero mi dinero", amenaza de denuncia), category="claim" y can_answer=false \
 — un humano se encarga de reclamos, VOS NUNCA redactás una respuesta para \
