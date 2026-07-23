@@ -25,7 +25,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.15.1
 
       - name: Ruff check (lint)
         run: ruff check app/ --output-format=github
