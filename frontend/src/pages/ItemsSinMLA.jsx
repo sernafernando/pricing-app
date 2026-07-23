@@ -5,6 +5,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import Toast from '../components/Toast';
+import TiendaNubeReconcile from './TiendaNubeReconcile';
 import './ItemsSinMLA.css';
 
 // Inline SVG icons — stroke-based, consistent 16x16 default
@@ -1199,6 +1200,14 @@ const ItemsSinMLA = () => {
             {Icon.alertCircle(14)} Anomalías ({anomaliasVinculadas.length})
           </button>
         )}
+        {tienePermiso('admin.ver_tn_reconciliacion') && (
+          <button
+            className={`tab-button ${activeTab === 'tn' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tn')}
+          >
+            {Icon.box(14)} Tienda Nube
+          </button>
+        )}
       </div>
 
       {/* Contenido del Tab 1: Items sin MLA */}
@@ -2194,6 +2203,9 @@ const ItemsSinMLA = () => {
           )}
         </div>
       )}
+
+      {/* Contenido del Tab: Tienda Nube (reconciliación GBP vs TN, Slice 1) */}
+      {activeTab === 'tn' && tienePermiso('admin.ver_tn_reconciliacion') && <TiendaNubeReconcile />}
 
       {/* Modal para agregar motivo al banear (items sin MLA) */}
       {showMotivoModal && (

@@ -28,7 +28,12 @@ class TiendaNubeProducto(Base):
     item_id = Column(Integer, index=True)  # FK a productos_erp.item_id
 
     # Metadatos
-    activo = Column(Boolean, default=True)
+    activo = Column(Boolean, default=True)  # present in the last full sync (NOT a "visible" proxy)
+    # TN's real product-level "published" flag (visible in the storefront).
+    # Nullable: existing rows have no value until the next sync run backfills
+    # it. `published IS NULL` MUST be treated as "unknown", never as
+    # published=True — see tn_reconciliation_service's DESPUBLICAR fail-safe.
+    published = Column(Boolean, nullable=True)
     fecha_sync = Column(DateTime(timezone=True), server_default=func.now())
     fecha_actualizacion = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -22,13 +22,15 @@ import httpx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.tienda_nube_sync_shared import UPSERT_VARIANTES_SQL, extract_variantes
+
 # Cargar variables de entorno
-dotenv_path = backend_dir / '.env'
+dotenv_path = backend_dir / ".env"
 load_dotenv(dotenv_path)
 
-DATABASE_URL = os.getenv('DATABASE_URL')
-TN_STORE_ID = os.getenv('TN_STORE_ID')
-TN_ACCESS_TOKEN = os.getenv('TN_ACCESS_TOKEN')
+DATABASE_URL = os.getenv("DATABASE_URL")
+TN_STORE_ID = os.getenv("TN_STORE_ID")
+TN_ACCESS_TOKEN = os.getenv("TN_ACCESS_TOKEN")
 
 if not all([DATABASE_URL, TN_STORE_ID, TN_ACCESS_TOKEN]):
     print(f"[{datetime.now()}] ❌ Error: Faltan variables de entorno (DATABASE_URL, TN_STORE_ID, TN_ACCESS_TOKEN)")
@@ -45,10 +47,7 @@ def fetch_all_products() -> tuple[list, bool]:
     Retorna (products, fetch_complete) — fetch_complete=False si hubo error a mitad.
     """
     base_url = f"https://api.tiendanube.com/v1/{TN_STORE_ID}/products"
-    headers = {
-        "Authentication": f"bearer {TN_ACCESS_TOKEN}",
-        "User-Agent": "GAUSS Pricing App (Python Script)"
-    }
+    headers = {"Authentication": f"bearer {TN_ACCESS_TOKEN}", "User-Agent": "GAUSS Pricing App (Python Script)"}
 
     all_products = []
     page = 1
@@ -60,11 +59,7 @@ def fetch_all_products() -> tuple[list, bool]:
     with httpx.Client(timeout=30.0) as client:
         while True:
             try:
-                response = client.get(
-                    base_url,
-                    headers=headers,
-                    params={"page": page, "per_page": per_page}
-                )
+                response = client.get(base_url, headers=headers, params={"page": page, "per_page": per_page})
                 response.raise_for_status()
 
                 products = response.json()
@@ -110,66 +105,27 @@ def sync_tienda_nube():
         # Contar variantes que vamos a procesar
         variantes = []
         for product in all_products:
-            product_id = product.get('id')
-            product_name = product.get('name', {}).get('es', '')
-
-            for variant in product.get('variants', []):
-                variant_id = variant.get('id')
-                variant_sku = (variant.get('sku') or '').strip()
-
-                price = float(variant.get('price', 0) or 0)
-                compare_at_price = variant.get('compare_at_price')
-                promotional_price = variant.get('promotional_price')
-
-                if compare_at_price:
-                    compare_at_price = float(compare_at_price)
-                if promotional_price:
-                    promotional_price = float(promotional_price)
-
-                variantes.append({
-                    "product_id": product_id,
-                    "product_name": product_name,
-                    "variant_id": variant_id,
-                    "variant_sku": variant_sku,
-                    "price": price,
-                    "compare_at_price": compare_at_price,
-                    "promotional_price": promotional_price,
-                })
+            variantes.extend(extract_variantes(product))
 
         # Solo marcar inactivos si obtuvimos la lista COMPLETA de TN.
         # Si hubo error de paginación (fetch parcial), solo actualizamos
         # los que sí trajimos sin tocar el flag activo de los demás.
         if fetch_complete:
             db.execute(text("UPDATE tienda_nube_productos SET activo = false"))
-            print(f"  📋 Fetch completo — se marcarán inactivos los que no estén en TN")
+            print("  📋 Fetch completo — se marcarán inactivos los que no estén en TN")
         else:
-            print(f"  ⚠️  Fetch parcial — solo se actualizan precios, no se desactivan productos")
+            print("  ⚠️  Fetch parcial — solo se actualizan precios, no se desactivan productos")
 
-        # Upsert todas las variantes
-        # ON CONFLICT usa el unique constraint (product_id, variant_id)
-        upsert_sql = text("""
-            INSERT INTO tienda_nube_productos (
-                product_id, product_name, variant_id, variant_sku,
-                price, compare_at_price, promotional_price, activo
-            ) VALUES (
-                :product_id, :product_name, :variant_id, :variant_sku,
-                :price, :compare_at_price, :promotional_price, true
-            )
-            ON CONFLICT (product_id, variant_id) DO UPDATE SET
-                product_name = EXCLUDED.product_name,
-                variant_sku = EXCLUDED.variant_sku,
-                price = EXCLUDED.price,
-                compare_at_price = EXCLUDED.compare_at_price,
-                promotional_price = EXCLUDED.promotional_price,
-                activo = true
-        """)
-
+        # Upsert todas las variantes (ON CONFLICT usa el unique constraint
+        # product_id+variant_id) — ver UPSERT_VARIANTES_SQL en tienda_nube_sync_shared para el
+        # porqué de su COALESCE en `published`.
         for variante in variantes:
-            db.execute(upsert_sql, variante)
+            db.execute(UPSERT_VARIANTES_SQL, variante)
 
         # Relacionar con ERP por SKU (masivo, 3 queries en vez de N)
         # Match exacto
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -177,10 +133,12 @@ def sync_tienda_nube():
             AND tn.activo = true
             AND tn.variant_sku IS NOT NULL
             AND tn.variant_sku != ''
-        """))
+        """)
+        )
 
         # Match sin 0 inicial (TN: 0123456, ERP: 123456)
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -189,10 +147,12 @@ def sync_tienda_nube():
             AND tn.activo = true
             AND tn.variant_sku LIKE '0%'
             AND LENGTH(tn.variant_sku) > 1
-        """))
+        """)
+        )
 
         # Match agregando 0 inicial (TN: 123456, ERP: 0123456)
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -202,18 +162,21 @@ def sync_tienda_nube():
             AND tn.variant_sku NOT LIKE '0%'
             AND tn.variant_sku IS NOT NULL
             AND tn.variant_sku != ''
-        """))
+        """)
+        )
 
         db.commit()
 
         # Stats
-        stats = db.execute(text("""
+        stats = db.execute(
+            text("""
             SELECT
                 COUNT(*) FILTER (WHERE activo = true) as activos,
                 COUNT(*) FILTER (WHERE activo = false) as inactivos,
                 COUNT(*) FILTER (WHERE item_id IS NOT NULL AND activo = true) as con_erp
             FROM tienda_nube_productos
-        """)).fetchone()
+        """)
+        ).fetchone()
 
         elapsed = (datetime.now() - start_time).total_seconds()
         print(f"\n[{datetime.now()}] ✅ Sincronización completada en {elapsed:.1f}s:")
@@ -226,6 +189,7 @@ def sync_tienda_nube():
         db.rollback()
         print(f"\n[{datetime.now()}] ❌ Error durante sincronización: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:
