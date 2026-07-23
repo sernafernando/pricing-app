@@ -139,6 +139,17 @@ class UnbanEanRequest(BaseModel):
     banlist_id: int
 
 
+class BanEanResponse(BaseModel):
+    success: bool
+    message: str
+    banlist_id: int
+
+
+class UnbanEanResponse(BaseModel):
+    success: bool
+    message: str
+
+
 class BanlistEntryResponse(BaseModel):
     id: int
     ean: str
@@ -249,7 +260,7 @@ def get_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(g
     ]
 
 
-@router.post("/banear")
+@router.post("/banear", response_model=BanEanResponse)
 def banear_ean(
     request: BanEanRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
@@ -276,7 +287,7 @@ def banear_ean(
     return {"success": True, "message": f"EAN {request.ean} agregado a la banlist", "banlist_id": nuevo_ban.id}
 
 
-@router.post("/desbanear")
+@router.post("/desbanear", response_model=UnbanEanResponse)
 def desbanear_ean(
     request: UnbanEanRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):

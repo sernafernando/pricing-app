@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.orm import sessionmaker
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
@@ -45,11 +46,24 @@ def _transient_auth_uses_test_db(db):
     session/transaction as everything else in the test instead of a
     separate, real, file-backed database. No commit/rollback here — the
     outer `db` fixture's transaction owns that.
+
+    The patched session must be a SEPARATE session that actually CLOSES on
+    exit, not the still-open `db` fixture session. `/reporte` runs
+    `verificar_permiso` against the DETACHED user returned by transient
+    auth; yielding a session that never closes lets any lazy load resolve
+    silently, so the test could not fail for the very reason it exists to
+    guard. Binding a fresh session to the same connection keeps visibility
+    of the fixture's uncommitted rows while restoring the production
+    lifecycle, exactly as `tests/unit/test_deps_transient_auth.py` does.
     """
 
     @contextmanager
     def _fake_background_db():
-        yield db
+        session = sessionmaker(bind=db.connection())()
+        try:
+            yield session
+        finally:
+            session.close()
 
     with patch("app.api.deps.get_background_db", _fake_background_db):
         yield
