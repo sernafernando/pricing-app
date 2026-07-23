@@ -20,8 +20,15 @@ Fixed by using a genuinely separate session (bound to the same underlying
 connection, so it still sees the fixture-created rows) that is closed via
 its own `finally` before the assertion runs, exactly mirroring the
 production code path (`get_background_db()`'s own session close).
+
+This module is deliberately synchronous and drives the coroutine with
+`asyncio.run`: the project has NO pytest-asyncio configured (CI installs only
+`requirements.txt` plus `pytest httpx`), so `@pytest.mark.asyncio` is silently
+skipped locally and fails on CI with "async def functions are not natively
+supported". Other test modules in this repo carry the same warning.
 """
 
+import asyncio
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -78,8 +85,7 @@ def _fake_background_db(bind):
 
 
 class TestTransientAuthEagerLoadsRolObj:
-    @pytest.mark.asyncio
-    async def test_es_superadmin_readable_after_detach(self, db, transient_user):
+    def test_es_superadmin_readable_after_detach(self, db, transient_user):
         """`es_superadmin` (and therefore `verificar_permiso`'s fallback
         path) must be readable on the returned user WITHOUT a live session —
         that's the whole point of "transient" auth. Confirmed RED (raises
@@ -91,7 +97,7 @@ class TestTransientAuthEagerLoadsRolObj:
         credentials = MagicMock(credentials=token)
 
         with patch("app.api.deps.get_background_db", lambda: _fake_background_db(db.connection())):
-            usuario = await get_current_user_transient(credentials=credentials)
+            usuario = asyncio.run(get_current_user_transient(credentials=credentials))
 
         # The session that loaded `usuario` is now closed (see
         # `_fake_background_db`'s `finally`) — reading `es_superadmin` must

@@ -5,18 +5,22 @@ the token-expired retry). Holding a checked-out pool connection for that long
 is exactly the pattern behind this repo's documented pool-exhaustion
 incident — `fetch_gbp_report_78` MUST pass an explicit, bounded timeout
 rather than silently inheriting that default.
+
+This module is deliberately synchronous and drives the coroutine with
+`asyncio.run`: the project has NO pytest-asyncio configured (CI installs only
+`requirements.txt` plus `pytest httpx`), so `@pytest.mark.asyncio` is silently
+skipped locally and fails on CI with "async def functions are not natively
+supported". Other test modules in this repo carry the same warning.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, patch
-
-import pytest
 
 from app.services.tn_reconciliation_service import GBP_FETCH_TIMEOUT_SECONDS, fetch_gbp_report_78
 
 
 class TestBoundedTimeout:
-    @pytest.mark.asyncio
-    async def test_call_soap_service_receives_an_explicit_bounded_timeout(self):
+    def test_call_soap_service_receives_an_explicit_bounded_timeout(self):
         with (
             patch(
                 "app.services.tn_reconciliation_service.authenticate_user",
@@ -31,7 +35,7 @@ class TestBoundedTimeout:
                 return_value=[],
             ),
         ):
-            await fetch_gbp_report_78()
+            asyncio.run(fetch_gbp_report_78())
 
             mock_call.assert_called_once()
             _, kwargs = mock_call.call_args
