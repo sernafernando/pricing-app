@@ -291,6 +291,77 @@ class TestParseLlmOutput:
             parse_llm_output(raw)
 
 
+class TestParseLlmOutputOptionalFields:
+    """ML Bot Phase B (sdd/ml-bot-admin-pending): extends the closed schema
+    with OPTIONAL `extracted_cuit`/`extracted_name` — old 4-field callers
+    (questions bot) must stay green, new optional fields must parse, and any
+    field outside required ∪ optional must still be rejected (backward-compat
+    guarantee, design "Parser backward-compat")."""
+
+    def test_old_four_field_payload_still_parses(self) -> None:
+        raw = json.dumps({"answer": "hola", "confidence": 0.9, "category": "stock", "can_answer": True})
+        result = parse_llm_output(raw)
+        assert result.answer == "hola"
+        assert result.extracted_cuit is None
+        assert result.extracted_name is None
+
+    def test_optional_extracted_cuit_and_name_parse(self) -> None:
+        raw = json.dumps(
+            {
+                "answer": "Ya actualizamos tus datos.",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": "20147683511",
+                "extracted_name": "Juan Perez",
+            }
+        )
+        result = parse_llm_output(raw)
+        assert result.extracted_cuit == "20147683511"
+        assert result.extracted_name == "Juan Perez"
+
+    def test_only_extracted_cuit_present_parses(self) -> None:
+        raw = json.dumps(
+            {
+                "answer": "ok",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": "20147683511",
+            }
+        )
+        result = parse_llm_output(raw)
+        assert result.extracted_cuit == "20147683511"
+        assert result.extracted_name is None
+
+    def test_unknown_field_alongside_optional_fields_still_rejected(self) -> None:
+        raw = json.dumps(
+            {
+                "answer": "ok",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": "20147683511",
+                "price": 1000,
+            }
+        )
+        with pytest.raises(LlmProviderError):
+            parse_llm_output(raw)
+
+    def test_wrong_type_extracted_cuit_rejected(self) -> None:
+        raw = json.dumps(
+            {
+                "answer": "ok",
+                "confidence": 0.9,
+                "category": "invoice_cuit_change",
+                "can_answer": True,
+                "extracted_cuit": 20147683511,
+            }
+        )
+        with pytest.raises(LlmProviderError):
+            parse_llm_output(raw)
+
+
 class TestParseLlmOutputMaxChars:
     """Answer-shaping (sdd/ml-questions-ai/answer-shaping): fail-closed
     enforcement of the panel-editable `answer_max_chars` budget."""
