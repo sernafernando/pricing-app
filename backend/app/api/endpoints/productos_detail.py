@@ -26,6 +26,7 @@ from app.services.ml_promotions_service import (
 )
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.ml_publication_link_service import lazy_fill_links
+from app.services.ml_publication_status_service import resolve_publication_status
 from app.services.ml_publication_tree_service import assemble_publication_tree
 from app.schemas.productos_tree import ProductTreeResponse
 from fastapi.concurrency import run_in_threadpool
@@ -330,7 +331,11 @@ async def obtener_datos_ml_producto(
                 publicaciones_dict[mla]["catalog_winner_mla"] = winner
                 publicaciones_dict[mla]["catalog_winner_price"] = float(winner_price) if winner_price else None
 
-    # Obtener estado de las publicaciones
+    # Obtener estado de las publicaciones. El mapeo status_id/is_active ->
+    # etiqueta vive en `ml_publication_status_service.resolve_publication_status`
+    # (misma fuente que el árbol recursivo, así ambas vistas nunca muestran
+    # estados distintos). Solo se asigna `publication_status` a las MLAs
+    # presentes en la tabla: una MLA ausente no recibe la clave.
     if mla_ids:
         pub_statuses = db.execute(
             text("""
@@ -343,13 +348,7 @@ async def obtener_datos_ml_producto(
 
         for mla, status_id, is_active in pub_statuses:
             if mla in publicaciones_dict:
-                if status_id:
-                    status_map = {153: "active", 154: "paused", 155: "closed", 156: "under_review"}
-                    publicaciones_dict[mla]["publication_status"] = status_map.get(status_id, f"status_{status_id}")
-                elif is_active is not None:
-                    publicaciones_dict[mla]["publication_status"] = "active" if is_active else "paused"
-                else:
-                    publicaciones_dict[mla]["publication_status"] = None
+                publicaciones_dict[mla]["publication_status"] = resolve_publication_status(status_id, is_active)
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     # Usamos MLVentaMetrica (misma fuente que el dashboard)

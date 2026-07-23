@@ -556,3 +556,70 @@ describe('TreeNode price-list badge (restores old flat panel lista_nombre)', () 
     expect(screen.queryByText(/desconocido/i)).not.toBeInTheDocument();
   });
 });
+
+describe('TreeNode publication status badge (restores old flat panel publication_status)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  function buildStatusNode(publication_status) {
+    return {
+      level: 1,
+      kind: 'publicacion',
+      mla: 'MLA_STATUS',
+      label: 'MLA_STATUS',
+      matches_filter: true,
+      children: [],
+      publication_status,
+    };
+  }
+
+  it('renders the paused badge for an MLA-bearing node', () => {
+    renderNode(buildStatusNode('paused'));
+
+    expect(screen.getByText(/pausada/i)).toBeInTheDocument();
+  });
+
+  it('uses the same labels as ModalInfoProducto for every known status', () => {
+    const cases = [
+      ['active', /activa/i],
+      ['closed', /cerrada/i],
+      ['under_review', /en revisión/i],
+    ];
+    cases.forEach(([status, matcher]) => {
+      const { unmount } = renderNode(buildStatusNode(status));
+      expect(screen.getByText(matcher)).toBeInTheDocument();
+      unmount();
+    });
+  });
+
+  it('renders no status badge when publication_status is absent', () => {
+    renderNode(buildStatusNode(undefined));
+
+    expect(screen.queryByText(/activa|pausada|cerrada|en revisión/i)).not.toBeInTheDocument();
+  });
+
+  it('renders no status badge for an unknown status (backend status_{id} fallback)', () => {
+    renderNode(buildStatusNode('status_999'));
+
+    expect(screen.queryByText(/status_999/i)).not.toBeInTheDocument();
+  });
+
+  it('never renders a status badge on a familia grouping node', () => {
+    useTreeViewStore.setState({ showFamilia: true });
+    const tree = {
+      level: 1,
+      kind: 'familia',
+      family_id: 'FAM_STATUS',
+      label: 'Familia FAM_STATUS',
+      publication_status: 'paused',
+      children: [],
+    };
+    renderNode(tree);
+
+    expect(screen.getByText(/familia fam_status/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pausada/i)).not.toBeInTheDocument();
+  });
+});

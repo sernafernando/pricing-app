@@ -35,6 +35,26 @@ const KIND_BADGE_CLASS = {
   publicacion: styles.badgeKindPublicacion,
 };
 
+// Per-MLA publication status badge (restores the old flat MLA panel's status
+// pill). Labels are kept IDENTICAL to `ModalInfoProducto.jsx`'s so both views
+// read the same for the same `publication_status`; only the styling differs
+// (semantic tokens here vs. that legacy component's hardcoded hexes). A status
+// outside this map (e.g. the backend's `status_{id}` fallback for an unmapped
+// ERP id) renders nothing — no empty pill in a dense tree.
+const STATUS_LABELS = {
+  active: '✓ Activa',
+  paused: '⏸ Pausada',
+  closed: '✕ Cerrada',
+  under_review: '⏳ En revisión',
+};
+
+const STATUS_BADGE_CLASS = {
+  active: styles.badgeStatusActive,
+  paused: styles.badgeStatusPaused,
+  closed: styles.badgeStatusClosed,
+  under_review: styles.badgeStatusUnderReview,
+};
+
 // Subtle per-kind row tint (design's requested "group band" read) — one level
 // down in weight from the badge hues above, so the row reads as a group
 // without competing with the badge itself.
@@ -146,6 +166,11 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
     ? node.lista_nombre || (node.pricelist_id != null ? getPublicationTypeLabel(node.pricelist_id) : null)
     : null;
 
+  // Publication status badge (restores the old flat panel's per-MLA status)
+  // — grouping nodes never carry one, and an absent/unknown status renders
+  // nothing (fail-open, same treatment as the lista badge above).
+  const statusLabel = bearsMla ? STATUS_LABELS[node.publication_status] : null;
+
   // Promos-only manual refresh (locked decision): reconciles the MLA's
   // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
   // promos sub-spoiler. Never asserts the final promo state itself — on
@@ -191,6 +216,9 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
             {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
+            {statusLabel && (
+              <span className={`${styles.badge} ${STATUS_BADGE_CLASS[node.publication_status]}`}>{statusLabel}</span>
+            )}
             {promoSummary && (
               <span className={styles.treeNodeSummary}>
                 {promoSummary.applied_name && (

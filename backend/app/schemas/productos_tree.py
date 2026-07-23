@@ -59,6 +59,15 @@ class TreeNode(BaseModel):
     and an optional `matches_filter` (fail-open promo filter, same
     dispatch as the flat lite endpoint).
 
+    `publication_status` restores the per-publication status badge the
+    old flat MLA panel showed ("active"/"paused"/"closed"/
+    "under_review", or `status_{id}` for an unmapped ERP id) — see
+    `ml_publication_status_service.resolve_publication_status`. Like
+    `lista_nombre`, it is only ever set on MLA-bearing nodes; grouping
+    nodes ("producto"/"familia") always leave it `None`, and so does any
+    MLA the ERP mirror does not know about (fail-open: no badge, never a
+    fabricated one).
+
     Promos are INTENTIONALLY NOT assembled server-side here (design
     decision, PR2): the FE fetches them per-MLA via the existing,
     unchanged `MlaPromocionesPanel`/per-MLA promos mechanism at
@@ -76,6 +85,7 @@ class TreeNode(BaseModel):
     promo_summary: Optional[TreeNodePromoSummary] = None
     lista_nombre: Optional[str] = None
     pricelist_id: Optional[int] = None
+    publication_status: Optional[str] = None
     children: List["TreeNode"] = Field(default_factory=list)
 
 
