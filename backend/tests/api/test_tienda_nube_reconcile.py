@@ -24,7 +24,6 @@ import pytest
 from app.core.security import create_access_token, get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.rol import Rol
-from app.models.tn_marked_for_deletion import TnMarkedForDeletion
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
@@ -184,13 +183,11 @@ class TestOneShotReport:
         assert body["total"] == 1
         assert isinstance(body["items"], list)
 
-    def test_page_param_no_longer_accepted(self, client, db, user_ver):
+    def test_stale_page_params_are_ignored(self, client, db, user_ver):
         """A client still passing page/page_size (stale bookmark, old
-        integration) gets a 422 — FastAPI rejects unknown query params only
-        if configured to; here we just confirm they're silently ignored
-        rather than changing behavior, since removing pagination is a
-        contract change and unknown params must not resurrect old paging
-        semantics by accident."""
+        integration) gets the SAME full result set — FastAPI silently
+        ignores unrecognized query params by default, so these have no
+        effect rather than erroring or resurrecting old paging semantics."""
         response = _fetch_report(client, user_ver, params={"page": 2, "page_size": 1})
         body = response.json()
         # Full set still returned — `page`/`page_size` have no effect.
@@ -388,8 +385,7 @@ class TestGracefulDegradation:
 
         assert response.status_code == 502
         assert "SOAP timeout" in response.json()["error"]["message"]
-        # A failed load never creates a banlist or mark-for-deletion row —
-        # asserting against the tables this endpoint actually writes to
-        # (not an unrelated table that would always read 0 and prove nothing).
+        # A failed load never creates a banlist row — asserting against the
+        # table this endpoint actually writes to (not an unrelated table
+        # that would always read 0 and prove nothing).
         assert db.query(TnReconcileBanlist).count() == 0
-        assert db.query(TnMarkedForDeletion).count() == 0

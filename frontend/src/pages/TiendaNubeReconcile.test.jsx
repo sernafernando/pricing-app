@@ -172,6 +172,18 @@ describe('One-shot fetch — no refetch on navigation', () => {
   });
 });
 
+describe('catalog_cap_hit banner', () => {
+  it('uses a distinct warning style, not the error banner (a truncation notice is not an error)', async () => {
+    setupApiMocks({ catalogCapHit: true });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const banner = await screen.findByText(/superó el límite de sincronización/i);
+    expect(banner.className).not.toMatch(/errorBanner/i);
+    expect(banner.className).toMatch(/warningBanner/i);
+  });
+});
+
 describe('Anomaly sub-tabs', () => {
   it('shows a dedicated MAL_PUBLICADO sub-tab', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
@@ -204,6 +216,72 @@ describe('Anomaly sub-tabs', () => {
       expect(screen.getByText(/de 120/i)).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Siguiente/i })).toBeInTheDocument();
+  });
+
+  it('clamps the page back into range when the dataset shrinks while on the last page (fourth review round)', async () => {
+    let itemCount = 51;
+    api.get.mockImplementation((url) => {
+      if (url === '/tienda-nube-reconcile/reporte') {
+        return Promise.resolve({
+          data: {
+            items: manyFaltaPublicar(itemCount),
+            total: itemCount,
+            verdict_counts: { FALTA_PUBLICAR: itemCount },
+            catalog_cap_hit: false,
+          },
+        });
+      }
+      if (url === '/tienda-nube-reconcile/baneados') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: [] });
+    });
+    api.post.mockImplementation(() => {
+      // Simulate a ban shrinking the FALTA_PUBLICAR set from 51 to 50 —
+      // page 2 (which only had row #51) would otherwise become empty.
+      itemCount = 50;
+      return Promise.resolve({ data: { success: true } });
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const faltaPublicarTab = await screen.findByRole('button', { name: /Falta publicar/i });
+    await user.click(faltaPublicarTab);
+
+    const nextButton = await screen.findByRole('button', { name: /Siguiente/i });
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('FP-50')).toBeInTheDocument();
+    });
+
+    const banButton = await screen.findByRole('button', { name: /Banear/i });
+    await user.click(banButton);
+
+    // The set shrank to 50 (exactly one page) — the view must recover with
+    // real rows, never a stuck-on-page-2 "No hay filas" dead end.
+    await waitFor(() => {
+      expect(screen.queryByText(/No hay filas para este veredicto/i)).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('FP-0')).toBeInTheDocument();
+  });
+
+  it('offers the Banear action on FALTA_VINCULAR rows too, not only FALTA_PUBLICAR', async () => {
+    setupApiMocks({
+      items: [{ ean: 'FV-1', verdict: 'FALTA_VINCULAR', despublicar: false, tn_matches: [] }],
+      verdictCounts: { FALTA_VINCULAR: 1 },
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('button', { name: /Falta vincular/i });
+    await user.click(tab);
+
+    const banButton = await screen.findByRole('button', { name: /Banear/i });
+    await user.click(banButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: 'FV-1' });
+    });
   });
 
   it('shows a dedicated DUPLICADO sub-tab labeled as human review, not error', async () => {

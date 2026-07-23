@@ -5,20 +5,28 @@ EAN, and returns a live-computed verdict per row (nothing is persisted except
 the ban list). Mirrors `items_sin_mla.py`'s shape: explicit response models,
 permission gating via `verificar_permiso`.
 
-Pool-safety note (`/reporte` only): this endpoint's own `db` session
-(`Depends(get_db)`) genuinely IS held open for the whole request, including
-the awaited GBP SOAP round-trip — FastAPI's dependency generator only closes
-it when the handler returns. That connection-hold window is bounded to
-`GBP_FETCH_TIMEOUT_SECONDS` (NOT the 300s/~600s-with-retry default
-`call_soap_service` would otherwise inherit). Authentication uses
-`get_current_user_transient` instead of `get_current_user` specifically so it
-does NOT ALSO hold a SECOND connection open for that same window
-(`get_current_user` depends on `get_async_db`, a separate pooled session that
-stays open for the whole request just like `get_db` does). The sync DB query
-+ `compute_verdicts` CPU work run inside `run_in_threadpool` so they never
-block the event loop for other requests while they execute — this endpoint is
-the only `async def` in the module; the other three are plain `def` and
-FastAPI already runs those in its threadpool automatically.
+Pool-safety note (`/reporte` only): this endpoint's own `db` session genuinely
+IS held open for the whole request, including the awaited GBP SOAP
+round-trip — FastAPI's dependency generator only closes it when the handler
+returns. That connection-hold window is bounded to `GBP_FETCH_TIMEOUT_SECONDS`
+(NOT the 300s/~600s-with-retry default `call_soap_service` would otherwise
+inherit). It uses `Depends(get_async_db)`, NOT `Depends(get_db)` (used by the
+other three endpoints here, which are plain `def` and never await anything
+long-lived): `get_async_db`'s `finally: db.close()` is guaranteed to run in
+the async context even if the coroutine is cancelled mid-await (e.g. the
+client disconnects during the up-to-60s SOAP wait) — `get_db` is a sync
+generator FastAPI runs in its threadpool, where a cancelled coroutine can skip
+the `finally` and leak the connection back to the pool as still-checked-out
+(see `app/core/database.py`'s own docstring on `get_async_db`). Authentication
+uses `get_current_user_transient` instead of `get_current_user` specifically
+so it does NOT ALSO hold a SECOND connection open for that same window
+(`get_current_user` depends on `get_async_db` itself, a separate pooled
+session that stays open for the whole request just like this endpoint's own
+`db` does). The sync DB query + `compute_verdicts` CPU work run inside
+`run_in_threadpool` so they never block the event loop for other requests
+while they execute — this endpoint is the only `async def` in the module; the
+other three are plain `def` and FastAPI already runs those in its threadpool
+automatically.
 
 One-shot fetch, no server-side pagination (third review round): `/reporte` is
 called ONCE per explicit load/refresh, never per page/sub-tab navigation —
@@ -51,7 +59,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user, get_current_user_transient
-from app.core.database import get_db
+from app.core.database import get_async_db, get_db
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
@@ -129,7 +137,7 @@ class BanlistEntryResponse(BaseModel):
 @router.get("/reporte", response_model=ReconcileReportResponse)
 async def get_reconciliation_report(
     verdict: Optional[VerdictFilter] = Query(None, description="Filtra a un solo veredicto; omitir = todos excepto OK"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user_transient),
 ):
     """One-shot reconciliation report: GBP report 78 joined against TN on EAN.

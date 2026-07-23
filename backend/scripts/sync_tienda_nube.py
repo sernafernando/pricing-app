@@ -22,6 +22,8 @@ import httpx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.tienda_nube_sync_shared import extract_published_flag
+
 # Cargar variables de entorno
 dotenv_path = backend_dir / ".env"
 load_dotenv(dotenv_path)
@@ -128,9 +130,7 @@ def _extract_variantes(product: dict) -> list[dict]:
     """
     product_id = product.get("id")
     product_name = product.get("name", {}).get("es", "")
-    published = product.get("published")
-    if not isinstance(published, bool):
-        published = None
+    published = extract_published_flag(product)
 
     variantes = []
     for variant in product.get("variants", []):

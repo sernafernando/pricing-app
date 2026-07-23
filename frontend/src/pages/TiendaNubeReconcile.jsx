@@ -301,6 +301,14 @@ export default function TiendaNubeReconcile() {
     [currentTabItems, page]
   );
 
+  // Clamp `page` whenever the underlying (filtered) set shrinks — e.g.
+  // banning the only row on the last page must not strand the view on an
+  // empty page with no way back except switching sub-tabs (fourth review
+  // round, item 3).
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), totalPages));
+  }, [totalPages]);
+
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
   const columnSizingSaveTimerRef = useRef(null);
 
@@ -360,7 +368,7 @@ export default function TiendaNubeReconcile() {
 
       {error && <div className={styles.errorBanner}>{error}</div>}
       {catalogCapHit && (
-        <div className={styles.errorBanner}>
+        <div className={styles.warningBanner}>
           El catálogo de Tienda Nube superó el límite de sincronización interno — la reconciliación
           puede estar incompleta.
         </div>
@@ -553,7 +561,8 @@ export default function TiendaNubeReconcile() {
                         col.id === 'matches' ? (
                           <td key={col.id}>
                             {row.tn_matches.length === 0 ? '—' : row.tn_matches.map((tn) => tn.variant_sku).join(', ')}
-                            {puedeGestionarBanlist && row.verdict === 'FALTA_PUBLICAR' && (
+                            {puedeGestionarBanlist &&
+                              (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR') && (
                               <button
                                 type="button"
                                 className={`btn-tesla ghost sm ${styles.btnSpaced}`}

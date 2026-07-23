@@ -1,5 +1,12 @@
 """tn reconcile tables + permission (Slice 1 — read-only reconciliation view)
 
+Only creates `tn_reconcile_banlist` — the table Slice 1 actually reads/writes
+(via `GET/POST /tienda-nube-reconcile/{baneados,banear,desbanear}`).
+`tn_marked_for_deletion` and `tn_reconcile_resolution` were originally
+scaffolded here for Slices 2/4, but per a fourth review round: speculative
+schema for slices that don't exist yet, with zero readers/writers, should not
+ship — Slice 2/4 will add them with their actual consumers when they land.
+
 Revision ID: 20260722_tn_reconcile_tables
 Revises: 20260722_ml_bot_messages_responder_permiso
 Create Date: 2026-07-22 17:00:00.000000
@@ -23,23 +30,6 @@ def upgrade():
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
         sa.Column("ean", sa.String(length=100), nullable=False, unique=True, index=True),
         sa.Column("motivo", sa.Text(), nullable=True),
-        sa.Column("usuario_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=False),
-        sa.Column("fecha_creacion", sa.DateTime(timezone=True), server_default=sa.func.now()),
-    )
-
-    op.create_table(
-        "tn_marked_for_deletion",
-        sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column("ean", sa.String(length=100), nullable=False, unique=True, index=True),
-        sa.Column("usuario_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=False),
-        sa.Column("fecha_creacion", sa.DateTime(timezone=True), server_default=sa.func.now()),
-    )
-
-    op.create_table(
-        "tn_reconcile_resolution",
-        sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column("ean", sa.String(length=100), nullable=False, unique=True, index=True),
-        sa.Column("nota", sa.Text(), nullable=True),
         sa.Column("usuario_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=False),
         sa.Column("fecha_creacion", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -78,6 +68,4 @@ def downgrade():
         WHERE codigo IN ('admin.ver_tn_reconciliacion', 'admin.gestionar_tn_reconcile_banlist');
     """)
 
-    op.drop_table("tn_reconcile_resolution")
-    op.drop_table("tn_marked_for_deletion")
     op.drop_table("tn_reconcile_banlist")

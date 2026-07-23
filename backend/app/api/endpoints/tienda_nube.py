@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import Usuario
+from app.services.tienda_nube_sync_shared import extract_published_flag
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -115,6 +116,9 @@ async def sincronizar_tienda_nube(
     for product in all_products:
         product_id = product.get("id")
         product_name = product.get("name", {}).get("es", "Sin nombre")
+        # Same semantics as the cron writer (scripts/sync_tienda_nube.py):
+        # missing/non-bool -> None (unknown), never False.
+        published = extract_published_flag(product)
 
         variants = product.get("variants", [])
         if not variants:
@@ -158,6 +162,11 @@ async def sincronizar_tienda_nube(
                     existing.compare_at_price = compare_at_price
                     existing.promotional_price = promotional_price
                     existing.activo = True
+                    # ORM equivalent of the cron writer's SQL COALESCE: a
+                    # missing `published` in THIS response must never null
+                    # out a previously-known value.
+                    if published is not None:
+                        existing.published = published
                     actualizados += 1
                 else:
                     # Crear nuevo
@@ -170,6 +179,7 @@ async def sincronizar_tienda_nube(
                         compare_at_price=compare_at_price,
                         promotional_price=promotional_price,
                         activo=True,
+                        published=published,
                     )
                     db.add(nuevo_producto)
                     nuevos += 1

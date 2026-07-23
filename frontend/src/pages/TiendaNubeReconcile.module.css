@@ -36,6 +36,17 @@
   font-size: 0.85rem;
 }
 
+/* Distinct from .errorBanner — a truncation notice (catalog_cap_hit) is a
+   warning about possibly-incomplete data, not a failure. */
+.warningBanner {
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-orange) 12%, transparent);
+  color: var(--cf-accent-orange);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
 /* Sub-tabs (verdict groups) */
 .subTabBar {
   display: flex;
