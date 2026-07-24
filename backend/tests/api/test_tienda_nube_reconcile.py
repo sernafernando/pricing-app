@@ -492,6 +492,78 @@ class TestDespublicarEndpoint:
         assert response.json()["status"] == "rejected_not_found"
 
 
+class TestPublicarEndpoint:
+    def _payload(self, **overrides):
+        payload = {
+            "ean": "EAN-PUB-1",
+            "product_data": {"name": {"es": "Test Product"}},
+            "category_id": 123,
+            "description_html": "<p>Descripcion</p>",
+            "image_srcs": ["https://cdn.example.com/img1.jpg"],
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post(
+            "/api/tienda-nube-reconcile/publicar",
+            json=self._payload(),
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_successful_publish_returns_submitted_and_audits(self, client, db, user_publicacion):
+        fake_outcome = {
+            "submitted": True,
+            "status": "submitted",
+            "product_id": 999,
+            "skipped_image_srcs": [],
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["submitted"] is True
+        assert body["status"] == "submitted"
+        assert body["product_id"] == 999
+        mocked.assert_called_once()
+
+    def test_already_published_returns_200_with_that_status(self, client, db, user_publicacion):
+        fake_outcome = {"submitted": False, "status": "already_published", "detail": "exists"}
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "already_published"
+
+    def test_blank_ean_is_rejected(self, client, db, user_publicacion):
+        response = client.post(
+            "/api/tienda-nube-reconcile/publicar",
+            json=self._payload(ean=""),
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 422
+
+    def test_empty_image_srcs_is_valid(self, client, db, user_publicacion):
+        """No images is allowed (some products may legitimately have none
+        yet) — this endpoint never invents an image."""
+        fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(image_srcs=[]),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+
+
 class TestGracefulDegradation:
     def test_gbp_fetch_failure_returns_clear_error_no_partial_write(self, client, db, user_ver):
         from app.services.tn_reconciliation_service import GBPFetchError
