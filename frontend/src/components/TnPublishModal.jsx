@@ -332,10 +332,13 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       const descriptionHtml = sanitizeHtml(editor?.getHTML() || '', {
         extraTags: DESCRIPTION_EXTRA_TAGS,
       });
-      // The edited title travels inside product_data.name.es — the exact
-      // path `tn_publish_service.publish_product` reads the product name
-      // from for both the TN payload and the local mirror row.
-      const productData = { ...(row || {}), name: { es: title.trim() } };
+      // Explicit TN-create payload — only the fields the backend/TN consume.
+      // The edited title goes in name.es, the exact path
+      // `tn_publish_service.publish_product` reads for the TN payload and the
+      // local mirror. Reconcile-only row fields (verdict, tn_matches, tn_presence,
+      // …) are deliberately NOT spread in — `publish_product` does
+      // `payload = dict(product_data)`, so they would leak into the TN create.
+      const productData = { name: { es: title.trim() } };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,
         product_data: productData,
@@ -350,7 +353,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, editor, row, ean, title, selectedCategory, images, onPublished]);
+  }, [submitting, editor, ean, title, selectedCategory, images, onPublished]);
 
   if (!isOpen) return null;
 
