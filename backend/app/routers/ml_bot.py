@@ -57,8 +57,9 @@ prior slices):
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -68,13 +69,17 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.sse import sse_publish_bg
+from app.models.ml_bot_admin_pending_request import MlBotAdminPendingRequest
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
 from app.models.mercadolibre_user_data import MercadoLibreUserData
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.usuario import Usuario
+from app.services.afip_service import validar_cuit
 from app.services.ml_api_client import MessageSendPermanentError, ml_client
+from app.services.ml_messages import admin_pending_service
+from app.services.ml_messages.admin_pending_templates import select_ack_template
 from app.services.ml_questions import publisher_service
 from app.services.ml_questions.policy import get_config, is_auto_publish_enabled
 from app.services.permisos_service import PermisosService
@@ -102,6 +107,15 @@ _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS = 1
 # above but on the separate `bot_status` column.
 _MESSAGE_TAKE_OVER_SOURCE_STATES = ("awaiting_human", "blocked_claim", "failed")
 _MESSAGE_SEND_SOURCE_STATES = ("taken_over",)
+
+# Admin-pending (Phase B, sdd/ml-bot-admin-pending, PR2): source states each
+# transition may legally CAS out of on `MlBotAdminPendingRequest.status`
+# (design "Interfaces / Contracts" state machine: new -> in_progress ->
+# {done|cancelled}, in_progress -> new on release).
+_ADMIN_PENDING_CLAIM_SOURCE_STATES = ("new",)
+_ADMIN_PENDING_RELEASE_SOURCE_STATES = ("in_progress",)
+_ADMIN_PENDING_DONE_SOURCE_STATES = ("new", "in_progress")
+_ADMIN_PENDING_CANCEL_SOURCE_STATES = ("new", "in_progress")
 
 
 # =============================================================================
@@ -267,6 +281,73 @@ class ExampleCreate(BaseModel):
     orden: int = 0
 
 
+class AdminPendingResponse(BaseModel):
+    id: int
+    message_id: Optional[int] = None
+    pack_id: Optional[str] = None
+    buyer_id: Optional[int] = None
+    request_type: str
+    source: str
+    raw_text: Optional[str] = None
+    extracted_cuit: Optional[str] = None
+    extracted_name: Optional[str] = None
+    cuit_valid: Optional[bool] = None
+    prefill_nickname: Optional[str] = None
+    prefill_identification_type: Optional[str] = None
+    prefill_identification_number: Optional[str] = None
+    prefill_billing_doc_type: Optional[str] = None
+    prefill_billing_doc_number: Optional[str] = None
+    prefill_billing_first_name: Optional[str] = None
+    prefill_billing_last_name: Optional[str] = None
+    doc_mismatch: bool
+    afip_status: Optional[str] = None
+    afip_razon_social: Optional[str] = None
+    afip_condicion_iva: Optional[str] = None
+    afip_domicilio: Optional[str] = None
+    afip_checked_at: Optional[datetime] = None
+    status: str
+    notes: Optional[str] = None
+    cancel_reason: Optional[str] = None
+    resolved_cuit: Optional[str] = None
+    resolved_cuit_valid: Optional[bool] = None
+    resolved_by: Optional[int] = None
+    resolved_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    claimed_by: Optional[int] = None
+    claimed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminPendingListResponse(BaseModel):
+    requests: list[AdminPendingResponse]
+    total: int
+
+
+class AdminPendingDetailResponse(AdminPendingResponse):
+    superseded_values: Optional[list[Any]] = None
+    suggested_ack_template: str
+
+
+class AdminPendingCreate(BaseModel):
+    pack_id: Optional[str] = Field(None, max_length=32)
+    buyer_id: Optional[int] = None
+    request_type: str = Field("invoice_cuit_change", max_length=40)
+    raw_text: Optional[str] = Field(None, max_length=4000)
+    extracted_cuit: Optional[str] = Field(None, max_length=20)
+    extracted_name: Optional[str] = Field(None, max_length=255)
+
+
+class AdminPendingDoneRequest(BaseModel):
+    resolved_cuit: str = Field(min_length=1, max_length=20)
+
+
+class AdminPendingCancelRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -335,6 +416,31 @@ def _cas_transition_message(
     result = db.execute(
         update(MlBotMessage)
         .where(MlBotMessage.id == message_id, MlBotMessage.bot_status.in_(source_states))
+        .values(**values)
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def _get_admin_pending_or_404(db: Session, request_id: int) -> MlBotAdminPendingRequest:
+    row = db.query(MlBotAdminPendingRequest).filter(MlBotAdminPendingRequest.id == request_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solicitud no encontrada")
+    return row
+
+
+def _cas_transition_pending(
+    db: Session,
+    request_id: int,
+    source_states: tuple[str, ...],
+    **values: object,
+) -> bool:
+    """CAS UPDATE on `MlBotAdminPendingRequest.status` — mirrors
+    `_cas_transition_message` but on the admin-pending lane's own lifecycle
+    column (design "Interfaces / Contracts")."""
+    result = db.execute(
+        update(MlBotAdminPendingRequest)
+        .where(MlBotAdminPendingRequest.id == request_id, MlBotAdminPendingRequest.status.in_(source_states))
         .values(**values)
     )
     db.commit()
@@ -938,3 +1044,252 @@ def borrar_ejemplo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ejemplo no encontrado")
     db.delete(example)
     db.commit()
+
+
+# =============================================================================
+# ADMIN-PENDING ENDPOINTS (Phase B, sdd/ml-bot-admin-pending, PR2)
+# =============================================================================
+
+
+@router.get("/admin-pending", response_model=AdminPendingListResponse)
+def listar_pendientes(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    source: Optional[str] = Query(None),
+    pack_id: Optional[str] = Query(None),
+    buyer_id: Optional[int] = Query(None),
+    cuit_valid: Optional[bool] = Query(None),
+    doc_mismatch: Optional[bool] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingListResponse:
+    """Lista solicitudes pendientes de la lane derive-to-admin (paginado,
+    filtrable). Requiere `ml_bot.admin_pending.ver`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.ver")
+
+    query = db.query(MlBotAdminPendingRequest)
+    if status_filter:
+        query = query.filter(MlBotAdminPendingRequest.status == status_filter)
+    if source:
+        query = query.filter(MlBotAdminPendingRequest.source == source)
+    if pack_id:
+        query = query.filter(MlBotAdminPendingRequest.pack_id == pack_id)
+    if buyer_id is not None:
+        query = query.filter(MlBotAdminPendingRequest.buyer_id == buyer_id)
+    if cuit_valid is not None:
+        query = query.filter(MlBotAdminPendingRequest.cuit_valid == cuit_valid)
+    if doc_mismatch is not None:
+        query = query.filter(MlBotAdminPendingRequest.doc_mismatch == doc_mismatch)
+
+    total = query.count()
+    rows = query.order_by(MlBotAdminPendingRequest.created_at.desc()).offset(offset).limit(limit).all()
+    return AdminPendingListResponse(
+        requests=[AdminPendingResponse.model_validate(r) for r in rows],
+        total=total,
+    )
+
+
+@router.get("/admin-pending/{request_id}", response_model=AdminPendingDetailResponse)
+def detalle_pendiente(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingDetailResponse:
+    """Detalle de una solicitud pendiente, incluyendo `superseded_values`
+    (design decision #4) y `suggested_ack_template` computado desde los
+    flags de la fila (design decision #7: single source of truth, la FE
+    nunca decide el template). Requiere `ml_bot.admin_pending.ver`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.ver")
+    row = _get_admin_pending_or_404(db, request_id)
+
+    template = select_ack_template(cuit_valid=row.cuit_valid, doc_mismatch=row.doc_mismatch)
+    base = AdminPendingResponse.model_validate(row).model_dump()
+    return AdminPendingDetailResponse(**base, superseded_values=row.superseded_values, suggested_ack_template=template)
+
+
+@router.post("/admin-pending", response_model=AdminPendingResponse, status_code=status.HTTP_201_CREATED)
+def crear_pendiente_manual(
+    data: AdminPendingCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Crea una solicitud pendiente manualmente (design "manual creation") —
+    un operador que detecta un pedido de cambio de factura fuera del flujo
+    de derive automático puede cargarla a mano. `source='manual'`,
+    `created_by=current_user.id`, `status='new'`. Requiere
+    `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+
+    row = MlBotAdminPendingRequest(
+        pack_id=data.pack_id,
+        buyer_id=data.buyer_id,
+        request_type=data.request_type,
+        raw_text=data.raw_text,
+        extracted_cuit=data.extracted_cuit,
+        extracted_name=data.extracted_name,
+        source="manual",
+        status="new",
+        created_by=current_user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(row)
+
+
+@router.post("/admin-pending/{request_id}/claim", response_model=AdminPendingResponse)
+def reclamar_pendiente(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Un humano toma una solicitud `new`. CAS `new` -> `in_progress`,
+    estampa `claimed_by`/`claimed_at`. Requiere `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+    _get_admin_pending_or_404(db, request_id)
+
+    ok = _cas_transition_pending(
+        db,
+        request_id,
+        _ADMIN_PENDING_CLAIM_SOURCE_STATES,
+        status="in_progress",
+        claimed_by=current_user.id,
+        claimed_at=datetime.now(timezone.utc),
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La solicitud ya no está en un estado reclamable",
+        )
+
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(_get_admin_pending_or_404(db, request_id))
+
+
+@router.post("/admin-pending/{request_id}/release", response_model=AdminPendingResponse)
+def liberar_pendiente(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Libera una solicitud `in_progress` de vuelta a `new`, limpiando el
+    claim. Requiere `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+    _get_admin_pending_or_404(db, request_id)
+
+    ok = _cas_transition_pending(
+        db,
+        request_id,
+        _ADMIN_PENDING_RELEASE_SOURCE_STATES,
+        status="new",
+        claimed_by=None,
+        claimed_at=None,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La solicitud no está en un estado liberable",
+        )
+
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(_get_admin_pending_or_404(db, request_id))
+
+
+@router.post("/admin-pending/{request_id}/done", response_model=AdminPendingResponse)
+def resolver_pendiente(
+    request_id: int,
+    data: AdminPendingDoneRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Marca una solicitud como resuelta — transición de auditoría fiscal
+    (design decision #5): REQUIERE `resolved_cuit` no vacío (enforced por
+    `AdminPendingDoneRequest.min_length=1`) y estampa `resolved_cuit`/
+    `resolved_cuit_valid`/`resolved_by`/`resolved_at` en la MISMA transición
+    CAS — el CUIT finalmente facturado puede diferir del extraído
+    originalmente, nunca es un simple cambio de estado. `resolved_cuit_valid`
+    viene de `validar_cuit()` (nunca se autocorrige el CUIT, design "PII /
+    Threat"). Requiere `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+    _get_admin_pending_or_404(db, request_id)
+
+    clean_cuit = re.sub(r"[^0-9]", "", data.resolved_cuit)
+    resolved_cuit_valid = validar_cuit(clean_cuit) if clean_cuit else False
+
+    ok = _cas_transition_pending(
+        db,
+        request_id,
+        _ADMIN_PENDING_DONE_SOURCE_STATES,
+        status="done",
+        resolved_cuit=data.resolved_cuit,
+        resolved_cuit_valid=resolved_cuit_valid,
+        resolved_by=current_user.id,
+        resolved_at=datetime.now(timezone.utc),
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La solicitud ya no está en un estado resoluble",
+        )
+
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(_get_admin_pending_or_404(db, request_id))
+
+
+@router.post("/admin-pending/{request_id}/cancel", response_model=AdminPendingResponse)
+def cancelar_pendiente(
+    request_id: int,
+    data: AdminPendingCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Cancela una solicitud `new`/`in_progress`, estampando `cancel_reason`.
+    Requiere `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+    _get_admin_pending_or_404(db, request_id)
+
+    ok = _cas_transition_pending(
+        db,
+        request_id,
+        _ADMIN_PENDING_CANCEL_SOURCE_STATES,
+        status="cancelled",
+        cancel_reason=data.reason,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La solicitud ya no está en un estado cancelable",
+        )
+
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(_get_admin_pending_or_404(db, request_id))
+
+
+@router.post("/admin-pending/{request_id}/enrich-afip", response_model=AdminPendingResponse)
+async def reenriquecer_afip(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AdminPendingResponse:
+    """Re-corre el enriquecimiento AFIP best-effort (mismo seam que
+    `admin_pending_service._enrich_afip`, design decision #6) sobre el CUIT
+    resuelto si ya hay uno, o el extraído en su defecto. Nunca falla: un
+    resultado `unavailable`/`not_found`/`skipped` se persiste igual que en el
+    derive original. Requiere `ml_bot.admin_pending.gestionar`."""
+    _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
+    row = _get_admin_pending_or_404(db, request_id)
+
+    cuit = row.resolved_cuit or row.extracted_cuit
+    afip_status_value, afip_fields = await admin_pending_service._enrich_afip(cuit)
+
+    row.afip_status = afip_status_value
+    row.afip_checked_at = datetime.now(timezone.utc) if afip_status_value != "skipped" else row.afip_checked_at
+    for key, value in afip_fields.items():
+        setattr(row, key, value)
+
+    db.commit()
+    db.refresh(row)
+    _emit_reload_hint()
+    return AdminPendingResponse.model_validate(row)
