@@ -60,6 +60,13 @@ vi.mock('../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promociones: [] } }),
   },
+  marcasPmAPI: {
+    misTitularidades: vi.fn().mockResolvedValue({ data: { pares: [], total: 0 } }),
+    listarSubPMs: vi.fn().mockResolvedValue({ data: [] }),
+    crearSubPM: vi.fn().mockResolvedValue({ data: {} }),
+    eliminarSubPM: vi.fn().mockResolvedValue({ data: {} }),
+    listarUsuariosPM: vi.fn().mockResolvedValue({ data: [] }),
+  },
   authAPI: {
     login: vi.fn(),
     me: vi.fn(),

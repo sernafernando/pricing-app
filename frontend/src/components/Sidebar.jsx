@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
+import { marcasPmAPI } from '../services/api';
 import SidebarSection from './SidebarSection';
 import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket, FileText, Building2, Wallet } from 'lucide-react';
 import styles from './Sidebar.module.css';
@@ -20,6 +21,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
   
   const { tienePermiso, tieneAlgunPermiso } = usePermisos();
   const location = useLocation();
+
+  // Sub-PM delegation (sub-pm-scope-marcas): "Mis Sub-PMs" is data-scoped, not
+  // permiso-gated — only shown to users who are titular of ≥1 (marca,
+  // categoria) pair, discovered via GET /marcas-pm/mis-titularidades.
+  const [tieneTitularidades, setTieneTitularidades] = useState(false);
+  useEffect(() => {
+    let cancelado = false;
+    marcasPmAPI.misTitularidades()
+      .then(({ data }) => {
+        if (!cancelado) setTieneTitularidades((data?.total || 0) > 0);
+      })
+      .catch(() => {
+        if (!cancelado) setTieneTitularidades(false);
+      });
+    return () => { cancelado = true; };
+  }, []);
 
   // Persiste el estado de pin
   useEffect(() => {
@@ -179,6 +196,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: false,
       items: [
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
+        { label: 'Mis Sub-PMs', path: '/mis-sub-pms', visibleIf: () => tieneTitularidades },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
         { label: 'Envío Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
@@ -231,6 +249,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         {menuSections.map((section) => {
           // Filtrar ítems con permisos
           const visibleItems = section.items.filter((item) => {
+            // Ítem con visibilidad data-scoped (no permiso admin) — ej. "Mis Sub-PMs"
+            if (item.visibleIf) return item.visibleIf();
             // Sin permiso definido → visible para todos
             if (!item.permiso) return true;
             if (item.multiple) {
