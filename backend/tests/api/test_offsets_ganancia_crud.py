@@ -60,6 +60,16 @@ class TestPostRejectsNegativeValueWithLimit:
         )
         assert resp.status_code == 422
 
+    def test_post_negative_monto_with_zero_max_unidades_is_422(self, client, admin_auth_headers):
+        # 0 is a set limit as far as rentabilidad (`is not None`) is concerned; the
+        # guard must reject it, not treat 0 as "no limit" via truthiness.
+        resp = client.post(
+            "/api/offsets-ganancia",
+            json=_payload(tipo_offset="monto_fijo", monto=-50, max_unidades=0),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 422
+
     def test_post_negative_porcentaje_with_max_unidades_is_422(self, client, admin_auth_headers):
         resp = client.post(
             "/api/offsets-ganancia",

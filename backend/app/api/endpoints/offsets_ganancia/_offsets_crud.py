@@ -36,7 +36,11 @@ def _validar_offset_negativo_sin_limite(
     else:  # monto_fijo, monto_por_unidad
         es_negativo = monto is not None and monto < 0
 
-    if es_negativo and (max_unidades or max_monto_usd):
+    # `is not None`, not truthiness: max_unidades/max_monto_usd == 0 is still a
+    # limit as far as the rentabilidad endpoints see it (they check `is not None`),
+    # and POST does not normalize 0 -> None like PUT does. Truthiness would let a
+    # negative offset with a 0-limit slip through into the max(0, ...) clamp path.
+    if es_negativo and (max_unidades is not None or max_monto_usd is not None):
         raise HTTPException(
             status_code=422,
             detail=(
