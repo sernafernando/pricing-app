@@ -33,6 +33,157 @@
   margin-top: 2px;
 }
 
+/* Product identity cell (thumbnail + title + expandable description) */
+.productoCell {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.thumbWrap {
+  position: relative;
+  flex-shrink: 0;
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.thumbWrap:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  display: block;
+  background: var(--cf-bg-card);
+}
+
+/* Fixed-position so it escapes the table's overflow container; coordinates
+   are set inline from getBoundingClientRect (dynamic values only). */
+.thumbPreview {
+  position: fixed;
+  z-index: 1000;
+  width: 220px;
+  height: 220px;
+  object-fit: contain;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.prodText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prodTitle {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.prodDesc {
+  font-size: 0.75rem;
+  color: var(--cf-text-secondary);
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.prodDesc:hover {
+  color: var(--cf-text-primary);
+}
+
+.prodDesc:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+.prodDescStatic {
+  cursor: default;
+}
+
+.prodDescStatic:hover {
+  color: var(--cf-text-secondary);
+}
+
+.prodDescExpanded {
+  color: var(--cf-text-primary);
+}
+
+/* Per-match TN IDs list in the Coincidencias column */
+.matchList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matchItem {
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.matchIds {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  color: var(--cf-text-primary);
+}
+
+.matchSku {
+  color: var(--cf-text-tertiary);
+}
+
+/* "Editar en TN" external link */
+.tnLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tnLink:hover {
+  text-decoration: underline;
+}
+
+.tnLink:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
 .errorBanner {
   padding: 10px 14px;
   margin-bottom: var(--spacing-md);
@@ -107,6 +258,11 @@
 }
 
 .duplicateGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
   padding: 8px 12px;
   background: var(--cf-bg-hover);
   font-size: 0.8rem;

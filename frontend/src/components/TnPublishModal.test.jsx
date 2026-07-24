@@ -36,6 +36,7 @@ const ROW = {
   verdict: 'FALTA_PUBLICAR',
   despublicar: false,
   tn_matches: [],
+  ml_title: 'Auricular Bluetooth XYZ',
   ml_desc: '<p>Descripción original</p>',
   categoria: 'Electrónica',
   subcategoria: 'Auriculares',
@@ -50,13 +51,19 @@ const SUGGESTIONS = {
   top: { tn_category_id: 10, category_path_text: 'Electrónica > Auriculares', similarity: 0.95 },
 };
 
-function setupApiMocks({ suggestions = SUGGESTIONS } = {}) {
+function setupApiMocks({ suggestions = SUGGESTIONS, categorySearchResults = [] } = {}) {
   api.post.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categoria-sugerida') {
       return Promise.resolve({ data: suggestions });
     }
     if (url === '/tienda-nube-reconcile/publicar') {
       return Promise.resolve({ data: { submitted: true, status: 'created', product_id: 555, skipped_image_srcs: [] } });
+    }
+    return Promise.resolve({ data: {} });
+  });
+  api.get.mockImplementation((url) => {
+    if (url === '/tienda-nube-reconcile/categorias') {
+      return Promise.resolve({ data: categorySearchResults });
     }
     return Promise.resolve({ data: {} });
   });
@@ -67,6 +74,15 @@ beforeEach(() => {
   api.get.mockReset();
   setupApiMocks();
 });
+
+// ModalTesla auto-focuses its first focusable element ~100ms after mount —
+// typing before that fires gets its focus stolen mid-keystroke. Any test
+// that TYPES must wait for the auto-focus to settle first.
+async function waitForModalAutofocus() {
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /cerrar modal/i })).toHaveFocus();
+  });
+}
 
 async function renderModal(props = {}) {
   const onClose = vi.fn();
@@ -101,13 +117,141 @@ describe('Category picker', () => {
     expect(screen.getByRole('radio', { name: /Electrónica > Audio/ })).toBeInTheDocument();
   });
 
-  it('falls back to manual entry with no crash when suggestions are empty', async () => {
+  it('falls back to NAME search (never a numeric-id input) when suggestions are empty', async () => {
     setupApiMocks({ suggestions: { suggestions: [], top: null } });
 
     await renderModal();
 
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/categoría TN.*manual|ID de categoría/i)).toBeInTheDocument();
+    // The manual path is a category NAME search — a raw numeric id must
+    // never be typed anywhere in this form.
+    expect(screen.getByLabelText(/buscar categoría por nombre/i)).toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  });
+
+  it('lets the operator pick a category by NAME via GET /categorias search', async () => {
+    setupApiMocks({
+      categorySearchResults: [
+        { tn_category_id: 77, category_path: 'Hogar > Cocina > Cafeteras' },
+        { tn_category_id: 78, category_path: 'Hogar > Cocina > Hornos' },
+      ],
+    });
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+
+    await waitForModalAutofocus();
+    const search = screen.getByLabelText(/buscar otra categoría por nombre/i);
+    await user.type(search, 'cocina');
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', {
+        params: { q: 'cocina', limit: 20 },
+      });
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Hogar > Cocina > Cafeteras' }));
+
+    // The picked category is visibly selected by NAME…
+    expect(screen.getByText(/Categoría seleccionada/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Hogar > Cocina > Cafeteras/).length).toBeGreaterThan(0);
+
+    // …and its tn_category_id is what gets submitted.
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].category_id).toBe(77);
+  });
+});
+
+describe('Título', () => {
+  it('pre-loads the editable title from ml_title and submits the edited value in product_data.name.es', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    const input = screen.getByLabelText('Título');
+    expect(input).toHaveValue('Auricular Bluetooth XYZ');
+
+    await waitForModalAutofocus();
+    await user.clear(input);
+    await user.type(input, 'Nuevo título editado');
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].product_data.name).toEqual({ es: 'Nuevo título editado' });
+  });
+
+  it('blocks publishing while the title is empty', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+
+    await user.clear(screen.getByLabelText('Título'));
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+  });
+});
+
+describe('Imágenes', () => {
+  it('renders each image as a thumbnail with its own delete button', async () => {
+    await renderModal();
+
+    expect(screen.getByAltText('Imagen 1 del producto')).toHaveAttribute('src', 'https://example.com/img1.jpg');
+    expect(screen.getByAltText('Imagen 2 del producto')).toHaveAttribute('src', 'https://example.com/img2.jpg');
+    expect(screen.getByRole('button', { name: /eliminar imagen 1/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /eliminar imagen 2/i })).toBeInTheDocument();
+  });
+
+  it('excludes a deleted image from the submitted image_srcs', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+
+    await user.click(screen.getByRole('button', { name: /eliminar imagen 1/i }));
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].image_srcs).toEqual(['https://example.com/img2.jpg']);
+  });
+});
+
+describe('Descripción — toolbar', () => {
+  it('renders a visible formatting toolbar (bold/italic/underline, headings, lists)', async () => {
+    await renderModal();
+
+    expect(screen.getByRole('toolbar', { name: /formato de la descripción/i })).toBeInTheDocument();
+    for (const name of [
+      'Negrita',
+      'Cursiva',
+      'Subrayado',
+      'Tachado',
+      'Título 1',
+      'Título 2',
+      'Título 3',
+      'Párrafo',
+      'Lista con viñetas',
+      'Lista numerada',
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
   });
 });
 

@@ -1,48 +1,170 @@
 /**
- * TnPublishModal — publish form for a FALTA_PUBLICAR row (Sub-slice 3c).
+ * TnPublishModal — publish form for a FALTA_PUBLICAR row (Sub-slice 3c,
+ * rebuilt UI).
  *
  * The `row` prop is the ALREADY-ENRICHED reconciliation row returned by
- * `GET /tienda-nube-reconcile/reporte` — it carries `ml_desc`, `images`
- * (ordered, empty slots already filtered server-side), `categoria` and
- * `subcategoria` directly. This modal reads those off the row it already
- * has; it does NOT call `/gbp-parser` or do any client-side EAN matching
- * (that was a temporary workaround in the initial 3c cut, removed once the
- * backend response was extended to carry these fields per-row).
+ * `GET /tienda-nube-reconcile/reporte` — it carries `ml_title`, `ml_desc`,
+ * `images` (ordered, empty slots already filtered server-side), `categoria`
+ * and `subcategoria` directly. This modal reads those off the row it already
+ * has; it does NOT call `/gbp-parser` or do any client-side EAN matching.
  *
- * On open:
- *   1. Calls `POST /tienda-nube-reconcile/categoria-sugerida` with the
- *      row's category text (`categoria` + `subcategoria`) and pre-selects
- *      the top-1 suggestion; empty result (embedder down) falls back to
- *      manual entry only, never an error.
- *   2. Pre-loads a TipTap WYSIWYG editor from `row.ml_desc`.
+ * Form sections:
+ *   1. Título — editable text input pre-loaded from `row.ml_title`. The
+ *      edited value is submitted inside `product_data.name.es`, which is
+ *      exactly where `tn_publish_service.publish_product` reads the product
+ *      name from (TN payload + local mirror).
+ *   2. Categoría — ALWAYS by NAME, never by raw numeric id. The top-N
+ *      embedder suggestions from `POST /categoria-sugerida` are shown as
+ *      radios (top-1 pre-selected); a debounced search box against
+ *      `GET /categorias?q=` lets the operator pick ANY category by its
+ *      `category_path` text. The chosen `tn_category_id` is tracked
+ *      internally and submitted — the operator never types an id.
+ *   3. Imágenes — dnd-kit sortable thumbnail grid (drag to reorder, per-image
+ *      delete). The submitted `image_srcs` is the grid's final order minus
+ *      deletions. Pointer + keyboard sensors (space to lift, arrows to move).
+ *   4. Descripción — TipTap WYSIWYG pre-loaded from `row.ml_desc`, with a
+ *      visible toolbar (bold / italic / underline / strike, H1–H3, paragraph,
+ *      bullet + numbered lists). On submit the HTML runs through
+ *      `sanitizeHtml` with headings opt-in allowed (matching the backend's
+ *      nh3 allowlist, which already permits h1–h6) — defense-in-depth
+ *      alongside the server-side pass in `tn_publish_service.py`.
  *
- * Submit runs the editor's HTML through `sanitizeHtml.js` (defense-in-depth
- * alongside the server-side `nh3` pass in `tn_publish_service.py`), requires
- * an inline Confirmar/Cancelar step (mirrors the Despublicar pattern in
- * `TiendaNubeReconcile.jsx` — NEVER `window.confirm`), and disables the
- * submit button while in flight to prevent a double-submit.
+ * Submit requires an inline Confirmar/Cancelar step (mirrors the Despublicar
+ * pattern in `TiendaNubeReconcile.jsx` — NEVER `window.confirm`) and locks
+ * the button while in flight to prevent a double-submit. Permission gating
+ * (`admin.gestionar_tn_publicacion`) happens at the caller — this modal is
+ * only ever rendered for operators holding it.
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS as DndCss } from '@dnd-kit/utilities';
+import {
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  Heading1,
+  Heading2,
+  Heading3,
+  Pilcrow,
+  List,
+  ListOrdered,
+  Search,
+  GripVertical,
+  X,
+  Check,
+} from 'lucide-react';
 import ModalTesla from './ModalTesla';
 import { sanitizeHtml } from '../utils/sanitizeHtml';
+import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import styles from './TnPublishModal.module.css';
+
+// Headings the toolbar can produce — must survive the frontend sanitize pass
+// (the backend's nh3 allowlist already permits h1–h6, so nothing is lost
+// server-side either).
+const DESCRIPTION_EXTRA_TAGS = ['h1', 'h2', 'h3'];
 
 function buildCategoryText(row) {
   if (!row) return '';
   return [row.categoria, row.subcategoria].filter(Boolean).join(' ').trim();
 }
 
+/** One sortable image tile: drag handle (pointer + keyboard) + delete. */
+function SortableImageTile({ image, index, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: image.id,
+  });
+
+  return (
+    <li
+      ref={setNodeRef}
+      className={`${styles.imageTile} ${isDragging ? styles.imageTileDragging : ''}`}
+      style={{ transform: DndCss.Transform.toString(transform), transition }}
+    >
+      <button
+        type="button"
+        className={styles.imageDragHandle}
+        aria-label={`Reordenar imagen ${index + 1}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={14} aria-hidden="true" />
+      </button>
+      <img src={image.src} alt={`Imagen ${index + 1} del producto`} className={styles.imageThumb} loading="lazy" />
+      <span className={styles.imageOrder} aria-hidden="true">
+        {index + 1}
+      </span>
+      <button
+        type="button"
+        className={styles.imageDelete}
+        aria-label={`Eliminar imagen ${index + 1}`}
+        onClick={() => onDelete(image.id)}
+      >
+        <X size={13} aria-hidden="true" />
+      </button>
+    </li>
+  );
+}
+
+/** Toolbar button with pressed state for the TipTap editor. */
+function ToolbarButton({ label, active, disabled, onClick, children }) {
+  return (
+    <button
+      type="button"
+      className={`${styles.toolbarBtn} ${active ? styles.toolbarBtnActive : ''}`}
+      aria-label={label}
+      title={label}
+      aria-pressed={Boolean(active)}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
+  // Título — pre-loaded from ml_title, freely editable.
+  const [title, setTitle] = useState(() => row?.ml_title || '');
+
+  // Category selection is ALWAYS an object { id, path } (or null) — there is
+  // no numeric-id entry anywhere in this form.
   const [suggestions, setSuggestions] = useState([]);
-  const [categorySelection, setCategorySelection] = useState(null); // 'manual' or tn_category_id
-  const [manualCategoryId, setManualCategoryId] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  // Name search against GET /categorias?q= (debounced).
+  const [categoryQuery, setCategoryQuery] = useState('');
+  const debouncedCategoryQuery = useDebounce(categoryQuery, 300);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+
+  // Imágenes — ordered, deletable. Ids are index-seeded so duplicate srcs
+  // can never collide as dnd-kit ids.
+  const [images, setImages] = useState(() =>
+    (Array.isArray(row?.images) ? row.images : []).map((src, idx) => ({ id: `img-${idx}`, src }))
+  );
 
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -53,11 +175,32 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     content: '',
   });
 
-  const ean = row?.ean;
-  const imageSrcs = useMemo(() => (Array.isArray(row?.images) ? row.images : []), [row]);
+  // Re-render the toolbar when marks/nodes under the cursor change.
+  const editorState = useEditorState({
+    editor,
+    selector: (ctx) => ({
+      bold: ctx.editor?.isActive('bold') ?? false,
+      italic: ctx.editor?.isActive('italic') ?? false,
+      underline: ctx.editor?.isActive('underline') ?? false,
+      strike: ctx.editor?.isActive('strike') ?? false,
+      h1: ctx.editor?.isActive('heading', { level: 1 }) ?? false,
+      h2: ctx.editor?.isActive('heading', { level: 2 }) ?? false,
+      h3: ctx.editor?.isActive('heading', { level: 3 }) ?? false,
+      paragraph: ctx.editor?.isActive('paragraph') ?? false,
+      bulletList: ctx.editor?.isActive('bulletList') ?? false,
+      orderedList: ctx.editor?.isActive('orderedList') ?? false,
+    }),
+  });
 
-  // One-shot load: only the category suggestion needs a fetch now — the
-  // product fields (ml_desc/images/categoria) already arrived on `row`.
+  const ean = row?.ean;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  // One-shot load: only the category suggestion needs a fetch — the product
+  // fields (ml_title/ml_desc/images/categoria) already arrived on `row`.
   // Never re-fetches on re-render — only when `ean` changes.
   useEffect(() => {
     if (!isOpen || !ean) return;
@@ -79,10 +222,12 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
           const list = sugResponse.data?.suggestions || [];
           setSuggestions(list);
           const top = sugResponse.data?.top;
-          setCategorySelection(top ? top.tn_category_id : null);
+          setSelectedCategory(
+            top ? { id: top.tn_category_id, path: top.category_path_text } : null
+          );
         } else {
           setSuggestions([]);
-          setCategorySelection(null);
+          setSelectedCategory(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -100,15 +245,75 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, ean]);
 
-  const resolvedCategoryId = useMemo(() => {
-    if (categorySelection === 'manual' || (categorySelection === null && suggestions.length === 0)) {
-      const parsed = parseInt(manualCategoryId, 10);
-      return Number.isFinite(parsed) ? parsed : null;
+  // Debounced category NAME search — the manual path that replaces the old
+  // raw-id input. Empty/short queries clear the results without a request.
+  useEffect(() => {
+    const q = debouncedCategoryQuery.trim();
+    if (!isOpen || q.length < 2) {
+      setSearchResults([]);
+      setSearching(false);
+      setSearchError(null);
+      return;
     }
-    return typeof categorySelection === 'number' ? categorySelection : null;
-  }, [categorySelection, manualCategoryId, suggestions.length]);
+    let cancelled = false;
+    async function search() {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const response = await api.get('/tienda-nube-reconcile/categorias', {
+          params: { q, limit: 20 },
+        });
+        if (!cancelled) setSearchResults(Array.isArray(response.data) ? response.data : []);
+      } catch (err) {
+        if (!cancelled) {
+          setSearchResults([]);
+          setSearchError(err?.response?.data?.error?.message || err?.message || 'No se pudieron buscar categorías');
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }
+    search();
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedCategoryQuery, isOpen]);
 
-  const canPublish = Boolean(resolvedCategoryId) && !loadingSuggestion;
+  const pickSearchResult = useCallback((result) => {
+    setSelectedCategory({ id: result.tn_category_id, path: result.category_path });
+    setCategoryQuery('');
+    setSearchResults([]);
+  }, []);
+
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setImages((prev) => {
+      const oldIndex = prev.findIndex((img) => img.id === active.id);
+      const newIndex = prev.findIndex((img) => img.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  }, []);
+
+  const deleteImage = useCallback((id) => {
+    setImages((prev) => prev.filter((img) => img.id !== id));
+  }, []);
+
+  const imageIds = useMemo(() => images.map((img) => img.id), [images]);
+
+  // True when the current selection came from the search box (it's not one
+  // of the embedder suggestions) — rendered as its own checked option so the
+  // operator always SEES what is selected.
+  const selectionOutsideSuggestions = useMemo(
+    () =>
+      selectedCategory != null &&
+      !suggestions.some((s) => s.tn_category_id === selectedCategory.id),
+    [selectedCategory, suggestions]
+  );
+
+  const canPublish =
+    selectedCategory != null && title.trim().length > 0 && !loadingSuggestion && !submitting;
 
   const handlePublishClick = useCallback(() => {
     setConfirming(true);
@@ -124,14 +329,19 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const descriptionHtml = sanitizeHtml(editor?.getHTML() || '');
-      const productData = row ? { ...row } : {};
+      const descriptionHtml = sanitizeHtml(editor?.getHTML() || '', {
+        extraTags: DESCRIPTION_EXTRA_TAGS,
+      });
+      // The edited title travels inside product_data.name.es — the exact
+      // path `tn_publish_service.publish_product` reads the product name
+      // from for both the TN payload and the local mirror row.
+      const productData = { ...(row || {}), name: { es: title.trim() } };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,
         product_data: productData,
-        category_id: resolvedCategoryId,
+        category_id: selectedCategory?.id ?? null,
         description_html: descriptionHtml,
-        image_srcs: imageSrcs,
+        image_srcs: images.map((img) => img.src),
       });
       setConfirming(false);
       onPublished?.(ean, response.data);
@@ -140,81 +350,246 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, editor, row, ean, resolvedCategoryId, imageSrcs, onPublished]);
+  }, [submitting, editor, row, ean, title, selectedCategory, images, onPublished]);
 
   if (!isOpen) return null;
 
   return (
-    <ModalTesla isOpen={isOpen} onClose={onClose} title="Publicar producto en Tienda Nube" size="lg">
+    <ModalTesla
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Publicar producto en Tienda Nube"
+      subtitle={ean ? `EAN ${ean}` : undefined}
+      size="xl"
+    >
       {loadError && <div className={styles.errorBanner}>{loadError}</div>}
       {submitError && <div className={styles.errorBanner}>{submitError}</div>}
 
+      {/* ------------------------------------------------------ Título --- */}
       <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Categoría sugerida</h3>
-        {suggestions.length > 0 ? (
-          <div role="radiogroup" aria-label="Categoría TN">
-            {suggestions.map((s) => (
-              <label key={s.tn_category_id} className={styles.categoryOption}>
-                <input
-                  type="radio"
-                  name="tn-category"
-                  checked={categorySelection === s.tn_category_id}
-                  onChange={() => setCategorySelection(s.tn_category_id)}
-                />
-                <span className={s.tn_category_id === suggestions[0].tn_category_id ? styles.categoryTop : ''}>
-                  {s.category_path_text} ({Math.round(s.similarity * 100)}%)
-                </span>
-              </label>
-            ))}
-            <label className={styles.categoryOption}>
-              <input
-                type="radio"
-                name="tn-category"
-                checked={categorySelection === 'manual'}
-                onChange={() => setCategorySelection('manual')}
-              />
-              Otra categoría (ingresar ID manualmente)
-            </label>
-            {categorySelection === 'manual' && (
-              <div className={styles.manualCategoryRow}>
-                <label htmlFor="tn-manual-category-id">ID de categoría manual</label>
-                <input
-                  id="tn-manual-category-id"
-                  type="number"
-                  value={manualCategoryId}
-                  onChange={(e) => setManualCategoryId(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className={styles.manualCategoryRow}>
-            <label htmlFor="tn-manual-category-id">ID de categoría TN (manual)</label>
-            <input
-              id="tn-manual-category-id"
-              type="number"
-              value={manualCategoryId}
-              onChange={(e) => setManualCategoryId(e.target.value)}
-            />
-          </div>
+        <label className={styles.sectionTitle} htmlFor="tn-publish-title">
+          Título
+        </label>
+        <input
+          id="tn-publish-title"
+          type="text"
+          className={styles.titleInput}
+          value={title}
+          maxLength={255}
+          placeholder="Título del producto en Tienda Nube"
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        {title.trim().length === 0 && (
+          <p className={styles.fieldHint}>El título no puede quedar vacío.</p>
         )}
       </div>
 
+      {/* --------------------------------------------------- Categoría --- */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Categoría</h3>
+        {loadingSuggestion ? (
+          <p className={styles.fieldHint}>Buscando categoría sugerida...</p>
+        ) : (
+          <>
+            {suggestions.length > 0 && (
+              <div role="radiogroup" aria-label="Categoría TN sugerida" className={styles.categoryList}>
+                {suggestions.map((s, idx) => (
+                  <label key={s.tn_category_id} className={styles.categoryOption}>
+                    <input
+                      type="radio"
+                      name="tn-category"
+                      checked={selectedCategory?.id === s.tn_category_id}
+                      onChange={() =>
+                        setSelectedCategory({ id: s.tn_category_id, path: s.category_path_text })
+                      }
+                    />
+                    <span className={idx === 0 ? styles.categoryTop : ''}>
+                      {s.category_path_text}
+                      <span className={styles.categorySimilarity}> ({Math.round(s.similarity * 100)}%)</span>
+                    </span>
+                  </label>
+                ))}
+                {selectionOutsideSuggestions && (
+                  <label className={styles.categoryOption}>
+                    <input type="radio" name="tn-category" checked readOnly />
+                    <span className={styles.categoryTop}>{selectedCategory.path}</span>
+                    <span className={styles.categoryPickedTag}>elegida por búsqueda</span>
+                  </label>
+                )}
+              </div>
+            )}
+
+            <div className={styles.categorySearchBlock}>
+              <label className={styles.searchLabel} htmlFor="tn-category-search">
+                {suggestions.length > 0 ? 'Buscar otra categoría por nombre' : 'Buscar categoría por nombre'}
+              </label>
+              <div className={styles.searchInputWrap}>
+                <Search size={14} className={styles.searchIcon} aria-hidden="true" />
+                <input
+                  id="tn-category-search"
+                  type="search"
+                  className={styles.searchInput}
+                  value={categoryQuery}
+                  placeholder="Ej.: Electrónica > Auriculares"
+                  autoComplete="off"
+                  onChange={(e) => setCategoryQuery(e.target.value)}
+                />
+              </div>
+              {searching && <p className={styles.fieldHint}>Buscando categorías...</p>}
+              {searchError && <p className={styles.fieldError}>{searchError}</p>}
+              {!searching && searchResults.length > 0 && (
+                <ul className={styles.searchResults}>
+                  {searchResults.map((result) => (
+                    <li key={result.tn_category_id}>
+                      <button
+                        type="button"
+                        className={styles.searchResultBtn}
+                        onClick={() => pickSearchResult(result)}
+                      >
+                        {result.category_path}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!searching &&
+                searchResults.length === 0 &&
+                debouncedCategoryQuery.trim().length >= 2 &&
+                !searchError && <p className={styles.fieldHint}>Sin resultados para esa búsqueda.</p>}
+            </div>
+
+            {selectedCategory != null ? (
+              <p className={styles.selectedCategory}>
+                <Check size={13} aria-hidden="true" />
+                <span>
+                  Categoría seleccionada: <strong>{selectedCategory.path}</strong>
+                </span>
+              </p>
+            ) : (
+              <p className={styles.fieldHint}>
+                Elegí una categoría sugerida o buscala por nombre para poder publicar.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ---------------------------------------------------- Imágenes --- */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Imágenes ({images.length})</h3>
+        {images.length === 0 ? (
+          <p className={styles.fieldHint}>Sin imágenes para publicar.</p>
+        ) : (
+          <>
+            <p className={styles.fieldHint}>
+              Arrastrá para reordenar (o con teclado: espacio para levantar, flechas para mover). La
+              primera imagen es la portada.
+            </p>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={imageIds} strategy={rectSortingStrategy}>
+                <ul className={styles.imageGrid} aria-label="Imágenes del producto (ordenables)">
+                  {images.map((image, index) => (
+                    <SortableImageTile key={image.id} image={image} index={index} onDelete={deleteImage} />
+                  ))}
+                </ul>
+              </SortableContext>
+            </DndContext>
+          </>
+        )}
+      </div>
+
+      {/* ------------------------------------------------- Descripción --- */}
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Descripción</h3>
         <div className={styles.editorShell}>
-          <EditorContent editor={editor} />
+          <div className={styles.toolbar} role="toolbar" aria-label="Formato de la descripción">
+            <ToolbarButton
+              label="Negrita"
+              active={editorState?.bold}
+              onClick={() => editor?.chain().focus().toggleBold().run()}
+            >
+              <Bold size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Cursiva"
+              active={editorState?.italic}
+              onClick={() => editor?.chain().focus().toggleItalic().run()}
+            >
+              <Italic size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Subrayado"
+              active={editorState?.underline}
+              onClick={() => editor?.chain().focus().toggleUnderline().run()}
+            >
+              <Underline size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Tachado"
+              active={editorState?.strike}
+              onClick={() => editor?.chain().focus().toggleStrike().run()}
+            >
+              <Strikethrough size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <span className={styles.toolbarDivider} aria-hidden="true" />
+            <ToolbarButton
+              label="Título 1"
+              active={editorState?.h1}
+              onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+            >
+              <Heading1 size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Título 2"
+              active={editorState?.h2}
+              onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+            >
+              <Heading2 size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Título 3"
+              active={editorState?.h3}
+              onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+            >
+              <Heading3 size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Párrafo"
+              active={editorState?.paragraph && !editorState?.bulletList && !editorState?.orderedList}
+              onClick={() => editor?.chain().focus().setParagraph().run()}
+            >
+              <Pilcrow size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <span className={styles.toolbarDivider} aria-hidden="true" />
+            <ToolbarButton
+              label="Lista con viñetas"
+              active={editorState?.bulletList}
+              onClick={() => editor?.chain().focus().toggleBulletList().run()}
+            >
+              <List size={15} aria-hidden="true" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Lista numerada"
+              active={editorState?.orderedList}
+              onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+            >
+              <ListOrdered size={15} aria-hidden="true" />
+            </ToolbarButton>
+          </div>
+          <EditorContent editor={editor} className={styles.editorContent} />
         </div>
       </div>
 
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Imágenes ({imageSrcs.length})</h3>
-        <div className={styles.imageList}>{imageSrcs.length === 0 ? '—' : imageSrcs.join(', ')}</div>
-      </div>
-
+      {/* ------------------------------------------------------ Submit --- */}
       {confirming ? (
         <div className={styles.confirmBar}>
-          <button type="button" className="btn-tesla outline-subtle-success sm" disabled={submitting} onClick={handleConfirm}>
+          <span className={styles.confirmQuestion}>¿Publicar este producto en Tienda Nube?</span>
+          <button
+            type="button"
+            className="btn-tesla outline-subtle-success sm"
+            disabled={submitting}
+            onClick={handleConfirm}
+          >
             Confirmar
           </button>
           <button type="button" className="btn-tesla ghost sm" disabled={submitting} onClick={handleCancelConfirm}>
