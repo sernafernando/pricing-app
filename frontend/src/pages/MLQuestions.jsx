@@ -315,6 +315,25 @@ const MENSAJES_COLUMNS = [
   { id: 'moderacion', header: 'Moderación', size: 120, enableResizing: false },
 ];
 
+// Pendientes tab table (admin-pending queue) — same TanStack sizing-engine
+// pattern as the tables above (`data: []`, no row model; the body stays the
+// existing hand-rendered `.map()` + `Fragment` + detail row). Nine columns:
+// the three text columns (Pack/Comprador, CUIT extraído, Nombre extraído) are
+// resizable; the badge/status/date columns stay fixed. Acciones is a fixed
+// 200px floor sized for its worst-case row (chevron + Tomar/Liberar +
+// Resolver + Cancelar), mirroring the Preguntas Acciones fixed-floor pattern.
+const PENDIENTES_COLUMNS = [
+  { id: 'packComprador', header: 'Pack / Comprador', size: 160, minSize: 120, maxSize: 400, enableResizing: true },
+  { id: 'origen', header: 'Origen', size: 110, enableResizing: false },
+  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
+  { id: 'cuit', header: 'CUIT extraído', size: 130, minSize: 100, maxSize: 300, enableResizing: true },
+  { id: 'nombre', header: 'Nombre extraído', size: 140, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'alertas', header: 'Alertas', size: 120, enableResizing: false },
+  { id: 'afip', header: 'AFIP', size: 80, enableResizing: false },
+  { id: 'creado', header: 'Creado', size: 150, enableResizing: false },
+  { id: 'acciones', header: 'Acciones', size: 200, minSize: 200, maxSize: 200, enableResizing: false },
+];
+
 // Stable empty array reference — we never call `getRowModel()`, TanStack
 // only needs `data` to satisfy its API shape.
 const EMPTY_TABLE_DATA = [];
@@ -322,6 +341,7 @@ const EMPTY_TABLE_DATA = [];
 const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
 const HISTORIAL_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:historial';
 const MENSAJES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:mensajes';
+const PENDIENTES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:pendientes';
 
 // Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
 // already in this file): absent/corrupt/disabled localStorage MUST never
@@ -626,6 +646,43 @@ export default function MLQuestions() {
   });
 
   const hasCustomMensajesColumnSizing = Object.keys(mensajesColumnSizing).length > 0;
+
+  // Pendientes table — same sizing-engine pattern, own localStorage key and
+  // debounce timer. Independent from the Preguntas/Mensajes/Historial
+  // instances (own column defs + own state), so resizing the admin-pending
+  // queue never mutates the other tables' persisted widths.
+  const [pendientesColumnSizing, setPendientesColumnSizingState] = useState(() => loadColumnSizing(PENDIENTES_COLUMN_SIZING_STORAGE_KEY));
+  const pendientesColumnSizingSaveTimerRef = useRef(null);
+
+  const handlePendientesColumnSizingChange = useCallback((updater) => {
+    setPendientesColumnSizingState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
+      pendientesColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, PENDIENTES_COLUMN_SIZING_STORAGE_KEY), 200);
+      return next;
+    });
+  }, []);
+
+  const handleResetPendientesColumnSizing = useCallback(() => {
+    if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
+    setPendientesColumnSizingState({});
+    try {
+      localStorage.removeItem(PENDIENTES_COLUMN_SIZING_STORAGE_KEY);
+    } catch {
+      // no-op — disabled/private-mode localStorage
+    }
+  }, []);
+
+  const pendientesTable = useReactTable({
+    columns: PENDIENTES_COLUMNS,
+    data: EMPTY_TABLE_DATA,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnSizing: pendientesColumnSizing },
+    onColumnSizingChange: handlePendientesColumnSizingChange,
+  });
+
+  const hasCustomPendientesColumnSizing = Object.keys(pendientesColumnSizing).length > 0;
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -2020,19 +2077,45 @@ export default function MLQuestions() {
             </div>
           )}
 
+          {hasCustomPendientesColumnSizing && (
+            <div className={styles.columnSizingBar}>
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={handleResetPendientesColumnSizing}
+              >
+                Restablecer columnas
+              </button>
+            </div>
+          )}
+
           <div className="table-container-tesla">
-            <table className="table-tesla striped">
+            <table
+              className={`table-tesla striped ${styles.resizableTable}`}
+              style={{ width: pendientesTable.getTotalSize() }}
+            >
+              <colgroup>
+                {pendientesTable.getVisibleLeafColumns().map((col) => (
+                  <col key={col.id} style={{ width: col.getSize() }} />
+                ))}
+              </colgroup>
               <thead className="table-tesla-head">
                 <tr>
-                  <th>Pack / Comprador</th>
-                  <th>Origen</th>
-                  <th>Estado</th>
-                  <th>CUIT extraído</th>
-                  <th>Nombre extraído</th>
-                  <th>Alertas</th>
-                  <th>AFIP</th>
-                  <th>Creado</th>
-                  <th>Acciones</th>
+                  {pendientesTable.getFlatHeaders().map((h) => (
+                    <th key={h.id} style={{ position: 'relative' }}>
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <span
+                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
+                          onMouseDown={h.getResizeHandler()}
+                          onTouchStart={h.getResizeHandler()}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
+                        />
+                      )}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="table-tesla-body">
