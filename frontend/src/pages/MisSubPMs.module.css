@@ -124,6 +124,23 @@
   white-space: nowrap;
 }
 
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
 .addRow {
   display: flex;
   gap: var(--spacing-xs);

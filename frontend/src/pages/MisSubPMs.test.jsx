@@ -28,6 +28,7 @@ const SUB_PMS = [
 ];
 
 const USUARIOS = [
+  { id: 1, nombre: 'Titular', email: 'titular@x.com', rol: 'ventas' },
   { id: 5, nombre: 'Ana', email: 'ana@x.com', rol: 'ventas' },
   { id: 6, nombre: 'Beto', email: 'beto@x.com', rol: 'ventas' },
 ];
@@ -54,6 +55,14 @@ describe('MisSubPMs', () => {
     expect(await screen.findByText(/no sos titular/i)).toBeInTheDocument();
   });
 
+  it('does NOT fetch the user list when the user is titular of no pair', async () => {
+    marcasPmAPI.misTitularidades.mockResolvedValue({ data: { pares: [], total: 0 } });
+    render(<MisSubPMs />);
+    await screen.findByText(/no sos titular/i);
+    await waitFor(() => expect(marcasPmAPI.misTitularidades).toHaveBeenCalled());
+    expect(marcasPmAPI.listarUsuariosPM).not.toHaveBeenCalled();
+  });
+
   it('loads sub-PMs for the selected pair', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
@@ -67,6 +76,9 @@ describe('MisSubPMs', () => {
     render(<MisSubPMs />);
     await user.click(await screen.findByText('Samsung / Celulares'));
     await screen.findByText('Ana');
+
+    // The titular (current logged-in user, id 1) is never offered as a sub-PM.
+    expect(screen.queryByRole('option', { name: 'Titular' })).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText(/usuario a delegar/i), '6');
     await user.click(screen.getByRole('button', { name: /otorgar/i }));
@@ -82,13 +94,28 @@ describe('MisSubPMs', () => {
     expect(await screen.findByText('Sub-PM otorgado')).toBeInTheDocument();
   });
 
-  it('revokes a sub-PM and refreshes the list', async () => {
+  it('asks for confirmation before revoking, and cancel does not call the API', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
     await user.click(await screen.findByText('Samsung / Celulares'));
     await screen.findByText('Ana');
 
     await user.click(screen.getByRole('button', { name: /revocar sub-pm de ana/i }));
+    expect(await screen.findByText(/¿revocar el sub-pm de ana/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /cancelar revocación/i }));
+    expect(marcasPmAPI.eliminarSubPM).not.toHaveBeenCalled();
+    expect(screen.queryByText(/¿revocar el sub-pm de ana/i)).not.toBeInTheDocument();
+  });
+
+  it('revokes a sub-PM after confirmation and refreshes the list', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await user.click(await screen.findByText('Samsung / Celulares'));
+    await screen.findByText('Ana');
+
+    await user.click(screen.getByRole('button', { name: /revocar sub-pm de ana/i }));
+    await user.click(screen.getByRole('button', { name: /confirmar revocación del sub-pm de ana/i }));
 
     await waitFor(() => expect(marcasPmAPI.eliminarSubPM).toHaveBeenCalledWith(10));
     expect(marcasPmAPI.listarSubPMs).toHaveBeenCalledTimes(2);
@@ -119,6 +146,7 @@ describe('MisSubPMs', () => {
     await screen.findByText('Ana');
 
     await user.click(screen.getByRole('button', { name: /revocar sub-pm de ana/i }));
+    await user.click(screen.getByRole('button', { name: /confirmar revocación del sub-pm de ana/i }));
 
     expect(await screen.findByText(/no tienes permisos sobre este par/i)).toBeInTheDocument();
   });
