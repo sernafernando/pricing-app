@@ -666,11 +666,11 @@ export default function TabRentabilidad({
                   </span>
                 </div>
               )}
-              {rentabilidad.totales.offset_total > 0 && (
+              {rentabilidad.totales.offset_total !== 0 && (
                 <>
                   <div className={styles.totalItem}>
-                    <span className={styles.totalLabel}>+ Offsets</span>
-                    <span className={styles.totalValor} style={{ color: '#3b82f6' }}>
+                    <span className={styles.totalLabel}>Offsets</span>
+                    <span className={styles.totalValor} style={{ color: rentabilidad.totales.offset_total < 0 ? 'var(--color-red)' : '#3b82f6' }}>
                       {formatMoney(rentabilidad.totales.offset_total)}
                     </span>
                   </div>
@@ -700,7 +700,7 @@ export default function TabRentabilidad({
                         <span className={styles.desgloseOffsetNivel}>{offset.nombre_nivel}</span>
                         <span className={styles.desgloseOffsetDesc}>{offset.descripcion}</span>
                       </div>
-                      <span className={styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
+                      <span className={offset.monto < 0 ? `${styles.desgloseOffsetMonto} ${styles.desgloseOffsetMontoNeg}` : styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
                     </div>
                   ))}
                 </div>
@@ -755,11 +755,11 @@ export default function TabRentabilidad({
                       <span style={{ color: '#d97706', opacity: incluirOffsetFlex ? 1 : 0.5 }}>{formatMoney(card.offset_flex_total)}</span>
                     </div>
                   )}
-                  {card.offset_total > 0 && (
+                  {card.offset_total !== 0 && (
                     <>
                       <div className={styles.cardMetricaOffset}>
-                        <span>+ Offset:</span>
-                        <span style={{ color: '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
+                        <span>Offset:</span>
+                        <span style={{ color: card.offset_total < 0 ? 'var(--color-red)' : '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
                       </div>
                       <div className={styles.cardMetricaOffset}>
                         <span>Markup c/Off:</span>
@@ -777,7 +777,7 @@ export default function TabRentabilidad({
                                 <span className={styles.desgloseOffsetNivel}>{offset.nombre_nivel}</span>
                                 <span className={styles.desgloseOffsetDesc}>{offset.descripcion}</span>
                               </div>
-                              <span className={styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
+                              <span className={offset.monto < 0 ? `${styles.desgloseOffsetMonto} ${styles.desgloseOffsetMontoNeg}` : styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
                             </div>
                           ))}
                         </div>

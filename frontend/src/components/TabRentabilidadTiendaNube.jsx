@@ -602,11 +602,11 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta, vend
                   {formatPercent(rentabilidad.totales.markup_promedio)}
                 </span>
               </div>
-              {rentabilidad.totales.offset_total > 0 && (
+              {rentabilidad.totales.offset_total !== 0 && (
                 <>
                   <div className={styles.totalItem}>
-                    <span className={styles.totalLabel}>+ Offsets</span>
-                    <span className={styles.totalValor} style={{ color: '#3b82f6' }}>
+                    <span className={styles.totalLabel}>Offsets</span>
+                    <span className={styles.totalValor} style={{ color: rentabilidad.totales.offset_total < 0 ? 'var(--color-red)' : '#3b82f6' }}>
                       {formatMoney(rentabilidad.totales.offset_total)}
                     </span>
                   </div>
@@ -672,11 +672,11 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta, vend
                       {formatPercent(card.markup_promedio)}
                     </span>
                   </div>
-                  {card.offset_total > 0 && (
+                  {card.offset_total !== 0 && (
                     <>
                       <div className={styles.cardMetricaOffset}>
-                        <span>+ Offset:</span>
-                        <span style={{ color: '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
+                        <span>Offset:</span>
+                        <span style={{ color: card.offset_total < 0 ? 'var(--color-red)' : '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
                       </div>
                       <div className={styles.cardMetricaOffset}>
                         <span>Markup c/Off:</span>

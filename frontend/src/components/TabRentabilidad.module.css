@@ -367,6 +367,11 @@
   color: #a78bfa;
 }
 
+/* Negative offset amount in the desglose — visually distinct from positive */
+.desgloseOffsetMontoNeg {
+  color: var(--color-red);
+}
+
 /* Modal */
 .modalOverlay {
   position: fixed;
