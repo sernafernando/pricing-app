@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, ShieldCheck } from 'lucide-react';
 import { marcasPmAPI } from '../services/api';
 import { ModalAlert, ModalLoading } from '../components/ModalTesla';
+import { useAuthStore } from '../store/authStore';
 import styles from './MisSubPMs.module.css';
 
 /**
@@ -16,6 +17,8 @@ import styles from './MisSubPMs.module.css';
  * you are the titular of).
  */
 export default function MisSubPMs() {
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
   const [pares, setPares] = useState([]);
   const [loadingPares, setLoadingPares] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -27,6 +30,7 @@ export default function MisSubPMs() {
   const [nuevoUsuarioId, setNuevoUsuarioId] = useState('');
   const [otorgando, setOtorgando] = useState(false);
   const [revocandoId, setRevocandoId] = useState(null);
+  const [confirmarRevocar, setConfirmarRevocar] = useState(null); // grant pending confirmation
 
   const [alerta, setAlerta] = useState(null); // { tipo: 'error' | 'success', texto }
 
@@ -41,7 +45,15 @@ export default function MisSubPMs() {
     setLoadingPares(true);
     try {
       const { data } = await marcasPmAPI.misTitularidades();
-      setPares(Array.isArray(data?.pares) ? data.pares : []);
+      const nuevosPares = Array.isArray(data?.pares) ? data.pares : [];
+      setPares(nuevosPares);
+      setSelectedId((prevId) => {
+        if (prevId != null && !nuevosPares.some((p) => p.id === prevId)) {
+          setSubPMs([]);
+          return null;
+        }
+        return prevId;
+      });
     } catch (err) {
       setPares([]);
       showError(err, 'Error al cargar tus marcas/categorías');
@@ -66,22 +78,34 @@ export default function MisSubPMs() {
 
   useEffect(() => {
     cargarPares();
+  }, [cargarPares]);
+
+  // Only fetch the (potentially sensitive) global user list once we know the
+  // current user is a titular of at least one pair — a non-titular hitting
+  // this route directly must never trigger GET /usuarios/pms.
+  useEffect(() => {
+    if (loadingPares || pares.length === 0) return;
+    let cancelado = false;
     (async () => {
       try {
         const { data } = await marcasPmAPI.listarUsuariosPM();
-        setUsuarios(Array.isArray(data) ? data : []);
+        if (!cancelado) setUsuarios(Array.isArray(data) ? data : []);
       } catch {
         // Non-blocking: the grant form just has an empty picker if this fails.
-        setUsuarios([]);
+        if (!cancelado) setUsuarios([]);
       }
     })();
-  }, [cargarPares]);
+    return () => {
+      cancelado = true;
+    };
+  }, [loadingPares, pares.length]);
 
   const selectedPar = pares.find((p) => p.id === selectedId) || null;
 
   const seleccionarPar = (par) => {
     setSelectedId(par.id);
     setNuevoUsuarioId('');
+    setConfirmarRevocar(null);
     setAlerta(null);
     cargarSubPMs(par);
   };
@@ -106,12 +130,24 @@ export default function MisSubPMs() {
     }
   };
 
-  const revocarSubPM = async (grant) => {
+  const pedirConfirmacionRevocar = (grant) => {
+    setConfirmarRevocar(grant);
+    setAlerta(null);
+  };
+
+  const cancelarRevocar = () => {
+    setConfirmarRevocar(null);
+  };
+
+  const confirmarRevocarSubPM = async () => {
+    const grant = confirmarRevocar;
+    if (!grant) return;
     setRevocandoId(grant.id);
     setAlerta(null);
     try {
       await marcasPmAPI.eliminarSubPM(grant.id);
       showSuccess(`Revocaste el sub-PM de ${grant.usuario_nombre || `usuario #${grant.usuario_id}`}`);
+      setConfirmarRevocar(null);
       await cargarSubPMs(selectedPar);
     } catch (err) {
       showError(err, 'Error al revocar el sub-PM');
@@ -120,8 +156,11 @@ export default function MisSubPMs() {
     }
   };
 
+  // The current logged-in user may be titular of several pairs; regardless
+  // of which pair is selected, never offer them as a sub-PM in their own
+  // picker (the backend also rejects self-grant with 400).
   const usuariosDisponibles = usuarios.filter(
-    (u) => !subPMs.some((g) => g.usuario_id === u.id) && u.id !== selectedPar?.usuario_id,
+    (u) => !subPMs.some((g) => g.usuario_id === u.id) && u.id !== currentUserId,
   );
 
   return (
@@ -177,7 +216,7 @@ export default function MisSubPMs() {
                       <span className={styles.grantName}>{g.usuario_nombre || `Usuario #${g.usuario_id}`}</span>
                       <button
                         className="btn-tesla outline-subtle-danger icon-only sm"
-                        onClick={() => revocarSubPM(g)}
+                        onClick={() => pedirConfirmacionRevocar(g)}
                         disabled={revocandoId === g.id}
                         aria-label={`Revocar sub-PM de ${g.usuario_nombre || g.usuario_id}`}
                       >
@@ -185,6 +224,33 @@ export default function MisSubPMs() {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {confirmarRevocar && (
+                <div className={styles.confirmBox}>
+                  <span>
+                    ¿Revocar el sub-PM de {confirmarRevocar.usuario_nombre || `usuario #${confirmarRevocar.usuario_id}`}{' '}
+                    en {selectedPar.marca} / {selectedPar.categoria}?
+                  </span>
+                  <div className={styles.confirmActions}>
+                    <button
+                      className="btn-tesla outline-subtle-danger sm"
+                      onClick={confirmarRevocarSubPM}
+                      disabled={revocandoId === confirmarRevocar.id}
+                      aria-label={`Confirmar revocación del sub-PM de ${confirmarRevocar.usuario_nombre || confirmarRevocar.usuario_id}`}
+                    >
+                      {revocandoId === confirmarRevocar.id ? 'Revocando...' : 'Sí, revocar'}
+                    </button>
+                    <button
+                      className="btn-tesla ghost sm"
+                      onClick={cancelarRevocar}
+                      disabled={revocandoId === confirmarRevocar.id}
+                      aria-label="Cancelar revocación"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               )}
 
