@@ -116,6 +116,11 @@ _ADMIN_PENDING_CLAIM_SOURCE_STATES = ("new",)
 _ADMIN_PENDING_RELEASE_SOURCE_STATES = ("in_progress",)
 _ADMIN_PENDING_DONE_SOURCE_STATES = ("new", "in_progress")
 _ADMIN_PENDING_CANCEL_SOURCE_STATES = ("new", "in_progress")
+# Enrich is NOT a state transition (it only writes reference `afip_*` fields,
+# not `status`), so it uses no CAS. This is just the open-lifecycle guard: on a
+# terminal (done/cancelled) row, re-fetching AFIP data changes nothing, so skip
+# the external call and no-op. Not a 409 — an idempotent refresh must not error.
+_ADMIN_PENDING_OPEN_STATES = ("new", "in_progress")
 
 
 # =============================================================================
@@ -1280,6 +1285,11 @@ async def reenriquecer_afip(
     derive original. Requiere `ml_bot.admin_pending.gestionar`."""
     _check_permiso(db, current_user, "ml_bot.admin_pending.gestionar")
     row = _get_admin_pending_or_404(db, request_id)
+
+    # Terminal rows (done/cancelled) are a clean no-op: skip the AFIP call and
+    # return current state unchanged (see `_ADMIN_PENDING_OPEN_STATES`).
+    if row.status not in _ADMIN_PENDING_OPEN_STATES:
+        return AdminPendingResponse.model_validate(row)
 
     cuit = row.resolved_cuit or row.extracted_cuit
     afip_status_value, afip_fields = await admin_pending_service._enrich_afip(cuit)
