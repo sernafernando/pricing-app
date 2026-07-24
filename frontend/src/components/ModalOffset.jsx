@@ -24,6 +24,10 @@ export default function ModalOffset({
   const [tipoCambioHoy, setTipoCambioHoy] = useState(null);
   const [editandoOffset, setEditandoOffset] = useState(null);
 
+  // Filtro de fechas para la lista de offsets existentes (solo visual, no toca métricas)
+  const [filtroListaDesde, setFiltroListaDesde] = useState('');
+  const [filtroListaHasta, setFiltroListaHasta] = useState('');
+
   // Búsquedas para productos
   const [busquedaOffsetProducto, setBusquedaOffsetProducto] = useState('');
   const [productosOffsetEncontrados, setProductosOffsetEncontrados] = useState([]);
@@ -281,6 +285,18 @@ export default function ModalOffset({
     const [year, month, day] = fecha.split('-');
     return `${day}/${month}/${year}`;
   };
+
+  // Lista de offsets filtrada por solape con el rango elegido y ordenada por inicio.
+  // Fechas ISO (YYYY-MM-DD): la comparación de strings es cronológica.
+  const offsetsFiltrados = offsets
+    .filter(offset => {
+      // Excluir si el offset empieza después del "hasta" del filtro
+      if (filtroListaHasta && offset.fecha_desde > filtroListaHasta) return false;
+      // Excluir si el offset ya terminó antes del "desde" del filtro (fecha_hasta null = vigente)
+      if (filtroListaDesde && offset.fecha_hasta && offset.fecha_hasta < filtroListaDesde) return false;
+      return true;
+    })
+    .sort((a, b) => (a.fecha_desde || '').localeCompare(b.fecha_desde || ''));
 
   const guardarOffset = async () => {
     try {
@@ -971,8 +987,40 @@ export default function ModalOffset({
 
         <div className={styles.offsetsLista}>
           <h4>Offsets existentes</h4>
+          <div className={styles.formRow}>
+            <div>
+              <label>Filtrar desde:</label>
+              <input
+                type="date"
+                value={filtroListaDesde}
+                onChange={e => setFiltroListaDesde(e.target.value)}
+              />
+            </div>
+            <div>
+              <label>Filtrar hasta:</label>
+              <input
+                type="date"
+                value={filtroListaHasta}
+                onChange={e => setFiltroListaHasta(e.target.value)}
+              />
+            </div>
+            {(filtroListaDesde || filtroListaHasta) && (
+              <div>
+                <label>&nbsp;</label>
+                <button
+                  type="button"
+                  onClick={() => { setFiltroListaDesde(''); setFiltroListaHasta(''); }}
+                  className={styles.btnCancelar}
+                >
+                  Limpiar
+                </button>
+              </div>
+            )}
+          </div>
           {offsets.length === 0 ? (
             <p>No hay offsets configurados</p>
+          ) : offsetsFiltrados.length === 0 ? (
+            <p>Ningún offset en el rango de fechas seleccionado</p>
           ) : (
             <table className={styles.offsetsTable}>
               <thead>
@@ -987,7 +1035,7 @@ export default function ModalOffset({
                 </tr>
               </thead>
               <tbody>
-                {offsets.map(offset => {
+                {offsetsFiltrados.map(offset => {
                   const nivel = offset.item_id ? 'Producto' :
                                offset.subcategoria_id ? 'Subcat' :
                                offset.categoria ? 'Cat' : 'Marca';
