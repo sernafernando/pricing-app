@@ -69,6 +69,7 @@ from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
+from app.services.tn_category_embedding_service import suggest_category
 from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
 
@@ -193,6 +194,30 @@ class PublicarResponse(BaseModel):
     product_id: Optional[int] = None
     skipped_image_srcs: List[str] = []
     detail: Optional[str] = None
+
+
+class CategoriaSugeridaRequest(BaseModel):
+    category_text: str
+    top_n: int = 5
+
+    @field_validator("category_text")
+    @classmethod
+    def _category_text_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("category_text no puede estar vacío")
+        return stripped
+
+
+class CategoriaSugeridaItem(BaseModel):
+    tn_category_id: int
+    category_path_text: str
+    similarity: float
+
+
+class CategoriaSugeridaResponse(BaseModel):
+    suggestions: List[CategoriaSugeridaItem]
+    top: Optional[CategoriaSugeridaItem] = None
 
 
 @router.get("/reporte", response_model=ReconcileReportResponse)
@@ -394,3 +419,24 @@ def publicar_producto(
         skipped_image_srcs=outcome.get("skipped_image_srcs", []),
         detail=outcome.get("detail"),
     )
+
+
+@router.post("/categoria-sugerida", response_model=CategoriaSugeridaResponse)
+def categoria_sugerida(
+    request: CategoriaSugeridaRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """Embedder-assisted TN category suggestion (sub-slice 3b — read-only,
+    feeds the publish flow's category picker in sub-slice 3c).
+
+    Reuses `admin.gestionar_tn_publicacion` — same write-gate the publish
+    action itself requires, since this suggestion is only useful in that
+    context. NEVER raises on embedder unavailability: `suggest_category`
+    returns an empty suggestion (`suggestions=[]`, `top=None`) whenever the
+    LAN embedder is down/unreachable, so the caller (3c's frontend) falls
+    back to manual category search instead of seeing an error.
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    result = suggest_category(db, request.category_text, top_n=request.top_n)
+    return CategoriaSugeridaResponse(suggestions=result["suggestions"], top=result["top"])

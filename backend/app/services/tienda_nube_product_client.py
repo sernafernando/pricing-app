@@ -219,6 +219,47 @@ class TiendaNubeProductClient:
         # unexpected as an inability to confirm rather than guessing.
         raise TnProductLookupError(f"TN devolvió {response.status_code} inesperado consultando sku={sku}")
 
+    async def fetch_categories(self) -> Optional[list]:
+        """`GET /v1/{store_id}/categories` — the flat TN category list, each
+        item shaped roughly `{"id": int, "name": {...lang: str}, "parent":
+        Optional[int], ...}` (sub-slice 3b — feeds
+        `tn_category_embedding_service.sync_category_embeddings`).
+
+        Unlike the write methods above, this is a best-effort READ: it
+        returns `None` (never raises) on missing credentials, any HTTP
+        error/timeout, a non-2xx response, or an unexpected (non-list) body
+        shape — the sync service simply skips the refresh and logs, exactly
+        like `embed_passages` returning `None` on embedder failure.
+        """
+        if not self.base_url:
+            logger.warning("TiendaNubeProductClient sin credenciales — fetch_categories omitido")
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"{self.base_url}/categories", headers=self.headers)
+        except Exception as e:
+            logger.error("Error obteniendo categorías de TN: %s", e)
+            return None
+
+        if not (200 <= response.status_code < 300):
+            logger.warning("fetch_categories: respuesta no-2xx de TN (status=%s)", response.status_code)
+            return None
+
+        try:
+            body = response.json()
+        except Exception as e:
+            logger.error("fetch_categories: respuesta no es JSON válido: %s", e)
+            return None
+
+        if not isinstance(body, list):
+            logger.warning(
+                "fetch_categories: forma de respuesta inesperada (esperaba una lista, recibió %s)", type(body).__name__
+            )
+            return None
+
+        return body
+
     @staticmethod
     def _classify_write_response(response: httpx.Response) -> Dict:
         """2xx -> ok=True. 5xx -> ambiguous=True. 4xx -> definitive rejection."""

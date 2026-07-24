@@ -301,3 +301,64 @@ class TestGetProductBySku:
                 assert False, "expected TnProductLookupError"
             except TnProductLookupError:
                 pass
+
+
+class TestFetchCategories:
+    """Read-only `GET /categories` (sub-slice 3b — feeds the embedding sync)."""
+
+    def test_missing_credentials_returns_none_no_request(self):
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        result = asyncio.run(client.fetch_categories())
+        assert result is None
+
+    def test_2xx_response_returns_parsed_list(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        categories = [
+            {"id": 1, "name": {"es": "Electrónica"}, "parent": None},
+            {"id": 2, "name": {"es": "Celulares"}, "parent": 1},
+        ]
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(200, categories)
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+        assert result == categories
+        mock_client.get.assert_called_once()
+        call_args = mock_client.get.call_args
+        assert call_args.args[0] == "https://api.tiendanube.com/v1/123/categories"
+
+    def test_4xx_response_returns_none(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(404, {"error": "not_found"})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+        assert result is None
+
+    def test_5xx_response_returns_none(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(503)
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+        assert result is None
+
+    def test_connection_error_returns_none_never_raises(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = Exception("connection reset")
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+        assert result is None
+
+    def test_non_list_body_returns_none(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(200, {"unexpected": "shape"})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+        assert result is None
