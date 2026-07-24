@@ -27,6 +27,12 @@
   margin: 4px 0 0;
 }
 
+.matchedIds {
+  font-size: 0.75rem;
+  color: var(--cf-text-secondary);
+  margin-top: 2px;
+}
+
 .errorBanner {
   padding: 10px 14px;
   margin-bottom: var(--spacing-md);

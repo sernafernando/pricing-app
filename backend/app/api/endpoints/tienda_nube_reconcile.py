@@ -76,7 +76,9 @@ from app.services.tn_reconciliation_service import GBPFetchError, compute_verdic
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
 # actionable/filterable verdict). FastAPI/pydantic rejects any other value
 # with a 422, so a typo can never be misread as "no anomalies of this type".
-VerdictFilter = Literal["FALTA_VINCULAR", "FALTA_PUBLICAR", "MAL_VINCULADO", "MAL_PUBLICADO", "DUPLICADO"]
+VerdictFilter = Literal[
+    "FALTA_VINCULAR", "FALTA_PUBLICAR", "MAL_VINCULADO", "MAL_PUBLICADO", "DUPLICADO", "POR_CORREGIR"
+]
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +135,16 @@ class ReconcileRowResponse(BaseModel):
     verdict: str
     despublicar: bool
     tn_matches: List[TnMatchResponse]
+    # TN Presence Field requirement — orthogonal to `verdict`. One of
+    # `published`/`draft`/`unknown`/`not_in_tn`; see
+    # `tn_reconciliation_service._compute_presence`.
+    tn_presence: str = "not_in_tn"
+    # FALTA_VINCULAR Exposes Matched TN IDs requirement — only populated for
+    # a FALTA_VINCULAR row whose normalized SKU already resolved a TN
+    # product/variant; null for every other verdict and for FALTA_VINCULAR
+    # rows with no resolving match.
+    product_id: Optional[int] = None
+    variant_id: Optional[int] = None
     # Sub-slice 3c follow-up: raw GBP product fields the publish modal needs
     # (category picker text + description editor + image list), populated
     # from `ReconcileRow.gbp_row` — see `_gbp_images` above. Replaces the
@@ -311,6 +323,9 @@ async def get_reconciliation_report(
             verdict=v.verdict,
             despublicar=v.despublicar,
             tn_matches=[TnMatchResponse.model_validate(tn) for tn in v.tn_matches],
+            tn_presence=v.tn_presence,
+            product_id=v.product_id,
+            variant_id=v.variant_id,
             ml_desc=v.gbp_row.get("ML_desc"),
             categoria=v.gbp_row.get("Categoría"),
             subcategoria=v.gbp_row.get("SubCategoría"),
