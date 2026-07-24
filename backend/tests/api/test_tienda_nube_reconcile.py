@@ -277,6 +277,75 @@ class TestOneShotReport:
         assert len(body["items"]) == 2
 
 
+class TestNewMatchAccuracyFields:
+    """Task 9: response includes POR_CORREGIR as a valid verdict, tn_presence
+    per row, and product_id/variant_id on FALTA_VINCULAR rows — regression
+    guard that existing OK/MAL_PUBLICADO/DUPLICADO rows still serialize."""
+
+    def test_por_corregir_is_accepted_by_verdict_filter(self, client, db, user_ver):
+        gbp_rows = [{"Código": "023942321477", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, params={"verdict": "POR_CORREGIR"}, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+
+    def test_falta_vincular_row_carries_matched_ids(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=42, variant_id=7, variant_sku="779123", activo=True, published=None)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [{"Código": "779123", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        body = response.json()
+        row = next(r for r in body["items"] if r["ean"] == "779123")
+        assert row["verdict"] == "FALTA_VINCULAR"
+        assert row["product_id"] == 42
+        assert row["variant_id"] == 7
+
+    def test_falta_publicar_row_has_null_matched_ids(self, client, db, user_ver):
+        gbp_rows = [{"Código": "000999", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        assert row["product_id"] is None
+        assert row["variant_id"] is None
+
+    def test_row_carries_tn_presence(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=42, variant_id=7, variant_sku="779123", activo=True, published=True)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [{"Código": "779123", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["tn_presence"] == "published"
+
+    def test_row_tn_presence_not_in_tn_when_nothing_resolves(self, client, db, user_ver):
+        gbp_rows = [{"Código": "NOWHERE", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["tn_presence"] == "not_in_tn"
+
+    def test_existing_mal_vinculado_row_still_serializes(self, client, db, user_ver):
+        """Regression: an unrelated pre-existing verdict must serialize
+        unchanged alongside the new fields (present, defaulted/null)."""
+        gbp_rows = [{"Código": "123", "tnr_id": 999, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_VINCULADO"
+        assert row["product_id"] is None
+        assert row["variant_id"] is None
+        assert "tn_presence" in row
+
+
 class TestRowGbpFields:
     """Sub-slice 3c follow-up: the row response must carry the raw GBP
     product fields the publish modal needs (`ml_desc`, `images`,

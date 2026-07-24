@@ -59,6 +59,14 @@ class ReconcileRow:
     gbp_row: dict
     tn_matches: list = field(default_factory=list)
     despublicar: bool = False
+    # Orthogonal to `verdict` — see `_compute_presence`. Composes with any
+    # verdict (e.g. DUPLICADO + not_in_tn).
+    tn_presence: str = "not_in_tn"
+    # Only ever populated for FALTA_VINCULAR rows whose normalized SKU
+    # already resolves a TN product/variant via `tn_matches` — null/absent
+    # otherwise (never guessed/invented for other verdicts).
+    product_id: Optional[int] = None
+    variant_id: Optional[int] = None
 
 
 async def fetch_gbp_report_78() -> list[dict]:
@@ -95,6 +103,35 @@ def _normalize_sku(value: Optional[str]) -> Optional[str]:
         return None
     value = str(value).strip()
     return value or None
+
+
+def normalize_gtin(value) -> object:
+    """Normalize a GTIN-style value (EAN / TN `variant_sku`) for leading-
+    zero-tolerant numeric comparison.
+
+    Strips whitespace and leading zeros so `023942321477` and `23942321477`
+    compare equal. The guard is deliberately strict: any value that isn't a
+    string of digits after stripping — empty, `None`, all-zero, or
+    non-numeric (e.g. `"ABC123"`) — normalizes to a fresh sentinel object
+    that is NEVER equal to anything, including another sentinel from this
+    same guard (two empty/None/all-zero/non-numeric inputs must never
+    collide with each other). A plain `None` return would make
+    `None == None` collapse two "no value" rows into a false match, which is
+    exactly the failure mode this guards against — so every non-numeric
+    input gets its own unique `object()` instead.
+
+    Callers MUST NOT use `==` against a raw string literal without checking
+    `isinstance(result, str)` first — the sentinel is intentionally opaque.
+    """
+    if value is None:
+        return object()
+    text = str(value).strip()
+    if not text.isdigit():
+        return object()
+    digits = text.lstrip("0")
+    if digits == "":
+        return object()
+    return digits
 
 
 def _as_int(value, default: int = 0) -> int:
@@ -138,6 +175,38 @@ def _is_visible(tn: TiendaNubeProducto) -> bool:
     return getattr(tn, "published", None) is True
 
 
+def _compute_presence(tn: Optional[TiendaNubeProducto]) -> str:
+    """`tn_presence` per the TN Presence Field requirement: orthogonal to
+    `verdict`. `tn` is whichever TN product this row resolved to for
+    presence purposes (the claimed link if one exists, else the first
+    normalized-EAN match, else `None`) — see `compute_verdicts`."""
+    if tn is None:
+        return "not_in_tn"
+    published = getattr(tn, "published", None)
+    if published is True:
+        return "published"
+    if published is False:
+        return "draft"
+    return "unknown"
+
+
+def _dedupe_matches(*groups: list[TiendaNubeProducto]) -> list[TiendaNubeProducto]:
+    """Union multiple TN-match lists, deduping by `(product_id, variant_id)`
+    while preserving first-seen order — used to combine the raw-string index
+    with the new GTIN-normalized index without ever double-counting the same
+    TN row (e.g. when a match hits both indices)."""
+    seen: set[tuple] = set()
+    result: list[TiendaNubeProducto] = []
+    for group in groups:
+        for tn in group:
+            key = (tn.product_id, tn.variant_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(tn)
+    return result
+
+
 def compute_verdicts(
     gbp_rows: list[dict],
     tn_productos: list[TiendaNubeProducto],
@@ -146,8 +215,14 @@ def compute_verdicts(
     """Compute the verdict taxonomy for each GBP row.
 
     Verdicts: FALTA_VINCULAR, FALTA_PUBLICAR, MAL_VINCULADO, DUPLICADO,
-    MAL_PUBLICADO, OK (fully matched — not an anomaly, not returned as an
-    action item but kept so `despublicar` can still be surfaced).
+    MAL_PUBLICADO, POR_CORREGIR (linked, but the claimed TN SKU differs from
+    the GBP EAN only by leading zeros/formatting — surfaced for a human to
+    canonicalize, never auto-corrected), OK (fully matched — not an anomaly,
+    not returned as an action item but kept so `despublicar` can still be
+    surfaced).
+
+    Each row also carries `tn_presence` (`published`/`draft`/`unknown`/
+    `not_in_tn`), orthogonal to `verdict` — see `_compute_presence`.
 
     DUPLICADO is a human-review anomaly only — this function never picks a
     "correct" row/variant among duplicates. It reports every conflicting row
@@ -169,6 +244,21 @@ def compute_verdicts(
         if sku is None:
             continue
         tn_by_sku.setdefault(sku, []).append(tn)
+
+    # Second index keyed by the leading-zero-tolerant numeric GTIN value
+    # (SKU/EAN Matching Normalization requirement) — kept SEPARATE from
+    # `tn_by_sku` above rather than replacing it: `tn_by_sku` still matches
+    # non-numeric SKUs by raw string (preserving all existing exact-match
+    # behavior), while this index additionally links GBP EANs to TN SKUs
+    # that differ only by leading zeros. `normalize_gtin`'s sentinel guard
+    # means non-numeric/empty/None/all-zero SKUs are simply never indexed
+    # here (they'd never collide with another sentinel anyway).
+    tn_by_gtin: dict[str, list[TiendaNubeProducto]] = {}
+    for tn in tn_productos:
+        gtin = normalize_gtin(tn.variant_sku)
+        if not isinstance(gtin, str):
+            continue
+        tn_by_gtin.setdefault(gtin, []).append(tn)
 
     # Index TN products by (product_id, variant_id) — used only to re-verify
     # an already-claimed link (tnr_id/tnr_variationID), never as the join key.
@@ -200,11 +290,28 @@ def compute_verdicts(
         # 0 is exactly the value that raises DESPUBLICAR (round 7, item 2).
         stock = _as_optional_int(row.get("stock"))
 
-        matches_by_ean = tn_by_sku.get(ean, []) if ean else []
+        # Raw-string matches (unchanged, exact-match behavior — e.g. still
+        # matches non-numeric SKUs) unioned with leading-zero-tolerant GTIN
+        # matches (SKU/EAN Matching Normalization requirement). Union, not
+        # replacement, so existing raw-match test scenarios keep behaving
+        # identically while numeric leading-zero variants are additionally
+        # linked.
+        ean_gtin = normalize_gtin(row.get("Código"))
+        matches_by_ean = _dedupe_matches(
+            tn_by_sku.get(ean, []) if ean else [],
+            tn_by_gtin.get(ean_gtin, []) if isinstance(ean_gtin, str) else [],
+        )
 
         despublicar = any(_is_visible(tn) and stock == 0 for tn in matches_by_ean)
 
         if idx in duplicated_indices:
+            # DUPLICADO grouping is keyed on the shared (tnr_id,
+            # tnr_variationID) link, not this row's own EAN — a duplicated
+            # row's EAN may legitimately not match (e.g. a per-color split
+            # where each GBP row has its own EAN but shares one TN
+            # variant). Fall back to the claimed link for presence so this
+            # branch doesn't under-report existence.
+            presence_tn = matches_by_ean[0] if matches_by_ean else tn_by_ids.get((tnr_id, tnr_variation_id))
             results.append(
                 ReconcileRow(
                     ean=ean or "",
@@ -212,6 +319,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    tn_presence=_compute_presence(presence_tn),
                 )
             )
             continue
@@ -226,6 +334,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    tn_presence=_compute_presence(matches_by_ean[0]),
                 )
             )
             continue
@@ -239,9 +348,21 @@ def compute_verdicts(
                 # hide a data-quality anomaly (see the banned_eans docstring
                 # below and the module-level ban-scope note).
                 continue
+            # FALTA_VINCULAR Exposes Matched TN IDs requirement: only
+            # populated when this row's normalized SKU already resolved a
+            # TN product/variant — null/absent for FALTA_PUBLICAR (nothing
+            # resolved) and for any FALTA_VINCULAR row with no match.
+            matched_tn = matches_by_ean[0] if (verdict == "FALTA_VINCULAR" and matches_by_ean) else None
             results.append(
                 ReconcileRow(
-                    ean=ean or "", verdict=verdict, gbp_row=row, tn_matches=matches_by_ean, despublicar=despublicar
+                    ean=ean or "",
+                    verdict=verdict,
+                    gbp_row=row,
+                    tn_matches=matches_by_ean,
+                    despublicar=despublicar,
+                    tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
+                    product_id=matched_tn.product_id if matched_tn else None,
+                    variant_id=matched_tn.variant_id if matched_tn else None,
                 )
             )
             continue
@@ -254,6 +375,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                 )
             )
             continue
@@ -261,10 +383,30 @@ def compute_verdicts(
         # tnr_id and tnr_variationID both resolved: verify the claimed link.
         claimed_tn = tn_by_ids.get((tnr_id, tnr_variation_id))
         claimed_despublicar = bool(claimed_tn and _is_visible(claimed_tn) and stock == 0)
-        if claimed_tn is None or _normalize_sku(claimed_tn.variant_sku) != ean:
-            verdict = "MAL_PUBLICADO"
-        else:
+
+        # POR_CORREGIR Verdict requirement: raw-equal -> OK (unchanged);
+        # no match under ANY normalization -> MAL_PUBLICADO (unchanged
+        # verdict, unchanged reasons); raw differs but numeric-GTIN equal
+        # -> POR_CORREGIR (new — same underlying product, SKU just needs
+        # canonicalizing). Order matters: check raw-equal BEFORE the
+        # normalized check so an exact match never gets demoted.
+        claimed_sku_raw = _normalize_sku(claimed_tn.variant_sku) if claimed_tn else None
+        if claimed_tn is not None and claimed_sku_raw == ean:
             verdict = "OK"
+        elif (
+            claimed_tn is not None
+            and isinstance(normalize_gtin(claimed_tn.variant_sku), str)
+            and normalize_gtin(claimed_tn.variant_sku) == ean_gtin
+        ):
+            verdict = "POR_CORREGIR"
+        else:
+            verdict = "MAL_PUBLICADO"
+
+        # Presence resolution priority: the claimed link (even if it's the
+        # WRONG SKU — MAL_PUBLICADO still means the product genuinely
+        # exists in TN, just misattributed) takes precedence over the
+        # separate EAN-index matches used elsewhere.
+        presence_tn = claimed_tn if claimed_tn is not None else (matches_by_ean[0] if matches_by_ean else None)
 
         results.append(
             ReconcileRow(
@@ -273,6 +415,7 @@ def compute_verdicts(
                 gbp_row=row,
                 tn_matches=[claimed_tn] if claimed_tn else matches_by_ean,
                 despublicar=claimed_despublicar or despublicar,
+                tn_presence=_compute_presence(presence_tn),
             )
         )
 

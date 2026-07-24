@@ -431,6 +431,179 @@ describe('Anomaly sub-tabs', () => {
   });
 });
 
+describe('POR_CORREGIR verdict (match accuracy)', () => {
+  it('shows a dedicated POR_CORREGIR sub-tab, distinct from OK/MAL_PUBLICADO', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: '023942321477',
+          verdict: 'POR_CORREGIR',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'published',
+        },
+      ],
+      verdictCounts: { POR_CORREGIR: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Por corregir \(1\)/i });
+    expect(tab).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getByText('023942321477')).toBeInTheDocument();
+    });
+  });
+
+  it('does not mix POR_CORREGIR rows into the MAL_PUBLICADO sub-tab', async () => {
+    setupApiMocks({
+      items: [
+        { ean: 'PC-1', verdict: 'POR_CORREGIR', despublicar: false, tn_matches: [], tn_presence: 'published' },
+        { ean: 'MP-1', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'published' },
+      ],
+      verdictCounts: { POR_CORREGIR: 1, MAL_PUBLICADO: 1 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const malPublicadoTab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(malPublicadoTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('MP-1')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('PC-1')).not.toBeInTheDocument();
+  });
+});
+
+describe('tn_presence display', () => {
+  it('renders published/draft/unknown/not_in_tn distinctly, replacing the ambiguous "Desconocido"', async () => {
+    setupApiMocks({
+      items: [
+        { ean: 'A', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'published' },
+        { ean: 'B', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'draft' },
+        { ean: 'C', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'unknown' },
+        { ean: 'D', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'not_in_tn' },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 4 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getByText('A')).toBeInTheDocument();
+    });
+
+    const rows = screen.getAllByRole('row').filter((r) => r.textContent.match(/^[ABCD]/));
+    expect(rows).toHaveLength(4);
+    const texts = rows.map((r) => r.textContent);
+    // Four distinct, non-ambiguous presence labels — no bare "Desconocido".
+    expect(new Set(texts).size).toBe(4);
+    expect(texts.some((t) => /no.*tienda nube|no está en tn|not_in_tn/i.test(t))).toBe(true);
+  });
+
+  it('splits DUPLICADO rows by tn_presence: "sin presencia en TN" vs "existe en TN"', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DUP-A',
+          verdict: 'DUPLICADO',
+          despublicar: false,
+          tn_matches: [{ product_id: 1, variant_id: 1, variant_sku: 'DUP-A', activo: true, published: true }],
+          tn_presence: 'published',
+        },
+        {
+          ean: 'DUP-B',
+          verdict: 'DUPLICADO',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'not_in_tn',
+        },
+      ],
+      verdictCounts: { DUPLICADO: 2 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
+    await user.click(dupTab);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/DUP-A/).length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText(/duplicado, sin presencia en TN/i)).toBeInTheDocument();
+    expect(screen.getByText(/duplicado, existe en TN/i)).toBeInTheDocument();
+  });
+});
+
+describe('FALTA_VINCULAR matched TN IDs', () => {
+  it('shows the matched product_id/variant_id on a FALTA_VINCULAR row', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'FV-IDS',
+          verdict: 'FALTA_VINCULAR',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'unknown',
+          product_id: 42,
+          variant_id: 7,
+        },
+      ],
+      verdictCounts: { FALTA_VINCULAR: 1 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getByText(/product_id: 42 \/ variant_id: 7/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows no broken/undefined display when matched IDs are null', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'FV-NOIDS',
+          verdict: 'FALTA_VINCULAR',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'not_in_tn',
+          product_id: null,
+          variant_id: null,
+        },
+      ],
+      verdictCounts: { FALTA_VINCULAR: 1 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getByText('FV-NOIDS')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('Despublicar action (Slice 2)', () => {
   const DESPUBLICAR_ITEMS = [
     {

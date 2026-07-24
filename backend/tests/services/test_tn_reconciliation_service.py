@@ -6,7 +6,7 @@ handling (`fetch_gbp_report_78`) is covered separately.
 """
 
 from app.models.tienda_nube_producto import TiendaNubeProducto
-from app.services.tn_reconciliation_service import compute_verdicts
+from app.services.tn_reconciliation_service import compute_verdicts, normalize_gtin
 
 
 def _tn(product_id=1, variant_id=1, sku="EAN-1", activo=True, published=None):
@@ -23,6 +23,48 @@ def _gbp_row(codigo="EAN-1", tnr_id=0, tnr_variation_id=0, stock=0, **extra):
     row = {"Código": codigo, "tnr_id": tnr_id, "tnr_variationID": tnr_variation_id, "stock": stock}
     row.update(extra)
     return row
+
+
+class TestNormalizeGtin:
+    """Task 1: exhaustive normalization matrix (proposal + spec §SKU/EAN
+    Matching Normalization)."""
+
+    def test_leading_zero_gbp_only(self):
+        assert normalize_gtin("023942321477") == normalize_gtin("23942321477")
+
+    def test_extra_leading_zero_tn_only(self):
+        assert normalize_gtin("023942321552") == normalize_gtin("0023942321552")
+
+    def test_00_prefix(self):
+        assert normalize_gtin("00123") == normalize_gtin("123")
+
+    def test_equal_after_normalization_variants(self):
+        assert normalize_gtin("000123") == normalize_gtin("00123") == normalize_gtin("123")
+
+    def test_exact_raw_match(self):
+        assert normalize_gtin("23942321477") == normalize_gtin("23942321477")
+
+    def test_genuinely_different_gtins_no_collision(self):
+        assert normalize_gtin("023942321477") != normalize_gtin("023942321478")
+
+    def test_whitespace_padded(self):
+        assert normalize_gtin("  23942321477  ") == normalize_gtin("23942321477")
+
+    def test_empty_string_never_equals_empty_string(self):
+        assert normalize_gtin("") != normalize_gtin("")
+
+    def test_none_never_equals_none(self):
+        assert normalize_gtin(None) != normalize_gtin(None)
+
+    def test_all_zero_never_equals_all_zero(self):
+        assert normalize_gtin("0000") != normalize_gtin("0000")
+
+    def test_non_numeric_never_equals_non_numeric(self):
+        assert normalize_gtin("ABC123") != normalize_gtin("ABC123")
+
+    def test_sentinel_never_equals_empty_ean(self):
+        assert normalize_gtin(None) != normalize_gtin("")
+        assert normalize_gtin("ABC123") != normalize_gtin("0000")
 
 
 class TestFaltaVincular:
@@ -242,6 +284,209 @@ class TestDuplicado:
         assert len(results) == 1
         assert results[0].verdict == "DUPLICADO"
         assert results[0].despublicar is True
+
+
+class TestLeadingZeroMatching:
+    """Task 1/3: leading-zero-only differences must link (FALTA_VINCULAR),
+    never false MAL_PUBLICADO/FALTA_PUBLICAR — regression target for the
+    proposal's root-cause bug."""
+
+    def test_leading_zero_on_gbp_side_only_links(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=0)]
+        tn_productos = [_tn(sku="23942321477")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_VINCULAR"
+
+    def test_extra_leading_zero_on_tn_side_links(self):
+        gbp_rows = [_gbp_row(codigo="023942321552", tnr_id=0)]
+        tn_productos = [_tn(sku="0023942321552")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_VINCULAR"
+
+    def test_different_gtins_do_not_collide(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=0)]
+        tn_productos = [_tn(sku="023942321478")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_PUBLICAR"
+
+
+class TestGtinCollisionDuplicado:
+    """GTIN-normalization edge case (reliability review follow-up): when an
+    UNLINKED GBP row's EAN normalizes to a GTIN shared by TWO DISTINCT TN
+    products, that's a genuine "one EAN -> multiple TN variants" duplicate
+    (Verdict Edge Cases: never silently resolved to one arbitrary variant)
+    — it MUST classify as DUPLICADO, not FALTA_VINCULAR, even though the
+    collision only exists because of leading-zero normalization. This is
+    intended behavior, not a regression: two TN products both resolving to
+    the same normalized GTIN is exactly the ambiguity DUPLICADO exists to
+    surface for human review."""
+
+    def test_gtin_collision_across_two_distinct_tn_products_is_duplicado(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=0)]
+        tn_productos = [
+            _tn(product_id=1, variant_id=1, sku="123"),
+            _tn(product_id=2, variant_id=1, sku="0123"),
+        ]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "DUPLICADO"
+        matched_product_ids = {tn.product_id for tn in results[0].tn_matches}
+        assert matched_product_ids == {1, 2}
+        assert results[0].tn_presence != "not_in_tn"
+
+    def test_single_tn_product_leading_zero_still_links_not_duplicado(self):
+        """Contrast case: only ONE TN product resolves (no genuine
+        collision) — leading-zero-only difference must still link as
+        FALTA_VINCULAR, exactly as before this follow-up."""
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=0)]
+        tn_productos = [_tn(product_id=1, variant_id=1, sku="0123")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_VINCULAR"
+
+
+class TestPorCorregir:
+    """Task 3: OK vs POR_CORREGIR vs MAL_PUBLICADO classification order."""
+
+    def test_exact_raw_match_is_ok(self):
+        gbp_rows = [_gbp_row(codigo="23942321477", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "OK"
+
+    def test_raw_differs_normalized_equal_is_por_corregir(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "POR_CORREGIR"
+
+    def test_no_match_under_any_normalization_is_mal_publicado(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="999999999")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_PUBLICADO"
+
+
+class TestTnPresence:
+    """Task 5: tn_presence computation matrix + DUPLICADO composition."""
+
+    def test_published_true_is_published(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].tn_presence == "published"
+
+    def test_published_false_is_draft(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=False)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].tn_presence == "draft"
+
+    def test_published_none_is_unknown(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123", published=None)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].tn_presence == "unknown"
+
+    def test_no_resolving_product_is_not_in_tn(self):
+        gbp_rows = [_gbp_row(codigo="NOWHERE", tnr_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].tn_presence == "not_in_tn"
+
+    def test_no_resolving_product_via_tnr_link_is_not_in_tn(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "MAL_PUBLICADO"
+        assert results[0].tn_presence == "not_in_tn"
+
+    def test_duplicado_with_not_in_tn_presence(self):
+        gbp_rows = [_gbp_row(codigo="SAME-EAN", tnr_id=0)]
+        tn_productos = []
+        # Force DUPLICADO via multiple resolved tnr links sharing one pair,
+        # but with the shared TN product NOT existing (never synced).
+        gbp_rows = [
+            _gbp_row(codigo="A", tnr_id=900, tnr_variation_id=1),
+            _gbp_row(codigo="B", tnr_id=900, tnr_variation_id=1),
+        ]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 2
+        assert all(r.verdict == "DUPLICADO" for r in results)
+        assert all(r.tn_presence == "not_in_tn" for r in results)
+
+    def test_duplicado_with_published_presence(self):
+        gbp_rows = [
+            _gbp_row(codigo="RED", tnr_id=900, tnr_variation_id=1),
+            _gbp_row(codigo="BLUE", tnr_id=900, tnr_variation_id=1),
+        ]
+        tn_productos = [_tn(product_id=900, variant_id=1, sku="RED", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 2
+        assert all(r.verdict == "DUPLICADO" for r in results)
+        assert all(r.tn_presence == "published" for r in results)
+
+
+class TestFaltaVincularExposesIds:
+    """Task 7: FALTA_VINCULAR rows expose the matched TN product_id/variant_id."""
+
+    def test_resolving_falta_vincular_carries_matched_ids(self):
+        gbp_rows = [_gbp_row(codigo="779123", tnr_id=0)]
+        tn_productos = [_tn(product_id=42, variant_id=7, sku="779123")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_VINCULAR"
+        assert results[0].product_id == 42
+        assert results[0].variant_id == 7
+
+    def test_falta_publicar_has_null_ids(self):
+        gbp_rows = [_gbp_row(codigo="000999", tnr_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "FALTA_PUBLICAR"
+        assert results[0].product_id is None
+        assert results[0].variant_id is None
 
 
 class TestVerdictEdgeCases:

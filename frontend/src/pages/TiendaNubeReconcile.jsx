@@ -69,6 +69,10 @@ const VERDICT_LABELS = {
   MAL_VINCULADO: 'Mal vinculado',
   MAL_PUBLICADO: 'Mal publicado',
   DUPLICADO: 'Duplicado',
+  // Match-accuracy follow-up: linked, but the TN SKU differs from the GBP
+  // EAN only by leading zeros/formatting — needs a human to canonicalize
+  // it, never auto-corrected. Own group, distinct from OK and MAL_PUBLICADO.
+  POR_CORREGIR: 'Por corregir',
   OK: 'OK',
 };
 
@@ -78,6 +82,7 @@ const VERDICT_BADGE_CLASS = {
   MAL_VINCULADO: 'badgeWarning',
   MAL_PUBLICADO: 'badgeDanger',
   DUPLICADO: 'badgeDanger',
+  POR_CORREGIR: 'badgeWarning',
   OK: 'badge',
 };
 
@@ -91,10 +96,24 @@ const VERDICT_SUB_TABS = [
   { id: 'MAL_VINCULADO', label: 'Mal vinculado' },
   { id: 'MAL_PUBLICADO', label: 'Mal publicado' },
   { id: 'DUPLICADO', label: 'Duplicado' },
+  { id: 'POR_CORREGIR', label: 'Por corregir' },
 ];
 
 function verdictLabelFor(verdictId) {
   return VERDICT_LABELS[verdictId] || verdictId;
+}
+
+// TN Presence Field requirement — replaces the old ambiguous single
+// "Desconocido" label with four distinct, non-ambiguous states.
+const TN_PRESENCE_LABELS = {
+  published: 'Publicado en TN',
+  draft: 'Borrador en TN',
+  unknown: 'Presencia en TN desconocida',
+  not_in_tn: 'No está en Tienda Nube',
+};
+
+function tnPresenceLabelFor(presence) {
+  return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
 }
 
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
@@ -130,6 +149,12 @@ const COLUMNS = [
         {verdictLabelFor(row.verdict)}
       </span>
     ),
+  },
+  {
+    id: 'tn_presence',
+    header: 'Presencia en TN',
+    size: 200,
+    cell: (row) => tnPresenceLabelFor(row.tn_presence),
   },
   { id: 'despublicar', header: 'Despublicar', size: 200, cell: null }, // rendered specially — carries the unpublish action
   { id: 'matches', header: 'Coincidencias TN', size: 260, cell: null }, // rendered specially — carries the ban action
@@ -602,7 +627,10 @@ export default function TiendaNubeReconcile() {
             filasVisibles.map((row, idx) => (
               <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
                 <div className={styles.duplicateGroupHeader}>
-                  EAN GBP: {row.ean} — {row.tn_matches.length} coincidencias TN en conflicto
+                  EAN GBP: {row.ean} — {row.tn_matches.length} coincidencias TN en conflicto —{' '}
+                  {row.tn_presence === 'not_in_tn'
+                    ? 'duplicado, sin presencia en TN'
+                    : 'duplicado, existe en TN'}
                 </div>
                 <table className="table-tesla striped">
                   <thead>
@@ -688,6 +716,13 @@ export default function TiendaNubeReconcile() {
                         col.id === 'matches' ? (
                           <td key={col.id}>
                             {row.tn_matches.length === 0 ? '—' : row.tn_matches.map((tn) => tn.variant_sku).join(', ')}
+                            {row.verdict === 'FALTA_VINCULAR' &&
+                              row.product_id != null &&
+                              row.variant_id != null && (
+                              <div className={styles.matchedIds}>
+                                TN product_id: {row.product_id} / variant_id: {row.variant_id}
+                              </div>
+                            )}
                             {puedeGestionarBanlist &&
                               (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR') && (
                               <button
