@@ -369,12 +369,13 @@ class TestEnrichAfip:
         assert r.status_code == 200
         assert r.json()["afip_status"] == "unavailable"
 
+    @pytest.mark.parametrize("terminal_status", ["done", "cancelled"])
     def test_enrich_on_terminal_row_is_noop_without_afip_call(
-        self, client, auth_headers, db, con_todos_los_permisos
+        self, client, auth_headers, db, con_todos_los_permisos, terminal_status
     ) -> None:
         # A done/cancelled row must not trigger an AFIP call; it returns the
         # row unchanged (idempotent no-op, not a 409).
-        row = _seed_pending(db, status="done", afip_status="ok")
+        row = _seed_pending(db, status=terminal_status, afip_status="ok")
         db.commit()
 
         def boom(cuit):
