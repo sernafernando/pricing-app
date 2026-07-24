@@ -55,7 +55,7 @@ reconciliation to the caller instead of a silent partial one.
 
 import logging
 from collections import Counter
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -69,7 +69,7 @@ from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
-from app.services.tn_publish_service import unpublish_product
+from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
 
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
@@ -168,6 +168,30 @@ class DespublicarRequest(BaseModel):
 class DespublicarResponse(BaseModel):
     submitted: bool
     status: str
+    detail: Optional[str] = None
+
+
+class PublicarRequest(BaseModel):
+    ean: str
+    product_data: Dict[str, Any]
+    category_id: int
+    description_html: str
+    image_srcs: List[str] = []
+
+    @field_validator("ean")
+    @classmethod
+    def _ean_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El EAN no puede estar vacío")
+        return stripped
+
+
+class PublicarResponse(BaseModel):
+    submitted: bool
+    status: str
+    product_id: Optional[int] = None
+    skipped_image_srcs: List[str] = []
     detail: Optional[str] = None
 
 
@@ -334,3 +358,39 @@ def despublicar_producto(
 
     outcome = unpublish_product(db, current_user, request.product_id)
     return DespublicarResponse(submitted=outcome["submitted"], status=outcome["status"], detail=outcome.get("detail"))
+
+
+@router.post("/publicar", response_model=PublicarResponse)
+def publicar_producto(
+    request: PublicarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """Explicit, operator-triggered creation of ONE TN product from
+    GBP-derived data. NEVER bulk, NEVER automatic — same non-goal as
+    `/despublicar`; this endpoint always acts on exactly the single `ean` in
+    the request body. Reuses `admin.gestionar_tn_publicacion` (the same
+    write-gate as unpublish, per design intent of one shared permission).
+
+    Delegates the idempotency check / single-shot create / image attach /
+    audit-logged write itself to `tn_publish_service.publish_product` — see
+    that module's docstring for the write-safety contract, including the
+    documented defense-in-depth note on `description_html`.
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    outcome = publish_product(
+        db,
+        current_user,
+        ean=request.ean,
+        product_data=request.product_data,
+        category_id=request.category_id,
+        description_html=request.description_html,
+        image_srcs=request.image_srcs,
+    )
+    return PublicarResponse(
+        submitted=outcome["submitted"],
+        status=outcome["status"],
+        product_id=outcome.get("product_id"),
+        skipped_image_srcs=outcome.get("skipped_image_srcs", []),
+        detail=outcome.get("detail"),
+    )
