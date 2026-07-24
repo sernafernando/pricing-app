@@ -37,6 +37,7 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.services.pm_scope import scope_exists_sql
 from app.core.logging import get_logger
 from app.schemas.consultas import (
     SORT_COLUMNS_PERMITIDAS,
@@ -536,14 +537,7 @@ async def get_ranking(
     # ADR-9: scoped ranking — restrict to user's own PM assignments when they lack FULL access
     scope_uid = _scope_user_id(current_user, db)
     if scope_uid is not None:
-        filter_clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM marcas_pm mp_scope"
-            " WHERE mp_scope.marca = pe.marca"
-            " AND mp_scope.categoria = pe.categoria"
-            " AND mp_scope.usuario_id = :scope_user_id"
-            ")"
-        )
+        filter_clauses.append(scope_exists_sql("pe"))
         params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
@@ -878,14 +872,7 @@ async def get_ranking_resumen(
     # ADR-9: scoped ranking
     scope_uid = _scope_user_id(current_user, db)
     if scope_uid is not None:
-        filter_clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM marcas_pm mp_scope"
-            " WHERE mp_scope.marca = pe.marca"
-            " AND mp_scope.categoria = pe.categoria"
-            " AND mp_scope.usuario_id = :scope_user_id"
-            ")"
-        )
+        filter_clauses.append(scope_exists_sql("pe"))
         params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
@@ -1175,14 +1162,7 @@ async def get_ranking_kpis(
     # ADR-9: scoped ranking
     scope_uid = _scope_user_id(current_user, db)
     if scope_uid is not None:
-        filter_clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM marcas_pm mp_scope"
-            " WHERE mp_scope.marca = pe.marca"
-            " AND mp_scope.categoria = pe.categoria"
-            " AND mp_scope.usuario_id = :scope_user_id"
-            ")"
-        )
+        filter_clauses.append(scope_exists_sql("pe"))
         params["scope_user_id"] = scope_uid
 
     where_sql = " AND ".join(filter_clauses)
@@ -1409,12 +1389,7 @@ async def get_ranking_facets(
     marcas_params: dict = {}
 
     if scope_uid is not None:
-        marcas_where.append(
-            "EXISTS (SELECT 1 FROM marcas_pm mp_scope"
-            " WHERE mp_scope.marca = pe.marca"
-            " AND mp_scope.categoria = pe.categoria"
-            " AND mp_scope.usuario_id = :scope_user_id)"
-        )
+        marcas_where.append(scope_exists_sql("pe"))
         marcas_params["scope_user_id"] = scope_uid
 
     if categoria:
@@ -1448,12 +1423,7 @@ async def get_ranking_facets(
     cats_params: dict = {}
 
     if scope_uid is not None:
-        cats_where.append(
-            "EXISTS (SELECT 1 FROM marcas_pm mp_scope"
-            " WHERE mp_scope.marca = pe.marca"
-            " AND mp_scope.categoria = pe.categoria"
-            " AND mp_scope.usuario_id = :scope_user_id)"
-        )
+        cats_where.append(scope_exists_sql("pe"))
         cats_params["scope_user_id"] = scope_uid
 
     if marca:
@@ -1498,6 +1468,10 @@ async def get_ranking_facets(
         pms_params["categoria"] = categoria
 
     pms_where_sql = "\n              AND ".join(pms_where)
+    # ponytail: PM dropdown lists only marcas_pm titulares (not marca_sub_pm) because
+    # the pm-name FILTER joins (get_ranking/get_ranking_resumen/get_ranking_kpis/
+    # get_ranking_facets._pm_join_for_pe) still resolve u_pm.nombre via marcas_pm only —
+    # unify dropdown + filter over marca_sub_pm together in PR2 of sub-pm-scope-marcas.
     pms_sql = f"""
             SELECT DISTINCT u.nombre
             FROM marcas_pm mp

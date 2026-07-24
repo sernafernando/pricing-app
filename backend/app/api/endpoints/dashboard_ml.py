@@ -4,7 +4,7 @@ Endpoints para el dashboard de ventas ML con métricas pre-calculadas
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, tuple_
+from sqlalchemy import func, desc
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -13,66 +13,17 @@ from zoneinfo import ZoneInfo
 
 from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
-from app.models.usuario import Usuario, RolUsuario
-from app.models.marca_pm import MarcaPM
+from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.pm_scope import (
+    aplicar_filtro_marcas_pm,
+    get_pares_marca_categoria_usuario,
+)
 
 # Timezone de Argentina
 ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 router = APIRouter()
-
-
-def get_pares_marca_categoria_usuario(db: Session, usuario: Usuario) -> Optional[list]:
-    """
-    Obtiene los pares (marca, categoría) asignados al usuario si no es admin/gerente.
-    Retorna None si el usuario puede ver todo.
-    """
-    roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
-
-    if usuario.rol in roles_completos:
-        return None
-
-    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
-    return [(m.upper(), c.upper()) for m, c in pares] if pares else []
-
-
-def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
-    """
-    Aplica filtro de pares marca+categoría del PM a una query de MLVentaMetrica.
-
-    Si pm_ids está presente (usuario admin seleccionó PMs específicos), filtra por esos PMs.
-    Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
-    """
-    # Si el usuario admin pasó pm_ids, usar esos en lugar del usuario actual
-    if pm_ids:
-        pm_ids_list = [int(id.strip()) for id in pm_ids.split(",") if id.strip().isdigit()]
-        if pm_ids_list:
-            pares_pm = (
-                db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids_list)).distinct().all()
-            )
-
-            if not pares_pm:
-                query = query.filter(MLVentaMetrica.marca == "__NINGUNA__")
-            else:
-                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
-                query = query.filter(
-                    tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_upper)
-                )
-            return query
-
-    # Comportamiento original: filtrar por marca+categoría del usuario actual
-    pares_usuario = get_pares_marca_categoria_usuario(db, usuario)
-
-    if pares_usuario is not None:
-        if len(pares_usuario) == 0:
-            query = query.filter(MLVentaMetrica.marca == "__NINGUNA__")
-        else:
-            query = query.filter(
-                tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_usuario)
-            )
-
-    return query
 
 
 def aplicar_filtro_tienda_oficial(query, tiendas_oficiales: Optional[str], db: Session):
