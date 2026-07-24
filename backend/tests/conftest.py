@@ -576,6 +576,7 @@ def offset_ganancia_factory(db):
         monto: float = 100.0,
         moneda: str = "ARS",
         fecha_desde: date = date(2026, 1, 1),
+        **extra,
     ):
         o = OffsetGanancia(
             grupo_id=grupo_id,
@@ -586,6 +587,7 @@ def offset_ganancia_factory(db):
             monto=monto,
             moneda=moneda,
             fecha_desde=fecha_desde,
+            **extra,
         )
         db.add(o)
         db.flush()

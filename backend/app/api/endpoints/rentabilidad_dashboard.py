@@ -1176,7 +1176,7 @@ def obtener_rentabilidad(
                                 elif offset.subcategoria_id:
                                     nombre_nivel = f"Subcat: {offset.subcategoria_id}"
 
-            if aplica and valor_offset > 0:
+            if aplica and valor_offset != 0:
                 offset_total += valor_offset
                 desglose.append(
                     DesgloseOffset(
