@@ -41,6 +41,7 @@ function setupBaseApiMocks() {
     if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
     if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
     if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+    if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
     return Promise.resolve({ data: {} });
   });
   // Reset to a harmless default on every test — `vi.clearAllMocks()` (in the
@@ -750,5 +751,154 @@ describe('Mensajes tab — detail spoiler (thread + draft + ML link)', () => {
     );
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+});
+
+/**
+ * Phase 6 (PR3) — "Pendientes" tab (ml-bot-admin-pending).
+ * Scope: tab visibility gated by `ml_bot.admin_pending.ver`; filtered list
+ * with columns/badges; detail/prefill view (extracted vs AFIP); done modal
+ * blocking submit without `resolved_cuit`.
+ */
+
+const PENDING_ROW = {
+  id: 1,
+  pack_id: '2000013868175593',
+  buyer_id: 173555877,
+  source: 'bot_derived',
+  status: 'new',
+  extracted_cuit: '20147683511',
+  extracted_name: 'Luis Eck',
+  cuit_valid: false,
+  doc_mismatch: true,
+  afip_status: 'ok',
+  created_at: '2026-07-20T10:00:00Z',
+  message_id: 55,
+};
+
+function mockPendingList(requests) {
+  api.get.mockImplementation((url) => {
+    if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+    if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+    if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [] } });
+    if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests, total: requests.length } });
+    return Promise.resolve({ data: {} });
+  });
+}
+
+describe('Pendientes tab visibility', () => {
+  it('test_pendientes_tab_renders_filtered_list — shows columns/badges under ml_bot.admin_pending.ver', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([PENDING_ROW]);
+
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-bot/admin-pending', expect.anything());
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('20147683511')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Luis Eck')).toBeInTheDocument();
+    expect(screen.getAllByText('CUIT inválido').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Discrepancia doc.')).toBeInTheDocument();
+    expect(screen.getAllByText('Nuevo').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('hides the "Pendientes" tab and panel when ml_bot.admin_pending.ver is not granted', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'ml_bot.admin_pending.ver');
+    mockPendingList([PENDING_ROW]);
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Preguntas')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Pendientes/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('20147683511')).not.toBeInTheDocument();
+  });
+});
+
+describe('Pendientes detail — extracted vs AFIP prefill', () => {
+  it('test_detail_prefill_view_shows_extracted_vs_afip — renders side-by-side extracted and AFIP/stored data', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [] } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [PENDING_ROW], total: 1 } });
+      if (url === '/ml-bot/admin-pending/1') {
+        return Promise.resolve({
+          data: {
+            id: 1,
+            extracted_cuit: '20147683511',
+            extracted_name: 'Luis Eck',
+            raw_text: 'Factura A por favor',
+            afip_razon_social: 'LUIS AUGUSTO ECK',
+            afip_condicion_iva: 'Responsable Inscripto',
+            afip_domicilio: 'Calle Falsa 123',
+            superseded_values: [],
+            suggested_ack_template: 'Se realizará el cambio a la brevedad',
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    const detailToggle = await screen.findByRole('button', { name: /ver detalle/i });
+    await user.click(detailToggle);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Extraído \(mensaje del comprador\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/AFIP \/ almacenado/i)).toBeInTheDocument();
+      expect(screen.getByText(/LUIS AUGUSTO ECK/)).toBeInTheDocument();
+      expect(screen.getByText(/Se realizará el cambio a la brevedad/)).toBeInTheDocument();
+    });
+
+    // Ack hand-off jumps to the existing Mensajes take-over/edit/send flow,
+    // with the template prefilled as the draft — nothing sends automatically.
+    await user.click(screen.getByRole('button', { name: /Preparar acuse/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Editar respuesta — mensaje #55/i)).toBeInTheDocument();
+    });
+    expect(screen.getByDisplayValue('Se realizará el cambio a la brevedad')).toBeInTheDocument();
+  });
+});
+
+describe('Pendientes — done modal captures resolved_cuit', () => {
+  it('test_done_modal_captures_resolved_cuit — blocks submit until resolved_cuit is filled', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([{ ...PENDING_ROW, id: 7, status: 'in_progress', extracted_cuit: '', cuit_valid: null, doc_mismatch: false }]);
+
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    const resolverButton = await screen.findByRole('button', { name: /Resolver/i });
+    await user.click(resolverButton);
+
+    const confirmButton = await screen.findByRole('button', { name: /Confirmar resolución/i });
+    expect(confirmButton).toBeDisabled();
+
+    const cuitInput = screen.getByPlaceholderText('20147683511');
+    await user.type(cuitInput, '20147683511');
+    expect(confirmButton).not.toBeDisabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/admin-pending/7/done', { resolved_cuit: '20147683511' });
+    });
   });
 });

@@ -69,11 +69,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 6: Pendientes Tab (PR3)
 
-- [ ] 6.1 RED: `frontend/src/pages/MLQuestions.test.jsx::test_pendientes_tab_renders_filtered_list` — under permission, columns/badges.
-- [ ] 6.2 RED: `MLQuestions.test.jsx::test_detail_prefill_view_shows_extracted_vs_afip` — side-by-side render.
-- [ ] 6.3 RED: `MLQuestions.test.jsx::test_done_modal_captures_resolved_cuit` — modal blocks submit without value.
-- [ ] 6.4 GREEN: `MLQuestions.jsx` — add "Pendientes" tab (filters, list, detail/prefill, claim/done/cancel actions, `done` modal, manual-create trigger from Mensajes + blank from Pendientes, jump-to-message/ack hand-off into existing take-over → send path).
-- [ ] 6.5 Mandatory headless-Chromium gate: render page with realistic data; confirm tab renders, filters work, detail/prefill shows, done-modal captures `resolved_cuit`, and Mensajes table's TanStack colgroup is undisturbed.
+- [x] 6.1 RED: `frontend/src/pages/MLQuestions.test.jsx::test_pendientes_tab_renders_filtered_list` — under permission, columns/badges.
+- [x] 6.2 RED: `MLQuestions.test.jsx::test_detail_prefill_view_shows_extracted_vs_afip` — side-by-side render.
+- [x] 6.3 RED: `MLQuestions.test.jsx::test_done_modal_captures_resolved_cuit` — modal blocks submit without value.
+- [x] 6.4 GREEN: `MLQuestions.jsx` — add "Pendientes" tab (filters, list, detail/prefill, claim/done/cancel actions, `done` modal, manual-create trigger from Mensajes + blank from Pendientes, jump-to-message/ack hand-off into existing take-over → send path).
+- [x] 6.5 Mandatory headless-Chromium gate: render page with realistic data; confirm tab renders, filters work, detail/prefill shows, done-modal captures `resolved_cuit`, and Mensajes table's TanStack colgroup is undisturbed. (PASSED — harness `scratchpad/pendientes-gate.html`, run in `/usr/bin/chromium --headless`: no 1011px body overflow, done-modal CUIT gating, Mensajes colgroup column exact at 320→450 unaffected by Pendientes.)
 
 ## Phase 7: Verification
 

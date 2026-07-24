@@ -428,6 +428,21 @@
   margin: 4px 0 0;
 }
 
+/* Pendientes tab — detail/prefill side-by-side comparison (Phase 6, PR3).
+   Extracted (buyer message) vs AFIP/stored data, so the operator sees the
+   discrepancy at a glance (design "Data Flow"). */
+.prefillCompare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 900px) {
+  .prefillCompare {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Message threading (grouped by pack_id + buyer_id) */
 .threadGroup {
   border-top: 1px solid var(--cf-border);
