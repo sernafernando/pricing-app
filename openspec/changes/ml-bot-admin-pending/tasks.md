@@ -61,11 +61,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Endpoints (PR2)
 
-- [ ] 5.1 RED: `backend/tests/routers/test_ml_bot_admin_pending.py::test_list_and_get_require_ver_permission` — 403 without permission.
-- [ ] 5.2 RED: `test_ml_bot_admin_pending.py::test_get_detail_returns_suggested_ack_template` — clean vs invalid/mismatch variant.
-- [ ] 5.3 RED: `test_ml_bot_admin_pending.py::test_done_requires_resolved_cuit` — empty body rejected; success stamps `resolved_cuit/_valid/by/at`.
-- [ ] 5.4 RED: `test_ml_bot_admin_pending.py::test_manual_create_source_manual` — `POST /admin-pending` sets `source='manual'`, `created_by`.
-- [ ] 5.5 GREEN: `routers/ml_bot.py` — `GET /admin-pending` (filters), `GET /admin-pending/{id}`, `POST /admin-pending`, `/claim`, `/release`, `/done`, `/cancel`, `/enrich-afip`; permission deps `ml_bot.admin_pending.ver`/`.gestionar`; response models.
+- [x] 5.1 RED: `backend/tests/routers/test_ml_bot_admin_pending.py::test_list_and_get_require_ver_permission` — 403 without permission.
+- [x] 5.2 RED: `test_ml_bot_admin_pending.py::test_get_detail_returns_suggested_ack_template` — clean vs invalid/mismatch variant.
+- [x] 5.3 RED: `test_ml_bot_admin_pending.py::test_done_requires_resolved_cuit` — empty body rejected; success stamps `resolved_cuit/_valid/by/at`.
+- [x] 5.4 RED: `test_ml_bot_admin_pending.py::test_manual_create_source_manual` — `POST /admin-pending` sets `source='manual'`, `created_by`.
+- [x] 5.5 GREEN: `routers/ml_bot.py` — `GET /admin-pending` (filters), `GET /admin-pending/{id}`, `POST /admin-pending`, `/claim`, `/release`, `/done`, `/cancel`, `/enrich-afip`; permission deps `ml_bot.admin_pending.ver`/`.gestionar`; response models.
 
 ## Phase 6: Pendientes Tab (PR3)
 
