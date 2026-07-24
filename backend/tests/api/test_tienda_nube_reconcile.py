@@ -773,13 +773,14 @@ class TestReporteMlTitleAndAdminUrl:
         response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
         assert response.status_code == 200
         row = response.json()["items"][0]
-        assert row["tn_admin_url"] == "https://12345.mitiendanube.com/admin/v2/products/777"
+        assert row["tn_matches"][0]["tn_admin_url"] == "https://12345.mitiendanube.com/admin/v2/products/777"
 
-    def test_tn_admin_url_is_none_when_no_tn_match(self, client, db, user_ver):
+    def test_tn_admin_url_absent_when_no_tn_match(self, client, db, user_ver):
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         row = response.json()["items"][0]
-        assert row["tn_admin_url"] is None
+        # No TN product resolves → no matches → no per-match admin link exists.
+        assert row["tn_matches"] == []
 
 
 class TestCategoriasEndpoint:

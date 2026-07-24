@@ -73,7 +73,7 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category
 from app.services.tn_publish_service import publish_product, unpublish_product
-from app.services.tn_reconciliation_service import GBPFetchError, ReconcileRow, compute_verdicts, fetch_gbp_report_78
+from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
 
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
 # actionable/filterable verdict). FastAPI/pydantic rejects any other value
@@ -157,12 +157,11 @@ class ReconcileRowResponse(BaseModel):
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
     images: List[str] = []
-    # UI-rebuild fields: `ml_title` is the raw GBP `ML_title` field (for the
-    # modal's editable title input); `tn_admin_url` is only populated for
-    # rows with a matched TN product (`tn_matches` non-empty) — null
-    # otherwise. See `_tn_admin_url` for the assumed URL pattern.
+    # UI-rebuild field: `ml_title` is the raw GBP `ML_title` field (for the
+    # modal's editable title input). The TN admin edit-link is per-match on
+    # each `TnMatchResponse.tn_admin_url` — never a single row-level link, so a
+    # DUPLICADO group never privileges one conflicting row over the others.
     ml_title: Optional[str] = None
-    tn_admin_url: Optional[str] = None
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
@@ -179,17 +178,6 @@ def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
     if product_id is None or not settings.TN_STORE_ID:
         return None
     return f"https://{settings.TN_STORE_ID}.mitiendanube.com/admin/v2/products/{product_id}"
-
-
-def _tn_admin_url(row: ReconcileRow) -> Optional[str]:
-    """Row-level convenience link for a single-match row. It MUST NOT be used
-    to privilege one row inside a DUPLICADO group — the UI renders a per-match
-    link from each `TnMatchResponse.tn_admin_url` instead, so no conflicting
-    row is recommended over the others.
-    """
-    if not row.tn_matches:
-        return None
-    return _tn_admin_url_for(row.tn_matches[0].product_id)
 
 
 class ReconcileReportResponse(BaseModel):
@@ -385,7 +373,6 @@ async def get_reconciliation_report(
             subcategoria=v.gbp_row.get("SubCategoría"),
             images=_gbp_images(v.gbp_row),
             ml_title=v.gbp_row.get("ML_title"),
-            tn_admin_url=_tn_admin_url(v),
         )
         for v in filtered
     ]
@@ -571,7 +558,10 @@ def buscar_categorias(
 
     rows = (
         db.query(TnCategoryEmbedding)
-        .filter(TnCategoryEmbedding.category_path_text.contains(query_text, autoescape=True))
+        # icontains → case-insensitive (ILIKE), autoescape → treat %/_ literally.
+        # `.contains(...)` alone is LIKE (case-SENSITIVE on Postgres); the search
+        # is contractually case-insensitive, so it must be ILIKE.
+        .filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
         .order_by(TnCategoryEmbedding.category_path_text)
         .limit(limit)
         .all()
