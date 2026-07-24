@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Users, Pencil, Check, X } from 'lucide-react';
-import api, { equiposAPI } from '../services/api';
+import { equiposAPI } from '../services/api';
 import ModalTesla, { ModalFooterButtons, ModalAlert, ModalLoading } from './ModalTesla';
 import styles from './EquiposModal.module.css';
 
@@ -108,7 +108,7 @@ export default function EquiposModal({ isOpen, onClose }) {
 
     (async () => {
       try {
-        const { data } = await api.get('/usuarios');
+        const { data } = await equiposAPI.usuariosDisponibles();
         setUsuarios(Array.isArray(data) ? data : []);
       } catch {
         setUsuarios([]);
