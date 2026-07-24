@@ -201,6 +201,19 @@ export const pricingAPI = {
   setearPrecio: (data) => api.post('/precios/set', data),
 };
 
+// Sub-PM scope delegation (sub-pm-scope-marcas PR3). Non-admin titular-only
+// surface: a titular of a (marca, categoria) pair can grant/revoke sub-PMs on
+// their own pairs. `listarUsuariosPM` intentionally hits `/usuarios/pms` (NOT
+// the admin-only `/usuarios`) — it has no role gate, so it works for any
+// authenticated titular as the grant-target picker source.
+export const marcasPmAPI = {
+  misTitularidades: () => api.get('/marcas-pm/mis-titularidades'),
+  listarSubPMs: (marca, categoria) => api.get('/marcas-pm/sub-pms', { params: { marca, categoria } }),
+  crearSubPM: (data) => api.post('/marcas-pm/sub-pms', data),
+  eliminarSubPM: (id) => api.delete(`/marcas-pm/sub-pms/${id}`),
+  listarUsuariosPM: () => api.get('/usuarios/pms'),
+};
+
 export const rolesAPI = {
   listar: (incluirInactivos = false) => api.get('/roles', { params: { incluir_inactivos: incluirInactivos } }),
   obtener: (rolId) => api.get(`/roles/${rolId}`),

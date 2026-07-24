@@ -26,6 +26,7 @@ const Admin = lazy(() => import('./pages/Admin'));
 const UltimosCambios = lazy(() => import('./pages/UltimosCambios'));
 const PreciosListas = lazy(() => import('./pages/PreciosListas'));
 const GestionPM = lazy(() => import('./pages/GestionPM'));
+const MisSubPMs = lazy(() => import('./pages/MisSubPMs'));
 const GestionAlertas = lazy(() => import('./pages/GestionAlertas'));
 const Banlist = lazy(() => import('./pages/Banlist'));
 const ItemsSinMLA = lazy(() => import('./pages/ItemsSinMLA'));
@@ -110,6 +111,9 @@ const protectedRoutes = [
   { path: '/ultimos-cambios', component: UltimosCambios, permiso: 'productos.ver_auditoria' },
   { path: '/admin', component: Admin, permiso: 'admin.ver_panel' },
   { path: '/gestion-pm', component: GestionPM, permiso: 'admin.gestionar_pms' },
+  // No permiso: visibility is data-scoped (titular of ≥1 marca/categoria pair),
+  // not permission-gated — see design decision D3 in sub-pm-scope-marcas.
+  { path: '/mis-sub-pms', component: MisSubPMs },
   { path: '/gestion/alertas', component: GestionAlertas, permiso: 'alertas.gestionar' },
   { path: '/mla-banlist', component: Banlist, permiso: 'admin.gestionar_mla_banlist' },
   { path: '/dashboard-metricas-ml', component: DashboardMetricasML, permiso: 'ventas_ml.ver_dashboard' },
