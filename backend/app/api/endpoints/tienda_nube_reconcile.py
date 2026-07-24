@@ -64,14 +64,16 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user, get_current_user_transient
+from app.core.config import settings
 from app.core.database import get_async_db, get_db
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category
 from app.services.tn_publish_service import publish_product, unpublish_product
-from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
+from app.services.tn_reconciliation_service import GBPFetchError, ReconcileRow, compute_verdicts, fetch_gbp_report_78
 
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
 # actionable/filterable verdict). FastAPI/pydantic rejects any other value
@@ -154,6 +156,29 @@ class ReconcileRowResponse(BaseModel):
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
     images: List[str] = []
+    # UI-rebuild fields: `ml_title` mirrors `ml_desc` (raw GBP field, for the
+    # modal's editable title input); `tn_admin_url` is only populated for
+    # rows with a matched TN product (`tn_matches` non-empty) — null
+    # otherwise. See `_tn_admin_url` for the assumed URL pattern.
+    ml_title: Optional[str] = None
+    tn_admin_url: Optional[str] = None
+
+
+def _tn_admin_url(row: ReconcileRow) -> Optional[str]:
+    """Tienda Nube admin product-edit link for this row's first matched TN
+    product, or `None` if nothing matched or `TN_STORE_ID` isn't configured.
+
+    ASSUMED pattern — could not be confirmed against TN's own docs from here:
+    `https://<TN_STORE_ID>.mitiendanube.com/admin/v2/products/<product_id>`.
+    `TN_STORE_ID` is the same numeric store id already used by
+    `tienda_nube_product_client`/`tienda_nube_order_client` for the API base
+    URL; if the real admin URL needs the store's public handle/subdomain
+    instead of this numeric id, only this helper needs correcting.
+    """
+    if not row.tn_matches or not settings.TN_STORE_ID:
+        return None
+    product_id = row.tn_matches[0].product_id
+    return f"https://{settings.TN_STORE_ID}.mitiendanube.com/admin/v2/products/{product_id}"
 
 
 class ReconcileReportResponse(BaseModel):
@@ -260,6 +285,14 @@ class CategoriaSugeridaResponse(BaseModel):
     top: Optional[CategoriaSugeridaItem] = None
 
 
+class CategoriaSearchItem(BaseModel):
+    tn_category_id: int
+    category_path: str
+
+
+CATEGORIAS_SEARCH_DEFAULT_LIMIT = 20
+
+
 @router.get("/reporte", response_model=ReconcileReportResponse)
 async def get_reconciliation_report(
     verdict: Optional[VerdictFilter] = Query(None, description="Filtra a un solo veredicto; omitir = todos excepto OK"),
@@ -330,6 +363,8 @@ async def get_reconciliation_report(
             categoria=v.gbp_row.get("Categoría"),
             subcategoria=v.gbp_row.get("SubCategoría"),
             images=_gbp_images(v.gbp_row),
+            ml_title=v.gbp_row.get("ML_title"),
+            tn_admin_url=_tn_admin_url(v),
         )
         for v in filtered
     ]
@@ -487,3 +522,39 @@ def categoria_sugerida(
 
     result = suggest_category(db, request.category_text, top_n=request.top_n)
     return CategoriaSugeridaResponse(suggestions=result["suggestions"], top=result["top"])
+
+
+@router.get("/categorias", response_model=List[CategoriaSearchItem])
+def buscar_categorias(
+    q: str = Query("", description="Substring a buscar en el path de categoría (case-insensitive)"),
+    limit: int = Query(CATEGORIAS_SEARCH_DEFAULT_LIMIT, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Plain case-insensitive substring search over
+    `tn_category_embedding.category_path_text` — lets the publish modal's
+    manual category picker show category NAMES instead of a raw id, without
+    invoking the embedder (that's `/categoria-sugerida`, a separate
+    similarity-ranked suggestion). An empty/blank `q` returns an empty list
+    rather than the whole table.
+
+    Reuses `admin.gestionar_tn_publicacion` — same write-gate as the rest of
+    the publish flow this feeds.
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    query_text = q.strip()
+    if not query_text:
+        return []
+
+    rows = (
+        db.query(TnCategoryEmbedding)
+        .filter(TnCategoryEmbedding.category_path_text.ilike(f"%{query_text}%"))
+        .order_by(TnCategoryEmbedding.category_path_text)
+        .limit(limit)
+        .all()
+    )
+    return [
+        CategoriaSearchItem(tn_category_id=row.tn_category_id, category_path=row.category_path_text) for row in rows
+    ]
