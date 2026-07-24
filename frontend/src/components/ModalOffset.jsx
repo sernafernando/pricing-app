@@ -363,7 +363,7 @@ export default function ModalOffset({
       if (onSave) onSave();
     } catch (error) {
       console.error('Error guardando offset:', error);
-      alert('Error al guardar el offset');
+      alert(error.response?.data?.detail || 'Error al guardar el offset');
     }
   };
 

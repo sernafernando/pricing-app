@@ -732,7 +732,7 @@ def obtener_rentabilidad_tienda_nube(
                     valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
                     aplica = True
 
-            if aplica and valor_offset > 0:
+            if aplica and valor_offset != 0:
                 offset_total += valor_offset
                 desglose.append(
                     DesgloseOffset(

@@ -16,6 +16,41 @@ from ._schemas import OffsetGananciaCreate, OffsetGananciaUpdate, OffsetGanancia
 router = APIRouter()
 
 
+def _validar_offset_negativo_sin_limite(
+    tipo_offset: Optional[str],
+    monto: Optional[float],
+    porcentaje: Optional[float],
+    max_unidades: Optional[int],
+    max_monto_usd: Optional[float],
+) -> None:
+    """A negative-valued offset (of any tipo_offset) may not carry a consumption limit.
+
+    This capless-by-construction invariant is what keeps negative offsets away from
+    the ``max(0, ...)`` availability clamps in the rentabilidad endpoints. The sign
+    lives in ``monto`` for monto_fijo/monto_por_unidad and in ``porcentaje`` for
+    porcentaje_costo, so we pick the field by tipo_offset.
+    """
+    tipo = tipo_offset or "monto_fijo"
+    if tipo == "porcentaje_costo":
+        es_negativo = porcentaje is not None and porcentaje < 0
+    else:  # monto_fijo, monto_por_unidad
+        es_negativo = monto is not None and monto < 0
+
+    # `is not None`, not truthiness: max_unidades/max_monto_usd == 0 is still a
+    # limit as far as the rentabilidad endpoints see it (they check `is not None`),
+    # and POST does not normalize 0 -> None like PUT does. Truthiness would let a
+    # negative offset with a 0-limit slip through into the max(0, ...) clamp path.
+    if es_negativo and (max_unidades is not None or max_monto_usd is not None):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Un offset con valor negativo (tipo '{tipo}') no puede tener "
+                "límites de consumo (max_unidades / max_monto_usd). Los offsets "
+                "negativos se aplican siempre en su totalidad."
+            ),
+        )
+
+
 @router.get("/offsets-ganancia", response_model=List[OffsetGananciaResponse])
 def listar_offsets(
     marca: Optional[str] = None,
@@ -93,6 +128,12 @@ def crear_offset(
         raise HTTPException(400, "Debe especificar el porcentaje para tipo porcentaje_costo")
     if offset.tipo_offset in ["monto_fijo", "monto_por_unidad"] and offset.monto is None:
         raise HTTPException(400, "Debe especificar el monto para este tipo de offset")
+
+    # Un offset de valor negativo no puede tener límites de consumo (guarda ambos
+    # caminos: multi-item y offset individual).
+    _validar_offset_negativo_sin_limite(
+        offset.tipo_offset, offset.monto, offset.porcentaje, offset.max_unidades, offset.max_monto_usd
+    )
 
     # Validar grupo si se especifica
     if offset.grupo_id:
@@ -274,6 +315,13 @@ def actualizar_offset(
         offset.aplica_fuera = offset_update.aplica_fuera
     if offset_update.aplica_tienda_nube is not None:
         offset.aplica_tienda_nube = offset_update.aplica_tienda_nube
+
+    # Revalidar con los valores efectivos post-merge: atrapa toda ruta que deje el
+    # offset en negativo + límite (volver negativo el monto/porcentaje, switchear
+    # tipo_offset sobre un campo negativo, o agregar un límite a un negativo).
+    _validar_offset_negativo_sin_limite(
+        offset.tipo_offset, offset.monto, offset.porcentaje, offset.max_unidades, offset.max_monto_usd
+    )
 
     db.commit()
     db.refresh(offset)
