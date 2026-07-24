@@ -46,6 +46,7 @@ import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-tabl
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
+import TnPublishModal from '../components/TnPublishModal';
 import api from '../services/api';
 import styles from './TiendaNubeReconcile.module.css';
 
@@ -193,6 +194,9 @@ export default function TiendaNubeReconcile() {
   // by product_id: only one row can be mid-confirmation at a time.
   const [confirmingProductId, setConfirmingProductId] = useState(null);
   const [despublicando, setDespublicando] = useState(false);
+
+  // Publish modal (Sub-slice 3c) — one FALTA_PUBLICAR row at a time.
+  const [publishingRow, setPublishingRow] = useState(null);
 
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -694,6 +698,15 @@ export default function TiendaNubeReconcile() {
                                 Banear
                               </button>
                             )}
+                            {puedeGestionarPublicacion && row.verdict === 'FALTA_PUBLICAR' && (
+                              <button
+                                type="button"
+                                className={`btn-tesla outline sm ${styles.btnSpaced}`}
+                                onClick={() => setPublishingRow(row)}
+                              >
+                                Publicar
+                              </button>
+                            )}
                           </td>
                         ) : col.id === 'despublicar' ? (
                           <td key={col.id}>
@@ -758,6 +771,19 @@ export default function TiendaNubeReconcile() {
         </>
       )}
       </div>
+
+      {publishingRow && (
+        <TnPublishModal
+          row={publishingRow}
+          isOpen
+          onClose={() => setPublishingRow(null)}
+          onPublished={(ean) => {
+            setPublishingRow(null);
+            showToast(`Producto con EAN ${ean} publicado`, 'success');
+            cargarReporte();
+          }}
+        />
+      )}
     </div>
   );
 }
