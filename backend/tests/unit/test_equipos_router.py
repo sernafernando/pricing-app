@@ -248,7 +248,12 @@ class TestGestionMiembros:
 
         resp = client.delete(f"/api/equipos/{equipo.id}/miembros/{miembro_user.id}", headers=auth_headers_for(admin))
         assert resp.status_code == 200
-        assert db.query(EquipoMiembro).filter(EquipoMiembro.equipo_id == equipo.id, EquipoMiembro.usuario_id == miembro_user.id).first() is None
+        assert (
+            db.query(EquipoMiembro)
+            .filter(EquipoMiembro.equipo_id == equipo.id, EquipoMiembro.usuario_id == miembro_user.id)
+            .first()
+            is None
+        )
 
     def test_usuario_inexistente_404(self, client, db, rol_ventas) -> None:
         equipo = _make_equipo(db, "Equipo I")
@@ -283,7 +288,9 @@ class TestRenombrarYEliminar:
         _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
         db.commit()
 
-        resp = client.patch(f"/api/equipos/{equipo.id}", json={"nombre": "Nombre nuevo"}, headers=auth_headers_for(admin))
+        resp = client.patch(
+            f"/api/equipos/{equipo.id}", json={"nombre": "Nombre nuevo"}, headers=auth_headers_for(admin)
+        )
         assert resp.status_code == 200
         assert resp.json()["nombre"] == "Nombre nuevo"
 
@@ -295,7 +302,9 @@ class TestRenombrarYEliminar:
         _add_member(db, equipo.id, miembro_user.id, RolEquipo.MIEMBRO)
         db.commit()
 
-        resp = client.patch(f"/api/equipos/{equipo.id}", json={"nombre": "Hackeado"}, headers=auth_headers_for(miembro_user))
+        resp = client.patch(
+            f"/api/equipos/{equipo.id}", json={"nombre": "Hackeado"}, headers=auth_headers_for(miembro_user)
+        )
         assert resp.status_code == 403
 
     def test_admin_elimina_equipo_sin_colores(self, client, db, rol_ventas) -> None:
@@ -366,7 +375,9 @@ class TestEquipoGlobalRechazaMutaciones:
         user = _make_usuario(db, "global_rename", rol_ventas.id)
         db.commit()
 
-        resp = client.patch(f"/api/equipos/{equipo_global.id}", json={"nombre": "Nuevo"}, headers=auth_headers_for(user))
+        resp = client.patch(
+            f"/api/equipos/{equipo_global.id}", json={"nombre": "Nuevo"}, headers=auth_headers_for(user)
+        )
         assert resp.status_code == 400
 
     def test_eliminar_global_rechazado(self, client, db, rol_ventas) -> None:
@@ -376,3 +387,52 @@ class TestEquipoGlobalRechazaMutaciones:
 
         resp = client.delete(f"/api/equipos/{equipo_global.id}", headers=auth_headers_for(user))
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Member picker: GET /equipos/usuarios-disponibles
+# ---------------------------------------------------------------------------
+
+
+class TestUsuariosDisponibles:
+    """The lightweight user picker any authenticated (non-admin) user can read.
+
+    Regression guard for the bug where non-admin users could create a team but
+    not invite anyone: the modal populated its dropdown from the admin-only
+    `GET /usuarios` (403 for them → empty list). This endpoint replaces it.
+    """
+
+    def test_usuario_no_admin_lista_usuarios_disponibles(self, client, db, rol_ventas) -> None:
+        caller = _make_usuario(db, "picker_caller", rol_ventas.id)
+        _make_usuario(db, "picker_other", rol_ventas.id)
+        db.commit()
+
+        resp = client.get("/api/equipos/usuarios-disponibles", headers=auth_headers_for(caller))
+        assert resp.status_code == 200
+        usernames = {u["username"] for u in resp.json()}
+        assert {"picker_caller", "picker_other"} <= usernames
+
+    def test_no_expone_email_ni_rol(self, client, db, rol_ventas) -> None:
+        caller = _make_usuario(db, "picker_narrow", rol_ventas.id)
+        db.commit()
+
+        resp = client.get("/api/equipos/usuarios-disponibles", headers=auth_headers_for(caller))
+        assert resp.status_code == 200
+        fila = next(u for u in resp.json() if u["username"] == "picker_narrow")
+        assert set(fila.keys()) == {"id", "nombre", "username"}
+
+    def test_excluye_usuarios_inactivos(self, client, db, rol_ventas) -> None:
+        caller = _make_usuario(db, "picker_active", rol_ventas.id)
+        inactivo = _make_usuario(db, "picker_inactive", rol_ventas.id)
+        inactivo.activo = False
+        db.commit()
+
+        resp = client.get("/api/equipos/usuarios-disponibles", headers=auth_headers_for(caller))
+        assert resp.status_code == 200
+        usernames = {u["username"] for u in resp.json()}
+        assert "picker_active" in usernames
+        assert "picker_inactive" not in usernames
+
+    def test_requiere_autenticacion(self, client, db) -> None:
+        resp = client.get("/api/equipos/usuarios-disponibles")
+        assert resp.status_code in (401, 403)

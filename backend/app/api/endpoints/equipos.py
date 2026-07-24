@@ -82,6 +82,22 @@ class MensajeResponse(BaseModel):
     mensaje: str
 
 
+class UsuarioDisponibleResponse(BaseModel):
+    """Minimal user shape for the team member picker.
+
+    Deliberately narrower than `UsuarioResponse` (usuarios.py): it exposes only
+    `id` + display name, never `email` or `rol`. This lets ANY authenticated
+    user populate the "add member" dropdown without granting them the admin-only
+    `GET /usuarios` endpoint, which leaks emails and roles.
+    """
+
+    id: int
+    nombre: str
+    username: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -204,6 +220,24 @@ def listar_equipos(
         resultado.append(_get_equipo_or_404(db, global_id))
 
     return resultado
+
+
+@router.get("/equipos/usuarios-disponibles", response_model=List[UsuarioDisponibleResponse])
+def listar_usuarios_disponibles(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[Usuario]:
+    """Lists active users (id + display name only) for the member picker.
+
+    Any authenticated user may call this: team management is not gated behind a
+    global permission (any user can create/administer their own teams), so the
+    picker must not depend on the admin-only `GET /usuarios`. Only `id`,
+    `nombre` and `username` are returned — never email or rol.
+
+    Declared before the `/equipos/{equipo_id}` routes so the literal path is
+    matched first and never parsed as an `equipo_id`.
+    """
+    return db.query(Usuario).filter(Usuario.activo.is_(True)).order_by(Usuario.nombre).all()
 
 
 @router.get("/equipos/{equipo_id}/miembros", response_model=List[MiembroResponse])

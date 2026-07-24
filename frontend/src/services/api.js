@@ -167,6 +167,9 @@ export const productosAPI = {
 // modal (later task).
 export const equiposAPI = {
   listar: () => api.get('/equipos'),
+  // Lightweight user picker (id + display name only) any authenticated user can
+  // read — unlike the admin-only `/usuarios`, which leaks emails and roles.
+  usuariosDisponibles: () => api.get('/equipos/usuarios-disponibles'),
   crear: (data) => api.post('/equipos', data),
   actualizar: (id, data) => api.patch(`/equipos/${id}`, data),
   eliminar: (id) => api.delete(`/equipos/${id}`),
