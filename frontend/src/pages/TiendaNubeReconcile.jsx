@@ -161,16 +161,22 @@ function ProductoCell({ row }) {
   return (
     <div className={styles.productoCell}>
       {thumbSrc && (
+        /* Keyboard-focusable so the preview is reachable without a mouse;
+           role="img" + aria-label give it a meaningful announcement (a bare
+           focusable span announces nothing). The inner <img> is
+           presentational (alt="" + aria-hidden) so screen readers hear ONE
+           description, not two. */
         <span
           className={styles.thumbWrap}
           tabIndex={0}
-          aria-label={`${altText} (ampliar al pasar el cursor)`}
+          role="img"
+          aria-label={altText}
           onMouseEnter={(e) => showPreview(e.currentTarget)}
           onMouseLeave={() => setPreviewPos(null)}
           onFocus={(e) => showPreview(e.currentTarget)}
           onBlur={() => setPreviewPos(null)}
         >
-          <img src={thumbSrc} alt={altText} className={styles.thumb} loading="lazy" />
+          <img src={thumbSrc} alt="" aria-hidden="true" className={styles.thumb} loading="lazy" />
           {previewPos && (
             <img
               src={thumbSrc}
@@ -724,25 +730,18 @@ export default function TiendaNubeReconcile() {
           ) : (
             filasVisibles.map((row, idx) => (
               <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
+                {/* NO single group-level "Editar en TN" link here: the group
+                    has N conflicting matches, and linking only one of them
+                    would implicitly recommend it (violates the DUPLICADO
+                    "human decides" rule). Each match row below carries its
+                    OWN link instead — none privileged. */}
                 <div className={styles.duplicateGroupHeader}>
-                  <span>
-                    EAN GBP: {row.ean}
-                    {row.ml_title ? ` — ${row.ml_title}` : ''} — {row.tn_matches.length} coincidencias
-                    TN en conflicto —{' '}
-                    {row.tn_presence === 'not_in_tn'
-                      ? 'duplicado, sin presencia en TN'
-                      : 'duplicado, existe en TN'}
-                  </span>
-                  {row.tn_admin_url && (
-                    <a
-                      href={row.tn_admin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.tnLink}
-                    >
-                      Editar en TN <ExternalLink size={12} aria-hidden="true" />
-                    </a>
-                  )}
+                  EAN GBP: {row.ean}
+                  {row.ml_title ? ` — ${row.ml_title}` : ''} — {row.tn_matches.length} coincidencias
+                  TN en conflicto —{' '}
+                  {row.tn_presence === 'not_in_tn'
+                    ? 'duplicado, sin presencia en TN'
+                    : 'duplicado, existe en TN'}
                 </div>
                 <table className="table-tesla striped">
                   <thead>
@@ -751,6 +750,7 @@ export default function TiendaNubeReconcile() {
                       <th>variant_id</th>
                       <th>variant_sku</th>
                       <th>Publicado en TN</th>
+                      <th>Editar en TN</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -760,6 +760,21 @@ export default function TiendaNubeReconcile() {
                         <td>variant_id: {tn.variant_id}</td>
                         <td>{tn.variant_sku}</td>
                         <td>{publishedLabel(tn.published)}</td>
+                        <td>
+                          {tn.tn_admin_url ? (
+                            <a
+                              href={tn.tn_admin_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.tnLink}
+                              aria-label={`Editar en TN el producto ${tn.product_id}`}
+                            >
+                              Editar en TN <ExternalLink size={12} aria-hidden="true" />
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -837,6 +852,21 @@ export default function TiendaNubeReconcile() {
                                       {tn.product_id}/{tn.variant_id}
                                     </span>
                                     {tn.variant_sku ? <span className={styles.matchSku}> · {tn.variant_sku}</span> : null}
+                                    {/* Per-match link (each match carries its OWN
+                                        tn_admin_url) — never a single row-level
+                                        link that would implicitly privilege one
+                                        match over the others. */}
+                                    {tn.tn_admin_url && (
+                                      <a
+                                        href={tn.tn_admin_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={styles.tnLinkInline}
+                                        aria-label={`Editar en TN el producto ${tn.product_id}`}
+                                      >
+                                        Editar en TN <ExternalLink size={11} aria-hidden="true" />
+                                      </a>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -847,16 +877,6 @@ export default function TiendaNubeReconcile() {
                               <div className={styles.matchedIds}>
                                 TN product_id: {row.product_id} / variant_id: {row.variant_id}
                               </div>
-                            )}
-                            {row.tn_admin_url && (
-                              <a
-                                href={row.tn_admin_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.tnLink}
-                              >
-                                Editar en TN <ExternalLink size={12} aria-hidden="true" />
-                              </a>
                             )}
                             {puedeGestionarBanlist &&
                               (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR') && (

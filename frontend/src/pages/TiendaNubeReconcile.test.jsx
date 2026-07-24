@@ -949,12 +949,21 @@ describe('Product identity in rows (rebuilt UI)', () => {
       despublicar: false,
       tn_presence: 'published',
       tn_matches: [
-        { product_id: 123, variant_id: 456, variant_sku: 'RICH-1', activo: true, published: true },
+        {
+          product_id: 123,
+          variant_id: 456,
+          variant_sku: 'RICH-1',
+          activo: true,
+          published: true,
+          tn_admin_url: 'https://admin.tiendanube.com/products/123',
+        },
       ],
       ml_title: 'Auricular Bluetooth XYZ',
       ml_desc: `<p>${LONG_DESC_TEXT}</p>`,
       images: ['https://example.com/th.jpg'],
-      tn_admin_url: 'https://admin.tiendanube.com/products/123',
+      // Row-level tn_admin_url intentionally null: the link MUST come from
+      // the match's own tn_admin_url, never a row-level single link.
+      tn_admin_url: null,
     },
   ];
 
@@ -984,12 +993,16 @@ describe('Product identity in rows (rebuilt UI)', () => {
     expect(expanded.textContent).toBe(LONG_DESC_TEXT);
   });
 
-  it('renders a thumbnail from images[0] so the operator can recognize the product', async () => {
+  it('renders a thumbnail from images[0] with an accessible role/label so the operator can recognize the product', async () => {
     setupEnriched();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const thumb = await screen.findByAltText('Miniatura de Auricular Bluetooth XYZ');
-    expect(thumb).toHaveAttribute('src', 'https://example.com/th.jpg');
+    // The focusable wrapper is announced as an image with a descriptive
+    // label (a bare focusable span would announce nothing); the inner <img>
+    // is presentational.
+    const thumbWrap = await screen.findByRole('img', { name: 'Miniatura de Auricular Bluetooth XYZ' });
+    expect(thumbWrap).toHaveAttribute('tabindex', '0');
+    expect(thumbWrap.querySelector('img')).toHaveAttribute('src', 'https://example.com/th.jpg');
   });
 
   it('shows the TN product_id/variant_id of each match directly in the row', async () => {
@@ -1001,7 +1014,7 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
   });
 
-  it('offers an "Editar en TN" link that opens tn_admin_url in a new tab', async () => {
+  it('offers an "Editar en TN" link per match that opens the MATCH\'s own tn_admin_url in a new tab', async () => {
     setupEnriched();
     await renderWithRouter(<TiendaNubeReconcile />);
 
@@ -1009,6 +1022,71 @@ describe('Product identity in rows (rebuilt UI)', () => {
     expect(link).toHaveAttribute('href', 'https://admin.tiendanube.com/products/123');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('DUPLICADO: renders one "Editar en TN" link PER conflicting match — never a single privileged group link', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DUP-LINKS',
+          verdict: 'DUPLICADO',
+          despublicar: false,
+          tn_presence: 'published',
+          // Row-level url (backend derives it from tn_matches[0]) must NOT
+          // surface as a single group-header link — that would implicitly
+          // recommend one conflicting row.
+          tn_admin_url: 'https://admin.tiendanube.com/products/10',
+          tn_matches: [
+            {
+              product_id: 10,
+              variant_id: 1,
+              variant_sku: 'DUP-LINKS',
+              activo: true,
+              published: true,
+              tn_admin_url: 'https://admin.tiendanube.com/products/10',
+            },
+            {
+              product_id: 11,
+              variant_id: 1,
+              variant_sku: 'DUP-LINKS',
+              activo: true,
+              published: null,
+              tn_admin_url: 'https://admin.tiendanube.com/products/11',
+            },
+          ],
+        },
+      ],
+      verdictCounts: { DUPLICADO: 1 },
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await user.click(await screen.findByRole('tab', { name: /Duplicado/i }));
+
+    const groupHeading = await screen.findByText(/EAN GBP: DUP-LINKS/i);
+    const group = groupHeading.closest('[data-testid="duplicado-group"]');
+    expect(group).not.toBeNull();
+
+    // Exactly one link per conflicting match, each pointing at ITS product.
+    const links = within(group).getAllByRole('link', { name: /editar en tn/i });
+    expect(links).toHaveLength(2);
+    expect(links.map((l) => l.getAttribute('href')).sort()).toEqual([
+      'https://admin.tiendanube.com/products/10',
+      'https://admin.tiendanube.com/products/11',
+    ]);
+
+    // The group header itself carries NO link — links live only in the
+    // per-match rows, so none is privileged.
+    const header = group.querySelector('[class*="duplicateGroupHeader"]');
+    expect(header).not.toBeNull();
+    expect(within(header).queryByRole('link')).not.toBeInTheDocument();
+
+    // And each match ROW has exactly one link (its own).
+    const rows = within(group).getAllByRole('row').filter((r) => /product_id:/.test(r.textContent));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(within(row).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
+    }
   });
 
   it('renders a plain dash, never "undefined", for rows without title/desc/images', async () => {

@@ -184,6 +184,28 @@
   border-radius: var(--radius-sm);
 }
 
+/* Inline per-match variant — sits at the end of a match line, no top margin */
+.tnLinkInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  font-size: 0.75rem;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tnLinkInline:hover {
+  text-decoration: underline;
+}
+
+.tnLinkInline:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
 .errorBanner {
   padding: 10px 14px;
   margin-bottom: var(--spacing-md);

@@ -109,6 +109,7 @@ class TnMatchResponse(BaseModel):
     variant_sku: Optional[str]
     activo: Optional[bool] = None
     published: Optional[bool] = None
+    tn_admin_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -156,7 +157,7 @@ class ReconcileRowResponse(BaseModel):
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
     images: List[str] = []
-    # UI-rebuild fields: `ml_title` mirrors `ml_desc` (raw GBP field, for the
+    # UI-rebuild fields: `ml_title` is the raw GBP `ML_title` field (for the
     # modal's editable title input); `tn_admin_url` is only populated for
     # rows with a matched TN product (`tn_matches` non-empty) — null
     # otherwise. See `_tn_admin_url` for the assumed URL pattern.
@@ -164,9 +165,9 @@ class ReconcileRowResponse(BaseModel):
     tn_admin_url: Optional[str] = None
 
 
-def _tn_admin_url(row: ReconcileRow) -> Optional[str]:
-    """Tienda Nube admin product-edit link for this row's first matched TN
-    product, or `None` if nothing matched or `TN_STORE_ID` isn't configured.
+def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
+    """Tienda Nube admin product-edit link for a given TN `product_id`, or
+    `None` if `product_id` is missing or `TN_STORE_ID` isn't configured.
 
     ASSUMED pattern — could not be confirmed against TN's own docs from here:
     `https://<TN_STORE_ID>.mitiendanube.com/admin/v2/products/<product_id>`.
@@ -175,10 +176,20 @@ def _tn_admin_url(row: ReconcileRow) -> Optional[str]:
     URL; if the real admin URL needs the store's public handle/subdomain
     instead of this numeric id, only this helper needs correcting.
     """
-    if not row.tn_matches or not settings.TN_STORE_ID:
+    if product_id is None or not settings.TN_STORE_ID:
         return None
-    product_id = row.tn_matches[0].product_id
     return f"https://{settings.TN_STORE_ID}.mitiendanube.com/admin/v2/products/{product_id}"
+
+
+def _tn_admin_url(row: ReconcileRow) -> Optional[str]:
+    """Row-level convenience link for a single-match row. It MUST NOT be used
+    to privilege one row inside a DUPLICADO group — the UI renders a per-match
+    link from each `TnMatchResponse.tn_admin_url` instead, so no conflicting
+    row is recommended over the others.
+    """
+    if not row.tn_matches:
+        return None
+    return _tn_admin_url_for(row.tn_matches[0].product_id)
 
 
 class ReconcileReportResponse(BaseModel):
@@ -355,7 +366,17 @@ async def get_reconciliation_report(
             ean=v.ean,
             verdict=v.verdict,
             despublicar=v.despublicar,
-            tn_matches=[TnMatchResponse.model_validate(tn) for tn in v.tn_matches],
+            tn_matches=[
+                TnMatchResponse(
+                    product_id=tn.product_id,
+                    variant_id=tn.variant_id,
+                    variant_sku=tn.variant_sku,
+                    activo=tn.activo,
+                    published=tn.published,
+                    tn_admin_url=_tn_admin_url_for(tn.product_id),
+                )
+                for tn in v.tn_matches
+            ],
             tn_presence=v.tn_presence,
             product_id=v.product_id,
             variant_id=v.variant_id,
@@ -550,7 +571,7 @@ def buscar_categorias(
 
     rows = (
         db.query(TnCategoryEmbedding)
-        .filter(TnCategoryEmbedding.category_path_text.ilike(f"%{query_text}%"))
+        .filter(TnCategoryEmbedding.category_path_text.contains(query_text, autoescape=True))
         .order_by(TnCategoryEmbedding.category_path_text)
         .limit(limit)
         .all()
