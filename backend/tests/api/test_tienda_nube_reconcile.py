@@ -564,6 +564,61 @@ class TestPublicarEndpoint:
         assert response.status_code == 200
 
 
+class TestCategoriaSugeridaEndpoint:
+    """Sub-slice 3b — embedder-assisted TN category suggestion. Reuses
+    `admin.gestionar_tn_publicacion` (same write-gate — this feeds the
+    publish flow), never raises on embedder unavailability."""
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post(
+            "/api/tienda-nube-reconcile/categoria-sugerida",
+            json={"category_text": "Celulares"},
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_blank_category_text_returns_422(self, client, db, user_publicacion):
+        response = client.post(
+            "/api/tienda-nube-reconcile/categoria-sugerida",
+            json={"category_text": "   "},
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 422
+
+    def test_successful_suggestion_returns_top_and_list(self, client, db, user_publicacion):
+        fake_result = {
+            "suggestions": [
+                {"tn_category_id": 2, "category_path_text": "Electrónica > Celulares", "similarity": 0.9},
+                {"tn_category_id": 1, "category_path_text": "Electrónica", "similarity": 0.7},
+            ],
+            "top": {"tn_category_id": 2, "category_path_text": "Electrónica > Celulares", "similarity": 0.9},
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.suggest_category", return_value=fake_result) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/categoria-sugerida",
+                json={"category_text": "Celulares y Smartphones"},
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["top"]["tn_category_id"] == 2
+        assert len(body["suggestions"]) == 2
+        mocked.assert_called_once()
+
+    def test_embedder_unavailable_returns_200_with_empty_suggestion(self, client, db, user_publicacion):
+        fake_result = {"suggestions": [], "top": None}
+        with patch("app.api.endpoints.tienda_nube_reconcile.suggest_category", return_value=fake_result):
+            response = client.post(
+                "/api/tienda-nube-reconcile/categoria-sugerida",
+                json={"category_text": "Celulares y Smartphones"},
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["suggestions"] == []
+        assert body["top"] is None
+
+
 class TestGracefulDegradation:
     def test_gbp_fetch_failure_returns_clear_error_no_partial_write(self, client, db, user_ver):
         from app.services.tn_reconciliation_service import GBPFetchError
