@@ -116,6 +116,28 @@ const MESSAGE_BOT_STATUS_BADGE_CLASS = {
 // States a thread's anchor message may be taken over from (mirrors backend
 // `_MESSAGE_TAKE_OVER_SOURCE_STATES`).
 const MESSAGE_TAKE_OVER_STATES = ['awaiting_human', 'blocked_claim', 'failed'];
+
+// Phase 6 (PR3) — "Pendientes" tab: back-office task lane for derive-to-admin
+// requests (design "Interfaces / Contracts"). Independent lifecycle from
+// both `status` (Preguntas) and `bot_status` (Mensajes) above.
+const PENDING_STATUS_LABELS = {
+  new: 'Nuevo',
+  in_progress: 'En progreso',
+  done: 'Resuelto',
+  cancelled: 'Cancelado',
+};
+
+const PENDING_STATUS_BADGE_CLASS = {
+  new: 'badgeWarning',
+  in_progress: 'badgeInfo',
+  done: 'badgeSuccess',
+  cancelled: 'badgeNeutral',
+};
+
+const PENDING_SOURCE_LABELS = {
+  bot_derived: 'Bot',
+  manual: 'Manual',
+};
 // ML post-sale conversation link (T0.2 verified — orchestrator instruction):
 // query string intentionally omitted.
 function buildMlConversationLink(packId) {
@@ -293,6 +315,25 @@ const MENSAJES_COLUMNS = [
   { id: 'moderacion', header: 'Moderación', size: 120, enableResizing: false },
 ];
 
+// Pendientes tab table (admin-pending queue) — same TanStack sizing-engine
+// pattern as the tables above (`data: []`, no row model; the body stays the
+// existing hand-rendered `.map()` + `Fragment` + detail row). Nine columns:
+// the three text columns (Pack/Comprador, CUIT extraído, Nombre extraído) are
+// resizable; the badge/status/date columns stay fixed. Acciones is a fixed
+// 200px floor sized for its worst-case row (chevron + Tomar/Liberar +
+// Resolver + Cancelar), mirroring the Preguntas Acciones fixed-floor pattern.
+const PENDIENTES_COLUMNS = [
+  { id: 'packComprador', header: 'Pack / Comprador', size: 160, minSize: 120, maxSize: 400, enableResizing: true },
+  { id: 'origen', header: 'Origen', size: 110, enableResizing: false },
+  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
+  { id: 'cuit', header: 'CUIT extraído', size: 130, minSize: 100, maxSize: 300, enableResizing: true },
+  { id: 'nombre', header: 'Nombre extraído', size: 140, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'alertas', header: 'Alertas', size: 120, enableResizing: false },
+  { id: 'afip', header: 'AFIP', size: 80, enableResizing: false },
+  { id: 'creado', header: 'Creado', size: 150, enableResizing: false },
+  { id: 'acciones', header: 'Acciones', size: 200, minSize: 200, maxSize: 200, enableResizing: false },
+];
+
 // Stable empty array reference — we never call `getRowModel()`, TanStack
 // only needs `data` to satisfy its API shape.
 const EMPTY_TABLE_DATA = [];
@@ -300,6 +341,7 @@ const EMPTY_TABLE_DATA = [];
 const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
 const HISTORIAL_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:historial';
 const MENSAJES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:mensajes';
+const PENDIENTES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:pendientes';
 
 // Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
 // already in this file): absent/corrupt/disabled localStorage MUST never
@@ -348,6 +390,8 @@ export default function MLQuestions() {
   const puedeEncenderApagar = tienePermiso('ml_bot.on_off');
   const puedeVerMensajes = tienePermiso('ml_bot.messages.ver');
   const puedeResponderMensajes = tienePermiso('ml_bot.messages.responder');
+  const puedeVerPendientes = tienePermiso('ml_bot.admin_pending.ver');
+  const puedeGestionarPendientes = tienePermiso('ml_bot.admin_pending.gestionar');
 
   const [activeTab, setActiveTab] = useState('preguntas');
 
@@ -438,6 +482,43 @@ export default function MLQuestions() {
   const [msgActionLoadingId, setMsgActionLoadingId] = useState(null);
   const [msgActionError, setMsgActionError] = useState(null);
   const [expandedThreadKey, setExpandedThreadKey] = useState(null);
+
+  // Pendientes tab (Phase 6, PR3) — admin-pending queue state. Kept separate
+  // from the Preguntas/Mensajes state above since it's an independent
+  // back-office lane (design "Data Flow").
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(true);
+  const [pendingError, setPendingError] = useState(null);
+  const [pendingStatusFilter, setPendingStatusFilter] = useState('');
+  const [pendingSourceFilter, setPendingSourceFilter] = useState('');
+  const [pendingCuitValidFilter, setPendingCuitValidFilter] = useState('');
+  const [pendingDocMismatchFilter, setPendingDocMismatchFilter] = useState(false);
+
+  const [expandedPendingId, setExpandedPendingId] = useState(null);
+  const [pendingDetail, setPendingDetail] = useState(null);
+  const [pendingDetailLoading, setPendingDetailLoading] = useState(false);
+  const [pendingDetailError, setPendingDetailError] = useState(null);
+
+  const [pendingActionLoadingId, setPendingActionLoadingId] = useState(null);
+  const [pendingActionError, setPendingActionError] = useState(null);
+
+  const [doneModalRow, setDoneModalRow] = useState(null);
+  const [doneResolvedCuit, setDoneResolvedCuit] = useState('');
+
+  const [cancelModalRow, setCancelModalRow] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+
+  const [manualCreateOpen, setManualCreateOpen] = useState(false);
+  const [manualCreateForm, setManualCreateForm] = useState({
+    pack_id: '',
+    buyer_id: '',
+    request_type: 'invoice_cuit_change',
+    raw_text: '',
+    extracted_cuit: '',
+    extracted_name: '',
+  });
+  const [manualCreateSaving, setManualCreateSaving] = useState(false);
+  const [manualCreateError, setManualCreateError] = useState(null);
 
   // Expandable row detail (panel-v2 requirements #3 + #5) — one expanded
   // panel per row with two sections: "Detalle" (full question/answer text,
@@ -566,6 +647,43 @@ export default function MLQuestions() {
 
   const hasCustomMensajesColumnSizing = Object.keys(mensajesColumnSizing).length > 0;
 
+  // Pendientes table — same sizing-engine pattern, own localStorage key and
+  // debounce timer. Independent from the Preguntas/Mensajes/Historial
+  // instances (own column defs + own state), so resizing the admin-pending
+  // queue never mutates the other tables' persisted widths.
+  const [pendientesColumnSizing, setPendientesColumnSizingState] = useState(() => loadColumnSizing(PENDIENTES_COLUMN_SIZING_STORAGE_KEY));
+  const pendientesColumnSizingSaveTimerRef = useRef(null);
+
+  const handlePendientesColumnSizingChange = useCallback((updater) => {
+    setPendientesColumnSizingState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
+      pendientesColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, PENDIENTES_COLUMN_SIZING_STORAGE_KEY), 200);
+      return next;
+    });
+  }, []);
+
+  const handleResetPendientesColumnSizing = useCallback(() => {
+    if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
+    setPendientesColumnSizingState({});
+    try {
+      localStorage.removeItem(PENDIENTES_COLUMN_SIZING_STORAGE_KEY);
+    } catch {
+      // no-op — disabled/private-mode localStorage
+    }
+  }, []);
+
+  const pendientesTable = useReactTable({
+    columns: PENDIENTES_COLUMNS,
+    data: EMPTY_TABLE_DATA,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnSizing: pendientesColumnSizing },
+    onColumnSizingChange: handlePendientesColumnSizingChange,
+  });
+
+  const hasCustomPendientesColumnSizing = Object.keys(pendientesColumnSizing).length > 0;
+
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
   // invisible to operators who only had ml_bot.ver/ml_bot.responder).
@@ -687,6 +805,182 @@ export default function MLQuestions() {
   }, [puedeVerMensajes, cargarMensajes]);
 
   useSSEChannel('ml_bot:messages', reloadMessagesFromSSE, { enabled: puedeVerMensajes });
+
+  // Pendientes tab — list load (lazy on tab switch, mirrors cargarMensajes).
+  const cargarPendientes = useCallback(async ({ silent = false } = {}) => {
+    if (!puedeVerPendientes) return;
+    if (!silent) setPendingLoading(true);
+    setPendingError(null);
+    try {
+      const params = { limit: 100 };
+      if (pendingStatusFilter) params.status = pendingStatusFilter;
+      if (pendingSourceFilter) params.source = pendingSourceFilter;
+      if (pendingCuitValidFilter !== '') params.cuit_valid = pendingCuitValidFilter === 'true';
+      if (pendingDocMismatchFilter) params.doc_mismatch = true;
+      const { data } = await api.get('/ml-bot/admin-pending', { params });
+      setPendingRequests(data.requests || []);
+    } catch {
+      if (!silent) {
+        setPendingRequests([]);
+        setPendingError('Error al cargar pendientes');
+      }
+    } finally {
+      if (!silent) setPendingLoading(false);
+    }
+  }, [puedeVerPendientes, pendingStatusFilter, pendingSourceFilter, pendingCuitValidFilter, pendingDocMismatchFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'pendientes' && puedeVerPendientes) {
+      cargarPendientes();
+    }
+  }, [activeTab, puedeVerPendientes, cargarPendientes]);
+
+  // Detail/prefill view — lazy-loaded per row (design: `suggested_ack_template`
+  // and `superseded_values` are computed/carried server-side, never on the FE).
+  const abrirDetallePendiente = async (row) => {
+    if (expandedPendingId === row.id) {
+      setExpandedPendingId(null);
+      setPendingDetail(null);
+      return;
+    }
+    setExpandedPendingId(row.id);
+    setPendingDetail(null);
+    setPendingDetailError(null);
+    setPendingDetailLoading(true);
+    try {
+      const { data } = await api.get(`/ml-bot/admin-pending/${row.id}`);
+      setPendingDetail(data);
+    } catch {
+      setPendingDetailError('Error al cargar el detalle');
+    } finally {
+      setPendingDetailLoading(false);
+    }
+  };
+
+  const refreshExpandedPendingDetail = async (id) => {
+    if (expandedPendingId !== id) return;
+    try {
+      const { data } = await api.get(`/ml-bot/admin-pending/${id}`);
+      setPendingDetail(data);
+    } catch {
+      // Keep whatever detail was already rendered on a transient refresh error.
+    }
+  };
+
+  const runPendingAction = async (fn, id) => {
+    setPendingActionLoadingId(id);
+    setPendingActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setPendingActionError(err?.response?.data?.detail || err?.message || 'No se pudo completar la acción');
+    } finally {
+      await cargarPendientes();
+      await refreshExpandedPendingDetail(id);
+      setPendingActionLoadingId(null);
+    }
+  };
+
+  const handleClaimPending = (row) => runPendingAction(async () => {
+    await api.post(`/ml-bot/admin-pending/${row.id}/claim`);
+  }, row.id);
+
+  const handleReleasePending = (row) => runPendingAction(async () => {
+    await api.post(`/ml-bot/admin-pending/${row.id}/release`);
+  }, row.id);
+
+  const openDoneModal = (row) => {
+    setDoneModalRow(row);
+    setDoneResolvedCuit(row.extracted_cuit || '');
+    setPendingActionError(null);
+  };
+
+  const closeDoneModal = () => {
+    setDoneModalRow(null);
+    setDoneResolvedCuit('');
+  };
+
+  // Fiscal audit trail (design decision #5) — a bare status flip is not
+  // enough, `resolved_cuit` must be captured. Empty/blank always blocks.
+  const handleConfirmDone = () => {
+    if (!doneResolvedCuit.trim()) return;
+    const row = doneModalRow;
+    runPendingAction(async () => {
+      await api.post(`/ml-bot/admin-pending/${row.id}/done`, { resolved_cuit: doneResolvedCuit.trim() });
+      closeDoneModal();
+    }, row.id);
+  };
+
+  const openCancelModal = (row) => {
+    setCancelModalRow(row);
+    setCancelReason('');
+    setPendingActionError(null);
+  };
+
+  const closeCancelModal = () => {
+    setCancelModalRow(null);
+    setCancelReason('');
+  };
+
+  const handleConfirmCancel = () => {
+    const row = cancelModalRow;
+    runPendingAction(async () => {
+      await api.post(`/ml-bot/admin-pending/${row.id}/cancel`, { reason: cancelReason.trim() });
+      closeCancelModal();
+    }, row.id);
+  };
+
+  // Manual-create trigger — blank from Pendientes, or prefilled from a
+  // Mensajes row the classifier missed (design File Changes: MLQuestions.jsx).
+  const openManualCreate = (prefill = {}) => {
+    setManualCreateForm({
+      pack_id: prefill.pack_id ?? '',
+      buyer_id: prefill.buyer_id != null ? String(prefill.buyer_id) : '',
+      request_type: 'invoice_cuit_change',
+      raw_text: prefill.raw_text ?? '',
+      extracted_cuit: '',
+      extracted_name: '',
+    });
+    setManualCreateError(null);
+    setManualCreateOpen(true);
+  };
+
+  const closeManualCreate = () => {
+    setManualCreateOpen(false);
+    setManualCreateError(null);
+  };
+
+  const handleManualCreateSave = async () => {
+    setManualCreateSaving(true);
+    setManualCreateError(null);
+    try {
+      await api.post('/ml-bot/admin-pending', {
+        pack_id: manualCreateForm.pack_id || null,
+        buyer_id: manualCreateForm.buyer_id ? Number(manualCreateForm.buyer_id) : null,
+        request_type: manualCreateForm.request_type,
+        raw_text: manualCreateForm.raw_text || null,
+        extracted_cuit: manualCreateForm.extracted_cuit || null,
+        extracted_name: manualCreateForm.extracted_name || null,
+      });
+      closeManualCreate();
+      if (activeTab === 'pendientes') await cargarPendientes();
+    } catch (err) {
+      setManualCreateError(err?.response?.data?.detail || 'No se pudo crear el pendiente');
+    } finally {
+      setManualCreateSaving(false);
+    }
+  };
+
+  // Ack hand-off (design: reuse the EXISTING Phase A take-over -> edit ->
+  // send path; never a new send path). Jumps to Mensajes with the row's
+  // `suggested_ack_template` prefilled as the draft — nothing sends until
+  // the operator confirms, and `messagesSendEnabled` still gates the button.
+  const handlePrepararAcuse = (row, template) => {
+    setActiveTab('mensajes');
+    setEditMessage({ id: row.message_id, text: row.raw_text || '' });
+    setEditMessageText(template || '');
+    setMsgActionError(null);
+  };
 
   const runMessageAction = async (fn, messageId) => {
     setMsgActionLoadingId(messageId);
@@ -1228,6 +1522,16 @@ export default function MLQuestions() {
             Mensajes
           </button>
         )}
+        {puedeVerPendientes && (
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === 'pendientes' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('pendientes')}
+          >
+            <ShieldAlert size={14} />
+            Pendientes
+          </button>
+        )}
         {puedeConfigurar && (
           <button
             type="button"
@@ -1621,9 +1925,23 @@ export default function MLQuestions() {
                               </span>
                             )}
                           </div>
-                          {puedeResponderMensajes && (canTakeOver || canRespond) && (
+                          {(puedeResponderMensajes && (canTakeOver || canRespond)) || puedeGestionarPendientes ? (
                             <div className={styles.actionsCell}>
-                              {canTakeOver && (
+                              {puedeGestionarPendientes && (
+                                <button
+                                  className="btn-tesla ghost sm"
+                                  onClick={() => openManualCreate({
+                                    pack_id: thread.pack_id,
+                                    buyer_id: thread.buyer_id,
+                                    raw_text: anchor?.text,
+                                  })}
+                                  title="Crear pendiente (el clasificador no lo detectó)"
+                                  aria-label="Crear pendiente manual"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              )}
+                              {puedeResponderMensajes && canTakeOver && (
                                 <button
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleTakeOverMessage(anchor)}
@@ -1634,7 +1952,7 @@ export default function MLQuestions() {
                                   <UserCheck size={14} />
                                 </button>
                               )}
-                              {canRespond && (
+                              {puedeResponderMensajes && canRespond && (
                                 <>
                                   <button
                                     className="btn-tesla outline-subtle-primary sm"
@@ -1655,7 +1973,7 @@ export default function MLQuestions() {
                                 </>
                               )}
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -1679,6 +1997,291 @@ export default function MLQuestions() {
                   );
                 })
               )}
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* ====== TAB: Pendientes (Phase 6, PR3 — derive-to-admin lane) ====== */}
+      {activeTab === 'pendientes' && puedeVerPendientes && (
+        <>
+          <div className={styles.filtersBar}>
+            <select
+              value={pendingStatusFilter}
+              onChange={(e) => setPendingStatusFilter(e.target.value)}
+              className={styles.select}
+            >
+              <option value="">Todos los estados</option>
+              {Object.entries(PENDING_STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={pendingSourceFilter}
+              onChange={(e) => setPendingSourceFilter(e.target.value)}
+              className={styles.select}
+            >
+              <option value="">Todos los orígenes</option>
+              {Object.entries(PENDING_SOURCE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={pendingCuitValidFilter}
+              onChange={(e) => setPendingCuitValidFilter(e.target.value)}
+              className={styles.select}
+            >
+              <option value="">CUIT: cualquiera</option>
+              <option value="true">CUIT válido</option>
+              <option value="false">CUIT inválido</option>
+            </select>
+            <label className={styles.rosterEnabledLabel}>
+              <input
+                type="checkbox"
+                checked={pendingDocMismatchFilter}
+                onChange={(e) => setPendingDocMismatchFilter(e.target.checked)}
+              />
+              Solo con discrepancia de documento
+            </label>
+            {puedeGestionarPendientes && (
+              <button
+                type="button"
+                className="btn-tesla outline-subtle-primary sm"
+                onClick={() => openManualCreate()}
+              >
+                <Plus size={14} />
+                Crear pendiente
+              </button>
+            )}
+          </div>
+
+          {pendingError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {pendingError}
+            </div>
+          )}
+
+          {pendingActionError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {pendingActionError}
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={() => setPendingActionError(null)}
+                aria-label="Descartar error"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {hasCustomPendientesColumnSizing && (
+            <div className={styles.columnSizingBar}>
+              <button
+                type="button"
+                className="btn-tesla ghost sm"
+                onClick={handleResetPendientesColumnSizing}
+              >
+                Restablecer columnas
+              </button>
+            </div>
+          )}
+
+          <div className="table-container-tesla">
+            <table
+              className={`table-tesla striped ${styles.resizableTable}`}
+              style={{ width: pendientesTable.getTotalSize() }}
+            >
+              <colgroup>
+                {pendientesTable.getVisibleLeafColumns().map((col) => (
+                  <col key={col.id} style={{ width: col.getSize() }} />
+                ))}
+              </colgroup>
+              <thead className="table-tesla-head">
+                <tr>
+                  {pendientesTable.getFlatHeaders().map((h) => (
+                    <th key={h.id} style={{ position: 'relative' }}>
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <span
+                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
+                          onMouseDown={h.getResizeHandler()}
+                          onTouchStart={h.getResizeHandler()}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
+                        />
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="table-tesla-body">
+                {pendingLoading ? (
+                  <tr><td colSpan={9} className={styles.loadingCell}>Cargando...</td></tr>
+                ) : pendingRequests.length === 0 ? (
+                  <tr><td colSpan={9} className={styles.emptyCell}>No hay solicitudes pendientes</td></tr>
+                ) : (
+                  pendingRequests.map((row) => (
+                    <Fragment key={row.id}>
+                      <tr>
+                        <td className={styles.cellItem}>
+                          {row.pack_id ? `pack ${row.pack_id}` : (row.buyer_id ?? '—')}
+                        </td>
+                        <td>
+                          <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                            {PENDING_SOURCE_LABELS[row.source] || row.source}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`${styles.badge} ${styles[PENDING_STATUS_BADGE_CLASS[row.status]] || ''}`}>
+                            {PENDING_STATUS_LABELS[row.status] || row.status}
+                          </span>
+                        </td>
+                        <td className={styles.cellItem}>{row.extracted_cuit || '—'}</td>
+                        <td className={styles.cellItem}>{row.extracted_name || '—'}</td>
+                        <td>
+                          {row.cuit_valid === false && (
+                            <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
+                          )}
+                          {row.doc_mismatch && (
+                            <span className={`${styles.badge} ${styles.badgeWarning}`}>Discrepancia doc.</span>
+                          )}
+                          {row.cuit_valid !== false && !row.doc_mismatch && '—'}
+                        </td>
+                        <td>
+                          {row.afip_status ? (
+                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>{row.afip_status}</span>
+                          ) : '—'}
+                        </td>
+                        <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</td>
+                        <td>
+                          <div className={styles.actionsCell}>
+                            <button
+                              className="btn-tesla ghost sm"
+                              onClick={() => abrirDetallePendiente(row)}
+                              title={expandedPendingId === row.id ? 'Ocultar detalle' : 'Ver detalle'}
+                              aria-label={expandedPendingId === row.id ? 'Ocultar detalle' : 'Ver detalle'}
+                              aria-expanded={expandedPendingId === row.id}
+                            >
+                              {expandedPendingId === row.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            {puedeGestionarPendientes && (
+                              <>
+                                {row.status === 'new' && (
+                                  <button
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleClaimPending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Tomar"
+                                    aria-label="Tomar pendiente"
+                                  >
+                                    <UserCheck size={14} />
+                                  </button>
+                                )}
+                                {row.status === 'in_progress' && (
+                                  <button
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleReleasePending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Liberar"
+                                    aria-label="Liberar pendiente"
+                                  >
+                                    <RotateCcw size={14} />
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    className="btn-tesla outline-subtle-primary sm"
+                                    onClick={() => openDoneModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                  >
+                                    Resolver
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => openCancelModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Cancelar"
+                                    aria-label="Cancelar pendiente"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedPendingId === row.id && (
+                        <tr className={styles.detailRow}>
+                          <td colSpan={9}>
+                            <div className={styles.detailPanel}>
+                              {pendingDetailLoading ? (
+                                <div className={styles.loadingCell}>Cargando...</div>
+                              ) : pendingDetailError ? (
+                                <div className={styles.errorBar}>
+                                  <AlertTriangle size={14} />
+                                  {pendingDetailError}
+                                </div>
+                              ) : pendingDetail ? (
+                                <div className={styles.detailContent}>
+                                  <div className={styles.prefillCompare}>
+                                    <div>
+                                      <strong>Extraído (mensaje del comprador)</strong>
+                                      <p className={styles.detailText}>CUIT: {pendingDetail.extracted_cuit || '—'}</p>
+                                      <p className={styles.detailText}>Nombre: {pendingDetail.extracted_name || '—'}</p>
+                                      <p className={styles.detailText}>Texto: {pendingDetail.raw_text || '—'}</p>
+                                    </div>
+                                    <div>
+                                      <strong>AFIP / almacenado</strong>
+                                      <p className={styles.detailText}>Razón social: {pendingDetail.afip_razon_social || '—'}</p>
+                                      <p className={styles.detailText}>Condición IVA: {pendingDetail.afip_condicion_iva || '—'}</p>
+                                      <p className={styles.detailText}>Domicilio: {pendingDetail.afip_domicilio || '—'}</p>
+                                      <p className={styles.detailText}>Doc. facturación: {pendingDetail.prefill_billing_doc_number || '—'}</p>
+                                    </div>
+                                  </div>
+                                  {Array.isArray(pendingDetail.superseded_values) && pendingDetail.superseded_values.length > 0 && (
+                                    <div>
+                                      <strong>Historial de valores reemplazados</strong>
+                                      <ul>
+                                        {pendingDetail.superseded_values.map((sv, i) => (
+                                          <li key={i} className={styles.detailText}>
+                                            {sv.cuit || '—'} · {sv.name || '—'} · {sv.at ? new Date(sv.at).toLocaleString() : '—'}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {pendingDetail.suggested_ack_template && (
+                                    <div>
+                                      <strong>Plantilla de acuse sugerida</strong>
+                                      <p className={styles.detailText}>{pendingDetail.suggested_ack_template}</p>
+                                      {row.message_id && (
+                                        <button
+                                          type="button"
+                                          className="btn-tesla outline-subtle-primary sm"
+                                          onClick={() => handlePrepararAcuse(row, pendingDetail.suggested_ack_template)}
+                                        >
+                                          Preparar acuse
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
         </>
@@ -1909,6 +2512,167 @@ export default function MLQuestions() {
             </div>
           </div>
         )}
+      </ModalTesla>
+
+      {/* Pendientes — "done" modal (Phase 6, PR3). Fiscal audit trail (design
+          decision #5): submit is blocked while `resolved_cuit` is empty. */}
+      <ModalTesla
+        isOpen={doneModalRow !== null}
+        title={doneModalRow ? `Resolver pendiente #${doneModalRow.id}` : ''}
+        onClose={closeDoneModal}
+        closeOnOverlay
+        size="sm"
+      >
+        {doneModalRow && (
+          <div className={styles.editBody}>
+            <label htmlFor="resolved-cuit-input">CUIT efectivamente facturado</label>
+            <input
+              id="resolved-cuit-input"
+              type="text"
+              className={styles.configInput}
+              value={doneResolvedCuit}
+              onChange={(e) => setDoneResolvedCuit(e.target.value)}
+              placeholder="20147683511"
+            />
+            {pendingActionError && (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {pendingActionError}
+              </div>
+            )}
+            <div className={styles.editActions}>
+              <button
+                className="btn-tesla ghost sm"
+                onClick={closeDoneModal}
+                disabled={pendingActionLoadingId === doneModalRow.id}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-tesla sm"
+                onClick={handleConfirmDone}
+                disabled={pendingActionLoadingId === doneModalRow.id || !doneResolvedCuit.trim()}
+              >
+                Confirmar resolución
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalTesla>
+
+      {/* Pendientes — cancel modal (Phase 6, PR3). */}
+      <ModalTesla
+        isOpen={cancelModalRow !== null}
+        title={cancelModalRow ? `Cancelar pendiente #${cancelModalRow.id}` : ''}
+        onClose={closeCancelModal}
+        closeOnOverlay
+        size="sm"
+      >
+        {cancelModalRow && (
+          <div className={styles.editBody}>
+            <label htmlFor="cancel-reason-input">Motivo (opcional)</label>
+            <textarea
+              id="cancel-reason-input"
+              className={styles.editTextarea}
+              rows={3}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+            />
+            {pendingActionError && (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {pendingActionError}
+              </div>
+            )}
+            <div className={styles.editActions}>
+              <button
+                className="btn-tesla ghost sm"
+                onClick={closeCancelModal}
+                disabled={pendingActionLoadingId === cancelModalRow.id}
+              >
+                Volver
+              </button>
+              <button
+                className="btn-tesla outline-subtle-danger sm"
+                onClick={handleConfirmCancel}
+                disabled={pendingActionLoadingId === cancelModalRow.id}
+              >
+                Confirmar cancelación
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalTesla>
+
+      {/* Pendientes — manual-create modal (blank from Pendientes, or
+          prefilled from a Mensajes row the classifier missed). */}
+      <ModalTesla
+        isOpen={manualCreateOpen}
+        title="Crear pendiente manual"
+        onClose={closeManualCreate}
+        closeOnOverlay
+        size="md"
+      >
+        <div className={styles.editBody}>
+          <label htmlFor="manual-pack-id">Pack ID</label>
+          <input
+            id="manual-pack-id"
+            type="text"
+            className={styles.configInput}
+            value={manualCreateForm.pack_id}
+            onChange={(e) => setManualCreateForm((prev) => ({ ...prev, pack_id: e.target.value }))}
+          />
+          <label htmlFor="manual-buyer-id">Buyer ID</label>
+          <input
+            id="manual-buyer-id"
+            type="text"
+            className={styles.configInput}
+            value={manualCreateForm.buyer_id}
+            onChange={(e) => setManualCreateForm((prev) => ({ ...prev, buyer_id: e.target.value }))}
+          />
+          <label htmlFor="manual-extracted-cuit">CUIT extraído</label>
+          <input
+            id="manual-extracted-cuit"
+            type="text"
+            className={styles.configInput}
+            value={manualCreateForm.extracted_cuit}
+            onChange={(e) => setManualCreateForm((prev) => ({ ...prev, extracted_cuit: e.target.value }))}
+          />
+          <label htmlFor="manual-extracted-name">Nombre extraído</label>
+          <input
+            id="manual-extracted-name"
+            type="text"
+            className={styles.configInput}
+            value={manualCreateForm.extracted_name}
+            onChange={(e) => setManualCreateForm((prev) => ({ ...prev, extracted_name: e.target.value }))}
+          />
+          <label htmlFor="manual-raw-text">Texto original</label>
+          <textarea
+            id="manual-raw-text"
+            className={styles.editTextarea}
+            rows={3}
+            value={manualCreateForm.raw_text}
+            onChange={(e) => setManualCreateForm((prev) => ({ ...prev, raw_text: e.target.value }))}
+          />
+          {manualCreateError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {manualCreateError}
+            </div>
+          )}
+          <div className={styles.editActions}>
+            <button className="btn-tesla ghost sm" onClick={closeManualCreate} disabled={manualCreateSaving}>
+              Cancelar
+            </button>
+            <button
+              className="btn-tesla sm"
+              onClick={handleManualCreateSave}
+              disabled={manualCreateSaving}
+            >
+              Crear
+            </button>
+          </div>
+        </div>
       </ModalTesla>
     </div>
   );

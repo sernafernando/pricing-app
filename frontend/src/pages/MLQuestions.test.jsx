@@ -10,7 +10,7 @@
  * global setup.js stub) so each test can control tienePermiso per-case.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -20,6 +20,44 @@ import api from '../services/api';
 const COLUMN_SIZING_KEY = 'mlq:colsizing:preguntas';
 const HISTORIAL_COLUMN_SIZING_KEY = 'mlq:colsizing:historial';
 const MENSAJES_COLUMN_SIZING_KEY = 'mlq:colsizing:mensajes';
+const PENDIENTES_COLUMN_SIZING_KEY = 'mlq:colsizing:pendientes';
+
+/**
+ * Deterministic clock for the Pendientes tab tests.
+ *
+ * MLQuestions mounts a live 1s ticker — `setInterval(() => setNow(Date.now()),
+ * 1000)` — for relative-time display. Under REAL timers that interval fires a
+ * `setNow` state update OUTSIDE React's `act()` while a `userEvent` interaction
+ * (e.g. typing the 11-digit CUIT, ~1.2–3.6s of wall-clock) is mid-flush,
+ * making the flush order non-deterministic: intermittently `handleConfirmDone`
+ * early-returns on a stale `doneResolvedCuit` and never POSTs (~1-in-10 flake).
+ *
+ * Fake timers put every timer under vitest's control: the ticker only advances
+ * when userEvent's wired `advanceTimers` advances it, and that advance is
+ * `act()`-wrapped, so the race is gone. This is test-side determinism only —
+ * the 1s interval is a real product feature and is NOT changed. The
+ * conversion of the Pendientes list to a heavier TanStack table makes these
+ * interactions longer, so the whole Pendientes suite runs on the fake clock.
+ *
+ * Call inside a `describe` block; it registers its own before/afterEach.
+ */
+function useDeterministicClock() {
+  beforeEach(() => {
+    // `shouldAdvanceTime: true` keeps a real-clock heartbeat so Testing
+    // Library's `waitFor`/`findBy*` polling still fires; userEvent's wired
+    // `advanceTimers` (below) drives the interaction timing in act()-wrapped
+    // chunks. The pairing is what removes the un-act()'d `setNow` race — pure
+    // fake timers (no heartbeat) instead hang `waitFor`.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
+// userEvent wired to the fake clock — every internal delay advances vitest's
+// timers (inside act), instead of waiting on real wall-clock.
+const setupUserWithClock = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -41,6 +79,7 @@ function setupBaseApiMocks() {
     if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
     if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
     if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+    if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
     return Promise.resolve({ data: {} });
   });
   // Reset to a harmless default on every test — `vi.clearAllMocks()` (in the
@@ -750,5 +789,252 @@ describe('Mensajes tab — detail spoiler (thread + draft + ML link)', () => {
     );
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+});
+
+/**
+ * Phase 6 (PR3) — "Pendientes" tab (ml-bot-admin-pending).
+ * Scope: tab visibility gated by `ml_bot.admin_pending.ver`; filtered list
+ * with columns/badges; detail/prefill view (extracted vs AFIP); done modal
+ * blocking submit without `resolved_cuit`.
+ */
+
+const PENDING_ROW = {
+  id: 1,
+  pack_id: '2000013868175593',
+  buyer_id: 173555877,
+  source: 'bot_derived',
+  status: 'new',
+  extracted_cuit: '20147683511',
+  extracted_name: 'Luis Eck',
+  cuit_valid: false,
+  doc_mismatch: true,
+  afip_status: 'ok',
+  created_at: '2026-07-20T10:00:00Z',
+  message_id: 55,
+};
+
+function mockPendingList(requests) {
+  api.get.mockImplementation((url) => {
+    if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+    if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+    if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [] } });
+    if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests, total: requests.length } });
+    return Promise.resolve({ data: {} });
+  });
+}
+
+describe('Pendientes tab visibility', () => {
+  useDeterministicClock();
+
+  it('test_pendientes_tab_renders_filtered_list — shows columns/badges under ml_bot.admin_pending.ver', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([PENDING_ROW]);
+
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-bot/admin-pending', expect.anything());
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('20147683511')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Luis Eck')).toBeInTheDocument();
+    expect(screen.getAllByText('CUIT inválido').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Discrepancia doc.')).toBeInTheDocument();
+    expect(screen.getAllByText('Nuevo').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('hides the "Pendientes" tab and panel when ml_bot.admin_pending.ver is not granted', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'ml_bot.admin_pending.ver');
+    mockPendingList([PENDING_ROW]);
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Preguntas')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Pendientes/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('20147683511')).not.toBeInTheDocument();
+  });
+});
+
+describe('Pendientes detail — extracted vs AFIP prefill', () => {
+  useDeterministicClock();
+
+  it('test_detail_prefill_view_shows_extracted_vs_afip — renders side-by-side extracted and AFIP/stored data', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [] } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [PENDING_ROW], total: 1 } });
+      if (url === '/ml-bot/admin-pending/1') {
+        return Promise.resolve({
+          data: {
+            id: 1,
+            extracted_cuit: '20147683511',
+            extracted_name: 'Luis Eck',
+            raw_text: 'Factura A por favor',
+            afip_razon_social: 'LUIS AUGUSTO ECK',
+            afip_condicion_iva: 'Responsable Inscripto',
+            afip_domicilio: 'Calle Falsa 123',
+            superseded_values: [],
+            suggested_ack_template: 'Se realizará el cambio a la brevedad',
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    const detailToggle = await screen.findByRole('button', { name: /ver detalle/i });
+    await user.click(detailToggle);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Extraído \(mensaje del comprador\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/AFIP \/ almacenado/i)).toBeInTheDocument();
+      expect(screen.getByText(/LUIS AUGUSTO ECK/)).toBeInTheDocument();
+      expect(screen.getByText(/Se realizará el cambio a la brevedad/)).toBeInTheDocument();
+    });
+
+    // Ack hand-off jumps to the existing Mensajes take-over/edit/send flow,
+    // with the template prefilled as the draft — nothing sends automatically.
+    await user.click(screen.getByRole('button', { name: /Preparar acuse/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Editar respuesta — mensaje #55/i)).toBeInTheDocument();
+    });
+    expect(screen.getByDisplayValue('Se realizará el cambio a la brevedad')).toBeInTheDocument();
+  });
+});
+
+describe('Pendientes — done modal captures resolved_cuit', () => {
+  useDeterministicClock();
+
+  it('test_done_modal_captures_resolved_cuit — blocks submit until resolved_cuit is filled', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([{ ...PENDING_ROW, id: 7, status: 'in_progress', extracted_cuit: '', cuit_valid: null, doc_mismatch: false }]);
+
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    const resolverButton = await screen.findByRole('button', { name: /Resolver/i });
+    await user.click(resolverButton);
+
+    const confirmButton = await screen.findByRole('button', { name: /Confirmar resolución/i });
+    expect(confirmButton).toBeDisabled();
+
+    const cuitInput = screen.getByPlaceholderText('20147683511');
+    await user.type(cuitInput, '20147683511');
+    expect(confirmButton).not.toBeDisabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/admin-pending/7/done', { resolved_cuit: '20147683511' });
+    });
+  });
+});
+
+describe('Pendientes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns {} when the key is absent', () => {
+    expect(loadColumnSizing(PENDIENTES_COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
+    localStorage.setItem(PENDIENTES_COLUMN_SIZING_KEY, '{not valid json');
+    expect(() => loadColumnSizing(PENDIENTES_COLUMN_SIZING_KEY)).not.toThrow();
+    expect(loadColumnSizing(PENDIENTES_COLUMN_SIZING_KEY)).toEqual({});
+  });
+
+  it('round-trips a valid columnSizing object under its own key', () => {
+    const sizing = { packComprador: 220, cuit: 160 };
+    saveColumnSizing(sizing, PENDIENTES_COLUMN_SIZING_KEY);
+    expect(loadColumnSizing(PENDIENTES_COLUMN_SIZING_KEY)).toEqual(sizing);
+  });
+
+  it('does not collide with the Mensajes/Preguntas/Historial keys', () => {
+    saveColumnSizing({ packComprador: 300 }, PENDIENTES_COLUMN_SIZING_KEY);
+    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
+    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
+    expect(loadColumnSizing(HISTORIAL_COLUMN_SIZING_KEY)).toEqual({});
+  });
+});
+
+describe('Pendientes table — TanStack column-sizing render structure', () => {
+  useDeterministicClock();
+
+  it('renders one <col> per header and resize grips only on the three text columns', async () => {
+    localStorage.clear();
+    mockPendingList([PENDING_ROW]);
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pack / Comprador')).toBeInTheDocument();
+    });
+
+    const table = screen.getByText('Pack / Comprador').closest('table');
+    const cols = table.querySelectorAll('colgroup > col');
+    const headers = table.querySelectorAll('thead th');
+    expect(cols.length).toBe(headers.length);
+    expect(cols.length).toBe(9);
+
+    // Resizable: Pack / Comprador, CUIT extraído, Nombre extraído. Fixed:
+    // Origen, Estado, Alertas, AFIP, Creado, Acciones.
+    const grips = table.querySelectorAll('thead [role="separator"]');
+    expect(grips.length).toBe(3);
+
+    // The detail row spans the full colgroup (colSpan === leaf column count).
+    const detailToggle = table.querySelector('[aria-label="Ver detalle"]');
+    expect(detailToggle).not.toBeNull();
+  });
+
+  it('shows the reset-columns control only once sizing has been customized', async () => {
+    localStorage.clear();
+    mockPendingList([PENDING_ROW]);
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pack / Comprador')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
+  });
+
+  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+    localStorage.setItem(PENDIENTES_COLUMN_SIZING_KEY, JSON.stringify({ packComprador: 260 }));
+    mockPendingList([PENDING_ROW]);
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
+    });
+    localStorage.clear();
   });
 });
