@@ -109,11 +109,39 @@ class TnMatchResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+IMAGE_KEYS = [f"image{i}" for i in range(1, 11)]
+
+
+def _gbp_images(gbp_row: Dict[str, Any]) -> List[str]:
+    """Ordered `image1..image10` values, filtering out empty/null slots.
+
+    Sub-slice 3c follow-up: exposed directly on the row response so the
+    publish modal reads images off the row it already has instead of
+    re-fetching the full GBP report via `/gbp-parser` and matching by EAN
+    client-side.
+    """
+    images = []
+    for key in IMAGE_KEYS:
+        value = gbp_row.get(key)
+        if isinstance(value, str) and value.strip():
+            images.append(value)
+    return images
+
+
 class ReconcileRowResponse(BaseModel):
     ean: str
     verdict: str
     despublicar: bool
     tn_matches: List[TnMatchResponse]
+    # Sub-slice 3c follow-up: raw GBP product fields the publish modal needs
+    # (category picker text + description editor + image list), populated
+    # from `ReconcileRow.gbp_row` — see `_gbp_images` above. Replaces the
+    # earlier frontend workaround of re-fetching the whole report via
+    # `/gbp-parser` and matching by EAN client-side.
+    ml_desc: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+    images: List[str] = []
 
 
 class ReconcileReportResponse(BaseModel):
@@ -283,6 +311,10 @@ async def get_reconciliation_report(
             verdict=v.verdict,
             despublicar=v.despublicar,
             tn_matches=[TnMatchResponse.model_validate(tn) for tn in v.tn_matches],
+            ml_desc=v.gbp_row.get("ML_desc"),
+            categoria=v.gbp_row.get("Categoría"),
+            subcategoria=v.gbp_row.get("SubCategoría"),
+            images=_gbp_images(v.gbp_row),
         )
         for v in filtered
     ]

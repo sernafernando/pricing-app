@@ -1,0 +1,58 @@
+/* TnPublishModal — publish form for FALTA_PUBLICAR rows (Sub-slice 3c) */
+
+.section {
+  margin-bottom: var(--spacing-md);
+}
+
+.sectionTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0 0 var(--spacing-sm);
+}
+
+.categoryOption {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px 0;
+  font-size: 0.85rem;
+}
+
+.categoryTop {
+  font-weight: 600;
+}
+
+.manualCategoryRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.editorShell {
+  border: 1px solid var(--cf-border, #333);
+  border-radius: 6px;
+  min-height: 160px;
+  padding: var(--spacing-sm);
+}
+
+.imageList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
+
+.confirmBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.errorBanner {
+  color: var(--cf-danger, #d33);
+  font-size: 0.85rem;
+  margin-bottom: var(--spacing-sm);
+}

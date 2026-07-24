@@ -277,6 +277,59 @@ class TestOneShotReport:
         assert len(body["items"]) == 2
 
 
+class TestRowGbpFields:
+    """Sub-slice 3c follow-up: the row response must carry the raw GBP
+    product fields the publish modal needs (`ml_desc`, `images`,
+    `categoria`, `subcategoria`) directly — the frontend must never need a
+    second full-report `/gbp-parser` re-fetch matched by EAN client-side."""
+
+    def test_row_carries_ml_desc_categoria_subcategoria(self, client, db, user_ver):
+        gbp_rows = [
+            {
+                "Código": "GBP-1",
+                "tnr_id": 0,
+                "tnr_variationID": 0,
+                "stock": 0,
+                "ML_desc": "<p>Descripción</p>",
+                "Categoría": "Electrónica",
+                "SubCategoría": "Auriculares",
+            }
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = next(r for r in response.json()["items"] if r["ean"] == "GBP-1")
+        assert row["ml_desc"] == "<p>Descripción</p>"
+        assert row["categoria"] == "Electrónica"
+        assert row["subcategoria"] == "Auriculares"
+
+    def test_row_images_filters_empty_slots_and_preserves_order(self, client, db, user_ver):
+        gbp_rows = [
+            {
+                "Código": "GBP-2",
+                "tnr_id": 0,
+                "tnr_variationID": 0,
+                "stock": 0,
+                "image1": "https://x/1.jpg",
+                "image2": "",
+                "image3": None,
+                "image4": "https://x/4.jpg",
+            }
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = next(r for r in response.json()["items"] if r["ean"] == "GBP-2")
+        assert row["images"] == ["https://x/1.jpg", "https://x/4.jpg"]
+
+    def test_row_gbp_fields_default_to_none_or_empty_when_missing(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver)  # _fake_gbp_rows() has no ML_desc/images/categoría
+        assert response.status_code == 200
+        row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
+        assert row["ml_desc"] is None
+        assert row["categoria"] is None
+        assert row["subcategoria"] is None
+        assert row["images"] == []
+
+
 class TestBanlist:
     def test_ban_hides_row_and_unban_reveals_it(self, client, db, user_ver):
         before = _fetch_report(client, user_ver)
