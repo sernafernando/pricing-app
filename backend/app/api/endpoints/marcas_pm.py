@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, tuple_
 from pydantic import BaseModel, ConfigDict
@@ -7,6 +9,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
+from app.models.marca_sub_pm import MarcaSubPM
 from app.models.producto import ProductoERP
 from app.models.subcategoria import Subcategoria
 
@@ -100,6 +103,37 @@ class UsuarioPMResponse(BaseModel):
     rol: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SubPMGrantRequest(BaseModel):
+    """Payload to grant a sub-PM on a (marca, categoria) pair."""
+
+    marca: str
+    categoria: str
+    usuario_id: int
+
+
+class SubPMResponse(BaseModel):
+    id: int
+    marca: str
+    categoria: str
+    usuario_id: int
+    usuario_nombre: Optional[str] = None
+    creado_por: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParTitularidadItem(BaseModel):
+    id: int
+    marca: str
+    categoria: str
+
+
+class MisTitularidadesResponse(BaseModel):
+    pares: List[ParTitularidadItem]
+    total: int
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -375,3 +409,181 @@ def listar_usuarios_pm(
         usuarios = db.query(Usuario).filter(Usuario.activo == True).all()
 
         return [UsuarioPMResponse(id=u.id, nombre=u.nombre, email=u.email, rol=u.rol_codigo) for u in usuarios]
+
+
+# ── Sub-PM CRUD (design D3: admin role gate OR data-scoped titular guard) ────
+
+
+def _require_titular_or_admin(db: Session, marca: str, categoria: str, user: Usuario) -> None:
+    """Authorize a sub-PM write/read on a (marca, categoria) pair.
+
+    Admin/superadmin roles always pass. Otherwise the caller MUST be the
+    current titular of that exact pair (marcas_pm.usuario_id == user.id).
+    Re-verified on every call (never cached from grant time) — a titular
+    reassigned away from the pair loses access on their very next request.
+    A pair with no titular (usuario_id IS NULL) is admin-only manageable.
+
+    Raises:
+        HTTPException(404): the (marca, categoria) pair does not exist.
+        HTTPException(403): caller is neither admin nor the pair's titular.
+    """
+    if user.rol in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN):
+        par = db.query(MarcaPM).filter(MarcaPM.marca == marca, MarcaPM.categoria == categoria).first()
+        if not par:
+            raise HTTPException(404, "Par marca-categoría no encontrado")
+        return
+
+    par = db.query(MarcaPM).filter(MarcaPM.marca == marca, MarcaPM.categoria == categoria).first()
+    if not par:
+        raise HTTPException(404, "Par marca-categoría no encontrado")
+
+    if par.usuario_id != user.id:
+        raise HTTPException(403, "No tienes permisos sobre este par marca-categoría")
+
+
+@router.get("/marcas-pm/mis-titularidades", response_model=MisTitularidadesResponse)
+def mis_titularidades(
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+) -> MisTitularidadesResponse:
+    """
+    Pares (marca, categoria) de los que el usuario actual es TITULAR.
+
+    Estrictamente titular-only (sourced from `marcas_pm`), NUNCA UNION'd con
+    `marca_sub_pm` — este endpoint alimenta la superficie de gestión del
+    frontend (PR3); mezclar pares delegados aquí filtraría gestión de pares
+    ajenos al titular real.
+    """
+    pares = db.query(MarcaPM).filter(MarcaPM.usuario_id == current_user.id).all()
+    items = [ParTitularidadItem(id=p.id, marca=p.marca, categoria=p.categoria) for p in pares]
+    return MisTitularidadesResponse(pares=items, total=len(items))
+
+
+@router.get("/marcas-pm/sub-pms", response_model=List[SubPMResponse])
+def listar_sub_pms(
+    marca: str,
+    categoria: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[SubPMResponse]:
+    """
+    Lista los sub-PMs delegados de un par (marca, categoria).
+
+    Requiere ser el titular del par o tener rol ADMIN/SUPERADMIN.
+    """
+    _require_titular_or_admin(db, marca, categoria, current_user)
+
+    grants = (
+        db.query(MarcaSubPM)
+        .options(joinedload(MarcaSubPM.usuario))
+        .filter(MarcaSubPM.marca == marca, MarcaSubPM.categoria == categoria)
+        .all()
+    )
+
+    return [
+        SubPMResponse(
+            id=g.id,
+            marca=g.marca,
+            categoria=g.categoria,
+            usuario_id=g.usuario_id,
+            usuario_nombre=g.usuario.nombre if g.usuario else None,
+            creado_por=g.creado_por,
+            created_at=g.created_at,
+        )
+        for g in grants
+    ]
+
+
+@router.post("/marcas-pm/sub-pms", response_model=SubPMResponse, status_code=201)
+def crear_sub_pm(
+    datos: SubPMGrantRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> SubPMResponse:
+    """
+    Otorga un grant de sub-PM sobre un par (marca, categoria) a un usuario.
+
+    Requiere ser el titular del par o tener rol ADMIN/SUPERADMIN. Idempotente
+    ante grants duplicados (devuelve el existente con 200 en vez de fallar
+    por la unique constraint). Rechaza auto-grant del titular a sí mismo y
+    grants a usuarios inactivos.
+    """
+    _require_titular_or_admin(db, datos.marca, datos.categoria, current_user)
+
+    par = db.query(MarcaPM).filter(MarcaPM.marca == datos.marca, MarcaPM.categoria == datos.categoria).first()
+    if par is not None and par.usuario_id == datos.usuario_id:
+        raise HTTPException(400, "El titular ya tiene acceso total; no puede auto-otorgarse como sub-PM")
+
+    usuario = db.query(Usuario).filter(Usuario.id == datos.usuario_id).first()
+    if not usuario:
+        raise HTTPException(404, "Usuario no encontrado")
+    if not usuario.activo:
+        raise HTTPException(400, "No se puede otorgar sub-PM a un usuario inactivo")
+
+    existente = (
+        db.query(MarcaSubPM)
+        .filter(
+            MarcaSubPM.marca == datos.marca,
+            MarcaSubPM.categoria == datos.categoria,
+            MarcaSubPM.usuario_id == datos.usuario_id,
+        )
+        .first()
+    )
+    if existente:
+        # Idempotent: an existing grant returns 200 (not the default 201) so a
+        # duplicate POST is a no-op success instead of a unique-constraint 500.
+        # Serialization still flows through the declared `response_model`.
+        response.status_code = 200
+        return SubPMResponse(
+            id=existente.id,
+            marca=existente.marca,
+            categoria=existente.categoria,
+            usuario_id=existente.usuario_id,
+            usuario_nombre=usuario.nombre,
+            creado_por=existente.creado_por,
+            created_at=existente.created_at,
+        )
+
+    grant = MarcaSubPM(
+        marca=datos.marca,
+        categoria=datos.categoria,
+        usuario_id=datos.usuario_id,
+        creado_por=current_user.id,
+    )
+    db.add(grant)
+    db.commit()
+    db.refresh(grant)
+
+    return SubPMResponse(
+        id=grant.id,
+        marca=grant.marca,
+        categoria=grant.categoria,
+        usuario_id=grant.usuario_id,
+        usuario_nombre=usuario.nombre,
+        creado_por=grant.creado_por,
+        created_at=grant.created_at,
+    )
+
+
+@router.delete("/marcas-pm/sub-pms/{sub_pm_id}", status_code=204)
+def revocar_sub_pm(
+    sub_pm_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """
+    Revoca un grant de sub-PM.
+
+    Ownership se re-verifica contra la titularidad ACTUAL del par (no la
+    vigente al momento del grant): si el titular fue reasignado, ya no puede
+    revocar sub-PMs de ese par salvo que sea admin.
+    """
+    grant = db.query(MarcaSubPM).filter(MarcaSubPM.id == sub_pm_id).first()
+    if not grant:
+        raise HTTPException(404, "Grant de sub-PM no encontrado")
+
+    _require_titular_or_admin(db, grant.marca, grant.categoria, current_user)
+
+    db.delete(grant)
+    db.commit()
+    return None
