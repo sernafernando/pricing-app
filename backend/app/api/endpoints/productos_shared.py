@@ -15,8 +15,11 @@ from sqlalchemy.orm import InstrumentedAttribute, Query, Session
 
 from app.models.equipo import Equipo, EquipoMiembro
 from app.models.usuario import Usuario
+from app.schemas.costo_ppp import PppPayload
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["PppPayload"]  # re-exported for backward compatibility; canonical home is app.schemas.costo_ppp
 
 
 class ProductoResponse(BaseModel):
@@ -94,6 +97,9 @@ class ProductoResponse(BaseModel):
     tn_price: Optional[float] = None  # Precio normal
     tn_promotional_price: Optional[float] = None  # Precio promocional
     tn_has_promotion: Optional[bool] = None  # Si tiene promoción activa
+
+    # PPP (ERP weighted-average cost) — informational only, never persisted.
+    ppp: Optional[PppPayload] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -183,6 +189,9 @@ class ProductoTiendaResponse(BaseModel):
     tn_price: Optional[float] = None
     tn_promotional_price: Optional[float] = None
     tn_has_promotion: Optional[bool] = None
+
+    # PPP (ERP weighted-average cost) — informational only, never persisted.
+    ppp: Optional[PppPayload] = None
 
     model_config = ConfigDict(from_attributes=True)
 
