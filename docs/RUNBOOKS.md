@@ -234,16 +234,35 @@ failover if one is rate-limited/down (`provider_rotation.py`).
    via `PUT /api/ml-bot/config/{clave}`:
    ```json
    [
-     {"name": "groq", "enabled": true},
-     {"name": "cerebras", "enabled": true},
-     {"name": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "enabled": true}
+     {"name": "groq", "model": "llama-3.3-70b-versatile", "enabled": true},
+     {"name": "cerebras", "model": "gpt-oss-120b", "enabled": true},
+     {"name": "openrouter", "model": "openai/gpt-oss-20b:free", "enabled": true}
    ]
    ```
-   `model` is optional per entry (falls back to each provider's default:
-   Groq `llama-3.3-70b-versatile`, Cerebras `llama-3.3-70b`, OpenRouter
-   `meta-llama/llama-3.3-70b-instruct:free` — panel-changeable). Unknown
-   `name`s are skipped with a warning; missing/malformed JSON fails safe to
-   a Groq-only roster (the pre-rotation MVP behavior).
+   `model` is optional per entry (falls back to each provider's default in
+   `provider_rotation._known_provider_specs`), but **pin it explicitly and
+   verify the id exists at that provider before saving**. A model id the
+   provider does not recognise answers 4xx, which is treated as a permanent
+   error (no retry) and fails over — so a typo'd or retired id silently
+   removes that provider from rotation and hands its share to the others.
+   That exact failure shipped once: the original seed carried
+   `cerebras/llama-3.3-70b` and `openrouter/meta-llama/llama-3.3-70b-instruct:free`,
+   neither of which exists, and Groq quietly answered 100% of questions
+   (fixed in migration `20260727_fix_llm_ids`).
+
+   To check an id before saving it:
+   ```bash
+   curl -s -H "Authorization: Bearer $CEREBRAS_API_KEY" \
+     https://api.cerebras.ai/v1/models | jq -r '.data[].id'
+   curl -s https://openrouter.ai/api/v1/models | jq -r '.data[].id'   # no auth needed
+   ```
+
+   Unknown `name`s are skipped with a warning; missing/malformed JSON fails
+   safe to a Groq-only roster (the pre-rotation MVP behavior).
+
+   Note both replacement models are reasoning models: completion tokens
+   include reasoning tokens, so Cerebras' 30k tokens/minute cap binds before
+   its 5 requests/minute cap at our payload sizes.
 3. Rotation cursor: `ml_bot_config` key `llm_rotation_cursor` (int,
    auto-managed) — round-robin, advances once per drafted question.
 4. Failover: if the chosen provider raises, the next available provider in

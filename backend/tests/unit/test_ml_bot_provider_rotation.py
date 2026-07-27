@@ -161,7 +161,9 @@ class TestRosterParsing:
         with _patch_db(db):
             providers = provider_rotation.available_providers(db)
 
-        assert providers[0]._model == "llama-3.3-70b"
+        # Verified-existing id; see test_migration_ml_bot_llm_model_ids.py for
+        # why an unknown default silently drops the provider from rotation.
+        assert providers[0]._model == "gpt-oss-120b"
 
     def test_no_configured_providers_returns_empty_list(self, db, monkeypatch) -> None:
         monkeypatch.setattr(provider_rotation.settings, "GROQ_API_KEY", None)
@@ -420,9 +422,7 @@ class TestFailoverNotification:
             created["mensaje"] = mensaje
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
 
@@ -449,9 +449,7 @@ class TestFailoverNotification:
             created["mensaje"] = mensaje
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         with pytest.raises(LlmProviderError):
             asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
@@ -472,9 +470,7 @@ class TestFailoverNotification:
             call_count["n"] += 1
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
         asyncio.run(provider_rotation.RotatingProvider().complete("system", "user"))
@@ -500,9 +496,7 @@ class TestFailoverNotification:
             call_count["n"] += 1
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         _real_build_rotation_order = provider_rotation.build_rotation_order
 
@@ -541,9 +535,7 @@ class TestFailoverNotification:
             mensajes.append(mensaje)
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         # Call 1: groq fails, cerebras covers.
         providers_1 = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
@@ -575,9 +567,7 @@ class TestFailoverNotification:
             call_count["n"] += 1
             return []
 
-        monkeypatch.setattr(
-            "app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear
-        )
+        monkeypatch.setattr("app.services.notificacion_service.crear_notificaciones_para_permisos", _fake_crear)
 
         providers = [_FakeFailingProvider("groq"), _FakeOkProvider("cerebras", "hola")]
         monkeypatch.setattr(provider_rotation, "build_rotation_order", lambda: providers)
