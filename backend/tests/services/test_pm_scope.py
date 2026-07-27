@@ -141,6 +141,42 @@ class TestAplicarFiltroMarcasPm:
         assert filtered is query or str(filtered) == str(query)
 
 
+class TestAplicarFiltroMarcasPmColumnasGenericas:
+    """The filter accepts marca_col/categoria_col to scope a non-MLVentaMetrica
+    query (e.g. a ProductoERP catalog search) with the same effective-scope rules."""
+
+    def test_scopes_productoerp_query_to_user_pairs(self, db, rol_ventas) -> None:
+        from app.models.producto import ProductoERP
+
+        pm = _make_user(db, rol_ventas, "pe_scope_pm")
+        db.add(MarcaPM(marca="Lenovo", categoria="Notebooks", usuario_id=pm.id))
+        db.add(ProductoERP(item_id=990001, codigo="EAN-LEN-1069", marca="Lenovo", categoria="Notebooks", activo=True))
+        db.add(ProductoERP(item_id=990002, codigo="EAN-HP-1069", marca="HP", categoria="Notebooks", activo=True))
+        db.flush()
+
+        query = db.query(ProductoERP)
+        filtered = aplicar_filtro_marcas_pm(
+            query, pm, db, marca_col=ProductoERP.marca, categoria_col=ProductoERP.categoria
+        )
+        item_ids = {r.item_id for r in filtered.all()}
+
+        assert 990001 in item_ids  # Lenovo/Notebooks — within the PM's scope
+        assert 990002 not in item_ids  # HP/Notebooks — outside the PM's scope
+
+    def test_full_view_user_sees_all_productoerp(self, db, rol_ventas) -> None:
+        from app.models.producto import ProductoERP
+
+        gerente = _make_user(db, rol_ventas, "pe_scope_gerente", rol=RolUsuario.GERENTE)
+        db.add(ProductoERP(item_id=990003, codigo="EAN-ANY-1069", marca="CualquierMarca", categoria="X", activo=True))
+        db.flush()
+
+        query = db.query(ProductoERP).filter(ProductoERP.item_id == 990003)
+        filtered = aplicar_filtro_marcas_pm(
+            query, gerente, db, marca_col=ProductoERP.marca, categoria_col=ProductoERP.categoria
+        )
+        assert {r.item_id for r in filtered.all()} == {990003}
+
+
 class TestScopeExistsSql:
     def test_contains_both_tables_and_scope_user_id_param(self) -> None:
         snippet = scope_exists_sql("pe")
