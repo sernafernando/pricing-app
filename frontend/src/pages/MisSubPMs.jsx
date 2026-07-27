@@ -3,21 +3,26 @@ import { Plus, Trash2, ShieldCheck } from 'lucide-react';
 import { marcasPmAPI } from '../services/api';
 import { ModalAlert, ModalLoading } from '../components/ModalTesla';
 import { useAuthStore } from '../store/authStore';
+import { usePermisos } from '../contexts/PermisosContext';
 import styles from './MisSubPMs.module.css';
 
 /**
- * MisSubPMs — non-admin titular surface for sub-PM delegation
- * (sub-pm-scope-marcas PR3).
+ * MisSubPMs — sub-PM delegation surface (sub-pm-scope-marcas PR3).
  *
- * A titular of one or more (marca, categoria) pairs (per
- * `GET /marcas-pm/mis-titularidades`, deliberately NOT the UNION'd
- * mis-marcas) can grant/revoke sub-PMs on THEIR OWN pairs here. Admins
- * manage everything via the existing GestionPM.jsx; this page carries no
- * admin permiso gate — visibility is purely data-scoped (you only see pairs
- * you are the titular of).
+ * Two modes, both backed by the same sub-PM endpoints (the backend's
+ * `_require_titular_or_admin` already authorizes admins on ANY pair):
+ *
+ *   - Titular mode (default): pairs come from `GET /marcas-pm/mis-titularidades`
+ *     (deliberately NOT the UNION'd mis-marcas), so a titular only sees and
+ *     manages their OWN pairs. Purely data-scoped, no permiso gate.
+ *   - Admin mode (`admin.gestionar_pms`, same gate as GestionPM): pairs come
+ *     from `GET /marcas-pm` — every (marca, categoria) pair, including pairs
+ *     with NO titular assigned, which are otherwise unmanageable from the UI.
  */
 export default function MisSubPMs() {
   const currentUserId = useAuthStore((s) => s.user?.id);
+  const { tienePermiso } = usePermisos();
+  const esAdmin = tienePermiso('admin.gestionar_pms');
 
   const [pares, setPares] = useState([]);
   const [loadingPares, setLoadingPares] = useState(true);
@@ -44,8 +49,25 @@ export default function MisSubPMs() {
   const cargarPares = useCallback(async () => {
     setLoadingPares(true);
     try {
-      const { data } = await marcasPmAPI.misTitularidades();
-      const nuevosPares = Array.isArray(data?.pares) ? data.pares : [];
+      let nuevosPares;
+      if (esAdmin) {
+        // `admin.gestionar_pms` can be granted as an override to a non-admin
+        // role, but GET /marcas-pm is role-gated (403) — fall back to the
+        // titular scope instead of leaving the page empty. ONLY on 403: any
+        // other failure must surface as an error, never as a silently
+        // narrower pair list.
+        try {
+          const { data } = await marcasPmAPI.listarTodosLosPares();
+          nuevosPares = Array.isArray(data) ? data : [];
+        } catch (err) {
+          if (err?.response?.status !== 403) throw err;
+          const { data } = await marcasPmAPI.misTitularidades();
+          nuevosPares = Array.isArray(data?.pares) ? data.pares : [];
+        }
+      } else {
+        const { data } = await marcasPmAPI.misTitularidades();
+        nuevosPares = Array.isArray(data?.pares) ? data.pares : [];
+      }
       setPares(nuevosPares);
       setSelectedId((prevId) => {
         if (prevId != null && !nuevosPares.some((p) => p.id === prevId)) {
@@ -56,11 +78,11 @@ export default function MisSubPMs() {
       });
     } catch (err) {
       setPares([]);
-      showError(err, 'Error al cargar tus marcas/categorías');
+      showError(err, esAdmin ? 'Error al cargar las marcas/categorías' : 'Error al cargar tus marcas/categorías');
     } finally {
       setLoadingPares(false);
     }
-  }, [showError]);
+  }, [showError, esAdmin]);
 
   const cargarSubPMs = useCallback(async (par) => {
     if (!par) return;
@@ -165,20 +187,26 @@ export default function MisSubPMs() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Mis Sub-PMs</h1>
+      <h1 className={styles.title}>{esAdmin ? 'Sub-PMs' : 'Mis Sub-PMs'}</h1>
       <p className={styles.subtitle}>
-        Delegá la gestión de tus marcas/categorías a otros usuarios sin cederles la titularidad.
+        {esAdmin
+          ? 'Gestioná los sub-PMs de cualquier marca/categoría, incluso las que no tienen titular asignado.'
+          : 'Delegá la gestión de tus marcas/categorías a otros usuarios sin cederles la titularidad.'}
       </p>
 
       {alerta && <ModalAlert type={alerta.tipo === 'success' ? 'success' : 'error'}>{alerta.texto}</ModalAlert>}
 
       <div className={styles.layout}>
         <div className={styles.listPanel}>
-          <div className={styles.sectionTitle}>Tus marcas/categorías</div>
+          <div className={styles.sectionTitle}>{esAdmin ? 'Marcas/categorías' : 'Tus marcas/categorías'}</div>
           {loadingPares ? (
             <ModalLoading message="Cargando..." />
           ) : pares.length === 0 ? (
-            <div className={styles.emptyState}>No sos titular de ninguna marca/categoría.</div>
+            <div className={styles.emptyState}>
+              {esAdmin
+                ? 'No hay marcas/categorías cargadas.'
+                : 'No sos titular de ninguna marca/categoría.'}
+            </div>
           ) : (
             <div className={styles.parList}>
               {pares.map((par) => (
@@ -208,7 +236,11 @@ export default function MisSubPMs() {
               {loadingSubPMs ? (
                 <ModalLoading message="Cargando sub-PMs..." />
               ) : subPMs.length === 0 ? (
-                <div className={styles.emptyState}>Todavía no delegaste sub-PMs en este par.</div>
+                <div className={styles.emptyState}>
+                  {esAdmin
+                    ? 'Este par todavía no tiene sub-PMs delegados.'
+                    : 'Todavía no delegaste sub-PMs en este par.'}
+                </div>
               ) : (
                 <div className={styles.grantList}>
                   {subPMs.map((g) => (

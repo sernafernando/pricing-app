@@ -22,9 +22,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
   const { tienePermiso, tieneAlgunPermiso } = usePermisos();
   const location = useLocation();
 
-  // Sub-PM delegation (sub-pm-scope-marcas): "Mis Sub-PMs" is data-scoped, not
-  // permiso-gated — only shown to users who are titular of ≥1 (marca,
-  // categoria) pair, discovered via GET /marcas-pm/mis-titularidades.
+  // Sub-PM delegation (sub-pm-scope-marcas): "Mis Sub-PMs" is data-scoped for
+  // regular users — only shown to titulares of ≥1 (marca, categoria) pair,
+  // discovered via GET /marcas-pm/mis-titularidades. Admins (admin.gestionar_pms)
+  // always see it: they manage every pair, even with zero titularidades.
   const [tieneTitularidades, setTieneTitularidades] = useState(false);
   useEffect(() => {
     let cancelado = false;
@@ -196,7 +197,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: false,
       items: [
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
-        { label: 'Mis Sub-PMs', path: '/mis-sub-pms', visibleIf: () => tieneTitularidades },
+        { label: 'Mis Sub-PMs', path: '/mis-sub-pms', visibleIf: () => tieneTitularidades || tienePermiso('admin.gestionar_pms') },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
         { label: 'Envío Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },

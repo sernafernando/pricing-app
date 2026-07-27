@@ -62,6 +62,7 @@ vi.mock('../services/api', () => ({
   },
   marcasPmAPI: {
     misTitularidades: vi.fn().mockResolvedValue({ data: { pares: [], total: 0 } }),
+    listarTodosLosPares: vi.fn().mockResolvedValue({ data: [] }),
     listarSubPMs: vi.fn().mockResolvedValue({ data: [] }),
     crearSubPM: vi.fn().mockResolvedValue({ data: {} }),
     eliminarSubPM: vi.fn().mockResolvedValue({ data: {} }),
