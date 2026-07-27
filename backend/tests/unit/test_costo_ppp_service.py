@@ -318,3 +318,100 @@ class TestResolverAgainstRealPostgres:
         assert result[item_ids[1]].costo_ppp == float(item_ids[1])
         assert result[item_ids[2]].costo_ppp == float(item_ids[2])
         assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# Dialect equivalence — the single shared dataset both branches must agree on
+# ---------------------------------------------------------------------------
+#
+# `resolver_ppp_batch` now has TWO independent implementations
+# (`_build_lateral_stmt` for PostgreSQL, `_build_row_number_stmt` for every
+# other dialect, notably SQLite in the rest of this suite). Nothing besides
+# this test structurally guarantees they agree — each is otherwise exercised
+# by a separate test class, against similar but not identical data. If they
+# ever diverge, the LATERAL branch (the one that actually runs in production)
+# is exactly the one with the least dedicated coverage, so a divergence would
+# surface in production, not CI. This dataset is defined ONCE and fed to both
+# branches so any real divergence is exposed here, not silently accommodated.
+
+_EQUIVALENCE_DATASET = [
+    # item_id 601: single qualifying row.
+    dict(it_transaction=6001, item_id=601, it_priceofcostpp=111.0, it_cd=datetime(2026, 1, 5)),
+    # item_id 602: several qualifying rows with distinct it_cd -> latest wins.
+    dict(it_transaction=6002, item_id=602, it_priceofcostpp=100.0, it_cd=datetime(2025, 1, 1)),
+    dict(it_transaction=6003, item_id=602, it_priceofcostpp=300.0, it_cd=datetime(2026, 6, 1)),
+    dict(it_transaction=6004, item_id=602, it_priceofcostpp=200.0, it_cd=datetime(2025, 6, 1)),
+    # item_id 603: cancelled row excluded.
+    dict(it_transaction=6005, item_id=603, it_priceofcostpp=999.0, it_cancelled=True),
+    # item_id 604: USD-denominated row excluded (it_exchangetobranchcurrency NULL), not converted.
+    dict(it_transaction=6006, item_id=604, it_priceofcostpp=999.0, it_exchangetobranchcurrency=None),
+    # item_id 605: RMA-linked row excluded.
+    dict(it_transaction=6007, item_id=605, it_priceofcostpp=999.0, rmah_id=42),
+    # item_id 606: supplier credit note excluded.
+    dict(it_transaction=6008, item_id=606, it_priceofcostpp=999.0, it_isrmasuppliercreditnote=True),
+    # item_id 607: non-positive it_priceofcostpp excluded.
+    dict(it_transaction=6009, item_id=607, it_priceofcostpp=0.0),
+    # item_id 608: EXACT it_cd tie between two qualifying rows -> the tiebreak
+    # (it_transaction DESC) must make both branches agree deterministically.
+    # If either branch ever drops that tiebreak, this is where it would show.
+    dict(it_transaction=6010, item_id=608, it_priceofcostpp=400.0, it_cd=datetime(2026, 3, 1)),
+    dict(it_transaction=6011, item_id=608, it_priceofcostpp=500.0, it_cd=datetime(2026, 3, 1)),
+    # item_id 609: no row at all for this item_id (absent from the dataset;
+    # included in the queried item_ids list below to prove absence-agreement).
+]
+
+_EQUIVALENCE_ITEM_IDS = [601, 602, 603, 604, 605, 606, 607, 608, 609]
+
+
+def _seed_equivalence_dataset(session) -> None:
+    defaults = dict(
+        ct_transaction=1,
+        it_cancelled=False,
+        it_exchangetobranchcurrency=1.0,
+        rmah_id=None,
+        it_isrmasuppliercreditnote=False,
+        it_cd=datetime(2026, 1, 1),
+    )
+    for row in _EQUIVALENCE_DATASET:
+        merged = {**defaults, **row}
+        session.add(ItemTransaction(**merged))
+    session.commit()
+
+
+@pytest.mark.postgres
+class TestResolverDialectEquivalence:
+    """Both resolver branches must agree, row for row, on the exact same dataset.
+
+    `db` (SQLite) exercises `_build_row_number_stmt`; `pg_db` (real
+    PostgreSQL) exercises `_build_lateral_stmt`. Same `_EQUIVALENCE_DATASET`,
+    same `item_ids`, asserted to produce identical `{item_id: PppSource}`
+    dicts — including the exact-`it_cd`-tie case (item_id 608), which is the
+    one scenario where LATERAL's `LIMIT 1` and `ROW_NUMBER()` could plausibly
+    disagree without a deterministic secondary tiebreak.
+    """
+
+    def test_sqlite_and_postgres_resolve_identically(self, db, pg_db) -> None:
+        _seed_equivalence_dataset(db)
+        _seed_equivalence_dataset(pg_db)
+
+        sqlite_result = resolver_ppp_batch(db, _EQUIVALENCE_ITEM_IDS)
+        postgres_result = resolver_ppp_batch(pg_db, _EQUIVALENCE_ITEM_IDS)
+
+        assert sqlite_result.keys() == postgres_result.keys()
+        for item_id in sqlite_result:
+            assert sqlite_result[item_id].costo_ppp == postgres_result[item_id].costo_ppp, item_id
+            assert sqlite_result[item_id].costo_ppp_fecha == postgres_result[item_id].costo_ppp_fecha, item_id
+
+        # Pin down the expected values explicitly too, not just cross-equality
+        # (two branches could agree on a value that is itself wrong).
+        assert 603 not in sqlite_result and 603 not in postgres_result
+        assert 604 not in sqlite_result and 604 not in postgres_result
+        assert 605 not in sqlite_result and 605 not in postgres_result
+        assert 606 not in sqlite_result and 606 not in postgres_result
+        assert 607 not in sqlite_result and 607 not in postgres_result
+        assert 609 not in sqlite_result and 609 not in postgres_result
+        assert sqlite_result[601].costo_ppp == 111.0
+        assert sqlite_result[602].costo_ppp == 300.0
+        # Tie on it_cd -> highest it_transaction (6011, costo 500.0) wins on both branches.
+        assert sqlite_result[608].costo_ppp == 500.0
+        assert postgres_result[608].costo_ppp == 500.0

@@ -14,8 +14,19 @@ Row selection rule (see openspec/changes/productos-costo-ppp/specs.md):
     AND it_exchangetobranchcurrency IS NOT NULL
     AND rmah_id IS NULL
     AND it_isrmasuppliercreditnote = false
-    ORDER BY it_cd DESC
+    ORDER BY it_cd DESC, it_transaction DESC
     LIMIT 1 per item_id
+
+Tiebreak note: `it_cd` (a `DateTime`) is not guaranteed unique per item_id — two
+qualifying rows for the same item_id can share the exact same `it_cd`. Neither
+LATERAL's `LIMIT 1` nor `ROW_NUMBER()` has a deterministic winner on `it_cd`
+alone in that case (each engine — and even each execution plan — may pick a
+different physical row; confirmed empirically: removing the tiebreak makes
+`TestResolverDialectEquivalence` below fail deterministically). Both branches
+therefore break ties on `it_transaction DESC` (the highest transaction id
+wins), a real, always-unique column — this makes the "latest qualifying row"
+pick fully deterministic and identical between the LATERAL and ROW_NUMBER
+branches.
 
 Performance note (production EXPLAIN ANALYZE, 2026-07-27, with the
 `ix_tit_item_cd_desc ON tb_item_transactions (item_id, it_cd DESC)` index in
@@ -144,7 +155,7 @@ def _build_lateral_stmt(chunk: list[int]):
             ItemTransaction.it_cd.label("it_cd"),
         )
         .where(_qualifying_predicate(ItemTransaction.item_id == item_id_seq.c.item_id))
-        .order_by(ItemTransaction.it_cd.desc())
+        .order_by(ItemTransaction.it_cd.desc(), ItemTransaction.it_transaction.desc())
         .limit(1)
         .lateral()
     )
@@ -166,7 +177,7 @@ def _build_row_number_stmt(chunk: list[int]):
         func.row_number()
         .over(
             partition_by=ItemTransaction.item_id,
-            order_by=ItemTransaction.it_cd.desc(),
+            order_by=[ItemTransaction.it_cd.desc(), ItemTransaction.it_transaction.desc()],
         )
         .label("rn")
     )
