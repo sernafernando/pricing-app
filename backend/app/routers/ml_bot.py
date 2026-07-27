@@ -69,6 +69,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.sse import sse_publish_bg
+from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
+from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
+from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.ml_bot_admin_pending_request import MlBotAdminPendingRequest
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.ml_bot_config import MlBotConfig
@@ -105,8 +108,30 @@ _PUBLISH_NOW_FAILED_RETRY_ATTEMPTS = 1
 # panel action may legally CAS out of on `MlBotMessage.bot_status` (design
 # "Interfaces / Contracts" state machine). Mirrors the questions constants
 # above but on the separate `bot_status` column.
+# `sending` is deliberately NOT here. Allowing a take-over of an in-flight row
+# reopens the double send this whole claim exists to prevent: an operator could
+# steal the row while MercadoLibre is still being called, the sender's final
+# CAS would then no-op, and the panel would show the untouched draft with the
+# send button live — on a message the buyer already received.
+# A row genuinely stranded by a crash mid-send therefore needs a TTL/lease
+# sweeper, tracked as a follow-up; it must NOT be recovered by widening this
+# tuple.
 _MESSAGE_TAKE_OVER_SOURCE_STATES = ("awaiting_human", "blocked_claim", "failed")
-_MESSAGE_SEND_SOURCE_STATES = ("taken_over",)
+# Sending accepts `awaiting_human` as well as `taken_over`, mirroring the
+# Preguntas tab's `publish-now`: a draft the bot already wrote should go out
+# in one click instead of forcing tomar -> editar -> enviar. A direct send
+# still stamps `taken_over_by`, so the audit trail is identical either way.
+# `blocked_claim` is deliberately NOT here — a claim is the one thing the bot
+# must never answer, and it must still be taken over deliberately first.
+_MESSAGE_SEND_SOURCE_STATES = ("taken_over", "awaiting_human")
+
+# In-flight state claimed BEFORE the external ML call. Without it two
+# concurrent /send requests both pass a plain status read and the buyer gets
+# the same message twice — the CAS that followed the send could not prevent
+# it, because a CAS from ("taken_over", "awaiting_human") to "taken_over"
+# succeeds for both racers. `sending` is a state neither racer can claim
+# twice, so the loser gets a 409 and never reaches MercadoLibre.
+_MESSAGE_SENDING_STATE = "sending"
 
 # Admin-pending (Phase B, sdd/ml-bot-admin-pending, PR2): source states each
 # transition may legally CAS out of on `MlBotAdminPendingRequest.status`
@@ -276,6 +301,44 @@ class MessageAnswerUpdate(BaseModel):
 class MessageSendResponse(BaseModel):
     message: MessageResponse
     sent: bool
+
+
+# ---------------------------------------------------------------------------
+# Order context for the Mensajes panel
+#
+# What the buyer bought and where the shipment is, keyed by `pack_id`, so an
+# operator can judge the bot's draft from the list without leaving the panel.
+# Batched because the panel renders many threads at once and a per-thread
+# endpoint would be an N+1 over three joined tables on every render.
+# ---------------------------------------------------------------------------
+
+_ORDER_CONTEXT_MAX_PACKS = 200
+
+
+class OrderContextItem(BaseModel):
+    title: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    currency_id: Optional[str] = None
+
+
+class OrderContextShipping(BaseModel):
+    status: Optional[str] = None
+    substatus: Optional[str] = None
+    logistic_type: Optional[str] = None
+    estimated_delivery: Optional[datetime] = None
+
+
+class OrderContext(BaseModel):
+    items: list[OrderContextItem] = []
+    order_status: Optional[str] = None
+    total_paid: Optional[float] = None
+    date_created: Optional[datetime] = None
+    shipping: Optional[OrderContextShipping] = None
+
+
+class OrderContextResponse(BaseModel):
+    contexts: dict[str, OrderContext]
 
 
 class ExampleCreate(BaseModel):
@@ -562,6 +625,99 @@ def listar_mensajes(
     )
 
 
+@router.get("/messages/order-context", response_model=OrderContextResponse)
+def contexto_de_ordenes(
+    pack_ids: str = Query("", description="pack_ids separados por coma"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> OrderContextResponse:
+    """Qué compró el comprador y estado del envío, por `pack_id`.
+
+    Batch (una llamada por render de lista, no una por hilo). Un `pack_id`
+    sin orden asociada simplemente no aparece en la respuesta: es normal
+    (packs de prueba, órdenes borradas) y no es un error.
+
+    Un pack AGRUPA órdenes, así que los ítems de todas las órdenes del pack
+    se combinan — mostrar solo una sería mostrarle al operador la mitad de
+    lo que el cliente compró. Requiere `ml_bot.messages.ver`.
+    """
+    _check_permiso(db, current_user, "ml_bot.messages.ver")
+
+    wanted = [p.strip() for p in pack_ids.split(",") if p.strip()]
+    if not wanted:
+        return OrderContextResponse(contexts={})
+    if len(wanted) > _ORDER_CONTEXT_MAX_PACKS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Demasiados pack_ids (máximo {_ORDER_CONTEXT_MAX_PACKS})",
+        )
+
+    # Ordered newest-first so a pack grouping several orders always resolves to
+    # the SAME shipping row instead of whatever Postgres happens to return
+    # first — the operator must not see the status flip between refreshes.
+    headers = (
+        db.query(MercadoLibreOrderHeader)
+        .filter(MercadoLibreOrderHeader.ml_pack_id.in_(wanted))
+        .order_by(MercadoLibreOrderHeader.mlo_id.desc())
+        .all()
+    )
+    if not headers:
+        logger.info("ml-bot order-context: sin órdenes para %d pack(s) consultados", len(wanted))
+        return OrderContextResponse(contexts={})
+
+    order_ids = [h.mlo_id for h in headers]
+    details = db.query(MercadoLibreOrderDetail).filter(MercadoLibreOrderDetail.mlo_id.in_(order_ids)).all()
+    shippings = db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlo_id.in_(order_ids)).all()
+
+    details_by_order: dict[int, list[MercadoLibreOrderDetail]] = {}
+    for d in details:
+        details_by_order.setdefault(d.mlo_id, []).append(d)
+    shipping_by_order = {sh.mlo_id: sh for sh in shippings}
+
+    contexts: dict[str, OrderContext] = {}
+    for header in headers:
+        pack = header.ml_pack_id
+        ctx = contexts.get(pack)
+        if ctx is None:
+            ctx = OrderContext(items=[], order_status=header.mlo_status)
+            contexts[pack] = ctx
+
+        for d in details_by_order.get(header.mlo_id, []):
+            ctx.items.append(
+                OrderContextItem(
+                    title=d.mlo_title,
+                    quantity=float(d.mlo_quantity) if d.mlo_quantity is not None else None,
+                    unit_price=float(d.mlo_unit_price) if d.mlo_unit_price is not None else None,
+                    currency_id=d.mlo_currency_id,
+                )
+            )
+
+        # Un pack puede tener varias órdenes: se acumula el total pagado y se
+        # conserva la fecha/envío de la primera orden que los traiga.
+        if header.mlo_total_paid_amount is not None:
+            ctx.total_paid = (ctx.total_paid or 0) + float(header.mlo_total_paid_amount)
+        if ctx.date_created is None:
+            ctx.date_created = header.ml_date_created
+
+        sh = shipping_by_order.get(header.mlo_id)
+        if sh is not None and ctx.shipping is None:
+            ctx.shipping = OrderContextShipping(
+                status=sh.mlstatus,
+                substatus=sh.mlsubstatus,
+                logistic_type=sh.mllogistic_type,
+                estimated_delivery=sh.mlestimated_delivery_final or sh.mlestimated_delivery_limit,
+            )
+
+    logger.info(
+        "ml-bot order-context: %d pack(s) consultados, %d resueltos, %d órdenes, %d ítems",
+        len(wanted),
+        len(contexts),
+        len(headers),
+        len(details),
+    )
+    return OrderContextResponse(contexts=contexts)
+
+
 @router.post("/messages/{message_id}/take-over", response_model=MessageResponse)
 def tomar_mensaje(
     message_id: int,
@@ -668,7 +824,7 @@ async def enviar_mensaje(
     if m.bot_status not in _MESSAGE_SEND_SOURCE_STATES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="El mensaje no está en un estado enviable (debe estar taken_over)",
+            detail="El mensaje no está en un estado enviable (debe estar taken_over o awaiting_human)",
         )
     if not m.drafted_answer:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay respuesta cargada para enviar")
@@ -681,28 +837,59 @@ async def enviar_mensaje(
     buyer_id = m.buyer_id
     seller_id = m.seller_id
     text_to_send = m.drafted_answer
+    previous_state = m.bot_status
+
+    # Claim EXCLUSIVELY before touching MercadoLibre. Whoever loses this CAS
+    # never reaches the external call, so a buyer cannot receive the same
+    # message twice from two operators clicking send at once. Also stamps the
+    # operator here, so a direct send from `awaiting_human` records a
+    # responsible human exactly like the explicit take-over path.
+    claimed = _cas_transition_message(
+        db,
+        message_id,
+        _MESSAGE_SEND_SOURCE_STATES,
+        bot_status=_MESSAGE_SENDING_STATE,
+        taken_over_by=m.taken_over_by or current_user.id,
+    )
+    if not claimed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El mensaje ya está siendo enviado por otra acción",
+        )
 
     try:
         result = await ml_client.send_message(pack_id, buyer_id, text_to_send, seller_id=seller_id)
     except MessageSendPermanentError as exc:
-        _cas_transition_message(
+        if not _cas_transition_message(
             db,
             message_id,
-            _MESSAGE_SEND_SOURCE_STATES,
+            (_MESSAGE_SENDING_STATE,),
             bot_status="failed",
             last_error=str(exc)[:2000],
-        )
+        ):
+            logger.error(
+                "ml-bot send: no se pudo marcar failed el mensaje %s — la fila salió de 'sending' durante el envío",
+                message_id,
+            )
         _emit_reload_hint()
         row = _get_message_or_404(db, message_id)
         return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=False)
 
     if result is None:
-        # Transient failure — stays `taken_over` for a manual retry (never
-        # auto-retried, this is a human-send-only endpoint).
+        # Transient failure — release the claim back to where it came from so
+        # the operator can retry (never auto-retried, human-send-only).
+        _cas_transition_message(db, message_id, (_MESSAGE_SENDING_STATE,), bot_status=previous_state)
         row = _get_message_or_404(db, message_id)
         return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=False)
 
-    _cas_transition_message(db, message_id, _MESSAGE_SEND_SOURCE_STATES, bot_status="sent")
+    if not _cas_transition_message(db, message_id, (_MESSAGE_SENDING_STATE,), bot_status="sent"):
+        # Should be unreachable now that `sending` cannot be taken over, but a
+        # silently dropped transition here would mean a delivered message whose
+        # row still looks sendable — loud on purpose.
+        logger.error(
+            "ml-bot send: mensaje %s entregado pero la fila salió de 'sending' — revisar por doble envío",
+            message_id,
+        )
     _emit_reload_hint()
     row = _get_message_or_404(db, message_id)
     return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=True)

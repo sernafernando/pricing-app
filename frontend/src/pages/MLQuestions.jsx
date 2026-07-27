@@ -98,6 +98,7 @@ const MESSAGE_STATUS_LABELS = {
 const MESSAGE_BOT_STATUS_LABELS = {
   awaiting_human: 'Esperando humano',
   taken_over: 'Tomada',
+  sending: 'Enviando…',
   sent: 'Enviada',
   failed: 'Falló',
   superseded: 'Reemplazada',
@@ -107,6 +108,7 @@ const MESSAGE_BOT_STATUS_LABELS = {
 const MESSAGE_BOT_STATUS_BADGE_CLASS = {
   awaiting_human: 'badgeWarning',
   taken_over: 'badgeInfo',
+  sending: 'badgeInfo',
   sent: 'badgeSuccess',
   failed: 'badgeDanger',
   superseded: 'badgeNeutral',
@@ -114,7 +116,11 @@ const MESSAGE_BOT_STATUS_BADGE_CLASS = {
 };
 
 // States a thread's anchor message may be taken over from (mirrors backend
-// `_MESSAGE_TAKE_OVER_SOURCE_STATES`).
+// `_MESSAGE_TAKE_OVER_SOURCE_STATES` — keep both in sync).
+// `sending` is deliberately absent: a row whose send is in flight must not
+// be actionable, or an operator could steal it mid-call and end up sending the
+// same draft to the buyer twice. It still renders a label ('Enviando…') so the
+// state is visible rather than a bare status string.
 const MESSAGE_TAKE_OVER_STATES = ['awaiting_human', 'blocked_claim', 'failed'];
 
 // Phase 6 (PR3) — "Pendientes" tab: back-office task lane for derive-to-admin
@@ -426,6 +432,12 @@ export default function MLQuestions() {
 
   // Messages tab (Phase 5, PR3) — read-only list of ml_bot_messages
   const [messages, setMessages] = useState([]);
+  // pack_id -> { items, order_status, total_paid, shipping }, loaded in one
+  // batched call alongside the message list (see `cargarMensajes`).
+  const [orderContexts, setOrderContexts] = useState({});
+  // Monotonic token so a slow order-context response cannot overwrite a newer
+  // one (the list is refetched from the SSE channel).
+  const orderContextSeq = useRef(0);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [messagesError, setMessagesError] = useState(null);
 
@@ -777,7 +789,36 @@ export default function MLQuestions() {
       if (hasReadFilter !== '') params.has_read = hasReadFilter === 'true';
       if (includeModerated) params.include_moderated = true;
       const { data } = await api.get('/ml-bot/messages', { params });
-      setMessages(data.messages || []);
+      const loaded = data.messages || [];
+      setMessages(loaded);
+
+      // What the buyer bought + where the shipment is, in ONE batched call
+      // for the whole list. Best-effort: this is decision context, never a
+      // reason to fail the message list itself.
+      // Deliberately NOT awaited: the messages are already in state, and
+      // making the list wait on a second round-trip would keep it behind the
+      // "Cargando..." placeholder for data it does not need. Best-effort on
+      // latency as well as on failure — the context simply appears when it
+      // arrives.
+      //
+      // Sequence-guarded because it is un-awaited: the SSE channel refetches
+      // this list, so a slow earlier response could otherwise land after a
+      // newer one and show the operator stale purchases. Only the most
+      // recently issued request is allowed to write.
+      const seq = (orderContextSeq.current += 1);
+      const applyContexts = (value) => {
+        if (seq === orderContextSeq.current) setOrderContexts(value);
+      };
+
+      const packIds = [...new Set(loaded.map((m) => m.pack_id).filter(Boolean))];
+      if (packIds.length === 0) {
+        applyContexts({});
+      } else {
+        api
+          .get('/ml-bot/messages/order-context', { params: { pack_ids: packIds.join(',') } })
+          .then(({ data: ctx }) => applyContexts(ctx.contexts || {}))
+          .catch(() => applyContexts({}));
+      }
     } catch {
       if (!silent) {
         setMessages([]);
@@ -1885,6 +1926,14 @@ export default function MLQuestions() {
                   const anchor = thread.anchorMessage;
                   const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
                   const canRespond = anchor?.bot_status === 'taken_over';
+                  // Mirrors the Preguntas tab's publish-now: a draft the bot already
+                  // wrote goes out in one click. The backend stamps taken_over_by on
+                  // a direct send, so responsibility is recorded either way.
+                  const canSendDirect = anchor?.bot_status === 'awaiting_human' && !!anchor?.drafted_answer;
+                  const orderCtx = thread.pack_id ? orderContexts[thread.pack_id] : null;
+                  const orderItemLabels = (orderCtx?.items || []).map(
+                    (it) => `${it.quantity ?? '?'}x ${it.title ?? 'sin título'}`
+                  );
                   return (
                   <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
                     <tr className={styles.threadHeader}>
@@ -1917,13 +1966,56 @@ export default function MLQuestions() {
                                 {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
                               </span>
                             )}
+                            {anchor?.answer_source && (
+                              <span
+                                className={`${styles.badge} ${styles.badgeNeutral}`}
+                                title={
+                                  anchor.answer_source === 'fallback'
+                                    ? 'El LLM no pudo responder — es el texto de fallback'
+                                    : `Redactado por el bot${anchor.llm_provider ? ` (${anchor.llm_provider})` : ''}`
+                                }
+                              >
+                                {anchor.answer_source === 'fallback' ? 'fallback' : 'bot'}
+                              </span>
+                            )}
                             {anchor?.bot_status === 'failed' && anchor?.last_error && (
                               <span className={styles.threadErrorText} title={anchor.last_error}>
                                 {anchor.last_error}
                               </span>
                             )}
                           </div>
-                          {(puedeResponderMensajes && (canTakeOver || canRespond)) || puedeGestionarPendientes ? (
+                          {orderCtx && (
+                            /* Qué compró y dónde está el envío, para decidir sin
+                               salir del panel. */
+                            <div className={styles.threadOrderContext}>
+                              {orderItemLabels.length > 0 && (
+                                <span className={styles.threadOrderItems} title={orderItemLabels.join('\n')}>
+                                  {orderItemLabels.join(' · ')}
+                                </span>
+                              )}
+                              {orderCtx.shipping?.status && (
+                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                                  envío: {orderCtx.shipping.status}
+                                  {orderCtx.shipping.substatus ? ` / ${orderCtx.shipping.substatus}` : ''}
+                                </span>
+                              )}
+                              {orderCtx.order_status && (
+                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                                  orden: {orderCtx.order_status}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {anchor?.drafted_answer && expandedThreadKey !== thread.key && (
+                            /* The whole point of the row: read what the bot wants
+                               to say without opening the detail panel. Hidden once
+                               the detail is expanded, which already shows it in
+                               full — no duplicate copy on screen. */
+                            <p className={styles.threadDraftPreview} title={anchor.drafted_answer}>
+                              {anchor.drafted_answer}
+                            </p>
+                          )}
+                          {(puedeResponderMensajes && (canTakeOver || canRespond || canSendDirect)) || puedeGestionarPendientes ? (
                             <div className={styles.actionsCell}>
                               {puedeGestionarPendientes && (
                                 <button
@@ -1948,6 +2040,21 @@ export default function MLQuestions() {
                                   aria-label="Tomar el mensaje"
                                 >
                                   <UserCheck size={14} />
+                                </button>
+                              )}
+                              {puedeResponderMensajes && canSendDirect && (
+                                <button
+                                  className="btn-tesla sm"
+                                  onClick={() => handleSendMessage(anchor)}
+                                  disabled={msgActionLoadingId === anchor.id || !messagesSendEnabled}
+                                  title={
+                                    messagesSendEnabled
+                                      ? 'Enviar la respuesta del bot'
+                                      : 'Envío deshabilitado — habilitá messages_send_enabled'
+                                  }
+                                  aria-label="Enviar la respuesta del bot"
+                                >
+                                  <Send size={14} />
                                 </button>
                               )}
                               {puedeResponderMensajes && canRespond && (

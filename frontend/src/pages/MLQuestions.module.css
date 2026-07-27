@@ -478,6 +478,22 @@
   gap: 4px;
 }
 
+/* Bot draft shown inline on the collapsed thread row, so an operator can
+   judge the answer without opening the detail panel. Full width (the header
+   row wraps), clamped to two lines with the rest on hover via `title`. */
+.threadDraftPreview {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .threadErrorText {
   color: var(--cf-accent-red);
   font-size: 0.72rem;
@@ -583,4 +599,26 @@ table.resizableTable {
   .container :global(.table-container-tesla) {
     max-height: calc(100vh - 150px);
   }
+}
+
+/* Purchase + shipping context on the collapsed thread row: what the buyer
+   bought and where it is, so the draft can be judged without leaving the
+   list. Item titles are long, so they clamp to one line with the full list
+   on hover. */
+.threadOrderContext {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.threadOrderItems {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

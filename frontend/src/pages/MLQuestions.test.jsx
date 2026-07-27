@@ -572,6 +572,195 @@ async function openMensajesTab(user) {
   await user.click(tabButton);
 }
 
+describe('Mensajes tab — send the bot draft without opening the detail', () => {
+  it('shows the bot draft inline on the collapsed thread row', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    // No expand, no modal: the draft is readable straight from the row.
+    expect(await screen.findByText('Claro, te la envío enseguida')).toBeInTheDocument();
+  });
+
+  it('offers a direct send from awaiting_human and POSTs to /send', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+    api.post.mockResolvedValue({ data: { sent: true, message: { ...AWAITING_MESSAGE, bot_status: 'sent' } } });
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const sendButton = await screen.findByLabelText('Enviar la respuesta del bot');
+    await user.click(sendButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/messages/10/send');
+    });
+  });
+
+  it('does not offer a direct send when there is no draft to send', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([{ ...AWAITING_MESSAGE, drafted_answer: null }]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await screen.findByText(/JUAN_PEREZ/);
+    expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
+  });
+
+  it('disables the direct send while messages_send_enabled is off', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE], { messagesSendEnabled: false });
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    expect(await screen.findByLabelText('Enviar la respuesta del bot')).toBeDisabled();
+  });
+
+  it('never offers a direct send on a claim', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([{ ...CLAIM_MESSAGE, drafted_answer: 'no debería enviarse' }]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await screen.findByText(/JUAN_PEREZ/);
+    expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
+  });
+
+  it('shows what the buyer bought and where the shipment is, in one batched call', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/messages/order-context') {
+        return Promise.resolve({
+          data: {
+            contexts: {
+              [AWAITING_MESSAGE.pack_id]: {
+                items: [{ title: 'Router TP-Link AX55', quantity: 2 }],
+                order_status: 'paid',
+                shipping: { status: 'shipped', substatus: 'in_transit' },
+              },
+            },
+          },
+        });
+      }
+      return base(url, config);
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    expect(await screen.findByText(/Router TP-Link AX55/)).toBeInTheDocument();
+    expect(screen.getByText(/envío: shipped \/ in_transit/)).toBeInTheDocument();
+
+    // One batched request for the whole list, not one per thread.
+    const ctxCalls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages/order-context');
+    expect(ctxCalls).toHaveLength(1);
+    expect(ctxCalls[0][1].params.pack_ids).toBe(AWAITING_MESSAGE.pack_id);
+  });
+
+  it('renders the thread normally when the order context call fails', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/messages/order-context') return Promise.reject(new Error('boom'));
+      return base(url, config);
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    // Decision context is best-effort — losing it must never hide the message.
+    expect(await screen.findByText('Claro, te la envío enseguida')).toBeInTheDocument();
+  });
+
+  it('shows a row being sent as such and offers no action on it', async () => {
+    // A send in flight must not be actionable: taking it over would hand the
+    // operator the untouched draft with the send button live, on a message the
+    // buyer may already have received. The state is still labelled so it is
+    // visible rather than a bare status string.
+    const user = userEvent.setup();
+    mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'sending' }]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    expect(await screen.findByText('Enviando…')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Tomar el mensaje')).not.toBeInTheDocument();
+  });
+
+  it('never offers a direct send on a row already being sent', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'sending' }]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await screen.findByText(/JUAN_PEREZ/);
+    expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
+  });
+
+  it('never lets a stale order-context response overwrite a newer one', async () => {
+    // The fetch is intentionally un-awaited so the list is not gated on it.
+    // That opens a window: the SSE channel refetches, and a slow earlier
+    // response could land after a newer one and show stale purchases.
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+    const base = api.get.getMockImplementation();
+
+    let call = 0;
+    const resolvers = [];
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/messages/order-context') {
+        call += 1;
+        const title = call === 1 ? 'VIEJO stale' : 'NUEVO fresco';
+        return new Promise((resolve) => {
+          resolvers.push(() =>
+            resolve({
+              data: { contexts: { [AWAITING_MESSAGE.pack_id]: { items: [{ title, quantity: 1 }] } } },
+            })
+          );
+        });
+      }
+      return base(url, config);
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+
+    // Force a second load (changing a filter refetches the list), then
+    // resolve them out of order: newest first, stale last. The stale one must
+    // be discarded.
+    await user.click(screen.getByLabelText(/incluir moderados/i));
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+
+    resolvers[1]();
+    await waitFor(() => expect(screen.getByText(/NUEVO fresco/)).toBeInTheDocument());
+
+    resolvers[0]();
+    await waitFor(() => expect(screen.getByText(/NUEVO fresco/)).toBeInTheDocument());
+    expect(screen.queryByText(/VIEJO stale/)).not.toBeInTheDocument();
+  });
+
+  it('labels who wrote the answer — bot vs fallback', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([{ ...AWAITING_MESSAGE, answer_source: 'fallback' }]);
+
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    expect(await screen.findByText('fallback')).toBeInTheDocument();
+  });
+});
+
 describe('Mensajes tab — thread-header actions (permission-gated)', () => {
   it('does NOT render take-over/editar/enviar buttons for a read-only user (no ml_bot.messages.responder)', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'ml_bot.messages.responder');
