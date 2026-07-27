@@ -228,9 +228,14 @@ each:
 - [ ] T3.8 Line 2270 — `markup_pvp_6_cuotas` → matching key
 - [ ] T3.9 Line 2305 — `markup_pvp_9_cuotas` → matching key
 - [ ] T3.10 Line 2340 — `markup_pvp_12_cuotas` → matching key
-- [ ] T3.11 Reconcile backend markup `record()` keys (T1.5-T1.15) against the 12 frontend
-      `markupKey` values used in T2.5-T2.6 and T3.1-T3.10 — every frontend key must have a
-      matching backend-recorded key; fix any naming drift as part of this PR.
+- [x] T3.11 Unified the backend `record()` key vocabulary ahead of PR2/PR3 (backend-only
+      commit on PR1): fixed the `calculado_pvp_pvp_3_cuotas` doubled-segment bug and merged
+      the 3 divergent names for the same conceptual classic-instalment markup
+      (`calculado_{n}_cuotas` / `calculado_pvp_{n}_cuotas` / `cuota_ml_{n}`) into one scheme —
+      `mejor_oferta`, `rebate`, `cuota_clasica_{n}`, `pvp_clasica`, `pvp_cuota_{n}`,
+      `pvp_clasica_variant`, `pvp_cuota_variant_{n}` (n = 3/6/9/12) — centralised as
+      constants/helpers in `costo_ppp_service.py` (module docstring is the single source of
+      truth PR2 must consume for its 12 `markupKey` props).
 - [ ] T3.12 Full manual pass: with a product that has `costo_ppp` populated, verify all 12
       spots + cost cell show correct PPP lines; with a product that has `costo_ppp = null`,
       verify all 13 spots show "sin PPP" and none silently show a `costo`-derived value.

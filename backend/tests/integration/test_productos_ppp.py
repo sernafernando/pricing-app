@@ -73,7 +73,7 @@ def comision_fixtures(db):
 @pytest.fixture()
 def producto_con_todas_las_cuotas(db, comision_fixtures) -> ProductoERP:
     """Product with all 4 classic-installment prices set, plus a qualifying
-    PPP row — drives the listing endpoint's `calculado_{nombre_cuota}` loop
+    PPP row — drives the listing endpoint's `cuota_clasica_{n}` loop
     across its 4 iterations (fix-round finding 1)."""
     p = ProductoERP(
         item_id=9201,
@@ -290,7 +290,7 @@ class TestDistinctInstalmentKeys:
         assert producto["ppp"] is not None
         markups = producto["ppp"]["markups"]
 
-        instalment_keys = ["calculado_3_cuotas", "calculado_6_cuotas", "calculado_9_cuotas", "calculado_12_cuotas"]
+        instalment_keys = ["cuota_clasica_3", "cuota_clasica_6", "cuota_clasica_9", "cuota_clasica_12"]
         for key in instalment_keys:
             assert key in markups, f"missing {key} in {markups}"
 
