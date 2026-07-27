@@ -62,16 +62,18 @@ existing list-cost line.
 
 ### Index gate (evidence-conditional, NOT assumed)
 
-- [ ] T1.16 **BLOCKED (environment)**: Run `EXPLAIN (ANALYZE, BUFFERS)` on the resolver query
-      against a representative page of `item_ids` (staging DB). No staging/Postgres DB is
-      reachable from this apply environment — this step MUST be run by someone with staging
-      access before the index decision (T1.17) can be made. NOT run in this batch.
-- [ ] T1.17 Decision gate: deferred — depends on T1.16 evidence, not yet available.
-- [ ] T1.18 (Conditional) `alembic heads` was checked in this environment and returns exactly ONE
-      head (`20260724_add_marca_sub_pm`) — safe to generate a migration once T1.17 requires one.
-- [ ] T1.19 (Conditional) NOT generated in this PR. Per the explicit sizing decision, if T1.17
-      shows the index is needed, it MUST ship as its own separate small PR, not bundled into PR1.
-      PR1 as delivered contains NO alembic migration.
+- [x] T1.16 Run `EXPLAIN (ANALYZE, BUFFERS)` on the resolver query against production, with the
+      composite index manually created via `CREATE INDEX CONCURRENTLY` ahead of the decision.
+      Result: ROW_NUMBER() forces `Sort Method: external merge Disk: 3832kB` and reads 112,809
+      rows to return 316 (900 item_ids -> 158ms; 50 item_ids -> 47ms).
+- [x] T1.17 Decision gate: index IS needed AND the query shape itself must change — a LATERAL
+      join (900 item_ids -> 2.2ms, Nested Loop + Index Scan, no sort; ~70x faster) replaces
+      ROW_NUMBER on PostgreSQL. See PR1b below.
+- [x] T1.18 `alembic heads` re-checked at PR1b time and returns exactly ONE head
+      (`20260727_fix_llm_ids`) — migration chained from it.
+- [x] T1.19 Migration generated in PR1b (`20260727_ppp_lateral_index.py`), idempotent
+      (`IF NOT EXISTS`/`DROP ... IF EXISTS`, both in `autocommit_block()`), since production
+      already has the index live from the manual `CREATE INDEX CONCURRENTLY`.
 
 **Deviation note (environment constraint, not in the original design)**: the design's
 `resolver_ppp_batch` was specified around PostgreSQL's `DISTINCT ON (item_id)`. Backend CI runs
@@ -128,6 +130,50 @@ on the composite index). Verified via 8 real-SQLite unit tests exercising the ac
       endpoint, which cannot reveal an N+1 by construction.
 - [x] T1.31 Hoisted `producto.ppp = _ppp_acc.payload()` out of the 5-iteration `pvp_configs`
       loop in `listar_productos` (was rebuilt up to 5x per product).
+
+## PR1b — Perf round: LATERAL resolver, Postgres CI, index migration (commit 7bf0c4ff)
+
+Triggered by production EXPLAIN ANALYZE evidence (see T1.16/T1.17 above) gathered after PR1
+merged with the manually-created `ix_tit_item_cd_desc` index in place.
+
+- [x] TP.1 `resolver_ppp_batch` now branches on `db.bind.dialect.name`: PostgreSQL uses a new
+      LATERAL join (`_build_lateral_stmt`, `func.unnest(...).table_valued(...).lateral()`) with
+      `ORDER BY it_cd DESC LIMIT 1` per item_id; every other dialect (SQLite, used by ~3700 of
+      the suite's tests) keeps the previous `ROW_NUMBER()` fallback (`_build_row_number_stmt`),
+      unchanged in semantics. Both share one `_qualifying_predicate` helper — the 5-predicate
+      filter is defined once, not duplicated across the two query shapes. 900-item chunking
+      preserved unchanged.
+- [x] TP.2 Rewrote the module docstring: replaced the obsolete "portability" framing (which
+      justified ROW_NUMBER as the ONLY implementation) with the measured LATERAL vs. ROW_NUMBER
+      numbers and an explicit note on why the SQLite fallback still exists (avoid moving ~3700
+      tests onto PostgreSQL for this round).
+- [x] TP.3 Added `postgres` service (`postgres:16`) to the `backend-smoke` CI job
+      (`.github/workflows/ci.yml`), wired via `POSTGRES_TEST_URL` env var. Chose option (b) —
+      only `@pytest.mark.postgres`-marked tests run against it; the rest of the suite (~3700
+      tests) stays on SQLite, avoiding disruption while still guaranteeing the LATERAL path runs
+      in CI, not just the fallback.
+- [x] TP.4 `tests/conftest.py`: added `pg_engine` (session-scoped, creates only
+      `tb_item_transactions`, not the full `Base.metadata`) and `pg_db` (function-scoped,
+      transactional rollback) fixtures. `pg_engine` calls `pytest.skip(...)` with a clear message
+      when PostgreSQL is unreachable, so a developer without local PostgreSQL still runs the rest
+      of the suite cleanly. Registered the `postgres` marker in new `backend/pytest.ini`.
+- [x] TP.5 Added `TestResolverAgainstRealPostgres` (5 tests, `@pytest.mark.postgres`) to
+      `tests/unit/test_costo_ppp_service.py`: latest-row-wins under LATERAL, full row-selection
+      predicate under LATERAL, exactly-one-query at page_size 1 and 100 (SQL-statement counter),
+      and >900-item chunking under PostgreSQL. Verified locally against a real PostgreSQL 16
+      instance (all 5 pass) and verified the skip path (bad `POSTGRES_TEST_URL` -> 5 skipped,
+      clear message, rest of suite unaffected).
+- [x] TP.6 Added migration `20260727_ppp_lateral_index.py` (revises `20260727_fix_llm_ids`,
+      single head confirmed) versioning `ix_tit_item_cd_desc ON tb_item_transactions (item_id,
+      it_cd DESC)`: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` / `DROP INDEX CONCURRENTLY IF
+      EXISTS`, both inside `op.get_context().autocommit_block()`, both dialect-guarded to
+      PostgreSQL only. Verified idempotent (`CREATE ... IF NOT EXISTS` run twice locally, second
+      run is a no-op notice) and reversible against a real PostgreSQL instance.
+- [x] TP.7 Full backend suite: 3711 passed, 16 skipped, 0 failed (3706 baseline + 5 new
+      `@pytest.mark.postgres` tests). `ruff format`/`ruff check app/` clean; pre-existing
+      unrelated `app/tickets/SISTEMA_TICKETS_README.md` reformat reverted per instructions.
+      Committed as `7bf0c4ff` on `feat/productos-costo-ppp-backend`, on top of `37912dc8`. NOT
+      pushed, PR NOT marked ready, per explicit instruction.
 
 ## PR2 — Frontend base: cost line + first markup group + shared formatter
 
