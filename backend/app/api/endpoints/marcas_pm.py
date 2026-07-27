@@ -136,6 +136,20 @@ class MisTitularidadesResponse(BaseModel):
     total: int
 
 
+class GrantsUsuarioResponse(BaseModel):
+    pares: List[MarcasCategoriaItem]
+    total: int
+
+
+class ConteoUsuarioItem(BaseModel):
+    usuario_id: int
+    total: int
+
+
+class ConteosUsuarioResponse(BaseModel):
+    conteos: List[ConteoUsuarioItem]
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -414,6 +428,30 @@ def listar_usuarios_pm(
 # ── Sub-PM CRUD (design D3: admin role gate OR data-scoped titular guard) ────
 
 
+def _resolve_writable_pairs(db: Session, user: Usuario) -> set:
+    """Resolve the caller's writable (marca, categoria) pairs ONCE.
+
+    Admin/superadmin: ALL pairs in `marcas_pm`, including the untitled ones
+    (usuario_id IS NULL) — those are admin-only manageable.
+    Titular: only the pairs where they are the current titular
+    (marcas_pm.usuario_id == user.id).
+
+    Matching is on the exact (marca, categoria) string tuple — case-SENSITIVE,
+    consistent with `_require_titular_or_admin` below. This intentionally
+    diverges from `sincronizar_marcas`'s case-insensitive `.upper()` dedup
+    (see :296-312 or nearby) — that mismatch is pre-existing and out of scope
+    here; fixing it belongs in its own change.
+
+    Returns:
+        A set of (marca, categoria) tuples the caller may read/grant on.
+    """
+    query = db.query(MarcaPM.marca, MarcaPM.categoria)
+    if user.rol not in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN):
+        query = query.filter(MarcaPM.usuario_id == user.id)
+
+    return {(marca, categoria) for marca, categoria in query.all()}
+
+
 def _require_titular_or_admin(db: Session, marca: str, categoria: str, user: Usuario) -> None:
     """Authorize a sub-PM write/read on a (marca, categoria) pair.
 
@@ -587,3 +625,81 @@ def revocar_sub_pm(
     db.delete(grant)
     db.commit()
     return None
+
+
+# ── Bulk assignment reads (Slice 1 of sub-pm-bulk-assignment) ───────────────
+
+
+@router.get("/marcas-pm/sub-pms/usuario/{usuario_id}", response_model=GrantsUsuarioResponse)
+def grants_de_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GrantsUsuarioResponse:
+    """
+    Pares (marca, categoria) actualmente delegados a `usuario_id`, acotados
+    al scope writable del caller (mismo authz que la resolución en
+    `_resolve_writable_pairs`). Sirve para pre-marcar la tabla de pares al
+    elegir un usuario en la asignación masiva.
+
+    Un par sin titular (usuario_id IS NULL) sólo aparece si el caller es
+    admin/superadmin — un titular no tiene scope sobre pares sin titular,
+    por lo que esos grants quedan invisibles para él (no 403: se filtra el
+    resultado, no se rechaza la request, ya que el endpoint lee el scope del
+    CALLER, no la existencia de un par puntual).
+
+    Raises:
+        HTTPException(404): `usuario_id` no existe.
+    """
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    writable_pairs = _resolve_writable_pairs(db, current_user)
+
+    grants = db.query(MarcaSubPM.marca, MarcaSubPM.categoria).filter(MarcaSubPM.usuario_id == usuario_id).all()
+
+    items = [
+        MarcasCategoriaItem(marca=marca, categoria=categoria)
+        for marca, categoria in grants
+        if (marca, categoria) in writable_pairs
+    ]
+    return GrantsUsuarioResponse(pares=items, total=len(items))
+
+
+@router.get("/marcas-pm/sub-pms/conteos", response_model=ConteosUsuarioResponse)
+def conteos_sub_pms(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ConteosUsuarioResponse:
+    """
+    Conteo agregado de grants por usuario, acotado al scope writable del
+    caller, para el contador del picker ("Juan Pérez (12)").
+
+    Una sola query agrupada por usuario_id — NUNCA una query por usuario del
+    picker. Un titular sólo ve conteos de grants sobre pares que puede
+    gestionar; grants sobre pares fuera de su scope no suman a nadie desde
+    su perspectiva.
+    """
+    writable_pairs = _resolve_writable_pairs(db, current_user)
+    if not writable_pairs:
+        return ConteosUsuarioResponse(conteos=[])
+
+    marcas = {marca for marca, _ in writable_pairs}
+    categorias = {categoria for _, categoria in writable_pairs}
+
+    filas = (
+        db.query(MarcaSubPM.marca, MarcaSubPM.categoria, MarcaSubPM.usuario_id, func.count(MarcaSubPM.id))
+        .filter(MarcaSubPM.marca.in_(marcas), MarcaSubPM.categoria.in_(categorias))
+        .group_by(MarcaSubPM.marca, MarcaSubPM.categoria, MarcaSubPM.usuario_id)
+        .all()
+    )
+
+    conteos: Dict[int, int] = {}
+    for marca, categoria, usuario_id, total in filas:
+        if (marca, categoria) not in writable_pairs:
+            continue
+        conteos[usuario_id] = conteos.get(usuario_id, 0) + total
+
+    items = [ConteoUsuarioItem(usuario_id=uid, total=total) for uid, total in conteos.items()]
+    return ConteosUsuarioResponse(conteos=items)
