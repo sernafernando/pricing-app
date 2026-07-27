@@ -5,6 +5,8 @@ resolver plus the two read endpoints that feed the bulk-assignment picker
 Does NOT cover the bulk PUT (Slice 2) or any frontend behavior.
 """
 
+import pytest
+
 from app.api.endpoints.marcas_pm import _resolve_writable_pairs
 from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
@@ -39,9 +41,6 @@ def _make_pair(db, *, marca="Nike", categoria="Zapatillas", titular: Usuario = N
     db.add(pair)
     db.flush()
     return pair
-
-
-import pytest
 
 
 @pytest.fixture()
