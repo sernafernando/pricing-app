@@ -225,6 +225,74 @@ class _QueryCounter:
         return sum(1 for s in self.statements if pattern.search(s))
 
 
+# ---------------------------------------------------------------------------
+# PostgreSQL fixtures (productos-costo-ppp perf round — LATERAL resolver)
+# ---------------------------------------------------------------------------
+#
+# The PPP resolver (`app.services.costo_ppp_service.resolver_ppp_batch`) uses
+# a PostgreSQL-only LATERAL join for its fast path (see that module's
+# docstring for the production EXPLAIN ANALYZE numbers). Tests that must
+# prove that exact path — not the portable SQLite ROW_NUMBER() fallback —
+# are marked `@pytest.mark.postgres` and use the fixtures below instead of
+# the SQLite-backed `db`/`engine` fixtures used by the rest of the suite.
+#
+# CI runs a `postgres` service for the backend test job (see
+# .github/workflows/ci.yml) and points POSTGRES_TEST_URL at it. Locally, a
+# developer with no PostgreSQL running simply gets these tests skipped with
+# a clear message — the rest of the suite (~3700 tests) is unaffected and
+# keeps running on the in-memory SQLite `db` fixture above.
+
+POSTGRES_TEST_URL = os.environ.get("POSTGRES_TEST_URL", "postgresql+psycopg2://postgres@localhost:5432/pricing_test")
+
+
+def _postgres_reachable() -> bool:
+    try:
+        probe_engine = create_engine(POSTGRES_TEST_URL)
+        with probe_engine.connect():
+            pass
+        probe_engine.dispose()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def pg_engine():
+    """Session-scoped PostgreSQL engine with only `tb_item_transactions` created.
+
+    Only the one table the PPP resolver needs is created (not the full
+    `Base.metadata`, which includes pgvector/JSONB tables requiring
+    extensions this test DB doesn't need to have installed).
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    from app.models.item_transaction import ItemTransaction
+
+    ItemTransaction.__table__.create(bind=eng, checkfirst=True)
+    yield eng
+    ItemTransaction.__table__.drop(bind=eng, checkfirst=True)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_db(pg_engine):
+    """Transactional PostgreSQL session, rolled back after each test."""
+    connection = pg_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """

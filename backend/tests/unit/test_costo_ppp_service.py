@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pytest
+import sqlalchemy as sa
 
 from app.models.item_transaction import ItemTransaction
 from app.services.costo_ppp_service import PppMarkups, PppSource, resolver_ppp_batch
@@ -233,3 +235,86 @@ class TestConstructorPreventsInvalidState:
 
         with pytest.raises(AttributeError):
             PppMarkups(100.0)  # not a PppSource -> .costo_ppp access fails
+
+
+@pytest.mark.postgres
+class TestResolverAgainstRealPostgres:
+    """Proves the actual LATERAL fast path (see costo_ppp_service module
+    docstring for the production EXPLAIN ANALYZE numbers that motivated it).
+
+    `db` (SQLite in-memory) exercises the portable ROW_NUMBER() fallback,
+    which every other test class in this file already covers. These tests
+    run the exact same resolver against a real PostgreSQL instance (`pg_db`
+    fixture, tests/conftest.py) so the LATERAL branch itself — not just its
+    fallback — is under test in CI.
+    """
+
+    def _insert(self, pg_db, **overrides) -> None:
+        defaults = dict(
+            it_transaction=None,
+            ct_transaction=1,
+            item_id=1,
+            it_priceofcostpp=100.0,
+            it_cancelled=False,
+            it_exchangetobranchcurrency=1.0,
+            rmah_id=None,
+            it_isrmasuppliercreditnote=False,
+            it_cd=datetime(2026, 1, 1),
+        )
+        defaults.update(overrides)
+        pg_db.add(ItemTransaction(**defaults))
+        pg_db.flush()
+
+    def test_latest_row_wins_via_lateral(self, pg_db) -> None:
+        self._insert(pg_db, it_transaction=1, item_id=301, it_priceofcostpp=100.0, it_cd=datetime(2025, 1, 1))
+        self._insert(pg_db, it_transaction=2, item_id=301, it_priceofcostpp=300.0, it_cd=datetime(2026, 6, 1))
+        self._insert(pg_db, it_transaction=3, item_id=301, it_priceofcostpp=200.0, it_cd=datetime(2025, 6, 1))
+
+        result = resolver_ppp_batch(pg_db, [301])
+
+        assert result[301].costo_ppp == 300.0
+        assert result[301].costo_ppp_fecha == datetime(2026, 6, 1).date()
+
+    def test_row_selection_predicate_holds_under_lateral(self, pg_db) -> None:
+        self._insert(pg_db, it_transaction=10, item_id=302, it_priceofcostpp=999.0, it_cancelled=True)
+        self._insert(pg_db, it_transaction=11, item_id=303, it_priceofcostpp=999.0, it_exchangetobranchcurrency=None)
+        self._insert(pg_db, it_transaction=12, item_id=304, it_priceofcostpp=999.0, rmah_id=42)
+        self._insert(pg_db, it_transaction=13, item_id=305, it_priceofcostpp=999.0, it_isrmasuppliercreditnote=True)
+        self._insert(pg_db, it_transaction=14, item_id=306, it_priceofcostpp=0.0)
+        self._insert(pg_db, it_transaction=15, item_id=307, it_priceofcostpp=150.0)
+
+        result = resolver_ppp_batch(pg_db, [302, 303, 304, 305, 306, 307])
+
+        assert result == {307: PppSource(costo_ppp=150.0, costo_ppp_fecha=datetime(2026, 1, 1).date())}
+
+    @pytest.mark.parametrize("page_size", [1, 100])
+    def test_exactly_one_query_regardless_of_page_size(self, pg_db, page_size: int) -> None:
+        item_ids = list(range(400, 400 + page_size))
+        for i, item_id in enumerate(item_ids):
+            self._insert(pg_db, it_transaction=1000 + i, item_id=item_id, it_priceofcostpp=float(item_id))
+
+        statements: list[str] = []
+
+        def _listen(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        sa.event.listen(pg_db.connection(), "before_cursor_execute", _listen)
+        try:
+            result = resolver_ppp_batch(pg_db, item_ids)
+        finally:
+            sa.event.remove(pg_db.connection(), "before_cursor_execute", _listen)
+
+        assert len(statements) == 1
+        assert len(result) == page_size
+
+    def test_more_than_900_item_ids_chunks_correctly_under_postgres(self, pg_db) -> None:
+        item_ids = list(range(2000, 3000))  # 1000 ids -> 2 chunks at size 900
+        for i, item_id in enumerate(item_ids[:3]):
+            self._insert(pg_db, it_transaction=2000 + i, item_id=item_id, it_priceofcostpp=float(item_id))
+
+        result = resolver_ppp_batch(pg_db, item_ids)
+
+        assert result[item_ids[0]].costo_ppp == float(item_ids[0])
+        assert result[item_ids[1]].costo_ppp == float(item_ids[1])
+        assert result[item_ids[2]].costo_ppp == float(item_ids[2])
+        assert len(result) == 3

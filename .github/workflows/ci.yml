@@ -39,6 +39,27 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Postgres service for `@pytest.mark.postgres` tests only (currently the
+    # PPP resolver's LATERAL-join tests — see costo_ppp_service.py's
+    # docstring and tests/conftest.py's "PostgreSQL fixtures" section). The
+    # rest of the ~3700-test suite keeps running on the in-memory SQLite `db`
+    # fixture (env vars below) — moving the full suite to Postgres was
+    # rejected as unnecessary disruption for this round; only the resolver's
+    # LATERAL path is PostgreSQL-only.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pricing_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +81,7 @@ jobs:
           DATABASE_URL: "sqlite:///./test.db"
           SECRET_KEY: "ci-test-secret-key-minimum-32-bytes!"
           ERP_BASE_URL: "http://localhost:9999"
+          POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
   frontend-lint:
     name: Frontend Lint
