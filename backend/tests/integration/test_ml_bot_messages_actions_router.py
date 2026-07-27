@@ -203,6 +203,90 @@ class TestEditMessageAnswer:
 # ==========================================================================
 
 
+class TestSendDirectlyFromAwaitingHuman:
+    """Mirrors the Preguntas tab's `publish-now`, which accepts several source
+    states instead of forcing a take-over first. Sending a draft the bot
+    already wrote should be one click, not tomar -> editar -> enviar.
+
+    Responsibility is still recorded: a direct send stamps `taken_over_by`
+    with the operator who pressed it, so the audit trail is identical to the
+    explicit take-over path.
+    """
+
+    def test_send_from_awaiting_human_succeeds(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        m = _seed_message(db, bot_status="awaiting_human")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message",
+            new_callable=AsyncMock,
+            return_value={"id": "msg-sent"},
+        ) as mock_send:
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 200
+        assert r.json()["message"]["bot_status"] == "sent"
+        mock_send.assert_awaited_once()
+
+    def test_direct_send_records_the_operator(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        m = _seed_message(db, bot_status="awaiting_human")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message",
+            new_callable=AsyncMock,
+            return_value={"id": "msg-sent"},
+        ):
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 200
+        db.expire_all()
+        row = db.query(MlBotMessage).filter_by(id=m.id).first()
+        assert row.taken_over_by is not None
+
+    def test_send_from_blocked_claim_still_refused(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """A claim is the one case the bot must never answer — widening the
+        send states must not open that door."""
+        m = _seed_message(db, bot_status="blocked_claim")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message", new_callable=AsyncMock
+        ) as mock_send:
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 409
+        mock_send.assert_not_called()
+
+    def test_send_from_drafting_still_refused(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        m = _seed_message(db, bot_status="drafting")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message", new_callable=AsyncMock
+        ) as mock_send:
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 409
+        mock_send.assert_not_called()
+
+    def test_kill_switch_still_wins_over_direct_send(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        m = _seed_message(db, bot_status="awaiting_human")
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message", new_callable=AsyncMock
+        ) as mock_send:
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 409
+        mock_send.assert_not_called()
+
+
 class TestSendMessage:
     def test_sin_permiso_403(self, client, auth_headers, db, sin_permisos) -> None:
         m = _seed_message(db, bot_status="taken_over")
@@ -279,8 +363,12 @@ class TestSendMessage:
         assert body["sent"] is False
         assert body["message"]["bot_status"] == "taken_over"
 
-    def test_not_taken_over_returns_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
-        m = _seed_message(db, bot_status="awaiting_human")
+    def test_non_sendable_state_returns_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """`awaiting_human` used to be refused here; it is now a valid direct-send
+        source (see TestSendDirectlyFromAwaitingHuman). Everything outside
+        `taken_over`/`awaiting_human` must still be refused — `superseded` stands
+        in for that set."""
+        m = _seed_message(db, bot_status="superseded")
         _enable_send(db)
         db.commit()
 
@@ -353,3 +441,83 @@ class TestMessageNicknameEnrichment:
         assert call_count["n"] == 1  # one batched call for the whole list, not per-row
         nicknames = {m["buyer_nickname"] for m in r.json()["messages"]}
         assert nicknames == {"COMPRADOR_1", "COMPRADOR_2"}
+
+
+class TestSendClaimsExclusivelyBeforeReachingMercadoLibre:
+    """The buyer must never receive the same message twice.
+
+    The status check alone is not enough: it is a plain read, and the external
+    send used to happen before any transition, so two operators clicking send
+    on the same row both passed the check and both delivered. The row is now
+    claimed into `sending` FIRST; the loser never reaches MercadoLibre.
+    """
+
+    def test_row_is_claimed_before_the_external_call(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        m = _seed_message(db, bot_status="awaiting_human")
+        _enable_send(db)
+        db.commit()
+
+        observed: list[str] = []
+
+        async def _capture(*args, **kwargs):
+            # Status as seen from INSIDE the external call.
+            db.expire_all()
+            observed.append(db.query(MlBotMessage).filter_by(id=m.id).first().bot_status)
+            return {"id": "msg-sent"}
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message", new=AsyncMock(side_effect=_capture)
+        ):
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 200
+        assert observed == ["sending"], "the row must be claimed before MercadoLibre is contacted"
+
+    def test_second_send_while_sending_is_refused(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """Simulates the racer that lost the claim: the row is already
+        `sending`, so the second request must 409 without sending."""
+        m = _seed_message(db, bot_status="sending")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message", new_callable=AsyncMock
+        ) as mock_send:
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 409
+        mock_send.assert_not_called()
+
+    def test_transient_failure_releases_the_claim_for_retry(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """A transient failure must not strand the row in `sending`."""
+        m = _seed_message(db, bot_status="awaiting_human")
+        _enable_send(db)
+        db.commit()
+
+        with patch(
+            "app.services.ml_api_client.MercadoLibreAPIClient.send_message",
+            new=AsyncMock(return_value=None),
+        ):
+            r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
+
+        assert r.status_code == 200
+        assert r.json()["sent"] is False
+        db.expire_all()
+        assert db.query(MlBotMessage).filter_by(id=m.id).first().bot_status == "awaiting_human"
+
+    def test_an_in_flight_row_cannot_be_stolen_by_take_over(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """Taking over a `sending` row would reopen the double send: the thief
+        gets the untouched draft with the send button live, while the original
+        sender's final CAS silently no-ops — on a message the buyer already
+        received. Recovering a genuinely crash-stranded row needs a TTL sweeper
+        (follow-up), not a take-over."""
+        m = _seed_message(db, bot_status="sending")
+        db.commit()
+
+        r = client.post(f"{BASE}/messages/{m.id}/take-over", headers=auth_headers)
+
+        assert r.status_code == 409
