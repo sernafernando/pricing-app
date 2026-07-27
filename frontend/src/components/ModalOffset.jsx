@@ -210,7 +210,7 @@ export default function ModalOffset({
     setBuscandoFiltroProducto(true);
     try {
       const response = await api.get(`${apiBasePath}/buscar-productos`, {
-        params: { q: busquedaFiltroProducto }
+        params: { q: busquedaFiltroProducto, fecha_desde: fechaDesde, fecha_hasta: fechaHasta }
       });
       setProductosFiltroEncontrados(response.data);
     } catch (error) {
@@ -231,7 +231,7 @@ export default function ModalOffset({
     setBuscandoProductosOffset(true);
     try {
       const response = await api.get(`${apiBasePath}/buscar-productos`, {
-        params: { q: busquedaOffsetProducto }
+        params: { q: busquedaOffsetProducto, fecha_desde: fechaDesde, fecha_hasta: fechaHasta }
       });
       setProductosOffsetEncontrados(response.data);
     } catch (error) {
