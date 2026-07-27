@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, tuple_
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict
 from app.api.deps import get_current_user
@@ -148,6 +149,19 @@ class ConteoUsuarioItem(BaseModel):
 
 class ConteosUsuarioResponse(BaseModel):
     conteos: List[ConteoUsuarioItem]
+
+
+class BulkSubPMRequest(BaseModel):
+    """Desired full set of (marca, categoria) pairs for a user, confined to
+    the caller's writable scope."""
+
+    pares: List[MarcasCategoriaItem]
+
+
+class BulkSubPMResponse(BaseModel):
+    otorgados: int
+    revocados: int
+    total: int
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -703,3 +717,98 @@ def conteos_sub_pms(
 
     items = [ConteoUsuarioItem(usuario_id=uid, total=total) for uid, total in conteos.items()]
     return ConteosUsuarioResponse(conteos=items)
+
+
+# ── Bulk assignment write (Slice 2 of sub-pm-bulk-assignment) ───────────────
+
+
+@router.put("/marcas-pm/sub-pms/usuario/{usuario_id}", response_model=BulkSubPMResponse)
+def asignar_sub_pms_bulk(
+    usuario_id: int,
+    datos: BulkSubPMRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> BulkSubPMResponse:
+    """
+    Reemplaza el set completo de sub-PM grants de `usuario_id` dentro del
+    scope writable del caller por el `pares` solicitado (desired-set).
+
+    FAIL-CLOSED, todo-o-nada: si CUALQUIER par solicitado está fuera del
+    scope writable del caller o no existe en `marcas_pm`, no se aplica
+    ningún cambio y se responde 403 con `pares_rechazados`. El diff
+    (otorgar/revocar) se calcula únicamente contra los grants existentes
+    QUE CAEN dentro del scope writable del caller — un grant sobre un par
+    fuera de ese scope es invisible para esta request y sobrevive intacto,
+    incluso si el `usuario_id` objetivo lo tiene.
+
+    Idempotente: guardar el mismo set no modifica nada (0 otorgados, 0
+    revocados). Concurrencia: ante una violación de la unique constraint
+    (marca, categoria, usuario_id) entre la lectura de `existentes` y el
+    flush, se revierte la transacción COMPLETA y se responde 409 — no se usa
+    `ON CONFLICT DO NOTHING` porque CI corre SQLite y producción Postgres,
+    lo que dejaría un camino específico de dialecto sin testear.
+
+    Raises:
+        HTTPException(404): `usuario_id` no existe.
+        HTTPException(400): auto-grant del titular a sí mismo, o usuario
+            objetivo inactivo.
+        HTTPException(403): algún par solicitado está fuera de scope o no
+            existe — no se aplica nada.
+        HTTPException(409): conflicto de concurrencia detectado al aplicar
+            — no se aplica nada.
+    """
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    if usuario_id == current_user.id:
+        raise HTTPException(400, "El titular ya tiene acceso total; no puede auto-otorgarse como sub-PM")
+    if not usuario.activo:
+        raise HTTPException(400, "No se puede otorgar sub-PM a un usuario inactivo")
+
+    writable_pairs = _resolve_writable_pairs(db, current_user)
+
+    desired = {(p.marca, p.categoria) for p in datos.pares}
+    rechazados = sorted(desired - writable_pairs)
+    if rechazados:
+        raise HTTPException(
+            403,
+            {
+                "mensaje": "Uno o más pares están fuera de tu scope o no existen",
+                "pares_rechazados": [{"marca": m, "categoria": c} for m, c in rechazados],
+            },
+        )
+
+    existentes_rows = (
+        db.query(MarcaSubPM.marca, MarcaSubPM.categoria)
+        .filter(MarcaSubPM.usuario_id == usuario_id, tuple_(MarcaSubPM.marca, MarcaSubPM.categoria).in_(writable_pairs))
+        .all()
+    )
+    existentes = {(marca, categoria) for marca, categoria in existentes_rows}
+
+    a_otorgar = desired - existentes
+    a_revocar = existentes - desired
+
+    try:
+        if a_revocar:
+            db.query(MarcaSubPM).filter(
+                MarcaSubPM.usuario_id == usuario_id,
+                tuple_(MarcaSubPM.marca, MarcaSubPM.categoria).in_(a_revocar),
+            ).delete(synchronize_session=False)
+
+        for marca, categoria in a_otorgar:
+            db.add(
+                MarcaSubPM(
+                    marca=marca,
+                    categoria=categoria,
+                    usuario_id=usuario_id,
+                    creado_por=current_user.id,
+                )
+            )
+
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Conflicto de concurrencia al aplicar los cambios; reintentá")
+
+    return BulkSubPMResponse(otorgados=len(a_otorgar), revocados=len(a_revocar), total=len(desired))
