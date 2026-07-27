@@ -77,14 +77,32 @@ def get_pares_para_pm_ids(db: Session, pm_ids: list[int]) -> list:
     return _upper_pairs(pares)
 
 
-def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
-    """Apply the (marca, categoria) PM-scope filter to a MLVentaMetrica query.
+def aplicar_filtro_marcas_pm(
+    query,
+    usuario: Usuario,
+    db: Session,
+    pm_ids: Optional[str] = None,
+    *,
+    marca_col=None,
+    categoria_col=None,
+):
+    """Apply the (marca, categoria) PM-scope filter to a query.
+
+    Defaults to filtering `MLVentaMetrica.marca`/`.categoria` (the original
+    contract). Pass `marca_col`/`categoria_col` (keyword-only) to scope a query
+    over a different model — e.g. `ProductoERP.marca`/`.categoria` for a catalog
+    search — with the SAME effective-scope semantics.
 
     If `pm_ids` is present AND the caller has a FULL_VIEW_ROLES role, filter
     by those PMs' UNION'd scope instead of the caller's own (admin/gerente
     inspecting a specific PM's — including a sub-PM's — view). Otherwise
     (D2) `pm_ids` is dropped and the caller's own effective scope applies.
     """
+    if marca_col is None:
+        marca_col = MLVentaMetrica.marca
+    if categoria_col is None:
+        categoria_col = MLVentaMetrica.categoria
+
     if pm_ids and not is_full_view(usuario):
         pm_ids = None  # D2: pm_ids is full-view-role-only; no impersonation for others
 
@@ -94,20 +112,16 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optio
             pares_pm = get_pares_para_pm_ids(db, pm_ids_list)
 
             if not pares_pm:
-                return query.filter(MLVentaMetrica.marca == "__NINGUNA__")
-            return query.filter(
-                tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_pm)
-            )
+                return query.filter(marca_col == "__NINGUNA__")
+            return query.filter(tuple_(func.upper(marca_col), func.upper(categoria_col)).in_(pares_pm))
 
     pares_usuario = get_pares_marca_categoria_usuario(db, usuario)
 
     if pares_usuario is not None:
         if len(pares_usuario) == 0:
-            query = query.filter(MLVentaMetrica.marca == "__NINGUNA__")
+            query = query.filter(marca_col == "__NINGUNA__")
         else:
-            query = query.filter(
-                tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_usuario)
-            )
+            query = query.filter(tuple_(func.upper(marca_col), func.upper(categoria_col)).in_(pares_usuario))
 
     return query
 
