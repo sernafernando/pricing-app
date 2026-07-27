@@ -304,7 +304,6 @@ class AdminPendingResponse(BaseModel):
     prefill_billing_doc_number: Optional[str] = None
     prefill_billing_first_name: Optional[str] = None
     prefill_billing_last_name: Optional[str] = None
-    doc_mismatch: bool
     afip_status: Optional[str] = None
     afip_razon_social: Optional[str] = None
     afip_condicion_iva: Optional[str] = None
@@ -1063,7 +1062,6 @@ def listar_pendientes(
     pack_id: Optional[str] = Query(None),
     buyer_id: Optional[int] = Query(None),
     cuit_valid: Optional[bool] = Query(None),
-    doc_mismatch: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -1084,8 +1082,6 @@ def listar_pendientes(
         query = query.filter(MlBotAdminPendingRequest.buyer_id == buyer_id)
     if cuit_valid is not None:
         query = query.filter(MlBotAdminPendingRequest.cuit_valid == cuit_valid)
-    if doc_mismatch is not None:
-        query = query.filter(MlBotAdminPendingRequest.doc_mismatch == doc_mismatch)
 
     total = query.count()
     rows = query.order_by(MlBotAdminPendingRequest.created_at.desc()).offset(offset).limit(limit).all()
@@ -1108,7 +1104,7 @@ def detalle_pendiente(
     _check_permiso(db, current_user, "ml_bot.admin_pending.ver")
     row = _get_admin_pending_or_404(db, request_id)
 
-    template = select_ack_template(cuit_valid=row.cuit_valid, doc_mismatch=row.doc_mismatch)
+    template = select_ack_template(cuit_valid=row.cuit_valid)
     base = AdminPendingResponse.model_validate(row).model_dump()
     return AdminPendingDetailResponse(**base, superseded_values=row.superseded_values, suggested_ack_template=template)
 

@@ -17,10 +17,17 @@ ACK_CONFIRM = (
 )
 
 
-def select_ack_template(*, cuit_valid: bool | None, doc_mismatch: bool) -> str:
-    """Clean/valid CUIT, no mismatch -> proceed message. Invalid CUIT or a
-    doc mismatch -> ask the buyer to confirm before anything is changed
-    (never auto-fixed, design "PII / Threat")."""
-    if cuit_valid is True and not doc_mismatch:
-        return ACK_CLEAN
-    return ACK_CONFIRM
+def select_ack_template(*, cuit_valid: bool | None) -> str:
+    """Valid CUIT -> proceed message. Invalid or unknown -> ask the buyer to
+    confirm before anything is changed (never auto-fixed).
+
+    Validity is decided by mod-11 alone. The old extra condition — the
+    extracted CUIT's middle digits matching the buyer's stored DNI — was
+    removed: a buyer asking to re-invoice to a different taxpayer (their
+    company, their employer, a third party) is the PREMISE of an
+    `invoice_cuit_change` request, not an anomaly. Worse, a company CUIT
+    (30-/33-/34-) never carries a DNI in those digits, so the check fired on
+    every single one and told those buyers their perfectly valid CUIT could
+    not be validated.
+    """
+    return ACK_CLEAN if cuit_valid is True else ACK_CONFIRM

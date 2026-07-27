@@ -32,24 +32,20 @@ from app.services.afip_service import AfipService, AfipServiceError, validar_cui
 logger = logging.getLogger(__name__)
 
 _OPEN_STATUSES = ("new", "in_progress")
-_AFIP_TIMEOUT_SECONDS = 8.0
+# Total budget for the whole padrón lookup, NOT for one HTTP request.
+# `get_persona` can chain up to four round-trips against ARCA (WSAA login +
+# query for A4, then the same again for the A13 fallback), and 8s was too
+# tight for that: a healthy-but-slow ARCA turned into `afip_status`
+# "unavailable", which is exactly what the pending panel was showing on
+# every row. This runs inside the background drafting cycle, not a user
+# request, so a longer wait costs cycle time and nothing else.
+_AFIP_TIMEOUT_SECONDS = 25.0
 
 
 def _clean_cuit(cuit: Optional[str]) -> Optional[str]:
     if not cuit:
         return None
     return re.sub(r"[^0-9]", "", cuit)
-
-
-def _cuit_core_matches_dni(extracted_cuit: Optional[str], stored_dni: Optional[str]) -> bool:
-    """Soft cross-check only (never auto-fixed, design "PII / Threat"): a
-    CUIT's middle 8 digits are the person's DNI (e.g. 20-14768351-1 <->
-    14768351). Missing either side -> no mismatch signal (can't compare)."""
-    core = _clean_cuit(extracted_cuit)
-    dni = _clean_cuit(stored_dni)
-    if not core or not dni or len(core) != 11:
-        return True
-    return core[2:10].lstrip("0") == dni.lstrip("0")
 
 
 async def get_persona(cuit: str) -> Tuple[Dict[str, Any], str]:
@@ -147,9 +143,6 @@ async def derive_from_message(
     (AFIP enrichment failure is always absorbed internally)."""
     prefill = _load_prefill(buyer_id)
     cuit_valid = validar_cuit(_clean_cuit(extracted_cuit) or "") if extracted_cuit else None
-    doc_mismatch = not _cuit_core_matches_dni(
-        extracted_cuit, prefill.get("prefill_identification_number") or prefill.get("prefill_billing_doc_number")
-    )
 
     afip_status, afip_fields = await _enrich_afip(extracted_cuit)
 
@@ -181,7 +174,9 @@ async def derive_from_message(
         row.extracted_cuit = extracted_cuit
         row.extracted_name = extracted_name
         row.cuit_valid = cuit_valid
-        row.doc_mismatch = doc_mismatch
+        # Column kept (dropped in a follow-up migration) but never set True
+        # again: see `select_ack_template` for why the signal was removed.
+        row.doc_mismatch = False
         row.afip_status = afip_status
         row.afip_checked_at = datetime.now(timezone.utc) if afip_status != "skipped" else row.afip_checked_at
         for key, value in afip_fields.items():

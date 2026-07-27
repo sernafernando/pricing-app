@@ -219,7 +219,42 @@ class TestDeriveDocMismatchFlag:
 
         row = db.query(MlBotAdminPendingRequest).filter_by(id=row_id).first()
         assert row is not None
-        assert row.doc_mismatch is True
+        # The doc-mismatch signal is gone: a buyer asking to re-invoice to a
+        # DIFFERENT taxpayer is the premise of the request, not an anomaly.
+        assert row.doc_mismatch is False
+
+    def test_company_cuit_is_never_flagged(self, db) -> None:
+        """The false positive that made the panel unusable: a company CUIT
+        (30-/33-) carries no DNI in its middle digits, so the old check
+        flagged every single one of them."""
+        db.add(
+            MercadoLibreUserData(
+                mluser_id=1009,
+                nickname="COMPRADOR1009",
+                identification_type="DNI",
+                identification_number="35422154",
+            )
+        )
+        db.flush()
+
+        with (
+            _patched(db),
+            patch.object(admin_pending_service, "_enrich_afip", new=AsyncMock(return_value=("skipped", {}))),
+        ):
+            row_id = asyncio.run(
+                admin_pending_service.derive_from_message(
+                    message_id=None,
+                    pack_id="p9",
+                    buyer_id=1009,
+                    raw_text="facturar a 30-71516098-2",
+                    extracted_cuit="30-71516098-2",
+                    extracted_name=None,
+                )
+            )
+
+        row = db.query(MlBotAdminPendingRequest).filter_by(id=row_id).first()
+        assert row is not None
+        assert row.doc_mismatch is False
 
     def test_cuit_core_matches_stored_dni_no_mismatch(self, db) -> None:
         db.add(
