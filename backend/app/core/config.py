@@ -127,9 +127,12 @@ class Settings(BaseSettings):
     TN_STORE_ID: Optional[str] = None
     TN_ACCESS_TOKEN: Optional[str] = None
     # Base URL for the TN admin product-edit link (handle-based subdomain, not
-    # the numeric store id). The reconcile UI appends `/{product_id}`. Override
-    # via env; if unset, no "Editar en TN" link is emitted.
-    TN_ADMIN_BASE_URL: Optional[str] = "https://gaussonline3.mitiendanube.com/admin/products"
+    # the numeric store id). The reconcile UI appends `/{product_id}`. Set it
+    # per environment in .env (like TN_STORE_ID/TN_ACCESS_TOKEN above) —
+    # e.g. TN_ADMIN_BASE_URL=https://gaussonline3.mitiendanube.com/admin/products
+    # If unset, NO "Editar en TN" link is emitted (fail-safe: never fabricate a
+    # URL that would 404 in an env without the right handle configured).
+    TN_ADMIN_BASE_URL: Optional[str] = None
 
     # GBP Parser (internal service) - SIEMPRE localhost porque corre en el mismo servidor
     GBP_PARSER_URL: str = "http://localhost:8002/api/gbp-parser"

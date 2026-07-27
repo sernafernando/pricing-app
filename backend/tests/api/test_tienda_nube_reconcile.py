@@ -778,10 +778,9 @@ class TestReporteMlTitleAndAdminUrl:
         row = response.json()["items"][0]
         assert row["tn_matches"][0]["tn_admin_url"] == "https://gaussonline3.mitiendanube.com/admin/products/777"
 
-    def test_tn_admin_url_none_when_base_url_unset(self, client, db, user_ver, monkeypatch):
-        # Default state (TN_ADMIN_BASE_URL unset): a real TN match exists, but no
-        # link is fabricated — never guess a URL that would 404.
-        monkeypatch.setattr("app.api.endpoints.tienda_nube_reconcile.settings.TN_ADMIN_BASE_URL", None)
+    def test_tn_admin_url_none_when_base_url_unset(self, client, db, user_ver):
+        # Real default (TN_ADMIN_BASE_URL is None / unset in .env): a matched
+        # product gets NO "Editar en TN" link — never a fabricated URL that 404s.
         producto = TiendaNubeProducto(
             product_id=888, product_name="Test", variant_id=1, variant_sku="EAN-NOURL", published=True
         )
