@@ -964,6 +964,9 @@ export default function TiendaNubeReconcile() {
 
       {publishingRow && (
         <TnPublishModal
+          // Remount per product so title/images (lazy useState initializers)
+          // re-init when switching rows — never publish product B with A's data.
+          key={publishingRow.ean}
           row={publishingRow}
           isOpen
           onClose={() => setPublishingRow(null)}

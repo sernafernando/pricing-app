@@ -280,11 +280,6 @@
 }
 
 .duplicateGroupHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
   padding: 8px 12px;
   background: var(--cf-bg-hover);
   font-size: 0.8rem;

@@ -762,7 +762,10 @@ class TestReporteMlTitleAndAdminUrl:
         assert row["ml_title"] is None
 
     def test_tn_admin_url_present_for_matched_tn_product(self, client, db, user_ver, monkeypatch):
-        monkeypatch.setattr("app.api.endpoints.tienda_nube_reconcile.settings.TN_STORE_ID", "12345")
+        monkeypatch.setattr(
+            "app.api.endpoints.tienda_nube_reconcile.settings.TN_ADMIN_BASE_URL",
+            "https://gaussonline3.mitiendanube.com/admin/products",
+        )
         producto = TiendaNubeProducto(
             product_id=777, product_name="Test", variant_id=1, variant_sku="EAN-MATCH", published=True
         )
@@ -773,7 +776,23 @@ class TestReporteMlTitleAndAdminUrl:
         response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
         assert response.status_code == 200
         row = response.json()["items"][0]
-        assert row["tn_matches"][0]["tn_admin_url"] == "https://12345.mitiendanube.com/admin/v2/products/777"
+        assert row["tn_matches"][0]["tn_admin_url"] == "https://gaussonline3.mitiendanube.com/admin/products/777"
+
+    def test_tn_admin_url_none_when_base_url_unset(self, client, db, user_ver, monkeypatch):
+        # Default state (TN_ADMIN_BASE_URL unset): a real TN match exists, but no
+        # link is fabricated — never guess a URL that would 404.
+        monkeypatch.setattr("app.api.endpoints.tienda_nube_reconcile.settings.TN_ADMIN_BASE_URL", None)
+        producto = TiendaNubeProducto(
+            product_id=888, product_name="Test", variant_id=1, variant_sku="EAN-NOURL", published=True
+        )
+        db.add(producto)
+        db.commit()
+        gbp_rows = [{"Código": "EAN-NOURL", "tnr_id": 0, "tnr_variationID": 0, "stock": 5}]
+
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["tn_matches"][0]["tn_admin_url"] is None
 
     def test_tn_admin_url_absent_when_no_tn_match(self, client, db, user_ver):
         response = _fetch_report(client, user_ver)

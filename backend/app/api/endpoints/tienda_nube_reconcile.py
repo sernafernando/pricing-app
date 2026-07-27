@@ -166,18 +166,16 @@ class ReconcileRowResponse(BaseModel):
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
     """Tienda Nube admin product-edit link for a given TN `product_id`, or
-    `None` if `product_id` is missing or `TN_STORE_ID` isn't configured.
+    `None` if `product_id` is missing or `TN_ADMIN_BASE_URL` isn't configured.
 
-    ASSUMED pattern — could not be confirmed against TN's own docs from here:
-    `https://<TN_STORE_ID>.mitiendanube.com/admin/v2/products/<product_id>`.
-    `TN_STORE_ID` is the same numeric store id already used by
-    `tienda_nube_product_client`/`tienda_nube_order_client` for the API base
-    URL; if the real admin URL needs the store's public handle/subdomain
-    instead of this numeric id, only this helper needs correcting.
+    The base URL (handle-based admin subdomain + path) is configuration, not a
+    guessed pattern — it lives in `settings.TN_ADMIN_BASE_URL`; this helper only
+    appends `/{product_id}`. If the setting is unset, no link is emitted rather
+    than fabricating one that would 404.
     """
-    if product_id is None or not settings.TN_STORE_ID:
+    if product_id is None or not settings.TN_ADMIN_BASE_URL:
         return None
-    return f"https://{settings.TN_STORE_ID}.mitiendanube.com/admin/v2/products/{product_id}"
+    return f"{settings.TN_ADMIN_BASE_URL.rstrip('/')}/{product_id}"
 
 
 class ReconcileReportResponse(BaseModel):
@@ -562,6 +560,10 @@ def buscar_categorias(
         # `.contains(...)` alone is LIKE (case-SENSITIVE on Postgres); the search
         # is contractually case-insensitive, so it must be ILIKE.
         .filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
+        # NOTE (scaling): the leading-`%` ILIKE cannot use a btree index and the
+        # ORDER BY sorts the whole match set before `limit` cuts it. Fine for the
+        # bounded TN category tree today; if it grows large, add a trigram
+        # (pg_trgm) index on `category_path_text` before this becomes a hot query.
         .order_by(TnCategoryEmbedding.category_path_text)
         .limit(limit)
         .all()
