@@ -211,6 +211,9 @@ export const pricingAPI = {
 // authenticated titular as the grant-target picker source.
 export const marcasPmAPI = {
   misTitularidades: () => api.get('/marcas-pm/mis-titularidades'),
+  // Admin-only (ADMIN/SUPERADMIN): every (marca, categoria) pair, including
+  // pairs with no titular. Same source GestionPM.jsx uses.
+  listarTodosLosPares: () => api.get('/marcas-pm'),
   listarSubPMs: (marca, categoria) => api.get('/marcas-pm/sub-pms', { params: { marca, categoria } }),
   crearSubPM: (data) => api.post('/marcas-pm/sub-pms', data),
   eliminarSubPM: (id) => api.delete(`/marcas-pm/sub-pms/${id}`),

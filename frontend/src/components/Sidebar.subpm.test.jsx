@@ -14,11 +14,14 @@ import { marcasPmAPI } from '../services/api';
 // Global setup.js mock only stubs tienePermiso/cargandoPermisos; Sidebar also
 // calls tieneAlgunPermiso for multi-permiso items, which isn't relevant here
 // but must exist to avoid a crash while rendering the rest of the menu.
+// `permisosDenegados` lets a test simulate a non-admin: every permiso is
+// granted except the ones listed (used for 'admin.gestionar_pms').
+const permisosDenegados = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: () => true,
-    tieneAlgunPermiso: () => true,
+    tienePermiso: (codigo) => !permisosDenegados.has(codigo),
+    tieneAlgunPermiso: (codigos) => codigos.some((c) => !permisosDenegados.has(c)),
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -26,6 +29,9 @@ vi.mock('../contexts/PermisosContext', () => ({
 
 beforeEach(() => {
   marcasPmAPI.misTitularidades.mockReset();
+  // Default for the data-scoped (non-admin) cases below.
+  permisosDenegados.clear();
+  permisosDenegados.add('admin.gestionar_pms');
 });
 
 function renderSidebar() {
@@ -54,6 +60,16 @@ describe('Sidebar — Mis Sub-PMs conditional entry', () => {
     await waitFor(() => expect(marcasPmAPI.misTitularidades).toHaveBeenCalled());
     await user.click(screen.getByText('Gestión'));
     expect(screen.queryByText('Mis Sub-PMs')).not.toBeInTheDocument();
+  });
+
+  it('shows the entry to an admin (admin.gestionar_pms) with zero titularidades', async () => {
+    const user = userEvent.setup();
+    permisosDenegados.clear();
+    marcasPmAPI.misTitularidades.mockResolvedValue({ data: { pares: [], total: 0 } });
+    renderSidebar();
+    await waitFor(() => expect(marcasPmAPI.misTitularidades).toHaveBeenCalled());
+    await user.click(screen.getByText('Gestión'));
+    expect(await screen.findByText('Mis Sub-PMs')).toBeInTheDocument();
   });
 
   it('hides the entry when the mis-titularidades call fails', async () => {
