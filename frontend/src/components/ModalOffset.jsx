@@ -209,8 +209,8 @@ export default function ModalOffset({
     if (busquedaFiltroProducto.length < 2) return;
     setBuscandoFiltroProducto(true);
     try {
-      const response = await api.get(`${apiBasePath}/buscar-productos`, {
-        params: { q: busquedaFiltroProducto, fecha_desde: fechaDesde, fecha_hasta: fechaHasta }
+      const response = await api.get('/buscar-productos-catalogo', {
+        params: { q: busquedaFiltroProducto }
       });
       setProductosFiltroEncontrados(response.data);
     } catch (error) {
@@ -230,8 +230,8 @@ export default function ModalOffset({
     if (busquedaOffsetProducto.length < 2) return;
     setBuscandoProductosOffset(true);
     try {
-      const response = await api.get(`${apiBasePath}/buscar-productos`, {
-        params: { q: busquedaOffsetProducto, fecha_desde: fechaDesde, fecha_hasta: fechaHasta }
+      const response = await api.get('/buscar-productos-catalogo', {
+        params: { q: busquedaOffsetProducto }
       });
       setProductosOffsetEncontrados(response.data);
     } catch (error) {
