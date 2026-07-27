@@ -218,6 +218,18 @@ export const marcasPmAPI = {
   crearSubPM: (data) => api.post('/marcas-pm/sub-pms', data),
   eliminarSubPM: (id) => api.delete(`/marcas-pm/sub-pms/${id}`),
   listarUsuariosPM: () => api.get('/usuarios/pms'),
+  // Bulk assignment reads (sub-pm-bulk-assignment Slice 1): grants for a
+  // target user, scoped to the caller's writable pairs — used to pre-check
+  // the pair table when a user is picked.
+  obtenerGrantsUsuario: (usuarioId) => api.get(`/marcas-pm/sub-pms/usuario/${usuarioId}`),
+  // Aggregate grant counts by usuario_id, scoped to the caller's writable
+  // pairs — feeds the "Juan Pérez (12)" picker counter without an N+1.
+  obtenerConteosSubPMs: () => api.get('/marcas-pm/sub-pms/conteos'),
+  // Bulk assignment write (sub-pm-bulk-assignment Slice 2): replaces the
+  // FULL desired set of (marca, categoria) pairs for `usuarioId`, confined
+  // to the caller's writable scope. Fail-closed: any out-of-scope pair
+  // rejects the whole request (403 with `pares_rechazados`), nothing applied.
+  asignarSubPMsBulk: (usuarioId, pares) => api.put(`/marcas-pm/sub-pms/usuario/${usuarioId}`, { pares }),
 };
 
 export const rolesAPI = {
