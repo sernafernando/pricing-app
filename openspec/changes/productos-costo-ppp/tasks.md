@@ -174,6 +174,17 @@ merged with the manually-created `ix_tit_item_cd_desc` index in place.
       unrelated `app/tickets/SISTEMA_TICKETS_README.md` reformat reverted per instructions.
       Committed as `7bf0c4ff` on `feat/productos-costo-ppp-backend`, on top of `37912dc8`. NOT
       pushed, PR NOT marked ready, per explicit instruction.
+- [x] TP.8 **Coordinator-mandated risk closure**: added `TestResolverDialectEquivalence`
+      (`tests/unit/test_costo_ppp_service.py`) — a single shared dataset (every exclusion
+      predicate, multi-row-per-item, an absent item, and an EXACT `it_cd` tie) seeded into both
+      SQLite and a real PostgreSQL instance, asserting `_build_lateral_stmt` and
+      `_build_row_number_stmt` return byte-identical `{item_id: PppSource}` dicts.
+      **Real divergence found and fixed, not silenced**: on an exact `it_cd` tie, neither
+      LATERAL's `LIMIT 1` nor `ROW_NUMBER()` had a deterministic winner — verified empirically by
+      temporarily removing the secondary sort and re-running (failed 3/3 times). Fixed by adding
+      a stable tiebreak, `ORDER BY it_cd DESC, it_transaction DESC`, to BOTH branches (a real,
+      always-unique, indexed column). Row-selection rule and module docstring updated. Committed
+      as `4cc393a4`. Full suite re-verified: 3712 passed, 16 skipped, 0 failed.
 
 ## PR2 — Frontend base: cost line + first markup group + shared formatter
 
