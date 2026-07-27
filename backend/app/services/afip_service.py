@@ -1,18 +1,28 @@
 """
-AfipService — integración con AFIP via afipsdk.com (REST API).
+AfipService — integración directa con AFIP/ARCA (WSAA + padrón, SOAP).
 
 Flujo:
-  1. POST /auth → obtener TA (token + sign) para el web service deseado
-  2. POST /requests → llamar al método del WS con el TA
+  1. WSAA: se arma el TRA, se firma en CMS con el certificado propio y se
+     llama `loginCms` → TA (token + sign) para el web service pedido.
+  2. Padrón: `getPersona` sobre personaServiceA4, con fallback a A13.
 
-TAs se cachean en memoria hasta su expiración.
-En producción se requiere certificado digital (cert + key).
-En desarrollo se usa el CUIT de prueba 20409378472 sin certificado.
+El certificado y la clave privada NUNCA salen del proceso: solo viaja la
+firma CMS. Esa era la razón de dejar atrás afipsdk.com, que exigía subir la
+clave privada en cada pedido de TA.
+
+Los TA se cachean en memoria por wsid hasta su expiración (con margen de 5
+minutos). Toda la I/O va por un único `httpx.AsyncClient` compartido.
+
+En desarrollo NO hay modo sin certificado: sin cert de homologación las
+llamadas reales no pueden funcionar y la corrección se valida con los tests
+mockeados (ver tests/unit/test_afip_wsaa.py y test_afip_padron.py).
 
 Web services utilizados:
-  - ws_sr_padron_a4 → getPersona (datos completos: impuestos, regímenes, domicilios)
+  - ws_sr_padron_a4  → getPersona (impuestos, regímenes, actividades, domicilios)
+  - ws_sr_padron_a13 → getPersona (datos básicos; sin impuestos ni regímenes)
 """
 
+import asyncio
 import base64
 import time
 import xml.etree.ElementTree as ET
@@ -39,6 +49,21 @@ IMPUESTO_MONOTRIBUTO = 20
 # Estructura: {wsid: {"token": str, "sign": str, "expires_at": float}}
 _ta_cache: dict[str, dict[str, Any]] = {}
 
+# Un lock por wsid, para que un burst de consultas concurrentes tras el
+# vencimiento del TA no dispare N logins simultáneos a WSAA (que rechaza el
+# segundo login con "El CEE ya posee un TA valido...").
+_ta_locks: dict[str, asyncio.Lock] = {}
+
+
+def _ta_lock(wsid: str) -> asyncio.Lock:
+    """Lock del wsid, creado on-demand.
+
+    `setdefault` sobre un dict alcanza: no hay await entre la lectura y la
+    escritura, así que dentro de un mismo event loop la creación del lock es
+    atómica y todos los corrutinas obtienen la MISMA instancia.
+    """
+    return _ta_locks.setdefault(wsid, asyncio.Lock())
+
 
 def _restore_pem(value: str) -> str:
     """
@@ -58,23 +83,77 @@ def _restore_pem(value: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# WSAA direct transport (afip-direct-arca PR2)
+# Direct WSAA + padrón SOAP transport (afip-direct-arca)
 #
-# In-process WSAA client: builds the TRA, CMS-signs it locally with
-# AFIP_CERT/AFIP_KEY and calls loginCms over SOAP. The private key never
-# leaves the process — that is the reason this replaces afipsdk.com, which
-# required uploading it on every TA request.
-#
-# Shipped in this slice as tested-but-not-yet-cabled machinery: `_get_ta`
-# and `_query_ws` still run over afipsdk until the PR3 padrón swap.
-#
-# Endpoints reverified against the live WSDLs on 2026-07-27 (design open
-# question: the AFIP->ARCA domain migration is still in flight; both WSAA
-# hosts and both padrón hosts answer 200 on afip.gov.ar today).
+# Endpoints and operation contracts reverified against the LIVE WSDLs on
+# 2026-07-27: the AFIP->ARCA domain migration has not moved these services,
+# all four still answer on afip.gov.ar. `getPersona` has the same signature
+# (token, sign, cuitRepresentada, idPersona) in A4 and A13.
 # --------------------------------------------------------------------------
 
 WSAA_URL_PROD = "https://wsaa.afip.gov.ar/ws/services/LoginCms"
 WSAA_URL_HOMO = "https://wsaahomo.afip.gov.ar/ws/services/LoginCms"
+
+_PADRON_HOST_PROD = "https://aws.afip.gov.ar/sr-padron/webservices"
+_PADRON_HOST_HOMO = "https://awshomo.afip.gov.ar/sr-padron/webservices"
+
+# wsid -> (service path segment, SOAP namespace) straight from the WSDLs.
+_PADRON_SERVICES: dict[str, tuple[str, str]] = {
+    "ws_sr_padron_a4": ("personaServiceA4", "http://a4.soap.ws.server.puc.sr/"),
+    "ws_sr_padron_a13": ("personaServiceA13", "http://a13.soap.ws.server.puc.sr/"),
+}
+
+# Fields the padrón declares as xs:int/xs:long and that the extractors compare
+# numerically (`idImpuesto == 30`, `orden == 1`, `max(..., key=periodo)`).
+# SOAP hands everything back as text, so without this cast those comparisons
+# silently stop matching — the afipsdk JSON came pre-typed.
+# Deliberately NOT included: `numeroDocumento`, `numeroInscripcion` and
+# `codPostal`/`codigoPostal`, which are xs:string in the WSDL and would lose
+# leading zeros if coerced.
+_PERSONA_INT_FIELDS = frozenset(
+    {
+        "cantidadSociosEmpresaMono",
+        "diaPeriodo",
+        "idActividad",
+        "idActividadPrincipal",
+        "idCategoria",
+        "idDependencia",
+        "idImpuesto",
+        "idPersona",
+        "idPersonaAsociada",
+        "idProvincia",
+        "idRegimen",
+        "leyJubilacion",
+        "mesCierre",
+        "nomenclador",
+        "numero",
+        "orden",
+        "periodo",
+        "periodoActividadPrincipal",
+    }
+)
+
+# Elements the padrón declares with maxOccurs="unbounded". Forced to a list
+# WHEN PRESENT so a single-element response still iterates.
+#
+# Critically, an ABSENT key stays ABSENT — never an empty list.
+# `build_datos_fiscales_from_persona` branches on `"impuesto" in persona` to
+# decide whether condición IVA is knowable at all, and A13 carries no
+# impuestos: emitting `impuesto: []` would turn "unknown" (None) into an
+# asserted "No Responsable" for every A13-resolved taxpayer.
+_PERSONA_LIST_FIELDS = frozenset(
+    {
+        "actividad",
+        "categoria",
+        "claveInactivaAsociada",
+        "domicilio",
+        "email",
+        "impuesto",
+        "regimen",
+        "relacion",
+        "telefono",
+    }
+)
 
 _WSAA_NS = "http://wsaa.view.sua.dvadac.desein.afip.gov"
 _SOAPENV_NS = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -111,6 +190,18 @@ def _reset_http_client() -> None:
 def _wsaa_url() -> str:
     """Homologación only for AFIP_ENVIRONMENT='dev'; producción otherwise."""
     return WSAA_URL_HOMO if settings.AFIP_ENVIRONMENT == "dev" else WSAA_URL_PROD
+
+
+def _padron_url(wsid: str) -> str:
+    """Endpoint for a padrón wsid, per environment."""
+    service = _PADRON_SERVICES.get(wsid)
+    if service is None:
+        raise AfipServiceError(
+            f"Web service de padrón desconocido: {wsid}",
+            detail=f"wsid soportados: {', '.join(sorted(_PADRON_SERVICES))}",
+        )
+    host = _PADRON_HOST_HOMO if settings.AFIP_ENVIRONMENT == "dev" else _PADRON_HOST_PROD
+    return f"{host}/{service[0]}"
 
 
 def _localname(tag: str) -> str:
@@ -237,6 +328,92 @@ def _parse_ta(body: str) -> tuple[str, str, datetime]:
     return token, sign, expiration
 
 
+def _element_to_value(element: ET.Element) -> Any:
+    """Recursively map a padrón element to the JSON-ish shape the extractors
+    expect: leaves become text (int-cast for the declared numeric fields),
+    branches become dicts, repeated children become lists."""
+    children = list(element)
+    if not children:
+        text = (element.text or "").strip()
+        if _localname(element.tag) in _PERSONA_INT_FIELDS:
+            try:
+                return int(text)
+            except ValueError:
+                # Keep the raw text rather than dropping the value: a
+                # non-numeric arrival is a padrón anomaly, not a crash.
+                logger.warning(
+                    "Padrón: campo numérico %s con valor no entero %r",
+                    _localname(element.tag),
+                    text,
+                )
+                return text
+        return text
+
+    result: dict[str, Any] = {}
+    for child in children:
+        name = _localname(child.tag)
+        value = _element_to_value(child)
+        if name in _PERSONA_LIST_FIELDS:
+            result.setdefault(name, []).append(value)
+        elif name in result:
+            # Repeated element not in the known list set — promote anyway so
+            # data is never silently dropped by last-write-wins.
+            if not isinstance(result[name], list):
+                result[name] = [result[name]]
+            result[name].append(value)
+        else:
+            result[name] = value
+    return result
+
+
+def _parse_persona(body: str) -> dict[str, Any]:
+    """Parse a padrón `getPersona` SOAP response into the `personaReturn.persona`
+    dict the extractors consume.
+
+    Shape-preservation is the whole job here (see `_PERSONA_INT_FIELDS` /
+    `_PERSONA_LIST_FIELDS`): the afipsdk JSON transport handed over typed
+    values, SOAP hands over text.
+    """
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise AfipServiceError(
+            "Respuesta de padrón malformada",
+            detail=f"No se pudo parsear el XML del padrón ({exc})",
+        ) from exc
+
+    _raise_if_soap_fault(root)
+
+    persona_element = _find_localname(root, "persona")
+    if persona_element is None or not list(persona_element):
+        raise AfipServiceError(
+            "No se encontró persona en AFIP",
+            detail="La respuesta del padrón no contiene datos de persona",
+        )
+
+    return _element_to_value(persona_element)
+
+
+def _build_get_persona_envelope(
+    wsid: str,
+    token: str,
+    sign: str,
+    cuit_representada: int,
+    id_persona: int,
+) -> str:
+    namespace = _PADRON_SERVICES[wsid][1]
+    envelope = ET.Element(f"{{{_SOAPENV_NS}}}Envelope")
+    ET.SubElement(envelope, f"{{{_SOAPENV_NS}}}Header")
+    soap_body = ET.SubElement(envelope, f"{{{_SOAPENV_NS}}}Body")
+    call = ET.SubElement(soap_body, f"{{{namespace}}}getPersona")
+    # Unqualified parts, per the WSDL's getPersona complexType.
+    ET.SubElement(call, "token").text = token
+    ET.SubElement(call, "sign").text = sign
+    ET.SubElement(call, "cuitRepresentada").text = str(cuit_representada)
+    ET.SubElement(call, "idPersona").text = str(id_persona)
+    return ET.tostring(envelope, encoding="unicode")
+
+
 def _build_login_cms_envelope(cms_b64: str) -> str:
     envelope = ET.Element(f"{{{_SOAPENV_NS}}}Envelope")
     ET.SubElement(envelope, f"{{{_SOAPENV_NS}}}Header")
@@ -286,7 +463,7 @@ class AfipServiceError(Exception):
 
 
 class AfipService:
-    """Cliente para AFIP SDK API (afipsdk.com)."""
+    """Cliente directo de AFIP/ARCA (WSAA + padrón sobre SOAP)."""
 
     # Timeout generoso — AFIP puede tardar
     TIMEOUT = 30.0
@@ -294,50 +471,50 @@ class AfipService:
     def __init__(self) -> None:
         # Leer settings en runtime (no como class attrs) para que
         # _restore_pem se aplique con el valor actual de .env
-        self.BASE_URL = settings.AFIP_SDK_BASE_URL
-        self.ACCESS_TOKEN = settings.AFIP_ACCESS_TOKEN
         self.CUIT = settings.AFIP_CUIT
         self.ENVIRONMENT = settings.AFIP_ENVIRONMENT
         self.CERT = _restore_pem(settings.AFIP_CERT or "")
         self.KEY = _restore_pem(settings.AFIP_KEY or "")
 
-        if not self.ACCESS_TOKEN:
-            raise AfipServiceError(
-                "AFIP_ACCESS_TOKEN no configurado",
-                detail="Configurar AFIP_ACCESS_TOKEN en .env",
-            )
         if not self.CUIT:
             raise AfipServiceError(
                 "AFIP_CUIT no configurado",
                 detail="Configurar AFIP_CUIT en .env",
             )
-
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.ACCESS_TOKEN}",
-        }
-
-    async def _wsaa_get_ta(self, wsid: str) -> dict[str, str]:
-        """Obtain a Ticket de Acceso directly from WSAA (no third party).
-
-        Same cache contract as the afipsdk `_get_ta` it will replace in PR3:
-        one entry per `wsid`, refetched once the cached TA falls inside the
-        5-minute expiry margin. A failed login is never cached.
-
-        NOT cabled into `get_persona` yet — `_query_ws` still uses the
-        afipsdk `_get_ta` until the padrón swap lands.
-        """
-        cached = _ta_cache.get(wsid)
-        if cached and cached["expires_at"] > time.time():
-            return {"token": cached["token"], "sign": cached["sign"]}
-
+        # Sin cert/key no hay WSAA posible: fallar acá evita firmar y salir a
+        # la red para descubrirlo. Antes alcanzaba con AFIP_ACCESS_TOKEN
+        # porque el tercero guardaba el certificado.
         if not self.CERT or not self.KEY:
             raise AfipServiceError(
                 "AFIP_CERT/AFIP_KEY no configurados",
                 detail="La autenticación directa contra WSAA requiere certificado y clave privada en .env",
             )
 
+    async def _get_ta(self, wsid: str) -> dict[str, str]:
+        """Obtain a Ticket de Acceso directly from WSAA (no third party).
+
+        One cache entry per `wsid`, refetched once the cached TA falls inside
+        the 5-minute expiry margin. A failed login is never cached.
+
+        The miss branch runs under a per-wsid lock: WSAA rejects a second
+        concurrent login while a TA is still valid ("El CEE ya posee un TA
+        valido para el acceso al WSN solicitado"), so an unguarded burst
+        after expiry would fail every caller but one. The cache is
+        re-checked inside the lock so queued callers reuse the TA the winner
+        just stored instead of stampeding.
+        """
+        cached = _ta_cache.get(wsid)
+        if cached and cached["expires_at"] > time.time():
+            return {"token": cached["token"], "sign": cached["sign"]}
+
+        async with _ta_lock(wsid):
+            cached = _ta_cache.get(wsid)
+            if cached and cached["expires_at"] > time.time():
+                return {"token": cached["token"], "sign": cached["sign"]}
+            return await self._login_cms(wsid)
+
+    async def _login_cms(self, wsid: str) -> dict[str, str]:
+        """The uncached WSAA round-trip. Callers hold the per-wsid lock."""
         logger.info("Solicitando TA a WSAA para wsid=%s, env=%s", wsid, self.ENVIRONMENT)
 
         cms_b64 = _sign_cms(_build_tra(wsid), self.CERT, self.KEY)
@@ -374,113 +551,42 @@ class AfipService:
 
         return {"token": token, "sign": sign}
 
-    async def _get_ta(self, wsid: str) -> dict[str, str]:
-        """
-        Obtiene el Ticket de Acceso (TA) para un web service.
-        Cachea el TA hasta su expiración.
-        """
-        cached = _ta_cache.get(wsid)
-        if cached and cached["expires_at"] > time.time():
-            return {"token": cached["token"], "sign": cached["sign"]}
-
-        logger.info("Solicitando nuevo TA para wsid=%s, env=%s", wsid, self.ENVIRONMENT)
-
-        body: dict[str, Any] = {
-            "environment": self.ENVIRONMENT,
-            "tax_id": self.CUIT,
-            "wsid": wsid,
-        }
-
-        # En producción, agregar cert y key para autenticar con ARCA
-        if self.CERT and self.KEY:
-            body["cert"] = self.CERT
-            body["key"] = self.KEY
-
-        async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-            resp = await client.post(
-                f"{self.BASE_URL}/auth",
-                json=body,
-                headers=self._headers(),
-            )
-
-        if resp.status_code != 200:
-            error_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            detail = str(error_data.get("data_errors", error_data.get("message", resp.text)))
-            logger.error("Error obteniendo TA: status=%d, detail=%s", resp.status_code, detail)
-            raise AfipServiceError(
-                f"Error obteniendo TA de AFIP (HTTP {resp.status_code})",
-                detail=detail,
-            )
-
-        data = resp.json()
-        token = data["token"]
-        sign = data["sign"]
-
-        # Cachear con margen de 5 minutos antes de expiración real
-        expiration = datetime.fromisoformat(data["expiration"].replace("Z", "+00:00"))
-        expires_at = expiration.timestamp() - 300
-
-        _ta_cache[wsid] = {
-            "token": token,
-            "sign": sign,
-            "expires_at": expires_at,
-        }
-
-        logger.info("TA obtenido para wsid=%s, expira=%s", wsid, data["expiration"])
-        return {"token": token, "sign": sign}
-
     async def _query_ws(self, wsid: str, cuit_persona: str) -> dict[str, Any]:
         """
-        Consulta genérica a un web service de padrón AFIP.
+        Consulta `getPersona` sobre un web service de padrón, vía SOAP.
         Retorna el dict de `personaReturn.persona`.
         """
         ta = await self._get_ta(wsid)
 
         cuit_clean = cuit_persona.replace("-", "").replace(" ", "")
-        cuit_representada = int(self.CUIT)
-        id_persona = int(cuit_clean)
+        envelope = _build_get_persona_envelope(
+            wsid,
+            token=ta["token"],
+            sign=ta["sign"],
+            cuit_representada=int(self.CUIT),
+            id_persona=int(cuit_clean),
+        )
 
-        body = {
-            "environment": self.ENVIRONMENT,
-            "method": "getPersona",
-            "wsid": wsid,
-            "params": {
-                "token": ta["token"],
-                "sign": ta["sign"],
-                "cuitRepresentada": cuit_representada,
-                "idPersona": id_persona,
-            },
-        }
-
-        async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-            resp = await client.post(
-                f"{self.BASE_URL}/requests",
-                json=body,
-                headers=self._headers(),
+        try:
+            resp = await _http_client().post(
+                _padron_url(wsid),
+                content=envelope.encode("utf-8"),
+                headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""},
             )
+        except httpx.HTTPError as exc:
+            raise AfipServiceError(
+                f"Error de red consultando AFIP {wsid}",
+                detail=str(exc),
+            ) from exc
 
         if resp.status_code != 200:
-            error_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            error_msg = error_data.get("message", resp.text)
-            logger.error("Error consultando %s: status=%d, msg=%s", wsid, resp.status_code, error_msg)
+            logger.error("Error consultando %s: status=%d", wsid, resp.status_code)
             raise AfipServiceError(
                 f"Error consultando AFIP {wsid} (HTTP {resp.status_code})",
-                detail=str(error_msg),
+                detail=resp.text[:500],
             )
 
-        data = resp.json()
-
-        if "code" in data and "message" in data:
-            raise AfipServiceError("AFIP rechazó la consulta", detail=data["message"])
-
-        persona = data.get("personaReturn", {}).get("persona")
-        if not persona:
-            raise AfipServiceError(
-                f"No se encontró persona con CUIT {cuit_clean} en AFIP",
-                detail="La respuesta de AFIP no contiene datos de persona",
-            )
-
-        return persona
+        return _parse_persona(resp.text)
 
     async def get_persona(self, cuit_persona: str) -> tuple[dict[str, Any], str]:
         """
@@ -506,9 +612,9 @@ class AfipService:
             return persona, "ws_sr_padron_a4"
         except AfipServiceError as e:
             # Cualquier error en A4 → intentar A13 como fallback.
-            # Errores comunes: "notAuthorized", "no se encuentra habilitada",
-            # "Only 8, 16, 24, or 32 bits supported" (AFIP SDK crypto error
-            # cuando el WS no está autorizado para el certificado).
+            # Errores comunes: SOAP Fault "notAuthorized" / "no se encuentra
+            # habilitada" cuando el certificado no tiene A4 autorizado, o un
+            # fallo de WSAA para ese wsid en particular.
             logger.warning(
                 "A4 falló para CUIT %s (%s), intentando A13...",
                 cuit_clean,
