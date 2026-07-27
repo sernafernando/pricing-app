@@ -939,10 +939,7 @@ def listar_productos(
 
         # PPP accumulator for this product (informational only; None-safe).
         _ppp_source = ppp_by_item.get(producto_erp.item_id)
-        ppp = PppMarkups(
-            _ppp_source.costo_ppp if _ppp_source else None,
-            _ppp_source.costo_ppp_fecha if _ppp_source else None,
-        )
+        ppp = PppMarkups(_ppp_source)
         ppp_markups_by_item[producto_erp.item_id] = ppp
 
         if mejor_oferta and mejor_pub:
@@ -1069,7 +1066,7 @@ def listar_productos(
                                 constantes=constantes,
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
-                            ppp.record("calculado", limpio_cuota)
+                            ppp.record(f"calculado_{nombre_cuota}", limpio_cuota)
 
                             if nombre_cuota == "3_cuotas":
                                 markup_3_cuotas = markup_calculado
@@ -1149,7 +1146,7 @@ def listar_productos(
                                 constantes=constantes,
                             )
                             markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
-                            ppp.record("calculado_pvp", limpio_cuota_pvp)
+                            ppp.record(f"calculado_pvp_{nombre_cuota_pvp}", limpio_cuota_pvp)
 
                             if nombre_cuota_pvp == "pvp_3_cuotas":
                                 markup_pvp_3_cuotas = markup_calculado_pvp
@@ -1416,8 +1413,7 @@ def listar_productos(
                                     markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
                                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                                     if _ppp_acc:
-                                        _ppp_acc.record("calculado_variant", limpio_pvp)
-                                        producto.ppp = _ppp_acc.payload()
+                                        _ppp_acc.record(f"calculado_variant_{nombre_pvp}", limpio_pvp)
 
                                     if nombre_pvp == "pvp":
                                         producto.markup_pvp = markup_calculado
@@ -1432,6 +1428,13 @@ def listar_productos(
                             except Exception:
                                 # Si hay error calculando el markup, simplemente no lo mostramos
                                 pass
+
+                    # Rebuild the PPP payload once per product, after all instalment
+                    # variants have been recorded (fix-round finding 6: this was
+                    # previously rebuilt inside the pvp_configs loop, up to 5x).
+                    _ppp_acc = ppp_markups_by_item.get(producto.item_id)
+                    if _ppp_acc:
+                        producto.ppp = _ppp_acc.payload()
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
     if orden_requiere_calculo:
@@ -2128,10 +2131,7 @@ def listar_productos_tienda(
 
         # PPP accumulator for this product (informational only; None-safe).
         _ppp_source_t = ppp_by_item_t.get(producto_erp.item_id)
-        ppp_t = PppMarkups(
-            _ppp_source_t.costo_ppp if _ppp_source_t else None,
-            _ppp_source_t.costo_ppp_fecha if _ppp_source_t else None,
-        )
+        ppp_t = PppMarkups(_ppp_source_t)
 
         # Mejor oferta (T-7: dict lookup)
         (
@@ -2292,7 +2292,7 @@ def listar_productos_tienda(
                                 constantes=constantes_t,
                             )
                             mc = calcular_markup(lim, cc) * 100
-                            ppp_t.record("cuota_ml", lim)
+                            ppp_t.record(f"cuota_ml_{nombre}", lim)
                             if nombre == "3":
                                 markup_3_cuotas = mc
                             elif nombre == "6":
@@ -2506,10 +2506,7 @@ def obtener_producto(
 
     # PPP accumulator for this product (informational only; None-safe).
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
-    ppp_d = PppMarkups(
-        _ppp_source_d.costo_ppp if _ppp_source_d else None,
-        _ppp_source_d.costo_ppp_fecha if _ppp_source_d else None,
-    )
+    ppp_d = PppMarkups(_ppp_source_d)
 
     # Calcular markups PVP
     markup_pvp = None
@@ -2581,7 +2578,7 @@ def obtener_producto(
                             grupo_id=grupo_id_cuota_pvp,
                         )
                         markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
-                        ppp_d.record("calculado_pvp", limpio_cuota_pvp)
+                        ppp_d.record(f"calculado_pvp_{nombre_cuota_pvp}", limpio_cuota_pvp)
 
                         if nombre_cuota_pvp == "pvp_3_cuotas":
                             markup_pvp_3_cuotas = markup_calculado_pvp

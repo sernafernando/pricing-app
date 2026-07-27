@@ -15,22 +15,11 @@ from sqlalchemy.orm import InstrumentedAttribute, Query, Session
 
 from app.models.equipo import Equipo, EquipoMiembro
 from app.models.usuario import Usuario
+from app.schemas.costo_ppp import PppPayload
 
 logger = logging.getLogger(__name__)
 
-
-class PppPayload(BaseModel):
-    """Informational ERP weighted-average cost (PPP) and its derived markups.
-
-    Display-only: never persisted, never filterable, never a substitute for
-    `costo`. `costo` is ARS already (no currency conversion applies). `fecha`
-    is the source row's `it_cd` and MUST always be rendered alongside every
-    PPP figure, regardless of age.
-    """
-
-    costo: float
-    fecha: date
-    markups: dict[str, float] = Field(default_factory=dict)
+__all__ = ["PppPayload"]  # re-exported for backward compatibility; canonical home is app.schemas.costo_ppp
 
 
 class ProductoResponse(BaseModel):

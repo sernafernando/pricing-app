@@ -23,11 +23,11 @@ PostgreSQL (DISTINCT ON is PostgreSQL-only and is NOT used here).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 
 from app.models.item_transaction import ItemTransaction
-from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
+from app.services.costo_ppp_service import PppMarkups, PppSource, resolver_ppp_batch
 
 
 def _insert_transaction(db, **overrides) -> ItemTransaction:
@@ -117,6 +117,22 @@ class TestRowSelection:
         assert result[202].costo_ppp == 75.0
         assert 203 not in result
 
+    def test_more_than_900_item_ids_does_not_blow_sqlite_variable_limit(self, db) -> None:
+        """Fix-round finding 3: `item_id.in_(item_ids)` must be chunked (900,
+        matching `batch_colores`'s SQLite/PostgreSQL param-limit chunking) —
+        `page_size` allows up to 10000, and an unchunked IN clause with that
+        many bind params trips SQLite's default 999-variable limit."""
+        item_ids = list(range(1000, 2000))  # 1000 ids -> 2 chunks at size 900
+        for i, item_id in enumerate(item_ids[:3]):
+            _insert_transaction(db, it_transaction=100 + i, item_id=item_id, it_priceofcostpp=float(item_id))
+
+        result = resolver_ppp_batch(db, item_ids)
+
+        assert result[item_ids[0]].costo_ppp == float(item_ids[0])
+        assert result[item_ids[1]].costo_ppp == float(item_ids[1])
+        assert result[item_ids[2]].costo_ppp == float(item_ids[2])
+        assert len(result) == 3
+
 
 class TestNoDataContract:
     """REQ-4: no qualifying row => explicit no-data, never a costo fallback."""
@@ -154,7 +170,7 @@ class TestPppMarkupsScaling:
     def test_percent_true_scales_and_rounds_like_percent_sites(self) -> None:
         from datetime import date
 
-        acc = PppMarkups(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
         acc.record("pvp", 150.0)  # calcular_markup(150, 100) = 0.5 -> * 100 = 50.0
 
         payload = acc.payload()
@@ -165,7 +181,7 @@ class TestPppMarkupsScaling:
     def test_percent_false_keeps_raw_ratio_for_mejor_oferta(self) -> None:
         from datetime import date
 
-        acc = PppMarkups(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
         acc.record("mejor_oferta", 150.0, percent=False)  # calcular_markup(150, 100) = 0.5
 
         payload = acc.payload()
@@ -176,9 +192,44 @@ class TestPppMarkupsScaling:
     def test_payload_carries_source_date_whenever_costo_ppp_present(self) -> None:
         from datetime import date
 
-        acc = PppMarkups(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15)))
         payload = acc.payload()
 
         assert payload is not None
         assert payload.fecha == date(2024, 3, 15)
         assert payload.costo == 100.0
+
+
+class TestConstructorPreventsInvalidState:
+    """Fix-round finding 2: costo_ppp set with fecha=None must be unrepresentable.
+
+    Before the fix, `PppMarkups.__init__` took two independent optional
+    params, so a caller could pass `costo_ppp=100.0, costo_ppp_fecha=None`;
+    `payload()` only guarded on `costo_ppp is None`, so it would build
+    `PppPayload(fecha=None)` — a non-optional field — and Pydantic would
+    raise `ValidationError` (surfacing as an HTTP 500 on a hot endpoint).
+    Constructing from a single `Optional[PppSource]` makes this state
+    unreachable: `PppSource` always carries both fields together.
+    """
+
+    def test_constructor_only_accepts_a_single_optional_source(self) -> None:
+        acc_empty = PppMarkups(None)
+        assert acc_empty.payload() is None
+
+        acc_full = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
+        acc_full.record("pvp", 150.0)
+        payload = acc_full.payload()
+
+        assert payload is not None
+        assert payload.costo == 100.0
+        assert payload.fecha == date(2026, 1, 1)
+
+    def test_no_positional_two_arg_signature_is_accepted(self) -> None:
+        """The old `(costo_ppp, costo_ppp_fecha)` signature must be gone —
+        passing a bare float positionally must fail (TypeError from record()
+        trying to read .costo_ppp off a float), proving the type no longer
+        permits a same-shaped invalid two-arg call to silently succeed."""
+        import pytest
+
+        with pytest.raises(AttributeError):
+            PppMarkups(100.0)  # not a PppSource -> .costo_ppp access fails

@@ -36,9 +36,14 @@ from typing import Optional
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.api.endpoints.productos_shared import PppPayload
 from app.models.item_transaction import ItemTransaction
+from app.schemas.costo_ppp import PppPayload
 from app.services.pricing_calculator import calcular_markup
+
+# SQLite's default `SQLITE_MAX_VARIABLE_NUMBER` is 999; PostgreSQL's parameter
+# limit is 65535. `batch_colores` (app/api/endpoints/productos_shared.py) chunks
+# at the same size for the same reason — keep both in sync if this changes.
+_IN_CHUNK_SIZE = 900
 
 
 @dataclass(frozen=True)
@@ -74,34 +79,40 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
         .label("rn")
     )
 
-    ranked = (
-        select(
-            ItemTransaction.item_id.label("item_id"),
-            ItemTransaction.it_priceofcostpp.label("it_priceofcostpp"),
-            ItemTransaction.it_cd.label("it_cd"),
-            row_number_col,
-        )
-        .where(
-            and_(
-                ItemTransaction.item_id.in_(item_ids),
-                ItemTransaction.it_priceofcostpp > 0,
-                ItemTransaction.it_cancelled.is_(False),
-                ItemTransaction.it_exchangetobranchcurrency.isnot(None),
-                ItemTransaction.rmah_id.is_(None),
-                ItemTransaction.it_isrmasuppliercreditnote.is_(False),
-            )
-        )
-        .subquery()
-    )
-
-    stmt = select(ranked.c.item_id, ranked.c.it_priceofcostpp, ranked.c.it_cd).where(ranked.c.rn == 1)
-
     result: dict[int, PppSource] = {}
-    for item_id, it_priceofcostpp, it_cd in db.execute(stmt).all():
-        if it_priceofcostpp is None or it_cd is None:
-            continue
-        fecha = it_cd.date() if isinstance(it_cd, datetime) else it_cd
-        result[item_id] = PppSource(costo_ppp=float(it_priceofcostpp), costo_ppp_fecha=fecha)
+
+    # Chunk item_ids to stay under SQLite's 999-variable limit / PostgreSQL's
+    # 65535-param limit (same pattern as `batch_colores` in productos_shared.py).
+    for start in range(0, len(item_ids), _IN_CHUNK_SIZE):
+        chunk = item_ids[start : start + _IN_CHUNK_SIZE]
+
+        ranked = (
+            select(
+                ItemTransaction.item_id.label("item_id"),
+                ItemTransaction.it_priceofcostpp.label("it_priceofcostpp"),
+                ItemTransaction.it_cd.label("it_cd"),
+                row_number_col,
+            )
+            .where(
+                and_(
+                    ItemTransaction.item_id.in_(chunk),
+                    ItemTransaction.it_priceofcostpp > 0,
+                    ItemTransaction.it_cancelled.is_(False),
+                    ItemTransaction.it_exchangetobranchcurrency.isnot(None),
+                    ItemTransaction.rmah_id.is_(None),
+                    ItemTransaction.it_isrmasuppliercreditnote.is_(False),
+                )
+            )
+            .subquery()
+        )
+
+        stmt = select(ranked.c.item_id, ranked.c.it_priceofcostpp, ranked.c.it_cd).where(ranked.c.rn == 1)
+
+        for item_id, it_priceofcostpp, it_cd in db.execute(stmt).all():
+            if it_priceofcostpp is None or it_cd is None:
+                continue
+            fecha = it_cd.date() if isinstance(it_cd, datetime) else it_cd
+            result[item_id] = PppSource(costo_ppp=float(it_priceofcostpp), costo_ppp_fecha=fecha)
 
     return result
 
@@ -109,16 +120,21 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
 class PppMarkups:
     """Per-product accumulator turning `limpio` values into PPP markups.
 
-    One instance per product. `costo_ppp` (and its source date) are fixed at
-    construction; `.record(...)` is called once per existing markup site
-    with that site's already-computed `limpio`. `.payload()` returns `None`
-    for the WHOLE object when `costo_ppp` is absent, so no call site can ever
-    construct a partial payload for a product with no qualifying PPP row.
+    One instance per product. The PPP source (and its date) are fixed at
+    construction from a single `Optional[PppSource]` — this makes "no
+    qualifying PPP row" and "a qualifying row with a fecha" the only two
+    reachable states; `costo_ppp` set with `costo_ppp_fecha=None` is not
+    representable, so `payload()` can never attempt to build a `PppPayload`
+    with a `None` `fecha` (which is non-optional and would raise a
+    `ValidationError`/500). `.record(...)` is called once per existing markup
+    site with that site's already-computed `limpio`. `.payload()` returns
+    `None` for the WHOLE object when there is no source, so no call site can
+    ever construct a partial payload for a product with no qualifying PPP row.
     """
 
-    def __init__(self, costo_ppp: Optional[float], costo_ppp_fecha: Optional[date] = None) -> None:
-        self._costo_ppp = costo_ppp
-        self._costo_ppp_fecha = costo_ppp_fecha
+    def __init__(self, source: Optional["PppSource"]) -> None:
+        self._costo_ppp = source.costo_ppp if source else None
+        self._costo_ppp_fecha = source.costo_ppp_fecha if source else None
         self._markups: dict[str, float] = {}
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
