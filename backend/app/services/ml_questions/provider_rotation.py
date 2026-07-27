@@ -89,16 +89,25 @@ def _known_provider_specs() -> dict:
             api_key=settings.GROQ_API_KEY,
             default_model="llama-3.3-70b-versatile",
         ),
+        # These defaults are the LAST line of defence: they only apply when a
+        # roster entry omits `model`. They must name ids that actually exist
+        # at the provider — an unknown id answers 4xx, which `complete()`
+        # treats as permanent (no retry), so the provider drops out of the
+        # rotation silently and its share goes to whoever is left. That is
+        # precisely how `llama-3.3-70b` / `...-instruct:free` made groq answer
+        # 100% of questions until migration 20260727_fix_llm_ids.
+        # Verified against each provider's live catalogue — see
+        # docs/RUNBOOKS.md §3 for the two commands to re-check before editing.
         "cerebras": _ProviderSpec(
             base_url=settings.CEREBRAS_BASE_URL,
             api_key=settings.CEREBRAS_API_KEY,
-            default_model="llama-3.3-70b",
+            default_model="gpt-oss-120b",
         ),
         # Free-tier, panel-changeable — documented in docs/RUNBOOKS.md §3.
         "openrouter": _ProviderSpec(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=settings.OPENROUTER_API_KEY,
-            default_model="meta-llama/llama-3.3-70b-instruct:free",
+            default_model="openai/gpt-oss-20b:free",
         ),
     }
 
