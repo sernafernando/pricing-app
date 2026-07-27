@@ -130,11 +130,34 @@ def engine():
 
 @pytest.fixture()
 def db(engine):
-    """Provide a transactional database session that rolls back after each test."""
+    """Provide a transactional database session that rolls back after each test.
+
+    Wraps every test in a SAVEPOINT (the standard SQLAlchemy "join a Session
+    into an external transaction" recipe) and auto-restarts a fresh SAVEPOINT
+    after each `session.commit()`/`session.rollback()`. Without this, a plain
+    `db.rollback()` called by application code under test (e.g. an
+    IntegrityError handler) cascades past any SAVEPOINT to the true root of
+    the connection's transaction, silently wiping out ALL prior test fixture
+    data — not just the failed operation's own pending changes. This makes
+    application-level rollback paths correctly test-isolated: a rollback
+    inside the code under test only undoes that operation, exactly as it
+    would against a real per-request session in production.
+    """
     connection = engine.connect()
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
     session = Session()
+
+    # Standard SQLAlchemy "join a Session into an external transaction"
+    # recipe: SAVEPOINT at the CONNECTION level, restarted after each one
+    # ends. Tracked in an outer-scope list (not a plain closure variable)
+    # so the `after_transaction_end` listener can rebind it.
+    nested = [connection.begin_nested()]
+
+    @event.listens_for(session, "after_transaction_end")
+    def _restart_savepoint(sess, trans):
+        if not nested[0].is_active:
+            nested[0] = connection.begin_nested()
 
     _ensure_global_equipo(session)
 
