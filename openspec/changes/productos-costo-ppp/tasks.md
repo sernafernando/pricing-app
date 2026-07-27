@@ -107,6 +107,28 @@ on the composite index). Verified via 8 real-SQLite unit tests exercising the ac
 - [x] T1.25 Run `ruff format app/` in the venv before pushing (CI "Backend Lint" enforces this;
       local pre-commit hook additionally covers `tests/` and `alembic/` — run it too).
 
+### Fix round — Guardian Angel pre-push review (commit 3a1336e7)
+
+- [x] T1.26 Fix CRITICAL silent-data-loss bug: `ppp.record()` used a fixed key inside every
+      3/6/9/12-cuotas loop, so 3 of every 4 instalment markups silently overwrote each other.
+      Fixed at all 5 physical sites (classic cuotas, PVP cuotas x2 — `listar_productos` and
+      `obtener_producto` — tienda cuotas, and the listing's second-pass PVP-variant loop) with
+      per-instalment keys. Final key vocabulary documented in `app/schemas/costo_ppp.py`.
+- [x] T1.27 `PppMarkups.__init__` now takes a single `Optional[PppSource]` instead of two
+      independent optional params, making "costo_ppp set, fecha=None" (which 500ed via a
+      Pydantic `ValidationError`) unrepresentable at the type level.
+- [x] T1.28 `resolver_ppp_batch`'s `item_id.in_(item_ids)` now chunks at 900, matching
+      `batch_colores`' existing SQLite/PostgreSQL param-limit pattern.
+- [x] T1.29 Moved `PppPayload` to `app/schemas/costo_ppp.py`; `costo_ppp_service.py` no longer
+      imports from an endpoints module (layering fix). `productos_shared.py` re-exports it.
+- [x] T1.30 Replaced the Python-call-counting query-count test with a real SQL-statement
+      counter (`query_counter` fixture, `before_cursor_execute`) exercised against the paginated
+      `/api/productos` list endpoint at page_size=1 and page_size=100 — this is the test T1.24
+      always intended; the original version only proved it against the single-item detail
+      endpoint, which cannot reveal an N+1 by construction.
+- [x] T1.31 Hoisted `producto.ppp = _ppp_acc.payload()` out of the 5-iteration `pvp_configs`
+      loop in `listar_productos` (was rebuilt up to 5x per product).
+
 ## PR2 — Frontend base: cost line + first markup group + shared formatter
 
 Traces to: Requirement "PPP markups render at all display sites" (cost cell + first group),
