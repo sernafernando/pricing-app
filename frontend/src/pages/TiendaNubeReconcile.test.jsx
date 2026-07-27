@@ -940,6 +940,170 @@ describe('Banlist view', () => {
   });
 });
 
+describe('Product identity in rows (rebuilt UI)', () => {
+  const LONG_DESC_TEXT = 'Auricular inalámbrico con cancelación activa de ruido, 30 horas de batería, estuche de carga rápida USB-C, resistencia al agua IPX4 y micrófono dual para llamadas nítidas en cualquier ambiente.';
+  const ENRICHED_ITEMS = [
+    {
+      ean: 'RICH-1',
+      verdict: 'MAL_PUBLICADO',
+      despublicar: false,
+      tn_presence: 'published',
+      tn_matches: [
+        {
+          product_id: 123,
+          variant_id: 456,
+          variant_sku: 'RICH-1',
+          activo: true,
+          published: true,
+          tn_admin_url: 'https://admin.tiendanube.com/products/123',
+        },
+      ],
+      ml_title: 'Auricular Bluetooth XYZ',
+      ml_desc: `<p>${LONG_DESC_TEXT}</p>`,
+      images: ['https://example.com/th.jpg'],
+      // Row-level tn_admin_url intentionally null: the link MUST come from
+      // the match's own tn_admin_url, never a row-level single link.
+      tn_admin_url: null,
+    },
+  ];
+
+  function setupEnriched() {
+    setupApiMocks({ items: ENRICHED_ITEMS, verdictCounts: { MAL_PUBLICADO: 1 } });
+  }
+
+  it('shows the product title and a truncated description that expands on click', async () => {
+    setupEnriched();
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Auricular Bluetooth XYZ')).toBeInTheDocument();
+    });
+
+    // Truncated (ends with an ellipsis), full text available as tooltip.
+    const descToggle = screen.getByRole('button', { name: /expandir descripción/i });
+    expect(descToggle.textContent.endsWith('…')).toBe(true);
+    expect(descToggle).toHaveAttribute('title', LONG_DESC_TEXT);
+    expect(descToggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(descToggle);
+
+    const expanded = screen.getByRole('button', { name: /contraer descripción/i });
+    expect(expanded).toHaveAttribute('aria-expanded', 'true');
+    expect(expanded.textContent).toBe(LONG_DESC_TEXT);
+  });
+
+  it('renders a thumbnail from images[0] with an accessible role/label so the operator can recognize the product', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    // The focusable wrapper is announced as an image with a descriptive
+    // label (a bare focusable span would announce nothing); the inner <img>
+    // is presentational.
+    const thumbWrap = await screen.findByRole('img', { name: 'Miniatura de Auricular Bluetooth XYZ' });
+    expect(thumbWrap).toHaveAttribute('tabindex', '0');
+    expect(thumbWrap.querySelector('img')).toHaveAttribute('src', 'https://example.com/th.jpg');
+  });
+
+  it('shows the TN product_id/variant_id of each match directly in the row', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('123/456')).toBeInTheDocument();
+    });
+  });
+
+  it('offers an "Editar en TN" link per match that opens the MATCH\'s own tn_admin_url in a new tab', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const link = await screen.findByRole('link', { name: /editar en tn/i });
+    expect(link).toHaveAttribute('href', 'https://admin.tiendanube.com/products/123');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('DUPLICADO: renders one "Editar en TN" link PER conflicting match — never a single privileged group link', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DUP-LINKS',
+          verdict: 'DUPLICADO',
+          despublicar: false,
+          tn_presence: 'published',
+          // Row-level url (backend derives it from tn_matches[0]) must NOT
+          // surface as a single group-header link — that would implicitly
+          // recommend one conflicting row.
+          tn_admin_url: 'https://admin.tiendanube.com/products/10',
+          tn_matches: [
+            {
+              product_id: 10,
+              variant_id: 1,
+              variant_sku: 'DUP-LINKS',
+              activo: true,
+              published: true,
+              tn_admin_url: 'https://admin.tiendanube.com/products/10',
+            },
+            {
+              product_id: 11,
+              variant_id: 1,
+              variant_sku: 'DUP-LINKS',
+              activo: true,
+              published: null,
+              tn_admin_url: 'https://admin.tiendanube.com/products/11',
+            },
+          ],
+        },
+      ],
+      verdictCounts: { DUPLICADO: 1 },
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await user.click(await screen.findByRole('tab', { name: /Duplicado/i }));
+
+    const groupHeading = await screen.findByText(/EAN GBP: DUP-LINKS/i);
+    const group = groupHeading.closest('[data-testid="duplicado-group"]');
+    expect(group).not.toBeNull();
+
+    // Exactly one link per conflicting match, each pointing at ITS product.
+    const links = within(group).getAllByRole('link', { name: /editar en tn/i });
+    expect(links).toHaveLength(2);
+    expect(links.map((l) => l.getAttribute('href')).sort()).toEqual([
+      'https://admin.tiendanube.com/products/10',
+      'https://admin.tiendanube.com/products/11',
+    ]);
+
+    // The group header itself carries NO link — links live only in the
+    // per-match rows, so none is privileged.
+    const header = group.querySelector('[class*="duplicateGroupHeader"]');
+    expect(header).not.toBeNull();
+    expect(within(header).queryByRole('link')).not.toBeInTheDocument();
+
+    // And each match ROW has exactly one link (its own).
+    const rows = within(group).getAllByRole('row').filter((r) => /product_id:/.test(r.textContent));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(within(row).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
+    }
+  });
+
+  it('renders a plain dash, never "undefined", for rows without title/desc/images', async () => {
+    setupApiMocks({
+      items: [{ ean: 'BARE-1', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'unknown' }],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('BARE-1')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /editar en tn/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('Column resize persist/reset', () => {
   it('loads persisted column sizing from localStorage on mount', async () => {
     localStorage.setItem(COLUMN_SIZING_STORAGE_KEY, JSON.stringify({ ean: 250 }));

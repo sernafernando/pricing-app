@@ -390,13 +390,25 @@ def compute_verdicts(
         # -> POR_CORREGIR (new — same underlying product, SKU just needs
         # canonicalizing). Order matters: check raw-equal BEFORE the
         # normalized check so an exact match never gets demoted.
-        claimed_sku_raw = _normalize_sku(claimed_tn.variant_sku) if claimed_tn else None
-        if claimed_tn is not None and claimed_sku_raw == ean:
+        #
+        # Dead-link fallback: when the stored tnr_id/tnr_variationID link
+        # doesn't resolve to any TN row (`claimed_tn is None`), that stale
+        # link must NOT by itself imply MAL_PUBLICADO — it only means the
+        # ERP's cached pointer is wrong. Fall back to the EAN/GTIN match
+        # (`matches_by_ean`, already deduped to at most one entry by the
+        # len>1 DUPLICADO check above) to decide the real verdict: a
+        # correctly-SKU'd published match is OK, a leading-zero-only match
+        # is POR_CORREGIR, and truly nothing matching is the only case that
+        # stays MAL_PUBLICADO.
+        fallback_tn = matches_by_ean[0] if (claimed_tn is None and matches_by_ean) else None
+        effective_tn = claimed_tn if claimed_tn is not None else fallback_tn
+        effective_sku_raw = _normalize_sku(effective_tn.variant_sku) if effective_tn else None
+        if effective_tn is not None and effective_sku_raw == ean:
             verdict = "OK"
         elif (
-            claimed_tn is not None
-            and isinstance(normalize_gtin(claimed_tn.variant_sku), str)
-            and normalize_gtin(claimed_tn.variant_sku) == ean_gtin
+            effective_tn is not None
+            and isinstance(normalize_gtin(effective_tn.variant_sku), str)
+            and normalize_gtin(effective_tn.variant_sku) == ean_gtin
         ):
             verdict = "POR_CORREGIR"
         else:
@@ -405,15 +417,17 @@ def compute_verdicts(
         # Presence resolution priority: the claimed link (even if it's the
         # WRONG SKU — MAL_PUBLICADO still means the product genuinely
         # exists in TN, just misattributed) takes precedence over the
-        # separate EAN-index matches used elsewhere.
-        presence_tn = claimed_tn if claimed_tn is not None else (matches_by_ean[0] if matches_by_ean else None)
+        # separate EAN-index matches used elsewhere; when the claimed link
+        # is dead, fall back to the same EAN/GTIN match used for the verdict
+        # above so a resolved fallback isn't under-reported as not_in_tn.
+        presence_tn = claimed_tn if claimed_tn is not None else fallback_tn
 
         results.append(
             ReconcileRow(
                 ean=ean or "",
                 verdict=verdict,
                 gbp_row=row,
-                tn_matches=[claimed_tn] if claimed_tn else matches_by_ean,
+                tn_matches=[claimed_tn] if claimed_tn else (matches_by_ean if fallback_tn else []),
                 despublicar=claimed_despublicar or despublicar,
                 tn_presence=_compute_presence(presence_tn),
             )

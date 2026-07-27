@@ -741,6 +741,132 @@ class TestCategoriaSugeridaEndpoint:
         assert body["top"] is None
 
 
+class TestReporteMlTitleAndAdminUrl:
+    """Response fields the UI rebuild needs: `ml_title` (editable title field
+    source) and `tn_admin_url` (link to the matched TN product in the TN
+    admin), per row."""
+
+    def test_ml_title_is_taken_from_gbp_ml_title_field(self, client, db, user_ver):
+        gbp_rows = [
+            {"Código": "EAN-TITLE", "tnr_id": 0, "tnr_variationID": 0, "stock": 5, "ML_title": "Titulo GBP"},
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["ml_title"] == "Titulo GBP"
+
+    def test_ml_title_is_none_when_missing(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["ml_title"] is None
+
+    def test_tn_admin_url_present_for_matched_tn_product(self, client, db, user_ver, monkeypatch):
+        monkeypatch.setattr(
+            "app.api.endpoints.tienda_nube_reconcile.settings.TN_ADMIN_BASE_URL",
+            "https://gaussonline3.mitiendanube.com/admin/products",
+        )
+        producto = TiendaNubeProducto(
+            product_id=777, product_name="Test", variant_id=1, variant_sku="EAN-MATCH", published=True
+        )
+        db.add(producto)
+        db.commit()
+        gbp_rows = [{"Código": "EAN-MATCH", "tnr_id": 0, "tnr_variationID": 0, "stock": 5}]
+
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["tn_matches"][0]["tn_admin_url"] == "https://gaussonline3.mitiendanube.com/admin/products/777"
+
+    def test_tn_admin_url_none_when_base_url_unset(self, client, db, user_ver):
+        # Real default (TN_ADMIN_BASE_URL is None / unset in .env): a matched
+        # product gets NO "Editar en TN" link — never a fabricated URL that 404s.
+        producto = TiendaNubeProducto(
+            product_id=888, product_name="Test", variant_id=1, variant_sku="EAN-NOURL", published=True
+        )
+        db.add(producto)
+        db.commit()
+        gbp_rows = [{"Código": "EAN-NOURL", "tnr_id": 0, "tnr_variationID": 0, "stock": 5}]
+
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["tn_matches"][0]["tn_admin_url"] is None
+
+    def test_tn_admin_url_absent_when_no_tn_match(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        # No TN product resolves → no matches → no per-match admin link exists.
+        assert row["tn_matches"] == []
+
+
+class TestCategoriasEndpoint:
+    """Category search-by-name for the modal's manual category picker."""
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias", params={"q": "cel"}, headers=_bearer(user_no_perm)
+        )
+        assert response.status_code == 403
+
+    def test_happy_path_case_insensitive_substring_match(self, client, db, user_publicacion):
+        from app.models.tn_category_embedding import TnCategoryEmbedding
+
+        db.add(
+            TnCategoryEmbedding(
+                tn_category_id=1,
+                category_path_text="Electrónica > Celulares y Smartphones",
+                embedding=[0.0] * 384,
+            )
+        )
+        db.add(
+            TnCategoryEmbedding(
+                tn_category_id=2,
+                category_path_text="Hogar > Muebles",
+                embedding=[0.0] * 384,
+            )
+        )
+        db.commit()
+
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias", params={"q": "celulares"}, headers=_bearer(user_publicacion)
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["tn_category_id"] == 1
+        assert body[0]["category_path"] == "Electrónica > Celulares y Smartphones"
+
+    def test_empty_query_returns_empty_list(self, client, db, user_publicacion):
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias", params={"q": ""}, headers=_bearer(user_publicacion)
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_limit_param_bounds_results(self, client, db, user_publicacion):
+        from app.models.tn_category_embedding import TnCategoryEmbedding
+
+        for i in range(5):
+            db.add(
+                TnCategoryEmbedding(
+                    tn_category_id=100 + i,
+                    category_path_text=f"Categoria Test {i}",
+                    embedding=[0.0] * 384,
+                )
+            )
+        db.commit()
+
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias",
+            params={"q": "categoria test", "limit": 2},
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 2
+
+
 class TestGracefulDegradation:
     def test_gbp_fetch_failure_returns_clear_error_no_partial_write(self, client, db, user_ver):
         from app.services.tn_reconciliation_service import GBPFetchError

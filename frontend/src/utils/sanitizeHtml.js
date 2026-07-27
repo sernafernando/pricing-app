@@ -23,8 +23,14 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
  * Sanitiza HTML no confiable para renderizado seguro vía dangerouslySetInnerHTML.
  * Devuelve '' para entradas vacías/null (preserva el fallback `|| '(sin texto)'`
  * de ClaimCards). En caso contrario, devuelve un string de HTML sanitizado.
+ *
+ * `extraTags` (opt-in, por llamada) amplía la allowlist SOLO para ese caller —
+ * p.ej. el modal de publicación TN permite headings (h1–h3) porque el backend
+ * (`tn_publish_service._DESCRIPTION_ALLOWED_TAGS`, nh3) también los permite.
+ * El default (sin extraTags) queda idéntico para todos los callers existentes.
  */
-export function sanitizeHtml(html) {
+export function sanitizeHtml(html, { extraTags = [] } = {}) {
   if (!html) return '';
-  return DOMPurify.sanitize(html, { ALLOWED_TAGS, ALLOWED_ATTR });
+  const allowedTags = extraTags.length > 0 ? [...ALLOWED_TAGS, ...extraTags] : ALLOWED_TAGS;
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: allowedTags, ALLOWED_ATTR });
 }

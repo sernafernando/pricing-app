@@ -64,8 +64,10 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user, get_current_user_transient
+from app.core.config import settings
 from app.core.database import get_async_db, get_db
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
@@ -107,6 +109,7 @@ class TnMatchResponse(BaseModel):
     variant_sku: Optional[str]
     activo: Optional[bool] = None
     published: Optional[bool] = None
+    tn_admin_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -154,6 +157,25 @@ class ReconcileRowResponse(BaseModel):
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
     images: List[str] = []
+    # UI-rebuild field: `ml_title` is the raw GBP `ML_title` field (for the
+    # modal's editable title input). The TN admin edit-link is per-match on
+    # each `TnMatchResponse.tn_admin_url` — never a single row-level link, so a
+    # DUPLICADO group never privileges one conflicting row over the others.
+    ml_title: Optional[str] = None
+
+
+def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
+    """Tienda Nube admin product-edit link for a given TN `product_id`, or
+    `None` if `product_id` is missing or `TN_ADMIN_BASE_URL` isn't configured.
+
+    The base URL (handle-based admin subdomain + path) is configuration, not a
+    guessed pattern — it lives in `settings.TN_ADMIN_BASE_URL`; this helper only
+    appends `/{product_id}`. If the setting is unset, no link is emitted rather
+    than fabricating one that would 404.
+    """
+    if product_id is None or not settings.TN_ADMIN_BASE_URL:
+        return None
+    return f"{settings.TN_ADMIN_BASE_URL.rstrip('/')}/{product_id}"
 
 
 class ReconcileReportResponse(BaseModel):
@@ -260,6 +282,14 @@ class CategoriaSugeridaResponse(BaseModel):
     top: Optional[CategoriaSugeridaItem] = None
 
 
+class CategoriaSearchItem(BaseModel):
+    tn_category_id: int
+    category_path: str
+
+
+CATEGORIAS_SEARCH_DEFAULT_LIMIT = 20
+
+
 @router.get("/reporte", response_model=ReconcileReportResponse)
 async def get_reconciliation_report(
     verdict: Optional[VerdictFilter] = Query(None, description="Filtra a un solo veredicto; omitir = todos excepto OK"),
@@ -322,7 +352,17 @@ async def get_reconciliation_report(
             ean=v.ean,
             verdict=v.verdict,
             despublicar=v.despublicar,
-            tn_matches=[TnMatchResponse.model_validate(tn) for tn in v.tn_matches],
+            tn_matches=[
+                TnMatchResponse(
+                    product_id=tn.product_id,
+                    variant_id=tn.variant_id,
+                    variant_sku=tn.variant_sku,
+                    activo=tn.activo,
+                    published=tn.published,
+                    tn_admin_url=_tn_admin_url_for(tn.product_id),
+                )
+                for tn in v.tn_matches
+            ],
             tn_presence=v.tn_presence,
             product_id=v.product_id,
             variant_id=v.variant_id,
@@ -330,6 +370,7 @@ async def get_reconciliation_report(
             categoria=v.gbp_row.get("Categoría"),
             subcategoria=v.gbp_row.get("SubCategoría"),
             images=_gbp_images(v.gbp_row),
+            ml_title=v.gbp_row.get("ML_title"),
         )
         for v in filtered
     ]
@@ -487,3 +528,46 @@ def categoria_sugerida(
 
     result = suggest_category(db, request.category_text, top_n=request.top_n)
     return CategoriaSugeridaResponse(suggestions=result["suggestions"], top=result["top"])
+
+
+@router.get("/categorias", response_model=List[CategoriaSearchItem])
+def buscar_categorias(
+    q: str = Query("", description="Substring a buscar en el path de categoría (case-insensitive)"),
+    limit: int = Query(CATEGORIAS_SEARCH_DEFAULT_LIMIT, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Plain case-insensitive substring search over
+    `tn_category_embedding.category_path_text` — lets the publish modal's
+    manual category picker show category NAMES instead of a raw id, without
+    invoking the embedder (that's `/categoria-sugerida`, a separate
+    similarity-ranked suggestion). An empty/blank `q` returns an empty list
+    rather than the whole table.
+
+    Reuses `admin.gestionar_tn_publicacion` — same write-gate as the rest of
+    the publish flow this feeds.
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    query_text = q.strip()
+    if not query_text:
+        return []
+
+    rows = (
+        db.query(TnCategoryEmbedding)
+        # icontains → case-insensitive (ILIKE), autoescape → treat %/_ literally.
+        # `.contains(...)` alone is LIKE (case-SENSITIVE on Postgres); the search
+        # is contractually case-insensitive, so it must be ILIKE.
+        .filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
+        # NOTE (scaling): the leading-`%` ILIKE cannot use a btree index and the
+        # ORDER BY sorts the whole match set before `limit` cuts it. Fine for the
+        # bounded TN category tree today; if it grows large, add a trigram
+        # (pg_trgm) index on `category_path_text` before this becomes a hot query.
+        .order_by(TnCategoryEmbedding.category_path_text)
+        .limit(limit)
+        .all()
+    )
+    return [
+        CategoriaSearchItem(tn_category_id=row.tn_category_id, category_path=row.category_path_text) for row in rows
+    ]

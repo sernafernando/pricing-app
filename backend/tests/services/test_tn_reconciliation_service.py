@@ -207,6 +207,44 @@ class TestMalPublicado:
         assert len(results) == 1
         assert results[0].verdict == "OK"
 
+    def test_dead_claimed_link_but_ean_resolves_real_published_product_is_ok(self):
+        """Bug fix: a stale/dead tnr_id/tnr_variationID link (doesn't resolve
+        to any TN row) must NOT by itself force MAL_PUBLICADO when the row's
+        EAN independently resolves a real, correctly-SKU'd, published TN
+        product. The product IS correctly published — only the ERP's cached
+        pointer is wrong, which is not a data-quality anomaly to surface."""
+        gbp_rows = [_gbp_row(codigo="843367123476", tnr_id=999, tnr_variation_id=88)]
+        tn_productos = [_tn(product_id=42, variant_id=7, sku="843367123476", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "OK"
+        assert results[0].tn_presence == "published"
+        assert len(results[0].tn_matches) == 1
+        assert results[0].tn_matches[0].product_id == 42
+        assert results[0].tn_matches[0].variant_id == 7
+
+    def test_dead_claimed_link_ean_resolves_only_via_gtin_normalization_is_por_corregir(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=999, tnr_variation_id=88)]
+        tn_productos = [_tn(product_id=42, variant_id=7, sku="23942321477", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "POR_CORREGIR"
+        assert results[0].tn_presence == "published"
+
+    def test_dead_claimed_link_no_ean_match_at_all_stays_mal_publicado(self):
+        gbp_rows = [_gbp_row(codigo="000000000000", tnr_id=999, tnr_variation_id=88)]
+        tn_productos = [_tn(product_id=42, variant_id=7, sku="999999999999", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_PUBLICADO"
+        assert results[0].tn_presence == "not_in_tn"
+
 
 class TestDuplicado:
     def test_two_gbp_rows_point_to_same_tn_variant(self):

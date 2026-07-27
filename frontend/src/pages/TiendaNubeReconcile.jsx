@@ -43,6 +43,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
+import { ExternalLink } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
@@ -116,6 +117,103 @@ function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
 }
 
+// `ml_desc` arrives as ML HTML — for the LIST we only ever show plain text
+// (the full rich description belongs to the publish modal). DOMParser does
+// not execute scripts, so this is a safe text extraction, not a sanitizer.
+function stripHtmlToText(html) {
+  if (!html) return '';
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return '';
+  }
+}
+
+const DESC_SNIPPET_LENGTH = 140;
+const THUMB_PREVIEW_SIZE = 220;
+
+/**
+ * Product identity cell: thumbnail (hover/focus → larger preview), title and
+ * a truncated description the operator can expand in place. Makes each row
+ * recognizable at a glance instead of an anonymous EAN.
+ */
+function ProductoCell({ row }) {
+  const [expanded, setExpanded] = useState(false);
+  const [previewPos, setPreviewPos] = useState(null);
+
+  const thumbSrc = Array.isArray(row.images) && row.images.length > 0 ? row.images[0] : null;
+  const descText = useMemo(() => stripHtmlToText(row.ml_desc), [row.ml_desc]);
+
+  if (!thumbSrc && !row.ml_title && !descText) return '—';
+
+  const showPreview = (target) => {
+    const rect = target.getBoundingClientRect();
+    // Fixed-position preview (escapes the table's overflow container);
+    // clamped so it never renders below the viewport.
+    const top = Math.min(rect.top, Math.max(8, window.innerHeight - THUMB_PREVIEW_SIZE - 16));
+    setPreviewPos({ top, left: rect.right + 10 });
+  };
+
+  const altText = row.ml_title ? `Miniatura de ${row.ml_title}` : `Miniatura del EAN ${row.ean}`;
+  const isTruncated = descText.length > DESC_SNIPPET_LENGTH;
+
+  return (
+    <div className={styles.productoCell}>
+      {thumbSrc && (
+        /* Keyboard-focusable so the preview is reachable without a mouse;
+           role="img" + aria-label give it a meaningful announcement (a bare
+           focusable span announces nothing). The inner <img> is
+           presentational (alt="" + aria-hidden) so screen readers hear ONE
+           description, not two. */
+        <span
+          className={styles.thumbWrap}
+          tabIndex={0}
+          role="img"
+          aria-label={altText}
+          onMouseEnter={(e) => showPreview(e.currentTarget)}
+          onMouseLeave={() => setPreviewPos(null)}
+          onFocus={(e) => showPreview(e.currentTarget)}
+          onBlur={() => setPreviewPos(null)}
+        >
+          <img src={thumbSrc} alt="" aria-hidden="true" className={styles.thumb} loading="lazy" />
+          {previewPos && (
+            <img
+              src={thumbSrc}
+              alt=""
+              aria-hidden="true"
+              className={styles.thumbPreview}
+              style={{ top: previewPos.top, left: previewPos.left }}
+            />
+          )}
+        </span>
+      )}
+      <div className={styles.prodText}>
+        {row.ml_title && (
+          <div className={styles.prodTitle} title={row.ml_title}>
+            {row.ml_title}
+          </div>
+        )}
+        {descText &&
+          (isTruncated ? (
+            <button
+              type="button"
+              className={`${styles.prodDesc} ${expanded ? styles.prodDescExpanded : ''}`}
+              title={descText}
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Contraer descripción' : 'Expandir descripción'}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? descText : `${descText.slice(0, DESC_SNIPPET_LENGTH)}…`}
+            </button>
+          ) : (
+            <span className={`${styles.prodDesc} ${styles.prodDescStatic}`}>{descText}</span>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
 // throw (mirrors MLQuestions.jsx's loadColumnSizing/saveColumnSizing).
 function loadColumnSizing() {
@@ -139,11 +237,17 @@ function saveColumnSizing(state) {
 // (via TanStack) AND the body cells render from this list, so adding/
 // removing a column can never desync header and body.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 140, cell: (row) => row.ean },
+  { id: 'ean', header: 'EAN', size: 130, cell: (row) => row.ean },
+  {
+    id: 'producto',
+    header: 'Producto',
+    size: 320,
+    cell: (row) => <ProductoCell row={row} />,
+  },
   {
     id: 'verdict',
     header: 'Veredicto',
-    size: 150,
+    size: 140,
     cell: (row) => (
       <span className={`${styles.badge} ${styles[VERDICT_BADGE_CLASS[row.verdict]] || ''}`}>
         {verdictLabelFor(row.verdict)}
@@ -153,11 +257,11 @@ const COLUMNS = [
   {
     id: 'tn_presence',
     header: 'Presencia en TN',
-    size: 200,
+    size: 180,
     cell: (row) => tnPresenceLabelFor(row.tn_presence),
   },
-  { id: 'despublicar', header: 'Despublicar', size: 200, cell: null }, // rendered specially — carries the unpublish action
-  { id: 'matches', header: 'Coincidencias TN', size: 260, cell: null }, // rendered specially — carries the ban action
+  { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — carries the unpublish action
+  { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries IDs + acciones
 ];
 
 // Picks WHICH tn_match the unpublish action targets: prefer a match TN
@@ -626,8 +730,15 @@ export default function TiendaNubeReconcile() {
           ) : (
             filasVisibles.map((row, idx) => (
               <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
+                {/* NO single group-level "Editar en TN" link here: the group
+                    has N conflicting matches, and linking only one of them
+                    would implicitly recommend it (violates the DUPLICADO
+                    "human decides" rule). Each match row below carries its
+                    OWN link instead — none privileged. */}
                 <div className={styles.duplicateGroupHeader}>
-                  EAN GBP: {row.ean} — {row.tn_matches.length} coincidencias TN en conflicto —{' '}
+                  EAN GBP: {row.ean}
+                  {row.ml_title ? ` — ${row.ml_title}` : ''} — {row.tn_matches.length} coincidencias
+                  TN en conflicto —{' '}
                   {row.tn_presence === 'not_in_tn'
                     ? 'duplicado, sin presencia en TN'
                     : 'duplicado, existe en TN'}
@@ -639,6 +750,7 @@ export default function TiendaNubeReconcile() {
                       <th>variant_id</th>
                       <th>variant_sku</th>
                       <th>Publicado en TN</th>
+                      <th>Editar en TN</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -648,6 +760,21 @@ export default function TiendaNubeReconcile() {
                         <td>variant_id: {tn.variant_id}</td>
                         <td>{tn.variant_sku}</td>
                         <td>{publishedLabel(tn.published)}</td>
+                        <td>
+                          {tn.tn_admin_url ? (
+                            <a
+                              href={tn.tn_admin_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.tnLink}
+                              aria-label={`Editar en TN el producto ${tn.product_id}`}
+                            >
+                              Editar en TN <ExternalLink size={12} aria-hidden="true" />
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -715,7 +842,35 @@ export default function TiendaNubeReconcile() {
                       {COLUMNS.map((col) =>
                         col.id === 'matches' ? (
                           <td key={col.id}>
-                            {row.tn_matches.length === 0 ? '—' : row.tn_matches.map((tn) => tn.variant_sku).join(', ')}
+                            {row.tn_matches.length === 0 ? (
+                              '—'
+                            ) : (
+                              <ul className={styles.matchList}>
+                                {row.tn_matches.map((tn) => (
+                                  <li key={`${tn.product_id}-${tn.variant_id}`} className={styles.matchItem}>
+                                    <span className={styles.matchIds}>
+                                      {tn.product_id}/{tn.variant_id}
+                                    </span>
+                                    {tn.variant_sku ? <span className={styles.matchSku}> · {tn.variant_sku}</span> : null}
+                                    {/* Per-match link (each match carries its OWN
+                                        tn_admin_url) — never a single row-level
+                                        link that would implicitly privilege one
+                                        match over the others. */}
+                                    {tn.tn_admin_url && (
+                                      <a
+                                        href={tn.tn_admin_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={styles.tnLinkInline}
+                                        aria-label={`Editar en TN el producto ${tn.product_id}`}
+                                      >
+                                        Editar en TN <ExternalLink size={11} aria-hidden="true" />
+                                      </a>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                             {row.verdict === 'FALTA_VINCULAR' &&
                               row.product_id != null &&
                               row.variant_id != null && (
@@ -809,6 +964,9 @@ export default function TiendaNubeReconcile() {
 
       {publishingRow && (
         <TnPublishModal
+          // Remount per product so title/images (lazy useState initializers)
+          // re-init when switching rows — never publish product B with A's data.
+          key={publishingRow.ean}
           row={publishingRow}
           isOpen
           onClose={() => setPublishingRow(null)}
