@@ -19,6 +19,20 @@ from app.models.usuario import Usuario
 logger = logging.getLogger(__name__)
 
 
+class PppPayload(BaseModel):
+    """Informational ERP weighted-average cost (PPP) and its derived markups.
+
+    Display-only: never persisted, never filterable, never a substitute for
+    `costo`. `costo` is ARS already (no currency conversion applies). `fecha`
+    is the source row's `it_cd` and MUST always be rendered alongside every
+    PPP figure, regardless of age.
+    """
+
+    costo: float
+    fecha: date
+    markups: dict[str, float] = Field(default_factory=dict)
+
+
 class ProductoResponse(BaseModel):
     item_id: int
     codigo: str
@@ -94,6 +108,9 @@ class ProductoResponse(BaseModel):
     tn_price: Optional[float] = None  # Precio normal
     tn_promotional_price: Optional[float] = None  # Precio promocional
     tn_has_promotion: Optional[bool] = None  # Si tiene promoción activa
+
+    # PPP (ERP weighted-average cost) — informational only, never persisted.
+    ppp: Optional[PppPayload] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -183,6 +200,9 @@ class ProductoTiendaResponse(BaseModel):
     tn_price: Optional[float] = None
     tn_promotional_price: Optional[float] = None
     tn_has_promotion: Optional[bool] = None
+
+    # PPP (ERP weighted-average cost) — informational only, never persisted.
+    ppp: Optional[PppPayload] = None
 
     model_config = ConfigDict(from_attributes=True)
 
