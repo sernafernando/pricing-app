@@ -107,7 +107,7 @@ def buscar_productos_catalogo(
     return [
         ProductoBusqueda(
             item_id=r.item_id,
-            codigo=r.codigo or "",
+            codigo=r.codigo or str(r.item_id),
             descripcion=r.descripcion or "",
             marca=r.marca,
             categoria=r.categoria,
