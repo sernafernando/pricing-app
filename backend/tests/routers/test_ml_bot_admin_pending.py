@@ -135,12 +135,35 @@ class TestGetDetailReturnsSuggestedAckTemplate:
         assert r.status_code == 200
         assert "confirmes tu CUIT" in r.json()["suggested_ack_template"]
 
-    def test_doc_mismatch_returns_ack_confirm(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+    def test_valid_cuit_never_asks_the_buyer_to_reconfirm(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """A CUIT that passes mod-11 is valid, full stop. Asking the buyer to
+        re-send a correct CUIT is the bug this removes: the old doc-mismatch
+        signal fired on every company CUIT (30-/33-), whose middle digits are
+        not anybody's DNI."""
         row = _seed_pending(db, cuit_valid=True, doc_mismatch=True)
         db.commit()
         r = client.get(f"{BASE}/admin-pending/{row.id}", headers=auth_headers)
         assert r.status_code == 200
-        assert "confirmes tu CUIT" in r.json()["suggested_ack_template"]
+        assert "se realizará el cambio" in r.json()["suggested_ack_template"]
+
+    def test_doc_mismatch_is_not_exposed_by_the_api(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        row = _seed_pending(db, cuit_valid=True, doc_mismatch=True)
+        db.commit()
+        r = client.get(f"{BASE}/admin-pending/{row.id}", headers=auth_headers)
+        assert r.status_code == 200
+        assert "doc_mismatch" not in r.json()
+
+    def test_doc_mismatch_filter_no_longer_filters(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        """The filter is gone. FastAPI ignores unknown query params, so a
+        stale bookmarked URL returns the full list rather than erroring —
+        documented here so the behavior is a decision, not a surprise."""
+        _seed_pending(db, cuit_valid=True, doc_mismatch=True)
+        db.commit()
+        r = client.get(f"{BASE}/admin-pending?doc_mismatch=false", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json()["total"] == 1
 
     def test_detail_includes_superseded_values(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         superseded = [

@@ -492,7 +492,6 @@ export default function MLQuestions() {
   const [pendingStatusFilter, setPendingStatusFilter] = useState('');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('');
   const [pendingCuitValidFilter, setPendingCuitValidFilter] = useState('');
-  const [pendingDocMismatchFilter, setPendingDocMismatchFilter] = useState(false);
 
   const [expandedPendingId, setExpandedPendingId] = useState(null);
   const [pendingDetail, setPendingDetail] = useState(null);
@@ -816,7 +815,6 @@ export default function MLQuestions() {
       if (pendingStatusFilter) params.status = pendingStatusFilter;
       if (pendingSourceFilter) params.source = pendingSourceFilter;
       if (pendingCuitValidFilter !== '') params.cuit_valid = pendingCuitValidFilter === 'true';
-      if (pendingDocMismatchFilter) params.doc_mismatch = true;
       const { data } = await api.get('/ml-bot/admin-pending', { params });
       setPendingRequests(data.requests || []);
     } catch {
@@ -827,7 +825,7 @@ export default function MLQuestions() {
     } finally {
       if (!silent) setPendingLoading(false);
     }
-  }, [puedeVerPendientes, pendingStatusFilter, pendingSourceFilter, pendingCuitValidFilter, pendingDocMismatchFilter]);
+  }, [puedeVerPendientes, pendingStatusFilter, pendingSourceFilter, pendingCuitValidFilter]);
 
   useEffect(() => {
     if (activeTab === 'pendientes' && puedeVerPendientes) {
@@ -2035,14 +2033,6 @@ export default function MLQuestions() {
               <option value="true">CUIT válido</option>
               <option value="false">CUIT inválido</option>
             </select>
-            <label className={styles.rosterEnabledLabel}>
-              <input
-                type="checkbox"
-                checked={pendingDocMismatchFilter}
-                onChange={(e) => setPendingDocMismatchFilter(e.target.checked)}
-              />
-              Solo con discrepancia de documento
-            </label>
             {puedeGestionarPendientes && (
               <button
                 type="button"
@@ -2143,13 +2133,9 @@ export default function MLQuestions() {
                         <td className={styles.cellItem}>{row.extracted_cuit || '—'}</td>
                         <td className={styles.cellItem}>{row.extracted_name || '—'}</td>
                         <td>
-                          {row.cuit_valid === false && (
+                          {row.cuit_valid === false ? (
                             <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
-                          )}
-                          {row.doc_mismatch && (
-                            <span className={`${styles.badge} ${styles.badgeWarning}`}>Discrepancia doc.</span>
-                          )}
-                          {row.cuit_valid !== false && !row.doc_mismatch && '—'}
+                          ) : '—'}
                         </td>
                         <td>
                           {row.afip_status ? (

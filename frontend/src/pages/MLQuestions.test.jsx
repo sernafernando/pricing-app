@@ -846,7 +846,8 @@ describe('Pendientes tab visibility', () => {
     });
     expect(screen.getByText('Luis Eck')).toBeInTheDocument();
     expect(screen.getAllByText('CUIT inválido').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Discrepancia doc.')).toBeInTheDocument();
+    // The doc-mismatch badge was removed: it fired on every company CUIT.
+    expect(screen.queryByText('Discrepancia doc.')).not.toBeInTheDocument();
     expect(screen.getAllByText('Nuevo').length).toBeGreaterThanOrEqual(1);
   });
 
