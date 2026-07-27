@@ -1,13 +1,12 @@
 """
-afip-direct-arca PR2 — unit tests for the direct WSAA transport layer
+afip-direct-arca — unit tests for the direct WSAA transport layer
 (design §Interfaces/Contracts, §Testing Strategy).
 
 Covers the pure helpers (`_build_tra`, `_sign_cms`, `_parse_ta`, `_wsaa_url`),
-the shared `httpx.AsyncClient` singleton, and `_wsaa_get_ta` (loginCms call +
+the shared `httpx.AsyncClient` singleton, and `_get_ta` (loginCms call +
 per-wsid TA cache with the 5-minute expiry margin).
 
-This slice ships the WSAA machinery as tested-but-not-yet-cabled internals:
-`get_persona`/`_query_ws` still run over the afipsdk transport until PR3.
+The padrón side that consumes these TAs lives in `test_afip_padron.py`.
 
 `httpx.MockTransport` + monkeypatch convention, same as
 `test_ml_api_client_get_message.py`. No test performs real network I/O.
@@ -23,10 +22,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs7
-from cryptography.x509.oid import NameOID
 
 from app.services.afip_service import (
     AfipService,
@@ -39,35 +35,6 @@ from app.services.afip_service import (
 )
 
 WSAA_NS = "http://wsaa.view.sua.dvadac.desein.afip.gov"
-
-
-@pytest.fixture
-def cert_and_key() -> tuple[str, str]:
-    """Self-signed cert + key PEM pair, generated in-test.
-
-    Never registered with ARCA — signing correctness is verified locally by
-    decoding the produced CMS, per the design's certless verification (option B).
-    """
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "pricing-app-test")])
-    now = datetime.now(timezone.utc)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=365))
-        .sign(key, hashes.SHA256())
-    )
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
-    key_pem = key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
-    return cert_pem, key_pem
 
 
 def _login_ticket_response(expiration: datetime, token: str = "TOKEN-ABC", sign: str = "SIGN-XYZ") -> str:
@@ -201,7 +168,7 @@ class TestSharedHttpClient:
 
 
 class TestWsaaGetTa:
-    """`_wsaa_get_ta` — loginCms over the shared client + per-wsid TA cache
+    """`_get_ta` — loginCms over the shared client + per-wsid TA cache
     honoring the existing 5-minute expiry margin."""
 
     def _service(
@@ -211,7 +178,6 @@ class TestWsaaGetTa:
         handler,
     ) -> AfipService:
         cert_pem, key_pem = cert_and_key
-        monkeypatch.setattr("app.core.config.settings.AFIP_ACCESS_TOKEN", "fake-token")
         monkeypatch.setattr("app.core.config.settings.AFIP_CUIT", "20000000006")
         monkeypatch.setattr("app.core.config.settings.AFIP_ENVIRONMENT", "prod")
         monkeypatch.setattr("app.core.config.settings.AFIP_CERT", cert_pem)
@@ -238,7 +204,7 @@ class TestWsaaGetTa:
             return httpx.Response(200, text=_wsaa_envelope(_login_ticket_response(expiration)))
 
         service = self._service(monkeypatch, cert_and_key, handler)
-        ta = asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+        ta = asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
         assert ta == {"token": "TOKEN-ABC", "sign": "SIGN-XYZ"}
         assert len(calls) == 1
@@ -256,8 +222,8 @@ class TestWsaaGetTa:
             return httpx.Response(200, text=_wsaa_envelope(_login_ticket_response(expiration)))
 
         service = self._service(monkeypatch, cert_and_key, handler)
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
         assert len(calls) == 1
 
@@ -274,8 +240,8 @@ class TestWsaaGetTa:
             return httpx.Response(200, text=_wsaa_envelope(_login_ticket_response(expirations[len(calls) - 1])))
 
         service = self._service(monkeypatch, cert_and_key, handler)
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
         assert len(calls) == 2
 
@@ -288,8 +254,8 @@ class TestWsaaGetTa:
             return httpx.Response(200, text=_wsaa_envelope(_login_ticket_response(expiration)))
 
         service = self._service(monkeypatch, cert_and_key, handler)
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a13"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a13"))
 
         assert len(calls) == 2
         assert b"ws_sr_padron_a13" not in calls[0].content
@@ -302,7 +268,7 @@ class TestWsaaGetTa:
 
         service = self._service(monkeypatch, cert_and_key, handler)
         with pytest.raises(AfipServiceError) as exc:
-            asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+            asyncio.run(service._get_ta("ws_sr_padron_a4"))
         assert "500" in exc.value.message
 
     def test_soap_fault_raises_afip_error(self, monkeypatch: pytest.MonkeyPatch, cert_and_key: tuple[str, str]) -> None:
@@ -311,7 +277,7 @@ class TestWsaaGetTa:
 
         service = self._service(monkeypatch, cert_and_key, handler)
         with pytest.raises(AfipServiceError):
-            asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+            asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
     def test_failed_login_is_not_cached(self, monkeypatch: pytest.MonkeyPatch, cert_and_key: tuple[str, str]) -> None:
         """A fault must not poison the cache — the next call retries the network."""
@@ -324,7 +290,7 @@ class TestWsaaGetTa:
         service = self._service(monkeypatch, cert_and_key, handler)
         for _ in range(2):
             with pytest.raises(AfipServiceError):
-                asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+                asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
         assert len(calls) == 2
 
@@ -342,7 +308,7 @@ class TestWsaaGetTa:
             return httpx.Response(200, text=_wsaa_envelope(_login_ticket_response(expiration)))
 
         service = self._service(monkeypatch, cert_and_key, handler)
-        asyncio.run(service._wsaa_get_ta("ws_sr_padron_a4"))
+        asyncio.run(service._get_ta("ws_sr_padron_a4"))
 
         key_body = "".join(key_pem.strip().splitlines()[1:-1])
         assert key_body.encode() not in calls[0].content

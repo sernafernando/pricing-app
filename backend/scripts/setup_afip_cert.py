@@ -14,6 +14,14 @@ Qué hace:
 
 NOTA: la clave fiscal NO se guarda en ningún lado. Solo se usa
 para las automatizaciones de afipsdk.com que interactúan con ARCA.
+
+ALCANCE (afip-direct-arca): este script es SOLO de aprovisionamiento —
+genera el certificado una vez y lo deja en el .env. El runtime ya NO usa
+afipsdk.com: `AfipService` habla WSAA + padrón por SOAP directo con ese
+mismo cert. Por eso sigue leyendo `AFIP_ACCESS_TOKEN` del .env aunque
+`Settings` ya no lo declare (lo lee del archivo, no de la config), y por
+eso conviene dejar esa variable en el .env mientras se siga usando este
+script para renovar el certificado.
 """
 
 import getpass

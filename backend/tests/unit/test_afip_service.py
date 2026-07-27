@@ -61,13 +61,17 @@ class TestValidarCuit:
 
 
 class TestGetPersonaValidatesBeforeNetworkCall:
-    def _service(self, monkeypatch: pytest.MonkeyPatch) -> AfipService:
-        monkeypatch.setattr("app.core.config.settings.AFIP_ACCESS_TOKEN", "fake-token")
+    def _service(self, monkeypatch: pytest.MonkeyPatch, cert_and_key: tuple[str, str]) -> AfipService:
+        cert_pem, key_pem = cert_and_key
         monkeypatch.setattr("app.core.config.settings.AFIP_CUIT", "20000000006")
+        monkeypatch.setattr("app.core.config.settings.AFIP_CERT", cert_pem)
+        monkeypatch.setattr("app.core.config.settings.AFIP_KEY", key_pem)
         return AfipService()
 
-    def test_invalid_cuit_raises_without_network_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        service = self._service(monkeypatch)
+    def test_invalid_cuit_raises_without_network_calls(
+        self, monkeypatch: pytest.MonkeyPatch, cert_and_key: tuple[str, str]
+    ) -> None:
+        service = self._service(monkeypatch, cert_and_key)
 
         async def _fail_get_ta(*args, **kwargs):  # pragma: no cover - must never run
             raise AssertionError("_get_ta must not be called for an invalid CUIT")
@@ -81,10 +85,12 @@ class TestGetPersonaValidatesBeforeNetworkCall:
         with pytest.raises(AfipServiceError):
             asyncio.run(service.get_persona("20123456787"))
 
-    def test_normalization_runs_before_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_normalization_runs_before_validation(
+        self, monkeypatch: pytest.MonkeyPatch, cert_and_key: tuple[str, str]
+    ) -> None:
         """A validly-formatted-but-dashed CUIT must be normalized then pass validation
         (i.e. reach the network layer) rather than being rejected due to the dashes."""
-        service = self._service(monkeypatch)
+        service = self._service(monkeypatch, cert_and_key)
 
         called = {"query_ws": False}
 

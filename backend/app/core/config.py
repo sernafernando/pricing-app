@@ -167,8 +167,11 @@ class Settings(BaseSettings):
 
     # AFIP SDK (afipsdk.com — Padrón A4, Constancia de Inscripción)
     AFIP_CUIT: Optional[str] = None
-    AFIP_ACCESS_TOKEN: Optional[str] = None
-    AFIP_SDK_BASE_URL: str = "https://app.afipsdk.com/api/v1/afip"
+    # AFIP_ACCESS_TOKEN / AFIP_SDK_BASE_URL fueron eliminados al pasar a la
+    # integración directa con ARCA (WSAA + padrón SOAP in-process). Pueden
+    # seguir presentes en el .env desplegado una release más: Settings usa
+    # extra="ignore", así que no rompen el arranque y permiten volver atrás
+    # redeployando la imagen anterior.
     AFIP_ENVIRONMENT: str = "prod"  # "dev" para testing con CUIT 20409378472
     # Certificado digital de producción (generado con scripts/setup_afip_cert.py)
     AFIP_CERT: Optional[str] = None
