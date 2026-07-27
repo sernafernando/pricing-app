@@ -13,11 +13,16 @@ Web services utilizados:
   - ws_sr_padron_a4 → getPersona (datos completos: impuestos, regímenes, domicilios)
 """
 
+import base64
 import time
-from datetime import UTC, datetime
+import xml.etree.ElementTree as ET
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.serialization import pkcs7
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -50,6 +55,195 @@ def _restore_pem(value: str) -> str:
     while "\\n" in result:
         result = result.replace("\\n", "\n")
     return result
+
+
+# --------------------------------------------------------------------------
+# WSAA direct transport (afip-direct-arca PR2)
+#
+# In-process WSAA client: builds the TRA, CMS-signs it locally with
+# AFIP_CERT/AFIP_KEY and calls loginCms over SOAP. The private key never
+# leaves the process — that is the reason this replaces afipsdk.com, which
+# required uploading it on every TA request.
+#
+# Shipped in this slice as tested-but-not-yet-cabled machinery: `_get_ta`
+# and `_query_ws` still run over afipsdk until the PR3 padrón swap.
+#
+# Endpoints reverified against the live WSDLs on 2026-07-27 (design open
+# question: the AFIP->ARCA domain migration is still in flight; both WSAA
+# hosts and both padrón hosts answer 200 on afip.gov.ar today).
+# --------------------------------------------------------------------------
+
+WSAA_URL_PROD = "https://wsaa.afip.gov.ar/ws/services/LoginCms"
+WSAA_URL_HOMO = "https://wsaahomo.afip.gov.ar/ws/services/LoginCms"
+
+_WSAA_NS = "http://wsaa.view.sua.dvadac.desein.afip.gov"
+_SOAPENV_NS = "http://schemas.xmlsoap.org/soap/envelope/"
+
+# TRA validity window around `now` (AFIP tolerates a few minutes of skew).
+_TRA_WINDOW_SECONDS = 600
+
+# Margin before the TA's real expiration at which we refetch (matches the
+# pre-existing afipsdk cache semantics).
+_TA_EXPIRY_MARGIN_SECONDS = 300
+
+_DEFAULT_TIMEOUT = 30.0
+
+# Shared client (design: one connection pool for all WSAA/padrón calls,
+# replacing the per-call `httpx.AsyncClient` the afipsdk transport used).
+_http_client_instance: Optional[httpx.AsyncClient] = None
+
+
+def _http_client() -> httpx.AsyncClient:
+    """Lazily-built module-level `httpx.AsyncClient`, shared across calls."""
+    global _http_client_instance
+    if _http_client_instance is None or _http_client_instance.is_closed:
+        _http_client_instance = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
+    return _http_client_instance
+
+
+def _reset_http_client() -> None:
+    """Drop the shared client so the next call builds a fresh one (test hook;
+    also safe to call from an app shutdown handler)."""
+    global _http_client_instance
+    _http_client_instance = None
+
+
+def _wsaa_url() -> str:
+    """Homologación only for AFIP_ENVIRONMENT='dev'; producción otherwise."""
+    return WSAA_URL_HOMO if settings.AFIP_ENVIRONMENT == "dev" else WSAA_URL_PROD
+
+
+def _localname(tag: str) -> str:
+    """`{ns}foo` -> `foo`. Namespaces vary between AFIP services and are not
+    load-bearing for our parsing, so everything is matched by localname."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _find_localname(root: ET.Element, name: str) -> Optional[ET.Element]:
+    if _localname(root.tag) == name:
+        return root
+    for element in root.iter():
+        if _localname(element.tag) == name:
+            return element
+    return None
+
+
+def _build_tra(wsid: str, now: Optional[datetime] = None) -> str:
+    """Build the Ticket de Requerimiento de Acceso (TRA) XML for `wsid`.
+
+    `uniqueId` is the epoch second; the validity window is `now` ± 10 min so a
+    modest clock skew against AFIP still authenticates. Timestamps are
+    tz-aware (naive ones are rejected by WSAA).
+    """
+    moment = now or datetime.now(timezone.utc)
+    window = timedelta(seconds=_TRA_WINDOW_SECONDS)
+
+    root = ET.Element("loginTicketRequest", {"version": "1.0"})
+    header = ET.SubElement(root, "header")
+    ET.SubElement(header, "uniqueId").text = str(int(moment.timestamp()))
+    ET.SubElement(header, "generationTime").text = (moment - window).isoformat()
+    ET.SubElement(header, "expirationTime").text = (moment + window).isoformat()
+    ET.SubElement(root, "service").text = wsid
+
+    return ET.tostring(root, encoding="unicode")
+
+
+def _sign_cms(tra: str, cert_pem: str, key_pem: str) -> str:
+    """CMS/PKCS7-sign the TRA with the ARCA-registered cert, base64(DER).
+
+    `PKCS7Options.Binary` keeps the payload byte-exact (no S/MIME canonical
+    line-ending rewriting), which WSAA requires to validate the signature.
+    """
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+        cms = (
+            pkcs7.PKCS7SignatureBuilder()
+            .set_data(tra.encode())
+            .add_signer(cert, key, hashes.SHA256())
+            .sign(serialization.Encoding.DER, [pkcs7.PKCS7Options.Binary])
+        )
+    except Exception as exc:
+        # Never surface the raw cryptography error: it can echo key material.
+        raise AfipServiceError(
+            "No se pudo firmar el TRA para WSAA",
+            detail=f"Certificado o clave privada inválidos ({type(exc).__name__})",
+        ) from exc
+
+    return base64.b64encode(cms).decode()
+
+
+def _raise_if_soap_fault(root: ET.Element) -> None:
+    fault = _find_localname(root, "Fault")
+    if fault is None:
+        return
+    faultstring = fault.findtext("faultstring") or ""
+    if not faultstring:
+        element = _find_localname(fault, "faultstring")
+        faultstring = (element.text or "") if element is not None else ""
+    raise AfipServiceError("AFIP rechazó la consulta (SOAP Fault)", detail=faultstring or None)
+
+
+def _parse_ta(body: str) -> tuple[str, str, datetime]:
+    """Parse a WSAA `loginCms` response into `(token, sign, expiration)`.
+
+    WSAA nests the `loginTicketResponse` document as *escaped text* inside
+    `loginCmsReturn`, so this parses twice. Any malformed/HTML/truncated body
+    becomes an `AfipServiceError` — never a raw `ElementTree` exception.
+    """
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise AfipServiceError(
+            "Respuesta de WSAA malformada",
+            detail=f"No se pudo parsear el XML de WSAA ({exc})",
+        ) from exc
+
+    _raise_if_soap_fault(root)
+
+    login_return = _find_localname(root, "loginCmsReturn")
+    if login_return is None or not (login_return.text or "").strip():
+        raise AfipServiceError(
+            "Respuesta de WSAA sin loginCmsReturn",
+            detail="La respuesta de WSAA no contiene el ticket de acceso",
+        )
+
+    try:
+        ticket = ET.fromstring(login_return.text)
+    except ET.ParseError as exc:
+        raise AfipServiceError(
+            "Ticket de acceso de WSAA malformado",
+            detail=f"No se pudo parsear el loginTicketResponse ({exc})",
+        ) from exc
+
+    token = ticket.findtext("credentials/token")
+    sign = ticket.findtext("credentials/sign")
+    expiration_raw = ticket.findtext("header/expirationTime")
+
+    if not token or not sign or not expiration_raw:
+        raise AfipServiceError(
+            "Ticket de acceso de WSAA incompleto",
+            detail="Faltan token, sign o expirationTime en el loginTicketResponse",
+        )
+
+    try:
+        expiration = datetime.fromisoformat(expiration_raw)
+    except ValueError as exc:
+        raise AfipServiceError(
+            "Ticket de acceso de WSAA con expiración inválida",
+            detail=f"expirationTime no es una fecha ISO válida: {expiration_raw!r}",
+        ) from exc
+
+    return token, sign, expiration
+
+
+def _build_login_cms_envelope(cms_b64: str) -> str:
+    envelope = ET.Element(f"{{{_SOAPENV_NS}}}Envelope")
+    ET.SubElement(envelope, f"{{{_SOAPENV_NS}}}Header")
+    soap_body = ET.SubElement(envelope, f"{{{_SOAPENV_NS}}}Body")
+    login = ET.SubElement(soap_body, f"{{{_WSAA_NS}}}loginCms")
+    ET.SubElement(login, f"{{{_WSAA_NS}}}in0").text = cms_b64
+    return ET.tostring(envelope, encoding="unicode")
 
 
 _CUIT_PESOS = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
@@ -123,6 +317,62 @@ class AfipService:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.ACCESS_TOKEN}",
         }
+
+    async def _wsaa_get_ta(self, wsid: str) -> dict[str, str]:
+        """Obtain a Ticket de Acceso directly from WSAA (no third party).
+
+        Same cache contract as the afipsdk `_get_ta` it will replace in PR3:
+        one entry per `wsid`, refetched once the cached TA falls inside the
+        5-minute expiry margin. A failed login is never cached.
+
+        NOT cabled into `get_persona` yet — `_query_ws` still uses the
+        afipsdk `_get_ta` until the padrón swap lands.
+        """
+        cached = _ta_cache.get(wsid)
+        if cached and cached["expires_at"] > time.time():
+            return {"token": cached["token"], "sign": cached["sign"]}
+
+        if not self.CERT or not self.KEY:
+            raise AfipServiceError(
+                "AFIP_CERT/AFIP_KEY no configurados",
+                detail="La autenticación directa contra WSAA requiere certificado y clave privada en .env",
+            )
+
+        logger.info("Solicitando TA a WSAA para wsid=%s, env=%s", wsid, self.ENVIRONMENT)
+
+        cms_b64 = _sign_cms(_build_tra(wsid), self.CERT, self.KEY)
+        envelope = _build_login_cms_envelope(cms_b64)
+
+        try:
+            resp = await _http_client().post(
+                _wsaa_url(),
+                content=envelope.encode("utf-8"),
+                headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""},
+            )
+        except httpx.HTTPError as exc:
+            raise AfipServiceError(
+                "Error de red conectando a WSAA",
+                detail=str(exc),
+            ) from exc
+
+        if resp.status_code != 200:
+            logger.error("Error obteniendo TA de WSAA: status=%d", resp.status_code)
+            raise AfipServiceError(
+                f"Error obteniendo TA de WSAA (HTTP {resp.status_code})",
+                detail=resp.text[:500],
+            )
+
+        token, sign, expiration = _parse_ta(resp.text)
+
+        _ta_cache[wsid] = {
+            "token": token,
+            "sign": sign,
+            "expires_at": expiration.timestamp() - _TA_EXPIRY_MARGIN_SECONDS,
+        }
+
+        logger.info("TA de WSAA obtenido para wsid=%s, expira=%s", wsid, expiration.isoformat())
+
+        return {"token": token, "sign": sign}
 
     async def _get_ta(self, wsid: str) -> dict[str, str]:
         """
