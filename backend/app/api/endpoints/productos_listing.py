@@ -20,6 +20,7 @@ from app.services.costo_ppp_service import (
     PppMarkups,
     PPP_KEY_MEJOR_OFERTA,
     PPP_KEY_REBATE,
+    PPP_KEY_CLASICA,
     PPP_KEY_PVP_CLASICA,
     PPP_KEY_PVP_CLASICA_VARIANT,
     ppp_key_cuota_clasica,
@@ -1023,6 +1024,33 @@ def listar_productos(
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
                 ppp.record(PPP_KEY_REBATE, limpio_rebate)
+
+        # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+        # The DISPLAYED `markup` field still comes from the stored
+        # `markup_calculado` column (untouched below); this recomputes
+        # `limpio` in-request with the SAME inputs the batch process uses
+        # (pricelist 4 commission, resolved shipping, product IVA) — see
+        # costo_ppp_service.py's module docstring for the full rationale.
+        if producto_pricing and producto_pricing.precio_lista_ml:
+            comision_base_clasica = _lookup_comision(4, grupo_id)
+            if comision_base_clasica:
+                comisiones_clasica = calcular_comision_ml_total(
+                    float(producto_pricing.precio_lista_ml),
+                    comision_base_clasica,
+                    producto_erp.iva,
+                    constantes=constantes,
+                )
+                costo_envio_clasica = _resolve_envio(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(producto_pricing.precio_lista_ml)
+                )
+                limpio_clasica = calcular_limpio(
+                    float(producto_pricing.precio_lista_ml),
+                    producto_erp.iva,
+                    costo_envio_clasica,
+                    comisiones_clasica["comision_total"],
+                    constantes=constantes,
+                )
+                ppp.record(PPP_KEY_CLASICA, limpio_clasica)
 
         # Si el producto tiene rebate y está out_of_cards, replicar el rebate a mejor_oferta
         if (
@@ -2225,6 +2253,29 @@ def listar_productos_tienda(
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
                 ppp_t.record(PPP_KEY_REBATE, limpio_rebate)
 
+        # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+        # Same rationale as the listing block above.
+        if producto_pricing and producto_pricing.precio_lista_ml:
+            comision_base_clasica_t = _lookup_comision_t(4, grupo_id)
+            if comision_base_clasica_t:
+                comisiones_clasica_t = calcular_comision_ml_total(
+                    float(producto_pricing.precio_lista_ml),
+                    comision_base_clasica_t,
+                    producto_erp.iva,
+                    constantes=constantes_t,
+                )
+                costo_envio_clasica_t = _resolve_envio_t(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(producto_pricing.precio_lista_ml)
+                )
+                limpio_clasica_t = calcular_limpio(
+                    float(producto_pricing.precio_lista_ml),
+                    producto_erp.iva,
+                    costo_envio_clasica_t,
+                    comisiones_clasica_t["comision_total"],
+                    constantes=constantes_t,
+                )
+                ppp_t.record(PPP_KEY_CLASICA, limpio_clasica_t)
+
         if (
             producto_pricing
             and producto_pricing.out_of_cards
@@ -2527,6 +2578,27 @@ def obtener_producto(
     # PPP accumulator for this product (informational only; None-safe).
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
     ppp_d = PppMarkups(_ppp_source_d)
+
+    # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+    # Same rationale as the listing/tienda blocks (see costo_ppp_service.py
+    # module docstring). Single-item endpoint: an extra DB lookup here is not
+    # an N+1 concern.
+    if producto_pricing and producto_pricing.precio_lista_ml:
+        grupo_id_clasica = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+        comision_base_clasica_d = obtener_comision_base(db, 4, grupo_id_clasica)
+        if comision_base_clasica_d:
+            comisiones_clasica_d = calcular_comision_ml_total(
+                float(producto_pricing.precio_lista_ml), comision_base_clasica_d, producto_erp.iva, db=db
+            )
+            limpio_clasica_d = calcular_limpio(
+                float(producto_pricing.precio_lista_ml),
+                producto_erp.iva,
+                costo_envio_producto,
+                comisiones_clasica_d["comision_total"],
+                db=db,
+                grupo_id=grupo_id_clasica,
+            )
+            ppp_d.record(PPP_KEY_CLASICA, limpio_clasica_d)
 
     # Calcular markups PVP
     markup_pvp = None

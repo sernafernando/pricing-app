@@ -90,6 +90,7 @@ def producto_con_todas_las_cuotas(db, comision_fixtures) -> ProductoERP:
 
     pricing = ProductoPricing(
         item_id=p.item_id,
+        precio_lista_ml=1400.0,
         precio_3_cuotas=1500.0,
         precio_6_cuotas=1600.0,
         precio_9_cuotas=1700.0,
@@ -264,6 +265,57 @@ class TestQualifyingRowSurfacesPpp:
         assert data["costo"] == 10000.0
 
 
+class TestClasicaMarkupPpp:
+    """T2.6 (reopened): the clásica (list-cost) markup gets its own PPP
+    companion, computed in-request with the same inputs the batch
+    (`recalcular_markups_service.py`) uses, WITHOUT touching the displayed
+    `markup` field (still fed from the stored `markup_calculado` column)."""
+
+    def test_clasica_ppp_markup_matches_calcular_markup_of_limpio_and_costo_ppp(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp
+    ):
+        from app.services.pricing_calculator import (
+            calcular_comision_ml_total,
+            calcular_limpio,
+            calcular_markup,
+        )
+
+        pricing = ProductoPricing(item_id=producto_con_ppp.item_id, precio_lista_ml=15000.0)
+        db.add(pricing)
+        db.commit()
+
+        response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert "clasica" in data["ppp"]["markups"], data["ppp"]["markups"]
+
+        # Recompute the expected value the same way the endpoint should:
+        # comision_base=12.0 (grupo 1, comision_fixtures), envio=0 (producto_con_ppp).
+        comisiones = calcular_comision_ml_total(15000.0, 12.0, producto_con_ppp.iva, db=db)
+        limpio = calcular_limpio(15000.0, producto_con_ppp.iva, 0.0, comisiones["comision_total"], db=db)
+        expected = round(calcular_markup(limpio, 8500.0) * 100, 2)
+
+        assert data["ppp"]["markups"]["clasica"] == expected
+
+        # The displayed markup is untouched — still None because markup_calculado
+        # was never written (that column is fed by a separate batch process).
+        assert data["markup"] is None
+
+    def test_clasica_ppp_markup_absent_when_precio_lista_ml_is_missing(self, client, auth_headers, producto_con_ppp):
+        """No `precio_lista_ml` => no clásica limpio to derive from => no key,
+        NEVER a fabricated value."""
+        response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert "clasica" not in data["ppp"]["markups"]
+
+
 class TestDistinctInstalmentKeys:
     """Fix-round finding 1: the 4 classic-installment markups must be DISTINCT.
 
@@ -296,6 +348,11 @@ class TestDistinctInstalmentKeys:
 
         values = [markups[key] for key in instalment_keys]
         assert len(set(values)) == len(values), f"instalment markups collapsed onto a shared key: {markups}"
+
+        # The clásica (list-cost) markup also gets a PPP companion on this
+        # same listing pass, reusing the same _lookup_comision(4, grupo_id)
+        # dict lookup — no extra query.
+        assert "clasica" in markups, f"missing clasica in {markups}"
 
 
 class TestQueryCount:

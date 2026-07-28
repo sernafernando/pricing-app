@@ -63,6 +63,27 @@ describe('PppLine — informational PPP companion line', () => {
     expect(screen.queryByText(/999\.99/)).toBeNull();
   });
 
+  it('renders the clasica key (T2.6, reopened) as an already-percent markup', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: { clasica: 45.5 } }}
+        markupKey="clasica"
+      />
+    );
+    expect(screen.getByText(/45\.50%/)).toBeTruthy();
+    expect(screen.getByText(/05\/01\/26/)).toBeTruthy();
+  });
+
+  it('renders "sin PPP" for clasica when the key is absent (e.g. missing precio_lista_ml)', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: {} }}
+        markupKey="clasica"
+      />
+    );
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+  });
+
   describe('instalment key family (cuota_clasica_{n} / pvp_cuota_{n}) — highest key-typo risk', () => {
     const markups = {
       cuota_clasica_3: 10,

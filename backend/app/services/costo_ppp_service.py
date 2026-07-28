@@ -78,6 +78,26 @@ so a typo can no longer silently mint an orphan key:
 
   - `PPP_KEY_MEJOR_OFERTA` = `"mejor_oferta"` — best active ML offer markup.
   - `PPP_KEY_REBATE` = `"rebate"` — rebate-price markup.
+  - `PPP_KEY_CLASICA` = `"clasica"` — clásica (list-cost) markup, the plain
+    `markup`/`markup_calculado` field. Unlike every other key above, the
+    DISPLAYED value (`ProductoPricing.markup_calculado`) is a stored column
+    written by a separate batch (`recalcular_markups_service.py`), not
+    computed in-request — there is no `limpio` naturally available for it at
+    any existing call site. This key's `limpio` is instead RECOMPUTED
+    in-request, reusing the exact same inputs the batch uses for the SAME
+    product: pricelist 4 commission (`_lookup_comision(4, grupo_id)` /
+    `obtener_comision_base(db, 4, grupo_id)`), the already-resolved shipping
+    cost (`_resolve_envio`/`costo_envio_producto`), and the product's IVA —
+    see `recalcular_markups_service.py:55-83`. This is a deliberate, narrow
+    exception to "only reuse an existing `limpio`": every other key still
+    reuses a `limpio` already computed at its shadowed markup site; this one
+    reuses the batch's FORMULA and INPUTS instead, because the site itself
+    does not compute one.
+    CAVEAT: because the displayed `markup` comes from a stored column
+    refreshed asynchronously while this PPP value is computed live, the two
+    figures on the same row can be momentarily inconsistent if the batch has
+    not run since the last price/commission/shipping change. This is a
+    staleness window in the stored column, not a calculation error.
   - `ppp_key_cuota_clasica(n)` -> `"cuota_clasica_{n}"` (n in `"3"/"6"/"9"/"12"`)
     — classic-list instalment markup (pricelists 17/14/13/23). Same name in
     both the listing and tienda endpoints: it is the same conceptual markup
@@ -237,6 +257,7 @@ def _build_row_number_stmt(chunk: list[int]):
 
 PPP_KEY_MEJOR_OFERTA = "mejor_oferta"
 PPP_KEY_REBATE = "rebate"
+PPP_KEY_CLASICA = "clasica"
 PPP_KEY_PVP_CLASICA = "pvp_clasica"
 PPP_KEY_PVP_CLASICA_VARIANT = "pvp_clasica_variant"
 

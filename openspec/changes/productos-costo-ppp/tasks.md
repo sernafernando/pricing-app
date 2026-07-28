@@ -208,26 +208,47 @@ Traces to: Requirement "PPP markups render at all display sites" (cost cell + fi
       recorded here before T3.11's rename** — verified `p.markup_pvp` is fed by
       `ppp.record(PPP_KEY_PVP_CLASICA, limpio_pvp)` (`productos_listing.py:1123`), i.e. the
       canonical key is `pvp_clasica`, not `pvp`.
-- [x] T2.6 Markup site — line 1772 (`getMarkupColor(p.markup)`, plain non-cuotas `markup` field)
-      — **DEVIATION, left undone on purpose**: `p.markup` is fed from
-      `producto_pricing.markup_calculado`, a column written by an entirely separate batch process
-      (`app/services/recalcular_markups_service.py`, `app/api/endpoints/pricing.py`, etc.), NOT by
-      any `ppp.record(...)` call site in `productos_listing.py`. There is no PPP key that
-      corresponds to this specific field — only its cuotas siblings (`markup_3_cuotas` etc., PR3
-      scope) have a real `cuota_clasica_{n}` counterpart. Attaching any `markupKey` here would
-      always render "sin PPP" even when the product DOES have PPP data, which is indistinguishable
-      from genuine no-data and therefore misleading — worse than the requirement it was meant to
-      satisfy. Recommend closing this task as "intentionally not applicable" rather than
-      implementing a fabricated key; needs explicit maintainer sign-off before archiving.
-      — **RESOLVED (maintainer decision, 2026-07-28): option A — leave this site without a PPP
-      line.** Every PPP markup in this change is produced by reusing `calcular_markup(limpio,
-      costo_ppp)`, never by an ad-hoc formula. This site is the one place where that is impossible,
-      because `p.markup` comes from a stored column and no `limpio` exists for it in the request.
-      Rather than special-case it with a derived approximation, it renders no PPP line at all.
-      Task closed as intentionally not applicable.
+- [x] T2.6 Markup site — line ~1777 (`getMarkupColor(p.markup)`, plain non-cuotas `markup` field)
+      — **REOPENED and IMPLEMENTED (2026-07-28)**. Previously closed as "intentionally not
+      applicable" because `p.markup` is fed from `producto_pricing.markup_calculado`, a column
+      written by an entirely separate batch process
+      (`app/services/recalcular_markups_service.py`), and no `limpio` was available in-request to
+      reuse. Re-inspection showed this WAS feasible without changing that displayed value: the
+      batch computes its `limpio` from inputs that are already resolved (or trivially resolvable
+      via the existing batch/prefetch helpers) at every `PppMarkups` call site in
+      `productos_listing.py` — pricelist-4 commission (`_lookup_comision(4, grupo_id)` /
+      `_lookup_comision_t(4, grupo_id)` in the listing/tienda blocks, `obtener_comision_base(db, 4,
+      grupo_id)` in the single-item detail block), the resolved shipping cost
+      (`_resolve_envio`/`_resolve_envio_t`/`costo_envio_producto`), and the product's IVA — see
+      `recalcular_markups_service.py:55-83`.
+      **What changed**: added `PPP_KEY_CLASICA = "clasica"` to `costo_ppp_service.py`'s key
+      vocabulary (with the same docstring caveat below), and one `ppp.record(PPP_KEY_CLASICA,
+      limpio_clasica)` call in each of the 3 `PppMarkups` accumulator blocks in
+      `productos_listing.py` (listing ~line 1027, tienda ~line 2201, detail ~line 2500), each
+      REUSING the already-resolved commission/shipping in that scope — the pricelist-4 commission
+      lookup in listing/tienda is a pure dict lookup (`_lookup_comision`/`_lookup_comision_t`, no
+      extra query), and the detail endpoint's extra `obtener_comision_base` query is a single-item
+      endpoint so it is not an N+1 concern. Guarded on `producto_pricing.precio_lista_ml` truthy AND
+      the commission being resolvable; when either is absent the key is simply never recorded (the
+      frontend shows "sin PPP" for that site, which is correct — never a fabricated value). The
+      displayed `markup=producto_pricing.markup_calculado` field itself was NOT touched anywhere.
+      Frontend: wired `<PppLine ppp={p.ppp} markupKey="clasica" />` under this site in
+      `Productos.jsx`.
+      **CAVEAT** (documented in `costo_ppp_service.py`'s module docstring): the displayed clásica
+      markup comes from a stored column refreshed by a batch, while its PPP counterpart is computed
+      in-request. If the batch has not run since the last price/commission/shipping change, the two
+      figures on the same row may be momentarily inconsistent. This is a staleness window in the
+      stored column, not a calculation error.
+      Tests: `tests/integration/test_productos_ppp.py::TestClasicaMarkupPpp` (matches
+      `calcular_markup(limpio, costo_ppp)` for known inputs; key absent when `precio_lista_ml` is
+      null) and an added assertion in `TestDistinctInstalmentKeys` (listing endpoint surfaces the
+      `clasica` key). Query-count invariant re-asserted unchanged (`TestQueryCount`, still exactly
+      ONE `tb_item_transactions` query per request/page). Frontend:
+      `PppLine.test.jsx` extended with 2 cases (`clasica` percent render + absent-key "sin PPP").
 - [x] T2.7 Frontend unit tests added: `frontend/src/components/PppLine.test.jsx` (7 cases: null
       ppp, undefined ppp, costo+date render, percent-key render, ratio-key `x100` scaling, unknown
-      key renders "sin PPP" not a crash, never substitutes `costo` for a missing markup) and
+      key renders "sin PPP" not a crash, never substitutes `costo` for a missing markup; +2 more
+      added with T2.6's reopening — `clasica` percent render and absent-key "sin PPP") and
       `frontend/src/hooks/useProductosOffsets.ppp.test.js` (8 cases for `formatPppMonto` /
       `formatPppFecha`, incl. `0` treated as a real value and dd/mm/aa with no staleness gate).
 
