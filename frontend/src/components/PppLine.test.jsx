@@ -19,6 +19,26 @@ describe('PppLine — informational PPP companion line', () => {
     expect(screen.getByText(/15\/07\/26/)).toBeTruthy();
   });
 
+  it('renders the cost cell companion in ARS when no display conversion is present', () => {
+    render(<PppLine ppp={{ costo: 1234.5, fecha: '2026-07-15', markups: {} }} />);
+    expect(screen.getByText(/ARS \$1234\.50/)).toBeTruthy();
+  });
+
+  it('renders the cost cell companion in USD, mirroring the list-cost cell currency label', () => {
+    render(
+      <PppLine
+        ppp={{
+          costo: 8500,
+          costo_display: 8.5,
+          costo_display_moneda: 'USD',
+          fecha: '2026-07-15',
+          markups: {},
+        }}
+      />
+    );
+    expect(screen.getByText(/USD \$8\.50/)).toBeTruthy();
+  });
+
   it('renders an already-percent markup as-is', () => {
     render(
       <PppLine

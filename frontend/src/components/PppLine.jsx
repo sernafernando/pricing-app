@@ -22,9 +22,11 @@ export default function PppLine({ ppp, markupKey }) {
   const fecha = formatPppFecha(ppp.fecha);
 
   if (!markupKey) {
+    const monto = ppp.costo_display ?? ppp.costo;
+    const moneda = ppp.costo_display_moneda ?? 'ARS';
     return (
       <div className="ppp-line">
-        ppp: ${ppp.costo?.toFixed(2)} {fecha && `(${fecha})`}
+        ppp: {moneda} ${monto?.toFixed(2)} {fecha && `(${fecha})`}
       </div>
     );
   }

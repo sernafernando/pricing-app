@@ -1776,7 +1776,6 @@ export default function Productos() {
                               {p.markup !== null && p.markup !== undefined && (
                                 <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
                                   {p.markup}%
-                                  <PppLine ppp={p.ppp} markupKey="clasica" />
                                   {(() => {
                                     const mkOffset = calcularMarkupConOffset(p);
                                     if (mkOffset === null) return null;
@@ -1789,6 +1788,7 @@ export default function Productos() {
                                       </span>
                                     );
                                   })()}
+                                  <PppLine ppp={p.ppp} markupKey="clasica" />
                                 </div>
                               )}
                             </>

@@ -415,3 +415,67 @@ class TestResolverDialectEquivalence:
         # Tie on it_cd -> highest it_transaction (6011, costo 500.0) wins on both branches.
         assert sqlite_result[608].costo_ppp == 500.0
         assert postgres_result[608].costo_ppp == 500.0
+
+
+class TestPppMarkupsDisplayCurrency:
+    """Display-only currency mirror of `costo` (T-display-fix, 2026-07-28):
+    `costo_display`/`costo_display_moneda` let the frontend show the PPP cost
+    in the SAME currency as the product's list cost, without touching the
+    ARS `costo` that markups are derived from."""
+
+    def test_usd_moneda_costo_with_rate_converts_display_only(self) -> None:
+        acc = PppMarkups(
+            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="USD",
+            tipo_cambio=1000.0,
+        )
+        acc.record("clasica", 1300.0)
+        payload = acc.payload()
+
+        assert payload is not None
+        assert payload.costo == 1000.0  # ARS ground truth untouched
+        assert payload.costo_display == 1.0  # 1000 ARS / 1000 tipo_cambio
+        assert payload.costo_display_moneda == "USD"
+        # Markup derivation must still use the ARS costo, never costo_display.
+        assert payload.markups["clasica"] == round(((1300.0 / 1000.0) - 1) * 100, 2)
+
+    def test_ars_moneda_costo_never_converts(self) -> None:
+        acc = PppMarkups(
+            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="ARS",
+            tipo_cambio=1000.0,  # present but irrelevant when moneda_costo is ARS
+        )
+        payload = acc.payload()
+
+        assert payload is not None
+        assert payload.costo_display == 1000.0
+        assert payload.costo_display_moneda == "ARS"
+
+    def test_missing_exchange_rate_falls_back_to_ars_labelling(self) -> None:
+        acc = PppMarkups(
+            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="USD",
+            tipo_cambio=None,
+        )
+        payload = acc.payload()
+
+        assert payload is not None
+        assert payload.costo_display == 1000.0  # never a mislabelled USD figure
+        assert payload.costo_display_moneda == "ARS"
+
+    def test_no_source_yields_no_payload_regardless_of_currency_args(self) -> None:
+        acc = PppMarkups(None, moneda_costo="USD", tipo_cambio=1000.0)
+        assert acc.payload() is None
+
+    def test_markup_percentages_identical_with_and_without_display_conversion(self) -> None:
+        """The conversion must never leak into any markup percentage."""
+        source = PppSource(costo_ppp=850.0, costo_ppp_fecha=date(2026, 1, 1))
+
+        acc_ars = PppMarkups(source, moneda_costo="ARS", tipo_cambio=None)
+        acc_usd = PppMarkups(source, moneda_costo="USD", tipo_cambio=1200.0)
+
+        for acc in (acc_ars, acc_usd):
+            acc.record("clasica", 1105.0)
+            acc.record("mejor_oferta", 1200.0, percent=False)
+
+        assert acc_ars.payload().markups == acc_usd.payload().markups
