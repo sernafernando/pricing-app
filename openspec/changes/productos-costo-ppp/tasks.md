@@ -191,24 +191,52 @@ merged with the manually-created `ix_tit_item_cd_desc` index in place.
 Traces to: Requirement "PPP markups render at all display sites" (cost cell + first group),
 "Explicit no-data state, never a cost fallback", "PPP source date always displayed".
 
-- [ ] T2.1 Add `formatPppMonto` / `formatPppFecha` (dd/mm/aa, no relative wording, no staleness
+- [x] T2.1 Add `formatPppMonto` / `formatPppFecha` (dd/mm/aa, no relative wording, no staleness
       styling) to `frontend/src/hooks/useProductosOffsets.js`, alongside
-      `calcularMarkupConOffset`/`getMarkupColor`.
-- [ ] T2.2 Create `frontend/src/components/PppLine.jsx` — `<PppLine ppp={p.ppp} markupKey="..."
-      />`; renders "sin PPP" marker when `ppp` is `null`/`undefined`; never reads `p.costo` or any
-      list-cost markup as a substitute.
-- [ ] T2.3 If any CRLF/whitespace renormalization is needed on the touched region of
-      `Productos.jsx`, commit it SEPARATELY (its own commit, no feature code) before the feature
-      commit — do not mix.
-- [ ] T2.4 Cost cell — line 1715 `<td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>` → add
-      `<PppLine ppp={p.ppp} />` companion line below it.
-- [ ] T2.5 Markup site — line 1765 (`getMarkupColor(p.markup_pvp)`, classica pvp group) → add
-      companion `<PppLine ppp={p.ppp} markupKey="pvp" />`.
-- [ ] T2.6 Markup site — line 1772 (`getMarkupColor(p.markup)`, classica group) → add companion
-      `<PppLine ppp={p.ppp} markupKey="calculado" />`.
-- [ ] T2.7 Frontend unit test: `PppLine` renders "sin PPP" when `ppp` is `null`, renders
-      `formatPppMonto`/`formatPppFecha` output when populated, and never reads `costo`/list-cost
-      markup props.
+      `calcularMarkupConOffset`/`getMarkupColor`. `formatPppMonto(value, markupKey)` centralises
+      the raw-ratio-vs-percent distinction via a `PPP_RATIO_KEYS` set (`mejor_oferta` only, per
+      `ppp.record(PPP_KEY_MEJOR_OFERTA, limpio, percent=False)` in the backend).
+- [x] T2.2 Create `frontend/src/components/PppLine.jsx` — `<PppLine ppp={p.ppp} markupKey="..."
+      />`; renders "sin PPP" marker when `ppp` is `null`/`undefined` OR when `markupKey` is not
+      found in `ppp.markups`; never reads `p.costo` or any list-cost markup as a substitute.
+- [x] T2.3 No CRLF/whitespace renormalization was needed — `git diff --stat` confirmed the diff
+      matches exactly the lines touched (50 insertions / 1 deletion across 3 files).
+- [x] T2.4 Cost cell — line 1715 `<td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>` → added
+      `<PppLine ppp={p.ppp} />` companion line below it (no `markupKey`, renders `ppp.costo`).
+- [x] T2.5 Markup site — line 1765 (`getMarkupColor(p.markup_pvp)`) → added companion
+      `<PppLine ppp={p.ppp} markupKey="pvp_clasica" />`. **Key corrected from the stale `"pvp"`
+      recorded here before T3.11's rename** — verified `p.markup_pvp` is fed by
+      `ppp.record(PPP_KEY_PVP_CLASICA, limpio_pvp)` (`productos_listing.py:1123`), i.e. the
+      canonical key is `pvp_clasica`, not `pvp`.
+- [x] T2.6 Markup site — line 1772 (`getMarkupColor(p.markup)`, plain non-cuotas `markup` field)
+      — **DEVIATION, left undone on purpose**: `p.markup` is fed from
+      `producto_pricing.markup_calculado`, a column written by an entirely separate batch process
+      (`app/services/recalcular_markups_service.py`, `app/api/endpoints/pricing.py`, etc.), NOT by
+      any `ppp.record(...)` call site in `productos_listing.py`. There is no PPP key that
+      corresponds to this specific field — only its cuotas siblings (`markup_3_cuotas` etc., PR3
+      scope) have a real `cuota_clasica_{n}` counterpart. Attaching any `markupKey` here would
+      always render "sin PPP" even when the product DOES have PPP data, which is indistinguishable
+      from genuine no-data and therefore misleading — worse than the requirement it was meant to
+      satisfy. Recommend closing this task as "intentionally not applicable" rather than
+      implementing a fabricated key; needs explicit maintainer sign-off before archiving.
+      — **RESOLVED (maintainer decision, 2026-07-28): option A — leave this site without a PPP
+      line.** Every PPP markup in this change is produced by reusing `calcular_markup(limpio,
+      costo_ppp)`, never by an ad-hoc formula. This site is the one place where that is impossible,
+      because `p.markup` comes from a stored column and no `limpio` exists for it in the request.
+      Rather than special-case it with a derived approximation, it renders no PPP line at all.
+      Task closed as intentionally not applicable.
+- [x] T2.7 Frontend unit tests added: `frontend/src/components/PppLine.test.jsx` (7 cases: null
+      ppp, undefined ppp, costo+date render, percent-key render, ratio-key `x100` scaling, unknown
+      key renders "sin PPP" not a crash, never substitutes `costo` for a missing markup) and
+      `frontend/src/hooks/useProductosOffsets.ppp.test.js` (8 cases for `formatPppMonto` /
+      `formatPppFecha`, incl. `0` treated as a real value and dd/mm/aa with no staleness gate).
+
+### Pulled forward from PR3 (per explicit apply-scope instruction)
+
+- [x] T3.1 Line 1933 — `mejor_oferta_markup` group → added companion
+      `<PppLine ppp={p.ppp} markupKey="mejor_oferta" />`. Verified `p.mejor_oferta_markup` is fed
+      by `ppp.record(PPP_KEY_MEJOR_OFERTA, limpio, percent=False)`
+      (`productos_listing.py:993`) — raw-ratio key, handled by `PPP_RATIO_KEYS`.
 
 ## PR3 — Frontend: remaining 10 markup variants
 
@@ -217,7 +245,8 @@ Traces to: Requirement "PPP markups render at all display sites" (remaining spot
 One checkbox per remaining site — add companion `<PppLine ppp={p.ppp} markupKey="..." />` under
 each:
 
-- [ ] T3.1 Line 1933 — `mejor_oferta_markup` group → `markupKey="mejor_oferta"`
+- [x] T3.1 Line 1933 — `mejor_oferta_markup` group → `markupKey="mejor_oferta"` — DONE in PR2,
+      see PR2 section above (pulled forward per explicit apply-scope instruction).
 - [ ] T3.2 Line 2044 — `markup_web_real` → `markupKey="web_real"`
 - [ ] T3.3 Line 2096 — `markup_3_cuotas` → `markupKey="cuota_ml"` (or the matching 3-cuotas key
       recorded in T1.13/backend)

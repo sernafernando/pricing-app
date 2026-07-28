@@ -26,6 +26,7 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { PROMO_TYPES } from '../constants/promoTypes';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
+import PppLine from '../components/PppLine';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
 import { useProductosToggles } from '../hooks/useProductosToggles';
@@ -1712,7 +1713,10 @@ export default function Productos() {
                     </td>
                     <td>{p.marca}</td>
                     <td>{p.stock}</td>
-                    <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
+                    <td>
+                      {p.moneda_costo} ${p.costo?.toFixed(2)}
+                      <PppLine ppp={p.ppp} />
+                    </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (
                         <div className="inline-edit">
@@ -1764,6 +1768,7 @@ export default function Productos() {
                             p.markup_pvp !== null && p.markup_pvp !== undefined && (
                               <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp) }}>
                                 {p.markup_pvp}%
+                                <PppLine ppp={p.ppp} markupKey="pvp_clasica" />
                               </div>
                             )
                           ) : (
@@ -1932,6 +1937,7 @@ export default function Productos() {
                           {p.mejor_oferta_markup !== null && (
                             <div className="mejor-oferta-detalle" style={{ color: getMarkupColor(p.mejor_oferta_markup * 100) }}>
                               Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
+                              <PppLine ppp={p.ppp} markupKey="mejor_oferta" />
                             </div>
                           )}
                         </div>
