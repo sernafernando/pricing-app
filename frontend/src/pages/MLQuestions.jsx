@@ -56,15 +56,34 @@ function buildFallbackItemLink(itemId) {
 // model instead of typing free text. Kept as a frontend constant — the
 // roster JSON in `ml_bot_config` remains the source of truth; a free-text
 // escape hatch (`__custom__`) always covers a model not in this list.
-const LLM_PROVIDER_MODELS = {
+//
+// Every id here must actually exist at its provider. An unknown id answers
+// 4xx, which the backend treats as a permanent error (no retry), so the
+// provider drops out of the rotation silently and its share goes to whoever
+// is left — that is exactly how groq ended up answering 100% of questions
+// before PR #1004. "Curated" is only worth anything if it is verified.
+//
+// The FIRST entry of each list is what `addEntry` applies when an operator
+// adds a provider, so it must match the backend default in
+// `provider_rotation._known_provider_specs`.
+//
+// Verify before editing (openrouter needs no auth):
+//   curl -s https://openrouter.ai/api/v1/models | jq -r '.data[].id'
+//   curl -s -H "Authorization: Bearer $CEREBRAS_API_KEY" \
+//     https://api.cerebras.ai/v1/models | jq -r '.data[].id'
+// Exported for tests only (same convention as the column-sizing helpers
+// below): a unit test pins these ids so the dropdown cannot drift back to
+// models the providers reject.
+// eslint-disable-next-line react-refresh/only-export-components
+export const LLM_PROVIDER_MODELS = {
   groq: [
     'llama-3.3-70b-versatile',
     'qwen/qwen3-32b',
     'llama-3.1-8b-instant',
     'openai/gpt-oss-120b',
   ],
-  cerebras: ['llama-3.3-70b', 'llama3.1-8b'],
-  openrouter: ['meta-llama/llama-3.3-70b-instruct:free'],
+  cerebras: ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b'],
+  openrouter: ['openai/gpt-oss-20b:free'],
 };
 const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
 const CUSTOM_MODEL_OPTION = '__custom__';

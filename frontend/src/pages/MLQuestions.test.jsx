@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
-import MLQuestions, { loadColumnSizing, saveColumnSizing } from './MLQuestions';
+import MLQuestions, { loadColumnSizing, saveColumnSizing, LLM_PROVIDER_MODELS } from './MLQuestions';
 import api from '../services/api';
 
 const COLUMN_SIZING_KEY = 'mlq:colsizing:preguntas';
@@ -1226,5 +1226,68 @@ describe('Pendientes table — TanStack column-sizing render structure', () => {
       expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
     });
     localStorage.clear();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LLM roster editor — the curated model dropdown must not offer model ids the
+// provider rejects. An unknown id answers 4xx, which the backend treats as a
+// permanent error (no retry), so the provider silently drops out of the
+// rotation. PR #1004 fixed the backend defaults and the stored roster; this
+// list is the remaining door into the same bug.
+// ---------------------------------------------------------------------------
+
+const RETIRED_MODEL_IDS = [
+  'llama-3.3-70b',
+  'llama3.1-8b',
+  'meta-llama/llama-3.3-70b-instruct:free',
+];
+
+describe('LLM_PROVIDER_MODELS curated dropdown', () => {
+  it('offers no model id that its provider no longer serves', () => {
+    const offered = Object.values(LLM_PROVIDER_MODELS).flat();
+    const stillOffered = RETIRED_MODEL_IDS.filter((id) => offered.includes(id));
+    expect(stillOffered).toEqual([]);
+  });
+
+  it('lists the backend default first for every provider', () => {
+    // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS[name][0],
+    // so the first element is what an operator gets without choosing. It must
+    // match provider_rotation._known_provider_specs on the backend.
+    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('llama-3.3-70b-versatile');
+    expect(LLM_PROVIDER_MODELS.cerebras[0]).toBe('gpt-oss-120b');
+    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openai/gpt-oss-20b:free');
+  });
+
+  it('covers every provider the backend knows about', () => {
+    expect(Object.keys(LLM_PROVIDER_MODELS).sort()).toEqual(['cerebras', 'groq', 'openrouter']);
+  });
+});
+
+describe('LLM roster editor — a stored model outside the curated list', () => {
+  function mockConfigWithRoster(rosterJson) {
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/config') {
+        return Promise.resolve({
+          data: { items: [{ clave: 'llm_providers', valor: rosterJson, tipo: 'string', descripcion: '' }] },
+        });
+      }
+      if (url === '/ml-bot/examples') return Promise.resolve({ data: { examples: [] } });
+      return base(url, config);
+    });
+  }
+
+  it('keeps a retired model visible as custom instead of dropping it silently', async () => {
+    // A roster saved before the model ids were corrected still holds the old
+    // value. The operator must be able to SEE what is configured — otherwise
+    // the panel shows a plausible-looking dropdown that hides the real setting.
+    const user = userEvent.setup();
+    mockConfigWithRoster('[{"name":"cerebras","model":"llama-3.3-70b","enabled":true}]');
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByRole('button', { name: /Configuración/i }));
+
+    expect(await screen.findByDisplayValue('llama-3.3-70b')).toBeInTheDocument();
   });
 });
