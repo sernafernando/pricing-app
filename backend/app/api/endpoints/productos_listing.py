@@ -22,10 +22,8 @@ from app.services.costo_ppp_service import (
     PPP_KEY_REBATE,
     PPP_KEY_CLASICA,
     PPP_KEY_PVP_CLASICA,
-    PPP_KEY_PVP_CLASICA_VARIANT,
     ppp_key_cuota_clasica,
     ppp_key_pvp_cuota,
-    ppp_key_pvp_cuota_variant,
 )
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
@@ -1066,6 +1064,12 @@ def listar_productos(
             mejor_oferta_porcentaje = None  # No hay aporte de Meli en rebate
             mejor_oferta_monto = None  # No hay monto de rebate en este caso
             mejor_oferta_fecha_hasta = None  # No aplica fecha para rebate
+            # The displayed mejor_oferta_markup is now sourced from the rebate,
+            # not the original mejor_oferta computation (if any) — mirror that
+            # override on the PPP side too, or the PPP line would keep
+            # describing a value the response no longer returns (same
+            # correspondence bug as the PVP second pass above).
+            ppp.record(PPP_KEY_MEJOR_OFERTA, limpio_rebate, percent=False)
 
         # Calcular markups para precios de cuotas
         markup_3_cuotas = None
@@ -1454,14 +1458,21 @@ def listar_productos(
                                     markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
                                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                                     if _ppp_acc:
-                                        _variant_key = (
-                                            PPP_KEY_PVP_CLASICA_VARIANT
+                                        # Record under the SAME base key as the first
+                                        # pass: this second pass OVERWRITES the
+                                        # displayed markup_pvp* fields below with a
+                                        # PrecioML-sourced value, so the PPP line must
+                                        # mirror that overwrite exactly (PppMarkups
+                                        # .record() overwrites on key collision) — see
+                                        # costo_ppp_service.py's module docstring.
+                                        _pvp_key = (
+                                            PPP_KEY_PVP_CLASICA
                                             if nombre_pvp == "pvp"
-                                            else ppp_key_pvp_cuota_variant(
+                                            else ppp_key_pvp_cuota(
                                                 nombre_pvp.replace("pvp_", "").replace("_cuotas", "")
                                             )
                                         )
-                                        _ppp_acc.record(_variant_key, limpio_pvp)
+                                        _ppp_acc.record(_pvp_key, limpio_pvp)
 
                                     if nombre_pvp == "pvp":
                                         producto.markup_pvp = markup_calculado
@@ -2285,6 +2296,9 @@ def listar_productos_tienda(
             mejor_oferta_precio, mejor_oferta_pvp = precio_rebate, precio_rebate
             mejor_oferta_markup = markup_rebate / 100
             mejor_oferta_porcentaje, mejor_oferta_monto, mejor_oferta_fecha_hasta = None, None, None
+            # Mirror the rebate override on the PPP side too — same
+            # correspondence fix as the listing endpoint above.
+            ppp_t.record(PPP_KEY_MEJOR_OFERTA, limpio_rebate, percent=False)
 
         # Precio Gremio - Verificar override manual primero
         precio_gremio_sin_iva, precio_gremio_con_iva, markup_gremio = None, None, None

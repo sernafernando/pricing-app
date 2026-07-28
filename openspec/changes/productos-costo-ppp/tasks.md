@@ -296,6 +296,37 @@ each:
 - [ ] T3.12 Full manual pass: with a product that has `costo_ppp` populated, verify all 12
       spots + cost cell show correct PPP lines; with a product that has `costo_ppp = null`,
       verify all 13 spots show "sin PPP" and none silently show a `costo`-derived value.
+- [x] T3.13 BUGFIX (2026-07-28): the listing endpoint (`GET /api/productos`) computed the PVP
+      markups (`markup_pvp`/`markup_pvp_{n}_cuotas`) TWICE — first pass from
+      `ProductoPricing.precio_pvp*` (recorded under `pvp_clasica`/`pvp_cuota_{n}`), then a SECOND
+      pass from `PrecioML` (a genuinely different source) that OVERWRITES the displayed
+      `markup_pvp*` fields but used to record its PPP companion under the now-removed
+      `pvp_clasica_variant`/`pvp_cuota_variant_{n}` keys. Result: the frontend's base-key PppLine
+      either showed "sin PPP" for a real displayed value (no `ProductoPricing.precio_pvp`, only
+      `PrecioML`), or showed a PPP line derived from a DIFFERENT source than the value on screen
+      (both present). Fixed by recording the second pass under the SAME base key
+      (`PPP_KEY_PVP_CLASICA` / `ppp_key_pvp_cuota(n)`); `PppMarkups.record()` overwrites on key
+      collision so the PPP entry now always describes the number it sits under. Removed the dead
+      `PPP_KEY_PVP_CLASICA_VARIANT` / `ppp_key_pvp_cuota_variant()` vocabulary and its docstring
+      entries — replaced with a "two-source correspondence rule" note explaining the fix.
+      Verified the tienda (`listar_productos_tienda`) and detail (`obtener_producto`) response
+      builders do NOT share this two-pass shape: tienda has no PVP markup block at all; detail
+      computes PVP markups in a single pass directly from `ProductoPricing.precio_pvp*` (no
+      `PrecioML` overwrite) — no change needed in either.
+      Same-shape bug also found and fixed at the `mejor_oferta` site (both listing and tienda):
+      when a product is `out_of_cards` with an active rebate, `mejor_oferta_markup` gets
+      OVERWRITTEN to the rebate markup, but `PPP_KEY_MEJOR_OFERTA` kept the ORIGINAL
+      mejor_oferta-derived value (or was never recorded if there was no real ML offer at all) —
+      now re-recorded from the rebate's `limpio` at the point of the override, in both endpoints.
+      Confirmed `mejor_oferta_markup`'s frontend site (`Productos.jsx` `markupKey="mejor_oferta"`)
+      renders the field directly with no separate override, so this backend fix alone closes the
+      gap. Confirmed the keyless `<PppLine ppp={p.ppp} />` under the cost cell is intentional (it
+      shows the PPP cost itself, not a markup — no key needed).
+      Tests: `backend/tests/integration/test_productos_ppp.py`
+      `TestPvpKeyCorrespondsToDisplayedValue` (2 cases) and
+      `TestMejorOfertaKeyCorrespondsToDisplayedValue` (1 case), TDD red-then-green. Full backend
+      suite: 3750 passed, 16 skipped (baseline 3747/16 + 3 new). Frontend: 424 passed, unchanged
+      (PppLine contract untouched).
 
 ## Cross-cutting / final gate
 
