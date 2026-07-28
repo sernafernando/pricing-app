@@ -1,4 +1,4 @@
-/* MisSubPMs — non-admin titular sub-PM delegation surface (sub-pm-scope-marcas PR3) */
+/* MisSubPMs — user-first sub-PM bulk assignment container (sub-pm-bulk-assignment Slice 4) */
 
 .container {
   padding: var(--spacing-lg);
@@ -20,108 +20,35 @@
   color: var(--cf-text-tertiary);
 }
 
-.layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: var(--spacing-md);
-  min-height: 360px;
-}
-
-/* ── Left: pairs list ──────────────────────────────────── */
-.listPanel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  border-right: 1px solid var(--cf-border-default);
-  padding-right: var(--spacing-md);
-}
-
-.parList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  overflow-y: auto;
-  max-height: 60vh;
-}
-
-.parItem {
+.pickerRow {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
+}
+
+.pickerLabel {
   font-size: var(--font-sm);
-  text-align: left;
-  cursor: pointer;
-  transition: all var(--duration-200, 0.15s) var(--ease-out, ease);
-}
-
-.parItem:hover {
-  background: var(--cf-bg-hover);
-}
-
-.parItemActive {
-  border-color: var(--cf-accent-blue);
-  background: var(--cf-accent-blue-light);
-}
-
-.parLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ── Right: selected pair detail ──────────────────────────── */
-.detailPanel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.detailTitle {
-  margin: 0;
-  font-size: var(--font-base);
   font-weight: 600;
   color: var(--cf-text-primary);
 }
 
-.sectionTitle {
+.conteosAviso {
   font-size: var(--font-xs);
-  font-weight: 600;
   color: var(--cf-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
-.grantList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  max-height: 32vh;
-  overflow-y: auto;
-}
-
-.grantRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--cf-border-subtle);
-  border-radius: var(--radius-base);
-  background: var(--cf-bg-hover);
-}
-
-.grantName {
-  font-size: var(--font-sm);
+.rechazadosBox {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.08);
   color: var(--cf-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--font-sm);
+}
+
+.rechazadosBox ul {
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-lg);
 }
 
 .confirmBox {
@@ -167,13 +94,6 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-.emptyState {
-  padding: var(--spacing-md);
-  font-size: var(--font-sm);
-  color: var(--cf-text-tertiary);
-  text-align: center;
-}
-
 .emptyDetail {
   display: flex;
   align-items: center;
@@ -184,18 +104,4 @@
   font-size: var(--font-sm);
   color: var(--cf-text-tertiary);
   text-align: center;
-}
-
-/* Responsive: stack panels on narrow viewports */
-@media (max-width: 640px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-
-  .listPanel {
-    border-right: none;
-    border-bottom: 1px solid var(--cf-border-default);
-    padding-right: 0;
-    padding-bottom: var(--spacing-md);
-  }
 }

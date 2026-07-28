@@ -67,6 +67,9 @@ vi.mock('../services/api', () => ({
     crearSubPM: vi.fn().mockResolvedValue({ data: {} }),
     eliminarSubPM: vi.fn().mockResolvedValue({ data: {} }),
     listarUsuariosPM: vi.fn().mockResolvedValue({ data: [] }),
+    obtenerGrantsUsuario: vi.fn().mockResolvedValue({ data: { pares: [], total: 0 } }),
+    obtenerConteosSubPMs: vi.fn().mockResolvedValue({ data: { conteos: [] } }),
+    asignarSubPMsBulk: vi.fn().mockResolvedValue({ data: { otorgados: 0, revocados: 0, total: 0 } }),
   },
   authAPI: {
     login: vi.fn(),
