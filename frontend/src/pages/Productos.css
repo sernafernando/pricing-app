@@ -1018,6 +1018,18 @@
   margin-top: 2px;
 }
 
+/* PPP (informational purchase cost) companion line — visually subordinate
+   to the real value it accompanies: smaller and dimmer than .markup-display */
+.ppp-line {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+
+.ppp-line--empty {
+  font-style: italic;
+}
+
 /* Markup con offset aplicado (violeta) */
 .markup-offset-display {
   color: var(--purple) !important;

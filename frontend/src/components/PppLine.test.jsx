@@ -1,0 +1,65 @@
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import PppLine from './PppLine';
+
+describe('PppLine — informational PPP companion line', () => {
+  it('renders "sin PPP" when ppp is null', () => {
+    render(<PppLine ppp={null} />);
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+  });
+
+  it('renders "sin PPP" when ppp is undefined', () => {
+    render(<PppLine ppp={undefined} />);
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+  });
+
+  it('renders costo + date (dd/mm/aa) when no markupKey is given', () => {
+    render(<PppLine ppp={{ costo: 1234.5, fecha: '2026-07-15', markups: {} }} />);
+    expect(screen.getByText(/\$1234\.50/)).toBeTruthy();
+    expect(screen.getByText(/15\/07\/26/)).toBeTruthy();
+  });
+
+  it('renders an already-percent markup as-is', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: { pvp_clasica: 32.5 } }}
+        markupKey="pvp_clasica"
+      />
+    );
+    expect(screen.getByText(/32\.50%/)).toBeTruthy();
+    expect(screen.getByText(/05\/01\/26/)).toBeTruthy();
+  });
+
+  it('scales the raw-ratio mejor_oferta key by x100 (RAW DECIMAL RATIO, not percent)', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: { mejor_oferta: 0.612 } }}
+        markupKey="mejor_oferta"
+      />
+    );
+    expect(screen.getByText(/61\.20%/)).toBeTruthy();
+  });
+
+  it('renders "sin PPP" (not a crash) when markupKey is missing from markups', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: { pvp_clasica: 10 } }}
+        markupKey="unknown_key"
+      />
+    );
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+  });
+
+  it('never reads costo as a substitute value for a markup line', () => {
+    // ppp present with costo populated but the requested markup absent —
+    // must still show "sin PPP", never a costo-derived fallback.
+    render(
+      <PppLine
+        ppp={{ costo: 999.99, fecha: '2026-01-05', markups: {} }}
+        markupKey="cuota_clasica_3"
+      />
+    );
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+    expect(screen.queryByText(/999\.99/)).toBeNull();
+  });
+});

@@ -17,6 +17,37 @@ export function getMarkupColor(markup) {
 }
 
 /**
+ * `record()` keys whose backend value is a RAW DECIMAL RATIO (e.g. 0.15)
+ * instead of an already-scaled percent (e.g. 15). `mejor_oferta` is the only
+ * one today — see `costo_ppp_service.py`. Centralised here so callers never
+ * need to know which keys need the `* 100` conversion.
+ */
+const PPP_RATIO_KEYS = new Set(['mejor_oferta']);
+
+/**
+ * Formats a PPP markup percent for display. `markupKey` selects whether the
+ * raw `markups[key]` value is already a percent or a raw ratio that still
+ * needs `* 100` (see `PPP_RATIO_KEYS`). Returns `null` when there is nothing
+ * to render (caller decides the "no data" fallback).
+ */
+export function formatPppMonto(value, markupKey) {
+  if (value === null || value === undefined) return null;
+  const percent = PPP_RATIO_KEYS.has(markupKey) ? value * 100 : value;
+  return `${percent.toFixed(2)}%`;
+}
+
+/** Formats a PPP source date as dd/mm/aa — always shown, no relative wording. */
+export function formatPppFecha(fecha) {
+  if (!fecha) return null;
+  const d = new Date(fecha);
+  if (Number.isNaN(d.getTime())) return null;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  return `${dd}/${mm}/${yy}`;
+}
+
+/**
  * Manages profit-offset state and markup-with-offset calculation for the Productos page.
  * This is a leaf hook: no injected deps, owns its own endpoints.
  */
