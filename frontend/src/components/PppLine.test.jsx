@@ -110,11 +110,11 @@ describe('PppLine — informational PPP companion line', () => {
       expect(screen.getByText(new RegExp(expected.replace('.', '\\.')))).toBeTruthy();
     });
 
-    it('renders "sin PPP" for pvp_cuota_variant_3 when only the non-variant key is present (distinct keys, not aliases)', () => {
+    it('renders "sin PPP" for a key that is absent, without falling back to a similarly named one', () => {
       render(
         <PppLine
           ppp={{ costo: 100, fecha: '2026-01-05', markups: { pvp_cuota_3: 11 } }}
-          markupKey="pvp_cuota_variant_3"
+          markupKey="pvp_cuota_30"
         />
       );
       expect(screen.getByText('sin PPP')).toBeTruthy();
