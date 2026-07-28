@@ -247,16 +247,23 @@ each:
 
 - [x] T3.1 Line 1933 — `mejor_oferta_markup` group → `markupKey="mejor_oferta"` — DONE in PR2,
       see PR2 section above (pulled forward per explicit apply-scope instruction).
-- [ ] T3.2 Line 2044 — `markup_web_real` → `markupKey="web_real"`
-- [ ] T3.3 Line 2096 — `markup_3_cuotas` → `markupKey="cuota_ml"` (or the matching 3-cuotas key
-      recorded in T1.13/backend)
-- [ ] T3.4 Line 2129 — `markup_6_cuotas` → matching key
-- [ ] T3.5 Line 2162 — `markup_9_cuotas` → matching key
-- [ ] T3.6 Line 2195 — `markup_12_cuotas` → matching key
-- [ ] T3.7 Line 2235 — `markup_pvp_3_cuotas` → matching key
-- [ ] T3.8 Line 2270 — `markup_pvp_6_cuotas` → matching key
-- [ ] T3.9 Line 2305 — `markup_pvp_9_cuotas` → matching key
-- [ ] T3.10 Line 2340 — `markup_pvp_12_cuotas` → matching key
+- [x] T3.2 Line ~2050 — `markup_web_real` — **DEVIATION, left undone on purpose (same pattern
+      as T2.6)**: `p.markup_web_real` is fed straight from `ProductoPricing.markup_web_real`
+      (`producto_pricing.markup_web_real` at `productos_listing.py:1206`/`2368`/`2648`), a stored
+      column — verified NO `ppp.record(...)` call site anywhere in `productos_listing.py` feeds
+      it. There is no canonical PPP key for this markup. Attaching any `markupKey` here would
+      always render "sin PPP", indistinguishable from genuine no-data. Left without a PPP line.
+- [x] T3.3 Line 2101 — `markup_3_cuotas` → `markupKey="cuota_clasica_3"` — verified fed by
+      `ppp.record(ppp_key_cuota_clasica("3"), limpio_cuota)` (`productos_listing.py:1079`,
+      `nombre_cuota.replace("_cuotas", "")` → `"3"`).
+- [x] T3.4 Line 2134 — `markup_6_cuotas` → `markupKey="cuota_clasica_6"` — same call site, `"6"`.
+- [x] T3.5 Line 2167 — `markup_9_cuotas` → `markupKey="cuota_clasica_9"` — same call site, `"9"`.
+- [x] T3.6 Line 2200 — `markup_12_cuotas` → `markupKey="cuota_clasica_12"` — same call site, `"12"`.
+- [x] T3.7 Line 2240 — `markup_pvp_3_cuotas` → `markupKey="pvp_cuota_3"` — verified fed by
+      `ppp.record(ppp_key_pvp_cuota("3"), limpio_cuota_pvp)` (`productos_listing.py:1159-1160`).
+- [x] T3.8 Line 2275 — `markup_pvp_6_cuotas` → `markupKey="pvp_cuota_6"` — same call site, `"6"`.
+- [x] T3.9 Line 2310 — `markup_pvp_9_cuotas` → `markupKey="pvp_cuota_9"` — same call site, `"9"`.
+- [x] T3.10 Line 2345 — `markup_pvp_12_cuotas` → `markupKey="pvp_cuota_12"` — same call site, `"12"`.
 - [x] T3.11 Unified the backend `record()` key vocabulary ahead of PR2/PR3 (backend-only
       commit on PR1): fixed the `calculado_pvp_pvp_3_cuotas` doubled-segment bug and merged
       the 3 divergent names for the same conceptual classic-instalment markup

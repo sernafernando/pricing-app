@@ -62,4 +62,41 @@ describe('PppLine — informational PPP companion line', () => {
     expect(screen.getByText('sin PPP')).toBeTruthy();
     expect(screen.queryByText(/999\.99/)).toBeNull();
   });
+
+  describe('instalment key family (cuota_clasica_{n} / pvp_cuota_{n}) — highest key-typo risk', () => {
+    const markups = {
+      cuota_clasica_3: 10,
+      cuota_clasica_6: 20,
+      cuota_clasica_9: 30,
+      cuota_clasica_12: 40,
+      pvp_cuota_3: 11,
+      pvp_cuota_6: 21,
+      pvp_cuota_9: 31,
+      pvp_cuota_12: 41,
+    };
+
+    it.each([
+      ['cuota_clasica_3', '10.00%'],
+      ['cuota_clasica_6', '20.00%'],
+      ['cuota_clasica_9', '30.00%'],
+      ['cuota_clasica_12', '40.00%'],
+      ['pvp_cuota_3', '11.00%'],
+      ['pvp_cuota_6', '21.00%'],
+      ['pvp_cuota_9', '31.00%'],
+      ['pvp_cuota_12', '41.00%'],
+    ])('renders the exact value recorded under %s, never a sibling instalment value', (key, expected) => {
+      render(<PppLine ppp={{ costo: 100, fecha: '2026-01-05', markups }} markupKey={key} />);
+      expect(screen.getByText(new RegExp(expected.replace('.', '\\.')))).toBeTruthy();
+    });
+
+    it('renders "sin PPP" for pvp_cuota_variant_3 when only the non-variant key is present (distinct keys, not aliases)', () => {
+      render(
+        <PppLine
+          ppp={{ costo: 100, fecha: '2026-01-05', markups: { pvp_cuota_3: 11 } }}
+          markupKey="pvp_cuota_variant_3"
+        />
+      );
+      expect(screen.getByText('sin PPP')).toBeTruthy();
+    });
+  });
 });

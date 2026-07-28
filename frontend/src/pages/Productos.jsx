@@ -2103,6 +2103,7 @@ export default function Productos() {
                                   {p.markup_3_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="cuota_clasica_3" />
                             </div>
                           )}
                         </td>
@@ -2136,6 +2137,7 @@ export default function Productos() {
                                   {p.markup_6_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="cuota_clasica_6" />
                             </div>
                           )}
                         </td>
@@ -2169,6 +2171,7 @@ export default function Productos() {
                                   {p.markup_9_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="cuota_clasica_9" />
                             </div>
                           )}
                         </td>
@@ -2202,6 +2205,7 @@ export default function Productos() {
                                   {p.markup_12_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="cuota_clasica_12" />
                             </div>
                           )}
                         </td>
@@ -2242,6 +2246,7 @@ export default function Productos() {
                                   {p.markup_pvp_3_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="pvp_cuota_3" />
                             </div>
                           )}
                         </td>
@@ -2277,6 +2282,7 @@ export default function Productos() {
                                   {p.markup_pvp_6_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="pvp_cuota_6" />
                             </div>
                           )}
                         </td>
@@ -2312,6 +2318,7 @@ export default function Productos() {
                                   {p.markup_pvp_9_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="pvp_cuota_9" />
                             </div>
                           )}
                         </td>
@@ -2347,6 +2354,7 @@ export default function Productos() {
                                   {p.markup_pvp_12_cuotas.toFixed(2)}%
                                 </div>
                               )}
+                              <PppLine ppp={p.ppp} markupKey="pvp_cuota_12" />
                             </div>
                           )}
                         </td>
