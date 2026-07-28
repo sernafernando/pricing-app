@@ -302,10 +302,30 @@ class PppMarkups:
     ever construct a partial payload for a product with no qualifying PPP row.
     """
 
-    def __init__(self, source: Optional["PppSource"]) -> None:
+    def __init__(
+        self,
+        source: Optional["PppSource"],
+        *,
+        moneda_costo: str = "ARS",
+        tipo_cambio: Optional[float] = None,
+    ) -> None:
         self._costo_ppp = source.costo_ppp if source else None
         self._costo_ppp_fecha = source.costo_ppp_fecha if source else None
         self._markups: dict[str, float] = {}
+
+        # Display-only currency mirror of the list cost (T-display-fix,
+        # 2026-07-28): `costo_ppp` STAYS in ARS and every `.record()` markup
+        # keeps using it untouched — this only computes the AMOUNT shown next
+        # to a USD-denominated list cost, so the two figures on screen are in
+        # the same currency and comparable at a glance. Falls back to the ARS
+        # amount labelled "ARS" whenever the rate is unavailable, never a
+        # USD-labelled figure that was not actually converted.
+        if self._costo_ppp is not None and moneda_costo == "USD" and tipo_cambio:
+            self._costo_display = self._costo_ppp / tipo_cambio
+            self._costo_display_moneda = "USD"
+        else:
+            self._costo_display = self._costo_ppp
+            self._costo_display_moneda = "ARS"
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
         """Record one PPP markup. No-op when there is no qualifying PPP cost.
@@ -330,6 +350,8 @@ class PppMarkups:
             return None
         return PppPayload(
             costo=self._costo_ppp,
+            costo_display=self._costo_display,
+            costo_display_moneda=self._costo_display_moneda,
             fecha=self._costo_ppp_fecha,
             markups=dict(self._markups),
         )

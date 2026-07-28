@@ -25,6 +25,7 @@ import pytest
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.item_transaction import ItemTransaction
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.tipo_cambio import TipoCambio
 
 # Force-register ERP stub models in Base.metadata (only imported inside
 # endpoint function bodies otherwise) — mirrors test_productos_detail_envio.py.
@@ -263,6 +264,82 @@ class TestQualifyingRowSurfacesPpp:
         assert data["ppp"]["fecha"] == "2026-02-14"
         # costo (list-cost) is untouched by the presence of PPP
         assert data["costo"] == 10000.0
+
+
+@pytest.fixture()
+def producto_con_ppp_usd(db) -> ProductoERP:
+    """Same shape as `producto_con_ppp` but `moneda_costo="USD"`, so the PPP
+    display-currency conversion (T-display-fix) has something to convert."""
+    p = ProductoERP(
+        item_id=9103,
+        codigo="TEST-PPP-USD",
+        descripcion="Producto con PPP en USD",
+        costo=10.0,
+        moneda_costo="USD",
+        iva=21.0,
+        activo=True,
+        envio=0.0,
+    )
+    db.add(p)
+    db.flush()
+
+    txn = ItemTransaction(
+        it_transaction=90002,
+        ct_transaction=1,
+        item_id=p.item_id,
+        it_priceofcostpp=8500.0,
+        it_cancelled=False,
+        it_exchangetobranchcurrency=1.0,
+        rmah_id=None,
+        it_isrmasuppliercreditnote=False,
+        it_cd=datetime(2026, 2, 14),
+    )
+    db.add(txn)
+    db.flush()
+    return p
+
+
+class TestPppDisplayCurrency:
+    """PPP cost must be displayed in the SAME currency as the product's list
+    cost (T-display-fix, 2026-07-28) — the ARS `costo` stays the source of
+    truth for markups, `costo_display`/`costo_display_moneda` are the
+    display-only mirror."""
+
+    def test_usd_moneda_costo_exposes_converted_display_amount(self, client, auth_headers, db, producto_con_ppp_usd):
+        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+
+        response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert data["ppp"]["costo"] == 8500.0  # ARS ground truth unchanged
+        assert data["ppp"]["costo_display"] == 8.5  # 8500 ARS / 1000 tipo_cambio
+        assert data["ppp"]["costo_display_moneda"] == "USD"
+
+    def test_ars_moneda_costo_never_converts(self, client, auth_headers, db, producto_con_ppp):
+        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+
+        response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"]["costo_display"] == 8500.0
+        assert data["ppp"]["costo_display_moneda"] == "ARS"
+
+    def test_missing_exchange_rate_falls_back_to_ars_labelling(self, client, auth_headers, producto_con_ppp_usd):
+        """No TipoCambio row at all: never a mislabelled USD figure."""
+        response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"]["costo_display"] == 8500.0
+        assert data["ppp"]["costo_display_moneda"] == "ARS"
 
 
 class TestClasicaMarkupPpp:
