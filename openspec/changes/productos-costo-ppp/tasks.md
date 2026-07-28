@@ -208,7 +208,7 @@ Traces to: Requirement "PPP markups render at all display sites" (cost cell + fi
       recorded here before T3.11's rename** — verified `p.markup_pvp` is fed by
       `ppp.record(PPP_KEY_PVP_CLASICA, limpio_pvp)` (`productos_listing.py:1123`), i.e. the
       canonical key is `pvp_clasica`, not `pvp`.
-- [~] T2.6 Markup site — line 1772 (`getMarkupColor(p.markup)`, plain non-cuotas `markup` field)
+- [x] T2.6 Markup site — line 1772 (`getMarkupColor(p.markup)`, plain non-cuotas `markup` field)
       — **DEVIATION, left undone on purpose**: `p.markup` is fed from
       `producto_pricing.markup_calculado`, a column written by an entirely separate batch process
       (`app/services/recalcular_markups_service.py`, `app/api/endpoints/pricing.py`, etc.), NOT by
@@ -219,6 +219,12 @@ Traces to: Requirement "PPP markups render at all display sites" (cost cell + fi
       from genuine no-data and therefore misleading — worse than the requirement it was meant to
       satisfy. Recommend closing this task as "intentionally not applicable" rather than
       implementing a fabricated key; needs explicit maintainer sign-off before archiving.
+      — **RESOLVED (maintainer decision, 2026-07-28): option A — leave this site without a PPP
+      line.** Every PPP markup in this change is produced by reusing `calcular_markup(limpio,
+      costo_ppp)`, never by an ad-hoc formula. This site is the one place where that is impossible,
+      because `p.markup` comes from a stored column and no `limpio` exists for it in the request.
+      Rather than special-case it with a derived approximation, it renders no PPP line at all.
+      Task closed as intentionally not applicable.
 - [x] T2.7 Frontend unit tests added: `frontend/src/components/PppLine.test.jsx` (7 cases: null
       ppp, undefined ppp, costo+date render, percent-key render, ratio-key `x100` scaling, unknown
       key renders "sin PPP" not a crash, never substitutes `costo` for a missing markup) and
