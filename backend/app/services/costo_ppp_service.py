@@ -62,6 +62,43 @@ resolver's own tests that must prove the LATERAL path exercises the intended
 plan run against a real PostgreSQL instance (`@pytest.mark.postgres`, see
 `backend/tests/unit/test_costo_ppp_service.py` and the `postgres` service in
 `.github/workflows/ci.yml`).
+
+PPP markup key vocabulary (contract consumed by PR2's frontend `markupKey`
+props — see `openspec/changes/productos-costo-ppp/tasks.md` T3.11):
+
+`PppMarkups.record(key, ...)` keys used to be free-form strings invented
+independently at each of the 11 call sites across
+`app/api/endpoints/productos_listing.py` (listing, listing's second/PVP-variant
+pass, tienda, detail), which had already produced one confirmed bug
+(`calculado_pvp_pvp_3_cuotas` — a doubled "pvp" segment) and three unrelated
+names for the same conceptual classic-instalment markup (`calculado_{n}_cuotas`,
+`cuota_ml_{n}`). The vocabulary below is now the single source of truth; call
+sites build keys via the constants/helpers below instead of ad-hoc f-strings,
+so a typo can no longer silently mint an orphan key:
+
+  - `PPP_KEY_MEJOR_OFERTA` = `"mejor_oferta"` — best active ML offer markup.
+  - `PPP_KEY_REBATE` = `"rebate"` — rebate-price markup.
+  - `ppp_key_cuota_clasica(n)` -> `"cuota_clasica_{n}"` (n in `"3"/"6"/"9"/"12"`)
+    — classic-list instalment markup (pricelists 17/14/13/23). Same name in
+    both the listing and tienda endpoints: it is the same conceptual markup
+    in both places.
+  - `PPP_KEY_PVP_CLASICA` = `"pvp_clasica"` — PVP list markup (pricelist 12,
+    from `ProductoPricing.precio_pvp`). Same name in both the listing and
+    detail endpoints.
+  - `ppp_key_pvp_cuota(n)` -> `"pvp_cuota_{n}"` — PVP instalment markup
+    (pricelists 18/19/20/21, from `ProductoPricing.precio_pvp_{n}_cuotas`).
+    Same name in both the listing and detail endpoints. This is the fixed
+    replacement for the doubled-segment bug above.
+  - `PPP_KEY_PVP_CLASICA_VARIANT` = `"pvp_clasica_variant"` and
+    `ppp_key_pvp_cuota_variant(n)` -> `"pvp_cuota_variant_{n}"` — the
+    listing-only second pass that recomputes the same PVP markups from the
+    `PrecioML` table (a genuinely different source than
+    `ProductoPricing.precio_pvp*`) and overwrites the response's displayed
+    `markup_pvp*` fields. Recorded under a distinct `_variant` suffix of the
+    corresponding base name (never collapsed onto the base key) because it is
+    a separate `.record()` call in the same per-product `PppMarkups`
+    accumulator — using the same key would silently drop one of the two
+    recorded markups instead of erroring.
 """
 
 from __future__ import annotations
@@ -194,6 +231,29 @@ def _build_row_number_stmt(chunk: list[int]):
     )
 
     return select(ranked.c.item_id, ranked.c.it_priceofcostpp, ranked.c.it_cd).where(ranked.c.rn == 1)
+
+
+# --- Canonical PPP markup key vocabulary (see module docstring) -------------
+
+PPP_KEY_MEJOR_OFERTA = "mejor_oferta"
+PPP_KEY_REBATE = "rebate"
+PPP_KEY_PVP_CLASICA = "pvp_clasica"
+PPP_KEY_PVP_CLASICA_VARIANT = "pvp_clasica_variant"
+
+
+def ppp_key_cuota_clasica(n: str) -> str:
+    """Classic-list instalment markup key, e.g. `ppp_key_cuota_clasica("3")` -> `"cuota_clasica_3"`."""
+    return f"cuota_clasica_{n}"
+
+
+def ppp_key_pvp_cuota(n: str) -> str:
+    """PVP instalment markup key, e.g. `ppp_key_pvp_cuota("3")` -> `"pvp_cuota_3"`."""
+    return f"pvp_cuota_{n}"
+
+
+def ppp_key_pvp_cuota_variant(n: str) -> str:
+    """PVP instalment (PrecioML-variant) markup key -> `"pvp_cuota_variant_{n}"`."""
+    return f"pvp_cuota_variant_{n}"
 
 
 class PppMarkups:

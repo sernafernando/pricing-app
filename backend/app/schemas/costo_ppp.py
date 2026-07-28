@@ -14,22 +14,15 @@ class PppPayload(BaseModel):
     is the source row's `it_cd` and MUST always be rendered alongside every
     PPP figure, regardless of age.
 
-    Key vocabulary for `markups` (consumed as-is by the frontend, see PR2/PR3):
-        mejor_oferta          — best-offer markup (raw decimal ratio)
-        rebate                — rebate markup (percent)
-        pvp                   — PVP clásica markup (percent)
-        calculado_3_cuotas    — cuotas clásica markup, 3 installments (percent)
-        calculado_6_cuotas    — cuotas clásica markup, 6 installments (percent)
-        calculado_9_cuotas    — cuotas clásica markup, 9 installments (percent)
-        calculado_12_cuotas   — cuotas clásica markup, 12 installments (percent)
-        calculado_pvp_pvp_3_cuotas / _6_cuotas / _9_cuotas / _12_cuotas
-                               — cuotas PVP markup per installment (percent)
-        calculado_variant_pvp / _pvp_3_cuotas / _6_cuotas / _9_cuotas / _12_cuotas
-                               — listing-endpoint PVP-variant markup per
-                                 installment (percent)
-        cuota_ml_3 / _6 / _9 / _12
-                               — Tienda endpoint cuotas markup per
-                                 installment (percent)
+    The `markups` keys are NOT documented here on purpose. They are defined —
+    and built — by `app.services.costo_ppp_service`: see its module docstring
+    for the canonical vocabulary, and use its `PPP_KEY_*` constants and
+    `ppp_key_*()` helpers instead of writing key strings by hand.
+
+    This docstring used to carry its own copy of that list and the two drifted
+    apart, leaving stale keys documented on the very file a frontend developer
+    opens first. A wrong key does not raise: it renders nothing. One source of
+    truth only.
     """
 
     costo: float

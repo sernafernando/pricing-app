@@ -15,7 +15,17 @@ from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
 from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
-from app.services.costo_ppp_service import resolver_ppp_batch, PppMarkups
+from app.services.costo_ppp_service import (
+    resolver_ppp_batch,
+    PppMarkups,
+    PPP_KEY_MEJOR_OFERTA,
+    PPP_KEY_REBATE,
+    PPP_KEY_PVP_CLASICA,
+    PPP_KEY_PVP_CLASICA_VARIANT,
+    ppp_key_cuota_clasica,
+    ppp_key_pvp_cuota,
+    ppp_key_pvp_cuota_variant,
+)
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
     fetch_mlas_by_promo_name,
@@ -980,7 +990,7 @@ def listar_productos(
                         constantes=constantes,
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
-                    ppp.record("mejor_oferta", limpio, percent=False)
+                    ppp.record(PPP_KEY_MEJOR_OFERTA, limpio, percent=False)
 
         # Calcular precio_rebate y markup_rebate
         precio_rebate = None
@@ -1012,7 +1022,7 @@ def listar_productos(
                     constantes=constantes,
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
-                ppp.record("rebate", limpio_rebate)
+                ppp.record(PPP_KEY_REBATE, limpio_rebate)
 
         # Si el producto tiene rebate y está out_of_cards, replicar el rebate a mejor_oferta
         if (
@@ -1066,7 +1076,7 @@ def listar_productos(
                                 constantes=constantes,
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
-                            ppp.record(f"calculado_{nombre_cuota}", limpio_cuota)
+                            ppp.record(ppp_key_cuota_clasica(nombre_cuota.replace("_cuotas", "")), limpio_cuota)
 
                             if nombre_cuota == "3_cuotas":
                                 markup_3_cuotas = markup_calculado
@@ -1110,7 +1120,7 @@ def listar_productos(
                             constantes=constantes,
                         )
                         markup_pvp = round(calcular_markup(limpio_pvp, costo_pvp) * 100, 2)
-                        ppp.record("pvp", limpio_pvp)
+                        ppp.record(PPP_KEY_PVP_CLASICA, limpio_pvp)
                 except Exception:
                     pass
 
@@ -1146,7 +1156,10 @@ def listar_productos(
                                 constantes=constantes,
                             )
                             markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
-                            ppp.record(f"calculado_pvp_{nombre_cuota_pvp}", limpio_cuota_pvp)
+                            ppp.record(
+                                ppp_key_pvp_cuota(nombre_cuota_pvp.replace("pvp_", "").replace("_cuotas", "")),
+                                limpio_cuota_pvp,
+                            )
 
                             if nombre_cuota_pvp == "pvp_3_cuotas":
                                 markup_pvp_3_cuotas = markup_calculado_pvp
@@ -1413,7 +1426,14 @@ def listar_productos(
                                     markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
                                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                                     if _ppp_acc:
-                                        _ppp_acc.record(f"calculado_variant_{nombre_pvp}", limpio_pvp)
+                                        _variant_key = (
+                                            PPP_KEY_PVP_CLASICA_VARIANT
+                                            if nombre_pvp == "pvp"
+                                            else ppp_key_pvp_cuota_variant(
+                                                nombre_pvp.replace("pvp_", "").replace("_cuotas", "")
+                                            )
+                                        )
+                                        _ppp_acc.record(_variant_key, limpio_pvp)
 
                                     if nombre_pvp == "pvp":
                                         producto.markup_pvp = markup_calculado
@@ -2176,7 +2196,7 @@ def listar_productos_tienda(
                         constantes=constantes_t,
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
-                    ppp_t.record("mejor_oferta", limpio, percent=False)
+                    ppp_t.record(PPP_KEY_MEJOR_OFERTA, limpio, percent=False)
 
         # Rebate
         precio_rebate, markup_rebate = None, None
@@ -2203,7 +2223,7 @@ def listar_productos_tienda(
                     constantes=constantes_t,
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
-                ppp_t.record("rebate", limpio_rebate)
+                ppp_t.record(PPP_KEY_REBATE, limpio_rebate)
 
         if (
             producto_pricing
@@ -2292,7 +2312,7 @@ def listar_productos_tienda(
                                 constantes=constantes_t,
                             )
                             mc = calcular_markup(lim, cc) * 100
-                            ppp_t.record(f"cuota_ml_{nombre}", lim)
+                            ppp_t.record(ppp_key_cuota_clasica(nombre), lim)
                             if nombre == "3":
                                 markup_3_cuotas = mc
                             elif nombre == "6":
@@ -2540,7 +2560,7 @@ def obtener_producto(
                         grupo_id=grupo_id_pvp,
                     )
                     markup_pvp = round(calcular_markup(limpio_pvp, costo_pvp) * 100, 2)
-                    ppp_d.record("pvp", limpio_pvp)
+                    ppp_d.record(PPP_KEY_PVP_CLASICA, limpio_pvp)
             except Exception:
                 pass
 
@@ -2578,7 +2598,10 @@ def obtener_producto(
                             grupo_id=grupo_id_cuota_pvp,
                         )
                         markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
-                        ppp_d.record(f"calculado_pvp_{nombre_cuota_pvp}", limpio_cuota_pvp)
+                        ppp_d.record(
+                            ppp_key_pvp_cuota(nombre_cuota_pvp.replace("pvp_", "").replace("_cuotas", "")),
+                            limpio_cuota_pvp,
+                        )
 
                         if nombre_cuota_pvp == "pvp_3_cuotas":
                             markup_pvp_3_cuotas = markup_calculado_pvp
