@@ -764,6 +764,7 @@ def exportar_web_transferencia(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
     currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
     offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
+    redondear: bool = Query(True, description="Redondear precios ARS a múltiplo de 10"),
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -1125,10 +1126,13 @@ def exportar_web_transferencia(
             precio_final = precio_final / dolar_ajustado
             # Para USD, redondear a 2 decimales
             precio_str = f"{precio_final:.2f}"
-        else:
+        elif redondear:
             # Para ARS, redondear a múltiplo de 10
             precio_final = round(precio_final / 10) * 10
             precio_str = str(int(precio_final))
+        else:
+            # Redondeo desactivado: exportar el precio exacto
+            precio_str = f"{precio_final:.2f}"
 
         ws.append([str(codigo), precio_str, str(currency_id)])
 
@@ -1152,6 +1156,7 @@ def exportar_clasica(
     ),
     currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
     offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
+    redondear: bool = Query(True, description="Redondear precios ARS a múltiplo de 10"),
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -1750,10 +1755,13 @@ def exportar_clasica(
         elif tipo_cuotas.startswith("pvp"):
             # Para PVP en ARS, exportar precio exacto sin redondear
             precio_str = f"{float(precio_exportar):.2f}"
-        else:
+        elif redondear:
             # Para ARS (clásica/cuotas), redondear a múltiplo de 10
             precio_final = round(precio_exportar / 10) * 10
             precio_str = str(int(precio_final))
+        else:
+            # Redondeo desactivado: exportar el precio exacto
+            precio_str = f"{float(precio_exportar):.2f}"
 
         # Obtener MLAs de la lista seleccionada para este item
         mlas = mla_por_item.get(item_id, [])

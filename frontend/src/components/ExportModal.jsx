@@ -161,6 +161,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [tab, setTab] = useState(tabInicial);
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
+  const [redondear, setRedondear] = useState(true); // Redondear precios ARS a múltiplo de 10
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
   const [formatoRebate, setFormatoRebate] = useState('nuevo'); // nuevo, tradicional
@@ -204,6 +205,19 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       </small>
     );
   };
+
+  const renderRedondeoCheckbox = () => (
+    <div className={styles.filterCheckbox}>
+      <label>
+        <input
+          type="checkbox"
+          checked={redondear}
+          onChange={(e) => setRedondear(e.target.checked)}
+        />
+        Redondear precios ARS a múltiplo de 10
+      </label>
+    </div>
+  );
 
   const renderTiendasOficialesCheckboxes = () => (
     <div className={styles.formGroup}>
@@ -458,7 +472,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const exportarClasica = async () => {
     setExportando(true);
     try {
-      let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotas}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotas}&redondear=${redondear}`;
 
       // Agregar currency_id y offset_dolar
       const currencyId = monedaClasica === 'USD' ? 2 : 1;
@@ -600,7 +614,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const exportarWebTransf = async () => {
     setExportando(true);
     try {
-      let params = `porcentaje_adicional=${parseFloat(porcentajeWebTransf.toString().replace(',', '.')) || 0}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajeWebTransf.toString().replace(',', '.')) || 0}&redondear=${redondear}`;
 
       // Agregar currency_id y offset_dolar
       const currencyId = monedaWebTransf === 'USD' ? 2 : 1;
@@ -631,7 +645,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const exportarPVP = async () => {
     setExportando(true);
     try {
-      let params = `porcentaje_adicional=${parseFloat(porcentajePVP.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotasPVP}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajePVP.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotasPVP}&redondear=${redondear}`;
 
       // Agregar currency_id y offset_dolar
       const currencyId = monedaPVP === 'USD' ? 2 : 1;
@@ -1167,6 +1181,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 </div>
               )}
 
+              {renderRedondeoCheckbox()}
+
               <p className={styles.description}>
                 Exporta los precios de Web Transferencia activos en formato Excel.
                 <br />
@@ -1270,6 +1286,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               )}
 
               {renderTiendasOficialesCheckboxes()}
+
+              {renderRedondeoCheckbox()}
 
               <p className={styles.description}>
                 Exporta precios de Clásica. Si el producto tiene rebate activo, aplica el % sobre el precio rebate. Si no, exporta el precio clásica original.
@@ -1387,6 +1405,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               )}
 
               {renderTiendasOficialesCheckboxes()}
+
+              {renderRedondeoCheckbox()}
 
               <p className={styles.description}>
                 Exporta precios de PVP (Listas 12, 18, 19, 20, 21). Usa precios base de lista PVP.
