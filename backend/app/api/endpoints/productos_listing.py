@@ -20,11 +20,10 @@ from app.services.costo_ppp_service import (
     PppMarkups,
     PPP_KEY_MEJOR_OFERTA,
     PPP_KEY_REBATE,
+    PPP_KEY_CLASICA,
     PPP_KEY_PVP_CLASICA,
-    PPP_KEY_PVP_CLASICA_VARIANT,
     ppp_key_cuota_clasica,
     ppp_key_pvp_cuota,
-    ppp_key_pvp_cuota_variant,
 )
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
@@ -995,6 +994,10 @@ def listar_productos(
         # Calcular precio_rebate y markup_rebate
         precio_rebate = None
         markup_rebate = None
+        # Reset per product: this one feeds the PPP line further down, and a
+        # value left over from the previous iteration would be a wrong amount
+        # shown with no error.
+        limpio_rebate = None
         if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
             porcentaje_rebate_val = float(
                 producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8
@@ -1024,6 +1027,39 @@ def listar_productos(
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
                 ppp.record(PPP_KEY_REBATE, limpio_rebate)
 
+        # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+        # The DISPLAYED `markup` field still comes from the stored
+        # `markup_calculado` column (untouched below); this recomputes
+        # `limpio` in-request with the SAME inputs the batch process uses
+        # (pricelist 4 commission, resolved shipping, product IVA) — see
+        # costo_ppp_service.py's module docstring for the full rationale.
+        # ponytail: the displayed clásica markup is read from a batch-refreshed
+        # column while its PPP companion is computed here, live. If the batch
+        # has not run since the last price/commission/shipping change, the two
+        # figures on the same row disagree until it does. Closing this means
+        # computing the displayed markup in-request too, or accepting the
+        # staleness window explicitly.
+        if producto_pricing and producto_pricing.precio_lista_ml:
+            comision_base_clasica = _lookup_comision(4, grupo_id)
+            if comision_base_clasica:
+                comisiones_clasica = calcular_comision_ml_total(
+                    float(producto_pricing.precio_lista_ml),
+                    comision_base_clasica,
+                    producto_erp.iva,
+                    constantes=constantes,
+                )
+                costo_envio_clasica = _resolve_envio(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(producto_pricing.precio_lista_ml)
+                )
+                limpio_clasica = calcular_limpio(
+                    float(producto_pricing.precio_lista_ml),
+                    producto_erp.iva,
+                    costo_envio_clasica,
+                    comisiones_clasica["comision_total"],
+                    constantes=constantes,
+                )
+                ppp.record(PPP_KEY_CLASICA, limpio_clasica)
+
         # Si el producto tiene rebate y está out_of_cards, replicar el rebate a mejor_oferta
         if (
             producto_pricing
@@ -1038,6 +1074,13 @@ def listar_productos(
             mejor_oferta_porcentaje = None  # No hay aporte de Meli en rebate
             mejor_oferta_monto = None  # No hay monto de rebate en este caso
             mejor_oferta_fecha_hasta = None  # No aplica fecha para rebate
+            # The displayed mejor_oferta_markup is now sourced from the rebate,
+            # not the original mejor_oferta computation (if any) — mirror that
+            # override on the PPP side too, or the PPP line would keep
+            # describing a value the response no longer returns (same
+            # correspondence bug as the PVP second pass above).
+            if limpio_rebate is not None:
+                ppp.record(PPP_KEY_MEJOR_OFERTA, limpio_rebate, percent=False)
 
         # Calcular markups para precios de cuotas
         markup_3_cuotas = None
@@ -1426,14 +1469,21 @@ def listar_productos(
                                     markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
                                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                                     if _ppp_acc:
-                                        _variant_key = (
-                                            PPP_KEY_PVP_CLASICA_VARIANT
+                                        # Record under the SAME base key as the first
+                                        # pass: this second pass OVERWRITES the
+                                        # displayed markup_pvp* fields below with a
+                                        # PrecioML-sourced value, so the PPP line must
+                                        # mirror that overwrite exactly (PppMarkups
+                                        # .record() overwrites on key collision) — see
+                                        # costo_ppp_service.py's module docstring.
+                                        _pvp_key = (
+                                            PPP_KEY_PVP_CLASICA
                                             if nombre_pvp == "pvp"
-                                            else ppp_key_pvp_cuota_variant(
+                                            else ppp_key_pvp_cuota(
                                                 nombre_pvp.replace("pvp_", "").replace("_cuotas", "")
                                             )
                                         )
-                                        _ppp_acc.record(_variant_key, limpio_pvp)
+                                        _ppp_acc.record(_pvp_key, limpio_pvp)
 
                                     if nombre_pvp == "pvp":
                                         producto.markup_pvp = markup_calculado
@@ -2200,6 +2250,8 @@ def listar_productos_tienda(
 
         # Rebate
         precio_rebate, markup_rebate = None, None
+        # Reset per product — see the equivalent note in listar_productos.
+        limpio_rebate = None
         if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
             porcentaje_rebate_val = float(
                 producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8
@@ -2225,6 +2277,29 @@ def listar_productos_tienda(
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
                 ppp_t.record(PPP_KEY_REBATE, limpio_rebate)
 
+        # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+        # Same rationale as the listing block above.
+        if producto_pricing and producto_pricing.precio_lista_ml:
+            comision_base_clasica_t = _lookup_comision_t(4, grupo_id)
+            if comision_base_clasica_t:
+                comisiones_clasica_t = calcular_comision_ml_total(
+                    float(producto_pricing.precio_lista_ml),
+                    comision_base_clasica_t,
+                    producto_erp.iva,
+                    constantes=constantes_t,
+                )
+                costo_envio_clasica_t = _resolve_envio_t(
+                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, float(producto_pricing.precio_lista_ml)
+                )
+                limpio_clasica_t = calcular_limpio(
+                    float(producto_pricing.precio_lista_ml),
+                    producto_erp.iva,
+                    costo_envio_clasica_t,
+                    comisiones_clasica_t["comision_total"],
+                    constantes=constantes_t,
+                )
+                ppp_t.record(PPP_KEY_CLASICA, limpio_clasica_t)
+
         if (
             producto_pricing
             and producto_pricing.out_of_cards
@@ -2234,6 +2309,10 @@ def listar_productos_tienda(
             mejor_oferta_precio, mejor_oferta_pvp = precio_rebate, precio_rebate
             mejor_oferta_markup = markup_rebate / 100
             mejor_oferta_porcentaje, mejor_oferta_monto, mejor_oferta_fecha_hasta = None, None, None
+            # Mirror the rebate override on the PPP side too — same
+            # correspondence fix as the listing endpoint above.
+            if limpio_rebate is not None:
+                ppp_t.record(PPP_KEY_MEJOR_OFERTA, limpio_rebate, percent=False)
 
         # Precio Gremio - Verificar override manual primero
         precio_gremio_sin_iva, precio_gremio_con_iva, markup_gremio = None, None, None
@@ -2527,6 +2606,27 @@ def obtener_producto(
     # PPP accumulator for this product (informational only; None-safe).
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
     ppp_d = PppMarkups(_ppp_source_d)
+
+    # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
+    # Same rationale as the listing/tienda blocks (see costo_ppp_service.py
+    # module docstring). Single-item endpoint: an extra DB lookup here is not
+    # an N+1 concern.
+    if producto_pricing and producto_pricing.precio_lista_ml:
+        grupo_id_clasica = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+        comision_base_clasica_d = obtener_comision_base(db, 4, grupo_id_clasica)
+        if comision_base_clasica_d:
+            comisiones_clasica_d = calcular_comision_ml_total(
+                float(producto_pricing.precio_lista_ml), comision_base_clasica_d, producto_erp.iva, db=db
+            )
+            limpio_clasica_d = calcular_limpio(
+                float(producto_pricing.precio_lista_ml),
+                producto_erp.iva,
+                costo_envio_producto,
+                comisiones_clasica_d["comision_total"],
+                db=db,
+                grupo_id=grupo_id_clasica,
+            )
+            ppp_d.record(PPP_KEY_CLASICA, limpio_clasica_d)
 
     # Calcular markups PVP
     markup_pvp = None

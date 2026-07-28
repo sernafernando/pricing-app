@@ -62,4 +62,62 @@ describe('PppLine — informational PPP companion line', () => {
     expect(screen.getByText('sin PPP')).toBeTruthy();
     expect(screen.queryByText(/999\.99/)).toBeNull();
   });
+
+  it('renders the clasica key (T2.6, reopened) as an already-percent markup', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: { clasica: 45.5 } }}
+        markupKey="clasica"
+      />
+    );
+    expect(screen.getByText(/45\.50%/)).toBeTruthy();
+    expect(screen.getByText(/05\/01\/26/)).toBeTruthy();
+  });
+
+  it('renders "sin PPP" for clasica when the key is absent (e.g. missing precio_lista_ml)', () => {
+    render(
+      <PppLine
+        ppp={{ costo: 100, fecha: '2026-01-05', markups: {} }}
+        markupKey="clasica"
+      />
+    );
+    expect(screen.getByText('sin PPP')).toBeTruthy();
+  });
+
+  describe('instalment key family (cuota_clasica_{n} / pvp_cuota_{n}) — highest key-typo risk', () => {
+    const markups = {
+      cuota_clasica_3: 10,
+      cuota_clasica_6: 20,
+      cuota_clasica_9: 30,
+      cuota_clasica_12: 40,
+      pvp_cuota_3: 11,
+      pvp_cuota_6: 21,
+      pvp_cuota_9: 31,
+      pvp_cuota_12: 41,
+    };
+
+    it.each([
+      ['cuota_clasica_3', '10.00%'],
+      ['cuota_clasica_6', '20.00%'],
+      ['cuota_clasica_9', '30.00%'],
+      ['cuota_clasica_12', '40.00%'],
+      ['pvp_cuota_3', '11.00%'],
+      ['pvp_cuota_6', '21.00%'],
+      ['pvp_cuota_9', '31.00%'],
+      ['pvp_cuota_12', '41.00%'],
+    ])('renders the exact value recorded under %s, never a sibling instalment value', (key, expected) => {
+      render(<PppLine ppp={{ costo: 100, fecha: '2026-01-05', markups }} markupKey={key} />);
+      expect(screen.getByText(new RegExp(expected.replace('.', '\\.')))).toBeTruthy();
+    });
+
+    it('renders "sin PPP" for a key that is absent, without falling back to a similarly named one', () => {
+      render(
+        <PppLine
+          ppp={{ costo: 100, fecha: '2026-01-05', markups: { pvp_cuota_3: 11 } }}
+          markupKey="pvp_cuota_30"
+        />
+      );
+      expect(screen.getByText('sin PPP')).toBeTruthy();
+    });
+  });
 });

@@ -78,6 +78,26 @@ so a typo can no longer silently mint an orphan key:
 
   - `PPP_KEY_MEJOR_OFERTA` = `"mejor_oferta"` — best active ML offer markup.
   - `PPP_KEY_REBATE` = `"rebate"` — rebate-price markup.
+  - `PPP_KEY_CLASICA` = `"clasica"` — clásica (list-cost) markup, the plain
+    `markup`/`markup_calculado` field. Unlike every other key above, the
+    DISPLAYED value (`ProductoPricing.markup_calculado`) is a stored column
+    written by a separate batch (`recalcular_markups_service.py`), not
+    computed in-request — there is no `limpio` naturally available for it at
+    any existing call site. This key's `limpio` is instead RECOMPUTED
+    in-request, reusing the exact same inputs the batch uses for the SAME
+    product: pricelist 4 commission (`_lookup_comision(4, grupo_id)` /
+    `obtener_comision_base(db, 4, grupo_id)`), the already-resolved shipping
+    cost (`_resolve_envio`/`costo_envio_producto`), and the product's IVA —
+    see `recalcular_markups_service.py:55-83`. This is a deliberate, narrow
+    exception to "only reuse an existing `limpio`": every other key still
+    reuses a `limpio` already computed at its shadowed markup site; this one
+    reuses the batch's FORMULA and INPUTS instead, because the site itself
+    does not compute one.
+    CAVEAT: because the displayed `markup` comes from a stored column
+    refreshed asynchronously while this PPP value is computed live, the two
+    figures on the same row can be momentarily inconsistent if the batch has
+    not run since the last price/commission/shipping change. This is a
+    staleness window in the stored column, not a calculation error.
   - `ppp_key_cuota_clasica(n)` -> `"cuota_clasica_{n}"` (n in `"3"/"6"/"9"/"12"`)
     — classic-list instalment markup (pricelists 17/14/13/23). Same name in
     both the listing and tienda endpoints: it is the same conceptual markup
@@ -89,16 +109,32 @@ so a typo can no longer silently mint an orphan key:
     (pricelists 18/19/20/21, from `ProductoPricing.precio_pvp_{n}_cuotas`).
     Same name in both the listing and detail endpoints. This is the fixed
     replacement for the doubled-segment bug above.
-  - `PPP_KEY_PVP_CLASICA_VARIANT` = `"pvp_clasica_variant"` and
-    `ppp_key_pvp_cuota_variant(n)` -> `"pvp_cuota_variant_{n}"` — the
-    listing-only second pass that recomputes the same PVP markups from the
-    `PrecioML` table (a genuinely different source than
-    `ProductoPricing.precio_pvp*`) and overwrites the response's displayed
-    `markup_pvp*` fields. Recorded under a distinct `_variant` suffix of the
-    corresponding base name (never collapsed onto the base key) because it is
-    a separate `.record()` call in the same per-product `PppMarkups`
-    accumulator — using the same key would silently drop one of the two
-    recorded markups instead of erroring.
+
+Two-source correspondence rule (bugfix, 2026-07-28): the listing endpoint's
+PVP markups (`markup_pvp`/`markup_pvp_{n}_cuotas`) are computed TWICE — once
+from `ProductoPricing.precio_pvp*` (first pass), then AGAIN from the
+`PrecioML` table (second pass, a genuinely different source), and the second
+pass's result is what the response actually returns (it overwrites the
+first-pass value on the `producto` object). A `_variant`-suffixed key used
+to exist so the second pass could record its own PPP companion without
+"losing" the first-pass one — but that reasoning was backwards: the
+first-pass VALUE is already discarded by the overwrite, so keeping its PPP
+entry under the base key while a totally different (PrecioML-sourced) value
+was displayed right next to it produced two real bugs: (1) a product with a
+PrecioML price but no `ProductoPricing.precio_pvp` showed a real markup with
+"sin PPP" below it — indistinguishable from genuine no-data; (2) a product
+with both showed a markup from PrecioML with a PPP line derived from
+`ProductoPricing.precio_pvp` — two different sources rendered adjacent with
+no signal they didn't correspond. The fix: the second pass now records under
+the SAME base key (`PPP_KEY_PVP_CLASICA` / `ppp_key_pvp_cuota(n)`) instead of
+a `_variant` one. Since `PppMarkups.record()` overwrites on key collision,
+the PPP entry follows the same source as the displayed value, by
+construction — the PPP line must always describe the number it sits under.
+The same principle applies to `PPP_KEY_MEJOR_OFERTA`: when a rebate override
+replaces the displayed `mejor_oferta_markup` (out_of_cards + participa_rebate),
+the PPP entry is re-recorded from the rebate's `limpio` too, instead of
+keeping the pre-override value (or omitting it) for a value the response no
+longer shows.
 """
 
 from __future__ import annotations
@@ -237,8 +273,8 @@ def _build_row_number_stmt(chunk: list[int]):
 
 PPP_KEY_MEJOR_OFERTA = "mejor_oferta"
 PPP_KEY_REBATE = "rebate"
+PPP_KEY_CLASICA = "clasica"
 PPP_KEY_PVP_CLASICA = "pvp_clasica"
-PPP_KEY_PVP_CLASICA_VARIANT = "pvp_clasica_variant"
 
 
 def ppp_key_cuota_clasica(n: str) -> str:
@@ -249,11 +285,6 @@ def ppp_key_cuota_clasica(n: str) -> str:
 def ppp_key_pvp_cuota(n: str) -> str:
     """PVP instalment markup key, e.g. `ppp_key_pvp_cuota("3")` -> `"pvp_cuota_3"`."""
     return f"pvp_cuota_{n}"
-
-
-def ppp_key_pvp_cuota_variant(n: str) -> str:
-    """PVP instalment (PrecioML-variant) markup key -> `"pvp_cuota_variant_{n}"`."""
-    return f"pvp_cuota_variant_{n}"
 
 
 class PppMarkups:

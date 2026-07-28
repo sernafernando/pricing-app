@@ -90,6 +90,7 @@ def producto_con_todas_las_cuotas(db, comision_fixtures) -> ProductoERP:
 
     pricing = ProductoPricing(
         item_id=p.item_id,
+        precio_lista_ml=1400.0,
         precio_3_cuotas=1500.0,
         precio_6_cuotas=1600.0,
         precio_9_cuotas=1700.0,
@@ -264,6 +265,57 @@ class TestQualifyingRowSurfacesPpp:
         assert data["costo"] == 10000.0
 
 
+class TestClasicaMarkupPpp:
+    """T2.6 (reopened): the clásica (list-cost) markup gets its own PPP
+    companion, computed in-request with the same inputs the batch
+    (`recalcular_markups_service.py`) uses, WITHOUT touching the displayed
+    `markup` field (still fed from the stored `markup_calculado` column)."""
+
+    def test_clasica_ppp_markup_matches_calcular_markup_of_limpio_and_costo_ppp(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp
+    ):
+        from app.services.pricing_calculator import (
+            calcular_comision_ml_total,
+            calcular_limpio,
+            calcular_markup,
+        )
+
+        pricing = ProductoPricing(item_id=producto_con_ppp.item_id, precio_lista_ml=15000.0)
+        db.add(pricing)
+        db.commit()
+
+        response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert "clasica" in data["ppp"]["markups"], data["ppp"]["markups"]
+
+        # Recompute the expected value the same way the endpoint should:
+        # comision_base=12.0 (grupo 1, comision_fixtures), envio=0 (producto_con_ppp).
+        comisiones = calcular_comision_ml_total(15000.0, 12.0, producto_con_ppp.iva, db=db)
+        limpio = calcular_limpio(15000.0, producto_con_ppp.iva, 0.0, comisiones["comision_total"], db=db)
+        expected = round(calcular_markup(limpio, 8500.0) * 100, 2)
+
+        assert data["ppp"]["markups"]["clasica"] == expected
+
+        # The displayed markup is untouched — still None because markup_calculado
+        # was never written (that column is fed by a separate batch process).
+        assert data["markup"] is None
+
+    def test_clasica_ppp_markup_absent_when_precio_lista_ml_is_missing(self, client, auth_headers, producto_con_ppp):
+        """No `precio_lista_ml` => no clásica limpio to derive from => no key,
+        NEVER a fabricated value."""
+        response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert "clasica" not in data["ppp"]["markups"]
+
+
 class TestDistinctInstalmentKeys:
     """Fix-round finding 1: the 4 classic-installment markups must be DISTINCT.
 
@@ -296,6 +348,166 @@ class TestDistinctInstalmentKeys:
 
         values = [markups[key] for key in instalment_keys]
         assert len(set(values)) == len(values), f"instalment markups collapsed onto a shared key: {markups}"
+
+        # The clásica (list-cost) markup also gets a PPP companion on this
+        # same listing pass, reusing the same _lookup_comision(4, grupo_id)
+        # dict lookup — no extra query.
+        assert "clasica" in markups, f"missing clasica in {markups}"
+
+
+class TestPvpKeyCorrespondsToDisplayedValue:
+    """Fix-round finding: the listing endpoint (`GET /api/productos`) computes
+    the PVP markups TWICE — once from `ProductoPricing.precio_pvp` (first
+    pass, recorded under the base PPP key), then a SECOND time from the
+    `PrecioML` table (a genuinely different source), which OVERWRITES the
+    displayed `markup_pvp*` fields but used to record its PPP companion under
+    a separate `_variant` key. The frontend reads the base key right next to
+    the (second-pass, PrecioML-sourced) displayed value, so the PPP line
+    never matched what the screen showed. The fix: the second pass must
+    record under the SAME base key, so the PPP entry always describes the
+    number the response actually returns.
+    """
+
+    def test_pvp_ppp_present_when_only_precio_ml_has_a_price(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp
+    ):
+        """Product with a PrecioML price but NO ProductoPricing.precio_pvp:
+        a real markup_pvp is displayed, so the PPP line must NOT be missing."""
+        from app.models.precio_ml import PrecioML
+
+        _guard_incompatible_raw_sql(db)
+
+        db.add(PrecioML(item_id=producto_con_ppp.item_id, pricelist_id=12, precio=20000.0))
+        db.commit()
+
+        response = client.get("/api/productos?page=1&page_size=10", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        productos = response.json()["productos"]
+        producto = next(p for p in productos if p["item_id"] == producto_con_ppp.item_id)
+
+        assert producto["markup_pvp"] is not None, "PrecioML-sourced markup_pvp must be displayed"
+        assert producto["ppp"] is not None
+        assert "pvp_clasica" in producto["ppp"]["markups"], (
+            "PPP line missing for a displayed markup_pvp that came from PrecioML "
+            f"(indistinguishable from genuine no-data): {producto['ppp']['markups']}"
+        )
+
+    def test_pvp_ppp_matches_precio_ml_source_when_both_sources_present(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp
+    ):
+        """Product with BOTH a ProductoPricing.precio_pvp AND a PrecioML
+        price: the response's displayed markup_pvp comes from PrecioML (the
+        second pass overwrites it), so the PPP entry must correspond to the
+        PrecioML-derived limpio, NOT the ProductoPricing one."""
+        from app.models.precio_ml import PrecioML
+        from app.services.pricing_calculator import (
+            calcular_comision_ml_total,
+            calcular_limpio,
+            calcular_markup,
+        )
+
+        _guard_incompatible_raw_sql(db)
+
+        pricing = ProductoPricing(item_id=producto_con_ppp.item_id, precio_pvp=15000.0)
+        db.add(pricing)
+        db.add(PrecioML(item_id=producto_con_ppp.item_id, pricelist_id=12, precio=20000.0))
+        db.commit()
+
+        response = client.get("/api/productos?page=1&page_size=10", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        productos = response.json()["productos"]
+        producto = next(p for p in productos if p["item_id"] == producto_con_ppp.item_id)
+
+        # Expected value derived from the PrecioML price (20000.0), NOT the
+        # ProductoPricing one (15000.0) — mirrors the second pass exactly.
+        comisiones = calcular_comision_ml_total(20000.0, 12.0, producto_con_ppp.iva, db=db)
+        limpio = calcular_limpio(20000.0, producto_con_ppp.iva, 0.0, comisiones["comision_total"], db=db)
+        # The displayed markup_pvp is NOT rounded at its call site (only the
+        # PPP-recorded companion is, via PppMarkups.record's percent=True path).
+        expected_markup_pvp = calcular_markup(limpio, 10000.0) * 100
+
+        assert producto["markup_pvp"] == pytest.approx(expected_markup_pvp)
+
+        expected_ppp = round(calcular_markup(limpio, 8500.0) * 100, 2)
+        assert producto["ppp"]["markups"]["pvp_clasica"] == pytest.approx(expected_ppp), (
+            "PPP entry must correspond to the PrecioML-sourced (displayed) value, "
+            f"not the ProductoPricing.precio_pvp one: {producto['ppp']['markups']}"
+        )
+
+
+class TestMejorOfertaKeyCorrespondsToDisplayedValue:
+    """Same correspondence bug, different site: when a product participates
+    in rebate and is out_of_cards, `mejor_oferta_markup` gets OVERWRITTEN to
+    the rebate markup, but the `PPP_KEY_MEJOR_OFERTA` companion used to keep
+    (or lack) the ORIGINAL mejor_oferta value/absence — a second source-vs-
+    display mismatch of the same shape as the PVP one above."""
+
+    def test_mejor_oferta_ppp_present_when_rebate_override_is_the_only_source(
+        self, client, auth_headers, db, comision_fixtures
+    ):
+        """No real ML offer at all (no mejor_oferta/mejor_pub), but
+        out_of_cards + rebate replicates a REAL displayed mejor_oferta_markup
+        from the rebate — the PPP line must not be missing."""
+        _guard_incompatible_raw_sql(db)
+
+        p = ProductoERP(
+            item_id=9401,
+            codigo="TEST-PPP-MEJOR-OFERTA-REBATE",
+            descripcion="Producto rebate out_of_cards",
+            costo=10000.0,
+            moneda_costo="ARS",
+            iva=21.0,
+            activo=True,
+            envio=0.0,
+        )
+        db.add(p)
+        db.flush()
+        db.add(
+            ProductoPricing(
+                item_id=p.item_id,
+                precio_lista_ml=15000.0,
+                participa_rebate=True,
+                porcentaje_rebate=3.8,
+                out_of_cards=True,
+            )
+        )
+        db.add(
+            ItemTransaction(
+                it_transaction=94011,
+                ct_transaction=1,
+                item_id=p.item_id,
+                it_priceofcostpp=8500.0,
+                it_cancelled=False,
+                it_exchangetobranchcurrency=1.0,
+                rmah_id=None,
+                it_isrmasuppliercreditnote=False,
+                it_cd=datetime(2026, 2, 14),
+            )
+        )
+        db.commit()
+
+        response = client.get("/api/productos?page=1&page_size=10", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        productos = response.json()["productos"]
+        producto = next(p2 for p2 in productos if p2["item_id"] == p.item_id)
+
+        assert producto["mejor_oferta_markup"] is not None
+        assert producto["ppp"] is not None
+        assert "mejor_oferta" in producto["ppp"]["markups"], (
+            "PPP line missing for a displayed mejor_oferta_markup sourced from the "
+            f"rebate override: {producto['ppp']['markups']}"
+        )
+        # mejor_oferta is recorded with percent=False (decimal ratio, matching
+        # the displayed mejor_oferta_markup convention), while rebate is
+        # recorded with percent=True (the default, `*100` rounded) — compare
+        # on a common percentage scale.
+        # mejor_oferta (percent=False) keeps the raw unrounded ratio; rebate
+        # (percent=True) is rounded to 2 decimals — compare with that
+        # rounding applied instead of an implicit floating-point tolerance.
+        assert round(producto["ppp"]["markups"]["mejor_oferta"] * 100, 2) == producto["ppp"]["markups"]["rebate"]
 
 
 class TestQueryCount:
