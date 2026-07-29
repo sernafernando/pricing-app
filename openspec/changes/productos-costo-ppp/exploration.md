@@ -234,3 +234,51 @@ merely a *different*, equally well-behaved number.
 - **Row-selection rule, currency anomaly analysis, and "denormalize vs live-join" tradeoff above this
   line are HISTORICAL and describe the wrong field.** They are left in place (not deleted) as the
   record of what was investigated and why it was wrong, not as current guidance.
+
+## SCALE SANITY GUARD (2026-07-29) — THIRD data-trust failure in this feature
+
+After the source correction above (wrong field) and a since-reverted fictitious cross-currency layer,
+production surfaced a THIRD class of ERP data corruption: for a minority of products, `iclh_price_aw`
+is left STALE at a different currency scale than `iclh_price` in the SAME row, after the product's cost
+list moved between currencies.
+
+**Witness — item 2780 (RESMA AUTOR CARTA)**, reported by a user who saw "2.91" displayed next to a
+current cost of 3178.25:
+
+| date | coslis_id | iclh_price | iclh_price_aw | curr_id |
+|---|---|---|---|---|
+| 2025-03-26 | 1 | 2.911820 | 2.911820 | 2 (USD) |
+| 2025-07-28 | 1 | 3178.250000 | 2.911820 | 1 (ARS) |
+
+The product moved from USD to ARS: `iclh_price`/`curr_id` were updated by the ERP; `iclh_price_aw` was
+NOT recalculated and stayed at the old USD-scale figure. Ratio `iclh_price / iclh_price_aw` = 1091 — an
+exchange rate of that period, not a costing difference. **This is NOT a currency-label divergence**:
+`curr_id` (1 = ARS) matches `producto_erp.moneda_costo` (ARS) exactly — the existing currency-matching
+verification (see "Currency — RESOLVED with production data" above and the module docstring in
+`costo_ppp_service.py`) could never have caught this, because the broken value is the NUMBER itself,
+not its currency label.
+
+**Measurement (production, 2026-07-29)**, ratio `iclh_price / iclh_price_aw` on the row the resolver
+picks for each of the 3215 products with a PPP:
+
+| band | count | disposition |
+|---|---|---|
+| normal (0.5–2.0) | 3137 | kept |
+| suspicious (2x–20x) | 50 | kept — plausibly a real cost swing |
+| BROKEN, aw ~1000x too small | 23 (ratio 27.5 up to 53,249,815) | rejected |
+| BROKEN, aw ~1000x too large | 20 (ratio 0.001–0.040) | rejected |
+
+Cross-checked against `producto_erp.costo` instead of `iclh_price`: same 42 broken rows, 3172 coherent —
+confirming the guard does not need to join out to `producto_erp`; validating `iclh_price_aw` against
+`iclh_price` in the SAME row is sufficient and simpler.
+
+**Fix**: `resolver_ppp_batch` now rejects a row when `iclh_price` is missing/`<= 0`, or when
+`iclh_price / iclh_price_aw` falls outside `[0.05, 20]` (inclusive). A rejected row means the item has
+NO PPP — there is no fallback to an older row (an older row is less trustworthy, not more, and the
+resolver only ever considers the single latest qualifying row per item_id anyway). Net effect: coverage
+drops from ~77.5% (3215/4150) to ~76.5% (3173/4150), discarding the 42 broken rows above.
+
+**The pattern across all three failures in this feature**: an ERP value can never be trusted on its
+own — it must be validated against a reference in the SAME row (first the field itself against a live
+ERP screen value; now `iclh_price_aw` against `iclh_price`). "Looks like a plausible number, internally
+consistent with the rest of the dataset" is necessary but not sufficient evidence of correctness.

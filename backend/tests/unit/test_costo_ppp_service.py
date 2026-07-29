@@ -406,3 +406,111 @@ class TestPinnedAgainstKnownErpValue:
         assert 1169 in result
         assert result[1169].costo_ppp == pytest.approx(38.402760)
         assert result[1169].costo_ppp_fecha == date(2026, 7, 23)
+
+
+class TestScaleSanityGuard:
+    """REQ-7 (2026-07-29): reject a row whose `iclh_price_aw` is stale at a
+    different currency scale than `iclh_price` IN THE SAME ROW — see module
+    docstring's "Scale sanity guard" section for the witness item and
+    measured counts (42 broken of 3215, discovered in production)."""
+
+    def test_witness_item_2780_stale_aw_after_currency_change_yields_no_ppp(self, db) -> None:
+        """Real item 2780 (RESMA AUTOR CARTA): the product moved from USD to
+        ARS. `iclh_price`/`curr_id` were updated by the ERP; `iclh_price_aw`
+        was NOT recalculated and stayed at the old USD-scale figure.
+        Ratio iclh_price / iclh_price_aw = 3178.25 / 2.911820 ~= 1091 — an
+        exchange rate of that period, not a costing difference. The resolver
+        must NOT return a PPP for this item (no fallback to the older,
+        equally-real, coherent 2025-03-26 row either — see module docstring)."""
+        _insert_history(
+            db,
+            iclh_id=278001,
+            item_id=2780,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price=2.911820,
+            iclh_price_aw=2.911820,
+            iclh_cd=datetime(2025, 3, 26),
+        )
+        _insert_history(
+            db,
+            iclh_id=278002,
+            item_id=2780,
+            coslis_id=1,
+            curr_id=1,
+            iclh_price=3178.250000,
+            iclh_price_aw=2.911820,
+            iclh_cd=datetime(2025, 7, 28),
+        )
+
+        result = resolver_ppp_batch(db, [2780])
+
+        assert 2780 not in result
+
+    def test_inverse_scale_mismatch_aw_1000x_too_large_yields_no_ppp(self, db) -> None:
+        """Real shape of item 623: `iclh_price_aw` stale 1000x LARGER than
+        `iclh_price` (the opposite direction from item 2780 above)."""
+        _insert_history(
+            db,
+            iclh_id=62301,
+            item_id=623,
+            coslis_id=1,
+            iclh_price=66.00,
+            iclh_price_aw=1648.13,
+        )
+
+        result = resolver_ppp_batch(db, [623])
+
+        assert 623 not in result
+
+    def test_ratio_exactly_at_upper_bound_20_is_accepted_inclusive(self, db) -> None:
+        _insert_history(db, iclh_id=90001, item_id=9001, iclh_price=200.0, iclh_price_aw=10.0)
+
+        result = resolver_ppp_batch(db, [9001])
+
+        assert 9001 in result
+        assert result[9001].costo_ppp == 10.0
+
+    def test_ratio_just_above_upper_bound_20_is_rejected(self, db) -> None:
+        _insert_history(db, iclh_id=90002, item_id=9002, iclh_price=200.02, iclh_price_aw=10.0)
+
+        result = resolver_ppp_batch(db, [9002])
+
+        assert 9002 not in result
+
+    def test_ratio_exactly_at_lower_bound_0_05_is_accepted_inclusive(self, db) -> None:
+        _insert_history(db, iclh_id=90003, item_id=9003, iclh_price=10.0, iclh_price_aw=200.0)
+
+        result = resolver_ppp_batch(db, [9003])
+
+        assert 9003 in result
+        assert result[9003].costo_ppp == 200.0
+
+    def test_ratio_just_below_lower_bound_0_05_is_rejected(self, db) -> None:
+        _insert_history(db, iclh_id=90004, item_id=9004, iclh_price=9.99, iclh_price_aw=200.0)
+
+        result = resolver_ppp_batch(db, [9004])
+
+        assert 9004 not in result
+
+    def test_normal_ratio_around_1_1_is_accepted_unchanged_behaviour(self, db) -> None:
+        _insert_history(db, iclh_id=90005, item_id=9005, iclh_price=110.0, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9005])
+
+        assert 9005 in result
+        assert result[9005].costo_ppp == 100.0
+
+    def test_iclh_price_zero_is_rejected_no_reference_to_validate_against(self, db) -> None:
+        _insert_history(db, iclh_id=90006, item_id=9006, iclh_price=0.0, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9006])
+
+        assert 9006 not in result
+
+    def test_iclh_price_null_is_rejected_no_reference_to_validate_against(self, db) -> None:
+        _insert_history(db, iclh_id=90007, item_id=9007, iclh_price=None, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9007])
+
+        assert 9007 not in result

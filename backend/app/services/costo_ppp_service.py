@@ -103,8 +103,55 @@ it `NULL`. `PppMarkups` normalizes a falsy `moneda_costo` to `"ARS"` at
 construction — this must happen before it reaches `PppPayload.moneda`
 (non-optional `str`) or `convertir_a_pesos`.
 
-Coverage: ~77.5% of products (3215/4150) have a qualifying `coslis_id=1`
-`iclh_price_aw` row, up from ~50% under the old `it_priceofcostpp`-based
+=== Scale sanity guard (2026-07-29) ===
+
+THIRD data-trust failure in this feature (after the wrong-field bug above
+and the fictitious-currency-layer revert): for a minority of products the
+ERP left `iclh_price_aw` STALE at a different currency scale than
+`iclh_price` in its OWN row. Witness — item 2780 (RESMA AUTOR CARTA), reported
+by a user who saw "2.91" next to a cost of 3178.25:
+
+    2025-03-26 | coslis_id 1 | iclh_price 2.911820    | iclh_price_aw 2.911820 | curr_id 2 (USD)
+    2025-07-28 | coslis_id 1 | iclh_price 3178.250000 | iclh_price_aw 2.911820 | curr_id 1 (ARS)
+
+The product moved from USD to ARS: `iclh_price`/`curr_id` were updated,
+`iclh_price_aw` was NOT recalculated. Ratio price/aw = 1091 — an exchange
+rate of that period, not a costing difference. This is NOT a
+currency-label divergence: `curr_id` (1 = ARS) matches
+`producto_erp.moneda_costo` (ARS) — no currency-matching logic (see above)
+could ever catch this, because the broken value is the NUMBER itself, not
+its label.
+
+Measured on production (2026-07-29), on the row the resolver picks for each
+of the 3215 products with a PPP: ratio `iclh_price / iclh_price_aw` is
+"normal" (0.5-2.0) for 3137, "suspicious" (2x-20x, plausibly a real cost
+swing — KEPT) for 50, and unambiguously BROKEN for 42 (23 with aw ~1000x too
+small, ratio 27.5 up to 53,249,815; 20 with aw ~1000x too large, ratio
+0.001-0.040). Cross-checked against `producto_erp.costo` instead of
+`iclh_price`: same 42 broken, 3172 coherent — confirming the guard does not
+need to join out to `producto_erp` (see `_is_scale_sane`'s docstring for why
+it validates against the SAME row's `iclh_price` instead).
+
+`resolver_ppp_batch` rejects a row whenever `iclh_price` is missing/`<= 0`,
+or `iclh_price / iclh_price_aw` falls outside `[_PPP_RATIO_MIN,
+_PPP_RATIO_MAX]` = `[0.05, 20]` (bounds INCLUSIVE — see the constants'
+comment for why 20 and not something tighter). A rejected row means the item
+gets NO PPP — the resolver does NOT fall back to an older row: if the
+current (latest) row's `aw` is broken, an older row is even less
+trustworthy, and by construction there IS no older candidate available at
+the rejection site anyway (the ranking already picked the single rn=1 row
+per item_id before this guard runs).
+
+**Pattern across all three failures in this feature**: an ERP value can
+never be trusted on its own — it must be validated against a reference IN
+THE SAME ROW (first the field itself against a live ERP screen value, now
+`iclh_price_aw` against `iclh_price`). "Looks like a plausible number" is
+not evidence of correctness.
+
+Coverage: ~76.5% of products (3173/4150) have a qualifying `coslis_id=1`
+`iclh_price_aw` row that ALSO passes the scale sanity guard (measured
+2026-07-29) — down from ~77.5% (3215/4150) before the guard rejected the 42
+broken rows above; up from ~50% under the old `it_priceofcostpp`-based
 selection.
 
 Index/dialect note: `tb_item_transactions` needed a `LATERAL`-vs-`ROW_NUMBER()`
@@ -226,6 +273,22 @@ _IN_CHUNK_SIZE = 900
 # `producto_erp.costo`/`moneda_costo` (see module docstring's currency note).
 _COSLIS_ID_PRINCIPAL = 1
 
+# Sanity-guard bounds for `iclh_price / iclh_price_aw` on the SAME row
+# (2026-07-29 — see module docstring's "Scale sanity guard" section).
+# Measured on the 3215 products with a qualifying PPP row: 3137 are "normal"
+# (0.5-2.0), 50 are "suspicious" (2x-20x, plausibly a real cost swing — a
+# product's cost CAN legitimately move that much), and 42 are unambiguously
+# BROKEN (23 with a ratio of ~1000x-and-up, 20 with a ratio of ~0.001-0.040 —
+# an order-of-magnitude-1000 currency-scale mismatch, not a costing
+# difference). 20/0.05 is deliberately loose: it is chosen to sit just above
+# the legitimate 2x-20x band so it never rejects a real cost movement, while
+# still catching every observed scale error (the closest broken ratio, 27.5,
+# is already >1000x further out than this bound). A tighter bound would risk
+# false positives on the 50 legitimate outliers; a looser one would let a
+# broken row through.
+_PPP_RATIO_MIN = 0.05
+_PPP_RATIO_MAX = 20.0
+
 
 @dataclass(frozen=True)
 class PppSource:
@@ -264,13 +327,47 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
 
         stmt = _build_ranked_stmt(chunk)
 
-        for item_id, iclh_price_aw, iclh_cd in db.execute(stmt).all():
+        for item_id, iclh_price, iclh_price_aw, iclh_cd in db.execute(stmt).all():
             if iclh_price_aw is None or iclh_cd is None:
+                continue
+            if not _is_scale_sane(iclh_price, iclh_price_aw):
+                # The row FAILED the sanity guard: iclh_price_aw is stale at a
+                # different currency scale than iclh_price in its OWN row (see
+                # module docstring's "Scale sanity guard" section). Do NOT
+                # fall back to an older row for this item_id — an older row
+                # is even less trustworthy than the current (latest) one, and
+                # this loop only ever sees the single already-ranked (rn=1)
+                # row per item_id, so there is no older candidate to try
+                # anyway. The item simply gets no PPP (absent from `result`).
                 continue
             fecha = iclh_cd.date() if isinstance(iclh_cd, datetime) else iclh_cd
             result[item_id] = PppSource(costo_ppp=float(iclh_price_aw), costo_ppp_fecha=fecha)
 
     return result
+
+
+def _is_scale_sane(iclh_price: Optional[float], iclh_price_aw: float) -> bool:
+    """Reject a row whose `iclh_price_aw` is stale at a different currency
+    scale than `iclh_price` IN THE SAME ROW (2026-07-29 — see module
+    docstring's "Scale sanity guard" section for the witness item and
+    measured counts).
+
+    Self-contained by design: validated against `iclh_price` from the SAME
+    row, never against `producto_erp.costo` — measurement showed both give
+    the same 42 broken rows, so joining out would add a dependency for no
+    gain.
+    """
+    if iclh_price is None or iclh_price <= 0:
+        return False  # no reference in this row to validate iclh_price_aw against
+    # Cast explicitly: both columns are `Numeric(18, 6)` (see
+    # ItemCostListHistory), so the DB driver can return `Decimal`. Comparing a
+    # `Decimal` ratio against the float bounds below can misfire at the exact
+    # boundary (`Decimal("0.05") >= 0.05` is `False` — 0.05 has no exact
+    # binary float representation) — force both operands to `float` first so
+    # the boundary tests (ratio exactly 20 / exactly 0.05) are inclusive as
+    # documented.
+    ratio = float(iclh_price) / float(iclh_price_aw)
+    return _PPP_RATIO_MIN <= ratio <= _PPP_RATIO_MAX
 
 
 def _qualifying_predicate(item_id_col):
@@ -304,6 +401,7 @@ def _build_ranked_stmt(chunk: list[int]):
     ranked = (
         select(
             ItemCostListHistory.item_id.label("item_id"),
+            ItemCostListHistory.iclh_price.label("iclh_price"),
             ItemCostListHistory.iclh_price_aw.label("iclh_price_aw"),
             ItemCostListHistory.iclh_cd.label("iclh_cd"),
             row_number_col,
@@ -312,7 +410,9 @@ def _build_ranked_stmt(chunk: list[int]):
         .subquery()
     )
 
-    return select(ranked.c.item_id, ranked.c.iclh_price_aw, ranked.c.iclh_cd).where(ranked.c.rn == 1)
+    return select(ranked.c.item_id, ranked.c.iclh_price, ranked.c.iclh_price_aw, ranked.c.iclh_cd).where(
+        ranked.c.rn == 1
+    )
 
 
 # --- Canonical PPP markup key vocabulary (see module docstring) -------------
