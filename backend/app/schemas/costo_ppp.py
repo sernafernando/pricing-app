@@ -10,18 +10,17 @@ class PppPayload(BaseModel):
     """Informational ERP weighted-average cost (PPP) and its derived markups.
 
     Display-only: never persisted, never filterable, never a substitute for
-    `costo`. `costo` is ARS already (no currency conversion applies) and is
-    what every markup in `markups` is derived from — nothing recomputes
-    markups from `costo_display`. `fecha` is the source row's `it_cd` and
-    MUST always be rendered alongside every PPP figure, regardless of age.
+    `costo`. `costo` is expressed in `moneda` (`producto_erp.moneda_costo`,
+    passed in by the caller — never derived independently) and NEVER
+    converted for display. See `app.services.costo_ppp_service` module
+    docstring's "Currency" section for the full evidence and rationale.
+    `fecha` is the source row's `iclh_cd` and MUST always be rendered
+    alongside every PPP figure, regardless of age.
 
-    `costo_display`/`costo_display_moneda` are a DISPLAY-ONLY mirror of
-    `costo` in the SAME currency as the product's list cost
-    (`producto_erp.moneda_costo`), so the two figures shown together on
-    screen are directly comparable without the frontend needing the exchange
-    rate. When the product's list cost is ARS, or the exchange rate could not
-    be resolved, `costo_display == costo` and `costo_display_moneda == "ARS"`
-    — never a `"USD"` label on a figure that was not actually converted.
+    Every markup in `markups` IS derived from `costo` — after an internal ARS
+    conversion applied ONLY for the markup formula (`limpio` is always ARS),
+    never surfaced back through this schema. See
+    `app.services.costo_ppp_service.PppMarkups` for that conversion.
 
     The `markups` keys are NOT documented here on purpose. They are defined —
     and built — by `app.services.costo_ppp_service`: see its module docstring
@@ -35,7 +34,6 @@ class PppPayload(BaseModel):
     """
 
     costo: float
-    costo_display: float
-    costo_display_moneda: str
+    moneda: str
     fecha: date
     markups: dict[str, float] = Field(default_factory=dict)

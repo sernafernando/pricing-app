@@ -2,23 +2,33 @@
 Unit tests for costo_ppp_service — PPP (ERP weighted-average cost) resolver
 and per-product markup accumulator.
 
-Spec coverage (openspec/changes/productos-costo-ppp/specs.md):
-  REQ-1 — row selection: it_priceofcostpp > 0 AND it_cancelled = false AND
-          it_exchangetobranchcurrency IS NOT NULL AND rmah_id IS NULL AND
-          it_isrmasuppliercreditnote = false, latest it_cd wins
-  REQ-2 — PPP is already ARS: no currency conversion applied
-  REQ-3 — costo_ppp_fecha always accompanies a non-null costo_ppp
+Spec coverage (openspec/changes/productos-costo-ppp/specs.md, source-correction
+round 2026-07-29):
+  REQ-1 — row selection: coslis_id = 1 (main cost list) AND iclh_price_aw IS
+          NOT NULL AND iclh_price_aw > 0, latest iclh_cd wins, iclh_id DESC
+          breaks exact-date ties.
+  REQ-2 — PPP is displayed in `moneda_costo` (the CALLER's), never converted
+          for display; conversion only happens internally, as an input to
+          the markup formula. See `costo_ppp_service` module docstring's
+          "Currency" section for the full rationale/evidence.
+  REQ-3 — costo_ppp_fecha always accompanies a non-null costo_ppp.
   REQ-4 — no-data contract: zero qualifying rows => item absent from the
           resolver dict AND PppMarkups(None).payload() is None; no emitted
-          markup key ever equals a value derived from `costo`
+          markup key ever equals a value derived from `costo`.
   REQ-5 — PppMarkups.record scaling: percent=True scales *100 (matches most
           sites), percent=False keeps the raw ratio (matches mejor_oferta
-          sites)
+          sites).
+  REQ-6 — fail-closed: a non-ARS `moneda_costo` with no resolvable
+          `tipo_cambio` must emit NO markup at all (not a silently-wrong one)
+          — `payload().costo`/`.moneda` stay unaffected. A falsy
+          `moneda_costo` (`None`) normalizes to `"ARS"` instead of reaching
+          `PppPayload.moneda` (non-optional) or `convertir_a_pesos` raw.
 
 These tests run against the REAL in-memory SQLite `db` fixture (see
-tests/conftest.py) using the actual ItemTransaction ORM model — this proves
-the resolver's window-function query is portable to SQLite, not just
-PostgreSQL (DISTINCT ON is PostgreSQL-only and is NOT used here).
+tests/conftest.py) using the actual ItemCostListHistory ORM model — this
+proves the resolver's window-function query is portable to SQLite, not just
+PostgreSQL, with a single formulation for both (no dialect branching — see
+costo_ppp_service module docstring).
 """
 
 from __future__ import annotations
@@ -26,36 +36,34 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import pytest
-import sqlalchemy as sa
 
-from app.models.item_transaction import ItemTransaction
+from app.models.item_cost_list_history import ItemCostListHistory
 from app.services.costo_ppp_service import PppMarkups, PppSource, resolver_ppp_batch
 
 
-def _insert_transaction(db, **overrides) -> ItemTransaction:
+def _insert_history(db, **overrides) -> ItemCostListHistory:
     defaults = dict(
-        it_transaction=None,  # let autoincrement-free PK be set explicitly per test
-        ct_transaction=1,
+        iclh_id=None,  # set explicitly per test — real PK, used as the tiebreak
+        comp_id=1,
+        coslis_id=1,
         item_id=1,
-        it_priceofcostpp=100.0,
-        it_cancelled=False,
-        it_exchangetobranchcurrency=1.0,
-        rmah_id=None,
-        it_isrmasuppliercreditnote=False,
-        it_cd=datetime(2026, 1, 1),
+        iclh_price=100.0,
+        iclh_price_aw=100.0,
+        curr_id=1,
+        iclh_cd=datetime(2026, 1, 1),
     )
     defaults.update(overrides)
-    txn = ItemTransaction(**defaults)
-    db.add(txn)
+    row = ItemCostListHistory(**defaults)
+    db.add(row)
     db.commit()
-    return txn
+    return row
 
 
 class TestRowSelection:
-    """REQ-1: row-selection predicate and latest-it_cd tiebreak."""
+    """REQ-1: row-selection predicate and latest-iclh_cd tiebreak."""
 
     def test_single_qualifying_row_is_used(self, db) -> None:
-        _insert_transaction(db, it_transaction=1, item_id=101, it_priceofcostpp=250.0, it_cd=datetime(2026, 1, 10))
+        _insert_history(db, iclh_id=1, item_id=101, iclh_price_aw=250.0, iclh_cd=datetime(2026, 1, 10))
 
         result = resolver_ppp_batch(db, [101])
 
@@ -63,55 +71,61 @@ class TestRowSelection:
         assert result[101].costo_ppp == 250.0
         assert result[101].costo_ppp_fecha == datetime(2026, 1, 10).date()
 
-    def test_latest_it_cd_wins_among_multiple_qualifying_rows(self, db) -> None:
-        _insert_transaction(db, it_transaction=2, item_id=102, it_priceofcostpp=100.0, it_cd=datetime(2025, 1, 1))
-        _insert_transaction(db, it_transaction=3, item_id=102, it_priceofcostpp=200.0, it_cd=datetime(2026, 6, 1))
-        _insert_transaction(db, it_transaction=4, item_id=102, it_priceofcostpp=150.0, it_cd=datetime(2025, 6, 1))
+    def test_latest_iclh_cd_wins_among_multiple_qualifying_rows(self, db) -> None:
+        _insert_history(db, iclh_id=2, item_id=102, iclh_price_aw=100.0, iclh_cd=datetime(2025, 1, 1))
+        _insert_history(db, iclh_id=3, item_id=102, iclh_price_aw=200.0, iclh_cd=datetime(2026, 6, 1))
+        _insert_history(db, iclh_id=4, item_id=102, iclh_price_aw=150.0, iclh_cd=datetime(2025, 6, 1))
 
         result = resolver_ppp_batch(db, [102])
 
         assert result[102].costo_ppp == 200.0
         assert result[102].costo_ppp_fecha == datetime(2026, 6, 1).date()
 
-    def test_cancelled_row_excluded(self, db) -> None:
-        _insert_transaction(db, it_transaction=5, item_id=103, it_priceofcostpp=999.0, it_cancelled=True)
+    def test_exact_iclh_cd_tie_breaks_on_highest_iclh_id(self, db) -> None:
+        """Real nondeterminism bug class the previous ORDER BY it_cd-only
+        tiebreak had (see git history) — reproduced here for iclh_cd/iclh_id."""
+        _insert_history(db, iclh_id=10, item_id=108, iclh_price_aw=400.0, iclh_cd=datetime(2026, 3, 1))
+        _insert_history(db, iclh_id=11, item_id=108, iclh_price_aw=500.0, iclh_cd=datetime(2026, 3, 1))
+
+        result = resolver_ppp_batch(db, [108])
+
+        assert result[108].costo_ppp == 500.0  # highest iclh_id wins
+
+    def test_other_coslis_id_excluded(self, db) -> None:
+        """A row from a non-principal cost list must never be selected, even
+        if it's the only row for that item_id."""
+        _insert_history(db, iclh_id=5, item_id=103, coslis_id=7, iclh_price_aw=999.0)
 
         result = resolver_ppp_batch(db, [103])
 
         assert 103 not in result
 
-    def test_usd_denominated_row_excluded_not_converted(self, db) -> None:
-        """it_exchangetobranchcurrency IS NULL => USD row, excluded and never converted."""
-        _insert_transaction(db, it_transaction=6, item_id=104, it_priceofcostpp=999.0, it_exchangetobranchcurrency=None)
+    def test_decoy_rows_in_other_coslis_ids_never_win_over_principal(self, db) -> None:
+        _insert_history(db, iclh_id=20, item_id=109, coslis_id=7, iclh_price_aw=77.0, iclh_cd=datetime(2026, 5, 1))
+        _insert_history(db, iclh_id=21, item_id=109, coslis_id=8, iclh_price_aw=88.0, iclh_cd=datetime(2026, 5, 1))
+        _insert_history(db, iclh_id=22, item_id=109, coslis_id=1, iclh_price_aw=38.4, iclh_cd=datetime(2026, 4, 1))
+
+        result = resolver_ppp_batch(db, [109])
+
+        assert result[109].costo_ppp == 38.4
+
+    def test_null_price_aw_excluded(self, db) -> None:
+        _insert_history(db, iclh_id=6, item_id=104, iclh_price_aw=None)
 
         result = resolver_ppp_batch(db, [104])
 
         assert 104 not in result
 
-    def test_rma_linked_row_excluded(self, db) -> None:
-        _insert_transaction(db, it_transaction=7, item_id=105, it_priceofcostpp=999.0, rmah_id=42)
-
-        result = resolver_ppp_batch(db, [105])
-
-        assert 105 not in result
-
-    def test_supplier_credit_note_row_excluded(self, db) -> None:
-        _insert_transaction(db, it_transaction=8, item_id=106, it_priceofcostpp=999.0, it_isrmasuppliercreditnote=True)
-
-        result = resolver_ppp_batch(db, [106])
-
-        assert 106 not in result
-
-    def test_non_positive_priceofcostpp_excluded(self, db) -> None:
-        _insert_transaction(db, it_transaction=9, item_id=107, it_priceofcostpp=0.0)
+    def test_non_positive_price_aw_excluded(self, db) -> None:
+        _insert_history(db, iclh_id=7, item_id=107, iclh_price_aw=0.0)
 
         result = resolver_ppp_batch(db, [107])
 
         assert 107 not in result
 
     def test_batch_resolves_multiple_items_in_one_call(self, db) -> None:
-        _insert_transaction(db, it_transaction=10, item_id=201, it_priceofcostpp=50.0)
-        _insert_transaction(db, it_transaction=11, item_id=202, it_priceofcostpp=75.0)
+        _insert_history(db, iclh_id=8, item_id=201, iclh_price_aw=50.0)
+        _insert_history(db, iclh_id=9, item_id=202, iclh_price_aw=75.0)
 
         result = resolver_ppp_batch(db, [201, 202, 203])
 
@@ -120,13 +134,11 @@ class TestRowSelection:
         assert 203 not in result
 
     def test_more_than_900_item_ids_does_not_blow_sqlite_variable_limit(self, db) -> None:
-        """Fix-round finding 3: `item_id.in_(item_ids)` must be chunked (900,
-        matching `batch_colores`'s SQLite/PostgreSQL param-limit chunking) —
-        `page_size` allows up to 10000, and an unchunked IN clause with that
-        many bind params trips SQLite's default 999-variable limit."""
+        """`item_id.in_(item_ids)` must be chunked (900, matching
+        `batch_colores`'s SQLite/PostgreSQL param-limit chunking)."""
         item_ids = list(range(1000, 2000))  # 1000 ids -> 2 chunks at size 900
         for i, item_id in enumerate(item_ids[:3]):
-            _insert_transaction(db, it_transaction=100 + i, item_id=item_id, it_priceofcostpp=float(item_id))
+            _insert_history(db, iclh_id=100 + i, item_id=item_id, iclh_price_aw=float(item_id))
 
         result = resolver_ppp_batch(db, item_ids)
 
@@ -170,9 +182,7 @@ class TestPppMarkupsScaling:
     """REQ-5: record() scaling must match the site it shadows."""
 
     def test_percent_true_scales_and_rounds_like_percent_sites(self) -> None:
-        from datetime import date
-
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc.record("pvp", 150.0)  # calcular_markup(150, 100) = 0.5 -> * 100 = 50.0
 
         payload = acc.payload()
@@ -181,9 +191,7 @@ class TestPppMarkupsScaling:
         assert payload.markups["pvp"] == 50.0
 
     def test_percent_false_keeps_raw_ratio_for_mejor_oferta(self) -> None:
-        from datetime import date
-
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc.record("mejor_oferta", 150.0, percent=False)  # calcular_markup(150, 100) = 0.5
 
         payload = acc.payload()
@@ -191,34 +199,32 @@ class TestPppMarkupsScaling:
         assert payload is not None
         assert payload.markups["mejor_oferta"] == 0.5
 
-    def test_payload_carries_source_date_whenever_costo_ppp_present(self) -> None:
-        from datetime import date
-
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15)))
+    def test_payload_carries_source_date_and_moneda_whenever_costo_ppp_present(self) -> None:
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15)), moneda_costo="USD")
         payload = acc.payload()
 
         assert payload is not None
         assert payload.fecha == date(2024, 3, 15)
         assert payload.costo == 100.0
+        assert payload.moneda == "USD"
 
 
 class TestConstructorPreventsInvalidState:
-    """Fix-round finding 2: costo_ppp set with fecha=None must be unrepresentable.
+    """costo_ppp set with fecha=None must be unrepresentable.
 
-    Before the fix, `PppMarkups.__init__` took two independent optional
-    params, so a caller could pass `costo_ppp=100.0, costo_ppp_fecha=None`;
-    `payload()` only guarded on `costo_ppp is None`, so it would build
+    `payload()` only guards on `costo_ppp is None`, so it would build
     `PppPayload(fecha=None)` — a non-optional field — and Pydantic would
-    raise `ValidationError` (surfacing as an HTTP 500 on a hot endpoint).
-    Constructing from a single `Optional[PppSource]` makes this state
-    unreachable: `PppSource` always carries both fields together.
+    raise `ValidationError` (surfacing as an HTTP 500 on a hot endpoint) if
+    that state were reachable. Constructing from a single `Optional[PppSource]`
+    makes this state unreachable: `PppSource` always carries both fields
+    together.
     """
 
     def test_constructor_only_accepts_a_single_optional_source(self) -> None:
         acc_empty = PppMarkups(None)
         assert acc_empty.payload() is None
 
-        acc_full = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)))
+        acc_full = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc_full.record("pvp", 150.0)
         payload = acc_full.payload()
 
@@ -227,255 +233,176 @@ class TestConstructorPreventsInvalidState:
         assert payload.fecha == date(2026, 1, 1)
 
     def test_no_positional_two_arg_signature_is_accepted(self) -> None:
-        """The old `(costo_ppp, costo_ppp_fecha)` signature must be gone —
-        passing a bare float positionally must fail (TypeError from record()
-        trying to read .costo_ppp off a float), proving the type no longer
-        permits a same-shaped invalid two-arg call to silently succeed."""
-        import pytest
-
+        """Passing a bare float positionally must fail (AttributeError from
+        record()/init trying to read .costo_ppp off a float)."""
         with pytest.raises(AttributeError):
             PppMarkups(100.0)  # not a PppSource -> .costo_ppp access fails
 
 
-@pytest.mark.postgres
-class TestResolverAgainstRealPostgres:
-    """Proves the actual LATERAL fast path (see costo_ppp_service module
-    docstring for the production EXPLAIN ANALYZE numbers that motivated it).
+class TestMarkupCurrencyConversion:
+    """`moneda_costo` never leaks into `payload().costo` (display), but IS
+    used to convert to ARS internally for the markup formula — see
+    `costo_ppp_service` module docstring's "Currency" section."""
 
-    `db` (SQLite in-memory) exercises the portable ROW_NUMBER() fallback,
-    which every other test class in this file already covers. These tests
-    run the exact same resolver against a real PostgreSQL instance (`pg_db`
-    fixture, tests/conftest.py) so the LATERAL branch itself — not just its
-    fallback — is under test in CI.
-    """
-
-    def _insert(self, pg_db, **overrides) -> None:
-        defaults = dict(
-            it_transaction=None,
-            ct_transaction=1,
-            item_id=1,
-            it_priceofcostpp=100.0,
-            it_cancelled=False,
-            it_exchangetobranchcurrency=1.0,
-            rmah_id=None,
-            it_isrmasuppliercreditnote=False,
-            it_cd=datetime(2026, 1, 1),
-        )
-        defaults.update(overrides)
-        pg_db.add(ItemTransaction(**defaults))
-        pg_db.flush()
-
-    def test_latest_row_wins_via_lateral(self, pg_db) -> None:
-        self._insert(pg_db, it_transaction=1, item_id=301, it_priceofcostpp=100.0, it_cd=datetime(2025, 1, 1))
-        self._insert(pg_db, it_transaction=2, item_id=301, it_priceofcostpp=300.0, it_cd=datetime(2026, 6, 1))
-        self._insert(pg_db, it_transaction=3, item_id=301, it_priceofcostpp=200.0, it_cd=datetime(2025, 6, 1))
-
-        result = resolver_ppp_batch(pg_db, [301])
-
-        assert result[301].costo_ppp == 300.0
-        assert result[301].costo_ppp_fecha == datetime(2026, 6, 1).date()
-
-    def test_row_selection_predicate_holds_under_lateral(self, pg_db) -> None:
-        self._insert(pg_db, it_transaction=10, item_id=302, it_priceofcostpp=999.0, it_cancelled=True)
-        self._insert(pg_db, it_transaction=11, item_id=303, it_priceofcostpp=999.0, it_exchangetobranchcurrency=None)
-        self._insert(pg_db, it_transaction=12, item_id=304, it_priceofcostpp=999.0, rmah_id=42)
-        self._insert(pg_db, it_transaction=13, item_id=305, it_priceofcostpp=999.0, it_isrmasuppliercreditnote=True)
-        self._insert(pg_db, it_transaction=14, item_id=306, it_priceofcostpp=0.0)
-        self._insert(pg_db, it_transaction=15, item_id=307, it_priceofcostpp=150.0)
-
-        result = resolver_ppp_batch(pg_db, [302, 303, 304, 305, 306, 307])
-
-        assert result == {307: PppSource(costo_ppp=150.0, costo_ppp_fecha=datetime(2026, 1, 1).date())}
-
-    @pytest.mark.parametrize("page_size", [1, 100])
-    def test_exactly_one_query_regardless_of_page_size(self, pg_db, page_size: int) -> None:
-        item_ids = list(range(400, 400 + page_size))
-        for i, item_id in enumerate(item_ids):
-            self._insert(pg_db, it_transaction=1000 + i, item_id=item_id, it_priceofcostpp=float(item_id))
-
-        statements: list[str] = []
-
-        def _listen(conn, cursor, statement, parameters, context, executemany):
-            statements.append(statement)
-
-        sa.event.listen(pg_db.connection(), "before_cursor_execute", _listen)
-        try:
-            result = resolver_ppp_batch(pg_db, item_ids)
-        finally:
-            sa.event.remove(pg_db.connection(), "before_cursor_execute", _listen)
-
-        assert len(statements) == 1
-        assert len(result) == page_size
-
-    def test_more_than_900_item_ids_chunks_correctly_under_postgres(self, pg_db) -> None:
-        item_ids = list(range(2000, 3000))  # 1000 ids -> 2 chunks at size 900
-        for i, item_id in enumerate(item_ids[:3]):
-            self._insert(pg_db, it_transaction=2000 + i, item_id=item_id, it_priceofcostpp=float(item_id))
-
-        result = resolver_ppp_batch(pg_db, item_ids)
-
-        assert result[item_ids[0]].costo_ppp == float(item_ids[0])
-        assert result[item_ids[1]].costo_ppp == float(item_ids[1])
-        assert result[item_ids[2]].costo_ppp == float(item_ids[2])
-        assert len(result) == 3
-
-
-# ---------------------------------------------------------------------------
-# Dialect equivalence — the single shared dataset both branches must agree on
-# ---------------------------------------------------------------------------
-#
-# `resolver_ppp_batch` now has TWO independent implementations
-# (`_build_lateral_stmt` for PostgreSQL, `_build_row_number_stmt` for every
-# other dialect, notably SQLite in the rest of this suite). Nothing besides
-# this test structurally guarantees they agree — each is otherwise exercised
-# by a separate test class, against similar but not identical data. If they
-# ever diverge, the LATERAL branch (the one that actually runs in production)
-# is exactly the one with the least dedicated coverage, so a divergence would
-# surface in production, not CI. This dataset is defined ONCE and fed to both
-# branches so any real divergence is exposed here, not silently accommodated.
-
-_EQUIVALENCE_DATASET = [
-    # item_id 601: single qualifying row.
-    dict(it_transaction=6001, item_id=601, it_priceofcostpp=111.0, it_cd=datetime(2026, 1, 5)),
-    # item_id 602: several qualifying rows with distinct it_cd -> latest wins.
-    dict(it_transaction=6002, item_id=602, it_priceofcostpp=100.0, it_cd=datetime(2025, 1, 1)),
-    dict(it_transaction=6003, item_id=602, it_priceofcostpp=300.0, it_cd=datetime(2026, 6, 1)),
-    dict(it_transaction=6004, item_id=602, it_priceofcostpp=200.0, it_cd=datetime(2025, 6, 1)),
-    # item_id 603: cancelled row excluded.
-    dict(it_transaction=6005, item_id=603, it_priceofcostpp=999.0, it_cancelled=True),
-    # item_id 604: USD-denominated row excluded (it_exchangetobranchcurrency NULL), not converted.
-    dict(it_transaction=6006, item_id=604, it_priceofcostpp=999.0, it_exchangetobranchcurrency=None),
-    # item_id 605: RMA-linked row excluded.
-    dict(it_transaction=6007, item_id=605, it_priceofcostpp=999.0, rmah_id=42),
-    # item_id 606: supplier credit note excluded.
-    dict(it_transaction=6008, item_id=606, it_priceofcostpp=999.0, it_isrmasuppliercreditnote=True),
-    # item_id 607: non-positive it_priceofcostpp excluded.
-    dict(it_transaction=6009, item_id=607, it_priceofcostpp=0.0),
-    # item_id 608: EXACT it_cd tie between two qualifying rows -> the tiebreak
-    # (it_transaction DESC) must make both branches agree deterministically.
-    # If either branch ever drops that tiebreak, this is where it would show.
-    dict(it_transaction=6010, item_id=608, it_priceofcostpp=400.0, it_cd=datetime(2026, 3, 1)),
-    dict(it_transaction=6011, item_id=608, it_priceofcostpp=500.0, it_cd=datetime(2026, 3, 1)),
-    # item_id 609: no row at all for this item_id (absent from the dataset;
-    # included in the queried item_ids list below to prove absence-agreement).
-]
-
-_EQUIVALENCE_ITEM_IDS = [601, 602, 603, 604, 605, 606, 607, 608, 609]
-
-
-def _seed_equivalence_dataset(session) -> None:
-    defaults = dict(
-        ct_transaction=1,
-        it_cancelled=False,
-        it_exchangetobranchcurrency=1.0,
-        rmah_id=None,
-        it_isrmasuppliercreditnote=False,
-        it_cd=datetime(2026, 1, 1),
-    )
-    for row in _EQUIVALENCE_DATASET:
-        merged = {**defaults, **row}
-        session.add(ItemTransaction(**merged))
-    session.commit()
-
-
-@pytest.mark.postgres
-class TestResolverDialectEquivalence:
-    """Both resolver branches must agree, row for row, on the exact same dataset.
-
-    `db` (SQLite) exercises `_build_row_number_stmt`; `pg_db` (real
-    PostgreSQL) exercises `_build_lateral_stmt`. Same `_EQUIVALENCE_DATASET`,
-    same `item_ids`, asserted to produce identical `{item_id: PppSource}`
-    dicts — including the exact-`it_cd`-tie case (item_id 608), which is the
-    one scenario where LATERAL's `LIMIT 1` and `ROW_NUMBER()` could plausibly
-    disagree without a deterministic secondary tiebreak.
-    """
-
-    def test_sqlite_and_postgres_resolve_identically(self, db, pg_db) -> None:
-        _seed_equivalence_dataset(db)
-        _seed_equivalence_dataset(pg_db)
-
-        sqlite_result = resolver_ppp_batch(db, _EQUIVALENCE_ITEM_IDS)
-        postgres_result = resolver_ppp_batch(pg_db, _EQUIVALENCE_ITEM_IDS)
-
-        assert sqlite_result.keys() == postgres_result.keys()
-        for item_id in sqlite_result:
-            assert sqlite_result[item_id].costo_ppp == postgres_result[item_id].costo_ppp, item_id
-            assert sqlite_result[item_id].costo_ppp_fecha == postgres_result[item_id].costo_ppp_fecha, item_id
-
-        # Pin down the expected values explicitly too, not just cross-equality
-        # (two branches could agree on a value that is itself wrong).
-        assert 603 not in sqlite_result and 603 not in postgres_result
-        assert 604 not in sqlite_result and 604 not in postgres_result
-        assert 605 not in sqlite_result and 605 not in postgres_result
-        assert 606 not in sqlite_result and 606 not in postgres_result
-        assert 607 not in sqlite_result and 607 not in postgres_result
-        assert 609 not in sqlite_result and 609 not in postgres_result
-        assert sqlite_result[601].costo_ppp == 111.0
-        assert sqlite_result[602].costo_ppp == 300.0
-        # Tie on it_cd -> highest it_transaction (6011, costo 500.0) wins on both branches.
-        assert sqlite_result[608].costo_ppp == 500.0
-        assert postgres_result[608].costo_ppp == 500.0
-
-
-class TestPppMarkupsDisplayCurrency:
-    """Display-only currency mirror of `costo` (T-display-fix, 2026-07-28):
-    `costo_display`/`costo_display_moneda` let the frontend show the PPP cost
-    in the SAME currency as the product's list cost, without touching the
-    ARS `costo` that markups are derived from."""
-
-    def test_usd_moneda_costo_with_rate_converts_display_only(self) -> None:
+    def test_ars_moneda_costo_needs_no_conversion_for_markup(self) -> None:
         acc = PppMarkups(
-            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
-            moneda_costo="USD",
-            tipo_cambio=1000.0,
-        )
-        acc.record("clasica", 1300.0)
-        payload = acc.payload()
-
-        assert payload is not None
-        assert payload.costo == 1000.0  # ARS ground truth untouched
-        assert payload.costo_display == 1.0  # 1000 ARS / 1000 tipo_cambio
-        assert payload.costo_display_moneda == "USD"
-        # Markup derivation must still use the ARS costo, never costo_display.
-        assert payload.markups["clasica"] == round(((1300.0 / 1000.0) - 1) * 100, 2)
-
-    def test_ars_moneda_costo_never_converts(self) -> None:
-        acc = PppMarkups(
-            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
             moneda_costo="ARS",
             tipo_cambio=1000.0,  # present but irrelevant when moneda_costo is ARS
         )
+        acc.record("clasica", 150.0)
+
         payload = acc.payload()
-
         assert payload is not None
-        assert payload.costo_display == 1000.0
-        assert payload.costo_display_moneda == "ARS"
+        assert payload.costo == 100.0  # display: untouched
+        assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
 
-    def test_missing_exchange_rate_falls_back_to_ars_labelling(self) -> None:
+    def test_usd_moneda_costo_is_converted_to_ars_only_for_the_markup_formula(self) -> None:
         acc = PppMarkups(
-            PppSource(costo_ppp=1000.0, costo_ppp_fecha=date(2026, 1, 1)),
+            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="USD",
+            tipo_cambio=1000.0,
+        )
+        acc.record("clasica", 1500.0)  # limpio in ARS
+
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.costo == 1.0  # display: NEVER converted
+        assert payload.moneda == "USD"
+        # Markup uses costo converted to ARS (1.0 * 1000.0 = 1000.0 ARS).
+        assert payload.markups["clasica"] == round(((1500.0 / 1000.0) - 1) * 100, 2)
+
+    def test_usd_moneda_costo_without_tipo_cambio_fails_closed_no_markup_emitted(self) -> None:
+        """Fail-closed guard — see module docstring's "Currency" section for
+        the full rationale (why the naive fallback would silently produce a
+        ~149,900%-shaped markup)."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1)),
             moneda_costo="USD",
             tipo_cambio=None,
         )
+        acc.record("clasica", 1500.0)
+
         payload = acc.payload()
-
         assert payload is not None
-        assert payload.costo_display == 1000.0  # never a mislabelled USD figure
-        assert payload.costo_display_moneda == "ARS"
+        assert "clasica" not in payload.markups  # no fabricated markup
 
-    def test_no_source_yields_no_payload_regardless_of_currency_args(self) -> None:
-        acc = PppMarkups(None, moneda_costo="USD", tipo_cambio=1000.0)
-        assert acc.payload() is None
+    def test_usd_moneda_costo_without_tipo_cambio_still_shows_costo_and_moneda(self) -> None:
+        """The fail-closed behaviour is scoped to MARKUPS only: the PPP cost
+        itself does not depend on today's exchange rate (it's shown as-is,
+        never converted — see class docstring), so `payload()` must still
+        surface `costo`/`moneda` even when no markup could be computed."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=38.4, costo_ppp_fecha=date(2026, 7, 23)),
+            moneda_costo="USD",
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 1500.0)
 
-    def test_markup_percentages_identical_with_and_without_display_conversion(self) -> None:
-        """The conversion must never leak into any markup percentage."""
-        source = PppSource(costo_ppp=850.0, costo_ppp_fecha=date(2026, 1, 1))
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.costo == 38.4
+        assert payload.moneda == "USD"
+        assert payload.fecha == date(2026, 7, 23)
+        assert payload.markups == {}
 
-        acc_ars = PppMarkups(source, moneda_costo="ARS", tipo_cambio=None)
-        acc_usd = PppMarkups(source, moneda_costo="USD", tipo_cambio=1200.0)
+    def test_ars_moneda_costo_still_computes_markups_without_any_tipo_cambio(self) -> None:
+        """The fail-closed guard must not regress the ARS path: ARS needs no
+        conversion at all, so a missing `tipo_cambio` is irrelevant and
+        markups are computed normally."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="ARS",
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 150.0)
 
-        for acc in (acc_ars, acc_usd):
-            acc.record("clasica", 1105.0)
-            acc.record("mejor_oferta", 1200.0, percent=False)
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
 
-        assert acc_ars.payload().markups == acc_usd.payload().markups
+    def test_null_moneda_costo_normalizes_to_ars_instead_of_reaching_payload_or_conversion(self) -> None:
+        """Null-safety (pre-push review, 2026-07-29):
+        `ProductoERP.moneda_costo` has no `nullable=False`, so a raw
+        upsert/sync can leave it `NULL` — a caller could then pass
+        `moneda_costo=None`. Before this guard, `None` would reach
+        `PppPayload.moneda` (non-optional `str`) and raise a
+        `ValidationError`/500 for the WHOLE `/api/productos` page, not just
+        one product. `PppMarkups` normalizes `None` to `"ARS"` at
+        construction — payload construction must not raise, and (since ARS
+        needs no conversion) the markup must compute normally, exactly like
+        an explicit `moneda_costo="ARS"` would."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo=None,
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 150.0)
+
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.moneda == "ARS"
+        assert payload.costo == 100.0
+        assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
+
+
+class TestPinnedAgainstKnownErpValue:
+    """Regression test that would have caught the original bug (see module
+    docstring's "What went wrong").
+
+    The shipped feature read `ItemTransaction.it_priceofcostpp`, which is
+    NOT what the GBP ERP "Costo PPP" screen shows — it shipped a
+    plausible-but-wrong number for months because nothing pinned it to a
+    known ERP value. This test fixtures a product modelled on real item 1169
+    (ROUTER TP LINK OMADA ER605): list cost 42.99 USD, GBP's ERP screen shows
+    "Costo PPP" = 38.00, and `iclh_price_aw` for the correct row
+    (coslis_id=1, 2026-07-23) is 38.402760 — decoy rows exist in coslis_id 7
+    and 8, plus an OLDER coslis_id=1 row, none of which must ever win.
+    """
+
+    def test_resolver_matches_gbp_screen_value_for_item_1169_fixture(self, db) -> None:
+        # Older coslis_id=1 row — must lose to the newer one below.
+        _insert_history(
+            db,
+            iclh_id=116901,
+            item_id=1169,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price_aw=35.0,
+            iclh_cd=datetime(2026, 6, 1),
+        )
+        # Decoys in other cost lists — must never be selected regardless of date.
+        _insert_history(
+            db,
+            iclh_id=116902,
+            item_id=1169,
+            coslis_id=7,
+            curr_id=2,
+            iclh_price_aw=71.68,
+            iclh_cd=datetime(2026, 7, 24),
+        )
+        _insert_history(
+            db,
+            iclh_id=116903,
+            item_id=1169,
+            coslis_id=8,
+            curr_id=2,
+            iclh_price_aw=47.16,
+            iclh_cd=datetime(2026, 7, 24),
+        )
+        # The row GBP's screen actually derives its "Costo PPP" from.
+        _insert_history(
+            db,
+            iclh_id=116904,
+            item_id=1169,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price_aw=38.402760,
+            iclh_cd=datetime(2026, 7, 23),
+        )
+
+        result = resolver_ppp_batch(db, [1169])
+
+        assert 1169 in result
+        assert result[1169].costo_ppp == pytest.approx(38.402760)
+        assert result[1169].costo_ppp_fecha == date(2026, 7, 23)

@@ -337,6 +337,38 @@ each:
 - [ ] TF.3 Update `openspec/changes/productos-costo-ppp/design.md` Open Questions — check off
       "whether the composite index is needed" with the EXPLAIN evidence link once T1.17 resolves.
 
+## Source correction round (2026-07-29, branch `fix/productos-ppp-fuente-aw`)
+
+- [x] TC.1 Verified (against production data + the live GBP ERP "Costo PPP" screen, item 1169) that
+      the shipped source `ItemTransaction.it_priceofcostpp` is WRONG — systematically inflated
+      (~24%+ on the pinned example). Corrected source: `ItemCostListHistory.iclh_price_aw`,
+      `coslis_id=1`, latest `iclh_cd`, tiebreak `iclh_id DESC`.
+- [x] TC.2 Removed the invalid ARS→USD-via-today's-rate "display conversion"
+      (`costo_display`/`costo_display_moneda`, added 2026-07-28) — display now always shows the
+      aw's OWN currency (`moneda`, curr_id-derived), never converted. Conversion to ARS still
+      happens, but only internally as `calcular_markup`'s cost input.
+- [x] TC.3 Dropped the LATERAL/`ROW_NUMBER()` dialect branching entirely — single portable
+      `ROW_NUMBER()` formulation for every dialect; `tb_item_cost_list_history` has no equivalent
+      composite index and is much smaller than `tb_item_transactions`, so the LATERAL fast path's
+      rationale doesn't carry over. `ix_tit_item_cd_desc` flagged as likely unused by this feature
+      now, intentionally NOT dropped (separate decision).
+- [x] TC.4 Rewrote `backend/tests/unit/test_costo_ppp_service.py` (23 tests) and
+      `backend/tests/integration/test_productos_ppp.py` fixtures (`ItemTransaction` →
+      `ItemCostListHistory`) for the new source; added `TestPinnedAgainstKnownErpValue` regression
+      test pinning an item-1169-modelled fixture to 38.402760 USD (decoys in other cost lists must
+      never win).
+- [x] TC.5 Updated `frontend/src/components/PppLine.jsx` + `.test.jsx` for the new payload shape
+      (`costo`/`moneda`/`fecha`/`markups`, no `costo_display*`).
+- [x] TC.6 Verified sync cadence: `tb_item_cost_list_history` is synced by
+      `sync_item_cost_history.n_incremental` every 5 minutes
+      (`backend/RELEVAMIENTO_GBP_PARSER_COMPLETO.md`) — not stale.
+- [x] TC.7 Appended "SOURCE CORRECTION" sections to `exploration.md` and `design.md` (historical
+      content preserved, not deleted) documenting the wrong field, why it looked plausible, and what
+      check would have caught it.
+- [x] TC.8 Full backend suite: 3756 passed / 16 skipped (baseline on this branch: 3761/16 — the -5
+      is fully explained by intentionally deleting 6 now-inapplicable postgres dialect-equivalence
+      tests, net +1 new test). Frontend: 436 passed. `ruff format`/`check` clean.
+
 ## Review Workload Forecast
 
 | Slice | Est. changed lines | Rationale |

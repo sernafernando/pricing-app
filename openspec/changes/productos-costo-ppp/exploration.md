@@ -175,3 +175,62 @@ worth considering.
 Ready for proposal. Source, currency, row-selection rule, field semantics, derivation approach and
 coverage are all settled against production data. The two remaining questions are design tradeoffs,
 not blockers.
+
+---
+
+## SOURCE CORRECTION (2026-07-29) — everything above this line described the WRONG field
+
+Post-ship verification against the live GBP ERP screen (the "Costo PPP" column) proved that
+**`ItemTransaction.it_priceofcostpp` is NOT the ERP's weighted-average cost**. The correct source is
+`ItemCostListHistory.iclh_price_aw` (`backend/app/models/item_cost_list_history.py:26`, whose own model
+comment already read "Costo promedio ponderado" — this file never checked it).
+
+Evidence, item 1169 (ROUTER TP LINK OMADA ER605), USD list cost 42.99, TC venta 1520:
+
+| field | value | matches GBP screen (38.00)? |
+|---|---|---|
+| GBP "Costo PPP" column | 38.00 | — |
+| `iclh_price_aw` (`coslis_id=1`, `curr_id=2`/USD, 2026-07-23) | 38.402760 | yes |
+| `it_priceofcostpp` (shipped) | 71680.46 ARS / 1520 = 47.16 | no (~24% inflated) |
+
+Across 2108 comparable products: `iclh_price_aw` matches `it_pricebofcostpp` (the "before" field, NOT
+the one this document recommended) within 2% in 603 cases, but matches the field actually shipped
+(`it_priceofcostpp`) in only 83.
+
+### What went wrong
+
+The identification above was based on:
+1. The field NAME being plausible ("PP" = *precio ponderado*).
+2. Internal consistency: the sync existed, the field was dormant/unread, and the `pp > bpp` drift
+   statistic (§ "Row selection rule") was self-consistent with "current vs previous cost".
+
+**It was never checked against a live ERP screen value** — the one check that would have caught the
+mismatch immediately, before any code shipped. Order-of-magnitude plausibility and internal statistical
+consistency are necessary but not sufficient: a wrong field can still look internally coherent if the
+underlying ERP computation (list-cost-based cost-of-goods vs true weighted-average purchase cost) is
+merely a *different*, equally well-behaved number.
+
+### Corrected facts
+
+- **Source**: `ItemCostListHistory.iclh_price_aw`, filtered to `coslis_id = 1` (the main cost list —
+  the one whose `coslis_price` equals `productos_erp.costo`), `iclh_price_aw IS NOT NULL AND
+  iclh_price_aw > 0`, latest `iclh_cd` wins, tiebreak on `iclh_id DESC` (the real, unique,
+  monotonically-increasing surrogate key — mirrors the `it_transaction DESC` tiebreak this document's
+  row-selection rule used for the old table).
+- **Currency**: `iclh_price_aw` is in the cost list's OWN currency (`curr_id`; ERP convention 1=ARS,
+  2=USD), the SAME currency as `producto_erp.costo`. It is **never converted for display** — a
+  historical weighted average built from purchases at many different historical exchange rates cannot
+  be reconstructed by dividing by today's rate (the previous implementation's ARS→USD-via-today's-rate
+  "display" conversion, added in a later fix round, was itself a second, conceptually invalid bug).
+  Conversion to ARS IS still needed, but only as an internal input to the markup formula
+  (`calcular_markup(limpio, costo_ppp_ars)`, since `limpio` is always ARS) — never leaked back into the
+  displayed figure.
+- **Coverage**: ~77.5% of products (3215/4150) now qualify, up from the ~50% this document reported for
+  the old field.
+- **Sync**: `tb_item_cost_list_history` is synced by `sync_item_cost_history.n_incremental` every 5
+  minutes (`backend/RELEVAMIENTO_GBP_PARSER_COMPLETO.md`: "tbItemCostListHistory | n_incremental | 5 min
+  | ✅"), the same cadence this document already relied on for `tb_item_transactions` — no staleness
+  regression.
+- **Row-selection rule, currency anomaly analysis, and "denormalize vs live-join" tradeoff above this
+  line are HISTORICAL and describe the wrong field.** They are left in place (not deleted) as the
+  record of what was investigated and why it was wrong, not as current guidance.

@@ -23,15 +23,16 @@ from datetime import date, datetime
 import pytest
 
 from app.models.comision_versionada import ComisionBase, ComisionVersion
-from app.models.item_transaction import ItemTransaction
+from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tipo_cambio import TipoCambio
 
 # Force-register ERP stub models in Base.metadata (only imported inside
 # endpoint function bodies otherwise) — mirrors test_productos_detail_envio.py.
-import app.models.item_transaction  # noqa: F401
+import app.models.item_cost_list_history  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
+import app.models.precio_gremio_override  # noqa: F401 (only imported inside listar_productos_tienda otherwise)
 
 
 def _guard_incompatible_raw_sql(db):
@@ -99,18 +100,16 @@ def producto_con_todas_las_cuotas(db, comision_fixtures) -> ProductoERP:
     )
     db.add(pricing)
 
-    txn = ItemTransaction(
-        it_transaction=90101,
-        ct_transaction=1,
+    row = ItemCostListHistory(
+        iclh_id=90101,
+        coslis_id=1,
         item_id=p.item_id,
-        it_priceofcostpp=85.0,
-        it_cancelled=False,
-        it_exchangetobranchcurrency=1.0,
-        rmah_id=None,
-        it_isrmasuppliercreditnote=False,
-        it_cd=datetime(2026, 2, 14),
+        iclh_price=85.0,
+        iclh_price_aw=85.0,
+        curr_id=1,
+        iclh_cd=datetime(2026, 2, 14),
     )
-    db.add(txn)
+    db.add(row)
     db.flush()
     return p
 
@@ -147,18 +146,16 @@ def producto_con_ppp(db) -> ProductoERP:
     db.add(p)
     db.flush()
 
-    txn = ItemTransaction(
-        it_transaction=90001,
-        ct_transaction=1,
+    row = ItemCostListHistory(
+        iclh_id=90001,
+        coslis_id=1,
         item_id=p.item_id,
-        it_priceofcostpp=8500.0,
-        it_cancelled=False,
-        it_exchangetobranchcurrency=1.0,
-        rmah_id=None,
-        it_isrmasuppliercreditnote=False,
-        it_cd=datetime(2026, 2, 14),
+        iclh_price=8500.0,
+        iclh_price_aw=8500.0,
+        curr_id=1,
+        iclh_cd=datetime(2026, 2, 14),
     )
-    db.add(txn)
+    db.add(row)
     db.flush()
     return p
 
@@ -268,8 +265,9 @@ class TestQualifyingRowSurfacesPpp:
 
 @pytest.fixture()
 def producto_con_ppp_usd(db) -> ProductoERP:
-    """Same shape as `producto_con_ppp` but `moneda_costo="USD"`, so the PPP
-    display-currency conversion (T-display-fix) has something to convert."""
+    """USD-costed product with a matching USD-denominated PPP row (reflects
+    production reality — see `costo_ppp_service` module docstring's
+    "Currency" section)."""
     p = ProductoERP(
         item_id=9103,
         codigo="TEST-PPP-USD",
@@ -283,29 +281,25 @@ def producto_con_ppp_usd(db) -> ProductoERP:
     db.add(p)
     db.flush()
 
-    txn = ItemTransaction(
-        it_transaction=90002,
-        ct_transaction=1,
+    row = ItemCostListHistory(
+        iclh_id=90002,
+        coslis_id=1,
         item_id=p.item_id,
-        it_priceofcostpp=8500.0,
-        it_cancelled=False,
-        it_exchangetobranchcurrency=1.0,
-        rmah_id=None,
-        it_isrmasuppliercreditnote=False,
-        it_cd=datetime(2026, 2, 14),
+        iclh_price=8.5,
+        iclh_price_aw=8.5,
+        curr_id=2,
+        iclh_cd=datetime(2026, 2, 14),
     )
-    db.add(txn)
+    db.add(row)
     db.flush()
     return p
 
 
-class TestPppDisplayCurrency:
-    """PPP cost must be displayed in the SAME currency as the product's list
-    cost (T-display-fix, 2026-07-28) — the ARS `costo` stays the source of
-    truth for markups, `costo_display`/`costo_display_moneda` are the
-    display-only mirror."""
+class TestPppDisplayMonedaMatchesMonedaCosto:
+    """PPP cost is displayed in `producto_erp.moneda_costo`, never converted
+    — see `costo_ppp_service` module docstring's "Currency" section for why."""
 
-    def test_usd_moneda_costo_exposes_converted_display_amount(self, client, auth_headers, db, producto_con_ppp_usd):
+    def test_usd_moneda_costo_is_never_converted_for_display(self, client, auth_headers, db, producto_con_ppp_usd):
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
         db.commit()
 
@@ -315,11 +309,10 @@ class TestPppDisplayCurrency:
         data = response.json()
 
         assert data["ppp"] is not None
-        assert data["ppp"]["costo"] == 8500.0  # ARS ground truth unchanged
-        assert data["ppp"]["costo_display"] == 8.5  # 8500 ARS / 1000 tipo_cambio
-        assert data["ppp"]["costo_display_moneda"] == "USD"
+        assert data["ppp"]["costo"] == 8.5  # own currency, untouched
+        assert data["ppp"]["moneda"] == "USD"
 
-    def test_ars_moneda_costo_never_converts(self, client, auth_headers, db, producto_con_ppp):
+    def test_ars_moneda_costo_is_labelled_ars(self, client, auth_headers, db, producto_con_ppp):
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
         db.commit()
 
@@ -328,18 +321,23 @@ class TestPppDisplayCurrency:
         assert response.status_code == 200, response.text
         data = response.json()
 
-        assert data["ppp"]["costo_display"] == 8500.0
-        assert data["ppp"]["costo_display_moneda"] == "ARS"
+        assert data["ppp"]["costo"] == 8500.0
+        assert data["ppp"]["moneda"] == "ARS"
 
-    def test_missing_exchange_rate_falls_back_to_ars_labelling(self, client, auth_headers, producto_con_ppp_usd):
-        """No TipoCambio row at all: never a mislabelled USD figure."""
+    def test_usd_moneda_costo_display_unaffected_by_missing_exchange_rate(
+        self, client, auth_headers, producto_con_ppp_usd
+    ):
+        """No TipoCambio row at all: display is unaffected either way, since
+        it is never converted in the first place (only markups need the
+        rate, and only when moneda_costo is not ARS — see
+        TestClasicaMarkupFailsClosedOnMissingRate below)."""
         response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
 
         assert response.status_code == 200, response.text
         data = response.json()
 
-        assert data["ppp"]["costo_display"] == 8500.0
-        assert data["ppp"]["costo_display_moneda"] == "ARS"
+        assert data["ppp"]["costo"] == 8.5
+        assert data["ppp"]["moneda"] == "USD"
 
 
 class TestClasicaMarkupPpp:
@@ -551,16 +549,14 @@ class TestMejorOfertaKeyCorrespondsToDisplayedValue:
             )
         )
         db.add(
-            ItemTransaction(
-                it_transaction=94011,
-                ct_transaction=1,
+            ItemCostListHistory(
+                iclh_id=94011,
+                coslis_id=1,
                 item_id=p.item_id,
-                it_priceofcostpp=8500.0,
-                it_cancelled=False,
-                it_exchangetobranchcurrency=1.0,
-                rmah_id=None,
-                it_isrmasuppliercreditnote=False,
-                it_cd=datetime(2026, 2, 14),
+                iclh_price=8500.0,
+                iclh_price_aw=8500.0,
+                curr_id=1,
+                iclh_cd=datetime(2026, 2, 14),
             )
         )
         db.commit()
@@ -597,7 +593,7 @@ class TestQueryCount:
             response = client.get(f"/api/productos/{producto_con_ppp.item_id}", headers=auth_headers)
 
         assert response.status_code == 200, response.text
-        assert counter.matching("tb_item_transactions") == 1
+        assert counter.matching("tb_item_cost_list_history") == 1
 
     @pytest.mark.parametrize("page_size", [1, 100])
     def test_exactly_one_ppp_query_on_paginated_list_regardless_of_page_size(
@@ -632,16 +628,14 @@ class TestQueryCount:
             db.add(p)
             db.flush()
             db.add(
-                ItemTransaction(
-                    it_transaction=90200 + i,
-                    ct_transaction=1,
+                ItemCostListHistory(
+                    iclh_id=90200 + i,
+                    coslis_id=1,
                     item_id=item_id,
-                    it_priceofcostpp=50.0 + i,
-                    it_cancelled=False,
-                    it_exchangetobranchcurrency=1.0,
-                    rmah_id=None,
-                    it_isrmasuppliercreditnote=False,
-                    it_cd=datetime(2026, 2, 14),
+                    iclh_price=50.0 + i,
+                    iclh_price_aw=50.0 + i,
+                    curr_id=1,
+                    iclh_cd=datetime(2026, 2, 14),
                 )
             )
         db.commit()
@@ -650,4 +644,30 @@ class TestQueryCount:
             response = client.get(f"/api/productos?page=1&page_size={page_size}", headers=auth_headers)
 
         assert response.status_code == 200, response.text
-        assert counter.matching("tb_item_transactions") == 1
+        assert counter.matching("tb_item_cost_list_history") == 1
+
+
+class TestClasicaMarkupFailsClosedOnMissingRate:
+    """End-to-end regression for the fail-closed guard (a USD-costed product
+    with NO `TipoCambio` row loaded for today) — see `costo_ppp_service`
+    module docstring's "Currency" section for the full mechanism/rationale.
+    Expected: `ppp.costo`/`ppp.moneda` still shown, `clasica` ABSENT from
+    `ppp.markups`."""
+
+    def test_detail_endpoint_fails_closed_when_no_exchange_rate_is_available(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp_usd
+    ):
+        db.add(ProductoPricing(item_id=producto_con_ppp_usd.item_id, precio_lista_ml=15000.0))
+        db.commit()
+
+        response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert data["ppp"]["costo"] == 8.5  # display unaffected by the missing rate
+        assert data["ppp"]["moneda"] == "USD"
+        assert "clasica" not in data["ppp"]["markups"], (
+            f"markup must be absent (fail-closed), not fabricated: {data['ppp']['markups']}"
+        )

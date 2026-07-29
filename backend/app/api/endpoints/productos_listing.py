@@ -947,6 +947,11 @@ def listar_productos(
         grupo_id = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
 
         # PPP accumulator for this product (informational only; None-safe).
+        # moneda_costo/tipo_cambio_usd: the PPP source's currency matches
+        # producto_erp.moneda_costo by construction (both come from the same
+        # coslis_id=1 row — see costo_ppp_service.py module docstring), so
+        # this reuses the SAME currency/rate already resolved for the list
+        # cost, no extra lookup.
         _ppp_source = ppp_by_item.get(producto_erp.item_id)
         ppp = PppMarkups(_ppp_source, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd)
         ppp_markups_by_item[producto_erp.item_id] = ppp
@@ -2200,6 +2205,9 @@ def listar_productos_tienda(
         grupo_id = subcat_to_grupo_t.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
 
         # PPP accumulator for this product (informational only; None-safe).
+        # moneda_costo/tipo_cambio_usd_t: same currency by construction as
+        # the list cost (see costo_ppp_service.py module docstring) — reuse
+        # the already-resolved rate, no extra lookup.
         _ppp_source_t = ppp_by_item_t.get(producto_erp.item_id)
         ppp_t = PppMarkups(_ppp_source_t, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd_t)
 
@@ -2604,9 +2612,12 @@ def obtener_producto(
     costo_envio_producto = resolver_costo_envio(db, producto_erp)
 
     # PPP accumulator for this product (informational only; None-safe).
+    # moneda_costo/tipo_cambio: the PPP source's currency matches
+    # producto_erp.moneda_costo by construction (see costo_ppp_service.py
+    # module docstring — same coslis_id=1 row) — resolve the rate the same
+    # way every other conditional site in this endpoint does (only when the
+    # product is USD-costed), not with an extra unconditional lookup.
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
-    # Single-item endpoint: one extra exchange-rate lookup here is not an N+1
-    # concern (see costo_ppp_service.py's PppMarkups display-conversion note).
     _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
     ppp_d = PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d)
 
