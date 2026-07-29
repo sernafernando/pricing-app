@@ -325,6 +325,36 @@ class TestEditarPedido:
         )
         assert "numero" in evento_editado.payload["campos_cambiados"]
 
+    def test_editar_proveedor_con_factura_erp_vinculada_raise_409(self, db, empresa, proveedor, active_user) -> None:
+        """ERP links (ct/OC) are validated against the proveedor's supp_id at link
+        time. Swapping the proveedor afterwards would leave them pointing at another
+        supplier's documents, so the user must unlink first.
+        """
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.ct_transaction_id = 12345
+        db.flush()
+
+        otro = Proveedor(id=2, nombre="Otro Proveedor", activo=True, origen=OrigenProveedor.ERP.value, supp_id=200)
+        db.add(otro)
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                proveedor_id=otro.id,
+            )
+        assert exc.value.status_code == 409
+        assert "desvincul" in exc.value.detail.lower()
+
     def test_editar_registra_evento_con_diff(self, db, empresa, proveedor, active_user) -> None:
         p = pedidos_service.crear_pedido(
             db,
