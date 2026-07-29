@@ -26,7 +26,10 @@ only check that would have caught the mismatch. See
 have caught this had it existed from the start.
 
 Row selection rule (see openspec/changes/productos-costo-ppp/specs.md):
-    coslis_id = 1  (the main cost list — matches producto_erp.costo)
+    coslis_id = 1  (the main cost list — the one `productos_sync.py` reads
+                    `producto_erp.costo`/`moneda_costo` from; see the
+                    currency note below for why its CURRENCY can still
+                    differ from `producto_erp.moneda_costo` at read time)
     AND iclh_price_aw IS NOT NULL AND iclh_price_aw > 0
     ORDER BY iclh_cd DESC, iclh_id DESC
     LIMIT 1 per item_id
@@ -40,23 +43,37 @@ implementation's `it_transaction DESC` tiebreak fixed for `tb_item_transactions`
 
 Currency (bugfix, 2026-07-29): `iclh_price_aw` is expressed in the cost
 list's OWN currency (`curr_id`; ERP convention 1=ARS, 2=USD — same convention
-used elsewhere in this codebase, e.g. `pedidos_service._curr_id_a_moneda`),
-the SAME currency as `producto_erp.costo`. There is NO currency conversion
-for DISPLAY: the previous implementation converted an ARS value to USD using
-TODAY's exchange rate, which is not just a wrong number but conceptually
-invalid — a historical weighted average built from purchases at many
-different historical rates cannot be reconstructed by dividing by today's
-rate. The resolved cost is shown in its own currency, next to the list cost
-(which is already shown in that same currency), so no conversion is needed
-for display to be comparable.
+used elsewhere in this codebase, e.g. `pedidos_service._curr_id_a_moneda`).
+
+**This currency is INDEPENDENT of `producto_erp.moneda_costo` and CAN
+differ from it** — a product costed in ARS can have a USD-denominated PPP
+row in the ERP's main cost list, and vice versa; nothing in the ERP data
+keeps the two in sync. This is not a hypothetical: an earlier revision of
+this very fix wrote `PppMarkups(..., tipo_cambio=obtener_tipo_cambio_actual(db,
+"USD") if producto_erp.moneda_costo == "USD" else None)` at the detail
+endpoint call site — gating the exchange-rate lookup on the PRODUCT's
+currency instead of the PPP SOURCE's — which left `tipo_cambio=None` (and
+therefore the markup computed against an unconverted, ~1000x-too-small ARS
+figure) for exactly the ARS-product/USD-PPP-row combination this paragraph
+warns about. Every call site MUST resolve the USD rate unconditionally
+(as the listing/tienda call sites already do) and let `PppMarkups` decide
+whether to apply it, based on the SOURCE's `moneda`, never the product's.
+
+There is NO currency conversion for DISPLAY: the previous implementation
+converted an ARS value to USD using TODAY's exchange rate, which is not
+just a wrong number but conceptually invalid — a historical weighted
+average built from purchases at many different historical rates cannot be
+reconstructed by dividing by today's rate. The resolved cost is shown in
+its own currency (`payload().moneda`), which the frontend must label
+correctly — it will not always match the list cost's currency.
 
 Conversion IS needed for the MARKUP computation, though: `calcular_markup(limpio,
 costo_ppp)` needs the cost in ARS, because `limpio` (from `calcular_limpio`) is
 always in ARS. `PppMarkups` therefore converts the resolved cost to ARS via
-`convertir_a_pesos` — exactly like every other call site in
-`productos_listing.py` already converts the list cost — purely as an internal
-input to `.record()`; the value returned in `payload().costo` (and shown to
-the user) is NEVER this converted figure.
+`convertir_a_pesos`, using the SOURCE's own `costo_ppp_moneda` — exactly like
+every other call site in `productos_listing.py` already converts the list
+cost — purely as an internal input to `.record()`; the value returned in
+`payload().costo` (and shown to the user) is NEVER this converted figure.
 
 Coverage: ~77.5% of products (3215/4150) have a qualifying `coslis_id=1`
 `iclh_price_aw` row, up from ~50% under the old `it_priceofcostpp`-based

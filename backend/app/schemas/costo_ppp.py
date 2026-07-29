@@ -10,11 +10,15 @@ class PppPayload(BaseModel):
     """Informational ERP weighted-average cost (PPP) and its derived markups.
 
     Display-only: never persisted, never filterable, never a substitute for
-    `costo`. `costo` is expressed in `moneda` (the cost list's OWN currency —
-    the same currency as the product's list cost, `producto_erp.moneda_costo`)
-    and is NEVER converted for display: a historical weighted-average cost
-    built from purchases at many different historical exchange rates cannot
-    be meaningfully reconstructed by dividing by today's rate. `fecha` is the
+    `costo`. `costo` is expressed in `moneda`, which is derived from the
+    resolved PPP source row's OWN `curr_id` (see
+    `app.services.costo_ppp_service._moneda_from_curr_id`) — it is
+    INDEPENDENT of `producto_erp.moneda_costo` and CAN differ from it (a
+    product costed in ARS can have a USD-denominated PPP row in the ERP's
+    main cost list, and vice versa; nothing keeps the two in sync). `costo`
+    is NEVER converted for display: a historical weighted-average cost built
+    from purchases at many different historical exchange rates cannot be
+    meaningfully reconstructed by dividing by today's rate. `fecha` is the
     source row's `iclh_cd` and MUST always be rendered alongside every PPP
     figure, regardless of age.
 

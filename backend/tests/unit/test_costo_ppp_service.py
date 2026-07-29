@@ -284,10 +284,20 @@ class TestMarkupCurrencyConversion:
         # Markup uses costo converted to ARS (1.0 * 1000.0 = 1000.0 ARS).
         assert payload.markups["clasica"] == round(((1500.0 / 1000.0) - 1) * 100, 2)
 
-    def test_usd_source_without_tipo_cambio_yields_no_markup(self) -> None:
-        """convertir_a_pesos falls back to the raw (unconverted) figure when
-        tipo_cambio is unavailable — record() still computes SOMETHING, but
-        it must never silently divide-by-nothing or crash."""
+    def test_usd_source_without_tipo_cambio_silently_computes_a_wildly_inflated_markup(self) -> None:
+        """DOCUMENTS A KNOWN FOOTGUN, does not endorse it: when `tipo_cambio`
+        is unavailable, `convertir_a_pesos` falls back to the RAW, unconverted
+        figure (existing behaviour, not reinvented here) — so `record()`
+        silently computes a markup against a cost that is ~3 orders of
+        magnitude too small, with no error raised. This is exactly the shape
+        of the real bug caught by pre-push review: a call site that leaves
+        `tipo_cambio=None` for a USD-denominated PPP source (e.g. by wrongly
+        gating the exchange-rate lookup on `producto_erp.moneda_costo`
+        instead of the PPP source's own currency) produces this same silent,
+        wildly-wrong number. `PppMarkups` itself cannot detect or prevent
+        this — the responsibility to always pass a resolved USD rate belongs
+        to the caller (see `productos_listing.py`, all three call sites must
+        resolve it unconditionally)."""
         acc = PppMarkups(
             PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="USD"),
             tipo_cambio=None,
@@ -297,9 +307,11 @@ class TestMarkupCurrencyConversion:
         payload = acc.payload()
         assert payload is not None
         # convertir_a_pesos(1.0, "USD", None) returns 1.0 unconverted (see
-        # pricing_calculator.convertir_a_pesos) — documented existing
-        # fallback behaviour, reused here rather than reinvented.
-        assert payload.markups["clasica"] == round(((1500.0 / 1.0) - 1) * 100, 2)
+        # pricing_calculator.convertir_a_pesos) — the markup below is
+        # therefore ((1500 / 1) - 1) * 100 = 149,900%, not a real figure.
+        wrongly_inflated_markup = round(((1500.0 / 1.0) - 1) * 100, 2)
+        assert payload.markups["clasica"] == wrongly_inflated_markup
+        assert wrongly_inflated_markup > 10_000  # sanity: this IS the bug shape, not a plausible markup
 
 
 class TestPinnedAgainstKnownErpValue:

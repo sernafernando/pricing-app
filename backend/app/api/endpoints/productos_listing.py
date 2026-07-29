@@ -2605,9 +2605,17 @@ def obtener_producto(
 
     # PPP accumulator for this product (informational only; None-safe).
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
-    # Single-item endpoint: one extra exchange-rate lookup here is not an N+1
-    # concern (see costo_ppp_service.py's PppMarkups display-conversion note).
-    _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+    # The PPP source's currency (curr_id) is INDEPENDENT of
+    # producto_erp.moneda_costo (see costo_ppp_service.py module docstring) —
+    # the USD rate must be resolved unconditionally, exactly like the other
+    # two call sites (listar_productos/listar_productos_tienda) already do.
+    # Gating this on moneda_costo == "USD" was itself a bug: an ARS-costed
+    # product with a USD-denominated PPP row (curr_id=2) would leave
+    # tipo_cambio=None, and convertir_a_pesos falls back to the UNCONVERTED
+    # USD figure as if it were ARS, producing a markup computed against a
+    # cost ~1000x too small with no error raised. Single-item endpoint: one
+    # extra exchange-rate lookup here is not an N+1 concern.
+    _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD")
     ppp_d = PppMarkups(_ppp_source_d, tipo_cambio=_tipo_cambio_ppp_d)
 
     # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
