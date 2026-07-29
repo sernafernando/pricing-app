@@ -79,6 +79,8 @@ ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"pagado", "cancelado"})
 # Campos editables según estado (REQ-PED-006)
 CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
     {
+        "empresa_id",
+        "proveedor_id",
         "moneda",
         "monto",
         "tipo_cambio",
@@ -86,6 +88,9 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
         "fecha_pago_estimada",
         "requiere_envio",
         "numero_factura",
+        # A draft has no CC movements or imputations yet, so free-text notes
+        # (and even empresa/proveedor) can still be corrected here.
+        "observaciones",
     }
 )
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(

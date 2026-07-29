@@ -264,6 +264,32 @@ class TestEditarPedido:
         assert p.fecha_pago_texto == "mes que viene"
         assert p.requiere_envio is True
 
+    def test_editar_en_borrador_acepta_payload_completo_del_modal(self, db, empresa, proveedor, active_user) -> None:
+        """The edit modal sends the whole form in 'borrador' (empresa/proveedor/observaciones).
+
+        Those fields must be editable, otherwise every draft edit fails with 409.
+        """
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            observaciones="revisar con el proveedor",
+        )
+        db.refresh(p)
+        assert p.observaciones == "revisar con el proveedor"
+
     def test_editar_registra_evento_con_diff(self, db, empresa, proveedor, active_user) -> None:
         p = pedidos_service.crear_pedido(
             db,
