@@ -948,7 +948,7 @@ def listar_productos(
 
         # PPP accumulator for this product (informational only; None-safe).
         _ppp_source = ppp_by_item.get(producto_erp.item_id)
-        ppp = PppMarkups(_ppp_source, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd)
+        ppp = PppMarkups(_ppp_source, tipo_cambio=tipo_cambio_usd)
         ppp_markups_by_item[producto_erp.item_id] = ppp
 
         if mejor_oferta and mejor_pub:
@@ -2201,7 +2201,7 @@ def listar_productos_tienda(
 
         # PPP accumulator for this product (informational only; None-safe).
         _ppp_source_t = ppp_by_item_t.get(producto_erp.item_id)
-        ppp_t = PppMarkups(_ppp_source_t, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd_t)
+        ppp_t = PppMarkups(_ppp_source_t, tipo_cambio=tipo_cambio_usd_t)
 
         # Mejor oferta (T-7: dict lookup)
         (
@@ -2608,7 +2608,7 @@ def obtener_producto(
     # Single-item endpoint: one extra exchange-rate lookup here is not an N+1
     # concern (see costo_ppp_service.py's PppMarkups display-conversion note).
     _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-    ppp_d = PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d)
+    ppp_d = PppMarkups(_ppp_source_d, tipo_cambio=_tipo_cambio_ppp_d)
 
     # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
     # Same rationale as the listing/tienda blocks (see costo_ppp_service.py

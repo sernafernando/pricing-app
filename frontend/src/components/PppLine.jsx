@@ -5,10 +5,13 @@ import { formatPppMonto, formatPppFecha } from '../hooks/useProductosOffsets';
  * Renders under the real cost/markup value it accompanies, visually
  * de-emphasised (smaller/dimmer) — never competes with the real value.
  *
- * - `ppp` is the product's `ppp` payload (`{ costo, fecha, markups }`) or
- *   `null`/`undefined` when the product has no qualifying PPP row.
+ * - `ppp` is the product's `ppp` payload (`{ costo, moneda, fecha, markups }`)
+ *   or `null`/`undefined` when the product has no qualifying PPP row.
  * - `markupKey` selects which entry of `ppp.markups` to render. When omitted,
- *   renders `ppp.costo` instead (the cost-cell companion line).
+ *   renders `ppp.costo` in `ppp.moneda` instead (the cost-cell companion
+ *   line) — `costo` is NEVER converted: it is the ERP's own weighted-average
+ *   cost, in the SAME currency as the product's list cost, never mixed with
+ *   today's exchange rate.
  *
  * Display-only: never reads `p.costo` or any list-cost markup as a
  * substitute when `ppp` is absent — that state renders an explicit
@@ -22,8 +25,8 @@ export default function PppLine({ ppp, markupKey }) {
   const fecha = formatPppFecha(ppp.fecha);
 
   if (!markupKey) {
-    const monto = ppp.costo_display ?? ppp.costo;
-    const moneda = ppp.costo_display_moneda ?? 'ARS';
+    const monto = ppp.costo;
+    const moneda = ppp.moneda ?? 'ARS';
     return (
       <div className="ppp-line">
         ppp: {moneda} ${monto?.toFixed(2)} {fecha && `(${fecha})`}

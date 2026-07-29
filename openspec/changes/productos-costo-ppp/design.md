@@ -1,5 +1,19 @@
 # Design: Informational PPP cost and PPP markups in Productos
 
+> **SOURCE CORRECTION (2026-07-29)**: everything below was written against `ItemTransaction.it_priceofcostpp`,
+> which turned out to be the WRONG field — verified against the live GBP ERP "Costo PPP" screen, it does not
+> match (see `exploration.md`'s "SOURCE CORRECTION" section for the full evidence and root cause). The actual
+> source is `ItemCostListHistory.iclh_price_aw` (`coslis_id=1`, latest `iclh_cd`, tiebreak `iclh_id DESC`),
+> carried in its OWN currency (`curr_id`) and NEVER converted for display (conversion is only applied
+> internally, as an input to the markup formula, since `limpio` is always ARS). The `DISTINCT ON`/LATERAL
+> query-plan discussion below no longer applies as designed either: `tb_item_cost_list_history` has no
+> equivalent composite index and is much smaller, so the resolver now uses a single portable
+> `ROW_NUMBER()` formulation with no dialect branching — see `costo_ppp_service.py`'s module docstring.
+> The `PppPayload` contract below is also stale: `moneda` replaces the `fecha`-only assumption of ARS,
+> and there is no `costo_display`/`costo_display_moneda` (that later addition was itself a second,
+> now-removed bug — an invalid ARS→USD-via-today's-rate conversion of a historical weighted average).
+> This document is left in place as the historical record of the (wrong) original design.
+
 ## Technical Approach
 
 One batch resolver reads the latest qualifying `it_priceofcostpp` per `item_id` for the page,
