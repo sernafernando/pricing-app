@@ -213,6 +213,7 @@ export function useProductosInlineEditing({
       filtroMarkupWebTransf,
       filtroOutOfCards,
       coloresSeleccionados,
+      equipoActivoId,
       filtroMLA,
       filtroEstadoMLA,
       filtroNuevos,
@@ -249,6 +250,9 @@ export function useProductosInlineEditing({
         if (filtroMarkupClasica === 'positivo') body.filtros.markup_clasica_positivo = true;
         if (filtroMarkupClasica === 'negativo') body.filtros.markup_clasica_positivo = false;
         if (coloresSeleccionados.length > 0) body.filtros.colores = coloresSeleccionados.join(',');
+        // Sin equipo_id el backend resuelve la capa global y `colores` filtraría
+        // sobre otra capa que la vista (ver resolver_layer_activo en el backend).
+        if (equipoActivoId) body.filtros.equipo_id = equipoActivoId;
         if (pmsSeleccionados.length > 0) body.filtros.pms = pmsSeleccionados.join(',');
         if (filtroMLA === 'con_mla') body.filtros.con_mla = true;
         if (filtroMLA === 'sin_mla') body.filtros.con_mla = false;
