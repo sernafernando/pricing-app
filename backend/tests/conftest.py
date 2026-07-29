@@ -44,6 +44,7 @@ from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.models.rol import Rol
 from app.models.ml_bot_answer_history import MlBotAnswerHistory  # noqa: F401 — registers table for create_all
+from app.models.precio_gremio_override import PrecioGremioOverride  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
