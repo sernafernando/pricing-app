@@ -369,6 +369,28 @@ each:
       is fully explained by intentionally deleting 6 now-inapplicable postgres dialect-equivalence
       tests, net +1 new test). Frontend: 436 passed. `ruff format`/`check` clean.
 
+## Data-sanity guard: stale `iclh_price_aw` scale mismatch (2026-07-29)
+
+- [x] TG.1 Added `_is_scale_sane`/`_PPP_RATIO_MIN`/`_PPP_RATIO_MAX` to
+      `costo_ppp_service.py`: rejects a row when `iclh_price` is missing/`<=0`, or when
+      `iclh_price / iclh_price_aw` (both from the SAME row) falls outside `[0.05, 20]`
+      (inclusive). THIRD data-trust failure in this feature — witness item 2780, ratio 1091.
+      No fallback to an older row on rejection (documented rationale in code + docstring).
+- [x] TG.2 `resolver_ppp_batch`/`_build_ranked_stmt` now also select `iclh_price` (previously
+      only `iclh_price_aw`/`iclh_cd`) to validate the guard self-contained, without joining
+      `producto_erp` (measurement showed both give the same 42 broken rows).
+- [x] TG.3 Added `TestScaleSanityGuard` (9 tests) to `test_costo_ppp_service.py`: witness item
+      2780 (aw 1000x too small), inverse item 623 shape (aw 1000x too large), boundary tests at
+      exactly 20 and 0.05 (inclusive) plus just-outside each, normal ratio unchanged, and
+      `iclh_price` null/zero rejected. Verified `TestPinnedAgainstKnownErpValue` (item 1169,
+      ratio 1.12) still passes unaffected.
+- [x] TG.4 Updated `costo_ppp_service.py` module docstring ("Scale sanity guard" section) and
+      `exploration.md` ("SCALE SANITY GUARD" section) with the witness, measured counts, and the
+      explicit "validate an ERP value against a reference in the same row" pattern (third
+      instance in this feature).
+- [x] TG.5 Coverage note updated: ~77.5% (3215/4150) -> ~76.5% (3173/4150), 42 rows discarded,
+      measured 2026-07-29.
+
 ## Review Workload Forecast
 
 | Slice | Est. changed lines | Rationale |
