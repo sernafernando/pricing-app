@@ -10,8 +10,11 @@ import { formatPppMonto, formatPppFecha } from '../hooks/useProductosOffsets';
  * - `markupKey` selects which entry of `ppp.markups` to render. When omitted,
  *   renders `ppp.costo` in `ppp.moneda` instead (the cost-cell companion
  *   line) — `costo` is NEVER converted: it is the ERP's own weighted-average
- *   cost, in the SAME currency as the product's list cost, never mixed with
- *   today's exchange rate.
+ *   cost, never mixed with today's exchange rate. Always read the currency
+ *   from `ppp.moneda` (never hardcode/assume it) — it happens to be the
+ *   same currency as the product's list cost by construction (backend:
+ *   `costo_ppp_service.py`), but this component must not encode that as an
+ *   assumption of its own.
  *
  * Display-only: never reads `p.costo` or any list-cost markup as a
  * substitute when `ppp` is absent — that state renders an explicit

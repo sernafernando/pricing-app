@@ -7,9 +7,12 @@ round 2026-07-29):
   REQ-1 — row selection: coslis_id = 1 (main cost list) AND iclh_price_aw IS
           NOT NULL AND iclh_price_aw > 0, latest iclh_cd wins, iclh_id DESC
           breaks exact-date ties.
-  REQ-2 — PPP is displayed in its OWN currency (curr_id-derived), NEVER
-          converted for display; conversion only ever happens internally, as
-          an input to the markup formula.
+  REQ-2 — PPP is displayed in `moneda_costo` (the CALLER's, i.e.
+          `producto_erp.moneda_costo`), NEVER converted for display —
+          conversion only ever happens internally, as an input to the markup
+          formula. `PppSource`/`resolver_ppp_batch` carry no currency of
+          their own (verified: it matches `moneda_costo` by construction,
+          zero mismatches across 3215 products — see module docstring).
   REQ-3 — costo_ppp_fecha always accompanies a non-null costo_ppp.
   REQ-4 — no-data contract: zero qualifying rows => item absent from the
           resolver dict AND PppMarkups(None).payload() is None; no emitted
@@ -17,6 +20,9 @@ round 2026-07-29):
   REQ-5 — PppMarkups.record scaling: percent=True scales *100 (matches most
           sites), percent=False keeps the raw ratio (matches mejor_oferta
           sites).
+  REQ-6 — fail-closed: a non-ARS `moneda_costo` with no resolvable
+          `tipo_cambio` must emit NO markup at all (not a silently-wrong one)
+          — `payload().costo`/`.moneda` stay unaffected.
 
 These tests run against the REAL in-memory SQLite `db` fixture (see
 tests/conftest.py) using the actual ItemCostListHistory ORM model — this
@@ -142,25 +148,6 @@ class TestRowSelection:
         assert len(result) == 3
 
 
-class TestCurrency:
-    """REQ-2: costo_ppp is carried in its OWN currency, never converted."""
-
-    def test_curr_id_1_maps_to_ars(self, db) -> None:
-        _insert_history(db, iclh_id=30, item_id=401, curr_id=1, iclh_price_aw=100.0)
-
-        result = resolver_ppp_batch(db, [401])
-
-        assert result[401].costo_ppp_moneda == "ARS"
-
-    def test_curr_id_2_maps_to_usd(self, db) -> None:
-        _insert_history(db, iclh_id=31, item_id=402, curr_id=2, iclh_price_aw=38.4)
-
-        result = resolver_ppp_batch(db, [402])
-
-        assert result[402].costo_ppp_moneda == "USD"
-        assert result[402].costo_ppp == 38.4  # NOT converted
-
-
 class TestNoDataContract:
     """REQ-4: no qualifying row => explicit no-data, never a costo fallback."""
 
@@ -195,7 +182,7 @@ class TestPppMarkupsScaling:
     """REQ-5: record() scaling must match the site it shadows."""
 
     def test_percent_true_scales_and_rounds_like_percent_sites(self) -> None:
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="ARS"))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc.record("pvp", 150.0)  # calcular_markup(150, 100) = 0.5 -> * 100 = 50.0
 
         payload = acc.payload()
@@ -204,7 +191,7 @@ class TestPppMarkupsScaling:
         assert payload.markups["pvp"] == 50.0
 
     def test_percent_false_keeps_raw_ratio_for_mejor_oferta(self) -> None:
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="ARS"))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc.record("mejor_oferta", 150.0, percent=False)  # calcular_markup(150, 100) = 0.5
 
         payload = acc.payload()
@@ -213,7 +200,7 @@ class TestPppMarkupsScaling:
         assert payload.markups["mejor_oferta"] == 0.5
 
     def test_payload_carries_source_date_and_moneda_whenever_costo_ppp_present(self) -> None:
-        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15), costo_ppp_moneda="USD"))
+        acc = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2024, 3, 15)), moneda_costo="USD")
         payload = acc.payload()
 
         assert payload is not None
@@ -237,7 +224,7 @@ class TestConstructorPreventsInvalidState:
         acc_empty = PppMarkups(None)
         assert acc_empty.payload() is None
 
-        acc_full = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="ARS"))
+        acc_full = PppMarkups(PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)), moneda_costo="ARS")
         acc_full.record("pvp", 150.0)
         payload = acc_full.payload()
 
@@ -253,15 +240,21 @@ class TestConstructorPreventsInvalidState:
 
 
 class TestMarkupCurrencyConversion:
-    """The aw's own currency does NOT leak into `payload().costo` (display),
-    but IS converted to ARS internally, as `calcular_markup`'s cost input —
-    exactly like every other call site in productos_listing.py converts the
-    list cost before computing a markup (`limpio` is always ARS)."""
+    """`moneda_costo` (the caller's `producto_erp.moneda_costo`) does NOT
+    leak into `payload().costo` (display), but IS used to convert to ARS
+    internally, as `calcular_markup`'s cost input — exactly like every other
+    call site in productos_listing.py converts the list cost before
+    computing a markup (`limpio` is always ARS). The PPP source's OWN
+    currency is not tracked separately: it matches `moneda_costo` by
+    construction (see `costo_ppp_service` module docstring) — callers pass
+    in `producto_erp.moneda_costo`, the same value already used for the list
+    cost conversion at every site."""
 
-    def test_ars_source_needs_no_conversion_for_markup(self) -> None:
+    def test_ars_moneda_costo_needs_no_conversion_for_markup(self) -> None:
         acc = PppMarkups(
-            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="ARS"),
-            tipo_cambio=1000.0,  # present but irrelevant when moneda is ARS
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="ARS",
+            tipo_cambio=1000.0,  # present but irrelevant when moneda_costo is ARS
         )
         acc.record("clasica", 150.0)
 
@@ -270,9 +263,10 @@ class TestMarkupCurrencyConversion:
         assert payload.costo == 100.0  # display: untouched
         assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
 
-    def test_usd_source_is_converted_to_ars_only_for_the_markup_formula(self) -> None:
+    def test_usd_moneda_costo_is_converted_to_ars_only_for_the_markup_formula(self) -> None:
         acc = PppMarkups(
-            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="USD"),
+            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="USD",
             tipo_cambio=1000.0,
         )
         acc.record("clasica", 1500.0)  # limpio in ARS
@@ -284,34 +278,62 @@ class TestMarkupCurrencyConversion:
         # Markup uses costo converted to ARS (1.0 * 1000.0 = 1000.0 ARS).
         assert payload.markups["clasica"] == round(((1500.0 / 1000.0) - 1) * 100, 2)
 
-    def test_usd_source_without_tipo_cambio_silently_computes_a_wildly_inflated_markup(self) -> None:
-        """DOCUMENTS A KNOWN FOOTGUN, does not endorse it: when `tipo_cambio`
-        is unavailable, `convertir_a_pesos` falls back to the RAW, unconverted
-        figure (existing behaviour, not reinvented here) — so `record()`
-        silently computes a markup against a cost that is ~3 orders of
-        magnitude too small, with no error raised. This is exactly the shape
-        of the real bug caught by pre-push review: a call site that leaves
-        `tipo_cambio=None` for a USD-denominated PPP source (e.g. by wrongly
-        gating the exchange-rate lookup on `producto_erp.moneda_costo`
-        instead of the PPP source's own currency) produces this same silent,
-        wildly-wrong number. `PppMarkups` itself cannot detect or prevent
-        this — the responsibility to always pass a resolved USD rate belongs
-        to the caller (see `productos_listing.py`, all three call sites must
-        resolve it unconditionally)."""
+    def test_usd_moneda_costo_without_tipo_cambio_fails_closed_no_markup_emitted(self) -> None:
+        """Fail-closed guard (pre-push review, 2026-07-29): a USD
+        `moneda_costo` with no resolvable `tipo_cambio` (e.g. no `TipoCambio`
+        row loaded for today) must NOT fall through to
+        `convertir_a_pesos`'s silent "return the raw figure unconverted"
+        behaviour (`pricing_calculator.py`) — that would compute the markup
+        against a cost off by roughly the exchange rate itself (~149,900%
+        here), silently, with no exception, no log, no flag on the payload.
+        `PppMarkups` fails CLOSED instead: no markup is emitted at all,
+        matching this feature's founding rule ("no data beats a fabricated
+        number") — a blank markup line is recoverable, a confidently-wrong
+        149,900% used to decide a purchase is not."""
         acc = PppMarkups(
-            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1), costo_ppp_moneda="USD"),
+            PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="USD",
             tipo_cambio=None,
         )
         acc.record("clasica", 1500.0)
 
         payload = acc.payload()
         assert payload is not None
-        # convertir_a_pesos(1.0, "USD", None) returns 1.0 unconverted (see
-        # pricing_calculator.convertir_a_pesos) — the markup below is
-        # therefore ((1500 / 1) - 1) * 100 = 149,900%, not a real figure.
-        wrongly_inflated_markup = round(((1500.0 / 1.0) - 1) * 100, 2)
-        assert payload.markups["clasica"] == wrongly_inflated_markup
-        assert wrongly_inflated_markup > 10_000  # sanity: this IS the bug shape, not a plausible markup
+        assert "clasica" not in payload.markups  # no fabricated markup
+
+    def test_usd_moneda_costo_without_tipo_cambio_still_shows_costo_and_moneda(self) -> None:
+        """The fail-closed behaviour is scoped to MARKUPS only: the PPP cost
+        itself does not depend on today's exchange rate (it's shown as-is,
+        never converted — see class docstring), so `payload()` must still
+        surface `costo`/`moneda` even when no markup could be computed."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=38.4, costo_ppp_fecha=date(2026, 7, 23)),
+            moneda_costo="USD",
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 1500.0)
+
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.costo == 38.4
+        assert payload.moneda == "USD"
+        assert payload.fecha == date(2026, 7, 23)
+        assert payload.markups == {}
+
+    def test_ars_moneda_costo_still_computes_markups_without_any_tipo_cambio(self) -> None:
+        """The fail-closed guard must not regress the ARS path: ARS needs no
+        conversion at all, so a missing `tipo_cambio` is irrelevant and
+        markups are computed normally."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo="ARS",
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 150.0)
+
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
 
 
 class TestPinnedAgainstKnownErpValue:
@@ -324,9 +346,8 @@ class TestPinnedAgainstKnownErpValue:
     known ERP value. This test fixtures a product modelled on real item 1169
     (ROUTER TP LINK OMADA ER605): list cost 42.99 USD, GBP's ERP screen shows
     "Costo PPP" = 38.00, and `iclh_price_aw` for the correct row
-    (coslis_id=1, curr_id=2/USD, 2026-07-23) is 38.402760 — decoy rows exist
-    in coslis_id 7 and 8, plus an OLDER coslis_id=1 row, none of which must
-    ever win.
+    (coslis_id=1, 2026-07-23) is 38.402760 — decoy rows exist in coslis_id 7
+    and 8, plus an OLDER coslis_id=1 row, none of which must ever win.
     """
 
     def test_resolver_matches_gbp_screen_value_for_item_1169_fixture(self, db) -> None:
@@ -374,5 +395,4 @@ class TestPinnedAgainstKnownErpValue:
 
         assert 1169 in result
         assert result[1169].costo_ppp == pytest.approx(38.402760)
-        assert result[1169].costo_ppp_moneda == "USD"
         assert result[1169].costo_ppp_fecha == date(2026, 7, 23)

@@ -10,17 +10,19 @@ class PppPayload(BaseModel):
     """Informational ERP weighted-average cost (PPP) and its derived markups.
 
     Display-only: never persisted, never filterable, never a substitute for
-    `costo`. `costo` is expressed in `moneda`, which is derived from the
-    resolved PPP source row's OWN `curr_id` (see
-    `app.services.costo_ppp_service._moneda_from_curr_id`) — it is
-    INDEPENDENT of `producto_erp.moneda_costo` and CAN differ from it (a
-    product costed in ARS can have a USD-denominated PPP row in the ERP's
-    main cost list, and vice versa; nothing keeps the two in sync). `costo`
-    is NEVER converted for display: a historical weighted-average cost built
-    from purchases at many different historical exchange rates cannot be
-    meaningfully reconstructed by dividing by today's rate. `fecha` is the
-    source row's `iclh_cd` and MUST always be rendered alongside every PPP
-    figure, regardless of age.
+    `costo`. `costo` is expressed in `moneda`, which is `producto_erp.moneda_costo`
+    (the product's own list-cost currency) — verified against production data
+    (2026-07-29, zero mismatches across 3215 products) to match the PPP
+    source row's currency BY CONSTRUCTION: both are read from the SAME row
+    of the SAME main cost list (`coslis_id=1`). See
+    `app.services.costo_ppp_service` module docstring for the full evidence
+    and rationale — do not derive `moneda` independently from the source row
+    itself; it is passed in by the caller. `costo` is NEVER converted for
+    display: a historical weighted-average cost built from purchases at many
+    different historical exchange rates cannot be meaningfully reconstructed
+    by dividing by today's rate — it is already in the correct currency
+    without conversion. `fecha` is the source row's `iclh_cd` and MUST always
+    be rendered alongside every PPP figure, regardless of age.
 
     Every markup in `markups` IS derived from `costo` — after an internal ARS
     conversion applied ONLY for the markup formula (`limpio` is always ARS),

@@ -28,8 +28,7 @@ have caught this had it existed from the start.
 Row selection rule (see openspec/changes/productos-costo-ppp/specs.md):
     coslis_id = 1  (the main cost list — the one `productos_sync.py` reads
                     `producto_erp.costo`/`moneda_costo` from; see the
-                    currency note below for why its CURRENCY can still
-                    differ from `producto_erp.moneda_costo` at read time)
+                    currency note below)
     AND iclh_price_aw IS NOT NULL AND iclh_price_aw > 0
     ORDER BY iclh_cd DESC, iclh_id DESC
     LIMIT 1 per item_id
@@ -41,39 +40,53 @@ unique, monotonically-increasing column) makes the "latest qualifying row"
 pick fully deterministic, reproducing the same real bug class the previous
 implementation's `it_transaction DESC` tiebreak fixed for `tb_item_transactions`.
 
-Currency (bugfix, 2026-07-29): `iclh_price_aw` is expressed in the cost
-list's OWN currency (`curr_id`; ERP convention 1=ARS, 2=USD — same convention
-used elsewhere in this codebase, e.g. `pedidos_service._curr_id_a_moneda`).
+Currency (verified against production data, 2026-07-29): `iclh_price_aw`'s
+currency matches `producto_erp.moneda_costo` BY CONSTRUCTION, not by
+coincidence — both are read from the SAME row of the SAME cost list
+(`coslis_id = 1`; `productos_sync.py` populates `producto_erp.costo`/
+`moneda_costo` from that exact list's `coslis_price`/`curr_id`). This was
+checked directly, not assumed: across all 3215 products with a qualifying
+PPP row, ZERO have a currency mismatch between the resolved `iclh_price_aw`
+and `producto_erp.moneda_costo` (3150 USD, 65 ARS). A separate cross-check
+on the full `coslis_id = 1` table (not just the ones with a PPP row) found
+`coslis_price` matches `producto_erp.costo` in 4149/4150 rows and the
+CURRENCY matches in 4150/4150 — reinforcing that this is the same
+underlying data, not two independently-sourced figures that merely tend to
+agree.
 
-**This currency is INDEPENDENT of `producto_erp.moneda_costo` and CAN
-differ from it** — a product costed in ARS can have a USD-denominated PPP
-row in the ERP's main cost list, and vice versa; nothing in the ERP data
-keeps the two in sync. This is not a hypothetical: an earlier revision of
-this very fix wrote `PppMarkups(..., tipo_cambio=obtener_tipo_cambio_actual(db,
-"USD") if producto_erp.moneda_costo == "USD" else None)` at the detail
-endpoint call site — gating the exchange-rate lookup on the PRODUCT's
-currency instead of the PPP SOURCE's — which left `tipo_cambio=None` (and
-therefore the markup computed against an unconverted, ~1000x-too-small ARS
-figure) for exactly the ARS-product/USD-PPP-row combination this paragraph
-warns about. Every call site MUST resolve the USD rate unconditionally
-(as the listing/tienda call sites already do) and let `PppMarkups` decide
-whether to apply it, based on the SOURCE's `moneda`, never the product's.
+**Do not reintroduce a currency derived independently from the PPP source
+row** (e.g. from `curr_id` on `tb_item_cost_list_history`) "just in case" —
+an earlier revision of this fix did exactly that (treating the two
+currencies as independent, `PppSource.costo_ppp_moneda` derived from
+`curr_id`) after a real bug in a THIRD, DIFFERENT feature round (a call site
+that gated its exchange-rate lookup incorrectly) was mistaken for evidence
+of a currency mismatch that does not exist in the data. `payload().moneda`
+is `producto_erp.moneda_costo`, passed in by the caller — the same value
+every other call site already uses to convert the list cost — not a second,
+independently-derived currency.
 
 There is NO currency conversion for DISPLAY: the previous implementation
 converted an ARS value to USD using TODAY's exchange rate, which is not
 just a wrong number but conceptually invalid — a historical weighted
 average built from purchases at many different historical rates cannot be
 reconstructed by dividing by today's rate. The resolved cost is shown in
-its own currency (`payload().moneda`), which the frontend must label
-correctly — it will not always match the list cost's currency.
+`producto_erp.moneda_costo` (the SAME currency as the list cost, by
+construction — see above), which is already correct without any
+conversion.
 
 Conversion IS needed for the MARKUP computation, though: `calcular_markup(limpio,
 costo_ppp)` needs the cost in ARS, because `limpio` (from `calcular_limpio`) is
 always in ARS. `PppMarkups` therefore converts the resolved cost to ARS via
-`convertir_a_pesos`, using the SOURCE's own `costo_ppp_moneda` — exactly like
-every other call site in `productos_listing.py` already converts the list
-cost — purely as an internal input to `.record()`; the value returned in
-`payload().costo` (and shown to the user) is NEVER this converted figure.
+`convertir_a_pesos(costo_ppp, moneda_costo, tipo_cambio)` — the exact same
+`moneda_costo`/`tipo_cambio` every other call site in `productos_listing.py`
+already uses to convert the list cost, no separate lookup — purely as an
+internal input to `.record()`; the value returned in `payload().costo` (and
+shown to the user) is NEVER this converted figure.
+
+Fail-closed on a missing exchange rate: even though the two currencies match
+by construction, `moneda_costo` can still be USD with no `TipoCambio` row
+resolved for today (see `PppMarkups` class docstring) — that failure mode is
+independent of the currency-matching fact above and is still guarded against.
 
 Coverage: ~77.5% of products (3215/4150) have a qualifying `coslis_id=1`
 `iclh_price_aw` row, up from ~50% under the old `it_priceofcostpp`-based
@@ -194,27 +207,25 @@ from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
 # at the same size for the same reason — keep both in sync if this changes.
 _IN_CHUNK_SIZE = 900
 
-# Main cost list: the one whose `coslis_price` equals `productos_erp.costo`.
+# Main cost list: the one whose `coslis_price`/`curr_id` populate
+# `producto_erp.costo`/`moneda_costo` (see module docstring's currency note).
 _COSLIS_ID_PRINCIPAL = 1
-
-
-def _moneda_from_curr_id(curr_id: Optional[int]) -> str:
-    """Maps the ERP's `curr_id` to the currency code used across this
-    codebase. Convention: 1=ARS, 2=USD (same convention as
-    `pedidos_service._curr_id_a_moneda`). Unmapped/unknown values default to
-    "ARS" — the ERP's local currency — rather than raising or silently
-    mislabelling a converted figure.
-    """
-    return "USD" if curr_id == 2 else "ARS"
 
 
 @dataclass(frozen=True)
 class PppSource:
-    """One resolved PPP source row for a single item_id."""
+    """One resolved PPP source row for a single item_id.
+
+    Deliberately carries NO currency of its own: `iclh_price_aw`'s currency
+    matches `producto_erp.moneda_costo` by construction (see module
+    docstring's currency note, verified against production data across 3215
+    products with zero mismatches) — callers pass `moneda_costo` into
+    `PppMarkups` instead of this class deriving/carrying a second, redundant
+    currency value.
+    """
 
     costo_ppp: float
     costo_ppp_fecha: date
-    costo_ppp_moneda: str = "ARS"
 
 
 def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]:
@@ -225,10 +236,10 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
         item_ids: item_ids to resolve for (typically the current page).
 
     Returns:
-        {item_id: PppSource(costo_ppp, costo_ppp_fecha, costo_ppp_moneda)}.
-        Items with no qualifying row are ABSENT from the dict — callers MUST
-        treat a missing key as "no PPP data" and MUST NEVER fall back to the
-        list cost. This function never raises for empty input; it returns {}.
+        {item_id: PppSource(costo_ppp, costo_ppp_fecha)}. Items with no
+        qualifying row are ABSENT from the dict — callers MUST treat a
+        missing key as "no PPP data" and MUST NEVER fall back to the list
+        cost. This function never raises for empty input; it returns {}.
     """
     if not item_ids:
         return {}
@@ -242,15 +253,11 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
 
         stmt = _build_ranked_stmt(chunk)
 
-        for item_id, iclh_price_aw, curr_id, iclh_cd in db.execute(stmt).all():
+        for item_id, iclh_price_aw, iclh_cd in db.execute(stmt).all():
             if iclh_price_aw is None or iclh_cd is None:
                 continue
             fecha = iclh_cd.date() if isinstance(iclh_cd, datetime) else iclh_cd
-            result[item_id] = PppSource(
-                costo_ppp=float(iclh_price_aw),
-                costo_ppp_fecha=fecha,
-                costo_ppp_moneda=_moneda_from_curr_id(curr_id),
-            )
+            result[item_id] = PppSource(costo_ppp=float(iclh_price_aw), costo_ppp_fecha=fecha)
 
     return result
 
@@ -287,7 +294,6 @@ def _build_ranked_stmt(chunk: list[int]):
         select(
             ItemCostListHistory.item_id.label("item_id"),
             ItemCostListHistory.iclh_price_aw.label("iclh_price_aw"),
-            ItemCostListHistory.curr_id.label("curr_id"),
             ItemCostListHistory.iclh_cd.label("iclh_cd"),
             row_number_col,
         )
@@ -295,7 +301,7 @@ def _build_ranked_stmt(chunk: list[int]):
         .subquery()
     )
 
-    return select(ranked.c.item_id, ranked.c.iclh_price_aw, ranked.c.curr_id, ranked.c.iclh_cd).where(ranked.c.rn == 1)
+    return select(ranked.c.item_id, ranked.c.iclh_price_aw, ranked.c.iclh_cd).where(ranked.c.rn == 1)
 
 
 # --- Canonical PPP markup key vocabulary (see module docstring) -------------
@@ -319,9 +325,9 @@ def ppp_key_pvp_cuota(n: str) -> str:
 class PppMarkups:
     """Per-product accumulator turning `limpio` values into PPP markups.
 
-    One instance per product. The PPP source (and its date/currency) are
-    fixed at construction from a single `Optional[PppSource]` — this makes
-    "no qualifying PPP row" and "a qualifying row with a fecha" the only two
+    One instance per product. The PPP source (and its date) are fixed at
+    construction from a single `Optional[PppSource]` — this makes "no
+    qualifying PPP row" and "a qualifying row with a fecha" the only two
     reachable states; `costo_ppp` set with `costo_ppp_fecha=None` is not
     representable, so `payload()` can never attempt to build a `PppPayload`
     with a `None` `fecha` (which is non-optional and would raise a
@@ -330,32 +336,58 @@ class PppMarkups:
     `None` for the WHOLE object when there is no source, so no call site can
     ever construct a partial payload for a product with no qualifying PPP row.
 
-    Currency handling (see module docstring): the DISPLAYED cost
-    (`payload().costo`) is NEVER converted — it stays in the aw's own
-    currency (`payload().moneda`), because a historical weighted-average
-    cost cannot be meaningfully reconstructed by dividing by today's
-    exchange rate. Markup computation, however, needs the cost in ARS
-    (`limpio` is always ARS), so `.record()` uses an ARS-converted mirror
-    (`_costo_ppp_ars`, via `convertir_a_pesos`) purely as `calcular_markup`'s
-    second argument — this conversion never leaks into `payload().costo`.
+    Currency handling (see module docstring): `moneda_costo` is the CALLER's
+    `producto_erp.moneda_costo` — the PPP source's own currency matches it
+    by construction (verified, zero mismatches across 3215 products), so
+    this class does not derive or carry a second currency. `payload().costo`
+    is NEVER converted — a historical weighted-average cost cannot be
+    meaningfully reconstructed by dividing by today's rate — it is simply
+    shown in `moneda_costo`, which is already correct. Markup computation
+    needs the cost in ARS (`limpio` is always ARS), so `.record()` uses an
+    ARS-converted mirror (`_costo_ppp_ars`, via `convertir_a_pesos(costo_ppp,
+    moneda_costo, tipo_cambio)` — the SAME `moneda_costo`/`tipo_cambio` every
+    other call site already uses for the list cost) purely as
+    `calcular_markup`'s second argument — this conversion never leaks into
+    `payload().costo`.
+
+    Fail-closed on a missing exchange rate: `moneda_costo` can be USD with no
+    `TipoCambio` row resolved for today (e.g. no rate loaded yet) —
+    `convertir_a_pesos(x, "USD", None)` (see `pricing_calculator.py`)
+    silently returns `x` UNCONVERTED in that case, and a markup computed
+    against that raw USD figure as if it were ARS is off by roughly the
+    exchange rate itself (a ~38 cost read as ~38 ARS instead of ~38,000 ARS
+    produces a ~149,900% markup, silently, no exception, no log, no flag on
+    the payload). `_costo_ppp_ars` is therefore `None` — and `.record()` a
+    no-op — whenever a real conversion was actually needed but the rate
+    could not be resolved. `payload().costo`/`payload().moneda` are
+    UNAFFECTED by this: the PPP cost itself does not depend on today's
+    exchange rate, only the MARKUPS derived from it do. The contract stays
+    "no data beats a fabricated number": a missing rate means "sin PPP" on
+    the markup line, never an invented percentage.
     """
 
     def __init__(
         self,
         source: Optional["PppSource"],
         *,
+        moneda_costo: str = "ARS",
         tipo_cambio: Optional[float] = None,
     ) -> None:
         self._costo_ppp = source.costo_ppp if source else None
         self._costo_ppp_fecha = source.costo_ppp_fecha if source else None
-        self._costo_ppp_moneda = source.costo_ppp_moneda if source else None
+        self._moneda_costo = moneda_costo
         self._markups: dict[str, float] = {}
 
         # ARS mirror used ONLY as calcular_markup's cost input — never
-        # exposed via payload().costo (see class docstring).
+        # exposed via payload().costo (see class docstring). Fail-closed:
+        # a non-ARS `moneda_costo` with no resolvable `tipo_cambio` must NOT
+        # fall through to convertir_a_pesos's silent "return unconverted"
+        # behaviour here — that would compute every markup against a figure
+        # off by roughly the exchange rate, with no error. None here makes
+        # .record() a no-op instead (see class docstring).
         self._costo_ppp_ars = (
-            convertir_a_pesos(self._costo_ppp, self._costo_ppp_moneda, tipo_cambio)
-            if self._costo_ppp is not None
+            convertir_a_pesos(self._costo_ppp, moneda_costo, tipo_cambio)
+            if self._costo_ppp is not None and (moneda_costo == "ARS" or tipo_cambio)
             else None
         )
 
@@ -382,7 +414,7 @@ class PppMarkups:
             return None
         return PppPayload(
             costo=self._costo_ppp,
-            moneda=self._costo_ppp_moneda,
+            moneda=self._moneda_costo,
             fecha=self._costo_ppp_fecha,
             markups=dict(self._markups),
         )

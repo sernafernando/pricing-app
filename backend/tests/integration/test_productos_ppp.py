@@ -265,9 +265,11 @@ class TestQualifyingRowSurfacesPpp:
 
 @pytest.fixture()
 def producto_con_ppp_usd(db) -> ProductoERP:
-    """Same shape as `producto_con_ppp` but the qualifying PPP row's own
-    currency (`curr_id=2`) is USD — the aw is expressed and priced in USD in
-    the ERP's main cost list, independent of the product's own `moneda_costo`."""
+    """USD-costed product with a matching USD-denominated PPP row in the
+    main cost list — reflects production reality (verified 2026-07-29): the
+    PPP source's currency matches `producto_erp.moneda_costo` by
+    construction (both come from the same `coslis_id=1` row), zero
+    mismatches across 3215 products."""
     p = ProductoERP(
         item_id=9103,
         codigo="TEST-PPP-USD",
@@ -295,13 +297,15 @@ def producto_con_ppp_usd(db) -> ProductoERP:
     return p
 
 
-class TestPppOwnCurrencyDisplay:
-    """PPP cost is displayed in its OWN currency (source correction,
-    2026-07-29) — NEVER converted, regardless of the product's
-    `moneda_costo` or today's exchange rate. A historical weighted-average
-    cost cannot be meaningfully reconstructed by dividing by today's rate."""
+class TestPppDisplayMonedaMatchesMonedaCosto:
+    """PPP cost is displayed in `producto_erp.moneda_costo`, NEVER converted
+    for display — a historical weighted-average cost cannot be meaningfully
+    reconstructed by dividing by today's rate, and no conversion is needed
+    anyway: the PPP source's currency matches `moneda_costo` by construction
+    (verified against production data, 2026-07-29, zero mismatches across
+    3215 products — see `costo_ppp_service` module docstring)."""
 
-    def test_usd_source_is_never_converted_for_display(self, client, auth_headers, db, producto_con_ppp_usd):
+    def test_usd_moneda_costo_is_never_converted_for_display(self, client, auth_headers, db, producto_con_ppp_usd):
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
         db.commit()
 
@@ -314,7 +318,7 @@ class TestPppOwnCurrencyDisplay:
         assert data["ppp"]["costo"] == 8.5  # own currency, untouched
         assert data["ppp"]["moneda"] == "USD"
 
-    def test_ars_source_is_labelled_ars(self, client, auth_headers, db, producto_con_ppp):
+    def test_ars_moneda_costo_is_labelled_ars(self, client, auth_headers, db, producto_con_ppp):
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
         db.commit()
 
@@ -326,9 +330,13 @@ class TestPppOwnCurrencyDisplay:
         assert data["ppp"]["costo"] == 8500.0
         assert data["ppp"]["moneda"] == "ARS"
 
-    def test_usd_source_display_unaffected_by_missing_exchange_rate(self, client, auth_headers, producto_con_ppp_usd):
+    def test_usd_moneda_costo_display_unaffected_by_missing_exchange_rate(
+        self, client, auth_headers, producto_con_ppp_usd
+    ):
         """No TipoCambio row at all: display is unaffected either way, since
-        it is never converted in the first place."""
+        it is never converted in the first place (only markups need the
+        rate, and only when moneda_costo is not ARS — see
+        TestClasicaMarkupFailsClosedOnMissingRate below)."""
         response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
 
         assert response.status_code == 200, response.text
@@ -645,185 +653,35 @@ class TestQueryCount:
         assert counter.matching("tb_item_cost_list_history") == 1
 
 
-@pytest.fixture()
-def producto_ars_con_ppp_usd(db) -> ProductoERP:
-    """ARS-costed product with a USD-denominated PPP row (`curr_id=2`) in the
-    main cost list — the exact divergent combination that exposed the THIRD
-    currency bug in this feature (pre-push review, 2026-07-29): a call site
-    gated its exchange-rate lookup on `producto_erp.moneda_costo` instead of
-    the PPP source's own currency, so this combination left `tipo_cambio=None`
-    and silently computed the markup against an unconverted (~1000x too
-    small) cost."""
-    p = ProductoERP(
-        item_id=9501,
-        codigo="TEST-PPP-ARS-PRODUCT-USD-SOURCE",
-        descripcion="Producto ARS con fuente PPP en USD",
-        costo=10000.0,
-        moneda_costo="ARS",
-        iva=21.0,
-        activo=True,
-        envio=0.0,
-    )
-    db.add(p)
-    db.flush()
+class TestClasicaMarkupFailsClosedOnMissingRate:
+    """Fail-closed regression (pre-push review, 2026-07-29): a USD-costed
+    product with NO `TipoCambio` row loaded for today. Before the fail-closed
+    fix in `PppMarkups`, `convertir_a_pesos(8.5, "USD", None)` would have
+    silently returned the raw, unconverted figure, and the clásica markup
+    would have been computed against ~8.5 "ARS" instead of ~8500 ARS — a
+    ~149,900% markup, silently, with no error. Note this failure mode is
+    INDEPENDENT of any currency mismatch between the PPP source and the
+    product (there is none — see `costo_ppp_service` module docstring): it
+    only takes a USD-costed product and a missing daily exchange rate, both
+    of which are ordinary, expected conditions. The correct behaviour is:
+    `ppp.costo`/`ppp.moneda` are STILL shown (they don't depend on the
+    rate), but `clasica` is ABSENT from `ppp.markups` — "sin PPP" on the
+    markup line, never a fabricated percentage."""
 
-    db.add(
-        ItemCostListHistory(
-            iclh_id=95011,
-            coslis_id=1,
-            item_id=p.item_id,
-            iclh_price=8.5,
-            iclh_price_aw=8.5,
-            curr_id=2,  # USD — independent of moneda_costo="ARS" above
-            iclh_cd=datetime(2026, 2, 14),
-        )
-    )
-    db.flush()
-    return p
-
-
-@pytest.fixture()
-def producto_usd_con_ppp_ars(db) -> ProductoERP:
-    """The inverse divergent combination: USD-costed product with an
-    ARS-denominated PPP row in the main cost list."""
-    p = ProductoERP(
-        item_id=9502,
-        codigo="TEST-PPP-USD-PRODUCT-ARS-SOURCE",
-        descripcion="Producto USD con fuente PPP en ARS",
-        costo=10.0,
-        moneda_costo="USD",
-        iva=21.0,
-        activo=True,
-        envio=0.0,
-    )
-    db.add(p)
-    db.flush()
-
-    db.add(
-        ItemCostListHistory(
-            iclh_id=95021,
-            coslis_id=1,
-            item_id=p.item_id,
-            iclh_price=8500.0,
-            iclh_price_aw=8500.0,
-            curr_id=1,  # ARS — independent of moneda_costo="USD" above
-            iclh_cd=datetime(2026, 2, 14),
-        )
-    )
-    db.flush()
-    return p
-
-
-class TestCrossCurrencyMarkupAcrossEndpoints:
-    """Pre-push review (2026-07-29) caught a THIRD currency bug in this
-    feature: `obtener_producto` (detail endpoint) gated its exchange-rate
-    lookup on `producto_erp.moneda_costo` instead of the PPP source's own
-    `curr_id`-derived currency, so an ARS-costed product with a
-    USD-denominated PPP row left `tipo_cambio=None` — `convertir_a_pesos`
-    then falls back to the UNCONVERTED figure, and the markup is computed
-    against a cost ~1000x too small, silently.
-
-    `TestMarkupCurrencyConversion` (unit test, `PppMarkups` in isolation)
-    could never have caught this: it exercises `PppMarkups` with an
-    ALREADY-RESOLVED `tipo_cambio`, so the bug — in WHO resolves that rate —
-    is invisible at that level. These tests exercise the divergent
-    currency combination through the REAL endpoints end-to-end, on all
-    THREE surfaces (listing, tienda, detail).
-
-    In every case the expected markup is computed against the PPP source
-    converted to ARS via the SAME 1000.0 rate (8.5 USD * 1000.0 = 8500 ARS),
-    which makes it numerically identical to the same-currency case already
-    covered by `TestClasicaMarkupPpp` — proving the cross-currency path
-    converges to the exact same number the same-currency path already gets
-    right, rather than merely asserting "not astronomically large"."""
-
-    @staticmethod
-    def _expected_clasica_markup() -> float:
-        from app.services.pricing_calculator import (
-            calcular_comision_ml_total,
-            calcular_limpio,
-            calcular_markup,
-        )
-
-        # comision_base=12.0 (grupo 1, comision_fixtures), envio=0, precio_lista_ml=15000.0.
-        comisiones = calcular_comision_ml_total(15000.0, 12.0, 21.0)
-        limpio = calcular_limpio(15000.0, 21.0, 0.0, comisiones["comision_total"])
-        return round(calcular_markup(limpio, 8500.0) * 100, 2)
-
-    def test_listing_endpoint_converts_usd_ppp_source_for_ars_product(
-        self, client, auth_headers, db, comision_fixtures, producto_ars_con_ppp_usd
+    def test_detail_endpoint_fails_closed_when_no_exchange_rate_is_available(
+        self, client, auth_headers, db, comision_fixtures, producto_con_ppp_usd
     ):
-        _guard_incompatible_raw_sql(db)
-        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
-        db.add(ProductoPricing(item_id=producto_ars_con_ppp_usd.item_id, precio_lista_ml=15000.0))
+        db.add(ProductoPricing(item_id=producto_con_ppp_usd.item_id, precio_lista_ml=15000.0))
         db.commit()
 
-        response = client.get("/api/productos?page=1&page_size=10", headers=auth_headers)
-
-        assert response.status_code == 200, response.text
-        productos = response.json()["productos"]
-        producto = next(p for p in productos if p["item_id"] == producto_ars_con_ppp_usd.item_id)
-
-        assert producto["ppp"] is not None
-        assert producto["ppp"]["costo"] == 8.5  # display: own currency, never converted
-        assert producto["ppp"]["moneda"] == "USD"
-        assert producto["ppp"]["markups"]["clasica"] == self._expected_clasica_markup()
-
-    def test_tienda_endpoint_converts_usd_ppp_source_for_ars_product(
-        self, client, auth_headers, db, comision_fixtures, producto_ars_con_ppp_usd
-    ):
-        _guard_incompatible_raw_sql(db)
-        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
-        db.add(ProductoPricing(item_id=producto_ars_con_ppp_usd.item_id, precio_lista_ml=15000.0))
-        db.commit()
-
-        response = client.get("/api/productos/tienda?page=1&page_size=10", headers=auth_headers)
-
-        assert response.status_code == 200, response.text
-        productos = response.json()["productos"]
-        producto = next(p for p in productos if p["item_id"] == producto_ars_con_ppp_usd.item_id)
-
-        assert producto["ppp"] is not None
-        assert producto["ppp"]["costo"] == 8.5  # display: own currency, never converted
-        assert producto["ppp"]["moneda"] == "USD"
-        assert producto["ppp"]["markups"]["clasica"] == self._expected_clasica_markup()
-
-    def test_detail_endpoint_converts_usd_ppp_source_for_ars_product(
-        self, client, auth_headers, db, comision_fixtures, producto_ars_con_ppp_usd
-    ):
-        """The exact call site pre-push review flagged
-        (`productos_listing.py` ~2610, `obtener_producto`)."""
-        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
-        db.add(ProductoPricing(item_id=producto_ars_con_ppp_usd.item_id, precio_lista_ml=15000.0))
-        db.commit()
-
-        response = client.get(f"/api/productos/{producto_ars_con_ppp_usd.item_id}", headers=auth_headers)
+        response = client.get(f"/api/productos/{producto_con_ppp_usd.item_id}", headers=auth_headers)
 
         assert response.status_code == 200, response.text
         data = response.json()
 
         assert data["ppp"] is not None
-        assert data["ppp"]["costo"] == 8.5  # display: own currency, never converted
+        assert data["ppp"]["costo"] == 8.5  # display unaffected by the missing rate
         assert data["ppp"]["moneda"] == "USD"
-        assert data["ppp"]["markups"]["clasica"] == self._expected_clasica_markup()
-
-    def test_detail_endpoint_converts_ars_ppp_source_for_usd_product(
-        self, client, auth_headers, db, comision_fixtures, producto_usd_con_ppp_ars
-    ):
-        """Inverse combination: USD-costed product, ARS-denominated PPP
-        source. No conversion is needed for the markup (the source is
-        already ARS), but the exchange-rate lookup must still not be gated
-        on `producto_erp.moneda_costo` — it must be irrelevant here, not
-        accidentally required."""
-        db.add(ProductoPricing(item_id=producto_usd_con_ppp_ars.item_id, precio_lista_ml=15000.0))
-        db.commit()
-
-        response = client.get(f"/api/productos/{producto_usd_con_ppp_ars.item_id}", headers=auth_headers)
-
-        assert response.status_code == 200, response.text
-        data = response.json()
-
-        assert data["ppp"] is not None
-        assert data["ppp"]["costo"] == 8500.0  # display: own currency, never converted
-        assert data["ppp"]["moneda"] == "ARS"
-        assert data["ppp"]["markups"]["clasica"] == self._expected_clasica_markup()
+        assert "clasica" not in data["ppp"]["markups"], (
+            f"markup must be absent (fail-closed), not fabricated: {data['ppp']['markups']}"
+        )
