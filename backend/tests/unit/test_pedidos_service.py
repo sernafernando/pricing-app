@@ -264,6 +264,97 @@ class TestEditarPedido:
         assert p.fecha_pago_texto == "mes que viene"
         assert p.requiere_envio is True
 
+    def test_editar_en_borrador_acepta_payload_completo_del_modal(self, db, empresa, proveedor, active_user) -> None:
+        """The edit modal sends the whole form in 'borrador' (empresa/proveedor/observaciones).
+
+        Those fields must be editable, otherwise every draft edit fails with 409.
+        """
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            observaciones="revisar con el proveedor",
+        )
+        db.refresh(p)
+        assert p.observaciones == "revisar con el proveedor"
+
+    def test_editar_empresa_en_borrador_renumera_el_pedido(self, db, empresa, proveedor, active_user) -> None:
+        """`numero` embeds empresa_id (P-{empresa_id:02d}-...), so moving a draft
+        to another company must re-issue the number from that company's sequence.
+        """
+        otra = Empresa(id=2, nombre="Otra Empresa", activo=True, orden=1)
+        db.add(otra)
+        db.flush()
+
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        numero_original = p.numero
+        assert numero_original.startswith("P-01-")
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            empresa_id=otra.id,
+        )
+        db.refresh(p)
+        assert p.empresa_id == otra.id
+        assert p.numero.startswith("P-02-")
+        assert p.numero != numero_original
+
+        evento_editado = (
+            db.query(CompraEvento).filter(CompraEvento.entidad_id == p.id, CompraEvento.tipo == "editado").one()
+        )
+        assert "numero" in evento_editado.payload["campos_cambiados"]
+
+    def test_editar_proveedor_con_factura_erp_vinculada_raise_409(self, db, empresa, proveedor, active_user) -> None:
+        """ERP links (ct/OC) are validated against the proveedor's supp_id at link
+        time. Swapping the proveedor afterwards would leave them pointing at another
+        supplier's documents, so the user must unlink first.
+        """
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.ct_transaction_id = 12345
+        db.flush()
+
+        otro = Proveedor(id=2, nombre="Otro Proveedor", activo=True, origen=OrigenProveedor.ERP.value, supp_id=200)
+        db.add(otro)
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                proveedor_id=otro.id,
+            )
+        assert exc.value.status_code == 409
+        assert "desvincul" in exc.value.detail.lower()
+
     def test_editar_registra_evento_con_diff(self, db, empresa, proveedor, active_user) -> None:
         p = pedidos_service.crear_pedido(
             db,

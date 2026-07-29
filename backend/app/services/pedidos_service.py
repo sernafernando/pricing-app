@@ -79,6 +79,8 @@ ESTADOS_TERMINALES: Final[frozenset[str]] = frozenset({"pagado", "cancelado"})
 # Campos editables según estado (REQ-PED-006)
 CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
     {
+        "empresa_id",
+        "proveedor_id",
         "moneda",
         "monto",
         "tipo_cambio",
@@ -86,6 +88,9 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
         "fecha_pago_estimada",
         "requiere_envio",
         "numero_factura",
+        # A draft has no CC movements or imputations yet, so free-text notes
+        # (and even empresa/proveedor) can still be corrected here.
+        "observaciones",
     }
 )
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
@@ -484,6 +489,32 @@ def editar_pedido(
             campos_aplicables["tipo_cambio"] = _resolver_tipo_cambio_para_pedido(
                 session, moneda="USD", tipo_cambio=None
             )
+
+    # ERP links (ct_transaction_id, oc_*) are validated against the proveedor's
+    # supp_id when they are created, and nothing re-validates them afterwards.
+    # Swapping the proveedor would silently leave them pointing at another
+    # supplier's invoice/PO, so require an explicit unlink first.
+    if "proveedor_id" in campos_aplicables and campos_aplicables["proveedor_id"] != pedido.proveedor_id:
+        if pedido.ct_transaction_id is not None or pedido.oc_poh_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "No se puede cambiar el proveedor de un pedido con factura u orden "
+                    "de compra del ERP vinculada. Desvinculá el documento primero."
+                ),
+            )
+
+    # `numero` embeds empresa_id (P-{empresa_id:02d}-{anio}-{correlativo}) and each
+    # company owns its own sequence, so moving a draft to another company must
+    # re-issue the number from that company's counter, in this same transaction.
+    # Only reachable in 'borrador': empresa_id is not editable in later states.
+    if "empresa_id" in campos_aplicables and campos_aplicables["empresa_id"] != pedido.empresa_id:
+        nuevo_numero, _ = numeracion_service.generar_siguiente_numero(
+            session,
+            tipo="pedido",
+            empresa_id=campos_aplicables["empresa_id"],
+        )
+        campos_aplicables["numero"] = nuevo_numero
 
     diff: dict[str, dict[str, Any]] = {}
     numero_factura_cambio = False
@@ -2727,9 +2758,11 @@ def corregir_pedido(
     Args:
         session: tx activa.
         pedido_original_id: PK del pedido a corregir.
-        cambios: dict `{campo: valor_nuevo}`. Solo se consideran claves que
-            aparecen en `CAMPOS_EDITABLES_BORRADOR` + `observaciones`. El
-            resto se ignora silenciosamente.
+        cambios: dict `{campo: valor_nuevo}`. Solo se consideran `monto`,
+            `fecha_pago_texto`, `fecha_pago_estimada`, `requiere_envio`,
+            `numero_factura` y `observaciones`. El resto se ignora
+            silenciosamente — en particular `empresa_id` y `proveedor_id`,
+            que el clon siempre hereda del original.
         motivo_correccion: texto libre ≥5 chars. Persistido en los payloads
             de ambos eventos (clon y original).
         user_id: quien ejecuta la corrección (auditoría del clon).
