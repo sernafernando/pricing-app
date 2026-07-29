@@ -78,6 +78,9 @@ const buildFilterQueryString = (filtrosActivos) => {
   if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
   if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
   if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+  // Sin equipo_id el backend resuelve la capa global y `colores` filtraría sobre
+  // una capa distinta a la de la vista (ver resolver_layer_activo en el backend).
+  if (filtrosActivos.equipoActivoId) params += `&equipo_id=${filtrosActivos.equipoActivoId}`;
   return params;
 };
 
@@ -118,6 +121,7 @@ const FiltrosActivosDisplay = ({ filtrosActivos }) => (
     {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
     {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
     {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+    {filtrosActivos?.coloresSeleccionados?.length > 0 && filtrosActivos?.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
     {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
     {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
     {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
@@ -353,6 +357,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     if (filtrosActivos.filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
     if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
     if (filtrosActivos.filtroTiendaOficial) params.tienda_oficial = filtrosActivos.filtroTiendaOficial;
+    // Ver comentario en buildFilterQueryString: la capa de colores viaja aparte.
+    if (filtrosActivos.equipoActivoId) params.equipo_id = filtrosActivos.equipoActivoId;
     return params;
   };
 

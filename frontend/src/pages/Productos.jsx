@@ -97,6 +97,9 @@ export default function Productos() {
   // refreshes the selector after the management modal creates/renames/deletes.
   const { equipos, recargar: recargarEquipos } = useEquipos();
   const [mostrarEquiposModal, setMostrarEquiposModal] = useState(false);
+  // Name of the active color layer, shown by the export/bulk modals so the user
+  // sees which team's colors the operation will run against.
+  const equipoActivoNombre = equipos.find(eq => String(eq.id) === String(equipoActivoId))?.nombre || null;
   const {
     productos,
     setProductos,
@@ -387,6 +390,7 @@ export default function Productos() {
       filtroMLA,
       filtroEstadoMLA,
       filtroNuevos,
+      equipoActivoId,
     },
   });
 
@@ -2617,6 +2621,8 @@ export default function Productos() {
             filtroEstadoMLA,
             filtroNuevos,
             coloresSeleccionados,
+            equipoActivoId,
+            equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
             audit_usuarios: filtrosAuditoria.usuarios,
@@ -2652,6 +2658,8 @@ export default function Productos() {
             filtroMarkupWebTransf,
             filtroOutOfCards,
             coloresSeleccionados,
+            equipoActivoId,
+            equipoActivoNombre,
             filtroTiendaOficial,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
@@ -2685,6 +2693,8 @@ export default function Productos() {
             filtroEstadoMLA,
             filtroNuevos,
             coloresSeleccionados,
+            equipoActivoId,
+            equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
             audit_usuarios: filtrosAuditoria.usuarios,

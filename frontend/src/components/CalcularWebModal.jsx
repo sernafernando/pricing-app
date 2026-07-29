@@ -110,6 +110,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
       {filtrosActivos.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
       {filtrosActivos.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
       {filtrosActivos.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+      {filtrosActivos.coloresSeleccionados?.length > 0 && filtrosActivos.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
       {filtrosActivos.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
       {filtrosActivos.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
       {filtrosActivos.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
@@ -161,6 +162,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
         if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
         if (filtrosActivos.coloresSeleccionados?.length > 0) body.filtros.colores = filtrosActivos.coloresSeleccionados.join(',');
+        // Sin equipo_id el backend resuelve la capa global y `colores` filtraría
+        // sobre otra capa que la vista (ver resolver_layer_activo en el backend).
+        if (filtrosActivos.equipoActivoId) body.filtros.equipo_id = filtrosActivos.equipoActivoId;
         if (filtrosActivos.pmsSeleccionados?.length > 0) body.filtros.pms = filtrosActivos.pmsSeleccionados.join(',');
         if (filtrosActivos.audit_usuarios?.length > 0) body.filtros.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
         if (filtrosActivos.audit_tipos_accion?.length > 0) body.filtros.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
