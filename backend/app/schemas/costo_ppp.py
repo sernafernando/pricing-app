@@ -10,19 +10,12 @@ class PppPayload(BaseModel):
     """Informational ERP weighted-average cost (PPP) and its derived markups.
 
     Display-only: never persisted, never filterable, never a substitute for
-    `costo`. `costo` is expressed in `moneda`, which is `producto_erp.moneda_costo`
-    (the product's own list-cost currency) — verified against production data
-    (2026-07-29, zero mismatches across 3215 products) to match the PPP
-    source row's currency BY CONSTRUCTION: both are read from the SAME row
-    of the SAME main cost list (`coslis_id=1`). See
-    `app.services.costo_ppp_service` module docstring for the full evidence
-    and rationale — do not derive `moneda` independently from the source row
-    itself; it is passed in by the caller. `costo` is NEVER converted for
-    display: a historical weighted-average cost built from purchases at many
-    different historical exchange rates cannot be meaningfully reconstructed
-    by dividing by today's rate — it is already in the correct currency
-    without conversion. `fecha` is the source row's `iclh_cd` and MUST always
-    be rendered alongside every PPP figure, regardless of age.
+    `costo`. `costo` is expressed in `moneda` (`producto_erp.moneda_costo`,
+    passed in by the caller — never derived independently) and NEVER
+    converted for display. See `app.services.costo_ppp_service` module
+    docstring's "Currency" section for the full evidence and rationale.
+    `fecha` is the source row's `iclh_cd` and MUST always be rendered
+    alongside every PPP figure, regardless of age.
 
     Every markup in `markups` IS derived from `costo` — after an internal ARS
     conversion applied ONLY for the markup formula (`limpio` is always ARS),

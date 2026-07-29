@@ -265,11 +265,9 @@ class TestQualifyingRowSurfacesPpp:
 
 @pytest.fixture()
 def producto_con_ppp_usd(db) -> ProductoERP:
-    """USD-costed product with a matching USD-denominated PPP row in the
-    main cost list — reflects production reality (verified 2026-07-29): the
-    PPP source's currency matches `producto_erp.moneda_costo` by
-    construction (both come from the same `coslis_id=1` row), zero
-    mismatches across 3215 products."""
+    """USD-costed product with a matching USD-denominated PPP row (reflects
+    production reality — see `costo_ppp_service` module docstring's
+    "Currency" section)."""
     p = ProductoERP(
         item_id=9103,
         codigo="TEST-PPP-USD",
@@ -298,12 +296,8 @@ def producto_con_ppp_usd(db) -> ProductoERP:
 
 
 class TestPppDisplayMonedaMatchesMonedaCosto:
-    """PPP cost is displayed in `producto_erp.moneda_costo`, NEVER converted
-    for display — a historical weighted-average cost cannot be meaningfully
-    reconstructed by dividing by today's rate, and no conversion is needed
-    anyway: the PPP source's currency matches `moneda_costo` by construction
-    (verified against production data, 2026-07-29, zero mismatches across
-    3215 products — see `costo_ppp_service` module docstring)."""
+    """PPP cost is displayed in `producto_erp.moneda_costo`, never converted
+    — see `costo_ppp_service` module docstring's "Currency" section for why."""
 
     def test_usd_moneda_costo_is_never_converted_for_display(self, client, auth_headers, db, producto_con_ppp_usd):
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
@@ -654,19 +648,11 @@ class TestQueryCount:
 
 
 class TestClasicaMarkupFailsClosedOnMissingRate:
-    """Fail-closed regression (pre-push review, 2026-07-29): a USD-costed
-    product with NO `TipoCambio` row loaded for today. Before the fail-closed
-    fix in `PppMarkups`, `convertir_a_pesos(8.5, "USD", None)` would have
-    silently returned the raw, unconverted figure, and the clásica markup
-    would have been computed against ~8.5 "ARS" instead of ~8500 ARS — a
-    ~149,900% markup, silently, with no error. Note this failure mode is
-    INDEPENDENT of any currency mismatch between the PPP source and the
-    product (there is none — see `costo_ppp_service` module docstring): it
-    only takes a USD-costed product and a missing daily exchange rate, both
-    of which are ordinary, expected conditions. The correct behaviour is:
-    `ppp.costo`/`ppp.moneda` are STILL shown (they don't depend on the
-    rate), but `clasica` is ABSENT from `ppp.markups` — "sin PPP" on the
-    markup line, never a fabricated percentage."""
+    """End-to-end regression for the fail-closed guard (a USD-costed product
+    with NO `TipoCambio` row loaded for today) — see `costo_ppp_service`
+    module docstring's "Currency" section for the full mechanism/rationale.
+    Expected: `ppp.costo`/`ppp.moneda` still shown, `clasica` ABSENT from
+    `ppp.markups`."""
 
     def test_detail_endpoint_fails_closed_when_no_exchange_rate_is_available(
         self, client, auth_headers, db, comision_fixtures, producto_con_ppp_usd

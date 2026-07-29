@@ -7,12 +7,10 @@ round 2026-07-29):
   REQ-1 — row selection: coslis_id = 1 (main cost list) AND iclh_price_aw IS
           NOT NULL AND iclh_price_aw > 0, latest iclh_cd wins, iclh_id DESC
           breaks exact-date ties.
-  REQ-2 — PPP is displayed in `moneda_costo` (the CALLER's, i.e.
-          `producto_erp.moneda_costo`), NEVER converted for display —
-          conversion only ever happens internally, as an input to the markup
-          formula. `PppSource`/`resolver_ppp_batch` carry no currency of
-          their own (verified: it matches `moneda_costo` by construction,
-          zero mismatches across 3215 products — see module docstring).
+  REQ-2 — PPP is displayed in `moneda_costo` (the CALLER's), never converted
+          for display; conversion only happens internally, as an input to
+          the markup formula. See `costo_ppp_service` module docstring's
+          "Currency" section for the full rationale/evidence.
   REQ-3 — costo_ppp_fecha always accompanies a non-null costo_ppp.
   REQ-4 — no-data contract: zero qualifying rows => item absent from the
           resolver dict AND PppMarkups(None).payload() is None; no emitted
@@ -22,7 +20,9 @@ round 2026-07-29):
           sites).
   REQ-6 — fail-closed: a non-ARS `moneda_costo` with no resolvable
           `tipo_cambio` must emit NO markup at all (not a silently-wrong one)
-          — `payload().costo`/`.moneda` stay unaffected.
+          — `payload().costo`/`.moneda` stay unaffected. A falsy
+          `moneda_costo` (`None`) normalizes to `"ARS"` instead of reaching
+          `PppPayload.moneda` (non-optional) or `convertir_a_pesos` raw.
 
 These tests run against the REAL in-memory SQLite `db` fixture (see
 tests/conftest.py) using the actual ItemCostListHistory ORM model — this
@@ -240,15 +240,9 @@ class TestConstructorPreventsInvalidState:
 
 
 class TestMarkupCurrencyConversion:
-    """`moneda_costo` (the caller's `producto_erp.moneda_costo`) does NOT
-    leak into `payload().costo` (display), but IS used to convert to ARS
-    internally, as `calcular_markup`'s cost input — exactly like every other
-    call site in productos_listing.py converts the list cost before
-    computing a markup (`limpio` is always ARS). The PPP source's OWN
-    currency is not tracked separately: it matches `moneda_costo` by
-    construction (see `costo_ppp_service` module docstring) — callers pass
-    in `producto_erp.moneda_costo`, the same value already used for the list
-    cost conversion at every site."""
+    """`moneda_costo` never leaks into `payload().costo` (display), but IS
+    used to convert to ARS internally for the markup formula — see
+    `costo_ppp_service` module docstring's "Currency" section."""
 
     def test_ars_moneda_costo_needs_no_conversion_for_markup(self) -> None:
         acc = PppMarkups(
@@ -279,17 +273,9 @@ class TestMarkupCurrencyConversion:
         assert payload.markups["clasica"] == round(((1500.0 / 1000.0) - 1) * 100, 2)
 
     def test_usd_moneda_costo_without_tipo_cambio_fails_closed_no_markup_emitted(self) -> None:
-        """Fail-closed guard (pre-push review, 2026-07-29): a USD
-        `moneda_costo` with no resolvable `tipo_cambio` (e.g. no `TipoCambio`
-        row loaded for today) must NOT fall through to
-        `convertir_a_pesos`'s silent "return the raw figure unconverted"
-        behaviour (`pricing_calculator.py`) — that would compute the markup
-        against a cost off by roughly the exchange rate itself (~149,900%
-        here), silently, with no exception, no log, no flag on the payload.
-        `PppMarkups` fails CLOSED instead: no markup is emitted at all,
-        matching this feature's founding rule ("no data beats a fabricated
-        number") — a blank markup line is recoverable, a confidently-wrong
-        149,900% used to decide a purchase is not."""
+        """Fail-closed guard — see module docstring's "Currency" section for
+        the full rationale (why the naive fallback would silently produce a
+        ~149,900%-shaped markup)."""
         acc = PppMarkups(
             PppSource(costo_ppp=1.0, costo_ppp_fecha=date(2026, 1, 1)),
             moneda_costo="USD",
@@ -333,6 +319,30 @@ class TestMarkupCurrencyConversion:
 
         payload = acc.payload()
         assert payload is not None
+        assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
+
+    def test_null_moneda_costo_normalizes_to_ars_instead_of_reaching_payload_or_conversion(self) -> None:
+        """Null-safety (pre-push review, 2026-07-29):
+        `ProductoERP.moneda_costo` has no `nullable=False`, so a raw
+        upsert/sync can leave it `NULL` — a caller could then pass
+        `moneda_costo=None`. Before this guard, `None` would reach
+        `PppPayload.moneda` (non-optional `str`) and raise a
+        `ValidationError`/500 for the WHOLE `/api/productos` page, not just
+        one product. `PppMarkups` normalizes `None` to `"ARS"` at
+        construction — payload construction must not raise, and (since ARS
+        needs no conversion) the markup must compute normally, exactly like
+        an explicit `moneda_costo="ARS"` would."""
+        acc = PppMarkups(
+            PppSource(costo_ppp=100.0, costo_ppp_fecha=date(2026, 1, 1)),
+            moneda_costo=None,
+            tipo_cambio=None,
+        )
+        acc.record("clasica", 150.0)
+
+        payload = acc.payload()
+        assert payload is not None
+        assert payload.moneda == "ARS"
+        assert payload.costo == 100.0
         assert payload.markups["clasica"] == round(((150.0 / 100.0) - 1) * 100, 2)
 
 

@@ -85,8 +85,23 @@ shown to the user) is NEVER this converted figure.
 
 Fail-closed on a missing exchange rate: even though the two currencies match
 by construction, `moneda_costo` can still be USD with no `TipoCambio` row
-resolved for today (see `PppMarkups` class docstring) — that failure mode is
-independent of the currency-matching fact above and is still guarded against.
+resolved for today — `convertir_a_pesos(x, "USD", None)` (see
+`pricing_calculator.py`) silently returns `x` UNCONVERTED in that case, and a
+markup computed against that raw figure as if it were ARS is off by roughly
+the exchange rate itself (a ~38 cost read as ~38 ARS instead of ~38,000 ARS
+produces a ~149,900% markup — silently, no exception, no log, no flag on the
+payload). `PppMarkups` guards against this: whenever a real conversion is
+needed but no rate is resolvable, NO markup is emitted at all (`.record()`
+becomes a no-op) — `payload().costo`/`.moneda` stay unaffected, since the PPP
+cost itself does not depend on today's rate. This failure mode is
+independent of the currency-matching fact above (it only needs "non-ARS
+`moneda_costo`, no rate today") and is guarded regardless of it.
+
+Null-safety: `ProductoERP.moneda_costo` (`app/models/producto.py`) has a
+Python-side default but no `nullable=False`, so a raw upsert/sync can leave
+it `NULL`. `PppMarkups` normalizes a falsy `moneda_costo` to `"ARS"` at
+construction — this must happen before it reaches `PppPayload.moneda`
+(non-optional `str`) or `convertir_a_pesos`.
 
 Coverage: ~77.5% of products (3215/4150) have a qualifying `coslis_id=1`
 `iclh_price_aw` row, up from ~50% under the old `it_priceofcostpp`-based
@@ -216,12 +231,8 @@ _COSLIS_ID_PRINCIPAL = 1
 class PppSource:
     """One resolved PPP source row for a single item_id.
 
-    Deliberately carries NO currency of its own: `iclh_price_aw`'s currency
-    matches `producto_erp.moneda_costo` by construction (see module
-    docstring's currency note, verified against production data across 3215
-    products with zero mismatches) — callers pass `moneda_costo` into
-    `PppMarkups` instead of this class deriving/carrying a second, redundant
-    currency value.
+    Deliberately carries NO currency of its own — see module docstring's
+    "Currency" section for why.
     """
 
     costo_ppp: float
@@ -336,46 +347,33 @@ class PppMarkups:
     `None` for the WHOLE object when there is no source, so no call site can
     ever construct a partial payload for a product with no qualifying PPP row.
 
-    Currency handling (see module docstring): `moneda_costo` is the CALLER's
-    `producto_erp.moneda_costo` — the PPP source's own currency matches it
-    by construction (verified, zero mismatches across 3215 products), so
-    this class does not derive or carry a second currency. `payload().costo`
-    is NEVER converted — a historical weighted-average cost cannot be
-    meaningfully reconstructed by dividing by today's rate — it is simply
-    shown in `moneda_costo`, which is already correct. Markup computation
-    needs the cost in ARS (`limpio` is always ARS), so `.record()` uses an
-    ARS-converted mirror (`_costo_ppp_ars`, via `convertir_a_pesos(costo_ppp,
-    moneda_costo, tipo_cambio)` — the SAME `moneda_costo`/`tipo_cambio` every
-    other call site already uses for the list cost) purely as
-    `calcular_markup`'s second argument — this conversion never leaks into
-    `payload().costo`.
-
-    Fail-closed on a missing exchange rate: `moneda_costo` can be USD with no
-    `TipoCambio` row resolved for today (e.g. no rate loaded yet) —
-    `convertir_a_pesos(x, "USD", None)` (see `pricing_calculator.py`)
-    silently returns `x` UNCONVERTED in that case, and a markup computed
-    against that raw USD figure as if it were ARS is off by roughly the
-    exchange rate itself (a ~38 cost read as ~38 ARS instead of ~38,000 ARS
-    produces a ~149,900% markup, silently, no exception, no log, no flag on
-    the payload). `_costo_ppp_ars` is therefore `None` — and `.record()` a
-    no-op — whenever a real conversion was actually needed but the rate
-    could not be resolved. `payload().costo`/`payload().moneda` are
-    UNAFFECTED by this: the PPP cost itself does not depend on today's
-    exchange rate, only the MARKUPS derived from it do. The contract stays
-    "no data beats a fabricated number": a missing rate means "sin PPP" on
-    the markup line, never an invented percentage.
+    Currency handling and the fail-closed guard on a missing exchange rate
+    are both documented in full in the module docstring's "Currency" section
+    — read that before changing `moneda_costo`/`tipo_cambio` handling here.
+    Short version: `payload().costo` is never converted (shown as-is in
+    `moneda_costo`); `_costo_ppp_ars` (an internal ARS mirror, via
+    `convertir_a_pesos`) is the ONLY input `calcular_markup` sees, and it is
+    `None` — making `.record()` a no-op — whenever a real conversion was
+    needed but no rate could be resolved, or `moneda_costo` was falsy
+    (`None`/empty), normalized to `"ARS"` at construction.
     """
 
     def __init__(
         self,
         source: Optional["PppSource"],
         *,
-        moneda_costo: str = "ARS",
+        moneda_costo: Optional[str] = "ARS",
         tipo_cambio: Optional[float] = None,
     ) -> None:
         self._costo_ppp = source.costo_ppp if source else None
         self._costo_ppp_fecha = source.costo_ppp_fecha if source else None
-        self._moneda_costo = moneda_costo
+        # Null-safety (2026-07-29): `ProductoERP.moneda_costo` has a
+        # Python-side default (`TipoMoneda.ARS`) but no `nullable=False` —
+        # a raw upsert/sync can insert `moneda_costo IS NULL`. Normalize here
+        # (once, at the boundary) instead of assuming callers already did,
+        # so a NULL never reaches `PppPayload.moneda` (non-optional `str` —
+        # would raise `ValidationError`/500) nor `convertir_a_pesos`.
+        self._moneda_costo = moneda_costo or "ARS"
         self._markups: dict[str, float] = {}
 
         # ARS mirror used ONLY as calcular_markup's cost input — never
@@ -386,8 +384,8 @@ class PppMarkups:
         # off by roughly the exchange rate, with no error. None here makes
         # .record() a no-op instead (see class docstring).
         self._costo_ppp_ars = (
-            convertir_a_pesos(self._costo_ppp, moneda_costo, tipo_cambio)
-            if self._costo_ppp is not None and (moneda_costo == "ARS" or tipo_cambio)
+            convertir_a_pesos(self._costo_ppp, self._moneda_costo, tipo_cambio)
+            if self._costo_ppp is not None and (self._moneda_costo == "ARS" or tipo_cambio)
             else None
         )
 
