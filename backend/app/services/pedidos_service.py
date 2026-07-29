@@ -490,6 +490,18 @@ def editar_pedido(
                 session, moneda="USD", tipo_cambio=None
             )
 
+    # `numero` embeds empresa_id (P-{empresa_id:02d}-{anio}-{correlativo}) and each
+    # company owns its own sequence, so moving a draft to another company must
+    # re-issue the number from that company's counter, in this same transaction.
+    # Only reachable in 'borrador': empresa_id is not editable in later states.
+    if "empresa_id" in campos_aplicables and campos_aplicables["empresa_id"] != pedido.empresa_id:
+        nuevo_numero, _ = numeracion_service.generar_siguiente_numero(
+            session,
+            tipo="pedido",
+            empresa_id=campos_aplicables["empresa_id"],
+        )
+        campos_aplicables["numero"] = nuevo_numero
+
     diff: dict[str, dict[str, Any]] = {}
     numero_factura_cambio = False
     for campo, nuevo_valor in campos_aplicables.items():

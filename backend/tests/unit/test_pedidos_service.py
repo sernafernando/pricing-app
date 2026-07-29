@@ -290,6 +290,41 @@ class TestEditarPedido:
         db.refresh(p)
         assert p.observaciones == "revisar con el proveedor"
 
+    def test_editar_empresa_en_borrador_renumera_el_pedido(self, db, empresa, proveedor, active_user) -> None:
+        """`numero` embeds empresa_id (P-{empresa_id:02d}-...), so moving a draft
+        to another company must re-issue the number from that company's sequence.
+        """
+        otra = Empresa(id=2, nombre="Otra Empresa", activo=True, orden=1)
+        db.add(otra)
+        db.flush()
+
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        numero_original = p.numero
+        assert numero_original.startswith("P-01-")
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            empresa_id=otra.id,
+        )
+        db.refresh(p)
+        assert p.empresa_id == otra.id
+        assert p.numero.startswith("P-02-")
+        assert p.numero != numero_original
+
+        evento_editado = (
+            db.query(CompraEvento).filter(CompraEvento.entidad_id == p.id, CompraEvento.tipo == "editado").one()
+        )
+        assert "numero" in evento_editado.payload["campos_cambiados"]
+
     def test_editar_registra_evento_con_diff(self, db, empresa, proveedor, active_user) -> None:
         p = pedidos_service.crear_pedido(
             db,
