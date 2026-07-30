@@ -78,6 +78,7 @@ from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import (
     ErpPriceInfo,
     GBPFetchError,
+    _as_optional_int,
     compute_verdicts,
     fetch_gbp_report_78,
 )
@@ -114,24 +115,27 @@ GBP_ROWS_CAP = 50_000
 # `Item_ID`s actually present in the (already-capped) GBP row set rather than
 # the whole table, chunked via `_ERP_JOIN_CHUNK_SIZE` to avoid a pathological
 # `IN (...)` parameter count; this cap is the belt-and-braces ceiling on top
-# of that, mirroring TN_PRODUCTOS_QUERY_CAP/GBP_ROWS_CAP exactly — never
-# truncated silently (see `erp_cap_hit` on the response).
+# of that, following the same never-truncate-silently contract as
+# TN_PRODUCTOS_QUERY_CAP/GBP_ROWS_CAP (see `erp_cap_hit` on the response).
+# The cap COMPARISON differs from those two on purpose: they bound a SQL
+# `LIMIT`, where landing exactly on the ceiling cannot rule out more rows
+# existing, so they must flag conservatively with `>=`. Here the full id set
+# is already in memory before the query, so `>` is exact — at exactly the cap
+# nothing is dropped, and flagging would be a false alarm.
 ERP_JOIN_QUERY_CAP = 50_000
 _ERP_JOIN_CHUNK_SIZE = 1_000
 
 
 def _gbp_item_id(gbp_row: Dict[str, Any]) -> Optional[int]:
     """Tolerant `Item_ID` parse — GBP returns numeric fields as decimal
-    strings inconsistently (e.g. `"9.0000"`), so this mirrors
-    `tn_reconciliation_service._as_optional_int`'s `int(float(...))`
-    handling rather than a bare `int(...)` that would raise on that shape."""
-    raw = gbp_row.get("Item_ID")
-    if raw in (None, ""):
-        return None
-    try:
-        return int(float(raw))
-    except (TypeError, ValueError):
-        return None
+    strings inconsistently (e.g. `"9.0000"`), so the parse must tolerate that
+    shape rather than a bare `int(...)` that would raise on it.
+
+    Delegates to the service's `_as_optional_int` instead of re-implementing
+    it: two independent definitions of "how a GBP numeric field is parsed"
+    agree today but are free to drift apart tomorrow, and this one feeds the
+    join key for a money path."""
+    return _as_optional_int(gbp_row.get("Item_ID"))
 
 
 def _load_erp_price_index(db: Session, item_ids: set) -> tuple[Dict[int, ErpPriceInfo], bool]:
