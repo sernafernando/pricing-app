@@ -1369,3 +1369,184 @@ describe('Column resize persist/reset', () => {
     });
   });
 });
+
+describe('Stock column (Slice 4)', () => {
+  function eanOrder() {
+    const rows = screen.getAllByRole('row').slice(1); // skip header row
+    return rows.map((row) => within(row).getAllByRole('cell')[0].textContent.trim());
+  }
+
+  it('renders a Stock column header', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('111')).toBeInTheDocument();
+    });
+    // Resize-grip aria-label concatenates into the header's accessible name.
+    expect(screen.getByRole('columnheader', { name: /^stock/i })).toBeInTheDocument();
+  });
+
+  it('renders the numeric stock value for a row with known stock', async () => {
+    setupApiMocks({
+      items: [{ ean: 'ST-1', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 7 }],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('ST-1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('7')).toBeInTheDocument();
+  });
+
+  it('renders unknown stock (null) distinctly from a real zero — never "0", never blank', async () => {
+    setupApiMocks({
+      items: [{ ean: 'ST-NULL', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: null }],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('ST-NULL')).toBeInTheDocument();
+    });
+    const row = screen.getByText('ST-NULL').closest('tr');
+    const stockCell = within(row).getAllByRole('cell')[5];
+    expect(stockCell.textContent.trim()).toBe('—');
+    expect(stockCell.textContent.trim()).not.toBe('0');
+  });
+
+  it('renders a genuine zero stock as "0", not as the unknown marker', async () => {
+    setupApiMocks({
+      items: [{ ean: 'ST-ZERO', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 0 }],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('ST-ZERO')).toBeInTheDocument();
+    });
+    expect(screen.getByText('0')).toBeInTheDocument();
+  });
+
+  it('sorts descending by stock on first click, nulls last', async () => {
+    const user = userEvent.setup();
+    setupApiMocks({
+      items: [
+        { ean: 'A-NULL', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: null },
+        { ean: 'B-LOW', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 2 },
+        { ean: 'C-HIGH', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 9 },
+      ],
+      verdictCounts: { FALTA_PUBLICAR: 3 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+    await waitFor(() => {
+      expect(screen.getByText('A-NULL')).toBeInTheDocument();
+    });
+
+    const stockHeader = screen.getByRole('columnheader', { name: /^stock/i });
+    await user.click(within(stockHeader).getByRole('button'));
+
+    await waitFor(() => {
+      expect(eanOrder()).toEqual(['C-HIGH', 'B-LOW', 'A-NULL']);
+    });
+  });
+
+  it('sorts ascending by stock on the second click, nulls still last', async () => {
+    const user = userEvent.setup();
+    setupApiMocks({
+      items: [
+        { ean: 'A-NULL', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: null },
+        { ean: 'B-LOW', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 2 },
+        { ean: 'C-HIGH', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 9 },
+      ],
+      verdictCounts: { FALTA_PUBLICAR: 3 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+    await waitFor(() => {
+      expect(screen.getByText('A-NULL')).toBeInTheDocument();
+    });
+
+    const stockHeader = screen.getByRole('columnheader', { name: /^stock/i });
+    const sortButton = within(stockHeader).getByRole('button');
+    await user.click(sortButton); // descending
+    await user.click(sortButton); // ascending
+
+    await waitFor(() => {
+      expect(eanOrder()).toEqual(['B-LOW', 'C-HIGH', 'A-NULL']);
+    });
+  });
+
+  it('breaks ties in stock value by EAN, deterministically', async () => {
+    const user = userEvent.setup();
+    setupApiMocks({
+      items: [
+        { ean: 'Z-TIE', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 5 },
+        { ean: 'A-TIE', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 5 },
+      ],
+      verdictCounts: { FALTA_PUBLICAR: 2 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+    await waitFor(() => {
+      expect(screen.getByText('Z-TIE')).toBeInTheDocument();
+    });
+
+    const stockHeader = screen.getByRole('columnheader', { name: /^stock/i });
+    await user.click(within(stockHeader).getByRole('button'));
+
+    await waitFor(() => {
+      expect(eanOrder()).toEqual(['A-TIE', 'Z-TIE']);
+    });
+  });
+
+  it('does not mutate the original reporte array when sorting', async () => {
+    const user = userEvent.setup();
+    const items = [
+      { ean: 'A-NULL', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: null },
+      { ean: 'C-HIGH', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], stock: 9 },
+    ];
+    setupApiMocks({ items, verdictCounts: { FALTA_PUBLICAR: 2 } });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+    await waitFor(() => {
+      expect(screen.getByText('A-NULL')).toBeInTheDocument();
+    });
+
+    const stockHeader = screen.getByRole('columnheader', { name: /^stock/i });
+    await user.click(within(stockHeader).getByRole('button'));
+
+    await waitFor(() => {
+      expect(eanOrder()).toEqual(['C-HIGH', 'A-NULL']);
+    });
+    // The array passed in by the mock (and re-used by the mock across
+    // re-renders) must still be in its original fetched order.
+    expect(items.map((r) => r.ean)).toEqual(['A-NULL', 'C-HIGH']);
+  });
+
+  it('resets to page 1 when the sort changes so the operator is never stranded on a now-empty page', async () => {
+    const user = userEvent.setup();
+    const items = manyFaltaPublicar(120).map((r, i) => ({ ...r, stock: i }));
+    setupApiMocks({ items, verdictCounts: { FALTA_PUBLICAR: 120 } });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+    await waitFor(() => {
+      expect(api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/reporte')).toHaveLength(1);
+    });
+
+    const nextButton = await screen.findByRole('button', { name: /Siguiente/i });
+    await user.click(nextButton);
+    expect(await screen.findByRole('button', { name: /Anterior/i })).not.toBeDisabled();
+
+    const stockHeader = screen.getByRole('columnheader', { name: /^stock/i });
+    await user.click(within(stockHeader).getByRole('button'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Anterior/i })).toBeDisabled();
+    });
+  });
+});

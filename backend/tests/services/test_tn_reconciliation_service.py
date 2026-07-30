@@ -780,3 +780,39 @@ class TestDespublicarUnknownStock:
 
         assert len(results) == 1
         assert results[0].despublicar is True
+
+
+class TestStockExposedOnRow:
+    """Slice 4: `stock` (already parsed via `_as_optional_int` for the
+    DESPUBLICAR check) must also be exposed on `ReconcileRow` itself, so the
+    endpoint/frontend can surface it — not just consume it internally."""
+
+    def test_genuine_zero_stock_is_exposed_as_zero(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=0, tnr_variation_id=0, stock=0)]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock == 0
+
+    def test_positive_stock_is_exposed(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=0, tnr_variation_id=0, stock=7)]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock == 7
+
+    def test_missing_stock_is_exposed_as_none_not_zero(self):
+        """The unknown-vs-zero distinction (`_as_optional_int`) must survive
+        onto the row, not just stay internal to the DESPUBLICAR check."""
+        gbp_rows = [{"Código": "123", "tnr_id": 0, "tnr_variationID": 0}]  # no "stock" key at all
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock is None
+
+    def test_non_numeric_stock_is_exposed_as_none(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=0, tnr_variation_id=0, stock="N/D")]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock is None

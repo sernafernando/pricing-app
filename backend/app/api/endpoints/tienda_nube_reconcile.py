@@ -153,6 +153,11 @@ class ReconcileRowResponse(BaseModel):
     # MAL_VINCULADO (NO_VARIANT_LINK); `null` for every other verdict.
     reason: Optional[str] = None
     reason_detail: Optional[dict] = None
+    # Slice 4: `stock` mirrors `ReconcileRow.stock` 1:1. `None` means "not
+    # reported by GBP" and MUST render/sort differently from a genuine `0`
+    # (which is the value that raises `despublicar`) — see
+    # `_as_optional_int`'s docstring in `tn_reconciliation_service`.
+    stock: Optional[int] = None
     # Sub-slice 3c follow-up: raw GBP product fields the publish modal needs
     # (category picker text + description editor + image list), populated
     # from `ReconcileRow.gbp_row` — see `_gbp_images` above. Replaces the
@@ -373,6 +378,7 @@ async def get_reconciliation_report(
             variant_id=v.variant_id,
             reason=v.reason,
             reason_detail=v.reason_detail,
+            stock=v.stock,
             ml_desc=v.gbp_row.get("ML_desc"),
             categoria=v.gbp_row.get("Categoría"),
             subcategoria=v.gbp_row.get("SubCategoría"),

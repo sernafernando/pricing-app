@@ -338,6 +338,16 @@ table.resizableTable {
   position: relative;
 }
 
+.sortableHeaderBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 .resizeGrip {
   position: absolute;
   top: 0;

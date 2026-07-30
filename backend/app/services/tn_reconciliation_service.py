@@ -81,6 +81,13 @@ class ReconcileRow:
     # `None` for every other verdict, never guessed.
     reason: Optional[str] = None
     reason_detail: Optional[dict] = None
+    # Slice 4: exposes the already-parsed `_as_optional_int` stock value
+    # (previously consumed only internally for the DESPUBLICAR check, then
+    # discarded). `None` means "not reported by GBP" and MUST stay `None` —
+    # never coerced to `0`, since `0` is exactly the value that raises
+    # `despublicar` on the other side of the same field (see
+    # `_as_optional_int`'s docstring).
+    stock: Optional[int] = None
 
 
 def _build_reason_detail(
@@ -351,6 +358,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    stock=stock,
                     tn_presence=_compute_presence(presence_tn),
                 )
             )
@@ -366,6 +374,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    stock=stock,
                     tn_presence=_compute_presence(matches_by_ean[0]),
                 )
             )
@@ -392,6 +401,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    stock=stock,
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                     product_id=matched_tn.product_id if matched_tn else None,
                     variant_id=matched_tn.variant_id if matched_tn else None,
@@ -409,6 +419,7 @@ def compute_verdicts(
                     gbp_row=row,
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
+                    stock=stock,
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                     reason=REASON_NO_VARIANT_LINK,
                     reason_detail=_build_reason_detail(
@@ -489,6 +500,7 @@ def compute_verdicts(
                 gbp_row=row,
                 tn_matches=[claimed_tn] if claimed_tn else (matches_by_ean if fallback_tn else []),
                 despublicar=claimed_despublicar or despublicar,
+                stock=stock,
                 tn_presence=_compute_presence(presence_tn),
                 reason=reason,
                 reason_detail=reason_detail,
