@@ -19,6 +19,22 @@ describe('PppLine — informational PPP companion line', () => {
     expect(screen.getByText(/15\/07\/26/)).toBeTruthy();
   });
 
+  it('renders "ppp: fuera de rango" (no number, no markups) when estado is fuera_de_rango', () => {
+    render(<PppLine ppp={{ estado: 'fuera_de_rango', costo: null, moneda: null, fecha: null, markups: {} }} />);
+    expect(screen.getByText(/fuera de rango/)).toBeTruthy();
+    expect(screen.queryByText(/\$/)).toBeNull();
+  });
+
+  it('renders "ppp: fuera de rango" for a markup line too, never falling back to sin PPP', () => {
+    render(
+      <PppLine
+        ppp={{ estado: 'fuera_de_rango', costo: null, moneda: null, fecha: null, markups: {} }}
+        markupKey="clasica"
+      />
+    );
+    expect(screen.getByText(/fuera de rango/)).toBeTruthy();
+  });
+
   it('renders the cost cell companion in ARS when moneda is ARS', () => {
     render(<PppLine ppp={{ costo: 1234.5, moneda: 'ARS', fecha: '2026-07-15', markups: {} }} />);
     expect(screen.getByText(/ARS \$1234\.50/)).toBeTruthy();

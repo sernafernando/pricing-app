@@ -148,11 +148,90 @@ THE SAME ROW (first the field itself against a live ERP screen value, now
 `iclh_price_aw` against `iclh_price`). "Looks like a plausible number" is
 not evidence of correctness.
 
-Coverage: ~76.5% of products (3173/4150) have a qualifying `coslis_id=1`
-`iclh_price_aw` row that ALSO passes the scale sanity guard (measured
-2026-07-29) — down from ~77.5% (3215/4150) before the guard rejected the 42
-broken rows above; up from ~50% under the old `it_priceofcostpp`-based
-selection.
+Coverage (before "Recovering USD footprints" below): ~76.5% of products
+(3173/4150) have a qualifying `coslis_id=1` `iclh_price_aw` row that ALSO
+passes the scale sanity guard (measured 2026-07-29) — down from ~77.5%
+(3215/4150) before the guard rejected the 42 broken rows above; up from ~50%
+under the old `it_priceofcostpp`-based selection.
+
+=== Recovering USD footprints + "out of range" state (2026-07-30) ===
+
+The 42 rows the scale guard rejects are not all equally broken. The stale
+`iclh_price_aw` is not a corrupt number: it is very often the correct
+PREVIOUS value, left behind under a currency the ERP has since changed away
+from — a "currency footprint". Witness item 2780 (RESMA AUTOR CARTA):
+
+    2025-03-26 | iclh_price 2.911820    | iclh_price_aw 2.911820 | curr_id 2 (USD)
+    2025-07-28 | iclh_price 3178.250000 | iclh_price_aw 2.911820 | curr_id 1 (ARS)  <- current
+
+The CURRENT row's `iclh_price_aw` exactly equals the PREVIOUS row's
+`iclh_price` — that previous row's `curr_id` is the `aw`'s real currency.
+This is a verbatim copy, not an approximation, so the footprint lookup uses
+EXACT `Decimal` equality (no tolerance) against either `iclh_price` OR
+`iclh_price_aw` of the candidate row (item 516's real shape matches on the
+candidate's `aw`, not its `price` — see `TestRecoveringUsdFootprints`).
+
+Breakdown of the 42 broken rows by footprint currency (measured 2026-07-29):
+16 have a USD footprint, 12 have an ARS footprint, 15 have no footprint at
+all (no other `coslis_id=1` row for that item shares the exact value under a
+different currency).
+
+FALSE-POSITIVE CONTROL: only 8 of the 3137 HEALTHY (scale-sane) rows would
+also happen to match a footprint by exact value — confirming the footprint
+lookup must run ONLY for rows that already FAILED the scale guard. A healthy
+row is never reinterpreted, no matter what its value happens to coincide with.
+
+**USER DECISION — recover ONLY the USD footprints.** A stale value in USD
+is recoverable: USD is a stable reference, so converting it at TODAY's rate
+yields a real, usable figure (item 2780: 2.911820 USD x ~1520 today ~= 4423
+ARS, comparable at a glance against its 3178.25 ARS list cost). A stale value
+in OLD PESOS is explicitly REJECTED for conversion: e.g. item 397 holds
+6033.03 pesos from 2023-03, item 442 holds 97347.58 from 2022-12— there is
+no way to bring 2023 pesos to today's value (and `tipo_cambio` only goes back
+to 2025-10-01 anyway, so there is not even a historical rate to use). The 12
+ARS-footprint items are therefore treated as UNUSABLE, same as the 15 with
+no footprint at all — converting them at TODAY's USD rate would produce a
+meaningless number under a misleading label, which is explicitly worse than
+showing nothing.
+
+**Display currency for a recovered row**: the LIST COST's currency
+(`producto_erp.moneda_costo`), converted at today's rate — NOT USD shown
+next to a peso list cost. This is the ONE deliberate exception to "PPP is
+never converted for display" (see the "Currency" section above, which still
+applies unchanged to every non-recovered row). Fail-closed on a missing
+exchange rate: `PppMarkups` treats a recovered row with no resolvable
+`tipo_cambio` as fully OUT OF RANGE (not merely "no markup", unlike the
+existing rule-1 fail-closed guard) — showing an unconverted USD figure under
+the wrong currency label would be worse than showing nothing.
+
+**Three distinguishable UI states** (`PppPayload.estado`, see
+`app.schemas.costo_ppp`):
+  1. `"usable"` — cost + date + markups (rule-1 rows, and recovered rule-2
+     rows with a resolvable rate).
+  2. `"fuera_de_rango"` — the row exists but is unrecoverable: the 12
+     ARS-footprint items, the 15 no-footprint items, and any recovered row
+     whose exchange rate could not be resolved. No number, no markups.
+  3. `ppp is None` — no qualifying row at all (unchanged).
+State 2 exists because an empty cell cannot distinguish "no data" from "data
+exists but is unusable" — the latter is actionable (the ERP value needs
+fixing), the former is not.
+
+Coverage after recovery (measured 2026-07-29, USD footprints only): usable
+PPP rises from 3173/4150 (~76.5%) to ~3189/4150 (~76.8%, +16 recovered);
+27 items (12 ARS-footprint + 15 no-footprint) render `"fuera_de_rango"`.
+
+Performance: the footprint lookup is BATCHED — one extra query per page,
+covering every off-scale item on that page, never one query per item. It
+only ever runs for rows that already failed the scale guard (typically a
+handful per page), and is skipped entirely (zero extra queries) when a page
+has no off-scale rows at all.
+
+**Pattern reinforced**: this is the SAME lesson as the scale guard above,
+applied one level deeper — an ERP value must be validated against a
+reference in its OWN row before being trusted, and even a value identified
+as broken can sometimes be recovered by finding ITS OWN prior, coherent
+version elsewhere in the same row's history — never by inventing a number
+from an unrelated source (e.g. today's list cost).
 
 Index/dialect note: `tb_item_transactions` needed a `LATERAL`-vs-`ROW_NUMBER()`
 dialect branch (see git history) because a composite
@@ -289,36 +368,73 @@ _COSLIS_ID_PRINCIPAL = 1
 _PPP_RATIO_MIN = 0.05
 _PPP_RATIO_MAX = 20.0
 
+# `tb_item_cost_list_history.curr_id` convention (see column comment on the
+# model): 1 = ARS, 2 = USD. Only USD footprints are recoverable (see module
+# docstring's "Recovering USD footprints" section).
+_CURR_ID_USD = 2
+
 
 @dataclass(frozen=True)
 class PppSource:
     """One resolved PPP source row for a single item_id.
 
-    Deliberately carries NO currency of its own — see module docstring's
-    "Currency" section for why.
+    Three reachable shapes (see module docstring's "Recovering USD
+    footprints" section for the full rationale):
+      - `usable=True, moneda_ppp=None` (the common case, rule-1): a
+        scale-sane row. `costo_ppp` is already in the caller's
+        `moneda_costo` — no currency of its own, by construction (see
+        module docstring's "Currency" section).
+      - `usable=True, moneda_ppp="USD"` (rule-2, recovered): a scale-broken
+        row whose stale value was recovered via a USD currency footprint.
+        `costo_ppp` is a RAW USD figure that still needs conversion (to
+        `moneda_costo` for display, to ARS for the markup formula) —
+        see `PppMarkups`.
+      - `usable=False` (rule-3/4, unrecoverable): the row exists but is
+        broken and not recoverable (ARS footprint, or no footprint at all).
+        `costo_ppp`/`costo_ppp_fecha`/`moneda_ppp` are always `None` in this
+        state — callers must never read them; `PppMarkups` maps this
+        straight to `PppPayload(estado="fuera_de_rango")`.
     """
 
-    costo_ppp: float
-    costo_ppp_fecha: date
+    costo_ppp: Optional[float] = None
+    costo_ppp_fecha: Optional[date] = None
+    usable: bool = True
+    moneda_ppp: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _OffScaleRow:
+    """Bookkeeping for a row that failed `_is_scale_sane`, carried from the
+    main ranked query into the (batched) footprint lookup."""
+
+    iclh_id: int
+    curr_id: Optional[int]
+    target_aw: object  # Decimal — the exact stale value to match a footprint against
+    fecha: date
 
 
 def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]:
-    """Resolve the latest qualifying PPP row per item_id, in ONE query.
+    """Resolve the latest qualifying PPP row per item_id, in ONE query (plus
+    ONE more BATCHED query, only when the page has off-scale rows — see
+    module docstring's "Recovering USD footprints" section).
 
     Args:
         db: Active SQLAlchemy session (main application DB).
         item_ids: item_ids to resolve for (typically the current page).
 
     Returns:
-        {item_id: PppSource(costo_ppp, costo_ppp_fecha)}. Items with no
-        qualifying row are ABSENT from the dict — callers MUST treat a
-        missing key as "no PPP data" and MUST NEVER fall back to the list
-        cost. This function never raises for empty input; it returns {}.
+        {item_id: PppSource}. Items with NO qualifying row at all are ABSENT
+        from the dict — callers MUST treat a missing key as "no PPP data"
+        and MUST NEVER fall back to the list cost (state 3). Items with a
+        qualifying-but-unrecoverable row are PRESENT with `usable=False`
+        (state 2, "out of range") — a distinct state from absence. This
+        function never raises for empty input; it returns {}.
     """
     if not item_ids:
         return {}
 
     result: dict[int, PppSource] = {}
+    offscale: dict[int, _OffScaleRow] = {}
 
     # Chunk item_ids to stay under SQLite's 999-variable limit / PostgreSQL's
     # 65535-param limit (same pattern as `batch_colores` in productos_shared.py).
@@ -327,10 +443,13 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
 
         stmt = _build_ranked_stmt(chunk)
 
-        for item_id, iclh_price, iclh_price_aw, iclh_cd in db.execute(stmt).all():
+        for item_id, iclh_id, iclh_price, iclh_price_aw, curr_id, iclh_cd in db.execute(stmt).all():
             if iclh_price_aw is None or iclh_cd is None:
                 continue
-            if not _is_scale_sane(iclh_price, iclh_price_aw):
+            fecha = iclh_cd.date() if isinstance(iclh_cd, datetime) else iclh_cd
+            if _is_scale_sane(iclh_price, iclh_price_aw):
+                result[item_id] = PppSource(costo_ppp=float(iclh_price_aw), costo_ppp_fecha=fecha)
+            else:
                 # The row FAILED the sanity guard: iclh_price_aw is stale at a
                 # different currency scale than iclh_price in its OWN row (see
                 # module docstring's "Scale sanity guard" section). Do NOT
@@ -338,12 +457,92 @@ def resolver_ppp_batch(db: Session, item_ids: list[int]) -> dict[int, PppSource]
                 # is even less trustworthy than the current (latest) one, and
                 # this loop only ever sees the single already-ranked (rn=1)
                 # row per item_id, so there is no older candidate to try
-                # anyway. The item simply gets no PPP (absent from `result`).
-                continue
-            fecha = iclh_cd.date() if isinstance(iclh_cd, datetime) else iclh_cd
-            result[item_id] = PppSource(costo_ppp=float(iclh_price_aw), costo_ppp_fecha=fecha)
+                # anyway. Defer the final verdict to the footprint lookup
+                # below (recoverable USD footprint vs. unrecoverable).
+                offscale[item_id] = _OffScaleRow(iclh_id=iclh_id, curr_id=curr_id, target_aw=iclh_price_aw, fecha=fecha)
+
+    if offscale:
+        footprints = _resolve_footprints(db, offscale)
+        for item_id, row in offscale.items():
+            footprint_moneda = footprints.get(item_id)
+            if footprint_moneda == "USD":
+                result[item_id] = PppSource(
+                    costo_ppp=float(row.target_aw),
+                    costo_ppp_fecha=row.fecha,
+                    usable=True,
+                    moneda_ppp="USD",
+                )
+            else:
+                # Either an ARS footprint (explicitly rejected — see module
+                # docstring, converting old pesos at today's rate is
+                # meaningless) or no footprint at all: unrecoverable.
+                result[item_id] = PppSource(usable=False)
 
     return result
+
+
+def _resolve_footprints(db: Session, offscale: dict[int, _OffScaleRow]) -> dict[int, str]:
+    """Batched "currency footprint" lookup for off-scale rows (see module
+    docstring's "Recovering USD footprints" section).
+
+    For each off-scale item_id, looks for a DIFFERENT row (different
+    `iclh_id`) in the SAME `coslis_id=1` history, with a DIFFERENT `curr_id`,
+    whose `iclh_price` OR `iclh_price_aw` EXACTLY equals (`Decimal`
+    equality — no tolerance) the off-scale row's stale `iclh_price_aw`.
+    Several candidates -> most recent by `iclh_cd`, tiebreak `iclh_id DESC`
+    (same determinism concern as `_build_ranked_stmt` — a date tie must not
+    be nondeterministic).
+
+    ONE extra query per page (chunked, like the main query) — this fetches
+    every OTHER `coslis_id=1` row for the off-scale item_ids in one shot and
+    matches in Python, rather than one query per item.
+
+    Returns:
+        {item_id: "USD" | "ARS"} for items with a matching footprint. Items
+        with no matching footprint are ABSENT (caller treats absence the
+        same as an ARS footprint: unrecoverable).
+    """
+    footprints: dict[int, str] = {}
+    item_ids = list(offscale.keys())
+
+    for start in range(0, len(item_ids), _IN_CHUNK_SIZE):
+        chunk = item_ids[start : start + _IN_CHUNK_SIZE]
+
+        stmt = select(
+            ItemCostListHistory.item_id,
+            ItemCostListHistory.iclh_id,
+            ItemCostListHistory.iclh_price,
+            ItemCostListHistory.iclh_price_aw,
+            ItemCostListHistory.curr_id,
+            ItemCostListHistory.iclh_cd,
+        ).where(
+            ItemCostListHistory.coslis_id == _COSLIS_ID_PRINCIPAL,
+            ItemCostListHistory.item_id.in_(chunk),
+        )
+
+        candidates_by_item: dict[int, list] = {}
+        for row in db.execute(stmt).all():
+            candidates_by_item.setdefault(row.item_id, []).append(row)
+
+        for item_id in chunk:
+            offscale_row = offscale[item_id]
+            best_row = None
+            best_key = None
+            for row in candidates_by_item.get(item_id, []):
+                if row.iclh_id == offscale_row.iclh_id:
+                    continue  # same row — not a footprint of itself
+                if row.curr_id == offscale_row.curr_id:
+                    continue  # same currency — not a currency footprint
+                if row.iclh_price != offscale_row.target_aw and row.iclh_price_aw != offscale_row.target_aw:
+                    continue  # not an exact verbatim match
+                key = (row.iclh_cd or datetime.min, row.iclh_id)
+                if best_key is None or key > best_key:
+                    best_key = key
+                    best_row = row
+            if best_row is not None:
+                footprints[item_id] = "USD" if best_row.curr_id == _CURR_ID_USD else "ARS"
+
+    return footprints
 
 
 def _is_scale_sane(iclh_price: Optional[float], iclh_price_aw: float) -> bool:
@@ -401,8 +600,10 @@ def _build_ranked_stmt(chunk: list[int]):
     ranked = (
         select(
             ItemCostListHistory.item_id.label("item_id"),
+            ItemCostListHistory.iclh_id.label("iclh_id"),
             ItemCostListHistory.iclh_price.label("iclh_price"),
             ItemCostListHistory.iclh_price_aw.label("iclh_price_aw"),
+            ItemCostListHistory.curr_id.label("curr_id"),
             ItemCostListHistory.iclh_cd.label("iclh_cd"),
             row_number_col,
         )
@@ -410,9 +611,14 @@ def _build_ranked_stmt(chunk: list[int]):
         .subquery()
     )
 
-    return select(ranked.c.item_id, ranked.c.iclh_price, ranked.c.iclh_price_aw, ranked.c.iclh_cd).where(
-        ranked.c.rn == 1
-    )
+    return select(
+        ranked.c.item_id,
+        ranked.c.iclh_id,
+        ranked.c.iclh_price,
+        ranked.c.iclh_price_aw,
+        ranked.c.curr_id,
+        ranked.c.iclh_cd,
+    ).where(ranked.c.rn == 1)
 
 
 # --- Canonical PPP markup key vocabulary (see module docstring) -------------
@@ -456,6 +662,21 @@ class PppMarkups:
     `None` — making `.record()` a no-op — whenever a real conversion was
     needed but no rate could be resolved, or `moneda_costo` was falsy
     (`None`/empty), normalized to `"ARS"` at construction.
+
+    A recovered row (2026-07-30, `source.moneda_ppp == "USD"` — see module
+    docstring's "Recovering USD footprints" section) is the ONE case where
+    `costo` IS converted for display: `source.costo_ppp` is a raw USD figure
+    that gets converted to `moneda_costo` (using `tipo_cambio`) before ever
+    reaching `payload().costo`. This needs `tipo_cambio` UNCONDITIONALLY
+    (even when `moneda_costo` is already `"ARS"`) — unlike rule-1's
+    ARS-needs-no-conversion shortcut — because the SOURCE currency (USD) is
+    fixed regardless of the DISPLAY currency. A recovered row with no
+    resolvable `tipo_cambio` becomes fully OUT OF RANGE
+    (`PppPayload(estado="fuera_de_rango")`, no costo/markups at all) rather
+    than merely omitting the markup — showing an unconverted USD figure
+    under the wrong currency label would be worse than showing nothing.
+    `source.usable=False` (unrecoverable, e.g. an ARS footprint or no
+    footprint) maps to the same `"fuera_de_rango"` state directly.
     """
 
     def __init__(
@@ -465,8 +686,6 @@ class PppMarkups:
         moneda_costo: Optional[str] = "ARS",
         tipo_cambio: Optional[float] = None,
     ) -> None:
-        self._costo_ppp = source.costo_ppp if source else None
-        self._costo_ppp_fecha = source.costo_ppp_fecha if source else None
         # Null-safety (2026-07-29): `ProductoERP.moneda_costo` has a
         # Python-side default (`TipoMoneda.ARS`) but no `nullable=False` —
         # a raw upsert/sync can insert `moneda_costo IS NULL`. Normalize here
@@ -475,22 +694,51 @@ class PppMarkups:
         # would raise `ValidationError`/500) nor `convertir_a_pesos`.
         self._moneda_costo = moneda_costo or "ARS"
         self._markups: dict[str, float] = {}
+        self._costo_ppp: Optional[float] = None
+        self._costo_ppp_fecha = None
+        self._costo_ppp_ars: Optional[float] = None
+        # `fuera_de_rango` (2026-07-30): a distinct third state — the row
+        # exists (unlike `source is None`) but is unusable. See class
+        # docstring's last paragraph.
+        self._out_of_range = bool(source is not None and not source.usable)
 
-        # ARS mirror used ONLY as calcular_markup's cost input — never
-        # exposed via payload().costo (see class docstring). Fail-closed:
-        # a non-ARS `moneda_costo` with no resolvable `tipo_cambio` must NOT
-        # fall through to convertir_a_pesos's silent "return unconverted"
-        # behaviour here — that would compute every markup against a figure
-        # off by roughly the exchange rate, with no error. None here makes
-        # .record() a no-op instead (see class docstring).
-        self._costo_ppp_ars = (
-            convertir_a_pesos(self._costo_ppp, self._moneda_costo, tipo_cambio)
-            if self._costo_ppp is not None and (self._moneda_costo == "ARS" or tipo_cambio)
-            else None
-        )
+        if source is None or self._out_of_range:
+            return
+
+        if source.moneda_ppp == "USD":
+            # Recovered USD footprint (rule-2) — see class docstring's last
+            # paragraph. `tipo_cambio` is required REGARDLESS of
+            # `moneda_costo` (the source currency is fixed at USD).
+            if not tipo_cambio:
+                self._out_of_range = True
+                return
+            self._costo_ppp = (
+                source.costo_ppp
+                if self._moneda_costo == "USD"
+                else convertir_a_pesos(source.costo_ppp, "USD", tipo_cambio)
+            )
+            self._costo_ppp_ars = convertir_a_pesos(source.costo_ppp, "USD", tipo_cambio)
+            self._costo_ppp_fecha = source.costo_ppp_fecha
+        else:
+            # rule-1: costo_ppp already IS in moneda_costo — never converted
+            # for display (see module docstring's "Currency" section).
+            self._costo_ppp = source.costo_ppp
+            self._costo_ppp_fecha = source.costo_ppp_fecha
+            # ARS mirror used ONLY as calcular_markup's cost input — never
+            # exposed via payload().costo (see class docstring). Fail-closed:
+            # a non-ARS `moneda_costo` with no resolvable `tipo_cambio` must
+            # NOT fall through to convertir_a_pesos's silent
+            # "return unconverted" behaviour here — that would compute every
+            # markup against a figure off by roughly the exchange rate, with
+            # no error. None here makes .record() a no-op instead.
+            self._costo_ppp_ars = (
+                convertir_a_pesos(self._costo_ppp, self._moneda_costo, tipo_cambio)
+                if (self._moneda_costo == "ARS" or tipo_cambio)
+                else None
+            )
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
-        """Record one PPP markup. No-op when there is no qualifying PPP cost.
+        """Record one PPP markup. No-op when there is no qualifying/usable PPP cost.
 
         Args:
             key: markup key (mirrors the frontend `markupKey`).
@@ -508,9 +756,12 @@ class PppMarkups:
         self._markups[key] = round(raw * 100, 2) if percent else raw
 
     def payload(self) -> Optional[PppPayload]:
+        if self._out_of_range:
+            return PppPayload(estado="fuera_de_rango")
         if self._costo_ppp is None:
             return None
         return PppPayload(
+            estado="usable",
             costo=self._costo_ppp,
             moneda=self._moneda_costo,
             fecha=self._costo_ppp_fecha,

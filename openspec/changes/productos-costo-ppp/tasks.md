@@ -412,3 +412,41 @@ each:
   `markupKey` naming convention (T3.11) so frontend and backend don't need a follow-up
   reconciliation commit. `delivery_strategy: ask-on-risk` is satisfied by flagging this now rather
   than mid-apply.
+
+## Currency-footprint recovery + "out of range" state (2026-07-30)
+
+- [x] TR.1 Added `PppSource.usable`/`moneda_ppp` and `PppPayload.estado` (`"usable"` |
+      `"fuera_de_rango"`), additive alongside the pre-existing `ppp is None` no-data contract.
+- [x] TR.2 `resolver_ppp_batch` now runs a BATCHED footprint lookup (`_resolve_footprints`, one
+      extra query per page, only when off-scale rows exist) for rows that fail the scale guard:
+      matches a DIFFERENT `coslis_id=1` row with a DIFFERENT `curr_id` whose `iclh_price` OR
+      `iclh_price_aw` EXACTLY equals the stale value (`Decimal` equality, no tolerance);
+      most-recent-by-`iclh_cd`/tiebreak-`iclh_id DESC` on multiple candidates.
+- [x] TR.3 USD footprints (16 items) recovered as `usable=True, moneda_ppp="USD"`; ARS
+      footprints (12) and no-footprint (15) rows become `usable=False` ("out of range") —
+      per explicit user decision to never convert old-pesos values.
+- [x] TR.4 `PppMarkups` converts a recovered row to `moneda_costo` (the list cost's own
+      currency) at today's rate for display, and to ARS for the markup formula — the one
+      deliberate exception to "PPP is never converted for display". Fails closed to
+      `estado="fuera_de_rango"` (not merely "no markup") when no exchange rate is resolvable.
+- [x] TR.5 Fixed the detail endpoint's conditional `tipo_cambio` fetch (`productos_listing.py`
+      ~2621, was `if producto_erp.moneda_costo == "USD" else None`) to unconditional — a
+      recovered row needs the USD rate regardless of the product's own currency.
+- [x] TR.6 `PppPayload.estado`/`costo`/`moneda`/`fecha` now Optional (additive) — `fuera_de_rango`
+      carries no number/markups.
+- [x] TR.7 Updated `PppLine.jsx` + `.test.jsx` for the third UI state ("ppp: fuera de rango",
+      no number, no markups) — distinct from "sin PPP" (no row at all).
+- [x] TR.8 Unit tests: witness 2780 (recovered via USD footprint), item 397/516 shapes (ARS
+      footprint, unrecoverable — including the aw-vs-price match nuance for 516), item 623 shape
+      (no footprint), healthy-row-not-reinterpreted control, fail-closed on missing rate for a
+      recovered row, multiple-footprint-candidates determinism, batched-query-count test at
+      page_size 1/100. `TestPinnedAgainstKnownErpValue` (item 1169) verified still passing
+      unmodified.
+- [x] TR.9 Integration tests: query-count with footprint lookup (2 queries, page_size 1/100),
+      end-to-end "fuera_de_rango" response, end-to-end recovered-USD-footprint response in ARS.
+- [x] TR.10 Module docstring: new "Recovering USD footprints" section with the witness, the
+      16/12/15 breakdown, the false-positive control (8/3137), the three-state UI contract, and
+      updated coverage (~76.5% -> ~76.8%, 27 items "fuera de rango").
+- [x] TR.11 Full backend suite: 3781 passed / 16 skipped (baseline this branch 3767/16, +14 new
+      tests, no regressions). Frontend: 438 passed (baseline 436, +2 new tests). `ruff
+      format`/`check` scoped to touched files clean (1 file auto-reformatted, no findings).

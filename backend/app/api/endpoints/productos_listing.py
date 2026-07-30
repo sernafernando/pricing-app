@@ -2612,13 +2612,14 @@ def obtener_producto(
     costo_envio_producto = resolver_costo_envio(db, producto_erp)
 
     # PPP accumulator for this product (informational only; None-safe).
-    # moneda_costo/tipo_cambio: the PPP source's currency matches
-    # producto_erp.moneda_costo by construction (see costo_ppp_service.py
-    # module docstring — same coslis_id=1 row) — resolve the rate the same
-    # way every other conditional site in this endpoint does (only when the
-    # product is USD-costed), not with an extra unconditional lookup.
+    # tipo_cambio is resolved UNCONDITIONALLY here (unlike the other
+    # conditional sites in this endpoint): a recovered USD-footprint row
+    # (2026-07-30 — see costo_ppp_service.py module docstring's "Recovering
+    # USD footprints" section) needs today's USD rate to convert to the
+    # list cost's currency for display, REGARDLESS of producto_erp.moneda_costo
+    # — a per-product lookup here is not an N+1 concern (single-item endpoint).
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
-    _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+    _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD")
     ppp_d = PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d)
 
     # PPP companion for the clásica (list-cost) markup (T2.6, reopened).

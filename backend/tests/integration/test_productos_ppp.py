@@ -647,6 +647,144 @@ class TestQueryCount:
         assert counter.matching("tb_item_cost_list_history") == 1
 
 
+class TestQueryCountWithFootprintLookup:
+    """The footprint lookup (2026-07-30) adds exactly ONE extra query per
+    page — only when the page has off-scale rows — never one per item."""
+
+    @pytest.mark.parametrize("page_size", [1, 100])
+    def test_footprint_lookup_adds_exactly_one_extra_query_regardless_of_page_size(
+        self, client, auth_headers, db, comision_fixtures, query_counter, page_size
+    ):
+        _guard_incompatible_raw_sql(db)
+
+        for i in range(3):
+            item_id = 9400 + i
+            p = ProductoERP(
+                item_id=item_id,
+                codigo=f"TEST-PPP-OFFSCALE-{item_id}",
+                descripcion="Producto con PPP fuera de escala",
+                costo=100.0,
+                moneda_costo="ARS",
+                iva=21.0,
+                activo=True,
+                envio=0.0,
+            )
+            db.add(p)
+            db.flush()
+            # Off-scale current row (broken ratio) — forces the footprint query.
+            db.add(
+                ItemCostListHistory(
+                    iclh_id=94000 + i,
+                    coslis_id=1,
+                    item_id=item_id,
+                    iclh_price=100.0,
+                    iclh_price_aw=0.001,
+                    curr_id=1,
+                    iclh_cd=datetime(2026, 2, 14),
+                )
+            )
+        db.commit()
+
+        with query_counter() as counter:
+            response = client.get(f"/api/productos?page=1&page_size={page_size}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        # ONE main ranked query + ONE footprint query = 2, regardless of page_size.
+        assert counter.matching("tb_item_cost_list_history") == 2
+
+
+class TestOutOfRangeState:
+    """State 2 (`estado: "fuera_de_rango"`): the row exists but is broken and
+    not recoverable — distinct from state 3 (`ppp is None`, no row at all)."""
+
+    def test_unrecoverable_row_renders_out_of_range_no_number(self, client, auth_headers, db):
+        p = ProductoERP(
+            item_id=9410,
+            codigo="TEST-PPP-OUT-OF-RANGE",
+            descripcion="Producto con PPP fuera de rango",
+            costo=100.0,
+            moneda_costo="ARS",
+            iva=21.0,
+            activo=True,
+            envio=0.0,
+        )
+        db.add(p)
+        db.flush()
+        db.add(
+            ItemCostListHistory(
+                iclh_id=94100,
+                coslis_id=1,
+                item_id=p.item_id,
+                iclh_price=100.0,
+                iclh_price_aw=0.001,  # broken scale, no footprint row present
+                curr_id=1,
+                iclh_cd=datetime(2026, 2, 14),
+            )
+        )
+        db.commit()
+
+        response = client.get(f"/api/productos/{p.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None  # distinct from "no row at all"
+        assert data["ppp"]["estado"] == "fuera_de_rango"
+        assert data["ppp"]["costo"] is None
+        assert data["ppp"]["markups"] == {}
+
+    def test_recovered_usd_footprint_renders_usable_in_list_currency(self, client, auth_headers, db):
+        """End-to-end witness of item 2780's shape: recovered via a USD
+        footprint, displayed in the list cost's own currency (ARS) at
+        today's rate."""
+        p = ProductoERP(
+            item_id=9411,
+            codigo="TEST-PPP-RECOVERED",
+            descripcion="Producto con PPP recuperado",
+            costo=3178.25,
+            moneda_costo="ARS",
+            iva=21.0,
+            activo=True,
+            envio=0.0,
+        )
+        db.add(p)
+        db.flush()
+        db.add(
+            ItemCostListHistory(
+                iclh_id=94110,
+                coslis_id=1,
+                item_id=p.item_id,
+                curr_id=2,
+                iclh_price=2.911820,
+                iclh_price_aw=2.911820,
+                iclh_cd=datetime(2025, 3, 26),
+            )
+        )
+        db.add(
+            ItemCostListHistory(
+                iclh_id=94111,
+                coslis_id=1,
+                item_id=p.item_id,
+                curr_id=1,
+                iclh_price=3178.250000,
+                iclh_price_aw=2.911820,
+                iclh_cd=datetime(2025, 7, 28),
+            )
+        )
+        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1520.0, venta=1520.0))
+        db.commit()
+
+        response = client.get(f"/api/productos/{p.item_id}", headers=auth_headers)
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+
+        assert data["ppp"] is not None
+        assert data["ppp"]["estado"] == "usable"
+        assert data["ppp"]["moneda"] == "ARS"
+        assert data["ppp"]["costo"] == pytest.approx(2.911820 * 1520.0)
+
+
 class TestClasicaMarkupFailsClosedOnMissingRate:
     """End-to-end regression for the fail-closed guard (a USD-costed product
     with NO `TipoCambio` row loaded for today) — see `costo_ppp_service`

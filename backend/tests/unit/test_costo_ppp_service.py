@@ -414,14 +414,114 @@ class TestScaleSanityGuard:
     docstring's "Scale sanity guard" section for the witness item and
     measured counts (42 broken of 3215, discovered in production)."""
 
-    def test_witness_item_2780_stale_aw_after_currency_change_yields_no_ppp(self, db) -> None:
-        """Real item 2780 (RESMA AUTOR CARTA): the product moved from USD to
-        ARS. `iclh_price`/`curr_id` were updated by the ERP; `iclh_price_aw`
-        was NOT recalculated and stayed at the old USD-scale figure.
-        Ratio iclh_price / iclh_price_aw = 3178.25 / 2.911820 ~= 1091 — an
-        exchange rate of that period, not a costing difference. The resolver
-        must NOT return a PPP for this item (no fallback to the older,
-        equally-real, coherent 2025-03-26 row either — see module docstring)."""
+    def test_witness_item_2780_stale_aw_after_currency_change_yields_no_ppp_without_footprint(self, db) -> None:
+        """Real item 2780 (RESMA AUTOR CARTA) WITHOUT its footprint row
+        present: the scale guard alone (no footprint lookup input) must not
+        fabricate anything — no PPP for this item. See
+        `TestRecoveringUsdFootprints` below for the SAME item WITH its
+        footprint row present, which recovers it (2026-07-30)."""
+        _insert_history(
+            db,
+            iclh_id=278002,
+            item_id=2780,
+            coslis_id=1,
+            curr_id=1,
+            iclh_price=3178.250000,
+            iclh_price_aw=2.911820,
+            iclh_cd=datetime(2025, 7, 28),
+        )
+
+        result = resolver_ppp_batch(db, [2780])
+
+        assert 2780 in result
+        assert result[2780].usable is False
+
+    def test_inverse_scale_mismatch_aw_1000x_too_large_yields_no_ppp(self, db) -> None:
+        """Real shape of item 623: `iclh_price_aw` stale 1000x LARGER than
+        `iclh_price` (the opposite direction from item 2780 above). No
+        footprint row exists for this item -> unrecoverable (state 2, "out
+        of range" — see `TestRecoveringUsdFootprints` below)."""
+        _insert_history(
+            db,
+            iclh_id=62301,
+            item_id=623,
+            coslis_id=1,
+            iclh_price=66.00,
+            iclh_price_aw=1648.13,
+        )
+
+        result = resolver_ppp_batch(db, [623])
+
+        assert 623 in result
+        assert result[623].usable is False
+
+    def test_ratio_exactly_at_upper_bound_20_is_accepted_inclusive(self, db) -> None:
+        _insert_history(db, iclh_id=90001, item_id=9001, iclh_price=200.0, iclh_price_aw=10.0)
+
+        result = resolver_ppp_batch(db, [9001])
+
+        assert 9001 in result
+        assert result[9001].costo_ppp == 10.0
+
+    def test_ratio_just_above_upper_bound_20_is_rejected(self, db) -> None:
+        _insert_history(db, iclh_id=90002, item_id=9002, iclh_price=200.02, iclh_price_aw=10.0)
+
+        result = resolver_ppp_batch(db, [9002])
+
+        assert 9002 in result
+        assert result[9002].usable is False
+
+    def test_ratio_exactly_at_lower_bound_0_05_is_accepted_inclusive(self, db) -> None:
+        _insert_history(db, iclh_id=90003, item_id=9003, iclh_price=10.0, iclh_price_aw=200.0)
+
+        result = resolver_ppp_batch(db, [9003])
+
+        assert 9003 in result
+        assert result[9003].costo_ppp == 200.0
+
+    def test_ratio_just_below_lower_bound_0_05_is_rejected(self, db) -> None:
+        _insert_history(db, iclh_id=90004, item_id=9004, iclh_price=9.99, iclh_price_aw=200.0)
+
+        result = resolver_ppp_batch(db, [9004])
+
+        assert 9004 in result
+        assert result[9004].usable is False
+
+    def test_normal_ratio_around_1_1_is_accepted_unchanged_behaviour(self, db) -> None:
+        _insert_history(db, iclh_id=90005, item_id=9005, iclh_price=110.0, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9005])
+
+        assert 9005 in result
+        assert result[9005].costo_ppp == 100.0
+
+    def test_iclh_price_zero_is_rejected_no_reference_to_validate_against(self, db) -> None:
+        _insert_history(db, iclh_id=90006, item_id=9006, iclh_price=0.0, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9006])
+
+        assert 9006 in result
+        assert result[9006].usable is False
+
+    def test_iclh_price_null_is_rejected_no_reference_to_validate_against(self, db) -> None:
+        _insert_history(db, iclh_id=90007, item_id=9007, iclh_price=None, iclh_price_aw=100.0)
+
+        result = resolver_ppp_batch(db, [9007])
+
+        assert 9007 in result
+        assert result[9007].usable is False
+
+
+class TestRecoveringUsdFootprints:
+    """2026-07-30: a scale-broken row's stale `iclh_price_aw` can sometimes
+    be RECOVERED by finding its "currency footprint" — an older,
+    coherent row that this exact value came from before a currency change
+    (see module docstring's "Recovering USD footprints" section)."""
+
+    def test_witness_item_2780_recovered_via_usd_footprint(self, db) -> None:
+        """Real item 2780 (RESMA AUTOR CARTA) WITH its footprint present:
+        the 2025-03-26 USD row's `iclh_price` (2.911820) exactly equals the
+        current (broken-scale) row's stale `iclh_price_aw` — recoverable."""
         _insert_history(
             db,
             iclh_id=278001,
@@ -445,72 +545,259 @@ class TestScaleSanityGuard:
 
         result = resolver_ppp_batch(db, [2780])
 
-        assert 2780 not in result
+        assert 2780 in result
+        source = result[2780]
+        assert source.usable is True
+        assert source.moneda_ppp == "USD"
+        assert source.costo_ppp == pytest.approx(2.911820)
+        assert source.costo_ppp_fecha == date(2025, 7, 28)  # the CURRENT (broken) row's own date
 
-    def test_inverse_scale_mismatch_aw_1000x_too_large_yields_no_ppp(self, db) -> None:
-        """Real shape of item 623: `iclh_price_aw` stale 1000x LARGER than
-        `iclh_price` (the opposite direction from item 2780 above)."""
+    def test_footprint_matched_on_candidates_aw_not_price_item_516_shape(self, db) -> None:
+        """Real shape of item 516: the current row's stale `iclh_price_aw`
+        (5428.598950) exactly equals the CANDIDATE row's `iclh_price_aw`
+        (not its `iclh_price`, 5549.22) — the match must check both columns.
+        516's footprint is in ARS though, so it still ends OUT OF RANGE
+        (only USD footprints are recovered)."""
         _insert_history(
             db,
-            iclh_id=62301,
-            item_id=623,
+            iclh_id=51601,
+            item_id=516,
             coslis_id=1,
-            iclh_price=66.00,
-            iclh_price_aw=1648.13,
+            curr_id=1,  # ARS footprint row — the one whose `aw` matches
+            iclh_price=5549.22,
+            iclh_price_aw=5428.598950,
+            iclh_cd=datetime(2025, 1, 1),
         )
+        _insert_history(
+            db,
+            iclh_id=51602,
+            item_id=516,
+            coslis_id=1,
+            curr_id=2,  # different currency from the candidate above -> eligible
+            iclh_price=999999.0,  # broken scale vs iclh_price_aw in this SAME row
+            iclh_price_aw=5428.598950,
+            iclh_cd=datetime(2026, 1, 1),
+        )
+
+        result = resolver_ppp_batch(db, [516])
+
+        assert 516 in result
+        assert result[516].usable is False
+
+    def test_ars_footprint_item_397_shape_is_unrecoverable_no_number_emitted(self, db) -> None:
+        """User decision: a stale value in OLD PESOS is explicitly NOT
+        converted (no historical rate available, and the conversion would be
+        meaningless) — real shape of item 397 (footprint from 2023-03)."""
+        _insert_history(
+            db,
+            iclh_id=39701,
+            item_id=397,
+            coslis_id=1,
+            curr_id=1,
+            iclh_price=6033.03,
+            iclh_price_aw=6033.03,
+            iclh_cd=datetime(2023, 3, 1),
+        )
+        _insert_history(
+            db,
+            iclh_id=39702,
+            item_id=397,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price=999999.0,
+            iclh_price_aw=6033.03,
+            iclh_cd=datetime(2026, 1, 1),
+        )
+
+        result = resolver_ppp_batch(db, [397])
+
+        assert 397 in result
+        source = result[397]
+        assert source.usable is False
+        assert source.costo_ppp is None  # explicit: NO converted number is ever emitted
+        assert PppMarkups(source, moneda_costo="ARS").payload().estado == "fuera_de_rango"
+
+    def test_no_footprint_item_623_shape_is_out_of_range(self, db) -> None:
+        _insert_history(db, iclh_id=62302, item_id=623, coslis_id=1, iclh_price=66.00, iclh_price_aw=1648.13)
 
         result = resolver_ppp_batch(db, [623])
 
-        assert 623 not in result
+        assert 623 in result
+        assert result[623].usable is False
 
-    def test_ratio_exactly_at_upper_bound_20_is_accepted_inclusive(self, db) -> None:
-        _insert_history(db, iclh_id=90001, item_id=9001, iclh_price=200.0, iclh_price_aw=10.0)
+    def test_healthy_row_that_would_match_a_footprint_is_never_reinterpreted(self, db) -> None:
+        """False-positive control (measured 2026-07-29): only 8/3137 healthy
+        rows would coincidentally match a footprint by exact value — the
+        footprint lookup must run ONLY for rows that already failed the
+        scale guard."""
+        _insert_history(
+            db,
+            iclh_id=70001,
+            item_id=700,
+            coslis_id=1,
+            curr_id=1,
+            iclh_price=105.0,
+            iclh_price_aw=100.0,  # normal ratio (1.05) -- scale-sane
+            iclh_cd=datetime(2026, 1, 1),
+        )
+        # A decoy row that WOULD be picked up as a footprint if the guard
+        # incorrectly ran on the healthy row above too.
+        _insert_history(
+            db,
+            iclh_id=70002,
+            item_id=700,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price=100.0,
+            iclh_price_aw=100.0,
+            iclh_cd=datetime(2025, 1, 1),
+        )
 
-        result = resolver_ppp_batch(db, [9001])
+        result = resolver_ppp_batch(db, [700])
 
-        assert 9001 in result
-        assert result[9001].costo_ppp == 10.0
+        assert 700 in result
+        source = result[700]
+        assert source.usable is True
+        assert source.moneda_ppp is None  # rule-1, never reinterpreted
+        assert source.costo_ppp == 100.0
 
-    def test_ratio_just_above_upper_bound_20_is_rejected(self, db) -> None:
-        _insert_history(db, iclh_id=90002, item_id=9002, iclh_price=200.02, iclh_price_aw=10.0)
+    def test_recovered_usd_row_with_no_exchange_rate_fails_closed_out_of_range(self, db) -> None:
+        """Even though the resolver-level state is 'recovered/usable', the
+        MARKUP layer (`PppMarkups`) must still fail closed to out-of-range
+        when no exchange rate is resolvable — see module docstring's
+        "Recovering USD footprints" section."""
+        _insert_history(
+            db,
+            iclh_id=278011,
+            item_id=2781,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price=2.911820,
+            iclh_price_aw=2.911820,
+            iclh_cd=datetime(2025, 3, 26),
+        )
+        _insert_history(
+            db,
+            iclh_id=278012,
+            item_id=2781,
+            coslis_id=1,
+            curr_id=1,
+            iclh_price=3178.250000,
+            iclh_price_aw=2.911820,
+            iclh_cd=datetime(2025, 7, 28),
+        )
 
-        result = resolver_ppp_batch(db, [9002])
+        result = resolver_ppp_batch(db, [2781])
+        source = result[2781]
+        assert source.usable is True  # resolver-level: recoverable in principle
 
-        assert 9002 not in result
+        acc = PppMarkups(source, moneda_costo="ARS", tipo_cambio=None)
+        payload = acc.payload()
 
-    def test_ratio_exactly_at_lower_bound_0_05_is_accepted_inclusive(self, db) -> None:
-        _insert_history(db, iclh_id=90003, item_id=9003, iclh_price=10.0, iclh_price_aw=200.0)
+        assert payload is not None
+        assert payload.estado == "fuera_de_rango"
+        assert payload.costo is None
 
-        result = resolver_ppp_batch(db, [9003])
+    def test_recovered_usd_row_displayed_in_list_costs_currency_at_todays_rate(self, db) -> None:
+        """USER DECISION: a recovered row is displayed in the LIST COST's
+        currency (here ARS), converted at today's rate — NOT in USD beside a
+        peso cost."""
+        source = PppSource(costo_ppp=2.911820, costo_ppp_fecha=date(2025, 7, 28), usable=True, moneda_ppp="USD")
 
-        assert 9003 in result
-        assert result[9003].costo_ppp == 200.0
+        acc = PppMarkups(source, moneda_costo="ARS", tipo_cambio=1520.0)
+        payload = acc.payload()
 
-    def test_ratio_just_below_lower_bound_0_05_is_rejected(self, db) -> None:
-        _insert_history(db, iclh_id=90004, item_id=9004, iclh_price=9.99, iclh_price_aw=200.0)
+        assert payload is not None
+        assert payload.estado == "usable"
+        assert payload.costo == pytest.approx(2.911820 * 1520.0)
+        assert payload.moneda == "ARS"
+        assert payload.fecha == date(2025, 7, 28)
 
-        result = resolver_ppp_batch(db, [9004])
+    def test_multiple_footprint_candidates_most_recent_wins_deterministically(self, db) -> None:
+        """Several rows exactly match the stale value under a different
+        currency -> the most recent one (by iclh_cd, tiebreak iclh_id DESC)
+        must win, same determinism concern as the main ranked query."""
+        _insert_history(
+            db,
+            iclh_id=80001,
+            item_id=800,
+            coslis_id=1,
+            curr_id=2,
+            iclh_price=5.0,
+            iclh_price_aw=5.0,
+            iclh_cd=datetime(2024, 1, 1),
+        )
+        _insert_history(
+            db,
+            iclh_id=80002,
+            item_id=800,
+            coslis_id=1,
+            curr_id=1,  # ARS candidate — older than the USD one below, must lose
+            iclh_price=5.0,
+            iclh_price_aw=5.0,
+            iclh_cd=datetime(2025, 1, 1),
+        )
+        _insert_history(
+            db,
+            iclh_id=80003,
+            item_id=800,
+            coslis_id=1,
+            curr_id=2,  # USD candidate, MOST RECENT -> must win
+            iclh_price=5.0,
+            iclh_price_aw=5.0,
+            iclh_cd=datetime(2026, 1, 1),
+        )
+        _insert_history(
+            db,
+            iclh_id=80004,
+            item_id=800,
+            coslis_id=1,
+            curr_id=1,  # current (broken-scale) row
+            iclh_price=5000.0,
+            iclh_price_aw=5.0,
+            iclh_cd=datetime(2026, 6, 1),
+        )
 
-        assert 9004 not in result
+        result = resolver_ppp_batch(db, [800])
 
-    def test_normal_ratio_around_1_1_is_accepted_unchanged_behaviour(self, db) -> None:
-        _insert_history(db, iclh_id=90005, item_id=9005, iclh_price=110.0, iclh_price_aw=100.0)
+        assert 800 in result
+        source = result[800]
+        assert source.usable is True
+        assert source.moneda_ppp == "USD"  # the most recent (2026-01-01) candidate is USD
 
-        result = resolver_ppp_batch(db, [9005])
 
-        assert 9005 in result
-        assert result[9005].costo_ppp == 100.0
+class TestFootprintQueryIsBatched:
+    """Performance: the footprint lookup must be ONE extra batched query per
+    page — never one query per off-scale item."""
 
-    def test_iclh_price_zero_is_rejected_no_reference_to_validate_against(self, db) -> None:
-        _insert_history(db, iclh_id=90006, item_id=9006, iclh_price=0.0, iclh_price_aw=100.0)
+    @pytest.mark.parametrize("page_size", [1, 100])
+    def test_footprint_lookup_adds_exactly_one_query_regardless_of_offscale_count(self, db, page_size) -> None:
+        from sqlalchemy import event
 
-        result = resolver_ppp_batch(db, [9006])
+        item_ids = list(range(9500, 9500 + page_size))
+        for i, item_id in enumerate(item_ids):
+            _insert_history(
+                db,
+                iclh_id=95000 + i,
+                item_id=item_id,
+                coslis_id=1,
+                curr_id=1,
+                iclh_price=1000.0,
+                iclh_price_aw=1.0,  # off-scale for every item in this page
+                iclh_cd=datetime(2026, 1, 1),
+            )
 
-        assert 9006 not in result
+        queries = []
 
-    def test_iclh_price_null_is_rejected_no_reference_to_validate_against(self, db) -> None:
-        _insert_history(db, iclh_id=90007, item_id=9007, iclh_price=None, iclh_price_aw=100.0)
+        def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            if "tb_item_cost_list_history" in statement:
+                queries.append(statement)
 
-        result = resolver_ppp_batch(db, [9007])
+        event.listen(db.get_bind(), "before_cursor_execute", _before_cursor_execute)
+        try:
+            resolver_ppp_batch(db, item_ids)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", _before_cursor_execute)
 
-        assert 9007 not in result
+        # ONE main ranked query + ONE footprint query = 2, regardless of page_size.
+        assert len(queries) == 2

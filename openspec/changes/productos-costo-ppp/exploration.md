@@ -282,3 +282,68 @@ drops from ~77.5% (3215/4150) to ~76.5% (3173/4150), discarding the 42 broken ro
 own — it must be validated against a reference in the SAME row (first the field itself against a live
 ERP screen value; now `iclh_price_aw` against `iclh_price`). "Looks like a plausible number, internally
 consistent with the rest of the dataset" is necessary but not sufficient evidence of correctness.
+
+## CURRENCY-FOOTPRINT RECOVERY + "OUT OF RANGE" STATE (2026-07-30)
+
+The 42 rows the scale guard discards are NOT all equally broken — two distinct classes of ERP
+corruption were found among them, requiring two different treatments:
+
+**Class 1 — stale value in USD (RECOVERABLE, 16 items)**: when a product moved from a USD cost list
+to an ARS one (or vice versa), `iclh_price`/`curr_id` were updated by the ERP but `iclh_price_aw` was
+left at the OLD row's value. That old value is not corrupt — it is a verbatim copy of a real,
+previously-coherent figure, just labelled with the wrong (current-row's) currency. Because USD is a
+stable reference currency, converting it at TODAY's exchange rate produces a real, meaningful figure:
+item 2780's stale `2.911820` (USD, from its 2025-03-26 row) x ~1520 (today's rate) ~= 4423 ARS — directly
+comparable to its 3178.25 ARS list cost.
+
+**Class 2 — stale value in OLD PESOS (NOT RECOVERABLE, 12 items)**: the same currency-footprint
+mechanism can also point to an OLD ARS figure — e.g. item 397 holds 6033.03 pesos from 2023-03, item
+442 holds 97347.58 from 2022-12. There is no way to bring old pesos to a meaningful today's-value:
+(a) pesos are not a stable reference the way USD is (that IS the whole reason a historical peso figure
+is stale in the first place), and (b) the `tipo_cambio` table only goes back to 2025-10-01, so there is
+not even a historical exchange rate available to attempt a correction. **User decision: explicitly
+reject conversion for this class** — showing a number here would be worse than showing nothing, because
+it looks precise while being meaningless.
+
+A further 15 items have no footprint at all (no other `coslis_id=1` row shares the exact stale value
+under a different currency) — also unrecoverable, same "out of range" bucket as class 2.
+
+**Footprint lookup**: same `item_id`, `coslis_id=1`, a DIFFERENT row (`iclh_id <> current`), a
+DIFFERENT `curr_id`, whose `iclh_price` OR `iclh_price_aw` EXACTLY equals the current row's stale
+`iclh_price_aw` (`Decimal` equality, no tolerance — this is a verbatim copy, not an approximation; a
+tolerance would invite false positives). Real shape of item 516: the match is on the CANDIDATE's `aw`,
+not its `price` (5428.598950 vs 5549.22) — confirming the lookup must check both columns. Several
+candidates -> most recent by `iclh_cd`, tiebreak `iclh_id DESC` (reusing the same tiebreak discipline as
+the main ranked query — this feature already had one nondeterminism bug from a date-only tiebreak).
+
+**FALSE-POSITIVE CONTROL**: only 8 of the 3137 HEALTHY (scale-sane) rows would ALSO happen to match a
+footprint by exact value (0.25%) — confirming the footprint lookup must run ONLY for rows that already
+failed the scale guard. A healthy row is never reinterpreted, regardless of what its value coincides
+with.
+
+**Display currency**: a recovered row is shown in the LIST COST's own currency
+(`producto_erp.moneda_costo`), converted at today's rate — NOT in USD next to a peso list cost. This is
+the ONE deliberate exception to "PPP is never converted for display" (see the "Currency" section
+above, unchanged for every non-recovered row). Fail-closed: a recovered row with no resolvable exchange
+rate becomes fully "out of range" (not merely "no markup", unlike the pre-existing rule-1 fail-closed
+guard) — an unconverted USD figure under the wrong currency label would be worse than nothing.
+
+**Three distinguishable UI states** (`PppPayload.estado`):
+  1. `"usable"` — cost + date + markups (unchanged rule-1 rows, plus recovered rule-2 rows).
+  2. `"fuera_de_rango"` — the row exists but is unrecoverable (12 ARS-footprint + 15 no-footprint +
+     any recovered row with no resolvable rate) — renders a short label, NO number, NO markups.
+  3. `ppp is None` — no qualifying row at all (unchanged).
+An empty cell alone cannot distinguish "no data" from "data exists but is broken" — state 2 exists
+because the latter is actionable (the ERP value needs fixing upstream), unlike the former.
+
+**Coverage** (measured 2026-07-29): usable PPP rises from 3173/4150 (~76.5%) to ~3189/4150 (~76.8%,
++16 recovered); 27 items (12 + 15) render `"fuera_de_rango"`.
+
+**Performance**: the footprint lookup is BATCHED — one extra query per page, covering every off-scale
+item at once, never one per item — and is skipped entirely when a page has no off-scale rows.
+
+**The general lesson (reinforced a level deeper)**: an ERP value must be validated against a reference
+IN ITS OWN ROW before being trusted — and even a value found broken can sometimes be recovered by
+finding ITS OWN prior, coherent version elsewhere in the same row's history, but NEVER by inventing a
+number from an unrelated source (e.g. today's list cost, or converting an old-pesos figure as if it
+were a stable reference).
