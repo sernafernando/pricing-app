@@ -584,8 +584,14 @@ export default function TiendaNubeReconcile() {
   // Global sync trigger visibility (Slice 3): shown only when the operator
   // holds the permission AND at least one row in the CURRENT view actually
   // needs it — never shown as a standing, always-available action.
+  // The BANLIST tab is excluded explicitly: `currentTabItems` falls back to
+  // the whole report there (it is a banned-EAN view, not a verdict view), so
+  // without this guard the button would surface on a tab that never renders
+  // a reconciliation row.
   const mostrarSincronizarTn =
-    puedeGestionarPublicacion && currentTabItems.some((r) => r.tn_presence === 'unknown');
+    puedeGestionarPublicacion &&
+    subTab !== 'BANLIST' &&
+    currentTabItems.some((r) => r.tn_presence === 'unknown');
 
   const total = currentTabItems.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
