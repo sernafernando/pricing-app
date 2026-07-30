@@ -80,6 +80,76 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo item completo {mla_id}: {e}")
             return None
 
+    async def get_catalog_competition(self, mla_id: str) -> Dict:
+        """Catalog competitor listing for `mla_id` via the ml-webhook proxy.
+
+        UNLIKE every other read method in this client, this one does NOT
+        collapse errors to None. The caller must distinguish two outcomes
+        that look identical from a None:
+          - the MLA is simply not a catalog publication (proxy answers
+            400) — a legitimate, cacheable business fact the UI renders
+            as "no aplica";
+          - the proxy/network failed — a transient condition the UI must
+            render as an error with a retry.
+        Collapsing both to None would make it impossible to store an
+        honest `fetch_status`, so this method returns a structured
+        outcome instead (same reasoning as `_classify_write_response`).
+
+        The proxy returns HTML on error even with `format=processed`, so
+        the status code AND the content-type are both checked before
+        `.json()`.
+
+        Args:
+            mla_id: The item ID (e.g. MLA2361127120).
+
+        Returns:
+            {"status": "ok", "payload": <dict>}          on 200 + JSON body
+            {"status": "not_catalog", "detail": <str>}   on 400
+            {"status": "error", "detail": <str>}         on anything else:
+                404, other 4xx, 5xx, timeout, non-JSON content-type, or a
+                body that fails to parse.
+        NEVER raises.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/catalogCompetition",
+                    params={"input": mla_id, "format": "processed"},
+                )
+        except Exception as e:
+            logger.error(f"Error (transporte) obteniendo competencia de catálogo para {mla_id}: {e}")
+            return {"status": "error", "detail": str(e)[:200]}
+
+        if response.status_code == 400:
+            logger.info(f"{mla_id} no es publicación de catálogo (400): {response.text[:200]}")
+            return {"status": "not_catalog", "detail": response.text[:200]}
+
+        if response.status_code != 200:
+            logger.warning(
+                f"Error obteniendo competencia de catálogo para {mla_id}: "
+                f"HTTP {response.status_code}: {response.text[:200]}"
+            )
+            return {"status": "error", "detail": f"HTTP {response.status_code}"}
+
+        content_type = response.headers.get("content-type") or ""
+        if "application/json" not in content_type:
+            logger.warning(
+                f"Respuesta no-JSON para competencia de catálogo de {mla_id} "
+                f"(content-type={content_type!r}): {response.text[:200]}"
+            )
+            return {"status": "error", "detail": "non-json response"}
+
+        try:
+            payload = response.json()
+        except Exception as e:
+            logger.warning(
+                f"No se pudo parsear la respuesta de competencia de catálogo para {mla_id}: "
+                f"{e} — body: {response.text[:200]}"
+            )
+            return {"status": "error", "detail": "unparseable json"}
+
+        return {"status": "ok", "payload": payload}
+
     async def get_items_full_batch(self, mla_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene el item COMPLETO (`get_item_full`) para múltiples MLAs.
 
