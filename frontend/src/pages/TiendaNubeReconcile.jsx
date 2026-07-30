@@ -185,6 +185,17 @@ function ReasonCell({ row }) {
   return <span title={parts.join(' · ')}>{label}</span>;
 }
 
+// Stock cell: unknown stock (`null`) MUST render distinctly from a real
+// zero — `0` is exactly the value that raises `despublicar` on the backend,
+// so collapsing "unknown" into "0" (or into a blank cell that reads the same
+// as zero) would be a real defect (design.md Decision 3). An em dash is
+// visibly non-numeric, unlike "0" or an empty string.
+const STOCK_UNKNOWN_LABEL = '—';
+
+function StockCell({ row }) {
+  return row.stock === null || row.stock === undefined ? STOCK_UNKNOWN_LABEL : String(row.stock);
+}
+
 // `ml_desc` arrives as ML HTML — for the LIST we only ever show plain text
 // (the full rich description belongs to the publish modal). DOMParser does
 // not execute scripts, so this is a safe text extraction, not a sanitizer.
@@ -334,9 +345,49 @@ const COLUMNS = [
     size: 220,
     cell: (row) => <ReasonCell row={row} />,
   },
+  {
+    id: 'stock',
+    header: 'Stock',
+    size: 100,
+    sortable: true,
+    cell: (row) => <StockCell row={row} />,
+  },
   { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — carries the unpublish action
   { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries IDs + acciones
 ];
+
+// Slice 4: client-side sort over `currentTabItems`, BEFORE pagination —
+// deliberately NOT wired onto TanStack's `getSortedRowModel` (the table
+// instance here is used only for column sizing/resize; the body renders
+// manually from `COLUMNS`/`filasVisibles`, see the module docstring's
+// One-shot-fetch note and design.md Decision 3).
+//
+// Null/unknown-stock ordering is explicit and intentional, not an accident
+// of the comparator: `stock === null` ALWAYS sorts last, in BOTH ascending
+// and descending order. This is deliberately asymmetric — an operator
+// sorting descending wants the highest stock first, and one sorting
+// ascending wants the genuine lowest/zero-stock rows first; in both cases
+// "unknown" is the least actionable row and belongs at the bottom, never
+// mixed in as if it were a real value.
+//
+// Ties (equal stock, including two nulls) are broken by EAN for a stable,
+// deterministic order across renders — never left to array-insertion order.
+function compareByStock(a, b, direction) {
+  const aNull = a.stock === null || a.stock === undefined;
+  const bNull = b.stock === null || b.stock === undefined;
+  if (aNull && bNull) return a.ean.localeCompare(b.ean);
+  if (aNull) return 1; // nulls always last, regardless of direction
+  if (bNull) return -1;
+  if (a.stock !== b.stock) return direction === 'asc' ? a.stock - b.stock : b.stock - a.stock;
+  return a.ean.localeCompare(b.ean);
+}
+
+function sortItems(items, sortState) {
+  if (!sortState || sortState.column !== 'stock') return items;
+  // `.slice()` first — sorting must never mutate the source array in place
+  // (it's the same `reporte` state array the rest of the component reads).
+  return items.slice().sort((a, b) => compareByStock(a, b, sortState.direction));
+}
 
 // Picks WHICH tn_match the unpublish action targets: prefer a match TN
 // itself reports as `published: true` (the one actually live and worth
@@ -413,6 +464,25 @@ export default function TiendaNubeReconcile() {
   const [verdictCounts, setVerdictCounts] = useState({});
   const [catalogCapHit, setCatalogCapHit] = useState(false);
   const [gbpRowsCapHit, setGbpRowsCapHit] = useState(false);
+
+  // Client-side stock sort (Slice 4). `null` means "no sort applied yet"
+  // (original fetch order); `column`/`direction` otherwise. See `sortItems`.
+  const [sortState, setSortState] = useState(null);
+
+  // Toggle sequence: unsorted -> descending (highest stock first, the more
+  // useful default for "what to publish first") -> ascending -> unsorted.
+  // Changing the sort always resets to page 1 in the same event — the
+  // sorted order is unrelated to which page was open, so keeping the old
+  // page number could strand the operator past the new last page (the
+  // `totalPages` clamp effect below is a second, redundant safety net).
+  const toggleStockSort = useCallback(() => {
+    setSortState((prev) => {
+      if (!prev || prev.column !== 'stock') return { column: 'stock', direction: 'desc' };
+      if (prev.direction === 'desc') return { column: 'stock', direction: 'asc' };
+      return null;
+    });
+    setPage(1);
+  }, []);
 
   // Changing sub-tab always resets to page 1 in the same event.
   const setSubTab = useCallback((tab) => {
@@ -581,6 +651,14 @@ export default function TiendaNubeReconcile() {
     return reporte.filter((r) => r.verdict === subTab);
   }, [reporte, subTab]);
 
+  // Sort applied AFTER filter, BEFORE pagination (filter -> sort ->
+  // paginate), so page 1 always shows the true extreme of the sorted set.
+  // The BANLIST tab never reaches here with a sort applied in practice
+  // (there is no stock column in that view), but `sortItems` is a no-op
+  // when `sortState` isn't for the 'stock' column, so this stays correct
+  // either way.
+  const sortedTabItems = useMemo(() => sortItems(currentTabItems, sortState), [currentTabItems, sortState]);
+
   // Global sync trigger visibility (Slice 3): shown only when the operator
   // holds the permission AND at least one row in the CURRENT view actually
   // needs it — never shown as a standing, always-available action.
@@ -599,8 +677,8 @@ export default function TiendaNubeReconcile() {
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PAGE_SIZE, total);
   const filasVisibles = useMemo(
-    () => currentTabItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [currentTabItems, page]
+    () => sortedTabItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [sortedTabItems, page]
   );
 
   // Clamp `page` whenever the underlying (filtered) set shrinks — e.g.
@@ -932,9 +1010,39 @@ export default function TiendaNubeReconcile() {
               </colgroup>
               <thead className="table-tesla-head">
                 <tr>
-                  {table.getFlatHeaders().map((h) => (
-                    <th key={h.id}>
-                      {flexRender(h.column.columnDef.header, h.getContext())}
+                  {table.getFlatHeaders().map((h) => {
+                    // Driven by the column definition's own `sortable` flag,
+                    // not by a hardcoded id — otherwise the flag is dead
+                    // config and a future sortable column would silently do
+                    // nothing.
+                    const isStockColumn = Boolean(h.column.columnDef.sortable);
+                    const stockSortDirection = sortState?.column === 'stock' ? sortState.direction : null;
+                    return (
+                    <th
+                      key={h.id}
+                      aria-sort={
+                        isStockColumn
+                          ? stockSortDirection === 'asc'
+                            ? 'ascending'
+                            : stockSortDirection === 'desc'
+                              ? 'descending'
+                              : 'none'
+                          : undefined
+                      }
+                    >
+                      {isStockColumn ? (
+                        <button
+                          type="button"
+                          className={styles.sortableHeaderBtn}
+                          aria-label="Ordenar por stock"
+                          onClick={toggleStockSort}
+                        >
+                          {flexRender(h.column.columnDef.header, h.getContext())}
+                          {stockSortDirection === 'asc' ? ' ▲' : stockSortDirection === 'desc' ? ' ▼' : ''}
+                        </button>
+                      ) : (
+                        flexRender(h.column.columnDef.header, h.getContext())
+                      )}
                       {h.column.getCanResize() && (
                         <span
                           className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
@@ -946,7 +1054,8 @@ export default function TiendaNubeReconcile() {
                         />
                       )}
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="table-tesla-body">

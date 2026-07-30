@@ -800,6 +800,26 @@ class TestCategoriaSugeridaEndpoint:
         assert body["top"] is None
 
 
+class TestReporteStockExposed:
+    """Slice 4: `stock` (already parsed for the DESPUBLICAR check but
+    discarded before this slice) is now surfaced on the response row so the
+    frontend can render/sort it."""
+
+    def test_stock_is_present_and_numeric(self, client, db, user_ver):
+        gbp_rows = [{"Código": "EAN-STOCK", "tnr_id": 0, "tnr_variationID": 0, "stock": 7}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["stock"] == 7
+
+    def test_stock_absent_is_serialized_as_json_null_not_zero(self, client, db, user_ver):
+        gbp_rows = [{"Código": "EAN-NOSTOCK", "tnr_id": 0, "tnr_variationID": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["stock"] is None
+
+
 class TestReporteMlTitleAndAdminUrl:
     """Response fields the UI rebuild needs: `ml_title` (editable title field
     source) and `tn_admin_url` (link to the matched TN product in the TN
