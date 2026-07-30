@@ -1244,6 +1244,66 @@ describe('Product identity in rows (rebuilt UI)', () => {
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /editar en tn/i })).not.toBeInTheDocument();
   });
+
+  it('PR5: falls back to the ERP description when ml_title is absent, and labels it as ERP (not ML)', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'NOMLTITLE-1',
+          verdict: 'FALTA_PUBLICAR',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'not_in_tn',
+          erp_desc: 'Auricular inalambrico modelo X',
+        },
+      ],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Auricular inalambrico modelo X')).toBeInTheDocument();
+    });
+    // Distinguishable from an ML title so the operator never mistakes an
+    // ERP description for a published ML title.
+    expect(screen.getByText(/ERP/i)).toBeInTheDocument();
+  });
+
+  it('PR5: prefers ml_title over erp_desc when both are present (ml_title stays the primary identity line)', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'BOTH-1',
+          verdict: 'MAL_PUBLICADO',
+          despublicar: false,
+          tn_matches: [],
+          tn_presence: 'published',
+          ml_title: 'Titulo ML',
+          erp_desc: 'Descripcion ERP que no debe verse',
+        },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Titulo ML')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Descripcion ERP que no debe verse')).not.toBeInTheDocument();
+  });
+
+  it('PR5: still renders a plain dash when ml_title, erp_desc, desc and images are all absent', async () => {
+    setupApiMocks({
+      items: [{ ean: 'BARE-2', verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [], tn_presence: 'unknown' }],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('BARE-2')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('Motivo column (PR1 reason/cause taxonomy)', () => {

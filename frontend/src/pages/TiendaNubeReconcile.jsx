@@ -223,8 +223,16 @@ function ProductoCell({ row }) {
 
   const thumbSrc = Array.isArray(row.images) && row.images.length > 0 ? row.images[0] : null;
   const descText = useMemo(() => stripHtmlToText(row.ml_desc), [row.ml_desc]);
+  // Identity fallback (PR5): products never published to ML have no
+  // `ml_title` — they'd otherwise render as an anonymous EAN even though the
+  // ERP already has a description for them (GBP report 78's `Descripción`
+  // column, exposed as `erp_desc`). Never fabricated: only used when
+  // `ml_title` is absent, and visibly labeled so it's never mistaken for a
+  // real ML title.
+  const usingErpFallback = !row.ml_title && !!row.erp_desc;
+  const titleText = row.ml_title || row.erp_desc || '';
 
-  if (!thumbSrc && !row.ml_title && !descText) return '—';
+  if (!thumbSrc && !titleText && !descText) return '—';
 
   const showPreview = (target) => {
     const rect = target.getBoundingClientRect();
@@ -234,7 +242,7 @@ function ProductoCell({ row }) {
     setPreviewPos({ top, left: rect.right + 10 });
   };
 
-  const altText = row.ml_title ? `Miniatura de ${row.ml_title}` : `Miniatura del EAN ${row.ean}`;
+  const altText = titleText ? `Miniatura de ${titleText}` : `Miniatura del EAN ${row.ean}`;
   const isTruncated = descText.length > DESC_SNIPPET_LENGTH;
 
   return (
@@ -268,9 +276,10 @@ function ProductoCell({ row }) {
         </span>
       )}
       <div className={styles.prodText}>
-        {row.ml_title && (
-          <div className={styles.prodTitle} title={row.ml_title}>
-            {row.ml_title}
+        {titleText && (
+          <div className={styles.prodTitle} title={titleText}>
+            {usingErpFallback && <span className={styles.prodTitleErpTag}>ERP</span>}
+            {titleText}
           </div>
         )}
         {descText &&
