@@ -503,7 +503,27 @@ def publish_product(
         _audit_publish(db, usuario, live_product_id, outcome)
         return outcome
 
+    # Bugfix (out-of-band, post-Slice-3a): the price MUST live on the
+    # variant, not the product root — this repo's own TN READ path
+    # (`tienda_nube_sync_shared.py`) only ever reads `variant["price"]`, so a
+    # root-level `price` may simply be ignored by TN on create. Worse, a
+    # product created with no `sku` at all breaks this module's entire
+    # write-safety design: both the idempotency pre-check above
+    # (`get_product_by_sku`) and the ambiguous-outcome read-back below
+    # depend on TN being able to find the product by SKU. Built here
+    # (server-side) rather than trusted from the caller, because `ean` is
+    # authoritative at this point (already used for the pre-check) and this
+    # keeps a single variant shape regardless of what `product_data` looked
+    # like historically.
+    #
+    # We have not verified against the live TN API that a root-level
+    # `price` is ignored or that `variants: [{sku, price}]` is accepted on
+    # create — this aligns the create payload with the shape TN
+    # demonstrably RETURNS on read, and with what the idempotency/read-back
+    # calls in this module already depend on.
     payload = dict(product_data)
+    payload.pop("price", None)
+    payload["variants"] = [{"sku": ean, "price": submitted_price}]
     payload["categories"] = [category_id]
     # Server-side defense-in-depth (security review follow-up to sub-slice
     # 3a): sanitize BEFORE this ever reaches the TN payload, unconditionally
