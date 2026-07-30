@@ -28,7 +28,7 @@ function renderPanel(props = {}) {
 describe('MlaPromocionesPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    usePromoFilterStore.setState({ selectedTypes: [] });
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
   });
 
   it('shows a loading state while the fetch is in flight', async () => {
@@ -770,6 +770,60 @@ describe('MlaPromocionesPanel', () => {
 
       await waitFor(() => expect(screen.getByText(/sin promos del tipo filtrado/i)).toBeInTheDocument());
       expect(screen.queryByText('Smart promo')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('name-level filter (composed with the type-level filter)', () => {
+    const namedPromotions = [
+      { promotion_id: 'P1', promotion_type: 'DEAL', name: '2x1', price: 80 },
+      { promotion_id: 'P2', promotion_type: 'DEAL', name: '3x2', price: 90 },
+      { promotion_id: 'P3', promotion_type: 'SMART', name: 'Promo Smart', price: 100 },
+    ];
+
+    it('shows every promo when selectedNames is empty (nothing selected -> show all)', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: namedPromotions } });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
+      expect(screen.getByText('3x2')).toBeInTheDocument();
+      expect(screen.getByText('Promo Smart')).toBeInTheDocument();
+    });
+
+    it('narrows within a permitted type by the selected name', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: namedPromotions } });
+      usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1'] } });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
+      expect(screen.queryByText('3x2')).not.toBeInTheDocument();
+      expect(screen.getByText('Promo Smart')).toBeInTheDocument();
+    });
+
+    it('type-level exclusion wins over a stale name selection', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: namedPromotions } });
+      usePromoFilterStore.setState({ selectedTypes: ['SMART'], selectedNames: { DEAL: ['2x1'] } });
+
+      renderPanel();
+
+      await waitFor(() => expect(screen.getByText('Promo Smart')).toBeInTheDocument());
+      expect(screen.queryByText('2x1')).not.toBeInTheDocument();
+    });
+
+    it('persists the name selection across unmount/remount of the same MLA (collapse/re-expand)', async () => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: namedPromotions } });
+      usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1'] } });
+
+      const promosCacheRef = { current: new Map() };
+      const { unmount } = render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} />);
+      await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
+      expect(screen.queryByText('3x2')).not.toBeInTheDocument();
+      unmount();
+
+      render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} />);
+      await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
+      expect(screen.queryByText('3x2')).not.toBeInTheDocument();
     });
   });
 });

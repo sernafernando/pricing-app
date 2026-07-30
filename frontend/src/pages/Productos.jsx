@@ -1516,7 +1516,7 @@ export default function Productos() {
         </div>
       )}
 
-      <PromoFilterBar />
+      <PromoFilterBar promosCacheRef={promosCacheRef} />
 
       <div className="results-info">
         <div>
