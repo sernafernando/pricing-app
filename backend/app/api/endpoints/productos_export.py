@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, and_, select, tuple_
+from sqlalchemy import or_, func, and_, select, tuple_, false as sa_false
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.elements import ColumnElement
 from typing import Optional
 from app.core.database import get_db
@@ -18,6 +19,13 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     join_color_layer,
     resolver_layer_activo,
     coerce_equipo_id,
+)
+from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
+from app.services.ml_promotions_service import (
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_only,
+    fetch_mlas_with_candidate_only_for_types,
+    fetch_mlas_with_started,
 )
 
 logger = logging.getLogger(__name__)
@@ -190,6 +198,148 @@ def _apply_search_filter(query, search: Optional[str]):
     if search_filter is not None:
         query = query.filter(search_filter)
     return query
+
+
+def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
+    """PR #1 bugfix (FF-2): shared MLA-set fold for promo filters, mirrored
+    verbatim from `productos_listing.py::_resolve_and_fold_mlas` so all 7
+    export endpoints get the same fail-closed empty-set + 503-on-resolver-
+    failure behavior as `listar_productos`. A later PR (2a/2b, FF-1/FF-5)
+    extracts this into `productos_shared.py` as the single shared
+    implementation across list AND export — duplicating it here now is the
+    deliberate "mirror /exportar-clasica, don't refactor yet" scope of PR #1.
+    """
+    from app.models.publicacion_ml import PublicacionML
+
+    try:
+        mlas = resolver()
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("%s no disponible: %s", log_context, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Filtro de promociones no disponible temporalmente",
+        ) from exc
+
+    if not mlas:
+        # EMPTY-SET GUARD: zero matching MLAs => zero products, never the
+        # unfiltered catalog.
+        return query.filter(sa_false())
+
+    items_subquery = db.query(PublicacionML.item_id).filter(PublicacionML.mla.in_(mlas)).distinct().scalar_subquery()
+    return query.filter(ProductoERP.item_id.in_(items_subquery))
+
+
+def _apply_promo_filters(
+    query,
+    db: Session,
+    promo_tipos: Optional[str],
+    promo_estado: Optional[str],
+    con_promo_aplicada: Optional[bool],
+    con_promo_sin_aplicar: Optional[bool],
+):
+    """FF-2 bugfix: wires the same `select_promo_resolver` decision table
+    `listar_productos` uses into every export endpoint — previously entirely
+    absent here (0 matches per the spec's `rg` baseline)."""
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
+        raise HTTPException(
+            status_code=422,
+            detail="promo_estado inválido: debe ser 'disponible', 'aplicada' o 'sin_aplicar'",
+        )
+
+    tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
+    resolver_entry = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos_list or None,
+        promo_estado,
+        con_promo_aplicada,
+        con_promo_sin_aplicar,
+    )
+    if resolver_entry:
+        resolver, log_context = resolver_entry
+        query = _resolve_and_fold_mlas(query, db, resolver, log_context)
+    return query
+
+
+def _apply_con_mla_filter(query, db: Session, con_mla: Optional[bool]):
+    """FF-3 bugfix: 'con MLA / sin MLA' filter, mirrored from
+    `listar_productos` (previously missing on every export endpoint, and
+    declared-but-unused on `/exportar-clasica`)."""
+    if con_mla is None:
+        return query
+
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+
+    items_con_mla_subquery = (
+        db.query(MercadoLibreItemPublicado.item_id)
+        .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    if con_mla:
+        return query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
+
+    items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+    return query.filter(
+        ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
+        ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id)),
+    )
+
+
+def _apply_estado_mla_filter(query, db: Session, estado_mla: Optional[str]):
+    """FF-3 bugfix: 'activa'/'pausada' MLA-state filter, mirrored from
+    `listar_productos` / `/exportar-clasica` (single implementation reused by
+    every endpoint, rather than the per-endpoint copies this replaces)."""
+    if not estado_mla:
+        return query
+
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+    items_activos_subquery = (
+        db.query(MercadoLibreItemPublicado.item_id)
+        .filter(
+            MercadoLibreItemPublicado.mlp_id.isnot(None),
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId.is_(None),
+            ),
+        )
+        .distinct()
+        .subquery()
+    )
+    if estado_mla == "activa":
+        return query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+    if estado_mla == "pausada":
+        items_con_publis = (
+            db.query(MercadoLibreItemPublicado.item_id)
+            .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+            .distinct()
+            .subquery()
+        )
+        return query.filter(
+            ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+            ~ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)),
+        )
+
+    return query
+
+
+def _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias: Optional[bool]):
+    """FF-3 bugfix: 'created in the last 7 days' filter, mirrored from
+    `listar_productos`."""
+    if not nuevos_ultimos_7_dias:
+        return query
+
+    from datetime import UTC, datetime, timedelta
+
+    fecha_limite = datetime.now(UTC) - timedelta(days=7)
+    return query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
 
 @router.post("/productos/exportar-rebate")
@@ -418,103 +568,28 @@ def exportar_rebate(
                 # Si no hay items que cumplan con los filtros de auditoría, no devolver nada
                 query = query.filter(ProductoERP.item_id == -1)
 
-        # Filtro de estado de publicaciones MLA
-        if filtros.get("estado_mla"):
-            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        # Filtro de estado de publicaciones MLA (FF-3: ahora vía el helper
+        # compartido en lugar de una copia inline).
+        query = _apply_estado_mla_filter(query, db, filtros.get("estado_mla"))
 
-            estado_mla_val = filtros["estado_mla"]
+        # FF-2/FF-3 bugfix: promo_tipos/promo_estado/con_promo_aplicada/
+        # con_promo_sin_aplicar, con_mla y nuevos_ultimos_7_dias faltaban por
+        # completo en este endpoint (0 matches per el baseline de spec FF-2).
+        query = _apply_promo_filters(
+            query,
+            db,
+            filtros.get("promo_tipos"),
+            filtros.get("promo_estado"),
+            filtros.get("con_promo_aplicada"),
+            filtros.get("con_promo_sin_aplicar"),
+        )
+        query = _apply_con_mla_filter(query, db, filtros.get("con_mla"))
+        query = _apply_nuevos_7_dias_filter(query, filtros.get("nuevos_ultimos_7_dias"))
 
-            if estado_mla_val == "activa":
-                # Tienen al menos una publicación activa
-                items_activos_subquery = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(
-                        MercadoLibreItemPublicado.mlp_id.isnot(None),
-                        or_(
-                            MercadoLibreItemPublicado.optval_statusId == 2,
-                            MercadoLibreItemPublicado.optval_statusId.is_(None),
-                        ),
-                    )
-                    .distinct()
-                    .subquery()
-                )
-
-                query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
-
-            elif estado_mla_val == "pausada":
-                # Tienen publicaciones pero ninguna activa
-                items_con_publis = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
-                    .distinct()
-                    .subquery()
-                )
-
-                items_activos = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(
-                        MercadoLibreItemPublicado.mlp_id.isnot(None),
-                        or_(
-                            MercadoLibreItemPublicado.optval_statusId == 2,
-                            MercadoLibreItemPublicado.optval_statusId.is_(None),
-                        ),
-                    )
-                    .distinct()
-                    .subquery()
-                )
-
-                query = query.filter(
-                    ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
-                    ~ProductoERP.item_id.in_(select(items_activos.c.item_id)),
-                )
-
-    # Filtro de estado_mla directo del request (fuera del dict filtros)
+    # Filtro de estado_mla directo del request (fuera del dict filtros) — el
+    # helper compartido reemplaza la segunda copia inline de este mismo bloque.
     if request.estado_mla:
-        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-
-        if request.estado_mla == "activa":
-            # Tienen al menos una publicación activa
-            items_activos_subquery = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
-
-            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
-
-        elif request.estado_mla == "pausada":
-            # Tienen publicaciones pero ninguna activa
-            items_con_publis = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
-                .distinct()
-                .subquery()
-            )
-
-            items_activos = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
-
-            query = query.filter(
-                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
-                ~ProductoERP.item_id.in_(select(items_activos.c.item_id)),
-            )
+        query = _apply_estado_mla_filter(query, db, request.estado_mla)
 
     productos = query.all()
 
@@ -787,7 +862,13 @@ def exportar_web_transferencia(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -973,53 +1054,15 @@ def exportar_web_transferencia(
         )
         query = query.filter(and_(ProductoERP.stock > 0, ~subquery))
 
-    # Filtro de estado de publicaciones MLA
-    if estado_mla:
-        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    # Filtro de estado de publicaciones MLA (FF-3: helper compartido).
+    query = _apply_estado_mla_filter(query, db, estado_mla)
 
-        if estado_mla == "activa":
-            # Tienen al menos una publicación activa
-            items_activos_subquery = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
-
-            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
-
-        elif estado_mla == "pausada":
-            # Tienen publicaciones pero ninguna activa
-            items_con_publis = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
-                .distinct()
-                .subquery()
-            )
-
-            items_activos = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
-
-            query = query.filter(
-                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
-                ~ProductoERP.item_id.in_(select(items_activos.c.item_id)),
-            )
+    # FF-2/FF-3 bugfix: promo_tipos/promo_estado/con_promo_aplicada/
+    # con_promo_sin_aplicar, con_mla y nuevos_ultimos_7_dias faltaban por
+    # completo en este endpoint.
+    query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+    query = _apply_con_mla_filter(query, db, con_mla)
+    query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
     productos = query.all()
 
@@ -1182,6 +1225,10 @@ def exportar_clasica(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
     tiendas_oficiales: Optional[str] = Query(
         None,
@@ -1408,53 +1455,24 @@ def exportar_clasica(
         )
         query = query.filter(and_(ProductoERP.stock > 0, ~subquery))
 
-    # Filtro de estado de publicaciones MLA
-    if estado_mla:
-        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    # Filtro de estado de publicaciones MLA (FF-3: helper compartido; antes
+    # solo este endpoint declaraba con_mla/nuevos_ultimos_7_dias en la firma
+    # pero nunca los aplicaba a la query).
+    query = _apply_estado_mla_filter(query, db, estado_mla)
+    query = _apply_con_mla_filter(query, db, con_mla)
+    query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
-        if estado_mla == "activa":
-            # Tienen al menos una publicación activa
-            items_activos_subquery = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
+    # FF-2 bugfix: promo_tipos/promo_estado/con_promo_aplicada/
+    # con_promo_sin_aplicar faltaban por completo en este endpoint.
+    query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
 
-            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
-
-        elif estado_mla == "pausada":
-            # Tienen publicaciones pero ninguna activa
-            items_con_publis = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
-                .distinct()
-                .subquery()
-            )
-
-            items_activos = (
-                db.query(MercadoLibreItemPublicado.item_id)
-                .filter(
-                    MercadoLibreItemPublicado.mlp_id.isnot(None),
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None),
-                    ),
-                )
-                .distinct()
-                .subquery()
-            )
-
-            query = query.filter(
-                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
-                ~ProductoERP.item_id.in_(select(items_activos.c.item_id)),
-            )
+    # FF-3: `tienda_oficial` (singular, scope producto) sigue siendo dead
+    # code, igual que en listar_productos:701 — arreglar ese lado del list es
+    # fuera de alcance de este PR; NO se propaga como filtro silencioso aquí
+    # (nunca se aplica a la query), y el registry del export builder (PR 5+)
+    # no debe anunciarlo como funcional hasta que el list-side gap se arregle
+    # por separado. Distinto de `tiendas_oficiales` (plural, scope MLA) que sí
+    # se aplica más abajo.
 
     productos = query.all()
 
@@ -1816,7 +1834,13 @@ def exportar_vista_actual(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -2003,53 +2027,15 @@ def exportar_vista_actual(
 
                 query = query.filter(exists().where(and_(Auditoria.item_id == ProductoERP.item_id, *subquery_filters)))
 
-        # Filtro de estado de publicaciones MLA
-        if estado_mla:
-            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        # Filtro de estado de publicaciones MLA (FF-3: helper compartido).
+        query = _apply_estado_mla_filter(query, db, estado_mla)
 
-            if estado_mla == "activa":
-                # Tienen al menos una publicación activa
-                items_activos_subquery = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(
-                        MercadoLibreItemPublicado.mlp_id.isnot(None),
-                        or_(
-                            MercadoLibreItemPublicado.optval_statusId == 2,
-                            MercadoLibreItemPublicado.optval_statusId.is_(None),
-                        ),
-                    )
-                    .distinct()
-                    .subquery()
-                )
-
-                query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
-
-            elif estado_mla == "pausada":
-                # Tienen publicaciones pero ninguna activa
-                items_con_publis = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
-                    .distinct()
-                    .subquery()
-                )
-
-                items_activos = (
-                    db.query(MercadoLibreItemPublicado.item_id)
-                    .filter(
-                        MercadoLibreItemPublicado.mlp_id.isnot(None),
-                        or_(
-                            MercadoLibreItemPublicado.optval_statusId == 2,
-                            MercadoLibreItemPublicado.optval_statusId.is_(None),
-                        ),
-                    )
-                    .distinct()
-                    .subquery()
-                )
-
-                query = query.filter(
-                    ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
-                    ~ProductoERP.item_id.in_(select(items_activos.c.item_id)),
-                )
+        # FF-2/FF-3 bugfix: promo_tipos/promo_estado/con_promo_aplicada/
+        # con_promo_sin_aplicar, con_mla y nuevos_ultimos_7_dias faltaban por
+        # completo en este endpoint.
+        query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_con_mla_filter(query, db, con_mla)
+        query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
         # Ejecutar query
         productos = query.limit(page_size).offset((page - 1) * page_size).all()
@@ -2210,6 +2196,13 @@ def exportar_lista_gremio(
     subcategorias: Optional[str] = None,
     colores: Optional[str] = None,
     con_precio_gremio: Optional[bool] = None,
+    con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,  # Offset para el tipo de cambio
     equipo_id: Optional[int] = None,
@@ -2276,6 +2269,13 @@ def exportar_lista_gremio(
 
         # Filtro de colores (vista tienda, lee del layer de equipo activo)
         query = filtro_colores(query, colores, color_slot("tienda"))
+
+        # FF-2/FF-3 bugfix: estos filtros faltaban por completo en este
+        # endpoint (0 matches per el baseline de spec FF-2/FF-3).
+        query = _apply_estado_mla_filter(query, db, estado_mla)
+        query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_con_mla_filter(query, db, con_mla)
+        query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
@@ -2398,6 +2398,13 @@ def exportar_lista_sugerido(
     subcategorias: Optional[str] = None,
     colores: Optional[str] = None,
     con_precio_sugerido: Optional[bool] = None,
+    con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,
     equipo_id: Optional[int] = None,
@@ -2463,6 +2470,13 @@ def exportar_lista_sugerido(
 
         # Filtro de colores (vista tienda, lee del layer de equipo activo)
         query = filtro_colores(query, colores, color_slot("tienda"))
+
+        # FF-2/FF-3 bugfix: estos filtros faltaban por completo en este
+        # endpoint (0 matches per el baseline de spec FF-2/FF-3).
+        query = _apply_estado_mla_filter(query, db, estado_mla)
+        query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_con_mla_filter(query, db, con_mla)
+        query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
@@ -2597,6 +2611,13 @@ def exportar_lista_web_transferencia(
     marcas: Optional[str] = None,
     subcategorias: Optional[str] = None,
     colores: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    promo_tipos: Optional[str] = None,
+    promo_estado: Optional[str] = None,
+    con_promo_aplicada: Optional[bool] = None,
+    con_promo_sin_aplicar: Optional[bool] = None,
     currency_id: int = 1,  # 1=ARS, 2=USD
     offset_dolar: float = 0,  # Offset para el tipo de cambio
     equipo_id: Optional[int] = None,
@@ -2652,6 +2673,13 @@ def exportar_lista_web_transferencia(
 
         # Filtro de colores (vista tienda, lee del layer de equipo activo)
         query = filtro_colores(query, colores, color_slot("tienda"))
+
+        # FF-2/FF-3 bugfix: estos filtros faltaban por completo en este
+        # endpoint (0 matches per el baseline de spec FF-2/FF-3).
+        query = _apply_estado_mla_filter(query, db, estado_mla)
+        query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_con_mla_filter(query, db, con_mla)
+        query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
