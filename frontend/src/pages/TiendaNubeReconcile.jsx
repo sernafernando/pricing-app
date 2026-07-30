@@ -106,15 +106,55 @@ function verdictLabelFor(verdictId) {
 
 // TN Presence Field requirement — replaces the old ambiguous single
 // "Desconocido" label with four distinct, non-ambiguous states.
+// "unknown" is NOT "we don't know if this exists in TN" — the backend only
+// returns it when the TN row WAS resolved and its `published` flag simply
+// has not been re-synced locally yet (see TiendaNubeProducto.published
+// docstring). The label must communicate the actionable truth, never
+// ignorance of the row's existence.
 const TN_PRESENCE_LABELS = {
   published: 'Publicado en TN',
   draft: 'Borrador en TN',
-  unknown: 'Presencia en TN desconocida',
+  unknown: 'Existe en TN, publicación no sincronizada',
   not_in_tn: 'No está en Tienda Nube',
 };
 
 function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
+}
+
+/**
+ * Presence cell: plain relabeled text, no per-row action. `tn_presence ==
+ * "unknown"` communicates the actionable truth (TN row exists, its
+ * `published` flag has not been re-synced) but the remediation — a FULL
+ * catalog sync via the existing `POST /tienda-nube/sync` — is a single
+ * global action, not a per-row one. A button here would render one
+ * identical control per "unknown" row, all triggering the exact same
+ * global side effect — misrepresenting the action's scope. The single
+ * trigger lives once in the page header instead (see `mostrarSincronizarTn`).
+ */
+function TnPresenceCell({ row }) {
+  return tnPresenceLabelFor(row.tn_presence);
+}
+
+/**
+ * EAN cell: for POR_CORREGIR rows (linked, but the TN SKU differs from the
+ * GBP EAN only by leading zeros/formatting) shows both values side by side
+ * so the operator sees exactly what needs canonicalizing. Every other
+ * verdict renders the EAN alone, unchanged.
+ */
+function EanCell({ row }) {
+  const tnSku = row.tn_matches?.[0]?.variant_sku;
+  // Only render the comparison layout when there is an actual TN match to
+  // compare against — a POR_CORREGIR row without a resolved match renders
+  // its EAN exactly as any other verdict does.
+  if (row.verdict !== 'POR_CORREGIR' || !tnSku) return row.ean;
+
+  return (
+    <div className={styles.eanCompareCell}>
+      <div>EAN: {row.ean}</div>
+      <div>SKU TN: {tnSku}</div>
+    </div>
+  );
 }
 
 // Reason/cause taxonomy (Slice 1) — exhaustive-by-default code -> Spanish
@@ -265,7 +305,7 @@ function saveColumnSizing(state) {
 // (via TanStack) AND the body cells render from this list, so adding/
 // removing a column can never desync header and body.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 130, cell: (row) => row.ean },
+  { id: 'ean', header: 'EAN', size: 130, cell: (row) => <EanCell row={row} /> },
   {
     id: 'producto',
     header: 'Producto',
@@ -285,8 +325,8 @@ const COLUMNS = [
   {
     id: 'tn_presence',
     header: 'Presencia en TN',
-    size: 180,
-    cell: (row) => tnPresenceLabelFor(row.tn_presence),
+    size: 220,
+    cell: (row) => <TnPresenceCell row={row} />,
   },
   {
     id: 'reason',
@@ -360,6 +400,10 @@ export default function TiendaNubeReconcile() {
 
   // Publish modal (Sub-slice 3c) — one FALTA_PUBLICAR row at a time.
   const [publishingRow, setPublishingRow] = useState(null);
+
+  // tn_presence "unknown" relabel + sync trigger (Slice 3) — wires the
+  // ALREADY-EXISTING POST /tienda-nube/sync endpoint, no new backend action.
+  const [syncingTn, setSyncingTn] = useState(false);
 
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -477,6 +521,23 @@ export default function TiendaNubeReconcile() {
     [puedeGestionarPublicacion, cargarReporte, showToast]
   );
 
+  const sincronizarTn = useCallback(
+    async () => {
+      if (!puedeGestionarPublicacion || syncingTn) return;
+      setSyncingTn(true);
+      try {
+        await api.post('/tienda-nube/sync');
+        showToast('Sincronización con Tienda Nube completada', 'success');
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.error?.message || 'Error al sincronizar con Tienda Nube', 'error');
+      } finally {
+        setSyncingTn(false);
+      }
+    },
+    [puedeGestionarPublicacion, syncingTn, cargarReporte, showToast]
+  );
+
   const toggleSeleccionBaneado = useCallback((id) => {
     setBaneadosSeleccionados((prev) => {
       const next = new Set(prev);
@@ -519,6 +580,18 @@ export default function TiendaNubeReconcile() {
     if (subTab === 'todos' || subTab === 'BANLIST') return reporte;
     return reporte.filter((r) => r.verdict === subTab);
   }, [reporte, subTab]);
+
+  // Global sync trigger visibility (Slice 3): shown only when the operator
+  // holds the permission AND at least one row in the CURRENT view actually
+  // needs it — never shown as a standing, always-available action.
+  // The BANLIST tab is excluded explicitly: `currentTabItems` falls back to
+  // the whole report there (it is a banned-EAN view, not a verdict view), so
+  // without this guard the button would surface on a tab that never renders
+  // a reconciliation row.
+  const mostrarSincronizarTn =
+    puedeGestionarPublicacion &&
+    subTab !== 'BANLIST' &&
+    currentTabItems.some((r) => r.tn_presence === 'unknown');
 
   const total = currentTabItems.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -619,9 +692,22 @@ export default function TiendaNubeReconcile() {
             navegar entre pestañas o páginas.
           </p>
         </div>
-        <button type="button" className="btn-tesla outline sm" onClick={cargarReporte} disabled={loading}>
-          {loading ? 'Actualizando...' : 'Actualizar'}
-        </button>
+        <div className={styles.headerActions}>
+          {mostrarSincronizarTn && (
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              onClick={sincronizarTn}
+              disabled={syncingTn}
+              title="Sincroniza el catálogo completo de Tienda Nube (afecta a todos los productos, no solo a esta vista)"
+            >
+              {syncingTn ? 'Sincronizando catálogo...' : 'Sincronizar catálogo TN'}
+            </button>
+          )}
+          <button type="button" className="btn-tesla outline sm" onClick={cargarReporte} disabled={loading}>
+            {loading ? 'Actualizando...' : 'Actualizar'}
+          </button>
+        </div>
       </div>
 
       {error && <div className={styles.errorBanner}>{error}</div>}

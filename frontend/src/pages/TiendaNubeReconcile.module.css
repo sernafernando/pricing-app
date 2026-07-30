@@ -14,6 +14,13 @@
   flex-wrap: wrap;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  flex-shrink: 0;
+}
+
 .headerLeft h2 {
   font-size: 1.4rem;
   font-weight: 600;
@@ -86,6 +93,14 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Slice 3 — POR_CORREGIR: EAN vs TN SKU side by side */
+.eanCompareCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
 }
 
 .prodTitle {

@@ -16,6 +16,8 @@ import httpx
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.permiso import Permiso, UsuarioPermisoOverride
+from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
@@ -50,7 +52,28 @@ def _tn_credentials():
 
 
 @pytest.fixture()
-def sync_user(db) -> Usuario:
+def perm_publicacion(db) -> Permiso:
+    p = Permiso(
+        codigo="admin.gestionar_tn_publicacion",
+        nombre="Gestionar publicación Tienda Nube",
+        descripcion="Publish/unpublish",
+        categoria="administracion",
+        orden=64,
+        es_critico=True,
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+@pytest.fixture()
+def sync_user(db, perm_publicacion) -> Usuario:
+    # Legacy `rol=ADMIN`/`rol_id=None` carries no role-based permissions of
+    # its own (this project's permission model is role-ID/override based,
+    # not tied to the legacy enum) — grant the new server-side permission
+    # gate explicitly via an override so this fixture keeps exercising the
+    # published-mapping behavior these tests are actually about, unaffected
+    # by the separate `TestSyncEndpointPermission` gate tests below.
     user = Usuario(
         username="tn_sync_user",
         email="tn_sync@test.com",
@@ -62,6 +85,52 @@ def sync_user(db) -> Usuario:
         activo=True,
     )
     db.add(user)
+    db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm_publicacion.id, concedido=True))
+    db.flush()
+    return user
+
+
+@pytest.fixture()
+def brand_rol(db) -> Rol:
+    rol = Rol(codigo="TN_SYNC_TEST", nombre="TN Sync Test", es_sistema=False, orden=99, activo=True)
+    db.add(rol)
+    db.flush()
+    return rol
+
+
+@pytest.fixture()
+def user_no_perm(db, brand_rol) -> Usuario:
+    user = Usuario(
+        username="tn_sync_no_perm",
+        email="tn_sync_no_perm@test.com",
+        nombre="No Perm",
+        password_hash=get_password_hash("Pass123!"),
+        rol=RolUsuario.VENTAS,
+        rol_id=brand_rol.id,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+@pytest.fixture()
+def user_publicacion(db, brand_rol, perm_publicacion) -> Usuario:
+    user = Usuario(
+        username="tn_sync_pub",
+        email="tn_sync_pub@test.com",
+        nombre="Pub User",
+        password_hash=get_password_hash("Pass123!"),
+        rol=RolUsuario.VENTAS,
+        rol_id=brand_rol.id,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(user)
+    db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm_publicacion.id, concedido=True))
     db.flush()
     return user
 
@@ -137,6 +206,23 @@ class TestSyncEndpointPublishedMapping:
         db.expire_all()
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_id == 1002).first()
         assert row.published is True
+
+
+class TestSyncEndpointPermission:
+    """This slice turned `POST /tienda-nube/sync` into a visible operator
+    action (a UI trigger gated on `admin.gestionar_tn_publicacion`), so
+    server-side enforcement of that same permission must ship in the same
+    PR — the UI gate alone is presentation, not a real access control."""
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post("/api/tienda-nube/sync", headers=_bearer(user_no_perm))
+        assert response.status_code == 403
+
+    def test_succeeds_with_permission(self, client, db, user_publicacion):
+        products = [_tn_product(product_id=200, published=True, variant_id=2000, sku="PERM-OK")]
+        with patch("httpx.AsyncClient.get", new=_mock_products_response(products)):
+            response = client.post("/api/tienda-nube/sync", headers=_bearer(user_publicacion))
+        assert response.status_code == 200
 
 
 class TestSyncEndpointVariantSkuNormalization:
