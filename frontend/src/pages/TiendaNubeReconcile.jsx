@@ -217,14 +217,39 @@ const THUMB_PREVIEW_SIZE = 220;
  * a truncated description the operator can expand in place. Makes each row
  * recognizable at a glance instead of an anonymous EAN.
  */
+
+/**
+ * Single definition of "what this row is called" (PR5). Products never
+ * published to ML have no `ml_title` and would render as an anonymous EAN,
+ * even though GBP report 78 already carries an ERP `Descripción` for them
+ * (exposed as `erp_desc`). Never fabricated — the ERP text is used only when
+ * `ml_title` is absent, and `fromErp` lets each caller label it so it is
+ * never mistaken for a real ML title.
+ *
+ * Every place that names a row reads this, so the same product can't appear
+ * named in the table and anonymous in the DUPLICADO group header.
+ */
+function rowIdentity(row) {
+  if (row.ml_title) return { text: row.ml_title, fromErp: false };
+  if (row.erp_desc) return { text: row.erp_desc, fromErp: true };
+  return { text: '', fromErp: false };
+}
+
 function ProductoCell({ row }) {
   const [expanded, setExpanded] = useState(false);
   const [previewPos, setPreviewPos] = useState(null);
 
   const thumbSrc = Array.isArray(row.images) && row.images.length > 0 ? row.images[0] : null;
   const descText = useMemo(() => stripHtmlToText(row.ml_desc), [row.ml_desc]);
+  // Identity fallback (PR5): products never published to ML have no
+  // `ml_title` — they'd otherwise render as an anonymous EAN even though the
+  // ERP already has a description for them (GBP report 78's `Descripción`
+  // column, exposed as `erp_desc`). Never fabricated: only used when
+  // `ml_title` is absent, and visibly labeled so it's never mistaken for a
+  // real ML title.
+  const { text: titleText, fromErp: usingErpFallback } = rowIdentity(row);
 
-  if (!thumbSrc && !row.ml_title && !descText) return '—';
+  if (!thumbSrc && !titleText && !descText) return '—';
 
   const showPreview = (target) => {
     const rect = target.getBoundingClientRect();
@@ -234,7 +259,7 @@ function ProductoCell({ row }) {
     setPreviewPos({ top, left: rect.right + 10 });
   };
 
-  const altText = row.ml_title ? `Miniatura de ${row.ml_title}` : `Miniatura del EAN ${row.ean}`;
+  const altText = titleText ? `Miniatura de ${titleText}` : `Miniatura del EAN ${row.ean}`;
   const isTruncated = descText.length > DESC_SNIPPET_LENGTH;
 
   return (
@@ -268,9 +293,10 @@ function ProductoCell({ row }) {
         </span>
       )}
       <div className={styles.prodText}>
-        {row.ml_title && (
-          <div className={styles.prodTitle} title={row.ml_title}>
-            {row.ml_title}
+        {titleText && (
+          <div className={styles.prodTitle} title={titleText}>
+            {usingErpFallback && <span className={styles.prodTitleErpTag}>ERP</span>}
+            {titleText}
           </div>
         )}
         {descText &&
@@ -935,7 +961,12 @@ export default function TiendaNubeReconcile() {
                     OWN link instead — none privileged. */}
                 <div className={styles.duplicateGroupHeader}>
                   EAN GBP: {row.ean}
-                  {row.ml_title ? ` — ${row.ml_title}` : ''} — {row.tn_matches.length} coincidencias
+                  {(() => {
+                    const { text, fromErp } = rowIdentity(row);
+                    if (!text) return '';
+                    return ` — ${text}${fromErp ? ' (ERP)' : ''}`;
+                  })()}{' '}
+                  — {row.tn_matches.length} coincidencias
                   TN en conflicto —{' '}
                   {row.tn_presence === 'not_in_tn'
                     ? 'duplicado, sin presencia en TN'

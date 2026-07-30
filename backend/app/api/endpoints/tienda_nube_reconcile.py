@@ -265,6 +265,14 @@ class ReconcileRowResponse(BaseModel):
     # each `TnMatchResponse.tn_admin_url` — never a single row-level link, so a
     # DUPLICADO group never privileges one conflicting row over the others.
     ml_title: Optional[str] = None
+    # Slice 5 (product-identity fallback): the GBP report's own `Descripción`
+    # column — the ERP description, NOT an ML field. Verified live on report
+    # 78: 1136/1136 rows carry it, while `ml_title` only covers 1091/1136 —
+    # the gap is exactly the never-published-to-ML rows that otherwise render
+    # as an anonymous EAN. No `productos_erp` join needed; it's already on
+    # the row. `None` when GBP omits the key for this row (see
+    # `parse_soap_response`'s per-row key omission, not `rows[0]`-derived).
+    erp_desc: Optional[str] = None
     # Slice 2 (publish price, money path): additive fields sourced from the
     # bulk `productos_erp`/`productos_pricing` join (see
     # `_load_erp_price_index`), mirrored 1:1 from `ReconcileRow`. Both price
@@ -506,6 +514,7 @@ async def get_reconciliation_report(
             subcategoria=v.gbp_row.get("SubCategoría"),
             images=_gbp_images(v.gbp_row),
             ml_title=v.gbp_row.get("ML_title"),
+            erp_desc=v.gbp_row.get("Descripción"),
             precio_web_transferencia=(
                 str(v.precio_web_transferencia) if v.precio_web_transferencia is not None else None
             ),

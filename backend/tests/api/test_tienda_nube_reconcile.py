@@ -466,6 +466,30 @@ class TestRowGbpFields:
         assert row["subcategoria"] is None
         assert row["images"] == []
 
+    def test_row_carries_erp_desc_from_gbp_descripcion_column(self, client, db, user_ver):
+        """PR5: report 78's `Descripción` column is the ERP description — it
+        covers rows that have no `ML_title` at all (never-published-to-ML
+        products), which is exactly the identity fallback this field feeds."""
+        gbp_rows = [
+            {
+                "Código": "GBP-3",
+                "tnr_id": 0,
+                "tnr_variationID": 0,
+                "stock": 0,
+                "Descripción": "Auricular inalambrico modelo X",
+            }
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = next(r for r in response.json()["items"] if r["ean"] == "GBP-3")
+        assert row["erp_desc"] == "Auricular inalambrico modelo X"
+
+    def test_row_erp_desc_is_none_when_missing(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver)  # _fake_gbp_rows() has no Descripción key
+        assert response.status_code == 200
+        row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
+        assert row["erp_desc"] is None
+
 
 class TestBanlist:
     def test_ban_hides_row_and_unban_reveals_it(self, client, db, user_ver):

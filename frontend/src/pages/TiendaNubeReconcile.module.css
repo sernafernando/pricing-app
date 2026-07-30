@@ -115,6 +115,18 @@
   word-break: break-word;
 }
 
+.prodTitleErpTag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-color, currentColor);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
 .prodDesc {
   font-size: 0.75rem;
   color: var(--cf-text-secondary);
