@@ -426,3 +426,98 @@ class TestBatchDurability:
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_WEIRD"]))
 
         assert rows[0].fetch_status == "error"
+
+
+class TestPersistedColumnTypes:
+    """The tests above use a MagicMock session, so SQLAlchemy never validates
+    types. Postgres does: `our_seller_id` is String(32) and ML returns
+    `seller_id` as an INTEGER, which fails on insert — and since the writer
+    commits once after the loop, that failure discards the whole batch.
+    """
+
+    def _patch_context(self):
+        return (
+            patch(
+                "app.services.ml_catalog_competition_service._resolve_pricing_context",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
+                return_value=None,
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service._markup_con_contexto",
+                return_value=12.5,
+            ),
+        )
+
+    def test_our_seller_id_is_coerced_to_str(self) -> None:
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
+
+        p1, p2, p3 = self._patch_context()
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
+
+        assert rows[0].our_seller_id == "111"
+        assert isinstance(rows[0].our_seller_id, str), "String(32) column cannot take ML's integer seller_id"
+
+    def test_error_detail_is_truncated_to_the_column_width(self) -> None:
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"status": "error", "detail": "x" * 900})
+
+        p1, p2, p3 = self._patch_context()
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_LONG"]))
+
+        assert len(rows[0].error_detail) <= 500
+
+    def test_all_ml_sourced_string_columns_are_type_and_width_safe(self) -> None:
+        """seller_id was the instance the review named, but every String column
+        fed from the ML payload has the same blast radius: one bad value fails
+        the single end-of-loop commit and discards the whole batch.
+        """
+        hostile = {
+            "catalog_product_id": "C" * 120,
+            "competitors": [
+                {
+                    "item_id": "MLA_US",
+                    "seller_id": 999,
+                    "price": 1000.0,
+                    "currency_id": "X" * 40,
+                    "listing_type_id": "L" * 200,
+                    "installments": 6,
+                },
+            ],
+        }
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": hostile})
+
+        p1, p2, p3 = self._patch_context()
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
+
+        row = rows[0]
+        limits = {
+            "mla": 20,
+            "catalog_product_id": 50,
+            "fetch_status": 20,
+            "our_item_id": 20,
+            "our_seller_id": 32,
+            "our_currency_id": 8,
+            "our_bucket_key": 64,
+            "source_payload_hash": 64,
+            "error_detail": 500,
+        }
+        for field, max_len in limits.items():
+            value = getattr(row, field)
+            if value is None:
+                continue
+            assert isinstance(value, str), f"{field} must be a str for its String column, got {type(value)}"
+            assert len(value) <= max_len, f"{field} is {len(value)} chars, exceeds String({max_len})"

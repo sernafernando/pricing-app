@@ -77,6 +77,24 @@ def _normalize_installments(entry: Dict[str, Any]) -> str:
 # Marks the absence of a bucket; never treat two of these as the same bucket.
 _UNKNOWN_LISTING = "unknown"
 
+# Mirrors MLCatalogCompetition.error_detail's String(500).
+_ERROR_DETAIL_MAX = 500
+
+
+def _bounded_str(value: Any, max_len: int) -> Optional[str]:
+    """Coerce an ML-supplied value into something a String(max_len) column
+    accepts, or None.
+
+    ML is not bound by our schema: `seller_id` arrives as an integer, and
+    nothing stops any field from exceeding our declared width. The writer
+    commits ONCE after the whole loop, so a single value of the wrong type
+    or length fails that commit and discards every row in the batch —
+    including the ones already paid for in throttled proxy calls.
+    """
+    if value is None:
+        return None
+    return str(value)[:max_len]
+
 
 def _bucket_key(entry: Dict[str, Any]) -> str:
     """Bucket key: `"{listing_type_id}|{installments}"`.
@@ -175,7 +193,8 @@ def _build_ok_row(db: Session, mla: str, payload: Dict[str, Any]) -> MLCatalogCo
         our_bucket_key = None
     our_price = our_entry.get("price") if our_entry is not None else None
     our_currency_id = our_entry.get("currency_id") if our_entry is not None else None
-    our_seller_id = our_entry.get("seller_id") if our_entry is not None else None
+    # ML returns seller_id as an INTEGER while our_seller_id is String(32).
+    our_seller_id = _bounded_str(our_entry.get("seller_id") if our_entry is not None else None, 32)
 
     context = _resolve_pricing_context(db, mla)
     tc_usd = obtener_tipo_cambio_actual(db, "USD")
@@ -197,16 +216,19 @@ def _build_ok_row(db: Session, mla: str, payload: Dict[str, Any]) -> MLCatalogCo
     canonical_bytes = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     source_payload_hash = sha256(canonical_bytes).hexdigest()
 
+    # Every String column below is fed from the ML payload, so all of them go
+    # through _bounded_str: see its docstring for why one bad value would
+    # discard the entire batch.
     return MLCatalogCompetition(
         mla=mla,
         fecha_consulta=datetime.now(UTC),
-        catalog_product_id=payload.get("catalog_product_id"),
+        catalog_product_id=_bounded_str(payload.get("catalog_product_id"), 50),
         fetch_status="ok",
-        our_item_id=our_entry.get("item_id") if our_entry is not None else None,
+        our_item_id=_bounded_str(our_entry.get("item_id") if our_entry is not None else None, 20),
         our_seller_id=our_seller_id,
         our_price=our_price,
-        our_currency_id=our_currency_id,
-        our_bucket_key=our_bucket_key,
+        our_currency_id=_bounded_str(our_currency_id, 8),
+        our_bucket_key=_bounded_str(our_bucket_key, 64),
         competitors=competitors,
         competitor_count=competitor_count,
         source_payload_hash=source_payload_hash,
@@ -217,12 +239,17 @@ def _build_ok_row(db: Session, mla: str, payload: Dict[str, Any]) -> MLCatalogCo
 def _build_failed_row(mla: str, fetch_status: str, detail: Optional[str]) -> MLCatalogCompetition:
     """Row for `not_catalog` / `error` outcomes: storing the failure IS the
     point — it lets a future cron record a no-op and lets the UI
-    distinguish "no aplica" from "falló" instead of showing nothing."""
+    distinguish "no aplica" from "falló" instead of showing nothing.
+
+    `detail` is truncated to the column width here rather than at each call
+    site: an over-long value would fail the single end-of-loop commit and
+    take the whole batch with it.
+    """
     return MLCatalogCompetition(
         mla=mla,
         fecha_consulta=datetime.now(UTC),
         catalog_product_id=None,
-        fetch_status=fetch_status,
+        fetch_status=_bounded_str(fetch_status, 20) or "error",
         our_item_id=None,
         our_seller_id=None,
         our_price=None,
@@ -231,7 +258,7 @@ def _build_failed_row(mla: str, fetch_status: str, detail: Optional[str]) -> MLC
         competitors=[],
         competitor_count=0,
         source_payload_hash=None,
-        error_detail=detail,
+        error_detail=_bounded_str(detail, _ERROR_DETAIL_MAX),
     )
 
 
@@ -241,9 +268,14 @@ async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[M
     and, unchanged, by a future cron — adding the cron adds no schema
     change and no new code path here.
 
-    Never raises for a single MLA's failure: a `not_catalog` or `error`
-    outcome from the client still produces a persisted row so the caller
-    always gets exactly `len(mlas)` rows back.
+    Never raises for a single MLA's FETCH failure: a `not_catalog`, an
+    `error`, or an unexpected exception still produces a persisted row, so
+    the caller gets exactly `len(mlas)` rows back.
+
+    That promise covers the fetch, NOT the commit. The commit happens once,
+    after the loop, and a persistence failure still propagates and loses the
+    batch — which is why every ML-supplied value goes through
+    `_bounded_str` before it reaches a column.
     """
     rows: List[MLCatalogCompetition] = []
 
