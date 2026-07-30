@@ -29,6 +29,10 @@ from app.services.ml_publication_link_service import lazy_fill_links
 from app.services.ml_publication_status_service import resolve_publication_status
 from app.services.ml_publication_tree_service import assemble_publication_tree
 from app.schemas.productos_tree import ProductTreeResponse
+from app.api.endpoints.productos_shared import (
+    parsear_tiendas_oficiales_mla,
+    build_filtro_tiendas_oficiales_mla,
+)
 from fastapi.concurrency import run_in_threadpool
 
 import logging
@@ -36,6 +40,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _compose_matches(a: Optional[dict], b: Optional[dict]) -> Optional[dict]:
+    """AND two per-MLA filter maps. `None` means "this filter is not active"
+    (fail-open) — it never turns a match into a non-match. A key present in
+    only one map defaults to `True` on the missing side, so the absence of
+    an opinion never hides a node."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return {mla: bool(a.get(mla, True)) and bool(b.get(mla, True)) for mla in set(a) | set(b)}
 
 
 @router.get("/productos/{item_id}/detalle")
@@ -401,6 +417,7 @@ def obtener_arbol_ml_producto(
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
+    tiendas_oficiales: Optional[str] = None,
 ) -> ProductTreeResponse:
     """Assembles the recursive product/family/catalog/vinculada publication
     tree for `item_id` (productos-catalog-family-tree PR2).
@@ -470,6 +487,29 @@ def obtener_arbol_ml_producto(
             logger.warning("%s no disponible (tree matches_filter): %s", log_context, exc)
         else:
             matches_filter_by_mla = {mla: mla in matching_mlas for mla in mla_ids}
+
+    # Filtro de Tienda Oficial (a nivel MLA), compuesto (AND) con matches_filter.
+    # `tiendas_oficiales` (plural, scope MLA) es distinto del `tienda_oficial`
+    # (singular, scope producto) del listado plano — mismo helper compartido.
+    parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas_oficiales)
+    if parsed_tiendas is not None and mla_ids:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        predicado_tienda = build_filtro_tiendas_oficiales_mla(parsed_tiendas)
+        if predicado_tienda is not None:
+            store_matches_by_mla: Optional[dict] = None
+            try:
+                matching_store_mlas = {
+                    row.mlp_publicationID
+                    for row in db.query(MercadoLibreItemPublicado.mlp_publicationID)
+                    .filter(MercadoLibreItemPublicado.mlp_publicationID.in_(mla_ids), predicado_tienda)
+                    .all()
+                }
+            except SQLAlchemyError as exc:
+                logger.warning("store filter unavailable (tree); degrading fail-open: %s", exc)
+            else:
+                store_matches_by_mla = {mla: mla in matching_store_mlas for mla in mla_ids}
+                matches_filter_by_mla = _compose_matches(matches_filter_by_mla, store_matches_by_mla)
 
     # Collapsed-node promo summary (catalog-tree-node-summary PR): ONE
     # batched cross-DB fetch for every MLA in this product's tree (mirrors
