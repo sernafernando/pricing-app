@@ -2,6 +2,8 @@
 // for unnamed promos) from the already-fetched promos cache. Read at
 // modal-open time — `promosCacheRef` is a plain ref (useLazyResource's
 // cache), not reactive, so this is a snapshot, not a subscription.
+import { resolvePromoName } from './resolvePromoName';
+
 export function derivePromosByType(promosCacheRef) {
   const byType = {};
   if (!promosCacheRef?.current) return byType;
@@ -13,7 +15,7 @@ export function derivePromosByType(promosCacheRef) {
       const type = promo.promotion_type;
       if (!type) continue;
       if (!byType[type]) byType[type] = new Set();
-      byType[type].add(promo.name ?? null);
+      byType[type].add(resolvePromoName(promo));
     }
   }
 

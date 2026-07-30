@@ -51,6 +51,17 @@ describe('PromoNameFilterModal', () => {
     expect(usePromoFilterStore.getState().selectedNames).toEqual({ DOD: [null] });
   });
 
+  it('does not collide ids/keys when a real name equals the "(sin nombre)" sentinel', () => {
+    render(<PromoNameFilterModal open onClose={() => {}} promosByType={{ DOD: [null, 'sin-nombre'] }} />);
+
+    const noNameCheckbox = screen.getByLabelText('(sin nombre)');
+    const namedCheckbox = screen.getByLabelText('sin-nombre');
+    expect(noNameCheckbox.id).not.toBe(namedCheckbox.id);
+
+    fireEvent.click(namedCheckbox);
+    expect(usePromoFilterStore.getState().selectedNames).toEqual({ DOD: ['sin-nombre'] });
+  });
+
   it('a per-group reset clears only that type\'s names', () => {
     usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1'], SMART: ['Promo Smart'] } });
     render(<PromoNameFilterModal open onClose={() => {}} promosByType={promosByType} />);

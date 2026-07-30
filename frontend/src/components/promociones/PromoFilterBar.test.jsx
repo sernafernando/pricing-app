@@ -48,7 +48,7 @@ describe('PromoFilterBar', () => {
     expect(usePromoFilterStore.getState().selectedTypes).toEqual([]);
   });
 
-  it('"Todas" is also pressed when selectedNames is non-empty and selectedTypes is empty (not pressed)', () => {
+  it('"Todas" is NOT pressed when only selectedNames is active', () => {
     usePromoFilterStore.setState({ selectedTypes: [], selectedNames: { DEAL: ['2x1'] } });
     render(<PromoFilterBar />);
     expect(screen.getByRole('button', { name: /todas/i })).toHaveAttribute('aria-pressed', 'false');
@@ -80,5 +80,11 @@ describe('PromoFilterBar', () => {
     usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1'] } });
     render(<PromoFilterBar />);
     expect(screen.getByRole('button', { name: /nombres \(1\)/i })).toBeInTheDocument();
+  });
+
+  it('the "Nombres" badge counts selected names, not selected types', () => {
+    usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1', '3x2', '4x3'] } });
+    render(<PromoFilterBar />);
+    expect(screen.getByRole('button', { name: /nombres \(3\)/i })).toBeInTheDocument();
   });
 });

@@ -61,7 +61,21 @@ describe('derivePromosByType', () => {
   it('normalizes a missing/empty name to null and groups it as (sin nombre)', () => {
     const cacheRef = cacheRefFrom([
       ['MLA1', { status: 'ok', data: { promotions: [{ promotion_type: 'DOD', name: null }] } }],
+      ['MLA2', { status: 'ok', data: { promotions: [{ promotion_type: 'DOD', name: '' }] } }],
     ]);
     expect(derivePromosByType(cacheRef)).toEqual({ DOD: [null] });
+  });
+
+  it('falls back to payload.name when the top-level name is absent', () => {
+    const cacheRef = cacheRefFrom([
+      [
+        'MLA1',
+        {
+          status: 'ok',
+          data: { promotions: [{ promotion_type: 'SELLER_CAMPAIGN', name: null, payload: { name: 'PREMIUM JULIO' } }] },
+        },
+      ],
+    ]);
+    expect(derivePromosByType(cacheRef)).toEqual({ SELLER_CAMPAIGN: ['PREMIUM JULIO'] });
   });
 });

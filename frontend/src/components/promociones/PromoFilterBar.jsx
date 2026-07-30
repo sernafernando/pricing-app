@@ -18,7 +18,7 @@ function PromoFilterBar({ promosCacheRef }) {
   const clear = usePromoFilterStore((state) => state.clear);
   const [nameModalOpen, setNameModalOpen] = useState(false);
 
-  const namesActiveCount = Object.keys(selectedNames).length;
+  const namesActiveCount = Object.values(selectedNames).reduce((sum, names) => sum + names.length, 0);
   const noFilterActive = selectedTypes.length === 0 && namesActiveCount === 0;
 
   // Local (component-specific) modal visibility; the snapshot is derived

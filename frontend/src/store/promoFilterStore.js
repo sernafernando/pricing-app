@@ -7,8 +7,9 @@ export const usePromoFilterStore = create((set) => ({
 
   // Per-type name narrowing. { [promotion_type]: string[] }.
   // A type ABSENT from the map, or mapped to an empty array, means "no name
-  // narrowing for this type" -> every name of that type passes. Names are
-  // the promo's resolved display name (promo.name, or null when unnamed).
+  // narrowing for this type" -> every name of that type passes. Names come
+  // from resolvePromoName (promo.name, falling back to promo.payload.name,
+  // or null when genuinely unnamed).
   selectedNames: {},
 
   toggleType: (type) =>

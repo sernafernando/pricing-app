@@ -35,4 +35,9 @@ describe('matchesPromoFilter', () => {
     expect(matchesPromoFilter(noNamePromo, [], { DEAL: [null] })).toBe(true);
     expect(matchesPromoFilter(noNamePromo, [], { DEAL: ['2x1'] })).toBe(false);
   });
+
+  it('matches by payload.name when the top-level name is absent', () => {
+    const payloadNamedPromo = { promotion_type: 'SELLER_CAMPAIGN', name: null, payload: { name: 'PREMIUM JULIO' } };
+    expect(matchesPromoFilter(payloadNamedPromo, [], { SELLER_CAMPAIGN: ['PREMIUM JULIO'] })).toBe(true);
+  });
 });

@@ -1,3 +1,5 @@
+import { resolvePromoName } from './resolvePromoName';
+
 // Pure predicate shared by every promo-list consumer so the type/name
 // filter rule cannot be forked between components.
 //
@@ -11,6 +13,6 @@ export function matchesPromoFilter(promo, selectedTypes, selectedNames) {
   if (!typeOk) return false;
 
   const names = selectedNames[promo.promotion_type];
-  const nameOk = !names || names.length === 0 || names.includes(promo.name ?? null);
+  const nameOk = !names || names.length === 0 || names.includes(resolvePromoName(promo));
   return nameOk;
 }

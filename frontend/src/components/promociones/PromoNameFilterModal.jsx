@@ -41,8 +41,8 @@ function PromoNameFilterModal({ open, onClose, promosByType }) {
                 )}
               </legend>
               <div className={styles.nameList}>
-                {names.map((name) => {
-                  const checkboxId = `promo-name-${type}-${name ?? 'sin-nombre'}`;
+                {names.map((name, index) => {
+                  const checkboxId = `promo-name-${type}-${index}-${name ?? 'sin-nombre'}`;
                   return (
                     <div key={checkboxId} className={styles.nameOption}>
                       <input

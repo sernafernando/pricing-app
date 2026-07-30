@@ -4,6 +4,7 @@ import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
+import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import styles from './promociones.module.css';
 
@@ -152,7 +153,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
               <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
             )}
             <span className={styles.promoName}>
-              {promo.name || promo.payload?.name || promo.promotion_type || promo.promotion_id}
+              {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
             </span>
             {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
             <span className={styles.promoPrice}>
