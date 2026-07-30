@@ -164,19 +164,24 @@ def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[st
     return promociones
 
 
-def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
-    """Seller markup percentage for a candidate `price` on `mla`, reusing
-    the SAME cost/pricelist/commission resolution and price->markup chain
-    as `enriquecer_markup_por_promo`, but on the plain `price` (no
-    co-funding — used for SELLER_CAMPAIGN/DEAL, which are seller-funded).
+def _markup_con_contexto(
+    db: Session,
+    context: _PricingContext,
+    price: float,
+    mla: Optional[str] = None,
+) -> Optional[float]:
+    """Seller markup percentage for `price` given an ALREADY-RESOLVED
+    `context`. Extracted from `markup_para_precio` so a caller that needs
+    the markup for MANY prices under the same MLA (e.g. one price per
+    catalog competitor) resolves the pricing context ONCE and loops here,
+    instead of calling `markup_para_precio` per price — which would
+    re-resolve `_resolve_pricing_context` (a publication + product +
+    commission lookup) on every single call.
 
-    Never raises: returns None when the cost/publication context is
-    unresolvable, or when the markup computation itself fails.
+    `mla` is optional and used ONLY for the warning log message on
+    failure; it carries no behaviour. Never raises: returns None when the
+    markup computation itself fails.
     """
-    context = _resolve_pricing_context(db, mla)
-    if context is None:
-        return None
-
     try:
         comisiones = calcular_comision_ml_total(price, context.comision_base, context.iva, db=db)
         limpio = calcular_limpio(
@@ -191,6 +196,22 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
     except Exception as e:
         logger.warning("Error calculando markup_para_precio para mla %s, price %s: %s", mla, price, e)
         return None
+
+
+def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
+    """Seller markup percentage for a candidate `price` on `mla`, reusing
+    the SAME cost/pricelist/commission resolution and price->markup chain
+    as `enriquecer_markup_por_promo`, but on the plain `price` (no
+    co-funding — used for SELLER_CAMPAIGN/DEAL, which are seller-funded).
+
+    Never raises: returns None when the cost/publication context is
+    unresolvable, or when the markup computation itself fails.
+    """
+    context = _resolve_pricing_context(db, mla)
+    if context is None:
+        return None
+
+    return _markup_con_contexto(db, context, price, mla=mla)
 
 
 def _calcular_nuestro_markup(
