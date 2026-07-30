@@ -31,6 +31,13 @@ from app.models.tienda_nube_producto import TiendaNubeProducto
 
 GBP_REPORT_ID_TN_RECONCILE = 78
 
+# Reason/cause taxonomy (Slice 1, additive only) — explains WHY a row landed
+# on MAL_PUBLICADO or MAL_VINCULADO, without changing either verdict value.
+# Closed set: any future code must be added here explicitly, never inferred.
+REASON_DEAD_LINK = "DEAD_LINK"
+REASON_SKU_MISMATCH = "SKU_MISMATCH"
+REASON_NO_VARIANT_LINK = "NO_VARIANT_LINK"
+
 # `call_soap_service` defaults to `timeout: float = 300.0`, and a "TOKEN
 # Expired" retry can double that to ~600s. The `/reporte` endpoint holds a
 # checked-out DB connection open for the duration of this await (see
@@ -67,6 +74,30 @@ class ReconcileRow:
     # otherwise (never guessed/invented for other verdicts).
     product_id: Optional[int] = None
     variant_id: Optional[int] = None
+    # Reason/cause taxonomy (Slice 1) — additive, read-only annotation on
+    # top of an already-computed verdict. Populated ONLY when
+    # `verdict in {"MAL_PUBLICADO", "MAL_VINCULADO"}` (see `_build_reason`);
+    # `None` for every other verdict, never guessed.
+    reason: Optional[str] = None
+    reason_detail: Optional[dict] = None
+
+
+def _build_reason_detail(
+    ean: Optional[str],
+    tn_sku_found: Optional[str],
+    tnr_id: int,
+    tnr_variation_id: int,
+) -> dict:
+    """Concrete operands for a populated `reason` (R1.3). `tnr_id`/
+    `tnr_variationID` of `0` mean "not claimed at all" and are reported as
+    `None` rather than the sentinel `0`, matching `_as_int`'s "0 == absent"
+    convention used elsewhere in this module for these two fields."""
+    return {
+        "expected_ean": ean,
+        "tn_sku_found": tn_sku_found,
+        "claimed_tnr_id": tnr_id or None,
+        "claimed_tnr_variation_id": tnr_variation_id or None,
+    }
 
 
 async def fetch_gbp_report_78() -> list[dict]:
@@ -368,6 +399,8 @@ def compute_verdicts(
             continue
 
         if tnr_variation_id == 0:
+            # NO_VARIANT_LINK: `tnr_id` resolved but no `tnr_variationID` at
+            # all — there is no resolvable variant-level claim to verify.
             results.append(
                 ReconcileRow(
                     ean=ean or "",
@@ -376,6 +409,13 @@ def compute_verdicts(
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
+                    reason=REASON_NO_VARIANT_LINK,
+                    reason_detail=_build_reason_detail(
+                        ean,
+                        _normalize_sku(matches_by_ean[0].variant_sku) if matches_by_ean else None,
+                        tnr_id,
+                        tnr_variation_id,
+                    ),
                 )
             )
             continue
@@ -422,6 +462,25 @@ def compute_verdicts(
         # above so a resolved fallback isn't under-reported as not_in_tn.
         presence_tn = claimed_tn if claimed_tn is not None else fallback_tn
 
+        # DEAD_LINK vs SKU_MISMATCH (R1.2): both are additive annotations on
+        # MAL_PUBLICADO only — `verdict` itself is unchanged either way.
+        # `claimed_tn is None` here means neither the claimed link NOR the
+        # EAN/GTIN fallback resolved anything (a resolving fallback would
+        # already have produced OK/POR_CORREGIR above) — that is DEAD_LINK.
+        # `claimed_tn is not None` means the claimed TN row genuinely exists
+        # but its SKU doesn't match the GBP EAN under any normalization —
+        # that is SKU_MISMATCH.
+        reason = None
+        reason_detail = None
+        if verdict == "MAL_PUBLICADO":
+            reason = REASON_DEAD_LINK if claimed_tn is None else REASON_SKU_MISMATCH
+            reason_detail = _build_reason_detail(
+                ean,
+                _normalize_sku(claimed_tn.variant_sku) if claimed_tn else None,
+                tnr_id,
+                tnr_variation_id,
+            )
+
         results.append(
             ReconcileRow(
                 ean=ean or "",
@@ -430,6 +489,8 @@ def compute_verdicts(
                 tn_matches=[claimed_tn] if claimed_tn else (matches_by_ean if fallback_tn else []),
                 despublicar=claimed_despublicar or despublicar,
                 tn_presence=_compute_presence(presence_tn),
+                reason=reason,
+                reason_detail=reason_detail,
             )
         )
 

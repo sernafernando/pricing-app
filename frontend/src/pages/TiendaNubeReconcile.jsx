@@ -117,6 +117,31 @@ function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
 }
 
+// Reason/cause taxonomy (Slice 1) — exhaustive-by-default code -> Spanish
+// label map. An unrecognized/absent code renders as an empty cell, never a
+// raw code and never "undefined" (R1.6/R1.7: rows with no reason must not
+// regress, and a backend that hasn't shipped a new code yet must degrade
+// safely rather than crash).
+const REASON_LABELS = {
+  DEAD_LINK: 'Enlace inexistente en Tienda Nube',
+  SKU_MISMATCH: 'SKU no coincide con el EAN',
+  NO_VARIANT_LINK: 'Sin vínculo de variante',
+};
+
+function ReasonCell({ row }) {
+  const label = REASON_LABELS[row.reason];
+  if (!label) return '—';
+
+  const detail = row.reason_detail || {};
+  const parts = [];
+  if (detail.expected_ean) parts.push(`EAN esperado: ${detail.expected_ean}`);
+  if (detail.tn_sku_found) parts.push(`SKU en TN: ${detail.tn_sku_found}`);
+  if (detail.claimed_tnr_id) parts.push(`tnr_id declarado: ${detail.claimed_tnr_id}`);
+  if (detail.claimed_tnr_variation_id) parts.push(`tnr_variationID declarado: ${detail.claimed_tnr_variation_id}`);
+
+  return <span title={parts.join(' · ')}>{label}</span>;
+}
+
 // `ml_desc` arrives as ML HTML — for the LIST we only ever show plain text
 // (the full rich description belongs to the publish modal). DOMParser does
 // not execute scripts, so this is a safe text extraction, not a sanitizer.
@@ -259,6 +284,12 @@ const COLUMNS = [
     header: 'Presencia en TN',
     size: 180,
     cell: (row) => tnPresenceLabelFor(row.tn_presence),
+  },
+  {
+    id: 'reason',
+    header: 'Motivo',
+    size: 220,
+    cell: (row) => <ReasonCell row={row} />,
   },
   { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — carries the unpublish action
   { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries IDs + acciones
