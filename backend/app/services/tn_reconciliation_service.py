@@ -76,7 +76,8 @@ class ReconcileRow:
     variant_id: Optional[int] = None
     # Reason/cause taxonomy (Slice 1) — additive, read-only annotation on
     # top of an already-computed verdict. Populated ONLY when
-    # `verdict in {"MAL_PUBLICADO", "MAL_VINCULADO"}` (see `_build_reason`);
+    # `verdict in {"MAL_PUBLICADO", "MAL_VINCULADO"}` (see
+    # `_build_reason_detail`);
     # `None` for every other verdict, never guessed.
     reason: Optional[str] = None
     reason_detail: Optional[dict] = None

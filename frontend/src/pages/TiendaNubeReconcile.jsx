@@ -129,8 +129,11 @@ const REASON_LABELS = {
 };
 
 function ReasonCell({ row }) {
-  const label = REASON_LABELS[row.reason];
-  if (!label) return '—';
+  if (!row.reason) return '—';
+  // An unmapped code (a reason the backend added before this map caught up)
+  // renders as its raw code rather than collapsing into the same '—' that
+  // means "no reason at all" — degrading safely must not erase the signal.
+  const label = REASON_LABELS[row.reason] || row.reason;
 
   const detail = row.reason_detail || {};
   const parts = [];
