@@ -187,6 +187,12 @@ from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_answer_example import MlBotAnswerExample
 from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
 
+# Catalog competition snapshots. Must stay registered here: alembic/env.py
+# builds target_metadata from `from app.models import *`, so a model missing
+# from this package is absent from Base.metadata and the next
+# `alembic revision --autogenerate` emits drop_table for its table.
+from app.models.ml_catalog_competition import MLCatalogCompetition
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -386,4 +392,5 @@ __all__ = [
     "RolEquipo",
     "MlPublicationLink",
     "MlItemRelation",
+    "MLCatalogCompetition",
 ]

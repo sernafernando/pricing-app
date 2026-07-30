@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -16,8 +16,12 @@ class MLCatalogCompetition(Base):
 
     __tablename__ = "ml_catalog_competition"
 
-    id = Column(Integer, primary_key=True, index=True)
-    mla = Column(String(20), nullable=False, index=True)
+    # No single-column indexes are declared here on purpose: `id` is already
+    # the primary key, and `mla` is the leading column of the composite
+    # idx_mlcc_mla_fecha created by the migration, which serves both the
+    # DISTINCT ON of the latest view and per-MLA lookups.
+    id = Column(Integer, primary_key=True)
+    mla = Column(String(20), nullable=False)
     fecha_consulta = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     catalog_product_id = Column(String(50), nullable=True)
     # ok | not_catalog | error — non-catalog MLAs and transport failures
@@ -28,7 +32,10 @@ class MLCatalogCompetition(Base):
     our_price = Column(Numeric(18, 2), nullable=True)
     our_currency_id = Column(String(8), nullable=True)
     our_bucket_key = Column(String(64), nullable=True)
-    competitors = Column(JSONB, nullable=False, server_default="[]")
+    # Must render exactly as the migration's DDL ("'[]'::jsonb"); a bare
+    # Python string compares differently in autogenerate and produces a
+    # permanent phantom diff.
+    competitors = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     competitor_count = Column(Integer, nullable=False, server_default="0")
     source_payload_hash = Column(String(64), nullable=True)
     error_detail = Column(String(500), nullable=True)
