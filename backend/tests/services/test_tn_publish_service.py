@@ -419,7 +419,13 @@ class TestValidatePublishPriceUnit:
 
 class TestPublishPriceExactPayloadValue:
     """R2.6 — a test MUST assert the EXACT price value placed into the TN
-    create payload, not just that a price key exists."""
+    create payload, not just that a price key exists.
+
+    The price MUST live on the variant, not the product root — the TN read
+    path (`tienda_nube_sync_shared.py`) only ever reads `variant["price"]`,
+    so a root-level `price` may simply be ignored by TN. See the module
+    docstring / bugfix note in `tn_publish_service.publish_product` for the
+    full reasoning."""
 
     def test_surcharge_path_exact_price_reaches_tn_create_payload(self, db):
         user = _make_user(db)
@@ -434,7 +440,8 @@ class TestPublishPriceExactPayloadValue:
         )
         assert outcome["status"] == "submitted"
         payload = fake_client.create_calls[0]
-        assert payload["price"] == "1250.00"
+        assert "price" not in payload
+        assert payload["variants"] == [{"sku": "EAN-PUB-1", "price": "1250.00"}]
 
     def test_manual_entry_path_exact_price_reaches_tn_create_payload(self, db):
         user = _make_user(db)
@@ -450,7 +457,32 @@ class TestPublishPriceExactPayloadValue:
         )
         assert outcome["status"] == "submitted"
         payload = fake_client.create_calls[0]
-        assert payload["price"] == "850.00"
+        assert "price" not in payload
+        assert payload["variants"] == [{"sku": "EAN-PUB-1", "price": "850.00"}]
+
+
+class TestPublishVariantSku:
+    """A product created without a `sku` breaks the entire write-safety
+    design of `publish_product`: both the idempotency pre-check and the
+    ambiguous-outcome read-back call `get_product_by_sku(ean)`, which can
+    never find a product that was never given a SKU. Without this, a retry
+    after an ambiguous outcome creates a DUPLICATE instead of being detected
+    — exactly what the idempotency design exists to prevent."""
+
+    def test_variant_sku_equals_ean(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 46}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(ean="EAN-SKU-TEST", product_data={"name": {"es": "Test Product"}, "price": "500.00"}),
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert payload["variants"][0]["sku"] == "EAN-SKU-TEST"
 
 
 class TestPublishPriceAudit:

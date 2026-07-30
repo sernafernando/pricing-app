@@ -394,8 +394,14 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       // local mirror. Reconcile-only row fields (verdict, tn_matches, tn_presence,
       // …) are deliberately NOT spread in — `publish_product` does
       // `payload = dict(product_data)`, so they would leak into the TN create.
-      // `price` is the exact string already shown in the preview — never
+      // `price` here is the exact string already shown in the preview — never
       // recomputed here, so what the operator saw is what gets submitted.
+      // NOTE: `publish_product` moves this price onto the TN variant (along
+      // with `ean` as the variant `sku`) before it reaches TN — the TN read
+      // path only ever reads `variant["price"]`, and the idempotency/
+      // read-back logic depends on the variant having a SKU. This root-level
+      // field is just the transport shape into the backend, not the final
+      // TN payload shape.
       // Sent as a STRING (never a JS number). To be precise about what that
       // buys: the surcharge itself was already computed in float64, so this
       // does NOT make the arithmetic exact — it is rounded to the cent at
