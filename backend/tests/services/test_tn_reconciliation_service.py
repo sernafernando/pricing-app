@@ -20,7 +20,9 @@ def _tn(product_id=1, variant_id=1, sku="EAN-1", activo=True, published=None):
 
 
 def _gbp_row(codigo="EAN-1", tnr_id=0, tnr_variation_id=0, stock=0, **extra):
-    row = {"Código": codigo, "tnr_id": tnr_id, "tnr_variationID": tnr_variation_id, "stock": stock}
+    # Real GBP report-78 key is `Stock_Disponible` (verified live 2026-07-30),
+    # NOT a plain `stock` key — see TestRealStockColumnName below.
+    row = {"Código": codigo, "tnr_id": tnr_id, "tnr_variationID": tnr_variation_id, "Stock_Disponible": stock}
     row.update(extra)
     return row
 
@@ -812,6 +814,53 @@ class TestStockExposedOnRow:
 
     def test_non_numeric_stock_is_exposed_as_none(self):
         gbp_rows = [_gbp_row(codigo="123", tnr_id=0, tnr_variation_id=0, stock="N/D")]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock is None
+
+
+class TestRealStockColumnName:
+    """Regression pin for the "no `stock` key in report 78" bug.
+
+    Verified live against report 78 on 2026-07-30: the real GBP column is
+    `Stock_Disponible` (Stock_Físico minus Pendientes — what can actually be
+    sold), NOT a plain `stock` key. Every other test in this module builds
+    rows via `_gbp_row`, which already fabricates the real key — this class
+    exists specifically so a regression to the WRONG key name (`"stock"`)
+    cannot silently pass again.
+    """
+
+    def test_real_column_name_populates_stock(self):
+        # Raw dict, deliberately NOT using `_gbp_row`, mirroring an actual
+        # parsed report-78 row (decimal string, as GBP returns it).
+        gbp_rows = [
+            {
+                "Código": "123",
+                "tnr_id": 0,
+                "tnr_variationID": 0,
+                "Stock_Disponible": "9.0000",
+            }
+        ]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].stock == 9
+
+    def test_legacy_stock_key_alone_does_not_populate_stock(self):
+        # A row that only has the WRONG legacy key must NOT populate `stock`
+        # — pins the failure mode this bug fix closes (previously `stock` was
+        # ALWAYS None because this key never existed in real data, but a
+        # naive re-introduction of `"stock"` must not silently start reading
+        # a key that isn't actually present in report 78).
+        gbp_rows = [
+            {
+                "Código": "123",
+                "tnr_id": 0,
+                "tnr_variationID": 0,
+                "stock": "9.0000",
+            }
+        ]
 
         results = compute_verdicts(gbp_rows, [])
 
