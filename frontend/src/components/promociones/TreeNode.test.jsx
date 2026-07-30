@@ -623,3 +623,56 @@ describe('TreeNode publication status badge (restores old flat panel publication
     expect(screen.queryByText(/pausada/i)).not.toBeInTheDocument();
   });
 });
+
+describe('TreeNode official store badge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  function buildStoreNode(officialStoreId) {
+    return {
+      level: 1,
+      kind: 'publicacion',
+      mla: 'MLA_STORE',
+      label: 'MLA_STORE',
+      official_store_id: officialStoreId,
+      children: [],
+    };
+  }
+
+  it('renders the display label for a known store id', () => {
+    renderNode(buildStoreNode(57997));
+
+    expect(screen.getByText(/gauss/i)).toBeInTheDocument();
+  });
+
+  it('renders the raw id for an unknown store id', () => {
+    renderNode(buildStoreNode(999999));
+
+    expect(screen.getByText('999999')).toBeInTheDocument();
+  });
+
+  it('renders "Sin tienda" when official_store_id is null', () => {
+    renderNode(buildStoreNode(null));
+
+    expect(screen.getByText(/sin tienda/i)).toBeInTheDocument();
+  });
+
+  it('never renders a store badge on a familia grouping node', () => {
+    useTreeViewStore.setState({ showFamilia: true });
+    const tree = {
+      level: 1,
+      kind: 'familia',
+      family_id: 'FAM_STORE',
+      label: 'Familia FAM_STORE',
+      official_store_id: 57997,
+      children: [],
+    };
+    renderNode(tree);
+
+    expect(screen.getByText(/familia fam_store/i)).toBeInTheDocument();
+    expect(screen.queryByText(/gauss/i)).not.toBeInTheDocument();
+  });
+});

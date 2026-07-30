@@ -53,6 +53,8 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     join_color_layer,
     resolver_layer_activo,
     get_global_equipo_id,
+    parsear_tiendas_oficiales_mla,
+    build_filtro_tiendas_oficiales_mla,
 )
 
 logger = logging.getLogger(__name__)
@@ -695,19 +697,20 @@ def listar_productos(
         fecha_limite = datetime.now(UTC) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
-    # Filtro de Tienda Oficial
-    # NOTE: tienda_oficial param is missing from this endpoint's signature.
-    # This block is unreachable until the param is added. Suppressed for CI.
-    if False:  # noqa: F821 — tienda_oficial param not wired yet
+    # Filtro de Tienda Oficial (a nivel MLA, vía MercadoLibreItemPublicado).
+    # Un producto es visible cuando AL MENOS UNA de sus publicaciones
+    # pertenece a alguna de las tiendas seleccionadas. 'sin_tienda' por lo
+    # tanto significa "tiene una publicación sin tienda oficial", no "no
+    # tiene ninguna publicación con tienda" — mismo comportamiento que
+    # `productos_export.py`, comparten el helper para que nunca diverjan.
+    parsed_tiendas = parsear_tiendas_oficiales_mla(tienda_oficial)
+    if parsed_tiendas is not None:
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
-        store_id = int(0)
-        item_ids_tienda = (
-            db.query(MercadoLibreItemPublicado.item_id)
-            .filter(MercadoLibreItemPublicado.mlp_official_store_id == store_id)
-            .distinct()
-        )
-        query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
+        predicado_tienda = build_filtro_tiendas_oficiales_mla(parsed_tiendas)
+        if predicado_tienda is not None:
+            item_ids_tienda = db.query(MercadoLibreItemPublicado.item_id).filter(predicado_tienda).distinct()
+            query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
 
     # Ordenamiento
     orden_requiere_calculo = False
@@ -1667,6 +1670,8 @@ def listar_productos_tienda(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    # TODO(promos-official-store): param declared, filter not applied. Out of
+    # slice A scope (different query shape) — see design section 1.2.
     tienda_oficial: Optional[str] = None,
     equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),

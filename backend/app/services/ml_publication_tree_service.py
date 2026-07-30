@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.publicacion_ml import PublicacionML
 from app.schemas.productos_tree import ProductTreeResponse, SkippedEdge, TreeNode, TreeNodePromoSummary
 from app.services.ml_publication_status_service import fetch_publication_status_by_mla
@@ -77,6 +78,7 @@ class _AssemblyContext:
     promo_summary_by_mla: Dict[str, Dict]
     lista_by_mla: Dict[str, Tuple[Optional[str], Optional[int]]]
     status_by_mla: Dict[str, Optional[str]]
+    official_store_by_mla: Dict[str, Optional[int]]
     visited: Set[str] = field(default_factory=set)
     skipped_edges: List[SkippedEdge] = field(default_factory=list)
 
@@ -145,6 +147,7 @@ def assemble_publication_tree(
     # one), so it doubles as the input set for the single batched status
     # fetch — one query for the whole tree, no N+1 per node.
     status_by_mla = _load_status_by_mla(db, list(lista_by_mla.keys()))
+    official_store_by_mla = _load_official_store_by_mla(db, list(lista_by_mla.keys()))
 
     ctx = _AssemblyContext(
         item_id=item_id,
@@ -155,6 +158,7 @@ def assemble_publication_tree(
         promo_summary_by_mla=promo_summary_by_mla or {},
         lista_by_mla=lista_by_mla,
         status_by_mla=status_by_mla,
+        official_store_by_mla=official_store_by_mla,
     )
 
     # Grouping pass: bucket MLAs into families / standalone-catalog /
@@ -244,6 +248,7 @@ def _build_mla_node(mla: str, level: int, ctx: _AssemblyContext) -> TreeNode:
         lista_nombre=lista_nombre,
         pricelist_id=pricelist_id,
         publication_status=ctx.status_by_mla.get(mla),
+        official_store_id=ctx.official_store_by_mla.get(mla),
     )
 
     ctx.visited.add(mla)
@@ -285,6 +290,7 @@ def _build_vinculadas(mla: str, level: int, ctx: _AssemblyContext) -> List[TreeN
             lista_nombre=lista_nombre,
             pricelist_id=pricelist_id,
             publication_status=ctx.status_by_mla.get(related_mla),
+            official_store_id=ctx.official_store_by_mla.get(related_mla),
         )
         vinculada.children = _build_vinculadas(related_mla, level=level + 1, ctx=ctx)
         children.append(vinculada)
@@ -349,6 +355,27 @@ def _load_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, Optional[s
         return fetch_publication_status_by_mla(db, mla_ids)
     except SQLAlchemyError:
         logger.warning("publication_status unavailable for the tree; degrading without the badge", exc_info=True)
+        return {}
+
+
+def _load_official_store_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, Optional[int]]:
+    """Batch-loads `mlp_official_store_id` per MLA, FAIL-OPEN.
+
+    The store badge is decoration, never structure: an unreachable
+    `tb_mercadolibre_items_publicados` read degrades to 'no badge
+    anywhere', matching `_load_status_by_mla`'s contract. MLAs absent
+    from the ERP mirror are simply not keyed."""
+    if not mla_ids:
+        return {}
+    try:
+        rows = (
+            db.query(MercadoLibreItemPublicado.mlp_publicationID, MercadoLibreItemPublicado.mlp_official_store_id)
+            .filter(MercadoLibreItemPublicado.mlp_publicationID.in_(mla_ids))
+            .all()
+        )
+        return {mla: official_store_id for mla, official_store_id in rows}
+    except SQLAlchemyError:
+        logger.warning("official_store unavailable for the tree; degrading without the badge", exc_info=True)
         return {}
 
 

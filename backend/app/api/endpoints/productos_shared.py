@@ -12,6 +12,7 @@ import logging
 from fastapi import HTTPException
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import InstrumentedAttribute, Query, Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.equipo import Equipo, EquipoMiembro
 from app.models.usuario import Usuario
@@ -481,3 +482,73 @@ def batch_colores(db: Session, item_ids: List[int], equipo_id: int) -> dict:
         )
         result.update({row.item_id: row for row in rows})
     return result
+
+
+def parsear_tiendas_oficiales_mla(csv: Optional[str]) -> Optional[Tuple[List[int], bool]]:
+    """
+    Parsea CSV de tiendas oficiales para filtrar MLAs.
+
+    Acepta IDs numéricos y el literal 'sin_tienda'.
+    Retorna (lista_ids, incluir_sin_tienda) o None si el filtro no debe aplicarse.
+
+    Raises HTTPException(400) si encuentra un token inválido (no numérico y distinto de 'sin_tienda').
+
+    Promoted from `productos_export.py` (promos-catalog-prices-and-official-store,
+    slice A) so it can be shared with `productos_listing.py` and the publication
+    tree service — same behavior, same 400 on bad token.
+    """
+    if not csv:
+        return None
+    tokens = [t.strip() for t in csv.split(",") if t.strip()]
+    if not tokens:
+        return None
+    ids: List[int] = []
+    incluir_sin_tienda = False
+    for token in tokens:
+        if token == "sin_tienda":
+            # 'sin_tienda' es sentinel para mlp_official_store_id IS NULL (productos publicados sin tienda oficial).
+            incluir_sin_tienda = True
+        else:
+            try:
+                ids.append(int(token))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Token inválido en tiendas_oficiales: '{token}'. Esperado: int o 'sin_tienda'.",
+                )
+    return (ids, incluir_sin_tienda)
+
+
+def build_filtro_tiendas_oficiales_mla(
+    parsed: Tuple[List[int], bool],
+) -> Optional[ColumnElement[bool]]:
+    """
+    Construye la expresión SQLAlchemy para filtrar MLAs por tienda oficial.
+    Retorna una expresión que se puede usar en .filter() sobre MercadoLibreItemPublicado.
+
+    parsed: tupla (lista_ids, incluir_sin_tienda) del parser.
+
+    El retorno puede ser:
+      - `BinaryExpression` (1 sola condición: `.in_(...)` o `.is_(None)`)
+      - `BooleanClauseList` (2 condiciones combinadas con `or_(...)`)
+      - `None` (si parsed no produce condiciones, ej. ([], False))
+
+    Ambas variantes concretas heredan de `ColumnElement[bool]` en SQLAlchemy 2.0+,
+    que es el ancestro común correcto para tipar el retorno.
+
+    Promoted from `productos_export.py` (promos-catalog-prices-and-official-store,
+    slice A).
+    """
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+    ids, incluir_sin_tienda = parsed
+    condiciones = []
+    if ids:
+        condiciones.append(MercadoLibreItemPublicado.mlp_official_store_id.in_(ids))
+    if incluir_sin_tienda:
+        condiciones.append(MercadoLibreItemPublicado.mlp_official_store_id.is_(None))
+    if not condiciones:
+        return None
+    if len(condiciones) == 1:
+        return condiciones[0]
+    return or_(*condiciones)

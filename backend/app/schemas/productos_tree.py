@@ -86,6 +86,7 @@ class TreeNode(BaseModel):
     lista_nombre: Optional[str] = None
     pricelist_id: Optional[int] = None
     publication_status: Optional[str] = None
+    official_store_id: Optional[int] = None
     children: List["TreeNode"] = Field(default_factory=list)
 
 
