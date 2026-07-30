@@ -733,6 +733,40 @@ class TestPublicarEndpoint:
         assert response.status_code == 200
         assert response.json()["status"] == "already_published"
 
+    def test_rejected_invalid_price_surfaces_as_400_not_200(self, client, db, user_publicacion):
+        """Slice 2 (publish price): unlike every other `publish_product`
+        rejection status (returned as 200 with `submitted=False`), an
+        invalid submitted price is a hard validation failure — 4xx."""
+        fake_outcome = {
+            "submitted": False,
+            "status": "rejected_invalid_price",
+            "detail": "El producto no tiene un precio de publicación.",
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(product_data={"name": {"es": "Test Product"}}),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 400
+
+    def test_offset_percent_and_price_base_source_are_forwarded_to_publish_product(self, client, db, user_publicacion):
+        fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(
+                    product_data={"name": {"es": "Test Product"}, "price": "1250.00"},
+                    offset_percent=25,
+                    price_base_source="web_transferencia",
+                ),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        _, kwargs = mocked.call_args
+        assert kwargs["offset_percent"] == 25
+        assert kwargs["price_base_source"] == "web_transferencia"
+
     def test_blank_ean_is_rejected(self, client, db, user_publicacion):
         response = client.post(
             "/api/tienda-nube-reconcile/publicar",
