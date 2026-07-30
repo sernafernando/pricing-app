@@ -148,6 +148,11 @@ class ReconcileRowResponse(BaseModel):
     # rows with no resolving match.
     product_id: Optional[int] = None
     variant_id: Optional[int] = None
+    # Reason/cause taxonomy (Slice 1) — mirrored 1:1 from `ReconcileRow`.
+    # Only populated for MAL_PUBLICADO (DEAD_LINK/SKU_MISMATCH) and
+    # MAL_VINCULADO (NO_VARIANT_LINK); `null` for every other verdict.
+    reason: Optional[str] = None
+    reason_detail: Optional[dict] = None
     # Sub-slice 3c follow-up: raw GBP product fields the publish modal needs
     # (category picker text + description editor + image list), populated
     # from `ReconcileRow.gbp_row` — see `_gbp_images` above. Replaces the
@@ -366,6 +371,8 @@ async def get_reconciliation_report(
             tn_presence=v.tn_presence,
             product_id=v.product_id,
             variant_id=v.variant_id,
+            reason=v.reason,
+            reason_detail=v.reason_detail,
             ml_desc=v.gbp_row.get("ML_desc"),
             categoria=v.gbp_row.get("Categoría"),
             subcategoria=v.gbp_row.get("SubCategoría"),

@@ -1104,6 +1104,107 @@ describe('Product identity in rows (rebuilt UI)', () => {
   });
 });
 
+describe('Motivo column (PR1 reason/cause taxonomy)', () => {
+  it('renders a Spanish label for a DEAD_LINK reason', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DL-1',
+          verdict: 'MAL_PUBLICADO',
+          despublicar: false,
+          tn_matches: [],
+          reason: 'DEAD_LINK',
+          reason_detail: { expected_ean: 'DL-1', tn_sku_found: null, claimed_tnr_id: 999, claimed_tnr_variation_id: 88 },
+        },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('DL-1')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+    expect(screen.getByText(/enlace inexistente en tienda nube/i)).toBeInTheDocument();
+  });
+
+  it('renders a Spanish label for a SKU_MISMATCH reason with its operands', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'SM-1',
+          verdict: 'MAL_PUBLICADO',
+          despublicar: false,
+          tn_matches: [],
+          reason: 'SKU_MISMATCH',
+          reason_detail: {
+            expected_ean: 'SM-1',
+            tn_sku_found: '000123456789',
+            claimed_tnr_id: 501,
+            claimed_tnr_variation_id: 12,
+          },
+        },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('SM-1')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/sku no coincide con el ean/i)).toBeInTheDocument();
+  });
+
+  it('renders a Spanish label for a NO_VARIANT_LINK reason', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'NVL-1',
+          verdict: 'MAL_VINCULADO',
+          despublicar: false,
+          tn_matches: [],
+          reason: 'NO_VARIANT_LINK',
+          reason_detail: { expected_ean: 'NVL-1', tn_sku_found: null, claimed_tnr_id: 501, claimed_tnr_variation_id: null },
+        },
+      ],
+      verdictCounts: { MAL_VINCULADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('NVL-1')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/sin vínculo de variante/i)).toBeInTheDocument();
+  });
+
+  it('renders an empty Motivo cell (never a raw code, never "undefined") when reason is null', async () => {
+    setupApiMocks({
+      items: [{ ean: 'FP-1', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [], reason: null }],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('FP-1')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('null')).not.toBeInTheDocument();
+  });
+
+  it('renders rows with reason=null exactly as before (no layout regression)', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('111')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+  });
+});
+
 describe('Column resize persist/reset', () => {
   it('loads persisted column sizing from localStorage on mount', async () => {
     localStorage.setItem(COLUMN_SIZING_STORAGE_KEY, JSON.stringify({ ean: 250 }));

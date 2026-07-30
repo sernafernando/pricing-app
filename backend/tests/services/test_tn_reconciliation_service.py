@@ -610,6 +610,121 @@ class TestDespublicar:
         assert results[0].despublicar is False
 
 
+class TestReasonRegressionUnaffectedVerdicts:
+    """PR1 regression guard (RED first): every existing verdict/stock/
+    despublicar/tn_presence assertion in this file MUST keep passing after
+    the reason/reason_detail fields are added — they are purely additive.
+    This class pins that `reason`/`reason_detail` are `None` for verdicts
+    outside the MAL_PUBLICADO/MAL_VINCULADO scope."""
+
+    def test_falta_publicar_has_no_reason(self):
+        gbp_rows = [_gbp_row(codigo="000999", tnr_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "FALTA_PUBLICAR"
+        assert results[0].reason is None
+        assert results[0].reason_detail is None
+
+    def test_falta_vincular_has_no_reason(self):
+        gbp_rows = [_gbp_row(codigo="779123", tnr_id=0)]
+        tn_productos = [_tn(sku="779123")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "FALTA_VINCULAR"
+        assert results[0].reason is None
+
+    def test_ok_has_no_reason(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "OK"
+        assert results[0].reason is None
+
+    def test_por_corregir_has_no_reason(self):
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "POR_CORREGIR"
+        assert results[0].reason is None
+
+    def test_duplicado_has_no_reason(self):
+        gbp_rows = [
+            _gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12),
+            _gbp_row(codigo="456", tnr_id=501, tnr_variation_id=12),
+        ]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="123")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert all(r.reason is None for r in results)
+
+
+class TestReasonTaxonomy:
+    """PR1 additive scope: DEAD_LINK / SKU_MISMATCH / NO_VARIANT_LINK reason
+    codes plus their concrete operands, layered on top of MAL_PUBLICADO and
+    MAL_VINCULADO without changing either verdict's value."""
+
+    def test_dead_link_no_ean_match_at_all(self):
+        gbp_rows = [_gbp_row(codigo="000000000000", tnr_id=999, tnr_variation_id=88)]
+        tn_productos = [_tn(product_id=42, variant_id=7, sku="999999999999", published=True)]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_PUBLICADO"
+        assert results[0].reason == "DEAD_LINK"
+        assert results[0].reason_detail["claimed_tnr_id"] == 999
+        assert results[0].reason_detail["claimed_tnr_variation_id"] == 88
+        assert results[0].reason_detail["expected_ean"] == "000000000000"
+        assert results[0].reason_detail["tn_sku_found"] is None
+
+    def test_sku_mismatch_claimed_tn_exists_but_sku_differs(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="999-different")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_PUBLICADO"
+        assert results[0].reason == "SKU_MISMATCH"
+        assert results[0].reason_detail["tn_sku_found"] == "999-different"
+        assert results[0].reason_detail["expected_ean"] == "123"
+        assert results[0].reason_detail["claimed_tnr_id"] == 501
+        assert results[0].reason_detail["claimed_tnr_variation_id"] == 12
+
+    def test_leading_zero_only_difference_is_not_sku_mismatch(self):
+        """POR_CORREGIR (leading-zero-only) must never get a MAL_PUBLICADO-
+        scoped reason code — reason stays None outside its scope."""
+        gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
+        tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert results[0].verdict == "POR_CORREGIR"
+        assert results[0].reason is None
+
+    def test_no_variant_link_tnr_id_without_variation_id(self):
+        gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=0)]
+        tn_productos = []
+
+        results = compute_verdicts(gbp_rows, tn_productos)
+
+        assert len(results) == 1
+        assert results[0].verdict == "MAL_VINCULADO"
+        assert results[0].reason == "NO_VARIANT_LINK"
+        assert results[0].reason_detail["claimed_tnr_id"] == 501
+        assert results[0].reason_detail["claimed_tnr_variation_id"] is None
+        assert results[0].reason_detail["expected_ean"] == "123"
+        assert results[0].reason_detail["tn_sku_found"] is None
+
+
 class TestDespublicarUnknownStock:
     """Round 7, item 2: unknown `stock` must be treated the same way unknown
     `published` already is — as UNKNOWN, never coerced to a specific value

@@ -346,6 +346,65 @@ class TestNewMatchAccuracyFields:
         assert "tn_presence" in row
 
 
+class TestRowReasonTaxonomy:
+    """PR1: `reason`/`reason_detail` mirrored 1:1 from `ReconcileRow` onto
+    `ReconcileRowResponse` (R1.5). Unaffected verdicts keep serializing with
+    both fields `null` (additive-only regression guard)."""
+
+    def test_falta_publicar_row_has_null_reason(self, client, db, user_ver):
+        gbp_rows = [{"Código": "000999", "tnr_id": 0, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        assert row["reason"] is None
+        assert row["reason_detail"] is None
+
+    def test_dead_link_reason_serializes_with_operands(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=42, variant_id=7, variant_sku="999999999999", activo=True, published=True)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [{"Código": "000000000000", "tnr_id": 999, "tnr_variationID": 88, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_PUBLICADO"
+        assert row["reason"] == "DEAD_LINK"
+        assert row["reason_detail"]["claimed_tnr_id"] == 999
+        assert row["reason_detail"]["claimed_tnr_variation_id"] == 88
+        assert row["reason_detail"]["expected_ean"] == "000000000000"
+        assert row["reason_detail"]["tn_sku_found"] is None
+
+    def test_sku_mismatch_reason_serializes_with_operands(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=501, variant_id=12, variant_sku="999-different", activo=True)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [{"Código": "123", "tnr_id": 501, "tnr_variationID": 12, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_PUBLICADO"
+        assert row["reason"] == "SKU_MISMATCH"
+        assert row["reason_detail"]["tn_sku_found"] == "999-different"
+        assert row["reason_detail"]["expected_ean"] == "123"
+
+    def test_no_variant_link_reason_serializes(self, client, db, user_ver):
+        gbp_rows = [{"Código": "123", "tnr_id": 501, "tnr_variationID": 0, "stock": 0}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_VINCULADO"
+        assert row["reason"] == "NO_VARIANT_LINK"
+        assert row["reason_detail"]["claimed_tnr_id"] == 501
+        assert row["reason_detail"]["claimed_tnr_variation_id"] is None
+
+
 class TestRowGbpFields:
     """Sub-slice 3c follow-up: the row response must carry the raw GBP
     product fields the publish modal needs (`ml_desc`, `images`,
