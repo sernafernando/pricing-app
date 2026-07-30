@@ -327,7 +327,14 @@ def compute_verdicts(
         tnr_variation_id = _as_int(row.get("tnr_variationID"))
         # Unknown stock (missing/empty/unparseable) MUST be None, never 0 —
         # 0 is exactly the value that raises DESPUBLICAR (round 7, item 2).
-        stock = _as_optional_int(row.get("stock"))
+        #
+        # `Stock_Disponible` (not a plain `stock` key — verified against a
+        # LIVE report-78 response on 2026-07-30) is Stock_Físico minus
+        # Pendientes: what can actually be sold, which is the deliberate
+        # choice here over Stock_Físico. Values arrive as decimal strings
+        # (e.g. "9.0000"); `_as_optional_int` already handles that via
+        # `int(float(...))`.
+        stock = _as_optional_int(row.get("Stock_Disponible"))
 
         # Raw-string matches (unchanged, exact-match behavior — e.g. still
         # matches non-numeric SKUs) unioned with leading-zero-tolerant GTIN

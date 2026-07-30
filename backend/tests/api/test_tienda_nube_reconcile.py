@@ -806,7 +806,8 @@ class TestReporteStockExposed:
     frontend can render/sort it."""
 
     def test_stock_is_present_and_numeric(self, client, db, user_ver):
-        gbp_rows = [{"Código": "EAN-STOCK", "tnr_id": 0, "tnr_variationID": 0, "stock": 7}]
+        # Real GBP key is `Stock_Disponible`, not `stock` (verified live 2026-07-30).
+        gbp_rows = [{"Código": "EAN-STOCK", "tnr_id": 0, "tnr_variationID": 0, "Stock_Disponible": 7}]
         response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
         assert response.status_code == 200
         row = response.json()["items"][0]
