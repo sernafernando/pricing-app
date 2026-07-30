@@ -1266,7 +1266,9 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
     // Distinguishable from an ML title so the operator never mistakes an
     // ERP description for a published ML title.
-    expect(screen.getByText(/ERP/i)).toBeInTheDocument();
+    // Exact text, not /ERP/i — a loose regex is satisfied by any string
+    // containing "erp" and would keep passing if the tag disappeared.
+    expect(screen.getByText('ERP')).toBeInTheDocument();
   });
 
   it('PR5: prefers ml_title over erp_desc when both are present (ml_title stays the primary identity line)', async () => {

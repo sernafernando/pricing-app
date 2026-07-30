@@ -462,6 +462,9 @@ class TestRowGbpFields:
         assert response.status_code == 200
         row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
         assert row["ml_desc"] is None
+        assert row["categoria"] is None
+        assert row["subcategoria"] is None
+        assert row["images"] == []
 
     def test_row_carries_erp_desc_from_gbp_descripcion_column(self, client, db, user_ver):
         """PR5: report 78's `Descripción` column is the ERP description — it
@@ -486,9 +489,6 @@ class TestRowGbpFields:
         assert response.status_code == 200
         row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
         assert row["erp_desc"] is None
-        assert row["categoria"] is None
-        assert row["subcategoria"] is None
-        assert row["images"] == []
 
 
 class TestBanlist:
