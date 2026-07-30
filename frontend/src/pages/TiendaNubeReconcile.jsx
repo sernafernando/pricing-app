@@ -1011,7 +1011,11 @@ export default function TiendaNubeReconcile() {
               <thead className="table-tesla-head">
                 <tr>
                   {table.getFlatHeaders().map((h) => {
-                    const isStockColumn = h.column.columnDef.id === 'stock';
+                    // Driven by the column definition's own `sortable` flag,
+                    // not by a hardcoded id — otherwise the flag is dead
+                    // config and a future sortable column would silently do
+                    // nothing.
+                    const isStockColumn = Boolean(h.column.columnDef.sortable);
                     const stockSortDirection = sortState?.column === 'stock' ? sortState.direction : null;
                     return (
                     <th
@@ -1027,7 +1031,12 @@ export default function TiendaNubeReconcile() {
                       }
                     >
                       {isStockColumn ? (
-                        <button type="button" className={styles.sortableHeaderBtn} onClick={toggleStockSort}>
+                        <button
+                          type="button"
+                          className={styles.sortableHeaderBtn}
+                          aria-label="Ordenar por stock"
+                          onClick={toggleStockSort}
+                        >
                           {flexRender(h.column.columnDef.header, h.getContext())}
                           {stockSortDirection === 'asc' ? ' ▲' : stockSortDirection === 'desc' ? ' ▼' : ''}
                         </button>
