@@ -88,6 +88,22 @@
   gap: 2px;
 }
 
+/* Slice 3 — tn_presence "unknown" relabel + sync trigger */
+.presenceCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* Slice 3 — POR_CORREGIR: EAN vs TN SKU side by side */
+.eanCompareCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+}
+
 .prodTitle {
   font-size: 0.82rem;
   font-weight: 600;

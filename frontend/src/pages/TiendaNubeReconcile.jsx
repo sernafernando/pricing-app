@@ -106,15 +106,69 @@ function verdictLabelFor(verdictId) {
 
 // TN Presence Field requirement — replaces the old ambiguous single
 // "Desconocido" label with four distinct, non-ambiguous states.
+// "unknown" is NOT "we don't know if this exists in TN" — the backend only
+// returns it when the TN row WAS resolved and its `published` flag simply
+// has not been re-synced locally yet (see TiendaNubeProducto.published
+// docstring). The label must communicate the actionable truth, never
+// ignorance of the row's existence.
 const TN_PRESENCE_LABELS = {
   published: 'Publicado en TN',
   draft: 'Borrador en TN',
-  unknown: 'Presencia en TN desconocida',
+  unknown: 'Existe en TN, publicación no sincronizada',
   not_in_tn: 'No está en Tienda Nube',
 };
 
 function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
+}
+
+/**
+ * Presence cell for `tn_presence == "unknown"` rows: shows the relabeled
+ * copy plus, when the operator holds `admin.gestionar_tn_publicacion`, a
+ * control wired to the ALREADY-EXISTING `POST /tienda-nube/sync` endpoint
+ * (no new backend action is introduced). Without that permission the label
+ * renders alone — never a dead/disabled action.
+ */
+function TnPresenceCell({ row, puedeSincronizar, onSync, syncing }) {
+  const label = tnPresenceLabelFor(row.tn_presence);
+  if (row.tn_presence !== 'unknown') return label;
+
+  return (
+    <div className={styles.presenceCell}>
+      <span>{label}</span>
+      {puedeSincronizar && (
+        <button
+          type="button"
+          className={`btn-tesla ghost xs ${styles.btnSpaced}`}
+          disabled={syncing}
+          onClick={onSync}
+        >
+          {syncing ? 'Sincronizando...' : 'Sincronizar con TN'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * EAN cell: for POR_CORREGIR rows (linked, but the TN SKU differs from the
+ * GBP EAN only by leading zeros/formatting) shows both values side by side
+ * so the operator sees exactly what needs canonicalizing. Every other
+ * verdict renders the EAN alone, unchanged.
+ */
+function EanCell({ row }) {
+  const tnSku = row.tn_matches?.[0]?.variant_sku;
+  // Only render the comparison layout when there is an actual TN match to
+  // compare against — a POR_CORREGIR row without a resolved match renders
+  // its EAN exactly as any other verdict does.
+  if (row.verdict !== 'POR_CORREGIR' || !tnSku) return row.ean;
+
+  return (
+    <div className={styles.eanCompareCell}>
+      <div>EAN: {row.ean}</div>
+      <div>SKU TN: {tnSku}</div>
+    </div>
+  );
 }
 
 // Reason/cause taxonomy (Slice 1) — exhaustive-by-default code -> Spanish
@@ -265,7 +319,7 @@ function saveColumnSizing(state) {
 // (via TanStack) AND the body cells render from this list, so adding/
 // removing a column can never desync header and body.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 130, cell: (row) => row.ean },
+  { id: 'ean', header: 'EAN', size: 130, cell: (row) => <EanCell row={row} /> },
   {
     id: 'producto',
     header: 'Producto',
@@ -285,8 +339,15 @@ const COLUMNS = [
   {
     id: 'tn_presence',
     header: 'Presencia en TN',
-    size: 180,
-    cell: (row) => tnPresenceLabelFor(row.tn_presence),
+    size: 220,
+    cell: (row, ctx) => (
+      <TnPresenceCell
+        row={row}
+        puedeSincronizar={ctx?.puedeGestionarPublicacion}
+        onSync={() => ctx?.onSyncTn(row)}
+        syncing={ctx?.syncingTn}
+      />
+    ),
   },
   {
     id: 'reason',
@@ -360,6 +421,10 @@ export default function TiendaNubeReconcile() {
 
   // Publish modal (Sub-slice 3c) — one FALTA_PUBLICAR row at a time.
   const [publishingRow, setPublishingRow] = useState(null);
+
+  // tn_presence "unknown" relabel + sync trigger (Slice 3) — wires the
+  // ALREADY-EXISTING POST /tienda-nube/sync endpoint, no new backend action.
+  const [syncingTn, setSyncingTn] = useState(false);
 
   const [reporte, setReporte] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -477,6 +542,23 @@ export default function TiendaNubeReconcile() {
     [puedeGestionarPublicacion, cargarReporte, showToast]
   );
 
+  const sincronizarTn = useCallback(
+    async () => {
+      if (!puedeGestionarPublicacion || syncingTn) return;
+      setSyncingTn(true);
+      try {
+        await api.post('/tienda-nube/sync');
+        showToast('Sincronización con Tienda Nube completada', 'success');
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.error?.message || 'Error al sincronizar con Tienda Nube', 'error');
+      } finally {
+        setSyncingTn(false);
+      }
+    },
+    [puedeGestionarPublicacion, syncingTn, cargarReporte, showToast]
+  );
+
   const toggleSeleccionBaneado = useCallback((id) => {
     setBaneadosSeleccionados((prev) => {
       const next = new Set(prev);
@@ -570,6 +652,10 @@ export default function TiendaNubeReconcile() {
   });
 
   const hasCustomColumnSizing = Object.keys(columnSizing).length > 0;
+
+  // Passed as the second arg to COLUMNS' cell renderers that need context
+  // beyond the row itself (currently only tn_presence's sync trigger).
+  const cellCtx = { puedeGestionarPublicacion, onSyncTn: sincronizarTn, syncingTn };
 
   // WAI-ARIA tablist keyboard pattern: Left/Right (and Home/End) move BOTH
   // selection and focus between tabs. Order must match the rendered order
@@ -972,7 +1058,7 @@ export default function TiendaNubeReconcile() {
                             })()}
                           </td>
                         ) : (
-                          <td key={col.id}>{col.cell(row)}</td>
+                          <td key={col.id}>{col.cell(row, cellCtx)}</td>
                         )
                       )}
                     </tr>

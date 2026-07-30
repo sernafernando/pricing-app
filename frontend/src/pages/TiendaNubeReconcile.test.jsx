@@ -546,6 +546,95 @@ describe('tn_presence display', () => {
   });
 });
 
+describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
+  const UNKNOWN_ITEM = {
+    ean: 'UNK-1',
+    verdict: 'MAL_PUBLICADO',
+    despublicar: false,
+    tn_matches: [],
+    tn_presence: 'unknown',
+  };
+
+  it('communicates the row exists in TN but its publish state is not synced, not that presence is unknown', async () => {
+    setupApiMocks({ items: [UNKNOWN_ITEM], verdictCounts: { MAL_PUBLICADO: 1 } });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText('Presencia en TN desconocida')).not.toBeInTheDocument();
+    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+  });
+
+  it('offers a control to trigger the existing sync endpoint, gated by admin.gestionar_tn_publicacion', async () => {
+    setupApiMocks({ items: [UNKNOWN_ITEM], verdictCounts: { MAL_PUBLICADO: 1 } });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    const syncButton = await screen.findByRole('button', { name: /sincronizar/i });
+    await user.click(syncButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube/sync');
+    });
+  });
+
+  it('hides the sync control without admin.gestionar_tn_publicacion, keeping only the explanatory label', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'admin.gestionar_tn_publicacion');
+    setupApiMocks({ items: [UNKNOWN_ITEM], verdictCounts: { MAL_PUBLICADO: 1 } });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /sincronizar/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+  });
+});
+
+describe('POR_CORREGIR EAN vs TN SKU (Slice 3)', () => {
+  it('renders the GBP EAN and the matched TN SKU side by side', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: '023942321477',
+          verdict: 'POR_CORREGIR',
+          despublicar: false,
+          tn_matches: [{ product_id: 1, variant_id: 1, variant_sku: '23942321477', activo: true, published: true }],
+          tn_presence: 'published',
+        },
+      ],
+      verdictCounts: { POR_CORREGIR: 1 },
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Por corregir \(1\)/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getByText(/023942321477/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/EAN: 023942321477/)).toBeInTheDocument();
+    expect(screen.getByText(/SKU TN: 23942321477/)).toBeInTheDocument();
+  });
+});
+
 describe('FALTA_VINCULAR matched TN IDs', () => {
   it('shows the matched product_id/variant_id on a FALTA_VINCULAR row', async () => {
     setupApiMocks({
