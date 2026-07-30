@@ -8,8 +8,6 @@ it. These tests pin the registration and the index/default declarations
 so the model and the migration cannot drift apart silently.
 """
 
-from sqlalchemy import text
-
 import app.models
 from app.models.ml_catalog_competition import MLCatalogCompetition
 
@@ -45,10 +43,29 @@ def test_model_declares_no_single_column_indexes():
     assert declared == set(), f"Model declares unexpected single-column indexes: {declared}"
 
 
-def test_competitors_server_default_matches_migration_ddl():
-    """Model and migration must render the same default, or autogenerate diffs forever."""
-    rendered = str(MLCatalogCompetition.__table__.c.competitors.server_default.arg)
-    assert rendered == "'[]'::jsonb", f"expected \"'[]'::jsonb\", got {rendered!r}"
+def test_no_server_default_uses_postgres_only_cast_syntax():
+    """Registering the model puts it in `Base.metadata.create_all()`, which the
+    suite runs against SQLite (tests/conftest.py) while production is Postgres.
+
+    conftest remaps the *types* (JSONB -> JSON) via `_patch_pg_types_for_sqlite`,
+    but a server_default is emitted verbatim into the CREATE TABLE regardless.
+    So `server_default=text("'[]'::jsonb")` compiles to
+    `DEFAULT '[]'::jsonb` on SQLite and dies with "unrecognized token: :",
+    failing `create_all` and therefore EVERY test that uses the db fixture —
+    not just this model's.
+
+    Regression guard: that exact cast took 2438 tests down at once.
+    """
+    offenders = {
+        col.name: str(col.server_default.arg)
+        for col in MLCatalogCompetition.__table__.columns
+        if col.server_default is not None and "::" in str(col.server_default.arg)
+    }
+    assert offenders == {}, (
+        f"Postgres-only cast syntax in server_default(s): {offenders}. "
+        "Keep model defaults dialect-neutral; the Postgres-specific DDL belongs "
+        "in the migration, and alembic/env.py does not set compare_server_default."
+    )
 
 
 def test_unique_constraint_on_mla_and_fecha():
@@ -69,8 +86,9 @@ def test_timestamps_are_timezone_aware():
         assert table.c[col_name].type.timezone is True, f"{col_name} must be timezone-aware"
 
 
-def test_text_default_is_valid_sql_expression():
-    """Sanity: the server_default is a SQL expression, not a bare Python string."""
-    default = MLCatalogCompetition.__table__.c.competitors.server_default.arg
-    assert not isinstance(default, str), "server_default must be sa.text(...), not a plain string"
-    assert isinstance(default, type(text("'[]'::jsonb")))
+def test_competitors_defaults_to_an_empty_list():
+    """The column is NOT NULL, so a default is required for rows written
+    without an explicit competitors value (e.g. a not_catalog snapshot)."""
+    default = MLCatalogCompetition.__table__.c.competitors.server_default
+    assert default is not None, "competitors is NOT NULL and needs a server_default"
+    assert "[]" in str(default.arg)

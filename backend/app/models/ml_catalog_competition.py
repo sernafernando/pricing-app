@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -32,10 +32,14 @@ class MLCatalogCompetition(Base):
     our_price = Column(Numeric(18, 2), nullable=True)
     our_currency_id = Column(String(8), nullable=True)
     our_bucket_key = Column(String(64), nullable=True)
-    # Must render exactly as the migration's DDL ("'[]'::jsonb"); a bare
-    # Python string compares differently in autogenerate and produces a
-    # permanent phantom diff.
-    competitors = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Dialect-neutral default on purpose. The migration's DDL uses
+    # '[]'::jsonb, but this model must stay creatable by
+    # Base.metadata.create_all() on SQLite, which the test suite uses
+    # (tests/conftest.py) — a "::jsonb" cast there fails with
+    # "unrecognized token: :". Rendering "DEFAULT '[]'" works on both, and
+    # alembic/env.py does not set compare_server_default (Alembic defaults
+    # it to False), so the difference from the DDL never reaches autogenerate.
+    competitors = Column(JSONB, nullable=False, server_default="[]")
     competitor_count = Column(Integer, nullable=False, server_default="0")
     source_payload_hash = Column(String(64), nullable=True)
     error_detail = Column(String(500), nullable=True)
