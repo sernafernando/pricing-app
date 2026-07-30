@@ -4,6 +4,7 @@ import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
+import { getTiendaOficialLabel } from '../../constants/tiendasOficiales';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
@@ -165,6 +166,11 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
   // nothing (fail-open, same treatment as the lista badge above).
   const statusBadge = bearsMla ? STATUS_BADGES[node.publication_status] : null;
 
+  // Official store badge (promos-catalog-prices-and-official-store, slice A)
+  // — grouping nodes never carry one. NULL/unknown store still renders an
+  // explicit "Sin tienda" pill (never blank/omitted), per spec A3.
+  const storeLabel = bearsMla ? getTiendaOficialLabel(node.official_store_id) : null;
+
   // Promos-only manual refresh (locked decision): reconciles the MLA's
   // promo mirror via the existing ml-webhook proxy WITHOUT expanding the
   // promos sub-spoiler. Never asserts the final promo state itself — on
@@ -214,6 +220,11 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
               <span className={`${styles.badge} ${statusBadge.className}`}>
                 <statusBadge.Icon size={12} aria-hidden="true" />
                 {statusBadge.label}
+              </span>
+            )}
+            {bearsMla && (
+              <span className={`${styles.badge} ${styles.badgeReadonly}`}>
+                {storeLabel || 'Sin tienda'}
               </span>
             )}
             {promoSummary && (

@@ -24,6 +24,7 @@ import './Productos.css';
 
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { PROMO_TYPES } from '../constants/promoTypes';
+import { TIENDAS_OFICIALES, TIENDAS_OFICIALES_ORDER } from '../constants/tiendasOficiales';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
@@ -1455,10 +1456,14 @@ export default function Productos() {
                     className="filter-select"
                   >
                     <option value="todos">Todas</option>
-                    <option value="57997">🏢 Gauss</option>
-                    <option value="2645" title="TP-Link">📡 TP-Link</option>
-                    <option value="144" title="Forza, Verbatim">⚡ Forza/Verbatim</option>
-                    <option value="191942" title="Epson, Forza, Logitech, MGN, Razer">🎯 Multi-marca</option>
+                    {TIENDAS_OFICIALES_ORDER.map((id) => {
+                      const { label, emoji, title } = TIENDAS_OFICIALES[id];
+                      return (
+                        <option key={id} value={id} title={title}>
+                          {emoji} {label}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
