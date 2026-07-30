@@ -17,6 +17,7 @@ page/page_size.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -24,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
+from app.models.producto import ProductoERP, ProductoPricing
 from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
@@ -201,7 +203,14 @@ class TestOneShotReport:
         response = _fetch_report(client, user_ver)
         assert response.status_code == 200
         body = response.json()
-        assert set(body.keys()) == {"items", "total", "verdict_counts", "catalog_cap_hit", "gbp_rows_cap_hit"}
+        assert set(body.keys()) == {
+            "items",
+            "total",
+            "verdict_counts",
+            "catalog_cap_hit",
+            "gbp_rows_cap_hit",
+            "erp_cap_hit",
+        }
         assert body["total"] == 1
         assert isinstance(body["items"], list)
 
@@ -819,6 +828,46 @@ class TestReporteStockExposed:
         assert response.status_code == 200
         row = response.json()["items"][0]
         assert row["stock"] is None
+
+
+class TestReportePublishPriceFieldsExposed:
+    """Slice 2 (publish price, money path): the bulk `productos_erp`/
+    `productos_pricing` join surfaces `precio_web_transferencia`/
+    `participa_web_transferencia`/`precio_lista_ml` per row, keyed by the
+    GBP `Item_ID`. Both prices are serialized as STRINGS."""
+
+    def test_price_fields_resolve_via_item_id_join(self, client, db, user_ver):
+        producto_erp = ProductoERP(item_id=555, codigo="EAN-PRICE", descripcion="Producto de prueba")
+        db.add(producto_erp)
+        db.flush()
+        db.add(
+            ProductoPricing(
+                item_id=555,
+                precio_web_transferencia=Decimal("1000.00"),
+                participa_web_transferencia=True,
+                precio_lista_ml=900.0,
+            )
+        )
+        db.commit()
+
+        gbp_rows = [{"Código": "EAN-PRICE", "tnr_id": 0, "tnr_variationID": 0, "Stock_Disponible": 5, "Item_ID": "555"}]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["precio_web_transferencia"] == "1000.00"
+        assert row["participa_web_transferencia"] is True
+        assert row["precio_lista_ml"] == "900.0"
+
+    def test_unresolved_item_id_exposes_none_never_fabricates(self, client, db, user_ver):
+        gbp_rows = [
+            {"Código": "EAN-NOPRICE", "tnr_id": 0, "tnr_variationID": 0, "Stock_Disponible": 5, "Item_ID": "999999"}
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["precio_web_transferencia"] is None
+        assert row["participa_web_transferencia"] is None
+        assert row["precio_lista_ml"] is None
 
 
 class TestReporteMlTitleAndAdminUrl:

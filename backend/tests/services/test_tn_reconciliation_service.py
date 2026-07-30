@@ -5,8 +5,10 @@ DB session — only the pure EAN-join + verdict logic. GBP fetch failure
 handling (`fetch_gbp_report_78`) is covered separately.
 """
 
+from decimal import Decimal
+
 from app.models.tienda_nube_producto import TiendaNubeProducto
-from app.services.tn_reconciliation_service import compute_verdicts, normalize_gtin
+from app.services.tn_reconciliation_service import ErpPriceInfo, compute_verdicts, normalize_gtin
 
 
 def _tn(product_id=1, variant_id=1, sku="EAN-1", activo=True, published=None):
@@ -865,3 +867,59 @@ class TestRealStockColumnName:
         results = compute_verdicts(gbp_rows, [])
 
         assert results[0].stock is None
+
+
+class TestErpPriceInfoOnRow:
+    """Slice 2 (publish price, money path): the bulk-loaded
+    `erp_by_item_id` index is looked up per-row by `Item_ID` and its three
+    price fields are exposed on `ReconcileRow` — `compute_verdicts` itself
+    never queries the DB (purity constraint, no `db` param)."""
+
+    def test_defaults_to_none_when_erp_by_item_id_is_not_supplied(self):
+        """Every EXISTING `compute_verdicts` call site (all prior tests in
+        this module) must keep working unchanged — the new param is
+        optional and additive."""
+        gbp_rows = [_gbp_row(codigo="123", **{"Item_ID": "555"})]
+
+        results = compute_verdicts(gbp_rows, [])
+
+        assert results[0].precio_web_transferencia is None
+        assert results[0].participa_web_transferencia is None
+        assert results[0].precio_lista_ml is None
+
+    def test_resolves_price_fields_by_item_id(self):
+        gbp_rows = [_gbp_row(codigo="123", **{"Item_ID": "555"})]
+        erp_by_item_id = {
+            555: ErpPriceInfo(
+                precio_web_transferencia=Decimal("1000.00"),
+                participa_web_transferencia=True,
+                precio_lista_ml=Decimal("900.00"),
+            )
+        }
+
+        results = compute_verdicts(gbp_rows, [], erp_by_item_id=erp_by_item_id)
+
+        assert results[0].precio_web_transferencia == Decimal("1000.00")
+        assert results[0].participa_web_transferencia is True
+        assert results[0].precio_lista_ml == Decimal("900.00")
+
+    def test_unresolved_item_id_degrades_to_none_never_fabricates(self):
+        gbp_rows = [_gbp_row(codigo="123", **{"Item_ID": "999"})]
+        erp_by_item_id = {555: ErpPriceInfo(precio_web_transferencia=Decimal("1000.00"))}
+
+        results = compute_verdicts(gbp_rows, [], erp_by_item_id=erp_by_item_id)
+
+        assert results[0].precio_web_transferencia is None
+        assert results[0].participa_web_transferencia is None
+        assert results[0].precio_lista_ml is None
+
+    def test_item_id_as_decimal_string_is_tolerantly_parsed(self):
+        """GBP returns numeric fields as decimal strings inconsistently
+        (e.g. `"555.0000"`) — the lookup must tolerate that, mirroring
+        `_as_optional_int`'s `int(float(...))` handling used for `stock`."""
+        gbp_rows = [_gbp_row(codigo="123", **{"Item_ID": "555.0000"})]
+        erp_by_item_id = {555: ErpPriceInfo(precio_lista_ml=Decimal("900.00"))}
+
+        results = compute_verdicts(gbp_rows, [], erp_by_item_id=erp_by_item_id)
+
+        assert results[0].precio_lista_ml == Decimal("900.00")

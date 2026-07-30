@@ -55,6 +55,7 @@ reconciliation to the caller instead of a silent partial one.
 
 import logging
 from collections import Counter
+from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -66,6 +67,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.deps import get_current_user, get_current_user_transient
 from app.core.config import settings
 from app.core.database import get_async_db, get_db
+from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
@@ -73,7 +75,13 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category
 from app.services.tn_publish_service import publish_product, unpublish_product
-from app.services.tn_reconciliation_service import GBPFetchError, compute_verdicts, fetch_gbp_report_78
+from app.services.tn_reconciliation_service import (
+    ErpPriceInfo,
+    GBPFetchError,
+    _as_optional_int,
+    compute_verdicts,
+    fetch_gbp_report_78,
+)
 
 # Closed set — mirrors compute_verdicts' taxonomy minus OK (OK is never an
 # actionable/filterable verdict). FastAPI/pydantic rejects any other value
@@ -101,6 +109,91 @@ TN_PRODUCTOS_QUERY_CAP = 50_000
 # (see the module docstring's pool-safety note). Same contract as the
 # catalog cap: reported via `gbp_rows_cap_hit`, never silently truncated.
 GBP_ROWS_CAP = 50_000
+
+# Slice 2 (publish price, money path) — bulk `productos_erp`/`productos_pricing`
+# join that feeds `erp_by_item_id` into `compute_verdicts`. Restricted to the
+# `Item_ID`s actually present in the (already-capped) GBP row set rather than
+# the whole table, chunked via `_ERP_JOIN_CHUNK_SIZE` to avoid a pathological
+# `IN (...)` parameter count; this cap is the belt-and-braces ceiling on top
+# of that, following the same never-truncate-silently contract as
+# TN_PRODUCTOS_QUERY_CAP/GBP_ROWS_CAP (see `erp_cap_hit` on the response).
+# The cap COMPARISON differs from those two on purpose: they bound a SQL
+# `LIMIT`, where landing exactly on the ceiling cannot rule out more rows
+# existing, so they must flag conservatively with `>=`. Here the full id set
+# is already in memory before the query, so `>` is exact — at exactly the cap
+# nothing is dropped, and flagging would be a false alarm.
+ERP_JOIN_QUERY_CAP = 50_000
+_ERP_JOIN_CHUNK_SIZE = 1_000
+
+
+def _gbp_item_id(gbp_row: Dict[str, Any]) -> Optional[int]:
+    """Tolerant `Item_ID` parse — GBP returns numeric fields as decimal
+    strings inconsistently (e.g. `"9.0000"`), so the parse must tolerate that
+    shape rather than a bare `int(...)` that would raise on it.
+
+    Delegates to the service's `_as_optional_int` instead of re-implementing
+    it: two independent definitions of "how a GBP numeric field is parsed"
+    agree today but are free to drift apart tomorrow, and this one feeds the
+    join key for a money path."""
+    return _as_optional_int(gbp_row.get("Item_ID"))
+
+
+def _load_erp_price_index(db: Session, item_ids: set) -> tuple[Dict[int, ErpPriceInfo], bool]:
+    """Bulk-loads the money-path fields for exactly the `Item_ID`s present in
+    this request's GBP row set, one outer join covering BOTH
+    `precio_web_transferencia`/`participa_web_transferencia` (surcharge base)
+    and `precio_lista_ml` (Clásica manual-entry seed) — they are columns of
+    the SAME `productos_pricing` row (design Decision 0/2), so this is a
+    single indexed 1:1 join, not two queries. Outer join from `productos_erp`
+    so an item with no pricing row still resolves (all-`None` price fields).
+
+    Never queried per-row — `compute_verdicts` stays pure/no-db; this is the
+    only DB access for the join, run inside the endpoint's existing
+    `run_in_threadpool` block alongside the `tienda_nube_productos` load.
+    """
+    if not item_ids:
+        return {}, False
+
+    ids_list = sorted(item_ids)
+    cap_hit = len(ids_list) > ERP_JOIN_QUERY_CAP
+    if cap_hit:
+        logger.warning(
+            "ERP join item_id count reached ERP_JOIN_QUERY_CAP=%d — publish-price "
+            "enrichment may be missing rows beyond the cap",
+            ERP_JOIN_QUERY_CAP,
+        )
+        ids_list = ids_list[:ERP_JOIN_QUERY_CAP]
+
+    index: Dict[int, ErpPriceInfo] = {}
+    for start in range(0, len(ids_list), _ERP_JOIN_CHUNK_SIZE):
+        chunk = ids_list[start : start + _ERP_JOIN_CHUNK_SIZE]
+        rows = (
+            db.query(
+                ProductoERP.item_id,
+                ProductoPricing.precio_web_transferencia,
+                ProductoPricing.participa_web_transferencia,
+                ProductoPricing.precio_lista_ml,
+            )
+            .outerjoin(ProductoPricing, ProductoPricing.item_id == ProductoERP.item_id)
+            .filter(ProductoERP.item_id.in_(chunk))
+            .all()
+        )
+        for item_id, precio_web_transferencia, participa_web_transferencia, precio_lista_ml in rows:
+            index[item_id] = ErpPriceInfo(
+                # Decimal(str(...)) at the boundary — precio_web_transferencia
+                # is already Numeric(15,2) but precio_lista_ml is a raw SQL
+                # Float; both are normalized identically here so neither
+                # binary-float representation error nor an inconsistent type
+                # propagates further into the pipeline (design Decision 0).
+                precio_web_transferencia=(
+                    Decimal(str(precio_web_transferencia)) if precio_web_transferencia is not None else None
+                ),
+                participa_web_transferencia=(
+                    bool(participa_web_transferencia) if participa_web_transferencia is not None else None
+                ),
+                precio_lista_ml=(Decimal(str(precio_lista_ml)) if precio_lista_ml is not None else None),
+            )
+    return index, cap_hit
 
 
 class TnMatchResponse(BaseModel):
@@ -172,6 +265,16 @@ class ReconcileRowResponse(BaseModel):
     # each `TnMatchResponse.tn_admin_url` — never a single row-level link, so a
     # DUPLICADO group never privileges one conflicting row over the others.
     ml_title: Optional[str] = None
+    # Slice 2 (publish price, money path): additive fields sourced from the
+    # bulk `productos_erp`/`productos_pricing` join (see
+    # `_load_erp_price_index`), mirrored 1:1 from `ReconcileRow`. Both price
+    # fields are serialized as STRINGS (never a JS number) so the browser's
+    # float64 cannot re-introduce representation error before the operator
+    # sees it — see the module's money-path design note. `null` when the
+    # row's `Item_ID` didn't resolve to an ERP/pricing row.
+    precio_web_transferencia: Optional[str] = None
+    participa_web_transferencia: Optional[bool] = None
+    precio_lista_ml: Optional[str] = None
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
@@ -194,6 +297,7 @@ class ReconcileReportResponse(BaseModel):
     verdict_counts: Dict[str, int]
     catalog_cap_hit: bool
     gbp_rows_cap_hit: bool
+    erp_cap_hit: bool
 
 
 class BanEanRequest(BaseModel):
@@ -343,12 +447,15 @@ async def get_reconciliation_report(
                 TN_PRODUCTOS_QUERY_CAP,
             )
         banned_eans = {row.ean for row in db.query(TnReconcileBanlist.ean).all()}
-        return compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans), cap_hit
+        item_ids = {iid for row in gbp_rows if (iid := _gbp_item_id(row)) is not None}
+        erp_by_item_id, erp_cap_hit = _load_erp_price_index(db, item_ids)
+        verdicts = compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans, erp_by_item_id=erp_by_item_id)
+        return verdicts, cap_hit, erp_cap_hit
 
     # Sync DB query + CPU-bound verdict computation off the event loop —
     # this is the only `async def` in the module, so without this it would
     # block every other request for the whole computation window.
-    verdicts, cap_hit = await run_in_threadpool(_load_and_compute)
+    verdicts, cap_hit, erp_cap_hit = await run_in_threadpool(_load_and_compute)
 
     verdict_counts: Dict[str, int] = dict(Counter(v.verdict for v in verdicts if v.verdict != "OK"))
 
@@ -384,6 +491,11 @@ async def get_reconciliation_report(
             subcategoria=v.gbp_row.get("SubCategoría"),
             images=_gbp_images(v.gbp_row),
             ml_title=v.gbp_row.get("ML_title"),
+            precio_web_transferencia=(
+                str(v.precio_web_transferencia) if v.precio_web_transferencia is not None else None
+            ),
+            participa_web_transferencia=v.participa_web_transferencia,
+            precio_lista_ml=(str(v.precio_lista_ml) if v.precio_lista_ml is not None else None),
         )
         for v in filtered
     ]
@@ -394,6 +506,7 @@ async def get_reconciliation_report(
         verdict_counts=verdict_counts,
         catalog_cap_hit=cap_hit,
         gbp_rows_cap_hit=gbp_rows_cap_hit,
+        erp_cap_hit=erp_cap_hit,
     )
 
 

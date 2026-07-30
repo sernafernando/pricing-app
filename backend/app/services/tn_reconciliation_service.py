@@ -19,6 +19,7 @@ mis-publication out of the review view.
 """
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Optional
 
 from app.api.endpoints.gbp_parser import (
@@ -58,6 +59,26 @@ class GBPFetchError(Exception):
 
 
 @dataclass
+class ErpPriceInfo:
+    """Bulk-loaded `productos_erp`/`productos_pricing` money-path fields for
+    ONE `item_id` (Slice 2 — publish price). Built by the endpoint from a
+    single outer-joined query (see `tienda_nube_reconcile.py`'s pool-safety
+    note) and passed into `compute_verdicts` as `erp_by_item_id`; this
+    function never queries the DB itself (purity constraint).
+
+    Money-path gotcha (design Decision 0): `precio_lista_ml` is a SQL
+    `Float` while `precio_web_transferencia` is `Numeric(15, 2)` — both are
+    normalized to `Decimal` HERE, at the boundary where they enter this
+    dataclass, via `Decimal(str(...))`, so no binary-float representation
+    error can propagate further into the pipeline.
+    """
+
+    precio_web_transferencia: Optional[Decimal] = None
+    participa_web_transferencia: Optional[bool] = None
+    precio_lista_ml: Optional[Decimal] = None
+
+
+@dataclass
 class ReconcileRow:
     """One GBP row overlaid with its computed verdict and matched TN rows."""
 
@@ -88,6 +109,16 @@ class ReconcileRow:
     # `despublicar` on the other side of the same field (see
     # `_as_optional_int`'s docstring).
     stock: Optional[int] = None
+    # Slice 2 (publish price, money path): additive, read-only annotation
+    # sourced from the bulk-loaded `erp_by_item_id` index (see
+    # `ErpPriceInfo`). `None` for every field when `erp_by_item_id` is not
+    # supplied (default — every existing `compute_verdicts` call site stays
+    # valid) or when this row's `Item_ID` doesn't resolve to an ERP/pricing
+    # row — NEVER fabricated. `precio_web_transferencia`/`precio_lista_ml`
+    # are `Decimal`, never a raw `float`.
+    precio_web_transferencia: Optional[Decimal] = None
+    participa_web_transferencia: Optional[bool] = None
+    precio_lista_ml: Optional[Decimal] = None
 
 
 def _build_reason_detail(
@@ -229,6 +260,33 @@ def _compute_presence(tn: Optional[TiendaNubeProducto]) -> str:
     return "unknown"
 
 
+_EMPTY_ERP_PRICE_KWARGS = {
+    "precio_web_transferencia": None,
+    "participa_web_transferencia": None,
+    "precio_lista_ml": None,
+}
+
+
+def _erp_price_fields(row: dict, erp_by_item_id: Optional[dict[int, ErpPriceInfo]]) -> dict:
+    """Looks up this GBP row's bulk-loaded ERP/pricing info (Slice 2, keyed
+    by `Item_ID`) and returns the three additive money-path fields as
+    `ReconcileRow` kwargs. Degrades to all-`None` when `erp_by_item_id` is
+    not supplied (keeps every existing `compute_verdicts` call site valid)
+    or the row's `Item_ID` doesn't resolve to any loaded ERP row — this
+    function never fabricates a price."""
+    if not erp_by_item_id:
+        return dict(_EMPTY_ERP_PRICE_KWARGS)
+    item_id = _as_optional_int(row.get("Item_ID"))
+    info = erp_by_item_id.get(item_id) if item_id is not None else None
+    if info is None:
+        return dict(_EMPTY_ERP_PRICE_KWARGS)
+    return {
+        "precio_web_transferencia": info.precio_web_transferencia,
+        "participa_web_transferencia": info.participa_web_transferencia,
+        "precio_lista_ml": info.precio_lista_ml,
+    }
+
+
 def _dedupe_matches(*groups: list[TiendaNubeProducto]) -> list[TiendaNubeProducto]:
     """Union multiple TN-match lists, deduping by `(product_id, variant_id)`
     while preserving first-seen order — used to combine the raw-string index
@@ -250,6 +308,7 @@ def compute_verdicts(
     gbp_rows: list[dict],
     tn_productos: list[TiendaNubeProducto],
     banned_eans: Optional[set[str]] = None,
+    erp_by_item_id: Optional[dict[int, ErpPriceInfo]] = None,
 ) -> list[ReconcileRow]:
     """Compute the verdict taxonomy for each GBP row.
 
@@ -336,6 +395,12 @@ def compute_verdicts(
         # `int(float(...))`.
         stock = _as_optional_int(row.get("Stock_Disponible"))
 
+        # Slice 2 (publish price): additive money-path fields looked up from
+        # the bulk-loaded `erp_by_item_id` index, keyed by this row's
+        # `Item_ID` — see `_erp_price_fields`'s docstring. All-`None` when
+        # `erp_by_item_id` is absent or the id doesn't resolve.
+        erp_price_kwargs = _erp_price_fields(row, erp_by_item_id)
+
         # Raw-string matches (unchanged, exact-match behavior — e.g. still
         # matches non-numeric SKUs) unioned with leading-zero-tolerant GTIN
         # matches (SKU/EAN Matching Normalization requirement). Union, not
@@ -366,6 +431,7 @@ def compute_verdicts(
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
                     stock=stock,
+                    **erp_price_kwargs,
                     tn_presence=_compute_presence(presence_tn),
                 )
             )
@@ -382,6 +448,7 @@ def compute_verdicts(
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
                     stock=stock,
+                    **erp_price_kwargs,
                     tn_presence=_compute_presence(matches_by_ean[0]),
                 )
             )
@@ -409,6 +476,7 @@ def compute_verdicts(
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
                     stock=stock,
+                    **erp_price_kwargs,
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                     product_id=matched_tn.product_id if matched_tn else None,
                     variant_id=matched_tn.variant_id if matched_tn else None,
@@ -427,6 +495,7 @@ def compute_verdicts(
                     tn_matches=matches_by_ean,
                     despublicar=despublicar,
                     stock=stock,
+                    **erp_price_kwargs,
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                     reason=REASON_NO_VARIANT_LINK,
                     reason_detail=_build_reason_detail(
@@ -508,6 +577,7 @@ def compute_verdicts(
                 tn_matches=[claimed_tn] if claimed_tn else (matches_by_ean if fallback_tn else []),
                 despublicar=claimed_despublicar or despublicar,
                 stock=stock,
+                **erp_price_kwargs,
                 tn_presence=_compute_presence(presence_tn),
                 reason=reason,
                 reason_detail=reason_detail,
