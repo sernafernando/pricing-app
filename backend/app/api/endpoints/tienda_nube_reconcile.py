@@ -363,7 +363,12 @@ class PublicarRequest(BaseModel):
     # used (`None` on the manual-entry path). `price_base_source` records
     # which business quantity the operator was looking at.
     offset_percent: Optional[float] = None
-    price_base_source: Optional[Literal["web_transferencia", "lista_ml_clasica", "manual"]] = None
+    # Only the two sources a caller can actually be in: the surcharge path, or
+    # operator-typed. The Clásica price is NOT a third source — it merely SEEDS
+    # the manual field, and the operator is free to overwrite it before
+    # submitting, so recording it as its own origin would misreport what the
+    # number actually is.
+    price_base_source: Optional[Literal["web_transferencia", "manual"]] = None
 
     @field_validator("ean")
     @classmethod

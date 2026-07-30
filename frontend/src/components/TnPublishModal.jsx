@@ -396,8 +396,13 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       // `payload = dict(product_data)`, so they would leak into the TN create.
       // `price` is the exact string already shown in the preview — never
       // recomputed here, so what the operator saw is what gets submitted.
-      // Sent as a STRING (never a JS number) so float64 can't re-introduce
-      // representation error before it reaches the backend's Decimal guard.
+      // Sent as a STRING (never a JS number). To be precise about what that
+      // buys: the surcharge itself was already computed in float64, so this
+      // does NOT make the arithmetic exact — it is rounded to the cent at
+      // that point and correct there. What the string protects is everything
+      // downstream: JSON transport and the backend's `Decimal(str(...))`
+      // boundary receive the exact cents shown to the operator, with no
+      // second float round-trip on the way in.
       const productData = { name: { es: title.trim() }, price: finalPrice };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,
