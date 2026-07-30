@@ -5,7 +5,7 @@ import { usePromoFilterStore } from '../../store/promoFilterStore';
 
 describe('PromoFilterBar', () => {
   beforeEach(() => {
-    usePromoFilterStore.setState({ selectedTypes: [] });
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
   });
 
   it('renders a chip per known promo type plus "Todas"', () => {
@@ -46,5 +46,39 @@ describe('PromoFilterBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /todas/i }));
     expect(usePromoFilterStore.getState().selectedTypes).toEqual([]);
+  });
+
+  it('"Todas" is also pressed when selectedNames is non-empty and selectedTypes is empty (not pressed)', () => {
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: { DEAL: ['2x1'] } });
+    render(<PromoFilterBar />);
+    expect(screen.getByRole('button', { name: /todas/i })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('clicking "Todas" also clears selectedNames', () => {
+    usePromoFilterStore.setState({ selectedTypes: ['SMART'], selectedNames: { DEAL: ['2x1'] } });
+    render(<PromoFilterBar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /todas/i }));
+    expect(usePromoFilterStore.getState().selectedTypes).toEqual([]);
+    expect(usePromoFilterStore.getState().selectedNames).toEqual({});
+  });
+
+  it('renders a "Nombres" trigger that opens the name filter modal', () => {
+    const promosCacheRef = {
+      current: new Map([
+        ['MLA1', { status: 'ok', data: { promotions: [{ promotion_type: 'DEAL', name: '2x1' }] } }],
+      ]),
+    };
+    render(<PromoFilterBar promosCacheRef={promosCacheRef} />);
+
+    expect(screen.queryByText('2x1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /nombres/i }));
+    expect(screen.getByText('2x1')).toBeInTheDocument();
+  });
+
+  it('shows a count badge on the "Nombres" trigger when selectedNames is non-empty', () => {
+    usePromoFilterStore.setState({ selectedNames: { DEAL: ['2x1'] } });
+    render(<PromoFilterBar />);
+    expect(screen.getByRole('button', { name: /nombres \(1\)/i })).toBeInTheDocument();
   });
 });

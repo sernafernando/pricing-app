@@ -1,0 +1,57 @@
+.emptyState {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.group {
+  margin: 0 0 var(--spacing-lg) 0;
+  padding: 0;
+  border: none;
+}
+
+.group:last-child {
+  margin-bottom: 0;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: 0 0 var(--spacing-xs) 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.groupReset {
+  border: none;
+  background: transparent;
+  color: var(--brand-primary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  padding: 0;
+}
+
+.nameList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.nameOption {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
+.nameOption input[type='checkbox'] {
+  accent-color: var(--brand-primary);
+}
