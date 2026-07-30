@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 import httpx
 import logging
 
@@ -14,6 +15,7 @@ from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import Usuario
+from app.services.permisos_service import verificar_permiso
 from app.services.tienda_nube_sync_shared import extract_published_flag
 
 router = APIRouter()
@@ -39,7 +41,23 @@ async def sincronizar_tienda_nube(
     """
     Sincroniza productos y variantes desde Tienda Nube
     Equivalente al script de Google Sheets pero guardando en BD
+
+    Gated on `admin.gestionar_tn_publicacion` — the same permission the
+    reconcile UI's sync trigger checks client-side. This endpoint triggers a
+    full catalog sync against the live TN API; without server-side
+    enforcement any authenticated user could invoke it directly, bypassing
+    the UI gate entirely.
     """
+    # `verificar_permiso` is a sync call; this is the only `async def` in the
+    # module, so run it off the event loop (mirrors the reconcile module's
+    # own `/reporte` pattern) rather than blocking other requests.
+    has_permission = await run_in_threadpool(verificar_permiso, db, current_user, "admin.gestionar_tn_publicacion")
+    if not has_permission:
+        raise HTTPException(
+            status_code=403,
+            detail="No tenés permiso para sincronizar el catálogo de Tienda Nube",
+        )
+
     if not TN_STORE_ID or not TN_ACCESS_TOKEN:
         raise HTTPException(
             status_code=500,

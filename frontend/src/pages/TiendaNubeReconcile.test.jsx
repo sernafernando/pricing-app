@@ -628,9 +628,9 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
     // scope — never N row-scoped buttons for one global side effect.
     const syncButtons = screen.getAllByRole('button', { name: /sincronizar cat[aá]logo/i });
     expect(syncButtons).toHaveLength(1);
-    syncButtons.forEach((btn) => {
-      expect(within(document.querySelector('tbody')).queryByText(btn.textContent)).not.toBeInTheDocument();
-    });
+    // It must live in the page header, not inside the results table (which
+    // is where the previous, since-removed per-row control used to sit).
+    expect(syncButtons[0].closest('table')).toBeNull();
   });
 
   it('shows an error toast and never leaves an unhandled rejection when the sync call fails', async () => {

@@ -17,6 +17,7 @@
 .headerActions {
   display: flex;
   align-items: center;
+  gap: var(--spacing-sm, 8px);
   flex-shrink: 0;
 }
 

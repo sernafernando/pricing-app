@@ -130,7 +130,7 @@ function tnPresenceLabelFor(presence) {
  * global action, not a per-row one. A button here would render one
  * identical control per "unknown" row, all triggering the exact same
  * global side effect — misrepresenting the action's scope. The single
- * trigger lives once in the page header instead (see `puedeSincronizarTn`).
+ * trigger lives once in the page header instead (see `mostrarSincronizarTn`).
  */
 function TnPresenceCell({ row }) {
   return tnPresenceLabelFor(row.tn_presence);
@@ -690,7 +690,7 @@ export default function TiendaNubeReconcile() {
           {mostrarSincronizarTn && (
             <button
               type="button"
-              className={`btn-tesla ghost sm ${styles.btnSpaced}`}
+              className="btn-tesla ghost sm"
               onClick={sincronizarTn}
               disabled={syncingTn}
               title="Sincroniza el catálogo completo de Tienda Nube (afecta a todos los productos, no solo a esta vista)"
