@@ -521,9 +521,19 @@ def publish_product(
     # create — this aligns the create payload with the shape TN
     # demonstrably RETURNS on read, and with what the idempotency/read-back
     # calls in this module already depend on.
+    #
+    # `sku`/`price` are MERGED into an incoming variant rather than replacing
+    # it: a caller that starts sending stock/weight/dimensions on the variant
+    # would otherwise have them silently discarded here. This function still
+    # owns `sku` and `price` — those two it overwrites deliberately, since the
+    # EAN and the validated price are authoritative at this point.
     payload = dict(product_data)
     payload.pop("price", None)
-    payload["variants"] = [{"sku": ean, "price": submitted_price}]
+    incoming_variants = payload.get("variants")
+    base_variant = dict(incoming_variants[0]) if isinstance(incoming_variants, list) and incoming_variants else {}
+    base_variant["sku"] = ean
+    base_variant["price"] = submitted_price
+    payload["variants"] = [base_variant]
     payload["categories"] = [category_id]
     # Server-side defense-in-depth (security review follow-up to sub-slice
     # 3a): sanitize BEFORE this ever reaches the TN payload, unconditionally
