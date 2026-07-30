@@ -604,6 +604,59 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
     expect(screen.queryByRole('button', { name: /sincronizar/i })).not.toBeInTheDocument();
     expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
   });
+
+  it('renders a single global trigger (not one per row) even with many unknown rows, and never inside a row cell', async () => {
+    const manyUnknown = Array.from({ length: 5 }, (_, i) => ({
+      ean: `UNK-${i}`,
+      verdict: 'MAL_PUBLICADO',
+      despublicar: false,
+      tn_matches: [],
+      tn_presence: 'unknown',
+    }));
+    setupApiMocks({ items: manyUnknown, verdictCounts: { MAL_PUBLICADO: 5 } });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('UNK-0').length).toBeGreaterThan(0);
+    });
+    // Exactly one trigger for the whole page, describing the FULL catalog
+    // scope — never N row-scoped buttons for one global side effect.
+    const syncButtons = screen.getAllByRole('button', { name: /sincronizar cat[aá]logo/i });
+    expect(syncButtons).toHaveLength(1);
+    syncButtons.forEach((btn) => {
+      expect(within(document.querySelector('tbody')).queryByText(btn.textContent)).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows an error toast and never leaves an unhandled rejection when the sync call fails', async () => {
+    setupApiMocks({ items: [UNKNOWN_ITEM], verdictCounts: { MAL_PUBLICADO: 1 } });
+    api.post.mockImplementation((url) => {
+      if (url === '/tienda-nube/sync') {
+        return Promise.reject({ response: { data: { error: { message: 'TN no responde' } } } });
+      }
+      return Promise.resolve({ data: { success: true } });
+    });
+
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    const tab = await screen.findByRole('tab', { name: /Mal publicado/i });
+    await user.click(tab);
+
+    const syncButton = await screen.findByRole('button', { name: /sincronizar cat[aá]logo/i });
+    await user.click(syncButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('TN no responde')).toBeInTheDocument();
+    });
+    // Button must recover (never stuck disabled after a failed attempt).
+    expect(syncButton).not.toBeDisabled();
+  });
 });
 
 describe('POR_CORREGIR EAN vs TN SKU (Slice 3)', () => {
