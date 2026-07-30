@@ -354,6 +354,16 @@ class PublicarRequest(BaseModel):
     category_id: int
     description_html: str
     image_srcs: List[str] = []
+    # Slice 2 (publish price, money path) — audit-only traceability fields;
+    # the actual price lives in `product_data["price"]` (validated by
+    # `tn_publish_service.publish_product`'s containment guard, NOT
+    # recomputed here — there is no server-side pricing constant to check
+    # it against, see that module's docstring). `offset_percent` is the
+    # modal-local surcharge preset in effect when the surcharge path was
+    # used (`None` on the manual-entry path). `price_base_source` records
+    # which business quantity the operator was looking at.
+    offset_percent: Optional[float] = None
+    price_base_source: Optional[Literal["web_transferencia", "lista_ml_clasica", "manual"]] = None
 
     @field_validator("ean")
     @classmethod
@@ -613,6 +623,13 @@ def publicar_producto(
     audit-logged write itself to `tn_publish_service.publish_product` — see
     that module's docstring for the write-safety contract, including the
     documented defense-in-depth note on `description_html`.
+
+    Money-path guard (Slice 2): `publish_product` rejects an absent,
+    non-numeric or non-positive `product_data["price"]` with
+    `status="rejected_invalid_price"` BEFORE any TN call — that status is
+    surfaced here as a 4xx (unlike every other rejection status, which
+    returns 200 with `submitted=False`), per the spec's explicit requirement
+    that an invalid price is a hard validation failure, not a soft outcome.
     """
     if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
@@ -625,7 +642,11 @@ def publicar_producto(
         category_id=request.category_id,
         description_html=request.description_html,
         image_srcs=request.image_srcs,
+        offset_percent=request.offset_percent,
+        price_base_source=request.price_base_source,
     )
+    if outcome["status"] == "rejected_invalid_price":
+        raise HTTPException(status_code=400, detail=outcome.get("detail"))
     return PublicarResponse(
         submitted=outcome["submitted"],
         status=outcome["status"],

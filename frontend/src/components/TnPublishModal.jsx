@@ -28,6 +28,25 @@
  *      `sanitizeHtml` with headings opt-in allowed (matching the backend's
  *      nh3 allowlist, which already permits h1–h6) — defense-in-depth
  *      alongside the server-side pass in `tn_publish_service.py`.
+ *   5. Precio de publicación (Slice 2, money path) — THIS IS THE FIX FOR THE
+ *      PRODUCTION BUG: the payload used to omit price entirely
+ *      (`{ name: { es: title } }`), so every product published through this
+ *      modal reached the live storefront with no price. Two mutually
+ *      exclusive bases, always labeled so the operator knows which business
+ *      quantity is in play:
+ *        - `row.precio_web_transferencia` (when `row.participa_web_transferencia`
+ *          is true): a PLAIN SURCHARGE — `base * (1 + offset / 100)` — never
+ *          the pricing engine's markup/margin machinery. `offset` defaults to
+ *          25, editable per-publish, never persisted anywhere.
+ *        - Otherwise: manual price entry, seeded from `row.precio_lista_ml`
+ *          (the ML Clásica list price — a DIFFERENT business quantity, never
+ *          silently substituted), freely editable by the operator.
+ *      The submitted `product_data.price` is always the exact string shown
+ *      in the preview — never recomputed silently between preview and
+ *      submit. Publishing is blocked while the resulting price isn't a
+ *      positive number (mirrors the backend's containment guard in
+ *      `tn_publish_service.publish_product`, which is authoritative — this
+ *      is UX, not the real check).
  *
  * Submit requires an inline Confirmar/Cancelar step (mirrors the Despublicar
  * pattern in `TiendaNubeReconcile.jsx` — NEVER `window.confirm`) and locks
@@ -169,6 +188,19 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+
+  // Precio de publicación (Slice 2, money path). `hasWebPrice` selects the
+  // surcharge path vs. the manual-entry fallback — see the file header
+  // docstring for the two-base rule. `offsetPercent` is a modal-local
+  // preset only (default 25) — it is NEVER persisted anywhere server-side.
+  const hasWebPrice =
+    row?.precio_web_transferencia != null &&
+    row?.precio_web_transferencia !== '' &&
+    row?.participa_web_transferencia === true;
+  const [offsetPercent, setOffsetPercent] = useState(25);
+  const [manualPrice, setManualPrice] = useState(() =>
+    row?.precio_lista_ml != null ? String(row.precio_lista_ml) : ''
+  );
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -312,8 +344,32 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     [selectedCategory, suggestions]
   );
 
+  // Precio de publicación — plain surcharge over the base price (NOT the
+  // pricing engine's markup/margin computation). Recomputed on every
+  // offsetPercent/base change so the preview and the submitted value are
+  // always exactly the same string.
+  const basePrice = hasWebPrice ? Number(row.precio_web_transferencia) : null;
+  const computedPrice = useMemo(() => {
+    if (!hasWebPrice || basePrice == null || Number.isNaN(basePrice)) return null;
+    const offset = Number(offsetPercent);
+    if (Number.isNaN(offset)) return null;
+    return (basePrice * (1 + offset / 100)).toFixed(2);
+  }, [hasWebPrice, basePrice, offsetPercent]);
+
+  const finalPrice = hasWebPrice
+    ? computedPrice
+    : manualPrice !== '' && !Number.isNaN(Number(manualPrice))
+      ? Number(manualPrice).toFixed(2)
+      : null;
+  const finalPriceIsValid = finalPrice != null && Number(finalPrice) > 0;
+  const priceBaseSource = hasWebPrice ? 'web_transferencia' : 'manual';
+
   const canPublish =
-    selectedCategory != null && title.trim().length > 0 && !loadingSuggestion && !submitting;
+    selectedCategory != null &&
+    title.trim().length > 0 &&
+    !loadingSuggestion &&
+    !submitting &&
+    finalPriceIsValid;
 
   const handlePublishClick = useCallback(() => {
     setConfirming(true);
@@ -338,13 +394,19 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       // local mirror. Reconcile-only row fields (verdict, tn_matches, tn_presence,
       // …) are deliberately NOT spread in — `publish_product` does
       // `payload = dict(product_data)`, so they would leak into the TN create.
-      const productData = { name: { es: title.trim() } };
+      // `price` is the exact string already shown in the preview — never
+      // recomputed here, so what the operator saw is what gets submitted.
+      // Sent as a STRING (never a JS number) so float64 can't re-introduce
+      // representation error before it reaches the backend's Decimal guard.
+      const productData = { name: { es: title.trim() }, price: finalPrice };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,
         product_data: productData,
         category_id: selectedCategory?.id ?? null,
         description_html: descriptionHtml,
         image_srcs: images.map((img) => img.src),
+        offset_percent: hasWebPrice ? Number(offsetPercent) : null,
+        price_base_source: priceBaseSource,
       });
       setConfirming(false);
       onPublished?.(ean, response.data);
@@ -353,7 +415,19 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, editor, ean, title, selectedCategory, images, onPublished]);
+  }, [
+    submitting,
+    editor,
+    ean,
+    title,
+    selectedCategory,
+    images,
+    onPublished,
+    finalPrice,
+    hasWebPrice,
+    offsetPercent,
+    priceBaseSource,
+  ]);
 
   if (!isOpen) return null;
 
@@ -581,6 +655,58 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
           </div>
           <EditorContent editor={editor} className={styles.editorContent} />
         </div>
+      </div>
+
+      {/* ------------------------------------------------- Precio ------- */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Precio de publicación</h3>
+        {hasWebPrice ? (
+          <>
+            <p className={styles.fieldHint}>
+              Base: precio web transferencia (${basePrice.toFixed(2)})
+            </p>
+            <label className={styles.searchLabel} htmlFor="tn-publish-offset">
+              Recargo (%)
+            </label>
+            <input
+              id="tn-publish-offset"
+              type="number"
+              className={styles.titleInput}
+              value={offsetPercent}
+              min={0}
+              step="0.01"
+              onChange={(e) => setOffsetPercent(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+            <p className={styles.selectedCategory}>
+              <Check size={13} aria-hidden="true" />
+              <span>
+                Precio final a publicar: <strong>${computedPrice ?? '—'}</strong>
+              </span>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className={styles.fieldHint}>
+              Base: precio lista ML (Clásica) — no hay precio web transferencia para
+              este producto. Editá el precio antes de publicar.
+            </p>
+            <label className={styles.searchLabel} htmlFor="tn-publish-manual-price">
+              Precio de publicación
+            </label>
+            <input
+              id="tn-publish-manual-price"
+              type="number"
+              className={styles.titleInput}
+              value={manualPrice}
+              min={0}
+              step="0.01"
+              onChange={(e) => setManualPrice(e.target.value)}
+            />
+          </>
+        )}
+        {!finalPriceIsValid && (
+          <p className={styles.fieldError}>El precio de publicación debe ser mayor a cero.</p>
+        )}
       </div>
 
       {/* ------------------------------------------------------ Submit --- */}

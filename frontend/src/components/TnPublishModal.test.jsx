@@ -41,6 +41,12 @@ const ROW = {
   categoria: 'Electrónica',
   subcategoria: 'Auriculares',
   images: ['https://example.com/img1.jpg', 'https://example.com/img2.jpg'],
+  // Slice 2 (publish price) — surcharge path is the default fixture so
+  // every pre-existing happy-path test in this file keeps its "Publicar"
+  // button enabled without needing to know about price at all.
+  precio_web_transferencia: '1000.00',
+  participa_web_transferencia: true,
+  precio_lista_ml: '900.00',
 };
 
 const SUGGESTIONS = {
@@ -126,7 +132,9 @@ describe('Category picker', () => {
     // The manual path is a category NAME search — a raw numeric id must
     // never be typed anywhere in this form.
     expect(screen.getByLabelText(/buscar categoría por nombre/i)).toBeInTheDocument();
-    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    // No numeric category-id input anywhere — the only spinbutton in the
+    // form is the unrelated Slice 2 price offset input.
+    expect(screen.queryByLabelText(/categoría/i, { selector: 'input[type="number"]' })).not.toBeInTheDocument();
   });
 
   it('lets the operator pick a category by NAME via GET /categorias search', async () => {
@@ -252,6 +260,74 @@ describe('Descripción — toolbar', () => {
     ]) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
+  });
+});
+
+describe('Precio de publicación', () => {
+  it('shows the computed surcharge price using the web-transferencia base and default offset 25%', async () => {
+    await renderModal();
+
+    expect(screen.getByText(/Base: precio web transferencia/i)).toBeInTheDocument();
+    expect(screen.getByText(/1250\.00/)).toBeInTheDocument();
+  });
+
+  it('recomputes the price when the operator edits the offset, and submits the exact value', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    await waitForModalAutofocus();
+
+    const offsetInput = screen.getByLabelText(/recargo/i);
+    await user.clear(offsetInput);
+    await user.type(offsetInput, '10');
+
+    await waitFor(() => expect(screen.getByText(/1100\.00/)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].product_data.price).toBe('1100.00');
+    expect(call[1].offset_percent).toBe(10);
+    expect(call[1].price_base_source).toBe('web_transferencia');
+  });
+
+  it('falls back to a manual price entry seeded from precio_lista_ml when there is no web-transferencia price', async () => {
+    const user = userEvent.setup();
+    await renderModal({
+      row: { ...ROW, precio_web_transferencia: null, participa_web_transferencia: false, precio_lista_ml: '850.00' },
+    });
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+
+    expect(screen.getByText(/Base: precio lista ML \(Clásica\)/i)).toBeInTheDocument();
+    const manualInput = screen.getByLabelText(/precio de publicación/i);
+    expect(manualInput).toHaveValue(850);
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].product_data.price).toBe('850.00');
+    expect(call[1].price_base_source).toBe('manual');
+    expect(call[1].offset_percent).toBeNull();
+  });
+
+  it('blocks publishing when there is no web price and no manual price is available', async () => {
+    await renderModal({
+      row: { ...ROW, precio_web_transferencia: null, participa_web_transferencia: false, precio_lista_ml: null },
+    });
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
   });
 });
 

@@ -35,6 +35,7 @@ the next sync.
 
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 import nh3
@@ -81,6 +82,50 @@ _DESCRIPTION_ALLOWED_TAGS = {
 # Only `href` on `<a>` is allowed through; nh3's `url_schemes` further
 # restricts that `href` to http/https (never `javascript:`/`data:`/etc.).
 _DESCRIPTION_ALLOWED_ATTRIBUTES = {"a": {"href"}}
+
+
+class InvalidPublishPriceError(ValueError):
+    """Raised by `_validate_publish_price` — absent/non-numeric/non-positive
+    submitted price. `publish_product` catches this internally, audit-logs
+    the rejection, and returns `status="rejected_invalid_price"`; the
+    endpoint surfaces that status as a 4xx (see `tienda_nube_reconcile.py`).
+    """
+
+
+def _validate_publish_price(product_data: Dict[str, Any]) -> Decimal:
+    """Containment guard for the money path (Slice 2), NOT verification.
+
+    The offset used to compute `product_data["price"]` lives entirely in the
+    frontend (a per-publish, operator-editable modal preset — see
+    `TnPublishModal.jsx`); no server-side pricing constant exists to
+    recompute it against. This guard therefore only rejects the
+    CATEGORICALLY invalid — absent, non-numeric, non-finite, or non-positive
+    — before the price ever reaches the TN create payload. It never verifies
+    the price is the CORRECT one; only that it is a plausible one.
+
+    Raises `InvalidPublishPriceError` (never returns) on any rejection.
+    `Decimal(str(...))` at the boundary — a raw `float` must never reach the
+    money value (see `precio_lista_ml`'s `Float` vs `precio_web_transferencia`'s
+    `Numeric(15, 2)` mismatch documented in `tn_reconciliation_service`).
+    """
+    raw = product_data.get("price")
+    if raw is None or raw == "":
+        raise InvalidPublishPriceError(
+            "El producto no tiene un precio de publicación. No se puede publicar sin precio."
+        )
+    try:
+        price = Decimal(str(raw))
+    except InvalidOperation as e:
+        raise InvalidPublishPriceError(f"Precio de publicación inválido: {raw!r}") from e
+    # `Decimal("NaN")`/`Decimal("Infinity")` parse without raising and would
+    # otherwise slip past a naive `price <= 0` check (NaN compares False to
+    # everything) — reject them explicitly by name rather than relying on
+    # that comparison to catch them.
+    if not price.is_finite():
+        raise InvalidPublishPriceError(f"Precio de publicación inválido (no es un número finito): {raw!r}")
+    if price <= 0:
+        raise InvalidPublishPriceError(f"Precio de publicación inválido (debe ser mayor a cero): {raw!r}")
+    return price
 
 
 def sanitize_description_html(html: str) -> str:
@@ -234,12 +279,40 @@ def unpublish_product(
     return outcome
 
 
-def _audit_publish(db: Session, usuario: Usuario, item_id: Optional[int], outcome: Dict[str, Any]) -> None:
+def _audit_publish(
+    db: Session,
+    usuario: Usuario,
+    item_id: Optional[int],
+    outcome: Dict[str, Any],
+    submitted_price: Optional[str] = None,
+    offset_percent: Optional[float] = None,
+    price_base_source: Optional[str] = None,
+) -> None:
     """Same best-effort audit contract as `_audit`, for `TN_PUBLICAR`.
 
     `item_id` may be `None` for a rejected/ambiguous outcome where TN never
     returned a product id (nothing was created, so there is nothing to key
-    the audit row to besides the action itself)."""
+    the audit row to besides the action itself).
+
+    Money-path traceability (Slice 2, R2.5): on a `submitted` outcome,
+    `valores_nuevos` ALSO records `submitted_price` and `offset_percent`/
+    `price_base_source` — since the backend cannot recompute the price (the
+    surcharge offset lives entirely in the frontend), this audit row is the
+    ONLY artifact able to answer "why did this product go live at this
+    number?" after the fact. Recording the base source alongside the value
+    is what makes the trail reconstructable: the price alone cannot
+    distinguish an intended web-transfer price from a mistakenly-seeded
+    Clásica one.
+    """
+    valores_nuevos = None
+    if outcome.get("status") == "submitted":
+        valores_nuevos = {"product_id": item_id}
+        if submitted_price is not None:
+            valores_nuevos["submitted_price"] = submitted_price
+        if offset_percent is not None:
+            valores_nuevos["offset_percent"] = offset_percent
+        if price_base_source is not None:
+            valores_nuevos["price_base_source"] = price_base_source
     try:
         db.add(
             Auditoria(
@@ -247,7 +320,7 @@ def _audit_publish(db: Session, usuario: Usuario, item_id: Optional[int], outcom
                 usuario_id=usuario.id,
                 tipo_accion=TipoAccion.TN_PUBLICAR,
                 valores_anteriores=None,
-                valores_nuevos={"product_id": item_id} if outcome.get("status") == "submitted" else None,
+                valores_nuevos=valores_nuevos,
                 comentario=f"TN publish: status={outcome.get('status')}",
             )
         )
@@ -301,6 +374,8 @@ def publish_product(
     description_html: str,
     image_srcs: List[str],
     client: Optional[TiendaNubeProductClient] = None,
+    offset_percent: Optional[float] = None,
+    price_base_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -359,7 +434,30 @@ def publish_product(
     this exploitable in isolation the moment the endpoint was deployed. Both
     layers (frontend DOMPurify + this backend pass) are intentionally kept;
     neither replaces the other.
+
+    Money-path guard (Slice 2, containment NOT verification): `product_data`
+    MUST carry a `price` — absent, non-numeric, non-finite, or non-positive
+    is rejected with `status="rejected_invalid_price"` BEFORE anything else
+    in this function runs (no local-mirror query, no live TN call). The
+    backend cannot recompute the price itself (the surcharge offset is a
+    frontend-only preset — see `TnPublishModal.jsx`), so this only rejects
+    the categorically invalid; see `_validate_publish_price`'s docstring.
+    `offset_percent`/`price_base_source` are recorded on the audit row
+    alongside the submitted price for after-the-fact traceability (R2.5) —
+    they play no role in this validation.
     """
+    try:
+        price = _validate_publish_price(product_data)
+    except InvalidPublishPriceError as e:
+        outcome: Dict[str, Any] = {
+            "submitted": False,
+            "status": "rejected_invalid_price",
+            "detail": str(e),
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
+    submitted_price = str(price)
+
     existing = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == ean).first()
     if existing is not None:
         outcome: Dict[str, Any] = {
@@ -451,7 +549,15 @@ def publish_product(
             "skipped_image_srcs": skipped_srcs,
         }
         _upsert_publish_mirror(db, product_id, ean, product_name)
-        _audit_publish(db, usuario, product_id, outcome)
+        _audit_publish(
+            db,
+            usuario,
+            product_id,
+            outcome,
+            submitted_price=submitted_price,
+            offset_percent=offset_percent,
+            price_base_source=price_base_source,
+        )
         return outcome
 
     if not write_result["ambiguous"]:
@@ -491,7 +597,15 @@ def publish_product(
             "detail": "Recovered via read-back after an ambiguous create outcome.",
         }
         _upsert_publish_mirror(db, recovered_product_id, ean, product_name)
-        _audit_publish(db, usuario, recovered_product_id, outcome)
+        _audit_publish(
+            db,
+            usuario,
+            recovered_product_id,
+            outcome,
+            submitted_price=submitted_price,
+            offset_percent=offset_percent,
+            price_base_source=price_base_source,
+        )
         return outcome
 
     outcome = {

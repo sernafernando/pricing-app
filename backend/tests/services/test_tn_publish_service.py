@@ -9,13 +9,22 @@ issued and no `httpx.AsyncClient` patching is needed here.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.tienda_nube_product_client import TnProductLookupError
-from app.services.tn_publish_service import publish_product, sanitize_description_html, unpublish_product
+from app.services.tn_publish_service import (
+    InvalidPublishPriceError,
+    _validate_publish_price,
+    publish_product,
+    sanitize_description_html,
+    unpublish_product,
+)
 
 
 class _FakeClient:
@@ -202,7 +211,11 @@ class TestAmbiguousOutcome:
 def _publish_kwargs(**overrides):
     kwargs = dict(
         ean="EAN-PUB-1",
-        product_data={"name": {"es": "Test Product"}},
+        # Slice 2 (publish price): every existing test in this module now
+        # goes through the money-path guard, so the default fixture carries
+        # a valid price. Tests that exercise the guard/price behavior itself
+        # override `product_data` explicitly.
+        product_data={"name": {"es": "Test Product"}, "price": "1000.00"},
         category_id=123,
         description_html="<p>Descripcion</p>",
         image_srcs=["https://cdn.example.com/img1.jpg", "https://cdn.example.com/img2.jpg"],
@@ -278,6 +291,211 @@ class TestPublishSuccessfulWrite:
         assert outcome["status"] == "submitted"
         assert fake_client.image_calls == [(997, "https://cdn.example.com/img1.jpg")]
         assert outcome["skipped_image_srcs"] == ["http://127.0.0.1/evil.jpg"]
+
+
+class TestPublishPriceGuard:
+    """Slice 2 money-path containment guard: an absent/non-numeric/
+    non-positive submitted price is rejected BEFORE any TN call — no
+    local-mirror query, no live pre-check, no create_product call."""
+
+    def test_missing_price_is_rejected_before_any_local_or_tn_call(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db, user, client=fake_client, **_publish_kwargs(product_data={"name": {"es": "Test Product"}})
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert outcome["submitted"] is False
+        assert fake_client.create_calls == []
+        assert fake_client.get_by_sku_calls == []
+
+    def test_zero_price_is_rejected(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "0"}),
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert fake_client.create_calls == []
+
+    def test_negative_price_is_rejected(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "-10.00"}),
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert fake_client.create_calls == []
+
+    def test_non_numeric_price_is_rejected(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "not-a-number"}),
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert fake_client.create_calls == []
+
+    def test_nan_price_is_rejected(self, db):
+        """`Decimal("NaN")` parses without raising and compares False to
+        everything, including `<= 0` — it must be rejected explicitly by
+        name, not silently pass a naive positivity check."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "NaN"}),
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert fake_client.create_calls == []
+
+    def test_infinite_price_is_rejected(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "Infinity"}),
+        )
+        assert outcome["status"] == "rejected_invalid_price"
+        assert fake_client.create_calls == []
+
+    def test_rejection_is_still_audit_logged(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}}
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}}),
+        )
+        audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).all()
+        assert len(audit_rows) == 1
+        assert audit_rows[0].valores_nuevos is None
+
+
+class TestValidatePublishPriceUnit:
+    """Direct unit coverage of `_validate_publish_price` (money-path boundary
+    conversion — see the Decimal(str(...)) gotcha documented on the
+    function)."""
+
+    def test_valid_decimal_string_returns_decimal(self):
+        assert _validate_publish_price({"price": "1250.00"}) == Decimal("1250.00")
+
+    def test_missing_price_raises(self):
+        with pytest.raises(InvalidPublishPriceError):
+            _validate_publish_price({})
+
+    def test_none_price_raises(self):
+        with pytest.raises(InvalidPublishPriceError):
+            _validate_publish_price({"price": None})
+
+
+class TestPublishPriceExactPayloadValue:
+    """R2.6 — a test MUST assert the EXACT price value placed into the TN
+    create payload, not just that a price key exists."""
+
+    def test_surcharge_path_exact_price_reaches_tn_create_payload(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 42}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "1250.00"}),
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert payload["price"] == "1250.00"
+
+    def test_manual_entry_path_exact_price_reaches_tn_create_payload(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 43}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "850.00"}),
+            price_base_source="manual",
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert payload["price"] == "850.00"
+
+
+class TestPublishPriceAudit:
+    """R2.5 — the `TN_PUBLICAR` audit entry must record both the submitted
+    price and the offset used on a successful publish."""
+
+    def test_audit_records_submitted_price_offset_and_base_source(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 44}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "1250.00"}),
+            offset_percent=25,
+            price_base_source="web_transferencia",
+        )
+        audit = (
+            db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR, Auditoria.item_id == 44).one()
+        )
+        assert audit.valores_nuevos["submitted_price"] == "1250.00"
+        assert audit.valores_nuevos["offset_percent"] == 25
+        assert audit.valores_nuevos["price_base_source"] == "web_transferencia"
+
+    def test_audit_records_manual_entry_base_source_with_no_offset(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 45}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(product_data={"name": {"es": "Test Product"}, "price": "850.00"}),
+            offset_percent=None,
+            price_base_source="manual",
+        )
+        audit = (
+            db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR, Auditoria.item_id == 45).one()
+        )
+        assert audit.valores_nuevos["submitted_price"] == "850.00"
+        assert audit.valores_nuevos["price_base_source"] == "manual"
+        assert "offset_percent" not in audit.valores_nuevos
 
 
 class TestPublishRejectedByProxy:
