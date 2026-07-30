@@ -73,6 +73,11 @@ def _normalize_installments(entry: Dict[str, Any]) -> str:
     return f"{quantity}c" if rate > 0 else str(quantity)
 
 
+# Sentinel listing id for an entry whose listing_type_id cannot be resolved.
+# Marks the absence of a bucket; never treat two of these as the same bucket.
+_UNKNOWN_LISTING = "unknown"
+
+
 def _bucket_key(entry: Dict[str, Any]) -> str:
     """Bucket key: `"{listing_type_id}|{installments}"`.
 
@@ -80,14 +85,16 @@ def _bucket_key(entry: Dict[str, Any]) -> str:
     `listing_label` is a human string and is NEVER part of the key so
     that two differently-worded labels for the same `listing_type_id`
     land in the same bucket. Unresolvable input collapses to
-    `"unknown|0"` rather than raising — an `unknown` bucket can never
-    equal our bucket, so the fail-safe direction is "under-claim
-    comparability", never "falsely claim cheaper than us".
+    `"unknown|0"` rather than raising. That value marks the ABSENCE of a
+    bucket, so two of them must NEVER be compared for equality:
+    `_build_ok_row` drops our own key to None when it degrades, which
+    disables the comparison entirely. The fail-safe direction is
+    "under-claim comparability", never "falsely claim cheaper than us".
     """
     try:
-        listing = (entry.get("listing_type_id") or "").strip().lower() or "unknown"
+        listing = (entry.get("listing_type_id") or "").strip().lower() or _UNKNOWN_LISTING
     except AttributeError:
-        listing = "unknown"
+        listing = _UNKNOWN_LISTING
     cuotas = _normalize_installments(entry) if isinstance(entry, dict) else "0"
     return f"{listing}|{cuotas}"
 
@@ -158,7 +165,14 @@ def _build_ok_row(db: Session, mla: str, payload: Dict[str, Any]) -> MLCatalogCo
     raw_competitors = payload.get("competitors") or []
 
     our_entry = next((c for c in raw_competitors if c.get("item_id") == mla), None)
+    # A degraded ("unknown|…") key is the ABSENCE of a bucket, not a bucket.
+    # Keeping it would make every other degraded competitor compare equal to
+    # us and produce a bogus `is_cheaper_than_us` — the exact "falsely claim
+    # cheaper than us" direction this module forbids. None disables the
+    # comparison instead.
     our_bucket_key = _bucket_key(our_entry) if our_entry is not None else None
+    if our_bucket_key is not None and our_bucket_key.startswith(f"{_UNKNOWN_LISTING}|"):
+        our_bucket_key = None
     our_price = our_entry.get("price") if our_entry is not None else None
     our_currency_id = our_entry.get("currency_id") if our_entry is not None else None
     our_seller_id = our_entry.get("seller_id") if our_entry is not None else None
@@ -234,13 +248,23 @@ async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[M
     rows: List[MLCatalogCompetition] = []
 
     for mla in mlas:
-        result = await ml_webhook_client.get_catalog_competition(mla)
-        status = result.get("status")
+        # A batch is expensive: each MLA costs 3+N calls through ml-webhook's
+        # globally throttled ML proxy. The commit happens once, after the
+        # loop, so ANY exception here would discard every row already paid
+        # for — not just this MLA's. Degrade to an error row instead.
+        try:
+            result = await ml_webhook_client.get_catalog_competition(mla)
+            # `status` is normalised because it lands in a NOT NULL column:
+            # persisting None would fail the commit for the whole batch.
+            status = (result or {}).get("status") or "error"
 
-        if status == "ok":
-            row = _build_ok_row(db, mla, result.get("payload") or {})
-        else:
-            row = _build_failed_row(mla, status, result.get("detail"))
+            if status == "ok":
+                row = _build_ok_row(db, mla, result.get("payload") or {})
+            else:
+                row = _build_failed_row(mla, status, (result or {}).get("detail"))
+        except Exception as e:  # noqa: BLE001 — one MLA must not sink the batch
+            logger.exception("Fallo inesperado obteniendo competencia de catálogo para %s", mla)
+            row = _build_failed_row(mla, "error", str(e)[:500])
 
         db.add(row)
         rows.append(row)

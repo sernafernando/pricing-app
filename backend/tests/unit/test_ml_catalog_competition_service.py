@@ -312,3 +312,117 @@ class TestRefrescarCompetenciaCatalogo:
         assert row.fetch_status == "ok"
         for competitor in row.competitors:
             assert competitor["markup"] is None
+
+
+# ── Review findings: degraded buckets and batch durability ───────────
+
+
+PAYLOAD_BOTH_UNKNOWN_BUCKET = {
+    "catalog_product_id": "MLA_CAT_2",
+    "competitors": [
+        # Our own row: no listing_type_id, so its bucket degrades to unknown.
+        {"item_id": "MLA_US", "price": 1000.0, "currency_id": "ARS", "seller_id": "1"},
+        # A competitor whose bucket ALSO degrades to unknown. Two unresolvable
+        # buckets are not evidence of comparability.
+        {"item_id": "MLA_OTHER", "price": 400.0, "currency_id": "ARS", "seller_id": "2"},
+    ],
+}
+
+
+class TestDegradedBucketIsNeverComparable:
+    """`_bucket_key` collapses unresolvable input to "unknown|0". When OUR row
+    also degrades, every degraded competitor produces the same string, so a
+    naive equality check reports same_bucket=True and computes
+    is_cheaper_than_us across publications that are not comparable at all.
+
+    That is the "falsely claim cheaper than us" direction this module exists
+    to forbid: it would tell the user a Clasica listing undercuts their
+    12-cuotas Premium and invite a real price cut.
+    """
+
+    def _patch_context(self, context_return):
+        return (
+            patch(
+                "app.services.ml_catalog_competition_service._resolve_pricing_context",
+                return_value=context_return,
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
+                return_value=None,
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service._markup_con_contexto",
+                return_value=12.5,
+            ),
+        )
+
+    def test_unknown_bucket_on_both_sides_is_not_same_bucket(self) -> None:
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(
+            return_value={"status": "ok", "payload": PAYLOAD_BOTH_UNKNOWN_BUCKET}
+        )
+
+        p1, p2, p3 = self._patch_context(MagicMock())
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
+
+        other = {c["item_id"]: c for c in rows[0].competitors}["MLA_OTHER"]
+        assert other["same_bucket"] is False, "two unresolvable buckets must not be treated as equal"
+        assert other["is_cheaper_than_us"] is None, "must not claim a non-comparable listing undercuts us"
+
+
+class TestBatchDurability:
+    """A batch is expensive: every MLA costs 3+N calls through ml-webhook's
+    globally throttled ML proxy. One bad MLA must not discard the rows already
+    paid for — the loop commits once at the end, so an exception before the
+    commit loses the ENTIRE batch.
+    """
+
+    def _patch_context(self):
+        return (
+            patch(
+                "app.services.ml_catalog_competition_service._resolve_pricing_context",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
+                return_value=None,
+            ),
+            patch(
+                "app.services.ml_catalog_competition_service._markup_con_contexto",
+                return_value=12.5,
+            ),
+        )
+
+    def test_client_exception_degrades_to_an_error_row_and_keeps_the_batch(self) -> None:
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(
+            side_effect=[RuntimeError("boom"), {"status": "ok", "payload": PAYLOAD_OK}]
+        )
+
+        p1, p2, p3 = self._patch_context()
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_BOOM", "MLA_US"]))
+
+        assert len(rows) == 2, "a single MLA's failure must not discard the whole batch"
+        assert rows[0].fetch_status == "error"
+        assert rows[1].fetch_status == "ok"
+        db.commit.assert_called_once()
+
+    def test_missing_status_normalizes_to_error_never_null(self) -> None:
+        """fetch_status is NOT NULL; persisting None would blow up the commit
+        for the whole batch, not just this row."""
+        db = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"detail": "malformed, no status key"})
+
+        p1, p2, p3 = self._patch_context()
+        with p1, p2, p3:
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_WEIRD"]))
+
+        assert rows[0].fetch_status == "error"
