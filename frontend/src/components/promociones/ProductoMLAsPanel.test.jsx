@@ -307,3 +307,71 @@ describe('ProductoMLAsPanel', () => {
     expect(screen.queryByText(/familia fam1/i)).not.toBeInTheDocument();
   });
 });
+
+describe('ProductoMLAsPanel — official store filter reaches the tree', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  it('forwards tiendaOficial as the tiendas_oficiales tree param', async () => {
+    // The product list filters by "has at least one publication in this
+    // store", so a product with both a TP-Link and a Gauss MLA legitimately
+    // matches the TP-Link filter. Without this param the expanded tree then
+    // showed EVERY MLA of that product, Gauss included — the filter looked
+    // broken because the MLA level never received it.
+    productosAPI.getProductoTree.mockResolvedValue(treeResponse());
+
+    renderPanel({ tiendaOficial: '2645' });
+
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalled());
+    const [, params] = productosAPI.getProductoTree.mock.calls[0];
+    expect(params).toMatchObject({ tiendas_oficiales: '2645' });
+  });
+
+  it('omits the param entirely when no store is selected', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(treeResponse());
+
+    renderPanel({ tiendaOficial: null });
+
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalled());
+    const [, params] = productosAPI.getProductoTree.mock.calls[0];
+    expect(params).not.toHaveProperty('tiendas_oficiales');
+  });
+
+  it('refetches when the selected store changes instead of serving the cached tree', async () => {
+    // The cache key is per (itemId, filters). If the store is not part of it,
+    // switching stores would replay the previous store's tree from cache and
+    // the filter would appear to do nothing.
+    productosAPI.getProductoTree.mockResolvedValue(treeResponse());
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+
+    const view = render(
+      <table><tbody><tr><td>
+        <ProductoMLAsPanel
+          itemId="ITEM001"
+          mlasCacheRef={mlasCacheRef}
+          promosCacheRef={promosCacheRef}
+          tiendaOficial="2645"
+        />
+      </td></tr></tbody></table>,
+    );
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <table><tbody><tr><td>
+        <ProductoMLAsPanel
+          itemId="ITEM001"
+          mlasCacheRef={mlasCacheRef}
+          promosCacheRef={promosCacheRef}
+          tiendaOficial="57997"
+        />
+      </td></tr></tbody></table>,
+    );
+
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledTimes(2));
+    const [, params] = productosAPI.getProductoTree.mock.calls[1];
+    expect(params).toMatchObject({ tiendas_oficiales: '57997' });
+  });
+});

@@ -295,7 +295,20 @@ export function useProductosFilters() {
     }
   };
 
-  const limpiarTodosFiltros = () => {
+  /**
+   * Single source of truth for "no filters".
+   *
+   * Both clear affordances delegate here so they cannot drift: they used to
+   * be two hand-maintained setter lists, and the stat card's copy silently
+   * fell behind — it left marcas, subcategorías, PMs, colores, tienda
+   * oficial and estado MLA applied, so "Total Productos" showed anything but
+   * all products.
+   *
+   * Ordering and pagination size are deliberately NOT reset here: neither
+   * narrows the result set, and wiping a user's sort is not what "clear
+   * filters" means.
+   */
+  const resetAllFilters = () => {
     setSearchInput('');
     setFiltroStock('todos');
     setFiltroPrecio('todos');
@@ -320,11 +333,16 @@ export function useProductosFilters() {
     setFiltroMLA(null);
     setFiltroEstadoMLA(null);
     setFiltroNuevos(null);
+    setFiltroTiendaOficial(null);
     setColoresSeleccionados([]);
     setFiltroPromoTipos([]);
     setFiltroPromoEstado('disponible');
-    setOrdenColumnas([]);
     setPage(1);
+  };
+
+  const limpiarTodosFiltros = () => {
+    resetAllFilters();
+    setOrdenColumnas([]);
 
     // Limpiar también la URL
     setSearchParams({}, { replace: true });
@@ -372,22 +390,13 @@ export function useProductosFilters() {
     setPage(1);
   };
 
+  /**
+   * Bound to the "Total Productos" stat card, which means "show me
+   * everything" — so it clears every filter, same as the Limpiar button.
+   * It keeps the current sort and does not touch the URL.
+   */
   const limpiarFiltros = () => {
-    setFiltroStock('todos');
-    setFiltroPrecio('todos');
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroMLA(null);
-    setFiltroNuevos(null);
-    setFiltroPromoTipos([]);
-    setFiltroPromoEstado('disponible');
-    setPage(1);
+    resetAllFilters();
   };
 
   /**

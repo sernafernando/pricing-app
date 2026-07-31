@@ -26,6 +26,23 @@ function buildPromoFilterParams(promoTipos, promoEstado) {
 }
 
 /**
+ * Adds the list-level official-store filter to the tree params.
+ *
+ * The product list matches a product that has AT LEAST ONE publication in
+ * the selected store, which is correct at the product level: a product sold
+ * in both TP-Link and Gauss legitimately appears under the TP-Link filter.
+ * But without this param the expanded tree returned EVERY MLA of that
+ * product, Gauss included, so the filter looked broken to the user.
+ *
+ * The tree endpoint takes the PLURAL `tiendas_oficiales` (MLA scope,
+ * CSV + `sin_tienda` sentinel), while the list sends the singular
+ * `tienda_oficial` — same value, different parameter name.
+ */
+function buildTiendaOficialParams(tiendaOficial) {
+  return tiendaOficial ? { tiendas_oficiales: String(tiendaOficial) } : {};
+}
+
+/**
  * Level 1 panel: recursive catalog/family publication tree of a product
  * (productos-catalog-family-tree PR3). Lazily fetches
  * `GET /productos/{item_id}/mercadolibre/tree` on first mount (i.e. on first
@@ -33,12 +50,17 @@ function buildPromoFilterParams(promoTipos, promoEstado) {
  * root's children recursively via `<TreeNode>`, generalizing the previous
  * flat MLA list to genuine variable-depth family/catalog/vinculada nesting.
  *
- * `promoTipos`/`promoEstado` (optional) forward the active list-level promo
- * filter (productos-promo-filter-per-mla) so the tree endpoint can compute a
- * per-node `matches_filter` at any depth. When active, MLA-bearing nodes with
- * `matches_filter === false` are hidden by default with a "ver todos (N)"
- * escape hatch counting ALL hidden descendants across the whole tree;
- * `matches_filter` absent/true always shows (fail-open).
+ * `promoTipos`/`promoEstado`/`tiendaOficial` (optional) forward the active
+ * list-level filters so the tree endpoint can compute a per-node
+ * `matches_filter` at any depth. The backend ANDs them together and MARKS
+ * nodes rather than dropping them, so every one of these must also be part
+ * of `isFilterActive` — otherwise the UI renders what the backend already
+ * excluded, which is exactly how the store filter silently did nothing.
+ *
+ * When active, MLA-bearing nodes with `matches_filter === false` are hidden
+ * by default with a "ver todos (N)" escape hatch counting ALL hidden
+ * descendants across the whole tree; `matches_filter` absent/true always
+ * shows (fail-open).
  */
 function ProductoMLAsPanel({
   itemId,
@@ -47,9 +69,16 @@ function ProductoMLAsPanel({
   catalogCompetitionCacheRef,
   promoTipos,
   promoEstado,
+  tiendaOficial,
 }) {
-  const filterParams = useMemo(() => buildPromoFilterParams(promoTipos, promoEstado), [promoTipos, promoEstado]);
-  const filterActive = isFilterActive(promoTipos, promoEstado);
+  // `tiendaOficial` participates in filterParams, and therefore in the cache
+  // key below: without it, switching stores would replay the previous
+  // store's tree from cache and the filter would appear to do nothing.
+  const filterParams = useMemo(
+    () => ({ ...buildPromoFilterParams(promoTipos, promoEstado), ...buildTiendaOficialParams(tiendaOficial) }),
+    [promoTipos, promoEstado, tiendaOficial],
+  );
+  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
@@ -133,6 +162,7 @@ function ProductoMLAsPanel({
               catalogCompetitionCacheRef={catalogCompetitionCacheRef}
               promoTipos={promoTipos}
               promoEstado={promoEstado}
+              tiendaOficial={tiendaOficial}
               revealAll={verTodos}
             />
           ))}

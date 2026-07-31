@@ -85,6 +85,7 @@ function TreeNode({
   catalogCompetitionCacheRef,
   promoTipos,
   promoEstado,
+  tiendaOficial,
   revealAll = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -102,7 +103,7 @@ function TreeNode({
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
-  const filterActive = isFilterActive(promoTipos, promoEstado);
+  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
 
   if (!nodeHasVisibleContent(node, filterActive, revealAll)) {
     return null;
@@ -136,6 +137,7 @@ function TreeNode({
             catalogCompetitionCacheRef={catalogCompetitionCacheRef}
             promoTipos={promoTipos}
             promoEstado={promoEstado}
+            tiendaOficial={tiendaOficial}
             revealAll={revealAll}
           />
         ))}
@@ -318,6 +320,7 @@ function TreeNode({
                   catalogCompetitionCacheRef={catalogCompetitionCacheRef}
                   promoTipos={promoTipos}
                   promoEstado={promoEstado}
+                  tiendaOficial={tiendaOficial}
                   revealAll={revealAll}
                 />
               ))}

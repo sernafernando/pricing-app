@@ -12,14 +12,24 @@ export function isMlaBearing(kind) {
 }
 
 /**
- * True when the active promo filter (`promoTipos`/`promoEstado`) is actually
- * narrowing results — mirrors `ProductoMLAsPanel`'s `buildPromoFilterParams`
- * activation rule (types present, or estado != the 'disponible' no-op default).
+ * True when ANY tree-level filter is actually narrowing results.
+ *
+ * Must cover every filter the backend folds into `matches_filter`, because
+ * that is the flag `isNodeHidden` gates on and the backend composes them all
+ * with AND (`_compose_matches` in `productos_detail.py`) rather than dropping
+ * nodes. A filter missing here means the backend correctly marks a node
+ * `matches_filter: false` and the UI renders it anyway — which is exactly how
+ * the official-store filter silently did nothing when no promo filter was
+ * also active (the default, and most common, case).
+ *
+ * - promo: types present, or estado != the 'disponible' no-op default
+ *   (mirrors `ProductoMLAsPanel`'s `buildPromoFilterParams` activation rule)
+ * - official store: any store selected
  */
-export function isFilterActive(promoTipos, promoEstado) {
+export function isFilterActive(promoTipos, promoEstado, tiendaOficial) {
   const tipos = promoTipos || [];
   const estado = promoEstado || 'disponible';
-  return tipos.length > 0 || estado !== 'disponible';
+  return tipos.length > 0 || estado !== 'disponible' || Boolean(tiendaOficial);
 }
 
 // matches_filter absent/null = show (fail-open); false = hidden unless

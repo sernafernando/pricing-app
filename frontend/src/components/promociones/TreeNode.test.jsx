@@ -726,3 +726,113 @@ describe('TreeNode — catalogCompetitionCacheRef threading', () => {
     expect(screen.getByTestId('catalog-competition-MLA_CAT')).toBeInTheDocument();
   });
 });
+
+describe('TreeNode — official store filter hides non-matching MLAs', () => {
+  beforeEach(() => {
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  it('hides an MLA with matches_filter false when ONLY the store filter is active', async () => {
+    // The most common case and the one that was broken: a store is selected
+    // and NO promo filter is. The backend composes the store result into
+    // matches_filter (it does not drop the nodes), so a Gauss MLA comes back
+    // as matches_filter:false — but the hiding logic used to key off the
+    // promo filter alone, so it rendered anyway and the filter did nothing.
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_TPLINK',
+      label: 'MLA_TPLINK',
+      matches_filter: true,
+      children: [
+        {
+          level: 2,
+          kind: 'vinculada',
+          mla: 'MLA_GAUSS',
+          label: 'MLA_GAUSS',
+          matches_filter: false,
+          children: [],
+        },
+      ],
+    };
+
+    const user = userEvent.setup();
+    renderNode(tree, { promoTipos: [], promoEstado: 'disponible', tiendaOficial: '2645' });
+
+    expect(screen.getByText('MLA_TPLINK')).toBeInTheDocument();
+    // Children only mount once the parent row is expanded — without this the
+    // assertion below would pass merely because the row is collapsed.
+    await user.click(screen.getByRole('button', { name: /expandir mla_tplink/i }));
+
+    expect(screen.queryByText('MLA_GAUSS')).not.toBeInTheDocument();
+  });
+
+  it('still shows everything when no filter at all is active', () => {
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_A',
+      label: 'MLA_A',
+      matches_filter: false,
+      children: [],
+    };
+
+    renderNode(tree, { promoTipos: [], promoEstado: 'disponible', tiendaOficial: null });
+
+    // matches_filter false with no active filter must stay visible — the
+    // fail-open rule; only an ACTIVE filter may hide a node.
+    expect(screen.getByText('MLA_A')).toBeInTheDocument();
+  });
+
+
+  it('hides a non-matching MLA hoisted out of a hidden familia', async () => {
+    // showFamilia is false by default, so children of a familia are hoisted
+    // through a separate recursive branch. A prop dropped there means the
+    // store filter stops applying below any familia — the same class of gap
+    // that already bit catalogCompetitionCacheRef on this component.
+    const user = userEvent.setup();
+    const tree = {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_ROOT',
+      label: 'MLA_ROOT',
+      matches_filter: true,
+      children: [
+        {
+          level: 2,
+          kind: 'familia',
+          family_id: 'FAM_X',
+          label: 'familia FAM_X',
+          children: [
+            // One matching sibling is essential: if EVERY child were hidden,
+            // nodeHasVisibleContent would prune the whole familia upstream and
+            // the hoisting branch would never run, making the bug invisible.
+            {
+              level: 3,
+              kind: 'vinculada',
+              mla: 'MLA_MISMA_TIENDA',
+              label: 'MLA_MISMA_TIENDA',
+              matches_filter: true,
+              children: [],
+            },
+            {
+              level: 3,
+              kind: 'vinculada',
+              mla: 'MLA_OTRA_TIENDA',
+              label: 'MLA_OTRA_TIENDA',
+              matches_filter: false,
+              children: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    renderNode(tree, { promoTipos: [], promoEstado: 'disponible', tiendaOficial: '2645' });
+    await user.click(screen.getByRole('button', { name: /expandir mla_root/i }));
+
+    expect(screen.getByText('MLA_MISMA_TIENDA')).toBeInTheDocument();
+    expect(screen.queryByText('MLA_OTRA_TIENDA')).not.toBeInTheDocument();
+  });
+});
