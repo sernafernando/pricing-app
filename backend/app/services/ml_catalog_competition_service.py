@@ -262,6 +262,41 @@ def _build_failed_row(mla: str, fetch_status: str, detail: Optional[str]) -> MLC
     )
 
 
+def obtener_ultimo_snapshot(db: Session, mla: str) -> Optional[MLCatalogCompetition]:
+    """Latest persisted snapshot row for `mla`, or `None` if it was never
+    fetched.
+
+    Equivalent to reading `v_ml_catalog_competition_latest` filtered to one
+    MLA (`ORDER BY fecha_consulta DESC LIMIT 1` over the same leading
+    columns of `idx_mlcc_mla_fecha`), without depending on the view's
+    Postgres-only `DISTINCT ON` syntax — kept portable so this single-MLA
+    read path stays testable against the SQLite test database. The view
+    itself remains the read path for a future "all MLAs" query, which this
+    is not.
+    """
+    return (
+        db.query(MLCatalogCompetition)
+        .filter(MLCatalogCompetition.mla == mla)
+        .order_by(MLCatalogCompetition.fecha_consulta.desc())
+        .first()
+    )
+
+
+def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[str, Any]]:
+    """Competitors from `row` that are BOTH in the same bucket as the
+    queried MLA AND strictly cheaper than us (design #1210 section 3.4 /
+    product decision #6, spec C2.6). Never includes a same-price or
+    more-expensive competitor, and never a different-bucket one — those
+    stay hidden, not greyed.
+
+    `row` may be `None` (never fetched) or a failed row (`competitors`
+    already `[]`) — both degrade to an empty list.
+    """
+    if row is None:
+        return []
+    return [c for c in (row.competitors or []) if c.get("same_bucket") and c.get("is_cheaper_than_us") is True]
+
+
 async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:
     """Fetches, buckets, prices and PERSISTS one snapshot row per MLA in
     `mlas`. Called today by the manual per-MLA refresh endpoint (slice C2)

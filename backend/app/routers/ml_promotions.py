@@ -15,11 +15,17 @@ from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.usuario import Usuario
+from app.services.ml_catalog_competition_service import (
+    obtener_ultimo_snapshot,
+    refrescar_competencia_catalogo,
+    undercutting_competitors,
+)
 from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio
 from app.services.ml_promotions_service import (
     derivar_application_status,
@@ -211,6 +217,72 @@ class RemoveResult(BaseModel):
     reconciled_row: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Catalog-competition schemas (slice C2) ───────────────────────
+
+
+class CatalogCompetitorPrice(BaseModel):
+    """One competitor undercutting our price, same bucket, ARS-normalized
+    (design #1210 section 3.6). `markup` is the seller markup THAT price
+    would give us — computed server-side (product decision #8), never
+    recomputed in the frontend."""
+
+    seller_id: Optional[Any] = None
+    item_id: Optional[str] = None
+    seller_nickname: Optional[str] = None
+    price: Optional[float] = None
+    currency_id: Optional[str] = None
+    price_ars: Optional[float] = None
+    listing_type_id: Optional[str] = None
+    listing_label: Optional[str] = None
+    markup: Optional[float] = None
+    shipping_free: Optional[bool] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CatalogCompetitionSnapshot(BaseModel):
+    """Response for both the read and the refresh endpoint: the latest
+    persisted `ml_catalog_competition` row for one MLA, or the `never`
+    sentinel when no snapshot exists yet.
+
+    `fetch_status='never'` is returned with HTTP 200, NEVER a 404 — a 404
+    would make "never consulted" indistinguishable from a routing bug
+    (design #1210 section 4).
+    """
+
+    mla: str
+    fetch_status: Literal["never", "ok", "not_catalog", "error"]
+    fecha_consulta: Optional[Any] = None
+    our_price: Optional[float] = None
+    our_currency_id: Optional[str] = None
+    """Total raw competitor count from the fetch, INCLUDING different-bucket
+    ones that are hidden from `undercutting` — lets the UI say "N
+    competitors in other formats, hidden" (product decision #6)."""
+    competitor_count: Optional[int] = None
+    undercutting: List[CatalogCompetitorPrice] = []
+    error_detail: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSnapshot:
+    """Shared row -> response mapping for both the read and refresh
+    endpoints, so they can never drift on how `never` / `undercutting`
+    are derived."""
+    if row is None:
+        return CatalogCompetitionSnapshot(mla=mla, fetch_status="never")
+    return CatalogCompetitionSnapshot(
+        mla=mla,
+        fetch_status=row.fetch_status,
+        fecha_consulta=row.fecha_consulta,
+        our_price=float(row.our_price) if row.our_price is not None else None,
+        our_currency_id=row.our_currency_id,
+        competitor_count=row.competitor_count,
+        undercutting=[CatalogCompetitorPrice(**c) for c in undercutting_competitors(row)],
+        error_detail=row.error_detail,
+    )
 
 
 # ── Write outcome -> HTTP status mapping ─────────────────────────
@@ -499,3 +571,54 @@ def remover_item_de_promocion(
     if outcome["status"] == "ambiguous":
         response.status_code = status.HTTP_202_ACCEPTED
     return RemoveResult(**outcome)
+
+
+# ── Catalog-competition endpoints (slice C2) ─────────────────────
+
+
+@router.get("/catalogo-competencia/{mla_id}", response_model=CatalogCompetitionSnapshot)
+def obtener_competencia_catalogo(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_read()),
+    db: Session = Depends(get_db),
+) -> CatalogCompetitionSnapshot:
+    """
+    Última foto persistida de competencia de catálogo para un MLA
+    (`ml_catalog_competition`, snapshot-per-fetch). NUNCA dispara un
+    fetch — solo lee lo ya guardado (protección del throttle compartido
+    con sales-webhook, product decision #4/#7).
+
+    Sin snapshot -> 200 con `fetch_status='never'`, nunca 404 (un 404
+    haría indistinguible "nunca consultado" de un bug de ruteo).
+
+    `undercutting` ya viene filtrado server-side a competidores del MISMO
+    bucket (listing_type_id + cuotas) y estrictamente más baratos que
+    nosotros (product decision #6, spec C2.6) — el frontend nunca
+    recalcula bucket, conversión de moneda ni markup.
+
+    Requiere permiso: promos.ver
+    """
+    row = obtener_ultimo_snapshot(db, mla_id)
+    return _snapshot_to_response(mla_id, row)
+
+
+@router.post("/catalogo-competencia/{mla_id}/refresh", response_model=CatalogCompetitionSnapshot)
+async def refrescar_competencia_catalogo_item(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> CatalogCompetitionSnapshot:
+    """
+    Dispara un fetch server-side de competencia de catálogo para UN solo
+    MLA vía el proxy ml-webhook, y persiste una nueva foto
+    (`refrescar_competencia_catalogo`, servicio compartido con el futuro
+    cron — sin cambios). SOLO por MLA: no hay refresh-all ni
+    refresh-por-producto (product decision #4) porque el throttle de ML
+    (~6.6 req/s) es global y compartido con el procesamiento de
+    sales-webhook.
+
+    Requiere permiso: promos.escribir
+    """
+    rows = await refrescar_competencia_catalogo(db, [mla_id])
+    row = rows[0] if rows else None
+    return _snapshot_to_response(mla_id, row)
