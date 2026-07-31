@@ -106,19 +106,46 @@ class DesiredTier:
     """One tier as the local mirror wants it to exist after this sync.
 
     `ml_price_id` is `None` for a tier that has never been synced (create).
-    `estado` disambiguates a matched-but-differing id: `"listo"` means the
-    difference is an intentional local edit not yet pushed (modify);
-    `"sincronizado"` means the row believes it already matches live, so a
-    difference is an unexpected external change (divergence).
+
+    `synced_quantity` / `synced_amount` are the SNAPSHOT: what MercadoLibre
+    confirmed at the last successful sync. They are the shared base that makes
+    this a three-way merge — local and live are each judged against it, so
+    "who changed what" is answerable instead of guessed. `None` means the tier
+    has never been synced, and there is nothing to have diverged from.
+
+    This replaced an earlier rule that read `estado` to decide whether a
+    difference was an intentional local edit. `estado` cannot distinguish a
+    local edit from a remote one, so a tier sitting at `listo` overwrote
+    whatever MercadoLibre held, silently, on the money path.
     """
 
     quantity: int
     amount: Money
     ml_price_id: Optional[str] = None
-    estado: str = "listo"
+    synced_quantity: Optional[int] = None
+    synced_amount: Optional[Money] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "amount", _to_decimal(self.amount))
+        if self.synced_amount is not None:
+            object.__setattr__(self, "synced_amount", _to_decimal(self.synced_amount))
+
+    @property
+    def has_snapshot(self) -> bool:
+        return self.synced_quantity is not None and self.synced_amount is not None
+
+    @property
+    def local_changed(self) -> bool:
+        """Did WE move it since the last sync?"""
+        if not self.has_snapshot:
+            return True
+        return self.quantity != self.synced_quantity or self.amount != self.synced_amount
+
+    def live_changed(self, live: "LiveTier") -> bool:
+        """Did MERCADOLIBRE move it since the last sync?"""
+        if not self.has_snapshot:
+            return False
+        return live.quantity != self.synced_quantity or live.amount != self.synced_amount
 
 
 @dataclass(frozen=True)
@@ -232,13 +259,19 @@ def diff_pxq_tiers(
             array.append({"id": desired.ml_price_id})
             continue
 
-        if desired.estado == "sincronizado":
-            # Mirror believed this was already in sync with live; an
-            # unexplained difference means something external changed it.
+        if desired.live_changed(live):
+            # MercadoLibre moved since our last sync. Writing our value would
+            # revert their change — and if we moved too, it is a genuine
+            # concurrent edit. Either way the caller decides, not this diff.
+            reason = (
+                "both sides changed since the last sync"
+                if desired.local_changed
+                else "live changed since the last sync"
+            )
             divergences.append(
                 PxqDivergence(
                     ml_price_id=desired.ml_price_id,
-                    reason="matched id differs in quantity/amount",
+                    reason=reason,
                     live={"id": live.id, "quantity": live.quantity, "amount": float(live.amount)},
                     desired={"quantity": desired.quantity, "amount": float(desired.amount)},
                 )

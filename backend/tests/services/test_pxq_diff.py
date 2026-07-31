@@ -16,7 +16,15 @@ from app.services.pxq_diff import (
 
 def test_keep_emits_only_the_id_when_matched_and_unchanged():
     live = [LiveTier(id="ML123", quantity=10, amount=Decimal("500.00"))]
-    desired = [DesiredTier(quantity=10, amount=Decimal("500.00"), ml_price_id="ML123", estado="sincronizado")]
+    desired = [
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("500.00"),
+            ml_price_id="ML123",
+            synced_quantity=10,
+            synced_amount=Decimal("500.00"),
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
@@ -41,7 +49,11 @@ def test_delete_omits_a_live_tier_whose_desired_row_no_longer_exists():
     live = [
         LiveTier(id="ML1", quantity=5, amount=Decimal("100.00")),
     ]
-    desired = [DesiredTier(quantity=5, amount=Decimal("100.00"), ml_price_id="ML1", estado="sincronizado")]
+    desired = [
+        DesiredTier(
+            quantity=5, amount=Decimal("100.00"), ml_price_id="ML1", synced_quantity=5, synced_amount=Decimal("100.00")
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
@@ -52,10 +64,18 @@ def test_delete_omits_a_live_tier_whose_desired_row_no_longer_exists():
 
 
 def test_modify_deletes_old_id_and_creates_new_without_id():
-    # estado="listo": mirror knows this differs on purpose (a not-yet-synced
+    # Snapshot still holds what live holds, so only the local side moved (a
     # local price edit), so it's a modify, not a divergence refusal.
     live = [LiveTier(id="ML1", quantity=10, amount=Decimal("500.00"))]
-    desired = [DesiredTier(quantity=10, amount=Decimal("550.00"), ml_price_id="ML1", estado="listo")]
+    desired = [
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("550.00"),
+            ml_price_id="ML1",
+            synced_quantity=10,
+            synced_amount=Decimal("500.00"),
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
@@ -78,9 +98,17 @@ def test_unmirrored_live_tier_is_preserved_as_keep():
 
 def test_divergence_refuses_when_matched_id_differs_and_mirror_believes_it_is_synced():
     live = [LiveTier(id="ML1", quantity=10, amount=Decimal("500.00"))]
-    # estado="sincronizado": mirror believes this already matches live, so an
+    # Snapshot matches the desired values, so the mirror believes it is in sync; an
     # unexplained difference is an external change, not our own edit.
-    desired = [DesiredTier(quantity=10, amount=Decimal("600.00"), ml_price_id="ML1", estado="sincronizado")]
+    desired = [
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("600.00"),
+            ml_price_id="ML1",
+            synced_quantity=10,
+            synced_amount=Decimal("600.00"),
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
@@ -95,7 +123,15 @@ def test_divergence_refuses_when_matched_id_differs_and_mirror_believes_it_is_sy
 
 def test_divergence_refuses_when_mirror_ml_price_id_absent_from_live():
     live = []  # nothing live at all; mirror still holds an old confirmed id
-    desired = [DesiredTier(quantity=10, amount=Decimal("500.00"), ml_price_id="ML_GHOST", estado="sincronizado")]
+    desired = [
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("500.00"),
+            ml_price_id="ML_GHOST",
+            synced_quantity=10,
+            synced_amount=Decimal("500.00"),
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
@@ -115,8 +151,20 @@ def test_divergence_refusal_builds_no_array_and_no_partial_write():
         LiveTier(id="ML_BAD", quantity=10, amount=Decimal("500.00")),
     ]
     desired = [
-        DesiredTier(quantity=5, amount=Decimal("100.00"), ml_price_id="ML_OK", estado="sincronizado"),
-        DesiredTier(quantity=10, amount=Decimal("999.00"), ml_price_id="ML_BAD", estado="sincronizado"),
+        DesiredTier(
+            quantity=5,
+            amount=Decimal("100.00"),
+            ml_price_id="ML_OK",
+            synced_quantity=5,
+            synced_amount=Decimal("100.00"),
+        ),
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("999.00"),
+            ml_price_id="ML_BAD",
+            synced_quantity=10,
+            synced_amount=Decimal("999.00"),
+        ),
     ]
 
     result = diff_pxq_tiers(live, desired)
@@ -137,8 +185,16 @@ def test_ids_only_from_live_invariant_never_echoes_an_unseen_id():
         LiveTier(id="ML_UNTRACKED", quantity=15, amount=Decimal("300.00")),
     ]
     desired = [
-        DesiredTier(quantity=5, amount=Decimal("100.00"), ml_price_id="ML_A", estado="sincronizado"),
-        DesiredTier(quantity=10, amount=Decimal("200.00"), ml_price_id="ML_B", estado="sincronizado"),
+        DesiredTier(
+            quantity=5, amount=Decimal("100.00"), ml_price_id="ML_A", synced_quantity=5, synced_amount=Decimal("100.00")
+        ),
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("200.00"),
+            ml_price_id="ML_B",
+            synced_quantity=10,
+            synced_amount=Decimal("200.00"),
+        ),
         DesiredTier(quantity=99, amount=Decimal("999.00"), ml_price_id=None),
     ]
 
@@ -189,9 +245,107 @@ def test_decimal_and_float_money_normalize_to_equal_not_a_false_divergence():
     # (Numeric(14,2) column). The same monetary value in both forms must
     # compare equal, not trigger a spurious divergence.
     live = [LiveTier(id="ML1", quantity=10, amount=500.0)]
-    desired = [DesiredTier(quantity=10, amount=Decimal("500.00"), ml_price_id="ML1", estado="sincronizado")]
+    desired = [
+        DesiredTier(
+            quantity=10,
+            amount=Decimal("500.00"),
+            ml_price_id="ML1",
+            synced_quantity=10,
+            synced_amount=Decimal("500.00"),
+        )
+    ]
 
     result = diff_pxq_tiers(live, desired)
 
     assert result.ok
     assert result.array == [{"id": "ML1"}]
+
+
+class TestThreeWayMergeAgainstTheSyncedSnapshot:
+    """`estado` was a proxy for "did the user edit this", and a poor one: it
+    cannot tell a local edit from a remote one, so a tier left at `listo`
+    overwrote whatever MercadoLibre had — silently, on the money path.
+
+    The snapshot (`synced_quantity` / `synced_amount`: what ML confirmed at the
+    last sync) turns the comparison into a real three-way merge, where local
+    and live are each judged against a shared base."""
+
+    def _live(self, amount, quantity=10, price_id="P1"):
+        return LiveTier(id=price_id, quantity=quantity, amount=amount)
+
+    def test_neither_side_moved_is_a_keep(self):
+        result = diff_pxq_tiers(
+            live_tiers=[self._live(Decimal("500.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("500.00"),
+                    ml_price_id="P1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+        assert result.array == [{"id": "P1"}]
+
+    def test_only_local_moved_is_a_modify(self):
+        result = diff_pxq_tiers(
+            live_tiers=[self._live(Decimal("500.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("450.00"),
+                    ml_price_id="P1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+        assert result.array == [{"quantity": 10, "amount": 450.0}]
+
+    def test_only_live_moved_refuses_instead_of_reverting_it(self):
+        """Someone changed the price in MercadoLibre and nobody touched it
+        here. Writing our unchanged value would quietly revert their change."""
+        result = diff_pxq_tiers(
+            live_tiers=[self._live(Decimal("470.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("500.00"),
+                    ml_price_id="P1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+        assert result.array is None
+        assert result.refusal.divergences[0].ml_price_id == "P1"
+        assert result.refusal.divergences[0].reason == "live changed since the last sync"
+
+    def test_both_sides_moved_is_a_real_conflict_and_refuses(self):
+        """The case the estado rule got wrong: it saw an intentional local edit
+        and wrote it, overwriting the remote change without a word."""
+        result = diff_pxq_tiers(
+            live_tiers=[self._live(Decimal("470.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("450.00"),
+                    ml_price_id="P1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+        assert result.array is None
+        divergence = result.refusal.divergences[0]
+        assert divergence.reason == "both sides changed since the last sync"
+        assert divergence.live["amount"] == 470.0
+        assert divergence.desired["amount"] == 450.0
+
+    def test_a_never_synced_tier_has_no_snapshot_and_is_a_create(self):
+        result = diff_pxq_tiers(
+            live_tiers=[],
+            desired_tiers=[DesiredTier(quantity=10, amount=Decimal("500.00"))],
+        )
+        assert result.array == [{"quantity": 10, "amount": 500.0}]
