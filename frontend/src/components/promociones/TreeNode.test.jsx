@@ -776,6 +776,52 @@ describe('TreeNode — global collapse epoch sync', () => {
     expect(screen.getByRole('button', { name: /^competencia catálogo/i })).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('manually reopening a node after a global-open does not re-explode its subtree', async () => {
+    // Children only mount once their parent is open, so "expand all" reaches an
+    // unmounted subtree through the mount cascade. That cascade must stop once
+    // the user takes manual control: otherwise every node the user opens by hand
+    // for the rest of the session force-opens its whole subtree, and a normal
+    // single-level expand becomes impossible.
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    // Two MLA-bearing nodes are mounted again (MLA_CAT and its child
+    // MLA_VINC1). MLA_CAT's own panels stay open — the user never closed
+    // those, they only collapsed and reopened the node, so preserving them is
+    // correct. The child is the one that must come back CLOSED: it remounts,
+    // and without the manual-mode reset the stale 'all-open' would force it and
+    // its whole subtree open again.
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    // A node's own sections only render while that node is open, so the child
+    // coming back closed means exactly ONE promos button is in the document —
+    // MLA_CAT's. Before the manual-mode reset there were TWO, both expanded,
+    // because the remounted child force-opened itself from the stale mode.
+    expect(screen.getAllByRole('button', { name: /^promociones/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^competencia catálogo/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^promociones/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a manual toggle switches collapseMode back to manual', async () => {
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(useTreeViewStore.getState().collapseMode).toBe('all-open');
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+
+    expect(useTreeViewStore.getState().collapseMode).toBe('manual');
+    // The epoch must NOT move: already-mounted nodes keep the state the user gave them.
+    expect(useTreeViewStore.getState().collapseEpoch).toBe(1);
+  });
+
   it('a manual toggle after a global-open survives (does not get overridden back)', async () => {
     renderNode(buildMlaTree());
     const user = userEvent.setup();

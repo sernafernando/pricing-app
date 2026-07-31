@@ -29,3 +29,28 @@ overridden back by the prior global state.
 - GIVEN the user just triggered global-open
 - WHEN the user manually collapses one specific node
 - THEN that node stays collapsed while other nodes remain open
+
+#### Scenario: Manual control ends the global cascade
+- GIVEN the user triggered global-open, then manually collapsed a node
+- WHEN the user manually expands that node again
+- THEN its subtree renders with its own sections closed, not force-opened by the earlier global-open
+- AND every node the user opens by hand from then on expands one level only
+
+### Requirement: A manual toggle returns the view to manual mode
+A manual per-node toggle MUST return the global collapse mode to `manual`, WITHOUT advancing the
+global activation counter.
+
+A node's children only mount once that node is open, so a global-open reaches an unmounted subtree
+through the mount cascade rather than in a single pass. That cascade MUST NOT outlive the global
+action: without this requirement, every node the user opens by hand after one global-open would
+re-expand its whole subtree for the rest of the session, and a normal single-level expand would
+become impossible.
+
+Leaving the activation counter untouched is what keeps already-mounted nodes exactly as the user
+left them — only future mounts are affected.
+
+#### Scenario: Manual toggle resets the mode
+- GIVEN the global mode is `all-open` after a global-open
+- WHEN the user manually toggles any node or section
+- THEN the global mode becomes `manual`
+- AND the global activation counter is unchanged

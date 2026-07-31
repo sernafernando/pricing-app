@@ -97,15 +97,21 @@ function TreeNode({
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
   const collapseEpoch = useTreeViewStore((state) => state.collapseEpoch);
   const collapseMode = useTreeViewStore((state) => state.collapseMode);
+  const markManual = useTreeViewStore((state) => state.markManual);
 
   // Global synchronized collapse toggle (tree-view-collapse, design D6): syncs
-  // this node's local open state from the store ONLY when the epoch changes
-  // (i.e. only on an actual global-open/global-close activation), never on
-  // every render. Manual toggles below mutate only local `useState` and never
-  // touch the store, so a later manual toggle is never fought back by this
-  // effect re-firing — it only fires again on the NEXT global activation.
+  // this node's local open state from the store when the epoch changes (an
+  // actual global activation) and on mount, never on every render.
+  //
+  // The mount case is load-bearing, not incidental: children only mount once
+  // their parent is open, so "expand all" reaches an unmounted subtree through
+  // the mount cascade. `markManual()` below is what stops that cascade from
+  // outliving the global action — once the user toggles anything by hand the
+  // mode goes back to 'manual' and later mounts stop force-opening. Without it,
+  // every node opened by hand after one "expand all" would re-explode its whole
+  // subtree for the rest of the session.
   useEffect(() => {
-    if (collapseEpoch === 0) return;
+    if (collapseEpoch === 0 || collapseMode === 'manual') return;
     const open = collapseMode === 'all-open';
     setIsOpen(open);
     setPromosOpen(open);
@@ -236,7 +242,7 @@ function TreeNode({
     <ExpandableRow
       colSpan={colSpan}
       isOpen={isOpen}
-      onToggle={() => setIsOpen((prev) => !prev)}
+      onToggle={() => { markManual(); setIsOpen((prev) => !prev); }}
       ariaLabel={isOpen ? `Colapsar ${displayLabel}` : `Expandir ${displayLabel}`}
       headerRowClassName={KIND_ROW_CLASS[node.kind]}
       header={
@@ -298,7 +304,7 @@ function TreeNode({
           <button
             type="button"
             className="btn-tesla ghost sm"
-            onClick={() => setPromosOpen((prev) => !prev)}
+            onClick={() => { markManual(); setPromosOpen((prev) => !prev); }}
             aria-expanded={promosOpen}
           >
             Promociones {promosOpen ? '▾' : '▸'}
@@ -309,7 +315,7 @@ function TreeNode({
           <button
             type="button"
             className="btn-tesla ghost sm"
-            onClick={() => setCatalogCompetitionOpen((prev) => !prev)}
+            onClick={() => { markManual(); setCatalogCompetitionOpen((prev) => !prev); }}
             aria-expanded={catalogCompetitionOpen}
           >
             Competencia catálogo {catalogCompetitionOpen ? '▾' : '▸'}

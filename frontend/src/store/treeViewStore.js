@@ -18,16 +18,25 @@ export const useTreeViewStore = create(
       // Global synchronized collapse toggle (tree-view-collapse). `collapseEpoch`
       // is a monotonic counter, not a boolean: every activation increments it,
       // even when re-applying the same mode, so `TreeNode`'s `useEffect([epoch])`
-      // always fires. This is what lets a manual per-node toggle survive a
-      // repeated global toggle — manual toggles never touch this store, so the
-      // epoch (and thus the sync effect) never fires again until the NEXT
-      // global activation.
+      // always fires. The epoch never changes on a manual toggle, so a manual
+      // per-node choice survives until the NEXT global activation.
+      //
+      // `collapseMode` is read by nodes that mount LATER, and that is the whole
+      // point: children only mount once their parent is open, so "expand all"
+      // reaches an unmounted subtree through the mount cascade rather than in a
+      // single pass. That cascade must stop as soon as the user takes manual
+      // control, otherwise every node opened by hand from then on would explode
+      // its entire subtree. `markManual()` is that off switch — it leaves the
+      // epoch untouched (so already-mounted nodes keep exactly the state the
+      // user gave them) and only stops future mounts from force-opening.
       collapseEpoch: 0,
       collapseMode: 'manual', // 'manual' | 'all-open' | 'all-closed'
 
       expandAll: () => set((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })),
 
       collapseAll: () => set((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })),
+
+      markManual: () => set((state) => (state.collapseMode === 'manual' ? state : { collapseMode: 'manual' })),
     }),
     {
       name: 'tree-view-store',
