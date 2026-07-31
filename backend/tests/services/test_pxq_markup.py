@@ -361,3 +361,16 @@ class TestOrderCostIsNotAPerUnitFloat:
         # $500/unit against a $1000/unit cost is a loss, whatever the quantity.
         assert result["markup"] < 0
         assert result["markup"] == pytest.approx(-0.7340613931523023)
+
+
+def test_a_wrong_object_raises_instead_of_looking_incomplete() -> None:
+    """`getattr(..., None)` collapsed "this tier has no cost yet" — a real
+    state the user resolves by filling it in — with "you handed me the wrong
+    object". The second is a programmer error and has to be loud, or PR 3
+    surfaces rows stuck on `incompleto` with nothing explaining why."""
+    with pytest.raises(TypeError):
+        resolve_tier_shipping(SimpleNamespace(precio_unitario=Decimal("500.00")))
+
+
+def test_a_tier_with_no_cost_yet_is_still_incomplete_not_an_error() -> None:
+    assert resolve_tier_shipping(SimpleNamespace(costo_envio_total=None)) is None

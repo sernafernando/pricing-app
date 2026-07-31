@@ -43,11 +43,24 @@ from app.services.pricing_calculator import (
 # no test using float literals will ever catch it. Every monetary value that
 # can originate from a database column is normalized at this boundary — the
 # same treatment `resolve_tier_shipping` already gave the shipping cost.
+#
+# KNOWN LIMITATION, not a preference: converting to float degrades decimal
+# money to binary. It is forced by `pricing_calculator`, which is float
+# throughout and which this module deliberately does not modify — one formula,
+# one source of truth. `pxq_tier_service` keeps Decimal on the STORAGE side, so
+# what is persisted stays exact; only the derived markup carries float error.
+# Moving the pricing chain to Decimal is the real fix and is out of scope here.
 Money = Union[float, int, Decimal]
 
 
 def _as_float(value: Money) -> float:
     return float(value)
+
+
+# Distinguishes "this object has no such attribute" from "the attribute is
+# there and still empty". Collapsing the two would report a mistyped object as
+# a tier the user merely has not finished filling in.
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -71,7 +84,12 @@ def resolve_tier_shipping(tier: Any) -> Optional[ShipmentShippingCost]:
     priced (`costo_envio_total` not yet set); callers MUST treat that as
     `estado='incompleto'` and never price or write the tier.
     """
-    costo_envio_total = getattr(tier, "costo_envio_total", None)
+    costo_envio_total = getattr(tier, "costo_envio_total", _MISSING)
+    if costo_envio_total is _MISSING:
+        # A tier that has never carried this attribute is not an incomplete
+        # tier — it is the wrong object. Returning None would surface as rows
+        # stuck on `incompleto` forever with nothing explaining why.
+        raise TypeError(f"expected a PxQ tier with `costo_envio_total`, got {type(tier).__name__}")
     if costo_envio_total is None:
         return None
     return ShipmentShippingCost(amount=float(costo_envio_total))
