@@ -39,6 +39,14 @@ class MlPxqTier(Base):
     costo_envio_total = Column(Numeric(14, 2), nullable=True)
     ml_price_id = Column(String(64), nullable=True)
 
+    # Snapshot of what MercadoLibre confirmed at the last successful sync — the
+    # shared base that makes the write a three-way merge instead of a guess.
+    # Comparing only local-vs-live cannot tell who moved a value, so an edit on
+    # either side looked identical and the local one silently won. NULL means
+    # never synced, so there is nothing to have diverged from.
+    cantidad_sincronizada = Column(Integer, nullable=True)
+    precio_sincronizado = Column(Numeric(14, 2), nullable=True)
+
     # Both defaults on purpose: `default` covers ORM inserts, `server_default`
     # keeps the model in step with the migration so `alembic revision
     # --autogenerate` does not emit a spurious alter_column that nobody can

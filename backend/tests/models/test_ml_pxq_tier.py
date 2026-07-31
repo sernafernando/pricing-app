@@ -180,3 +180,24 @@ def test_declared_estado_constants_match_the_check_constraint() -> None:
     for estado in ESTADOS_VALIDOS:
         assert f"'{estado}'" in sql, f"{estado} declared in ESTADOS_VALIDOS but missing from the constraint"
     assert sql.count("'") == len(ESTADOS_VALIDOS) * 2, "constraint allows a value not declared in ESTADOS_VALIDOS"
+
+
+def test_snapshot_columns_default_to_null_meaning_never_synced(db, publicacion, pxq_user) -> None:
+    """NULL is the honest value for a tier ML has never confirmed: there is no
+    base to have diverged from, so the write path treats it as a create rather
+    than inventing agreement."""
+    tier = _make_tier(publicacion, pxq_user)
+    db.add(tier)
+    db.flush()
+
+    assert tier.cantidad_sincronizada is None
+    assert tier.precio_sincronizado is None
+
+
+def test_snapshot_columns_store_what_ml_confirmed(db, publicacion, pxq_user) -> None:
+    tier = _make_tier(publicacion, pxq_user, cantidad_sincronizada=10, precio_sincronizado=Decimal("500.00"))
+    db.add(tier)
+    db.flush()
+
+    assert tier.cantidad_sincronizada == 10
+    assert tier.precio_sincronizado == Decimal("500.00")

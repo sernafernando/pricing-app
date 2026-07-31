@@ -116,6 +116,11 @@ function TreeNode({
     setIsOpen(open);
     setPromosOpen(open);
     setCatalogCompetitionOpen(open);
+    // collapseMode is read on purpose without being a dependency: the effect
+    // must fire only on an actual global activation (the epoch), never when
+    // the mode changes on its own, or a manual toggle would be clobbered on
+    // the next render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collapseEpoch]);
 
   // Guards the async refresh follow-up from setState-ing after the node

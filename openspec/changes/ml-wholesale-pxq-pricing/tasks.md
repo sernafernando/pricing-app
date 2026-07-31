@@ -139,28 +139,28 @@ than discovering the overage mid-apply.
 
 ### 3a-candidate. Diff/reconcile function (split candidate — evaluate first)
 
-29. [ ] Write failing unit test: **keep** case — a tier whose local mirror matches a live tier
+29. [x] Write failing unit test: **keep** case — a tier whose local mirror matches a live tier
         exactly (qty + amount) on an id observed in the live read emits `{"id": ml_price_id}`.
-30. [ ] Write failing unit test: **create** case — a local tier with no matching live id emits an
+30. [x] Write failing unit test: **create** case — a local tier with no matching live id emits an
         object with `qty`/`amount` and no `id`.
-31. [ ] Write failing unit test: **delete** case — a live tier with no corresponding desired local
+31. [x] Write failing unit test: **delete** case — a live tier with no corresponding desired local
         tier is simply omitted from the emitted array.
-32. [ ] Write failing unit test: **modify** case — a local tier whose price changed vs its previously
+32. [x] Write failing unit test: **modify** case — a local tier whose price changed vs its previously
         matched live id emits delete-old (omitted) + create-new (object without id) in the same
         array; the mutated id itself is never sent.
-33. [ ] Write failing unit test: **unmirrored live tier preserved** — a live tier with no matching
+33. [x] Write failing unit test: **unmirrored live tier preserved** — a live tier with no matching
         local row present in the fresh live read is emitted as `{"id": ...}` keep, never dropped.
-34. [ ] Write failing unit test: **divergence refuses write** — matched id differs in qty/amount, or
+34. [x] Write failing unit test: **divergence refuses write** — matched id differs in qty/amount, or
         a mirror `ml_price_id` is absent from the live read entirely => function signals refusal
         (409-shaped result), no array is built, no POST attempted.
-35. [ ] Write failing unit test: **ids-only-from-live invariant** — the diff function can never emit
+35. [x] Write failing unit test: **ids-only-from-live invariant** — the diff function can never emit
         an `id` that was not present in the step-4 live payload passed to it (property-style check
         across randomized fixtures if convenient).
-36. [ ] Write failing unit test: **empty desired set guard** — an empty desired array is refused
+36. [x] Write failing unit test: **empty desired set guard** — an empty desired array is refused
         unless an explicit `allow_clear=true` flag is passed.
-37. [ ] Implement the pure diff/reconcile function (isolate it so it can be extracted into
+37. [x] Implement the pure diff/reconcile function (isolate it so it can be extracted into
         `pxq_diff.py` untouched if the 3/3a split triggers).
-38. [ ] Run diff tests — confirm GREEN. **Decision point:** tally lines added so far vs remaining
+38. [x] Run diff tests — confirm GREEN. **Decision point:** tally lines added so far vs remaining
         planned work (kill-switch, eligibility, services, endpoints). If already close to 380 lines,
         stop here, commit this as **PR 3a** (pure diff function + tests, depends on PR 2 only), and
         continue write-service/endpoints as PR 3 depending on 3a.

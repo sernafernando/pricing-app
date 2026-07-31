@@ -103,7 +103,7 @@ function ProductoMLAsPanel({
 
   return (
     <>
-      <div className={styles.filterMessage}>
+      <div className={styles.treeControls}>
         <button type="button" className="btn-tesla ghost sm" onClick={expandAll}>
           Expandir todo
         </button>

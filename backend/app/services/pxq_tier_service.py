@@ -21,7 +21,9 @@ from sqlalchemy.orm import Session
 from app.models.ml_pxq_tier import ESTADO_INCOMPLETO, MlPxqTier
 from app.models.publicacion_ml import PublicacionML
 
-MAX_TIERS_PER_PUBLICATION = 5
+# Single source of truth lives in the pure diff module, which enforces the
+# same ceiling on the array it builds.
+from app.services.pxq_diff import MAX_TIERS as MAX_TIERS_PER_PUBLICATION
 
 # Money columns are Numeric(14, 2). Accepting a bare float and letting the
 # driver convert means 500.10 stops being 500.10 — invisible on SQLite, and in
