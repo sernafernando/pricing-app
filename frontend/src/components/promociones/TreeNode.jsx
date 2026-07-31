@@ -133,6 +133,7 @@ function TreeNode({
             colSpan={colSpan}
             mlasCacheRef={mlasCacheRef}
             promosCacheRef={promosCacheRef}
+            catalogCompetitionCacheRef={catalogCompetitionCacheRef}
             promoTipos={promoTipos}
             promoEstado={promoEstado}
             revealAll={revealAll}

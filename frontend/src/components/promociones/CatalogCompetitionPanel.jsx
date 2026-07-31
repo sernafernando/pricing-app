@@ -4,6 +4,7 @@ import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import styles from './promociones.module.css';
+import { usePermisos } from '../../contexts/PermisosContext';
 
 function formatFechaConsulta(iso) {
   if (!iso) return null;
@@ -42,6 +43,11 @@ function formatMarkup(value) {
 function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
   const fetcher = (id) => promocionesAPI.getCompetenciaCatalogo(id).then((r) => r.data);
   const { data, loading, error, reload } = useLazyResource(catalogCompetitionCacheRef, mla, fetcher);
+  const { tienePermiso } = usePermisos();
+  // The read endpoint needs promos.ver, but the refresh writes and needs
+  // promos.escribir. Offering the button to a view-only user only buys
+  // them a 403 — the promo refresh button is gated the same way.
+  const canRefresh = tienePermiso('promos.escribir');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
 
@@ -60,7 +66,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
     }
   };
 
-  const refreshButton = (
+  const refreshButton = !canRefresh ? null : (
     <button
       type="button"
       className="btn-tesla outline-subtle-primary icon-only sm"
@@ -134,7 +140,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
       {undercutting.length === 0 ? (
         <div className={styles.panelState}>
           Sin competidores más baratos en tu mismo formato
-          {data.competitor_count
+          {data.competitor_count > 0
             ? ` (${data.competitor_count} competidores relevados, ocultos por formato distinto o no comparables)`
             : ''}
           .
