@@ -48,10 +48,12 @@ Thumbs.db
 
 # Version managers (asdf, mise, rtx)
 .tool-versions
+mise.toml
 
 # Environment variables
 .env
 .env.local
+.env.verify
 /backend/.env.example
 backend/uploads/
 
@@ -86,3 +88,9 @@ frontend/public/sounds/
 # Agent tooling caches / local settings
 .atl/
 .pi/
+
+# Local-only SDD working artifacts (not shared; force-add if one should be tracked)
+openspec/changes/design-token-consolidation/
+openspec/changes/export-builder/
+openspec/changes/sub-pm-bulk-assignment/
+openspec/changes/ml-bot-resizable-columns/verify-report.md

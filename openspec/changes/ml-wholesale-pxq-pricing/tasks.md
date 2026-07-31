@@ -14,21 +14,21 @@ pricing-app-testing-ci, pytest, react-19, zustand-5, chained-pr, work-unit-commi
 
 Spec: `tree-view-collapse` — Global synchronized toggle, Manual toggle survives global state.
 
-1. [ ] Write failing vitest: activating global-open sets every `TreeNode` (product, MLA, nested
+1. [x] Write failing vitest: activating global-open sets every `TreeNode` (product, MLA, nested
        promo/PxQ panels) to open in one action.
-2. [ ] Write failing vitest: activating global-close sets every node closed.
-3. [ ] Write failing vitest: after global-open, a manual collapse on one node leaves that node
+2. [x] Write failing vitest: activating global-close sets every node closed.
+3. [x] Write failing vitest: after global-open, a manual collapse on one node leaves that node
        collapsed while siblings stay open (manual toggle never mutates the store).
-4. [ ] Write failing vitest: reload/rehydration does not force nodes open (persist `partialize`
+4. [x] Write failing vitest: reload/rehydration does not force nodes open (persist `partialize`
        excludes `collapseEpoch`/`collapseMode`; only `showFamilia` persists).
-5. [ ] Add `collapseEpoch`, `collapseMode` (`manual` | `all-open` | `all-closed`), `expandAll()`,
+5. [x] Add `collapseEpoch`, `collapseMode` (`manual` | `all-open` | `all-closed`), `expandAll()`,
        `collapseAll()` to `frontend/src/store/treeViewStore.js`; confirm `partialize` unchanged.
-6. [ ] Add `useEffect(() => {...}, [epoch])` sync in `frontend/src/components/promociones/TreeNode.jsx`
+6. [x] Add `useEffect(() => {...}, [epoch])` sync in `frontend/src/components/promociones/TreeNode.jsx`
        that sets `isOpen`/`promosOpen` from `collapseMode` only when `epoch !== 0`; manual toggles
        remain local `useState` and never touch the store.
-7. [ ] Wire the global toggle control (expand-all / collapse-all) into the tree view UI entry point.
-8. [ ] Run `vitest run` (or `pnpm run test`) — confirm all four tests above are GREEN.
-9. [ ] Review own diff for line budget (~150 est.); commit as one work unit (chained-pr / work-unit-commits).
+7. [x] Wire the global toggle control (expand-all / collapse-all) into the tree view UI entry point.
+8. [x] Run `vitest run` (or `pnpm run test`) — confirm all four tests above are GREEN.
+9. [x] Review own diff for line budget (~150 est.); commit as one work unit (chained-pr / work-unit-commits).
 
 Dependencies: none. Can merge standalone or in parallel with PR 2.
 
