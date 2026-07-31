@@ -101,9 +101,9 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
         .all()
     )
     for override in positive_overrides:
-        counts["users_granted"] += 1
-        if dry_run:
-            continue
+        # Third counter, same rule as the other two: count only what would
+        # actually be written, or a second dry-run reports work already done.
+        granted_here = False
         for target_id in (pxq_ver.id, pxq_escribir.id):
             already_granted = (
                 db.query(UsuarioPermisoOverride)
@@ -113,7 +113,10 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
                 )
                 .first()
             )
-            if already_granted is None:
+            if already_granted is not None:
+                continue
+            granted_here = True
+            if not dry_run:
                 db.add(
                     UsuarioPermisoOverride(
                         usuario_id=override.usuario_id,
@@ -122,6 +125,8 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
                         motivo="Backfilled from promos.escribir (ml-wholesale-pxq-pricing PR2)",
                     )
                 )
+        if granted_here:
+            counts["users_granted"] += 1
 
     # Negative user overrides on promos.escribir (concedido=False) — COPIED,
     # not ignored: a user explicitly revoked from promos-write must not

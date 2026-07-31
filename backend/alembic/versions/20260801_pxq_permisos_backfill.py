@@ -74,6 +74,7 @@ PERMISOS = (
 
 CODIGOS = tuple(row[0] for row in PERMISOS)
 PROMOS_ESCRIBIR = "promos.escribir"
+PXQ_ESCRIBIR = "pxq.escribir"
 
 
 def upgrade():
@@ -117,18 +118,20 @@ def upgrade():
         {"promos": PROMOS_ESCRIBIR, "codigos": list(CODIGOS)},
     )
 
-    # Overrides por usuario, incluidos los NEGATIVOS: `concedido` se copia tal
-    # cual, así un usuario con promos.escribir revocado explícitamente queda
-    # revocado también para PxQ en vez de heredarlo por el grant de su rol.
+    # Overrides POSITIVOS: se copian a ambos códigos, igual que el grant de rol.
+    # `otorgado_por_id` queda NULL a propósito: quien concedió promos.escribir
+    # no concedió esto, y atribuírselo falsea la auditoría del camino de plata.
+    # El `motivo` dice de dónde salió.
     bind.execute(
         sa.text("""
             INSERT INTO usuarios_permisos_override
                 (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
-            SELECT upo.usuario_id, nuevo.id, upo.concedido, upo.otorgado_por_id, :motivo, NOW()
+            SELECT upo.usuario_id, nuevo.id, TRUE, NULL, :motivo, NOW()
             FROM usuarios_permisos_override upo
             JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
             CROSS JOIN permisos nuevo
-            WHERE nuevo.codigo IN :codigos
+            WHERE upo.concedido = TRUE
+              AND nuevo.codigo IN :codigos
               AND NOT EXISTS (
                   SELECT 1 FROM usuarios_permisos_override existente
                   WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
@@ -138,6 +141,34 @@ def upgrade():
             "promos": PROMOS_ESCRIBIR,
             "codigos": list(CODIGOS),
             "motivo": "Backfill PxQ derivado de promos.escribir",
+        },
+    )
+
+    # Overrides NEGATIVOS: solo a `pxq.escribir`. Una revocación de
+    # promos.escribir habla de ESCRIBIR; copiarla también a `pxq.ver` dejaría
+    # a esa persona sin poder siquiera MIRAR los tramos, que no es lo que
+    # nadie decidió. El servicio hace exactamente esto y es lo que está
+    # testeado; la migración tiene que coincidir o el dry-run miente.
+    bind.execute(
+        sa.text("""
+            INSERT INTO usuarios_permisos_override
+                (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
+            SELECT upo.usuario_id, nuevo.id, FALSE, NULL, :motivo, NOW()
+            FROM usuarios_permisos_override upo
+            JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
+            CROSS JOIN permisos nuevo
+            WHERE upo.concedido = FALSE
+              AND nuevo.codigo = :pxq_escribir
+              AND NOT EXISTS (
+                  SELECT 1 FROM usuarios_permisos_override existente
+                  WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
+              )
+        """).bindparams(sa.bindparam("codigos", expanding=True)),
+        {
+            "promos": PROMOS_ESCRIBIR,
+            "codigos": list(CODIGOS),
+            "pxq_escribir": PXQ_ESCRIBIR,
+            "motivo": "Backfill PxQ: revocación heredada de promos.escribir",
         },
     )
 

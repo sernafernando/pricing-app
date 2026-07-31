@@ -260,3 +260,60 @@ def test_dry_run_does_not_recount_negative_overrides_already_copied(db) -> None:
 
     second_pass = backfill_pxq_permissions_from_promos(db, dry_run=True)
     assert second_pass["negative_overrides_copied"] == 0
+
+
+def test_dry_run_does_not_recount_positive_overrides_already_copied(db) -> None:
+    """The third counter. `roles_granted` and `negative_overrides_copied` were
+    each fixed for this exact inflation, with a test apiece; this one was left
+    behind both times."""
+    ensure_pxq_permission_catalog(db)
+    promos_escribir = _make_permiso(db, PROMOS_ESCRIBIR_CODE)
+    rol = _make_role(db, "POS_RECOUNT_ROLE")
+    user = _make_user(db, rol, "pos_recount_user")
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=promos_escribir.id, concedido=True))
+    db.flush()
+
+    predicted = backfill_pxq_permissions_from_promos(db, dry_run=True)
+    assert predicted["users_granted"] == 1
+
+    backfill_pxq_permissions_from_promos(db, dry_run=False)
+    db.flush()
+
+    second_pass = backfill_pxq_permissions_from_promos(db, dry_run=True)
+    assert second_pass["users_granted"] == 0
+
+
+def test_migration_negative_override_targets_only_the_write_permission() -> None:
+    """The catalog parity test compares the permission LITERALS, not the
+    backfill logic — so the migration copying a negative override to BOTH
+    codes while the service copied it to only `pxq.escribir` passed green.
+
+    That divergence is not cosmetic: it would have left anyone explicitly
+    revoked from promos-write unable to even LOOK at wholesale tiers in
+    production, a decision nobody made, while the tested service did something
+    else and the dry-run reported the service's numbers."""
+    from pathlib import Path
+
+    migration = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
+    source = migration.read_text(encoding="utf-8")
+
+    negative_stmt = source[source.index("Overrides NEGATIVOS") :]
+    negative_stmt = negative_stmt[: negative_stmt.index("def downgrade")]
+
+    assert "concedido = FALSE" in negative_stmt
+    assert "nuevo.codigo = :pxq_escribir" in negative_stmt
+    assert "nuevo.codigo IN :codigos" not in negative_stmt, (
+        "a revocation of promos.escribir must not also strip pxq.ver"
+    )
+
+
+def test_migration_does_not_attribute_the_backfill_to_the_original_grantor() -> None:
+    """The migration copied `otorgado_por_id` from the promos override; the
+    service leaves it NULL. Whoever granted promos-write did not grant this,
+    and on a money path a falsified audit trail is worse than an empty one."""
+    from pathlib import Path
+
+    migration = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
+    source = migration.read_text(encoding="utf-8")
+
+    assert "upo.otorgado_por_id" not in source
