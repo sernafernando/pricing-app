@@ -104,9 +104,13 @@ binary float. Every one is now covered by a test that fails without the fix.
   from LIVE `promos.escribir` state (roles + positive/negative user
   overrides), never a hardcoded role list (deliberate departure from
   `20260713_add_permisos_promociones.py`'s precedent).
-- `backend/alembic/versions/20260801_pxq_permisos_backfill.py`: calls the
-  above via `op.get_bind()` + a bound `Session` (chained after the table
-  migration).
+- `backend/alembic/versions/20260801_pxq_permisos_backfill.py`: does NOT
+  import the service. It carries its own self-contained SQL (a migration is an
+  immutable snapshot; coupling it to the ORM breaks an upgrade from scratch the
+  day a model gains a NOT NULL column). Equivalence is held by
+  `test_migration_sql_produces_the_same_grants_as_the_service`, which executes
+  the migration's statements and compares the resulting grants. Chained after
+  the table migration.
 - `backend/scripts/pxq_permissions_dry_run.py`: read-only dry-run script
   (task 2c.20) — prints roles/users/negative-overrides counts, writes
   NOTHING (`dry_run=True`, explicit rollback). NOT run against any real
@@ -114,12 +118,15 @@ binary float. Every one is now covered by a test that fails without the fix.
   data and its counts recorded in the PR description before the backfill
   migration is applied anywhere real.
 - Tests: `backend/tests/services/test_pxq_permissions_backfill.py` (7
-  cases: catalog distinctness, role backfill, no-grant role, positive
-  override, negative override NOT copied to a revoked user, no-grant user,
-  dry-run writes nothing).
+  covering catalog distinctness, role backfill, no-grant role, positive and
+  negative overrides, dry-run writing nothing, all three counters not
+  re-counting work already done, and migration/service parity by executing the
+  migration SQL).
 
 ### 2d. Base-price boundary (structural)
-- `backend/tests/unit/test_pxq_base_price_boundary.py`: AST import-scan
+- `backend/tests/unit/test_pxq_base_price_boundary.py`: AST scan that walks
+  ALL of `app/` and matches on file name (not a per-directory glob list, which
+  had missed `app/routers/`), covering imports and attribute access
   over `app/services/pxq_*.py`, `app/services/ml_pxq_*.py`,
   `app/api/endpoints/pxq*.py`, `app/models/ml_pxq_*.py` (generic by path
   pattern, covers PR 3's future modules without editing this test again).

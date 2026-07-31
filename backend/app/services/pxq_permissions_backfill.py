@@ -7,9 +7,15 @@ time — roles queried dynamically (never a hardcoded role list, unlike the
 including negative ones (`concedido=False`), so a user explicitly revoked
 from promos-write does not silently gain PxQ writes.
 
-Used by the Alembic migration (`20260801_add_ml_pxq_tier.py` upgrade path or
-a companion migration) and by the pre-deploy dry-run script (task 2c.20,
-`dry_run=True`).
+The migration does NOT import this module. `20260801_pxq_permisos_backfill.py`
+carries its own self-contained SQL, because a migration is an immutable
+historical snapshot and coupling it to the ORM breaks an upgrade from scratch
+the day a model gains a NOT NULL column. The two are kept equivalent by
+`test_migration_sql_produces_the_same_grants_as_the_service`, which executes
+the migration's actual statements and compares the resulting grants.
+
+This module serves runtime callers and the pre-deploy dry-run script
+(`backend/scripts/pxq_permissions_dry_run.py`, `dry_run=True`).
 """
 
 from __future__ import annotations
