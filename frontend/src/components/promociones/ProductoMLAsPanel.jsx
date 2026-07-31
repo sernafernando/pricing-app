@@ -50,12 +50,17 @@ function buildTiendaOficialParams(tiendaOficial) {
  * root's children recursively via `<TreeNode>`, generalizing the previous
  * flat MLA list to genuine variable-depth family/catalog/vinculada nesting.
  *
- * `promoTipos`/`promoEstado` (optional) forward the active list-level promo
- * filter (productos-promo-filter-per-mla) so the tree endpoint can compute a
- * per-node `matches_filter` at any depth. When active, MLA-bearing nodes with
- * `matches_filter === false` are hidden by default with a "ver todos (N)"
- * escape hatch counting ALL hidden descendants across the whole tree;
- * `matches_filter` absent/true always shows (fail-open).
+ * `promoTipos`/`promoEstado`/`tiendaOficial` (optional) forward the active
+ * list-level filters so the tree endpoint can compute a per-node
+ * `matches_filter` at any depth. The backend ANDs them together and MARKS
+ * nodes rather than dropping them, so every one of these must also be part
+ * of `isFilterActive` — otherwise the UI renders what the backend already
+ * excluded, which is exactly how the store filter silently did nothing.
+ *
+ * When active, MLA-bearing nodes with `matches_filter === false` are hidden
+ * by default with a "ver todos (N)" escape hatch counting ALL hidden
+ * descendants across the whole tree; `matches_filter` absent/true always
+ * shows (fail-open).
  */
 function ProductoMLAsPanel({
   itemId,
@@ -73,7 +78,7 @@ function ProductoMLAsPanel({
     () => ({ ...buildPromoFilterParams(promoTipos, promoEstado), ...buildTiendaOficialParams(tiendaOficial) }),
     [promoTipos, promoEstado, tiendaOficial],
   );
-  const filterActive = isFilterActive(promoTipos, promoEstado);
+  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
@@ -157,6 +162,7 @@ function ProductoMLAsPanel({
               catalogCompetitionCacheRef={catalogCompetitionCacheRef}
               promoTipos={promoTipos}
               promoEstado={promoEstado}
+              tiendaOficial={tiendaOficial}
               revealAll={verTodos}
             />
           ))}
