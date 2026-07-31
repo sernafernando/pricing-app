@@ -128,10 +128,18 @@ describe('Category picker', () => {
 
     await renderModal();
 
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     // The manual path is a category NAME search — a raw numeric id must
     // never be typed anywhere in this form.
-    expect(screen.getByLabelText(/buscar categoría por nombre/i)).toBeInTheDocument();
+    //
+    // `findBy`, not `getBy`, and FIRST: the whole category block sits behind
+    // `loadingSuggestion`, and `renderModal` only awaits the CALL to
+    // /categoria-sugerida, not its resolution. A synchronous query here races
+    // the promise — it passed locally and failed on CI. Awaiting this one
+    // also settles the loaded state for the assertions below, which would
+    // otherwise pass for the wrong reason: "no radios" is trivially true
+    // while the block still renders its loading placeholder.
+    expect(await screen.findByLabelText(/buscar categoría por nombre/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     // No numeric category-id input anywhere — the only spinbutton in the
     // form is the unrelated Slice 2 price offset input.
     expect(screen.queryByLabelText(/categoría/i, { selector: 'input[type="number"]' })).not.toBeInTheDocument();
