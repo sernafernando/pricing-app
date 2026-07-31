@@ -42,81 +42,81 @@ Depends on: PR 1 branch not required; targets feature branch directly (per desig
 
 ### 2a. Quantity-aware markup (`pxq_markup.py`)
 
-1. [ ] Write failing unit tests: golden cases for 1/5/10/30/70-unit tiers against the verified
+1. [x] Write failing unit tests: golden cases for 1/5/10/30/70-unit tiers against the verified
        shipping table — clean markup subtracts the whole-shipment cost once, not per-unit x N.
-2. [ ] Write failing regression test: explicitly reproduces the old bug shape (naive
+2. [x] Write failing regression test: explicitly reproduces the old bug shape (naive
        per-unit-shipping x N) and asserts the new result differs from it.
-3. [ ] Write failing structural test: `resolve_tier_shipping(tier) -> ShipmentShippingCost | None`
+3. [x] Write failing structural test: `resolve_tier_shipping(tier) -> ShipmentShippingCost | None`
        has no default for its shipping-bearing parameter — assert via `inspect.signature` that the
        wrapper function calling `calcular_comision_ml_total`/`calcular_limpio` has NO default for the
        shipping argument (fail-closed by construction, not convention).
-4. [ ] Write failing test: passing a bare float where `ShipmentShippingCost` is required raises/fails
+4. [x] Write failing test: passing a bare float where `ShipmentShippingCost` is required raises/fails
        type validation (float cannot silently substitute).
-5. [ ] Write failing test: tier with `costo_envio_total = None` resolves to `estado='incompleto'`
+5. [x] Write failing test: tier with `costo_envio_total = None` resolves to `estado='incompleto'`
        and is never priced/written (no fallback to any per-unit `costo_envio` field).
-6. [ ] Implement `backend/app/services/pxq_markup.py`: `ShipmentShippingCost` value object,
+6. [x] Implement `backend/app/services/pxq_markup.py`: `ShipmentShippingCost` value object,
        `resolve_tier_shipping(tier)`, wrapper calling `calcular_comision_ml_total`/`calcular_limpio`
        with `precio_unitario * cantidad_minima` and the whole-shipment cost. Do NOT modify
        `pricing_calculator.py`.
-7. [ ] Run backend tests for this module — confirm GREEN.
+7. [x] Run backend tests for this module — confirm GREEN.
 
 ### 2b. `ml_pxq_tier` model + migration
 
-8. [ ] Write failing test: model constraints — `cantidad_minima > 1` (CheckConstraint), unique
+8. [x] Write failing test: model constraints — `cantidad_minima > 1` (CheckConstraint), unique
        `(publicacion_ml_id, cantidad_minima)`, nullable `costo_envio_total`/`ml_price_id`.
-9. [ ] Write failing test: creating a 6th tier for the same `publicacion_ml_id` is rejected at the
+9. [x] Write failing test: creating a 6th tier for the same `publicacion_ml_id` is rejected at the
        service layer with a 422 validation error (max 5 enforced in service, not DB).
-10. [ ] Write failing test: `min_purchase_unit` (== `cantidad_minima`) of 1 is rejected.
-11. [ ] Check current Alembic heads (`alembic heads`) before adding a revision — repo has a
+10. [x] Write failing test: `min_purchase_unit` (== `cantidad_minima`) of 1 is rejected.
+11. [x] Check current Alembic heads (`alembic heads`) before adding a revision — repo has a
         multiple-heads history incident; confirm single head or use `alembic upgrade heads` guard.
-12. [ ] Implement `backend/app/models/ml_pxq_tier.py`: columns per design (`id`,
+12. [x] Implement `backend/app/models/ml_pxq_tier.py`: columns per design (`id`,
         `publicacion_ml_id` FK indexed, `item_id` indexed, `cantidad_minima`, `precio_unitario`
         Numeric(14,2), `costo_envio_total` nullable Numeric(14,2), `ml_price_id` nullable,
         `estado` String(16) in {`incompleto`,`listo`,`sincronizado`,`desconocido`}, `usuario_id` FK
         indexed, tz-aware `created_at`/`updated_at`).
-13. [ ] Write Alembic migration `backend/alembic/versions/20260801_add_ml_pxq_tier.py`: explicit
+13. [x] Write Alembic migration `backend/alembic/versions/20260801_add_ml_pxq_tier.py`: explicit
         column types, indexed FKs, CheckConstraint for `cantidad_minima > 1`, unique constraint.
-14. [ ] Run migration up/down locally against sqlite test DB; confirm `alembic downgrade -1` cleanly
+14. [x] Run migration up/down locally against sqlite test DB; confirm `alembic downgrade -1` cleanly
         drops the table (documented rollback path).
-15. [ ] Run model/migration tests — confirm GREEN.
+15. [x] Run model/migration tests — confirm GREEN.
 
 ### 2c. Permission catalog + backfill (moved here per design, ahead of PR 3)
 
-16. [ ] Write failing test: `pxq.ver` and `pxq.escribir` permission codes exist and are distinct from
+16. [x] Write failing test: `pxq.ver` and `pxq.escribir` permission codes exist and are distinct from
         `promos.escribir`.
-17. [ ] Write failing test: backfill migration grants `pxq.ver`/`pxq.escribir` to every role/user that
+17. [x] Write failing test: backfill migration grants `pxq.ver`/`pxq.escribir` to every role/user that
         CURRENTLY holds `promos.escribir` at migration time (query live grants dynamically — do NOT
         hardcode a role list, unlike the `20260713_add_permisos_promociones.py` precedent).
-18. [ ] Write failing test: a user with an explicit `concedido=false` override on `promos.escribir`
+18. [x] Write failing test: a user with an explicit `concedido=false` override on `promos.escribir`
         does NOT receive `pxq.escribir` via backfill (negative overrides are copied, not ignored).
-19. [ ] Write failing test: a user without any promos-write grant does not receive PxQ permissions.
-20. [ ] **Dry-run count task (explicit, checkable):** write and run a read-only dry-run script/query
+19. [x] Write failing test: a user without any promos-write grant does not receive PxQ permissions.
+20. [x] **Dry-run count task (explicit, checkable):** write and run a read-only dry-run script/query
         against a production-like or staging dataset that reports (a) how many roles and (b) how
         many individual users would be granted `pxq.ver`/`pxq.escribir` by the backfill, and (c) how
         many negative overrides would be copied — BEFORE the migration is applied to any real
         environment. Record the counts in the PR description. This is untested against production
         data and must not be skipped.
-21. [ ] Implement permission catalog entries for `pxq.ver` / `pxq.escribir`.
-22. [ ] Implement backfill migration (same file as 2b's table migration, or a second migration in
+21. [x] Implement permission catalog entries for `pxq.ver` / `pxq.escribir`.
+22. [x] Implement backfill migration (same file as 2b's table migration, or a second migration in
         this PR per design's "permissions migration moved into PR 2") deriving grants from live
         `promos.escribir` state (roles + user overrides, including negative ones).
-23. [ ] Run permission tests — confirm GREEN.
+23. [x] Run permission tests — confirm GREEN.
 
 ### 2d. Base-price boundary (structural, not just behavioral)
 
-24. [ ] Write failing AST import-scan test: `pxq_markup.py` and the (not-yet-existing) PxQ write
+24. [x] Write failing AST import-scan test: `pxq_markup.py` and the (not-yet-existing) PxQ write
         service / router module paths must not import `ProductoPricing` or reference
         `productos_pricing` at the source-text/AST level.
-25. [ ] Implement/keep the scan generic enough to also cover PR 3's future modules by path pattern
+25. [x] Implement/keep the scan generic enough to also cover PR 3's future modules by path pattern
         (e.g. `app/services/ml_pxq_*`, `app/api/endpoints/pxq*`) so PR 3 does not need to touch this test.
 
 ### 2e. Wrap-up
 
-26. [ ] `ruff format app/` from `backend/`.
-27. [ ] Run full backend suite: `pytest tests/ -v --tb=short` (ENVIRONMENT=testing,
+26. [x] `ruff format app/` from `backend/`.
+27. [x] Run full backend suite: `pytest tests/ -v --tb=short` (ENVIRONMENT=testing,
         DATABASE_URL=sqlite:///./test.db) — confirm GREEN, no regressions in existing
         `promos.escribir` / pricing tests.
-28. [ ] Confirm line count against 400-line budget (~370 est.); commit as one work unit targeting
+28. [x] Confirm line count against 400-line budget (~370 est.); commit as one work unit targeting
         the feature branch (chained-pr).
 
 Dependencies: none (targets feature branch, not PR 1).
