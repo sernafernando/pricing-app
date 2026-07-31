@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
+import CatalogCompetitionPanel from './CatalogCompetitionPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { getTiendaOficialLabel } from '../../constants/tiendasOficiales';
@@ -69,15 +70,26 @@ const KIND_ROW_CLASS = {
  * (vinculada nodes), so a promo row is never confused with a vinculada
  * publication row.
  *
- * `promoTipos`/`promoEstado`/`mlasCacheRef`/`promosCacheRef` MUST be
- * forwarded unchanged through every recursive call so the shipped promo
- * filter and per-MLA dynamic-refresh reload timers keep working at any
- * depth — dropping them here silently breaks those features deeper in the
- * tree (this is the design's flagged #1 FE risk).
+ * `promoTipos`/`promoEstado`/`mlasCacheRef`/`promosCacheRef`/
+ * `catalogCompetitionCacheRef` MUST be forwarded unchanged through every
+ * recursive call so the shipped promo filter, per-MLA dynamic-refresh
+ * reload timers, and the catalog-competition panel's cache keep working
+ * at any depth — dropping them here silently breaks those features deeper
+ * in the tree (this is the design's flagged #1 FE risk).
  */
-function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, promoEstado, revealAll = false }) {
+function TreeNode({
+  node,
+  colSpan,
+  mlasCacheRef,
+  promosCacheRef,
+  catalogCompetitionCacheRef,
+  promoTipos,
+  promoEstado,
+  revealAll = false,
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
+  const [catalogCompetitionOpen, setCatalogCompetitionOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [promosReloadKey, setPromosReloadKey] = useState(0);
@@ -121,6 +133,7 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
             colSpan={colSpan}
             mlasCacheRef={mlasCacheRef}
             promosCacheRef={promosCacheRef}
+            catalogCompetitionCacheRef={catalogCompetitionCacheRef}
             promoTipos={promoTipos}
             promoEstado={promoEstado}
             revealAll={revealAll}
@@ -277,6 +290,17 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
           {promosOpen && (
             <MlaPromocionesPanel key={promosReloadKey} mla={node.mla} promosCacheRef={promosCacheRef} />
           )}
+          <button
+            type="button"
+            className="btn-tesla ghost sm"
+            onClick={() => setCatalogCompetitionOpen((prev) => !prev)}
+            aria-expanded={catalogCompetitionOpen}
+          >
+            Competencia catálogo {catalogCompetitionOpen ? '▾' : '▸'}
+          </button>
+          {catalogCompetitionOpen && (
+            <CatalogCompetitionPanel mla={node.mla} catalogCompetitionCacheRef={catalogCompetitionCacheRef} />
+          )}
         </div>
       )}
 
@@ -291,6 +315,7 @@ function TreeNode({ node, colSpan, mlasCacheRef, promosCacheRef, promoTipos, pro
                   colSpan={colSpan}
                   mlasCacheRef={mlasCacheRef}
                   promosCacheRef={promosCacheRef}
+                  catalogCompetitionCacheRef={catalogCompetitionCacheRef}
                   promoTipos={promoTipos}
                   promoEstado={promoEstado}
                   revealAll={revealAll}
