@@ -36,7 +36,10 @@ _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 _FORBIDDEN_NAMES = {"ProductoPricing"}
 _FORBIDDEN_MODULE_SUBSTRINGS = ("productos_pricing",)
 
-_PXQ_FILENAME_PREFIXES = ("pxq_", "ml_pxq_")
+# No trailing underscore: this repo names domain routers after the bare
+# domain, so `pxq.py` is the likeliest name for PR 3's router — and requiring
+# `pxq_` left the barrier blind to exactly the module it exists to guard.
+_PXQ_FILENAME_PREFIXES = ("pxq", "ml_pxq")
 _APP_ROOT = os.path.join(_BACKEND_ROOT, "app")
 
 
@@ -67,6 +70,9 @@ def _scan_module_for_producto_pricing_references(path: str) -> list[str]:
 
     violations: list[str] = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_NAMES:
+            # Catches `producto.ProductoPricing`, which an ast.Name check misses.
+            violations.append(f"attribute access to {node.attr}")
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if any(substr in module for substr in _FORBIDDEN_MODULE_SUBSTRINGS):
@@ -133,3 +139,33 @@ def test_scan_reaches_pxq_code_in_any_package(tmp_path, monkeypatch) -> None:
         os.path.join("api", "endpoints", "pxq_thing.py"),
         os.path.join("somewhere", "new", "pxq_thing.py"),
     }
+
+
+def test_scan_matches_a_bare_domain_module_name(tmp_path, monkeypatch) -> None:
+    """`pxq.py` — no underscore — is the likeliest name for PR 3's router in
+    this repo, and the prefix used to require one."""
+    import sys
+
+    module = sys.modules[__name__]
+    fake_app = tmp_path / "app" / "routers"
+    fake_app.mkdir(parents=True)
+    (fake_app / "pxq.py").write_text("x = 1\n", encoding="utf-8")
+    (fake_app / "productos.py").write_text("x = 1\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_APP_ROOT", str(tmp_path / "app"))
+    found = {os.path.basename(p) for p in module._pxq_module_paths()}
+
+    assert found == {"pxq.py"}
+
+
+def test_scan_catches_attribute_access_not_only_imports(tmp_path) -> None:
+    """`producto.ProductoPricing` is invisible to an ast.Name check."""
+    offender = tmp_path / "pxq_attribute_example.py"
+    offender.write_text(
+        "from app.models import producto\n\n\ndef f(x):\n    return isinstance(x, producto.ProductoPricing)\n",
+        encoding="utf-8",
+    )
+
+    violations = _scan_module_for_producto_pricing_references(str(offender))
+
+    assert violations
