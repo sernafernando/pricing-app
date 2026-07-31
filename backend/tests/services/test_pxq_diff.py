@@ -349,3 +349,58 @@ class TestThreeWayMergeAgainstTheSyncedSnapshot:
             desired_tiers=[DesiredTier(quantity=10, amount=Decimal("500.00"))],
         )
         assert result.array == [{"quantity": 10, "amount": 500.0}]
+
+
+class TestSyncedIdWithoutASnapshotRefuses:
+    """A row can carry `ml_price_id` with a NULL snapshot: `create_pxq_tier`
+    accepts the id and never writes the snapshot columns. With no base to
+    compare against, `live_changed` said "live did not move" and the tier fell
+    into modify — overwriting MercadoLibre silently.
+
+    That is the exact failure the snapshot was introduced to kill, reached
+    through a different door. No baseline means we cannot know who moved what,
+    so the answer is refuse, not guess."""
+
+    def test_synced_id_without_snapshot_refuses_instead_of_overwriting_live(self):
+        result = diff_pxq_tiers(
+            live_tiers=[LiveTier(id="ML1", quantity=10, amount=Decimal("470.00"))],
+            desired_tiers=[DesiredTier(quantity=10, amount=Decimal("500.00"), ml_price_id="ML1")],
+        )
+
+        assert result.array is None
+        assert result.refusal.divergences[0].reason == "no snapshot to compare against"
+
+    def test_a_tier_with_no_id_and_no_snapshot_is_still_a_plain_create(self):
+        result = diff_pxq_tiers(
+            live_tiers=[],
+            desired_tiers=[DesiredTier(quantity=10, amount=Decimal("500.00"))],
+        )
+
+        assert result.array == [{"quantity": 10, "amount": 500.0}]
+
+
+def test_duplicate_ml_price_id_in_desired_refuses():
+    """Two desired rows pointing at the same live tier would emit that id
+    twice, and MercadoLibre would receive an array that contradicts itself."""
+    result = diff_pxq_tiers(
+        live_tiers=[LiveTier(id="ML1", quantity=10, amount=Decimal("500.00"))],
+        desired_tiers=[
+            DesiredTier(
+                quantity=10,
+                amount=Decimal("500.00"),
+                ml_price_id="ML1",
+                synced_quantity=10,
+                synced_amount=Decimal("500.00"),
+            ),
+            DesiredTier(
+                quantity=20,
+                amount=Decimal("400.00"),
+                ml_price_id="ML1",
+                synced_quantity=20,
+                synced_amount=Decimal("400.00"),
+            ),
+        ],
+    )
+
+    assert result.array is None
+    assert "duplicate" in result.refusal.reason

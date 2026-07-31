@@ -82,6 +82,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+# Declared HERE, and imported by `pxq_tier_service`, not the other way round.
+# This module is pure by design — that is the whole reason it was split into
+# its own slice — and importing the service would drag FastAPI and SQLAlchemy
+# in behind it. Dependencies point from the service to the primitive.
 MAX_TIERS = 5
 
 Money = Union[int, float, Decimal]
@@ -216,6 +220,21 @@ def diff_pxq_tiers(
             )
         )
 
+    synced_ids = [d.ml_price_id for d in desired_tiers if d.ml_price_id is not None]
+    if len(synced_ids) != len(set(synced_ids)):
+        # Two desired rows pointing at the same live tier would emit that id
+        # twice, handing MercadoLibre an array that contradicts itself.
+        duplicated = sorted({i for i in synced_ids if synced_ids.count(i) > 1})
+        return PxqDiffResult(
+            refusal=PxqDiffRefusal(
+                reason="duplicate_ml_price_id",
+                divergences=[
+                    PxqDivergence(ml_price_id=i, reason="duplicate ml_price_id across desired tiers")
+                    for i in duplicated
+                ],
+            )
+        )
+
     if not desired_tiers:
         if not allow_clear:
             return PxqDiffResult(
@@ -270,6 +289,21 @@ def diff_pxq_tiers(
         # two unrelated invariants to the order of the code. It must hold for
         # every branch below, keeps included, so it goes here.
         referenced_live_ids.add(desired.ml_price_id)
+
+        if not desired.has_snapshot:
+            # The row claims to be synced (it carries an id) but records no
+            # baseline, so "who moved this" is unanswerable. Treating it as a
+            # local edit is what overwrote MercadoLibre before the snapshot
+            # existed; the honest answer is to refuse and let a human look.
+            divergences.append(
+                PxqDivergence(
+                    ml_price_id=desired.ml_price_id,
+                    reason="no snapshot to compare against",
+                    live={"id": live.id, "quantity": live.quantity, "amount": float(live.amount)},
+                    desired={"quantity": desired.quantity, "amount": float(desired.amount)},
+                )
+            )
+            continue
 
         matches = live.quantity == desired.quantity and live.amount == desired.amount
         if matches:
