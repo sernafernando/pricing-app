@@ -7,15 +7,19 @@ PxQ tiers are additional quantity prices layered on top of the base price;
 `precio_lista_ml` (the BASE price) — the "recompute markup in the same
 transaction" convention does NOT apply to PxQ writes, because PxQ never
 touches that table at all. This is enforced as a failing test, not a
-convention, and is written generically by PATH PATTERN
-(`app/services/ml_pxq_*`, `app/services/pxq_*`, `app/api/endpoints/pxq*`) so
-future PR 3 modules are covered without editing this test again.
+convention.
+
+Discovery walks the WHOLE of `app/` and matches on FILE NAME, not on a list
+of directories. An earlier version enumerated globs per directory and did not
+include `app/routers/` — which is where this repo actually puts new domain
+routers, so PR 3's router would have slipped past the one barrier this test
+exists to provide, with the test still green. A name-based walk cannot
+develop that kind of blind spot when code lands somewhere new.
 """
 
 from __future__ import annotations
 
 import ast
-import glob
 import os
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,19 +27,27 @@ _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 _FORBIDDEN_NAMES = {"ProductoPricing"}
 _FORBIDDEN_MODULE_SUBSTRINGS = ("productos_pricing",)
 
-_PXQ_PATH_GLOBS = (
-    "app/services/pxq_*.py",
-    "app/services/ml_pxq_*.py",
-    "app/api/endpoints/pxq*.py",
-    "app/models/ml_pxq_*.py",
-)
+_PXQ_FILENAME_PREFIXES = ("pxq_", "ml_pxq_")
+_APP_ROOT = os.path.join(_BACKEND_ROOT, "app")
 
 
 def _pxq_module_paths() -> list[str]:
+    """Every .py under `app/` whose file name marks it as PxQ code.
+
+    Deliberately a walk over all of `app/`, not a per-directory glob list: a
+    new module only has to be NAMED as PxQ code to be covered, no matter which
+    package it lands in.
+    """
     paths: list[str] = []
-    for pattern in _PXQ_PATH_GLOBS:
-        paths.extend(sorted(glob.glob(os.path.join(_BACKEND_ROOT, pattern))))
-    return paths
+    for dirpath, _dirnames, filenames in os.walk(_APP_ROOT):
+        if "__pycache__" in dirpath:
+            continue
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            if filename.startswith(_PXQ_FILENAME_PREFIXES):
+                paths.append(os.path.join(dirpath, filename))
+    return sorted(paths)
 
 
 def _scan_module_for_producto_pricing_references(path: str) -> list[str]:
@@ -85,3 +97,30 @@ def test_scan_is_generic_enough_to_catch_a_synthetic_violation(tmp_path) -> None
 
     violations = _scan_module_for_producto_pricing_references(str(bad_module))
     assert violations != []
+
+
+def test_scan_reaches_pxq_code_in_any_package(tmp_path, monkeypatch) -> None:
+    """The scan must not depend on which package PxQ code lands in.
+
+    `app/routers/` is where this repo puts new domain routers, and the previous
+    per-directory glob list omitted it — so a router importing ProductoPricing
+    would have passed. This pins discovery to the file NAME instead."""
+    import sys
+
+    module = sys.modules[__name__]
+
+    fake_app = tmp_path / "app"
+    for package in ("routers", "services", "api/endpoints", "somewhere/new"):
+        (fake_app / package).mkdir(parents=True)
+        (fake_app / package / "pxq_thing.py").write_text("x = 1\n", encoding="utf-8")
+    (fake_app / "routers" / "unrelated.py").write_text("x = 1\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_APP_ROOT", str(fake_app))
+    found = {os.path.relpath(p, str(fake_app)) for p in module._pxq_module_paths()}
+
+    assert found == {
+        os.path.join("routers", "pxq_thing.py"),
+        os.path.join("services", "pxq_thing.py"),
+        os.path.join("api", "endpoints", "pxq_thing.py"),
+        os.path.join("somewhere", "new", "pxq_thing.py"),
+    }
