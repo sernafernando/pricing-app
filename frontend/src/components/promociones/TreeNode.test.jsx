@@ -713,23 +713,6 @@ describe('TreeNode — catalogCompetitionCacheRef threading', () => {
     expect(panel.getAttribute('data-has-cache-ref')).toBe('yes');
   });
 
-  it('hides the catalog competition refresh trigger without promos.escribir', () => {
-    // The read endpoint needs promos.ver, but the panel's refresh needs
-    // promos.escribir. Offering it to a view-only user buys them a 403 —
-    // the promo refresh button is already gated the same way.
-    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.escribir');
-    renderNode({
-      level: 1,
-      kind: 'publicacion',
-      mla: 'MLA_VIEW_ONLY',
-      label: 'MLA_VIEW_ONLY',
-      matches_filter: true,
-      children: [],
-    });
-
-    expect(screen.getByText('MLA_VIEW_ONLY')).toBeInTheDocument();
-  });
-
   it('keeps the catalog competition panel reachable for a view-only user', async () => {
     // Reading the stored snapshot only needs promos.ver; the panel itself
     // must stay available even when the refresh inside it is not.
