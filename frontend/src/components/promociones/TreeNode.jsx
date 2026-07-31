@@ -109,6 +109,7 @@ function TreeNode({
     const open = collapseMode === 'all-open';
     setIsOpen(open);
     setPromosOpen(open);
+    setCatalogCompetitionOpen(open);
   }, [collapseEpoch]);
 
   // Guards the async refresh follow-up from setState-ing after the node

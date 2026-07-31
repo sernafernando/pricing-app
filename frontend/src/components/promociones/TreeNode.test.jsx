@@ -737,6 +737,27 @@ describe('TreeNode — global collapse epoch sync', () => {
     expect(screen.queryByRole('button', { name: /^promociones/i })).not.toBeInTheDocument();
   });
 
+  it('global-open also opens the catalog-competition sub-panel, not just promos', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    const catalogButtons = screen.getAllByRole('button', { name: /^competencia catálogo/i });
+    expect(catalogButtons.length).toBeGreaterThan(0);
+    catalogButtons.forEach((button) => {
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  it('global-close also closes the catalog-competition sub-panel', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^competencia catálogo/i })).not.toBeInTheDocument();
+  });
+
   it('a manual toggle after a global-open survives (does not get overridden back)', async () => {
     renderNode(buildMlaTree());
     const user = userEvent.setup();
