@@ -213,3 +213,56 @@ describe('useProductosFilters — limpiarTodosFiltros clears every filter', () =
     expect(result.current.coloresSeleccionados).toEqual([]);
   });
 });
+
+describe('useProductosFilters — after clearing, no filter reaches the API', () => {
+  const setEverything = (result) => {
+    act(() => {
+      result.current.setSearchInput('taladro');
+      result.current.setFiltroStock('con_stock');
+      result.current.setFiltroPrecio('con_precio');
+      result.current.setFiltroRebate('si');
+      result.current.setFiltroOferta('si');
+      result.current.setFiltroWebTransf('si');
+      result.current.setFiltroTiendaNube('con_descuento');
+      result.current.setFiltroMarkupClasica('bajo');
+      result.current.setFiltroMarkupRebate('bajo');
+      result.current.setFiltroMarkupOferta('bajo');
+      result.current.setFiltroMarkupWebTransf('bajo');
+      result.current.setFiltroOutOfCards('si');
+      result.current.setFiltroMLA('con_mla');
+      result.current.setFiltroEstadoMLA('activa');
+      result.current.setFiltroNuevos('ultimos_7_dias');
+      result.current.setFiltroTiendaOficial('2645');
+      result.current.setFiltroPromoTipos(['DEAL']);
+      result.current.setFiltroPromoEstado('aplicada');
+      result.current.setMarcasSeleccionadas(['ACME']);
+      result.current.setSubcategoriasSeleccionadas(['SUB']);
+      result.current.setPmsSeleccionados([7]);
+      result.current.setColoresSeleccionados(['rojo']);
+    });
+  };
+
+  // What the user actually observes is not hook state but the request the
+  // list makes next. A filter that survives here is a filter that keeps
+  // filtering after "Limpiar", which is the reported bug.
+  it('limpiarTodosFiltros leaves construirFiltrosParams empty', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+    setEverything(result);
+    expect(Object.keys(result.current.construirFiltrosParams()).length).toBeGreaterThan(0);
+
+    act(() => result.current.limpiarTodosFiltros());
+
+    expect(result.current.construirFiltrosParams()).toEqual({});
+  });
+
+  it('limpiarFiltros leaves construirFiltrosParams empty too', () => {
+    // Bound to the "Total Productos" stat card: clicking the card that means
+    // "show me everything" must not leave a brand, colour or store filter on.
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+    setEverything(result);
+
+    act(() => result.current.limpiarFiltros());
+
+    expect(result.current.construirFiltrosParams()).toEqual({});
+  });
+});
