@@ -83,6 +83,24 @@ def create_pxq_tier(
             ),
         )
 
+    # Same reason as the count above, and inside the same locked window: the
+    # unique constraint exists, but reaching it means an IntegrityError at
+    # flush, which an endpoint surfaces as a 500 where this service promises
+    # a 422.
+    duplicate = (
+        db.query(MlPxqTier.id)
+        .filter(
+            MlPxqTier.publicacion_ml_id == publicacion_ml_id,
+            MlPxqTier.cantidad_minima == cantidad_minima,
+        )
+        .first()
+    )
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"publicacion_ml_id={publicacion_ml_id} already has a tier with cantidad_minima={cantidad_minima}"),
+        )
+
     tier = MlPxqTier(
         publicacion_ml_id=publicacion_ml_id,
         item_id=item_id,

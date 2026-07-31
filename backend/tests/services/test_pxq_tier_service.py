@@ -146,3 +146,34 @@ def test_price_is_stored_as_decimal_not_binary_float(db, publicacion, pxq_user) 
     assert tier.precio_unitario == Decimal("500.10")
     assert isinstance(tier.costo_envio_total, Decimal)
     assert tier.costo_envio_total == Decimal("3200.45")
+
+
+def test_duplicate_cantidad_minima_through_the_service_is_a_clean_422(db, publicacion, pxq_user) -> None:
+    """The unique constraint was only ever exercised by writing rows directly,
+    so the service path — the one an endpoint actually calls — reached flush
+    and raised IntegrityError, i.e. a 500 where this module promises a 422.
+
+    The check sits inside the window already serialized by the publication
+    lock, so it is not a new race of its own."""
+    create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("900.00"),
+            usuario_id=pxq_user.id,
+        )
+
+    assert exc.value.status_code == 422
+    assert "5" in str(exc.value.detail)
