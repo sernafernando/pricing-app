@@ -12,7 +12,8 @@ import-scan test).
 
 from __future__ import annotations
 
-from typing import Optional
+from decimal import Decimal
+from typing import Optional, Union
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -22,15 +23,25 @@ from app.models.publicacion_ml import PublicacionML
 
 MAX_TIERS_PER_PUBLICATION = 5
 
+# Money columns are Numeric(14, 2). Accepting a bare float and letting the
+# driver convert means 500.10 stops being 500.10 — invisible on SQLite, and in
+# Postgres it only surfaces when a sum of tiers refuses to reconcile. Going
+# through str() is what keeps the decimal value the caller wrote.
+Money = Union[Decimal, float, int, str]
+
+
+def _to_decimal(value: Money) -> Decimal:
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
 
 def create_pxq_tier(
     db: Session,
     publicacion_ml_id: int,
     item_id: str,
     cantidad_minima: int,
-    precio_unitario: float,
+    precio_unitario: Money,
     usuario_id: int,
-    costo_envio_total: Optional[float] = None,
+    costo_envio_total: Optional[Money] = None,
     ml_price_id: Optional[str] = None,
 ) -> MlPxqTier:
     """Creates a `MlPxqTier` row after service-layer validation.
@@ -52,7 +63,15 @@ def create_pxq_tier(
     # leave six rows. MercadoLibre would then reject the whole array on PR 3's
     # write path. Serializing per publication closes that window; on SQLite
     # (tests) the FOR UPDATE is a harmless no-op.
-    db.query(PublicacionML.id).filter(PublicacionML.id == publicacion_ml_id).with_for_update().first()
+    publicacion = db.query(PublicacionML.id).filter(PublicacionML.id == publicacion_ml_id).with_for_update().first()
+    if publicacion is None:
+        # No row means no lock was taken, so the window above stays open for
+        # exactly this case. Failing here also turns what would otherwise be an
+        # FK IntegrityError at flush into the clean 422 this service promises.
+        raise HTTPException(
+            status_code=422,
+            detail=f"publicacion_ml_id={publicacion_ml_id} does not exist",
+        )
 
     existing_count = db.query(MlPxqTier).filter(MlPxqTier.publicacion_ml_id == publicacion_ml_id).count()
     if existing_count >= MAX_TIERS_PER_PUBLICATION:
@@ -68,8 +87,8 @@ def create_pxq_tier(
         publicacion_ml_id=publicacion_ml_id,
         item_id=item_id,
         cantidad_minima=cantidad_minima,
-        precio_unitario=precio_unitario,
-        costo_envio_total=costo_envio_total,
+        precio_unitario=_to_decimal(precio_unitario),
+        costo_envio_total=(None if costo_envio_total is None else _to_decimal(costo_envio_total)),
         ml_price_id=ml_price_id,
         estado=ESTADO_INCOMPLETO,
         usuario_id=usuario_id,

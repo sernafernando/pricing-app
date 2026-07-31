@@ -8,6 +8,8 @@ not the primary UX-facing validation path.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi import HTTPException
 
@@ -103,3 +105,44 @@ def test_sixth_tier_for_same_publication_rejected_with_422(db, publicacion, pxq_
     assert exc_info.value.status_code == 422
     # The 6th tier must never have been persisted.
     assert db.query(MlPxqTier).filter_by(publicacion_ml_id=publicacion.id).count() == MAX_TIERS_PER_PUBLICATION
+
+
+def test_unknown_publicacion_is_a_clean_422_not_an_integrity_error(db, pxq_user) -> None:
+    """`with_for_update().first()` takes no lock when the row does not exist,
+    so the TOCTOU window this service claims to close stayed open for exactly
+    the case nobody checked. Verifying the lookup succeeded closes it and, in
+    the same move, turns an FK IntegrityError at flush into the clean 422 this
+    service says it produces."""
+    with pytest.raises(HTTPException) as exc:
+        create_pxq_tier(
+            db,
+            publicacion_ml_id=987654,
+            item_id="MLA_NOPE",
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+
+    assert exc.value.status_code == 422
+    assert "987654" in str(exc.value.detail)
+
+
+def test_price_is_stored_as_decimal_not_binary_float(db, publicacion, pxq_user) -> None:
+    """`precio_unitario` is Numeric(14, 2). Money entering as a binary float
+    means 500.10 is not 500.10, and nobody notices until a sum of tiers fails
+    to reconcile."""
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=500.10,
+        usuario_id=pxq_user.id,
+        costo_envio_total=3200.45,
+    )
+    db.flush()
+
+    assert isinstance(tier.precio_unitario, Decimal)
+    assert tier.precio_unitario == Decimal("500.10")
+    assert isinstance(tier.costo_envio_total, Decimal)
+    assert tier.costo_envio_total == Decimal("3200.45")
