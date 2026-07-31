@@ -53,4 +53,9 @@ class MlPxqTier(Base):
 # free-text column would let a typo sit forever in a state no branch handles,
 # on a money path. The set is enforced by `ck_ml_pxq_tier_estado_valido`; this
 # tuple is the Python-side mirror of that constraint — keep both in step.
-ESTADOS_VALIDOS = ("incompleto", "listo", "sincronizado", "desconocido")
+ESTADO_INCOMPLETO = "incompleto"
+ESTADO_LISTO = "listo"
+ESTADO_SINCRONIZADO = "sincronizado"
+ESTADO_DESCONOCIDO = "desconocido"
+
+ESTADOS_VALIDOS = (ESTADO_INCOMPLETO, ESTADO_LISTO, ESTADO_SINCRONIZADO, ESTADO_DESCONOCIDO)

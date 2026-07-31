@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.ml_pxq_tier import MlPxqTier
+from app.models.ml_pxq_tier import ESTADO_INCOMPLETO, MlPxqTier
 
 MAX_TIERS_PER_PUBLICATION = 5
 
@@ -61,7 +61,7 @@ def create_pxq_tier(
         precio_unitario=precio_unitario,
         costo_envio_total=costo_envio_total,
         ml_price_id=ml_price_id,
-        estado="incompleto",
+        estado=ESTADO_INCOMPLETO,
         usuario_id=usuario_id,
     )
     db.add(tier)

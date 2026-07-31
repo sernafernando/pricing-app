@@ -166,3 +166,17 @@ def test_every_declared_estado_is_accepted(db, publicacion, pxq_user) -> None:
         )
         db.add(tier)
     db.flush()
+
+
+def test_declared_estado_constants_match_the_check_constraint() -> None:
+    """`ESTADOS_VALIDOS` mirrors a database CheckConstraint that cannot import
+    it, so nothing but this test keeps the two in step. Without it the tuple is
+    documentation that silently rots the first time someone edits one side."""
+    constraint = next(
+        c for c in MlPxqTier.__table__.constraints if getattr(c, "name", None) == "ck_ml_pxq_tier_estado_valido"
+    )
+    sql = str(constraint.sqltext)
+
+    for estado in ESTADOS_VALIDOS:
+        assert f"'{estado}'" in sql, f"{estado} declared in ESTADOS_VALIDOS but missing from the constraint"
+    assert sql.count("'") == len(ESTADOS_VALIDOS) * 2, "constraint allows a value not declared in ESTADOS_VALIDOS"
