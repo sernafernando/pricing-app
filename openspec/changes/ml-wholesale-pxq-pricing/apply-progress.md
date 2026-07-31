@@ -140,10 +140,66 @@ binary float. Every one is now covered by a test that fails without the fix.
 - Line count: 1361 across the three PRs, over the ~370 estimate — split rather
   than excepted.
 
-## PR 3, 3a, 4 — NOT STARTED (out of scope for this apply run)
+## PR 3a — Pure array-replace diff function (tasks 29-38)
 
-Next apply run should pick up PR 3 (kill-switch, eligibility gates, diff/
-reconcile function, live-read + sync endpoints), on top of the tracker branch
-once #1042 lands. Design/tasks flag PR 3 as High budget risk with a pre-declared
-3/3a split contingency — re-estimate honestly before starting rather than
-discovering an overage mid-apply.
+Status: DONE locally, NOT PUSHED (per instructions — commit only, no push/PR).
+Branch `feat/pxq-array-diff`, targets the tracker `feat/ml-wholesale-pxq-pricing`,
+on top of merged #1038/#1040/#1041/#1042.
+
+- `backend/app/services/pxq_diff.py`: pure function `diff_pxq_tiers(live_tiers,
+  desired_tiers, *, allow_clear=False) -> PxqDiffResult`. No DB session, no
+  HTTP. Value objects `LiveTier`/`DesiredTier` normalize all money to
+  `Decimal` via `Decimal(str(value))` (never `Decimal(float)` directly) so a
+  JSON-sourced float and a DB-sourced `Decimal` compare equal.
+- Reconciliation resolves an ambiguity between design.md's terse pseudocode
+  and its own worked scenarios (matched-id-differs appearing both as a
+  "divergence -> refuse" and as "modify -> delete+create"): disambiguated via
+  each `DesiredTier.estado`. `estado="listo"` (not yet synced, i.e. an
+  intentional local edit) on a matched-but-differing id -> **modify**
+  (delete old id + create new, mutated id never re-sent). `estado="sincronizado"`
+  (mirror believes it's already in sync) on a matched-but-differing id ->
+  **divergence, refuse** (an external actor changed it on ML). A mirror
+  `ml_price_id` absent from the live read entirely is always a divergence
+  refusal regardless of `estado`. A live tier not referenced by any desired
+  row's `ml_price_id` is preserved as an untracked keep (spec: "Unmirrored
+  live tier is preserved") — the one exception is the empty-desired-with-
+  `allow_clear=True` full wipe, which intentionally emits `[]` and drops even
+  untracked live tiers, since the caller explicitly asked to clear everything.
+  This deviates from a literal reading of design.md line 54's phrase "live id
+  not in mirror -> refuse", which — read against spec.md's own scenario and
+  tasks.md task 33 — describes the mirror-ml_price_id-absent-from-live case,
+  not the untracked-live-tier case; flagged as a risk for PR 3/review to
+  confirm against the design author's intent.
+  Max 5 desired tiers enforced (`too_many_tiers` refusal), consistent with
+  the service-layer 422 in PR 2b (this is a second, defense-in-depth check
+  at the diff layer, not a duplicate of that endpoint validation).
+- Tests: `backend/tests/services/test_pxq_diff.py` — 13 tests: keep, create,
+  delete, modify, unmirrored-live-preserved, divergence (matched-differs +
+  id-absent), divergence-refusal-builds-no-partial-array, ids-only-from-live
+  invariant, empty-desired guard (refuse + allow_clear wipe), max-5 refusal,
+  Decimal/float normalization. Every assertion checks the exact emitted
+  array/refusal payload, not just counts or `ok`/`not ok`. Mutation-tested
+  the core comparison branch by hand (forced `matches = True`) — 3 of 13
+  tests failed as expected, confirming they were not vacuous, then reverted.
+- Boundary: covered automatically by the existing PR 2d AST scan
+  (`test_pxq_base_price_boundary.py`) via the `pxq*` filename prefix — no
+  edit needed to that test.
+- Lint: `ruff format app/` — clean (2 files reformatted on first pass,
+  clean thereafter). `ruff check app/` — clean.
+- Tests: targeted `test_pxq_diff.py` + `test_pxq_base_price_boundary.py` —
+  18 passed. Full suite run once: `4004 passed, 16 skipped` (baseline for
+  this branch was 3989/16 — net +15, zero regressions/failures).
+- Commit: `feat(pxq): add pure array-replace diff function for ML PxQ tiers`
+  on `feat/pxq-array-diff` (local only, not pushed).
+- Diff size: 459 lines (262 impl incl. module docstring, 197 tests) — over
+  the ~120-150 carve-out estimate, driven by the same strict-TDD test volume
+  and heavy inline rationale documentation pattern seen in PR 2; flagged for
+  the reviewer, not re-split (PR 3a is already the split-out unit).
+
+## PR 3 (write path proper), 4 — NOT STARTED (out of scope for this apply run)
+
+Next apply run should pick up PR 3b onward (kill-switch, eligibility gates,
+`ml_pxq_write_service`, live-read + sync endpoints, router wiring), on top of
+this branch (`feat/pxq-array-diff`) once it's reviewed/merged into the
+tracker. Do NOT re-implement the diff function — import `diff_pxq_tiers` /
+`LiveTier` / `DesiredTier` from `app.services.pxq_diff`.
