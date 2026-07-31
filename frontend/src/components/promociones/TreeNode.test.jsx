@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
@@ -687,6 +687,66 @@ describe('TreeNode official store badge', () => {
 
     expect(screen.getByText(/familia fam_store/i)).toBeInTheDocument();
     expect(screen.queryByText(/gauss/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('TreeNode — global collapse epoch sync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  afterEach(() => {
+    // These tests bump collapseEpoch — reset it so later describe blocks
+    // (which don't touch collapse state) mount TreeNode with epoch 0 (no
+    // sync effect firing on mount).
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaTree() {
+    return {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_CAT',
+      label: 'MLA_CAT',
+      matches_filter: true,
+      children: [
+        { level: 2, kind: 'vinculada', mla: 'MLA_VINC1', label: 'MLA_VINC1', matches_filter: true, children: [] },
+      ],
+    };
+  }
+
+  it('global-open opens every node (including nested promo panel) in one action', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^promociones/i }).length).toBeGreaterThan(0);
+  });
+
+  it('global-close closes every node after being opened', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getAllByRole('button', { name: /^promociones/i }).length).toBeGreaterThan(0);
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^promociones/i })).not.toBeInTheDocument();
+  });
+
+  it('a manual toggle after a global-open survives (does not get overridden back)', async () => {
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+
+    expect(screen.queryByText('MLA_VINC1')).not.toBeInTheDocument();
   });
 });
 

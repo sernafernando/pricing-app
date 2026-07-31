@@ -95,6 +95,21 @@ function TreeNode({
   const [promosReloadKey, setPromosReloadKey] = useState(0);
   const { tienePermiso } = usePermisos();
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
+  const collapseEpoch = useTreeViewStore((state) => state.collapseEpoch);
+  const collapseMode = useTreeViewStore((state) => state.collapseMode);
+
+  // Global synchronized collapse toggle (tree-view-collapse, design D6): syncs
+  // this node's local open state from the store ONLY when the epoch changes
+  // (i.e. only on an actual global-open/global-close activation), never on
+  // every render. Manual toggles below mutate only local `useState` and never
+  // touch the store, so a later manual toggle is never fought back by this
+  // effect re-firing — it only fires again on the NEXT global activation.
+  useEffect(() => {
+    if (collapseEpoch === 0) return;
+    const open = collapseMode === 'all-open';
+    setIsOpen(open);
+    setPromosOpen(open);
+  }, [collapseEpoch]);
 
   // Guards the async refresh follow-up from setState-ing after the node
   // unmounts (e.g. the tree re-renders on a promo-filter change while a

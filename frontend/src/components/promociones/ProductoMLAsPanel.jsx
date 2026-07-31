@@ -55,6 +55,8 @@ function ProductoMLAsPanel({
   const [verTodos, setVerTodos] = useState(false);
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
   const toggleFamilia = useTreeViewStore((state) => state.toggleFamilia);
+  const expandAll = useTreeViewStore((state) => state.expandAll);
+  const collapseAll = useTreeViewStore((state) => state.collapseAll);
 
   // Reset the "ver todos" reveal whenever the active filter changes, so a
   // filter change on an already-expanded (still-mounted) panel re-applies the
@@ -101,6 +103,14 @@ function ProductoMLAsPanel({
 
   return (
     <>
+      <div className={styles.filterMessage}>
+        <button type="button" className="btn-tesla ghost sm" onClick={expandAll}>
+          Expandir todo
+        </button>
+        <button type="button" className="btn-tesla ghost sm" onClick={collapseAll}>
+          Colapsar todo
+        </button>
+      </div>
       {hasFamilia && (
         <div className={styles.filterMessage}>
           <button
