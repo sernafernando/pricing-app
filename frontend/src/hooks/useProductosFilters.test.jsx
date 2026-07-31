@@ -149,3 +149,67 @@ describe('useProductosFilters — unified promo filter (types + tri-state estado
     expect(params.promo_estado).toBe('disponible');
   });
 });
+
+describe('useProductosFilters — limpiarTodosFiltros clears every filter', () => {
+  it('clears the official-store filter', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => result.current.setFiltroTiendaOficial('2645'));
+    expect(result.current.filtroTiendaOficial).toBe('2645');
+
+    act(() => result.current.limpiarTodosFiltros());
+    expect(result.current.filtroTiendaOficial).toBeNull();
+  });
+
+  it('leaves no filtro* state behind — guards every future filter', () => {
+    // The official-store filter shipped without a line in limpiarTodosFiltros,
+    // so "Limpiar" silently kept filtering. Rather than pin that one field,
+    // this asserts the invariant: every `filtro*` value the hook exposes must
+    // come back to a falsy/empty state. A new filter added without its reset
+    // line fails here instead of reaching a user.
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroTiendaOficial('2645');
+      result.current.setFiltroStock('con_stock');
+      result.current.setFiltroPrecio('con_precio');
+      result.current.setFiltroRebate('si');
+      result.current.setFiltroOferta('si');
+      result.current.setFiltroWebTransf('si');
+      result.current.setFiltroTiendaNube('con_descuento');
+      result.current.setFiltroMarkupClasica('bajo');
+      result.current.setFiltroMarkupRebate('bajo');
+      result.current.setFiltroMarkupOferta('bajo');
+      result.current.setFiltroMarkupWebTransf('bajo');
+      result.current.setFiltroOutOfCards('si');
+      result.current.setFiltroMLA('con_mla');
+      result.current.setFiltroEstadoMLA('activa');
+      result.current.setFiltroNuevos('ultimos_7_dias');
+      result.current.setFiltroPromoTipos(['DEAL']);
+      result.current.setFiltroPromoEstado('aplicada');
+      result.current.setMarcasSeleccionadas(['ACME']);
+      result.current.setSubcategoriasSeleccionadas(['SUB']);
+      result.current.setPmsSeleccionados([1]);
+      result.current.setColoresSeleccionados(['rojo']);
+    });
+
+    act(() => result.current.limpiarTodosFiltros());
+
+    // 'todos' and 'disponible' are this hook's "no filter" sentinels.
+    const NEUTRAL = new Set([null, undefined, '', 'todos', 'disponible']);
+    const leftovers = Object.entries(result.current)
+      .filter(([key]) => key.startsWith('filtro') && !key.startsWith('filtros'))
+      .filter(([, value]) => {
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'function') return false;
+        return !NEUTRAL.has(value);
+      })
+      .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+
+    expect(leftovers).toEqual([]);
+    expect(result.current.marcasSeleccionadas).toEqual([]);
+    expect(result.current.subcategoriasSeleccionadas).toEqual([]);
+    expect(result.current.pmsSeleccionados).toEqual([]);
+    expect(result.current.coloresSeleccionados).toEqual([]);
+  });
+});

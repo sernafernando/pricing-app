@@ -320,6 +320,7 @@ export function useProductosFilters() {
     setFiltroMLA(null);
     setFiltroEstadoMLA(null);
     setFiltroNuevos(null);
+    setFiltroTiendaOficial(null);
     setColoresSeleccionados([]);
     setFiltroPromoTipos([]);
     setFiltroPromoEstado('disponible');
