@@ -26,7 +26,9 @@ from app.services.ml_catalog_competition_service import (
     _bucket_key,
     _normalize_installments,
     _to_ars,
+    obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
+    undercutting_competitors,
 )
 
 
@@ -521,3 +523,60 @@ class TestPersistedColumnTypes:
                 continue
             assert isinstance(value, str), f"{field} must be a str for its String column, got {type(value)}"
             assert len(value) <= max_len, f"{field} is {len(value)} chars, exceeds String({max_len})"
+
+
+# ── obtener_ultimo_snapshot / undercutting_competitors (slice C2) ────
+
+
+class TestObtenerUltimoSnapshot:
+    def test_returns_none_when_never_fetched(self) -> None:
+        db = MagicMock()
+        query = db.query.return_value
+        query.filter.return_value.order_by.return_value.first.return_value = None
+        assert obtener_ultimo_snapshot(db, "MLA123") is None
+
+    def test_returns_latest_row_ordered_desc(self) -> None:
+        db = MagicMock()
+        row = MagicMock()
+        query = db.query.return_value
+        query.filter.return_value.order_by.return_value.first.return_value = row
+        result = obtener_ultimo_snapshot(db, "MLA123")
+        assert result is row
+
+        # Must order DESC on fecha_consulta so `.first()` picks the NEWEST
+        # snapshot, matching the latest view's semantics. Asserting only
+        # that order_by was called proves nothing: the MagicMock records
+        # the call either way, and ASC would return the OLDEST row — the
+        # user would be shown stale competitor prices as if they were
+        # current.
+        order_by_call = query.filter.return_value.order_by.call_args
+        assert order_by_call is not None, "the query must be ordered at all"
+        criterion = str(order_by_call.args[0])
+        assert "fecha_consulta" in criterion, f"must order by fecha_consulta, got {criterion!r}"
+        assert "DESC" in criterion.upper(), f"must order DESC (newest first), got {criterion!r}"
+
+
+class TestUndercuttingCompetitors:
+    def test_none_row_returns_empty_list(self) -> None:
+        assert undercutting_competitors(None) == []
+
+    def test_failed_row_with_empty_competitors_returns_empty_list(self) -> None:
+        row = MagicMock()
+        row.competitors = []
+        assert undercutting_competitors(row) == []
+
+    def test_only_same_bucket_and_strictly_cheaper_survive(self) -> None:
+        row = MagicMock()
+        row.competitors = [
+            {"item_id": "A", "same_bucket": True, "is_cheaper_than_us": True, "price_ars": 900},
+            {"item_id": "B", "same_bucket": True, "is_cheaper_than_us": False, "price_ars": 1100},
+            {"item_id": "C", "same_bucket": False, "is_cheaper_than_us": True, "price_ars": 500},
+            {"item_id": "D", "same_bucket": True, "is_cheaper_than_us": None, "price_ars": None},
+        ]
+        result = undercutting_competitors(row)
+        assert [c["item_id"] for c in result] == ["A"]
+
+    def test_competitors_none_degrades_to_empty_list(self) -> None:
+        row = MagicMock()
+        row.competitors = None
+        assert undercutting_competitors(row) == []
