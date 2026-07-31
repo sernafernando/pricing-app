@@ -373,6 +373,16 @@
   color: var(--bg-primary);
 }
 
+/* Row holding the tree's global expand/collapse controls. Deliberately its own
+   class rather than borrowing .filterMessage: these are not a filter, and
+   sharing that class meant a change to filter styling silently moved unrelated
+   controls. */
+.treeControls {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
 .filterMessage {
   padding: 8px 4px;
   color: var(--text-secondary);

@@ -20,10 +20,9 @@ write semantics" / "Refuse write on local/live divergence"):
               longer exists is left out entirely by the caller not passing it
               in `desired_tiers`).
   * modify -> a desired tier previously synced (`ml_price_id` set) whose
-              current values no longer match the live tier AND whose `estado`
-              says the mismatch is an intentional, not-yet-synced local edit
-              (`estado == "listo"`) -> delete the old id (omit) + create a
-              new entry without an id. The mutated id is NEVER sent back.
+              values moved since the last sync while LIVE did not
+              -> delete the old id (omit) + create a new entry without an id.
+              The mutated id is NEVER sent back.
 
   * A live tier with no matching desired row (its id is not referenced by any
     desired tier's `ml_price_id`) is an UNTRACKED live tier and is preserved
@@ -35,15 +34,29 @@ write semantics" / "Refuse write on local/live divergence"):
       - a desired tier's `ml_price_id` is not present in the live read at all
         (we believe we synced it; live disagrees entirely -- something
         external happened to it), or
-      - a desired tier's `ml_price_id` IS present in live but its
-        quantity/amount differ AND `estado == "sincronizado"` (we believe this
-        row is already in sync with live; a live-side value we did not
-        change ourselves disagreeing means an external actor changed it).
-    `estado == "listo"` is what distinguishes an intentional, not-yet-synced
-    local edit (-> modify) from an unexpected external change (-> divergence);
-    without that flag "the price changed" and "someone edited ML behind our
-    back" would be indistinguishable, and every routine price edit would
-    incorrectly refuse.
+      - LIVE moved since the last sync, i.e. the live values differ from the
+        SNAPSHOT this mirror recorded when ML last confirmed the tier.
+
+    The snapshot (`synced_quantity` / `synced_amount`) is the shared base that
+    makes this a three-way merge, and it is what the decision actually turns
+    on:
+
+      local vs snapshot | live vs snapshot | outcome
+      ------------------|------------------|----------------------------------
+      unchanged         | unchanged        | keep
+      CHANGED           | unchanged        | modify (our edit, safe to write)
+      unchanged         | CHANGED          | refuse: writing reverts their edit
+      CHANGED           | CHANGED          | refuse: genuine concurrent edit
+
+    A NULL snapshot means the tier was never synced, so there is nothing to
+    have diverged from and it is a create.
+
+    An earlier version of this module decided the same question by reading the
+    row's `estado`. That field is a proxy for intent, and it cannot tell a
+    local edit from a remote one: a tier sitting at `listo` overwrote whatever
+    MercadoLibre held, silently, on the money path. Comparing local-only
+    against live has the same blind spot — the two edits are
+    indistinguishable without a shared base.
 
   * The empty-desired guard: an empty `desired_tiers` list refuses the write
     unless `allow_clear=True` is passed explicitly (design: "deleting all
@@ -58,7 +71,7 @@ write semantics" / "Refuse write on local/live divergence"):
     which is validated against the live set before being echoed back).
 
 This module receives already-selected data (which desired tiers should exist
-after the sync, e.g. `estado` in {"listo", "sincronizado"}, and the current
+after the sync (the snapshot columns), and the current
 fresh live read). Deciding WHICH mirror rows are "desired" and performing the
 actual HTTP call are the orchestrator's job (PR 3), not this module's.
 """
@@ -238,7 +251,6 @@ def diff_pxq_tiers(
             array.append(_tier_entry(desired.quantity, desired.amount))
             continue
 
-        referenced_live_ids.add(desired.ml_price_id)
         live = live_by_id.get(desired.ml_price_id)
 
         if live is None:
@@ -251,6 +263,13 @@ def diff_pxq_tiers(
                 )
             )
             continue
+
+        # Registered only once the id was actually found in the live read.
+        # Doing it before the lookup happened to be harmless, because any
+        # divergence aborts before the untracked-keep pass runs — but that ties
+        # two unrelated invariants to the order of the code. It must hold for
+        # every branch below, keeps included, so it goes here.
+        referenced_live_ids.add(desired.ml_price_id)
 
         matches = live.quantity == desired.quantity and live.amount == desired.amount
         if matches:
