@@ -120,6 +120,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
       <div className={styles.panelStateError}>
         Error al consultar competencia de catálogo{data.error_detail ? `: ${data.error_detail}` : ''}. {refreshButton}
         {refreshing && <span className={styles.provisionalPending}>Reintentando…</span>}
+        {refreshError && <span className={styles.feedbackError}>No se pudo consultar</span>}
       </div>
     );
   }
@@ -147,8 +148,14 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
         </div>
       ) : (
         <ul className={styles.promoList}>
-          {undercutting.map((competitor) => (
-            <li key={competitor.item_id || competitor.seller_id} className={styles.promoRow}>
+          {undercutting.map((competitor, index) => (
+            // item_id and seller_id are both Optional in the schema, so the
+            // index is the last-resort tiebreaker: two competitors missing
+            // both would otherwise collide on the same React key.
+            <li
+              key={competitor.item_id || competitor.seller_id || `competitor-${index}`}
+              className={styles.promoRow}
+            >
               <span className={styles.promoName}>
                 {competitor.seller_nickname || competitor.item_id || 'Competidor'}
               </span>
