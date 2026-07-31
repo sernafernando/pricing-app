@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.ml_pxq_tier import ESTADO_INCOMPLETO, MlPxqTier
+from app.models.publicacion_ml import PublicacionML
 
 MAX_TIERS_PER_PUBLICATION = 5
 
@@ -43,6 +44,15 @@ def create_pxq_tier(
             status_code=422,
             detail=f"cantidad_minima must be > 1 (got {cantidad_minima})",
         )
+
+    # Lock the publication row before counting. The five-tier ceiling is a
+    # product rule, so it lives here rather than in a DB constraint — but a
+    # bare count() is a read followed by a write, and two concurrent creates
+    # on a publication holding four tiers would both read four, both pass, and
+    # leave six rows. MercadoLibre would then reject the whole array on PR 3's
+    # write path. Serializing per publication closes that window; on SQLite
+    # (tests) the FOR UPDATE is a harmless no-op.
+    db.query(PublicacionML.id).filter(PublicacionML.id == publicacion_ml_id).with_for_update().first()
 
     existing_count = db.query(MlPxqTier).filter(MlPxqTier.publicacion_ml_id == publicacion_ml_id).count()
     if existing_count >= MAX_TIERS_PER_PUBLICATION:
