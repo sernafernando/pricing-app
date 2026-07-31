@@ -267,6 +267,21 @@ class CatalogCompetitionSnapshot(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _to_competitor_price(competitor: Dict[str, Any]) -> CatalogCompetitorPrice:
+    """Whitelist a stored competitor dict down to the response model.
+
+    The stored dicts carry working fields the API does not expose
+    (`bucket_key`, `same_bucket`, `is_cheaper_than_us`,
+    `currency_unconvertible`, `installments`). Splatting them in relies on
+    Pydantic's default `extra='ignore'`, which makes the endpoint's
+    behaviour depend on a global setting nothing here controls. Selecting
+    the declared fields keeps the response contract ours rather than the
+    ML payload's — the same discipline `_bounded_str` applies on the way
+    in.
+    """
+    return CatalogCompetitorPrice(**{key: competitor.get(key) for key in CatalogCompetitorPrice.model_fields})
+
+
 def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSnapshot:
     """Shared row -> response mapping for both the read and refresh
     endpoints, so they can never drift on how `never` / `undercutting`
@@ -280,7 +295,7 @@ def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSna
         our_price=float(row.our_price) if row.our_price is not None else None,
         our_currency_id=row.our_currency_id,
         competitor_count=row.competitor_count,
-        undercutting=[CatalogCompetitorPrice(**c) for c in undercutting_competitors(row)],
+        undercutting=[_to_competitor_price(c) for c in undercutting_competitors(row)],
         error_detail=row.error_detail,
     )
 

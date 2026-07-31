@@ -542,10 +542,18 @@ class TestObtenerUltimoSnapshot:
         query.filter.return_value.order_by.return_value.first.return_value = row
         result = obtener_ultimo_snapshot(db, "MLA123")
         assert result is row
-        # ordered DESC on fecha_consulta so LIMIT-1-equivalent .first() picks
-        # the newest row, matching the latest view's semantics.
+
+        # Must order DESC on fecha_consulta so `.first()` picks the NEWEST
+        # snapshot, matching the latest view's semantics. Asserting only
+        # that order_by was called proves nothing: the MagicMock records
+        # the call either way, and ASC would return the OLDEST row — the
+        # user would be shown stale competitor prices as if they were
+        # current.
         order_by_call = query.filter.return_value.order_by.call_args
-        assert order_by_call is not None
+        assert order_by_call is not None, "the query must be ordered at all"
+        criterion = str(order_by_call.args[0])
+        assert "fecha_consulta" in criterion, f"must order by fecha_consulta, got {criterion!r}"
+        assert "DESC" in criterion.upper(), f"must order DESC (newest first), got {criterion!r}"
 
 
 class TestUndercuttingCompetitors:
