@@ -13,6 +13,19 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
+# `estado` drives whether a tier is priced and pushed to MercadoLibre, so a
+# free-text column would let a typo sit forever in a state no branch handles,
+# on a money path. The set is enforced by `ck_ml_pxq_tier_estado_valido`, and
+# `test_declared_estado_constants_match_the_check_constraint` fails the moment
+# either side drifts.
+ESTADO_INCOMPLETO = "incompleto"
+ESTADO_LISTO = "listo"
+ESTADO_SINCRONIZADO = "sincronizado"
+ESTADO_DESCONOCIDO = "desconocido"
+
+ESTADOS_VALIDOS = (ESTADO_INCOMPLETO, ESTADO_LISTO, ESTADO_SINCRONIZADO, ESTADO_DESCONOCIDO)
+
+
 class MlPxqTier(Base):
     __tablename__ = "ml_pxq_tier"
 
@@ -26,7 +39,11 @@ class MlPxqTier(Base):
     costo_envio_total = Column(Numeric(14, 2), nullable=True)
     ml_price_id = Column(String(64), nullable=True)
 
-    estado = Column(String(16), nullable=False, default="incompleto")
+    # Both defaults on purpose: `default` covers ORM inserts, `server_default`
+    # keeps the model in step with the migration so `alembic revision
+    # --autogenerate` does not emit a spurious alter_column that nobody can
+    # tell apart from a real one.
+    estado = Column(String(16), nullable=False, default=ESTADO_INCOMPLETO, server_default=ESTADO_INCOMPLETO)
 
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
 
@@ -47,15 +64,3 @@ class MlPxqTier(Base):
 
     def __repr__(self) -> str:
         return f"<MlPxqTier(publicacion_ml_id={self.publicacion_ml_id}, cantidad_minima={self.cantidad_minima})>"
-
-
-# `estado` drives whether a tier is priced and pushed to MercadoLibre, so a
-# free-text column would let a typo sit forever in a state no branch handles,
-# on a money path. The set is enforced by `ck_ml_pxq_tier_estado_valido`; this
-# tuple is the Python-side mirror of that constraint — keep both in step.
-ESTADO_INCOMPLETO = "incompleto"
-ESTADO_LISTO = "listo"
-ESTADO_SINCRONIZADO = "sincronizado"
-ESTADO_DESCONOCIDO = "desconocido"
-
-ESTADOS_VALIDOS = (ESTADO_INCOMPLETO, ESTADO_LISTO, ESTADO_SINCRONIZADO, ESTADO_DESCONOCIDO)
