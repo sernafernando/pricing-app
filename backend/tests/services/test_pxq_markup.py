@@ -220,3 +220,101 @@ class TestBareFloatCannotSubstituteForShippingType:
     def test_a_bare_float_is_not_a_shipment_shipping_cost(self) -> None:
         bare_float = 3200.0
         assert not isinstance(bare_float, ShipmentShippingCost)
+
+
+class TestGroupAverageFallbackIsUnreachable:
+    """`calcular_limpio` swaps a zero `costo_envio` for the group's PER-UNIT
+    average shipping when handed a `grupo_id` and a `db`. That is the exact
+    fallback this module claims to make impossible, and a tier may legitimately
+    carry `costo_envio_total = 0` (a shipment the seller does not pay for) —
+    a real value, not the `None` that marks a tier incomplete.
+
+    So the escape hatch is closed by not offering it: the wrapper does not
+    accept `grupo_id` at all."""
+
+    def test_wrapper_does_not_accept_grupo_id(self) -> None:
+        parameters = inspect.signature(calcular_markup_pxq).parameters
+        assert "grupo_id" not in parameters, (
+            "exposing grupo_id lets calcular_limpio replace a zero whole-shipment "
+            "cost with a per-unit group average, on the money path"
+        )
+
+    def test_zero_shipping_stays_zero(self) -> None:
+        shipping = resolve_tier_shipping(SimpleNamespace(costo_envio_total=Decimal("0.00")))
+        assert shipping is not None
+        assert shipping.amount == 0.0
+
+        result = calcular_markup_pxq(
+            precio_unitario=Decimal("2000.00"),
+            cantidad_minima=30,
+            comision_base_pct=COMISION_BASE_PCT,
+            iva=IVA,
+            costo=COSTO,
+            shipping=shipping,
+        )
+
+        assert result == pytest.approx(_expected(2000.0, 30, 0.0))
+
+
+class TestGoldenValuesComputedIndependently:
+    """The other golden cases call the same chain the implementation calls, so
+    they prove the wrapper wires things up but not that the arithmetic is
+    right — move the multiplication into `_expected` by mistake and both sides
+    shift together.
+
+    These numbers were worked out separately from MercadoLibre's documented
+    rules (bracket on the ORDER TOTAL, fixed charge dropped at $33.000, whole
+    shipment subtracted once and only above that threshold) and are hardcoded
+    on purpose. If the implementation changes meaning, these fail; if it is
+    merely refactored, they do not."""
+
+    # (cantidad_minima, precio_total, comision_total, limpio, markup)
+    GOLDEN = (
+        (1, 500.0, 1014.4628099173555, -601.2396694214876, -1.6012396694214877),
+        (5, 2500.0, 1452.4793388429753, 613.6363636363635, -0.38636363636363646),
+        (10, 5000.0, 2000.0, 2132.2314049586776, 1.1322314049586777),
+        (30, 15000.0, 5095.04132231405, 7301.652892561983, 6.301652892561983),
+        (70, 35000.0, 7665.289256198348, 18615.70247933884, 17.61570247933884),
+    )
+
+    @pytest.mark.parametrize("cantidad_minima,precio_total,comision_total,limpio,markup", GOLDEN)
+    def test_matches_independently_computed_values(
+        self, cantidad_minima: int, precio_total: float, comision_total: float, limpio: float, markup: float
+    ) -> None:
+        result = calcular_markup_pxq(
+            precio_unitario=500.0,
+            cantidad_minima=cantidad_minima,
+            comision_base_pct=COMISION_BASE_PCT,
+            iva=IVA,
+            costo=COSTO,
+            shipping=ShipmentShippingCost(amount=3200.0),
+        )
+
+        assert result["precio_total"] == pytest.approx(precio_total)
+        assert result["comision_total"] == pytest.approx(comision_total)
+        assert result["limpio"] == pytest.approx(limpio)
+        assert result["markup"] == pytest.approx(markup)
+
+    def test_the_seventy_unit_case_actually_exercises_the_shipping_subtraction(self) -> None:
+        """A 1-unit tier at $500 never crosses the $33.000 threshold, so its
+        shipping is not subtracted at all — that case cannot catch a shipping
+        bug. This one can: 70 x $500 = $35.000 is above the threshold."""
+        with_shipping = calcular_markup_pxq(
+            precio_unitario=500.0,
+            cantidad_minima=70,
+            comision_base_pct=COMISION_BASE_PCT,
+            iva=IVA,
+            costo=COSTO,
+            shipping=ShipmentShippingCost(amount=3200.0),
+        )
+        without_shipping = calcular_markup_pxq(
+            precio_unitario=500.0,
+            cantidad_minima=70,
+            comision_base_pct=COMISION_BASE_PCT,
+            iva=IVA,
+            costo=COSTO,
+            shipping=ShipmentShippingCost(amount=0.0),
+        )
+
+        # Exactly ONE whole shipment net of IVA, never 70 of them.
+        assert without_shipping["limpio"] - with_shipping["limpio"] == pytest.approx(3200.0 / 1.21)

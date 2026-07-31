@@ -13,9 +13,16 @@ shipment's cost.
 This module fixes that by construction: it wraps
 `calcular_comision_ml_total` / `calcular_limpio` (never modifying them) and
 feeds them `precio_unitario * cantidad_minima` and the WHOLE-SHIPMENT
-shipping cost. It does not import `ProductoPricing` and must never do so —
-PxQ tiers are additional quantity prices on top of the base price, and this
-boundary is enforced by a dedicated AST import-scan test.
+shipping cost.
+
+It does not reference `ProductoPricing` DIRECTLY, and the AST import-scan
+test enforces exactly that and no more. The boundary is not transitive:
+`pricing_calculator` itself imports `ProductoPricing` for the base-price
+markup helpers, and closing that transitively would mean forking the pricing
+chain — the opposite of this module's whole point. What the scan buys is that
+no PxQ module reaches for the base-price table on its own; the guarantee that
+nothing WRITES to `productos_pricing` is the runtime assert on the session,
+which arrives with the write path.
 """
 
 from __future__ import annotations
@@ -79,7 +86,6 @@ def calcular_markup_pxq(
     shipping: ShipmentShippingCost,
     db: Optional[Any] = None,
     constantes: Optional[Dict] = None,
-    grupo_id: Optional[int] = None,
 ) -> Dict[str, float]:
     """Quantity-aware markup wrapper for a PxQ tier.
 
@@ -91,7 +97,8 @@ def calcular_markup_pxq(
     `shipping` has NO default: a caller holding only a bare float cannot
     call this function without going through `resolve_tier_shipping` first,
     making the forbidden silent per-unit fallback structurally impossible
-    rather than merely discouraged.
+    rather than merely discouraged. `grupo_id` is deliberately absent from
+    the signature for the same reason — see the call below.
     """
     precio_total = _as_float(precio_unitario) * cantidad_minima
     costo_float = _as_float(costo)
@@ -104,7 +111,12 @@ def calcular_markup_pxq(
         comisiones["comision_total"],
         db=db,
         constantes=constantes,
-        grupo_id=grupo_id,
+        # grupo_id stays None, deliberately. `calcular_limpio` replaces a zero
+        # `costo_envio` with the group's PER-UNIT average when given one, which
+        # is the exact fallback this module exists to prevent — and a tier may
+        # legitimately carry a zero whole-shipment cost. Not passing it is what
+        # makes the fallback unreachable rather than merely discouraged.
+        grupo_id=None,
     )
     markup = calcular_markup(limpio, costo_float)
 

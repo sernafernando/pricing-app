@@ -1,6 +1,15 @@
 """Structural boundary test (ml-wholesale-pxq-pricing, design D3): no PxQ
-module may import `ProductoPricing` or reference `productos_pricing` at the
-source-text/AST level.
+module may reference `ProductoPricing` or `productos_pricing` DIRECTLY, at
+the source-text/AST level.
+
+Scope, stated plainly so nobody reads more into a green run than it earns:
+this is a DIRECT-reference check, not a transitive one. `pricing_calculator`
+does import `ProductoPricing` for the base-price markup helpers, and PxQ code
+calls into that chain on purpose — closing the boundary transitively would
+mean forking the pricing formula, which is exactly what this change exists to
+avoid. What this test buys is that no PxQ module reaches for the base-price
+table on its own. The guarantee that nothing WRITES to `productos_pricing`
+is the runtime session assert, which lands with the write path.
 
 PxQ tiers are additional quantity prices layered on top of the base price;
 `markup_rebate`/`markup_oferta` live on `ProductoPricing` and derive from
