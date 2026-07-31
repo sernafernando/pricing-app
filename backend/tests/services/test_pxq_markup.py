@@ -16,8 +16,8 @@ Spec coverage (ml-wholesale-pxq):
 from __future__ import annotations
 
 import inspect
-from decimal import Decimal
 from dataclasses import FrozenInstanceError
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -28,6 +28,7 @@ from app.services.pricing_calculator import (
     calcular_markup,
 )
 from app.services.pxq_markup import (
+    resolve_order_cost,
     ShipmentShippingCost,
     calcular_markup_pxq,
     resolve_tier_shipping,
@@ -49,7 +50,7 @@ def _expected(precio_unitario: float, cantidad_minima: int, envio_total: float) 
     precio_total = precio_unitario * cantidad_minima
     comisiones = calcular_comision_ml_total(precio_total, COMISION_BASE_PCT, IVA)
     limpio = calcular_limpio(precio_total, IVA, envio_total, comisiones["comision_total"])
-    markup = calcular_markup(limpio, COSTO)
+    markup = calcular_markup(limpio, COSTO * cantidad_minima)
     return {
         "precio_total": precio_total,
         "comision_total": comisiones["comision_total"],
@@ -76,7 +77,7 @@ class TestDecimalInputsFromRealRows:
             cantidad_minima=10,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, 10),
             shipping=shipping,
         )
 
@@ -90,7 +91,7 @@ class TestDecimalInputsFromRealRows:
             cantidad_minima=10,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=Decimal(str(COSTO)),
+            costo=resolve_order_cost(Decimal(str(COSTO)), 10),
             shipping=shipping,
         )
 
@@ -122,7 +123,7 @@ class TestGoldenCasesQuantityAwareMarkup:
             cantidad_minima=cantidad_minima,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, cantidad_minima),
             shipping=shipping,
         )
 
@@ -155,7 +156,7 @@ class TestRegressionNaivePerUnitShippingBug:
             cantidad_minima=cantidad_minima,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, cantidad_minima),
             shipping=shipping,
         )
 
@@ -249,7 +250,7 @@ class TestGroupAverageFallbackIsUnreachable:
             cantidad_minima=30,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, 30),
             shipping=shipping,
         )
 
@@ -271,10 +272,10 @@ class TestGoldenValuesComputedIndependently:
     # (cantidad_minima, precio_total, comision_total, limpio, markup)
     GOLDEN = (
         (1, 500.0, 1014.4628099173555, -601.2396694214876, -1.6012396694214877),
-        (5, 2500.0, 1452.4793388429753, 613.6363636363635, -0.38636363636363646),
-        (10, 5000.0, 2000.0, 2132.2314049586776, 1.1322314049586777),
-        (30, 15000.0, 5095.04132231405, 7301.652892561983, 6.301652892561983),
-        (70, 35000.0, 7665.289256198348, 18615.70247933884, 17.61570247933884),
+        (5, 2500.0, 1452.4793388429753, 613.6363636363635, -0.8772727272727273),
+        (10, 5000.0, 2000.0, 2132.2314049586776, -0.7867768595041322),
+        (30, 15000.0, 5095.04132231405, 7301.652892561983, -0.7566115702479339),
+        (70, 35000.0, 7665.289256198348, 18615.70247933884, -0.7340613931523023),
     )
 
     @pytest.mark.parametrize("cantidad_minima,precio_total,comision_total,limpio,markup", GOLDEN)
@@ -286,7 +287,7 @@ class TestGoldenValuesComputedIndependently:
             cantidad_minima=cantidad_minima,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, cantidad_minima),
             shipping=ShipmentShippingCost(amount=3200.0),
         )
 
@@ -304,7 +305,7 @@ class TestGoldenValuesComputedIndependently:
             cantidad_minima=70,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, 70),
             shipping=ShipmentShippingCost(amount=3200.0),
         )
         without_shipping = calcular_markup_pxq(
@@ -312,9 +313,51 @@ class TestGoldenValuesComputedIndependently:
             cantidad_minima=70,
             comision_base_pct=COMISION_BASE_PCT,
             iva=IVA,
-            costo=COSTO,
+            costo=resolve_order_cost(COSTO, 70),
             shipping=ShipmentShippingCost(amount=0.0),
         )
 
         # Exactly ONE whole shipment net of IVA, never 70 of them.
         assert without_shipping["limpio"] - with_shipping["limpio"] == pytest.approx(3200.0 / 1.21)
+
+
+class TestOrderCostIsNotAPerUnitFloat:
+    """`calcular_markup` divides the ORDER-level `limpio` by whatever it gets,
+    so a per-unit cost inflates the markup by a factor of N. `costo` is the
+    input a caller is most likely to fill from `producto.costo`, which is
+    per-unit — the same unit-vs-order confusion the shipping side is already
+    armoured against.
+
+    The earlier golden cases encoded the bug: 70 units at $500 with a $1000
+    cost produced a markup of 17.6 (1760%). That is not a possible number for
+    selling below cost; it is the arithmetic signature of a per-unit cost
+    measured against an order-level net."""
+
+    def test_a_bare_float_cost_fails_loudly(self) -> None:
+        with pytest.raises(AttributeError):
+            calcular_markup_pxq(
+                precio_unitario=500.0,
+                cantidad_minima=70,
+                comision_base_pct=COMISION_BASE_PCT,
+                iva=IVA,
+                costo=1000.0,  # per-unit, and deliberately not an OrderCost
+                shipping=ShipmentShippingCost(amount=3200.0),
+            )
+
+    def test_resolve_order_cost_scales_by_quantity(self) -> None:
+        assert resolve_order_cost(1000.0, 70).amount == pytest.approx(70_000.0)
+        assert resolve_order_cost(Decimal("1000.00"), 30).amount == pytest.approx(30_000.0)
+
+    def test_selling_below_cost_reports_a_loss_not_a_1760_percent_markup(self) -> None:
+        result = calcular_markup_pxq(
+            precio_unitario=500.0,
+            cantidad_minima=70,
+            comision_base_pct=COMISION_BASE_PCT,
+            iva=IVA,
+            costo=resolve_order_cost(1000.0, 70),
+            shipping=ShipmentShippingCost(amount=3200.0),
+        )
+
+        # $500/unit against a $1000/unit cost is a loss, whatever the quantity.
+        assert result["markup"] < 0
+        assert result["markup"] == pytest.approx(-0.7340613931523023)

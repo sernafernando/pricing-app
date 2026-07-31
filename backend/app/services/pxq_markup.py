@@ -77,12 +77,36 @@ def resolve_tier_shipping(tier: Any) -> Optional[ShipmentShippingCost]:
     return ShipmentShippingCost(amount=float(costo_envio_total))
 
 
+@dataclass(frozen=True)
+class OrderCost:
+    """Cost of the WHOLE N-unit order, not of one unit.
+
+    `calcular_markup` divides the order-level `limpio` by whatever it is
+    handed, so a per-unit cost inflates the markup by a factor of N — the same
+    unit-vs-order confusion this module exists to eliminate on the shipping
+    side. A bare float carries no unit, and `costo` is the one input a caller
+    is most likely to reach for from `producto.costo`, which IS per-unit.
+
+    So it gets the same treatment shipping got: one producer,
+    `resolve_order_cost`, which requires the quantity and does the
+    multiplication itself. There is no way to hand over a per-unit figure and
+    have it silently accepted.
+    """
+
+    amount: float
+
+
+def resolve_order_cost(costo_unitario: Money, cantidad_minima: int) -> OrderCost:
+    """Scale a PER-UNIT cost to the whole order."""
+    return OrderCost(amount=_as_float(costo_unitario) * cantidad_minima)
+
+
 def calcular_markup_pxq(
     precio_unitario: Money,
     cantidad_minima: int,
     comision_base_pct: float,
     iva: float,
-    costo: Money,
+    costo: OrderCost,
     shipping: ShipmentShippingCost,
     db: Optional[Any] = None,
     constantes: Optional[Dict] = None,
@@ -99,9 +123,12 @@ def calcular_markup_pxq(
     making the forbidden silent per-unit fallback structurally impossible
     rather than merely discouraged. `grupo_id` is deliberately absent from
     the signature for the same reason — see the call below.
+
+    `costo` is an `OrderCost`, never a bare number: it must be the cost of all
+    `cantidad_minima` units, because `limpio` is the net of the whole order.
+    Handing over one unit's cost would inflate the markup by a factor of N.
     """
     precio_total = _as_float(precio_unitario) * cantidad_minima
-    costo_float = _as_float(costo)
 
     comisiones = calcular_comision_ml_total(precio_total, comision_base_pct, iva, db=db, constantes=constantes)
     limpio = calcular_limpio(
@@ -118,7 +145,7 @@ def calcular_markup_pxq(
         # makes the fallback unreachable rather than merely discouraged.
         grupo_id=None,
     )
-    markup = calcular_markup(limpio, costo_float)
+    markup = calcular_markup(limpio, costo.amount)
 
     return {
         "precio_total": precio_total,
