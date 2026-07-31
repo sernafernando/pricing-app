@@ -1,7 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
 import { promocionesAPI } from '../../services/api';
+
+// setup.js stubs PermisosContext globally with tienePermiso() => true, so the
+// write gate is invisible unless this test overrides it locally.
+const { mockTienePermiso } = vi.hoisted(() => ({ mockTienePermiso: vi.fn(() => true) }));
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ permisos: [], tienePermiso: mockTienePermiso, cargandoPermisos: false }),
+  PermisosProvider: ({ children }) => children,
+}));
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -140,5 +148,33 @@ describe('CatalogCompetitionPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /refrescar competencia de cat/i }));
 
     await waitFor(() => expect(screen.getByText(/no se pudo consultar/i)).toBeInTheDocument());
+  });
+});
+
+
+describe('CatalogCompetitionPanel — refresh permission gate', () => {
+  afterEach(() => mockTienePermiso.mockReturnValue(true));
+
+  it('hides the refresh button without promos.escribir', async () => {
+    // The read only needs promos.ver. Showing a refresh a view-only user
+    // cannot use would just hand them a 403.
+    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.escribir');
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /refrescar competencia de catálogo/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the refresh button with promos.escribir', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /refrescar competencia de catálogo/i })).toBeInTheDocument();
   });
 });
