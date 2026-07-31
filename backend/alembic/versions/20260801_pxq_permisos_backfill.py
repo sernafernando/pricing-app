@@ -77,20 +77,80 @@ PROMOS_ESCRIBIR = "promos.escribir"
 PXQ_ESCRIBIR = "pxq.escribir"
 
 
-def upgrade():
-    bind = op.get_bind()
+# Los statements viven a nivel de módulo para que un test pueda EJECUTARLOS,
+# no solo leerlos. La paridad migración/servicio se sostenía con
+# `assert "substring" in source`, que es frágil por construcción: renombrar un
+# bindparam la rompe por la razón equivocada, y cambiar `= FALSE` por
+# `IS FALSE` la deja pasar habiendo cambiado la semántica ante NULL. Lo que
+# corre en el deploy es este SQL, así que es esto lo que hay que testear.
+#
+# CURRENT_TIMESTAMP en vez de NOW() para que sea neutro de dialecto y el test
+# pueda correrlo sobre el SQLite de la suite.
+SQL_INSERT_PERMISO = """
+    INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
+    VALUES (:codigo, :nombre, :descripcion, :categoria, :orden, :es_critico, CURRENT_TIMESTAMP)
+    ON CONFLICT (codigo) DO NOTHING
+"""
 
-    # Valores parametrizados, nunca interpolados: una descripción con apóstrofo
-    # rompería un f-string, y el patrón es el que la checklist prohíbe aunque
-    # acá los valores sean constantes del módulo.
-    insert_permiso = sa.text("""
-        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
-        VALUES (:codigo, :nombre, :descripcion, :categoria, :orden, :es_critico, NOW())
-        ON CONFLICT (codigo) DO NOTHING
-    """)
+SQL_ROLE_GRANTS = """
+    INSERT INTO roles_permisos_base (rol_id, permiso_id)
+    SELECT rpb.rol_id, nuevo.id
+    FROM roles_permisos_base rpb
+    JOIN permisos origen ON origen.id = rpb.permiso_id AND origen.codigo = :promos
+    CROSS JOIN permisos nuevo
+    WHERE nuevo.codigo IN :codigos
+      AND NOT EXISTS (
+          SELECT 1 FROM roles_permisos_base existente
+          WHERE existente.rol_id = rpb.rol_id AND existente.permiso_id = nuevo.id
+      )
+"""
+
+# Overrides POSITIVOS: a ambos códigos, igual que el grant de rol.
+# `otorgado_por_id` queda NULL a propósito: quien concedió promos.escribir no
+# concedió esto, y atribuírselo falsea la auditoría del camino de plata.
+SQL_POSITIVE_OVERRIDES = """
+    INSERT INTO usuarios_permisos_override
+        (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
+    SELECT upo.usuario_id, nuevo.id, TRUE, NULL, :motivo, CURRENT_TIMESTAMP
+    FROM usuarios_permisos_override upo
+    JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
+    CROSS JOIN permisos nuevo
+    WHERE upo.concedido = TRUE
+      AND nuevo.codigo IN :codigos
+      AND NOT EXISTS (
+          SELECT 1 FROM usuarios_permisos_override existente
+          WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
+      )
+"""
+
+# Overrides NEGATIVOS: SOLO a `pxq.escribir`. Una revocación de
+# promos.escribir habla de ESCRIBIR; copiarla también a `pxq.ver` dejaría a esa
+# persona sin poder siquiera MIRAR los tramos, que no es lo que nadie decidió.
+SQL_NEGATIVE_OVERRIDES = """
+    INSERT INTO usuarios_permisos_override
+        (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
+    SELECT upo.usuario_id, nuevo.id, FALSE, NULL, :motivo, CURRENT_TIMESTAMP
+    FROM usuarios_permisos_override upo
+    JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
+    CROSS JOIN permisos nuevo
+    WHERE upo.concedido = FALSE
+      AND nuevo.codigo = :pxq_escribir
+      AND NOT EXISTS (
+          SELECT 1 FROM usuarios_permisos_override existente
+          WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
+      )
+"""
+
+MOTIVO_POSITIVO = "Backfill PxQ derivado de promos.escribir"
+MOTIVO_NEGATIVO = "Backfill PxQ: revocación heredada de promos.escribir"
+
+
+def apply_backfill(bind) -> None:
+    """Ejecuta el backfill completo. Recibe el bind para que `upgrade()` le
+    pase el de Alembic y el test le pase el de la sesión de pruebas."""
     for codigo, nombre, descripcion, categoria, orden, es_critico in PERMISOS:
         bind.execute(
-            insert_permiso,
+            sa.text(SQL_INSERT_PERMISO),
             {
                 "codigo": codigo,
                 "nombre": nombre,
@@ -101,76 +161,22 @@ def upgrade():
             },
         )
 
-    # Grants de rol derivados del estado vivo de promos.escribir.
     bind.execute(
-        sa.text("""
-            INSERT INTO roles_permisos_base (rol_id, permiso_id)
-            SELECT rpb.rol_id, nuevo.id
-            FROM roles_permisos_base rpb
-            JOIN permisos origen ON origen.id = rpb.permiso_id AND origen.codigo = :promos
-            CROSS JOIN permisos nuevo
-            WHERE nuevo.codigo IN :codigos
-              AND NOT EXISTS (
-                  SELECT 1 FROM roles_permisos_base existente
-                  WHERE existente.rol_id = rpb.rol_id AND existente.permiso_id = nuevo.id
-              )
-        """).bindparams(sa.bindparam("codigos", expanding=True)),
+        sa.text(SQL_ROLE_GRANTS).bindparams(sa.bindparam("codigos", expanding=True)),
         {"promos": PROMOS_ESCRIBIR, "codigos": list(CODIGOS)},
     )
-
-    # Overrides POSITIVOS: se copian a ambos códigos, igual que el grant de rol.
-    # `otorgado_por_id` queda NULL a propósito: quien concedió promos.escribir
-    # no concedió esto, y atribuírselo falsea la auditoría del camino de plata.
-    # El `motivo` dice de dónde salió.
     bind.execute(
-        sa.text("""
-            INSERT INTO usuarios_permisos_override
-                (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
-            SELECT upo.usuario_id, nuevo.id, TRUE, NULL, :motivo, NOW()
-            FROM usuarios_permisos_override upo
-            JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
-            CROSS JOIN permisos nuevo
-            WHERE upo.concedido = TRUE
-              AND nuevo.codigo IN :codigos
-              AND NOT EXISTS (
-                  SELECT 1 FROM usuarios_permisos_override existente
-                  WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
-              )
-        """).bindparams(sa.bindparam("codigos", expanding=True)),
-        {
-            "promos": PROMOS_ESCRIBIR,
-            "codigos": list(CODIGOS),
-            "motivo": "Backfill PxQ derivado de promos.escribir",
-        },
+        sa.text(SQL_POSITIVE_OVERRIDES).bindparams(sa.bindparam("codigos", expanding=True)),
+        {"promos": PROMOS_ESCRIBIR, "codigos": list(CODIGOS), "motivo": MOTIVO_POSITIVO},
+    )
+    bind.execute(
+        sa.text(SQL_NEGATIVE_OVERRIDES),
+        {"promos": PROMOS_ESCRIBIR, "pxq_escribir": PXQ_ESCRIBIR, "motivo": MOTIVO_NEGATIVO},
     )
 
-    # Overrides NEGATIVOS: solo a `pxq.escribir`. Una revocación de
-    # promos.escribir habla de ESCRIBIR; copiarla también a `pxq.ver` dejaría
-    # a esa persona sin poder siquiera MIRAR los tramos, que no es lo que
-    # nadie decidió. El servicio hace exactamente esto y es lo que está
-    # testeado; la migración tiene que coincidir o el dry-run miente.
-    bind.execute(
-        sa.text("""
-            INSERT INTO usuarios_permisos_override
-                (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
-            SELECT upo.usuario_id, nuevo.id, FALSE, NULL, :motivo, NOW()
-            FROM usuarios_permisos_override upo
-            JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
-            CROSS JOIN permisos nuevo
-            WHERE upo.concedido = FALSE
-              AND nuevo.codigo = :pxq_escribir
-              AND NOT EXISTS (
-                  SELECT 1 FROM usuarios_permisos_override existente
-                  WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
-              )
-        """).bindparams(sa.bindparam("codigos", expanding=True)),
-        {
-            "promos": PROMOS_ESCRIBIR,
-            "codigos": list(CODIGOS),
-            "pxq_escribir": PXQ_ESCRIBIR,
-            "motivo": "Backfill PxQ: revocación heredada de promos.escribir",
-        },
-    )
+
+def upgrade():
+    apply_backfill(op.get_bind())
 
 
 def downgrade():

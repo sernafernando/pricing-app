@@ -89,7 +89,11 @@ frontend/public/sounds/
 .atl/
 .pi/
 
-# Local-only SDD working artifacts (not shared; force-add if one should be tracked)
+# SDD artifacts under openspec/changes/ ARE tracked by default — they are the
+# shared record of a change and belong in its PR. The paths below are the
+# exception: local scratch from changes that were never opened, listed one by
+# one rather than as a wildcard precisely so the default stays "tracked".
+# Adding a new change? Do nothing; it gets committed like the rest.
 openspec/changes/design-token-consolidation/
 openspec/changes/export-builder/
 openspec/changes/sub-pm-bulk-assignment/

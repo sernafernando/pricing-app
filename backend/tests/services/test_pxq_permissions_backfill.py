@@ -283,37 +283,93 @@ def test_dry_run_does_not_recount_positive_overrides_already_copied(db) -> None:
     assert second_pass["users_granted"] == 0
 
 
-def test_migration_negative_override_targets_only_the_write_permission() -> None:
-    """The catalog parity test compares the permission LITERALS, not the
-    backfill logic — so the migration copying a negative override to BOTH
-    codes while the service copied it to only `pxq.escribir` passed green.
+def _load_migration():
+    """Import the migration module directly.
 
-    That divergence is not cosmetic: it would have left anyone explicitly
-    revoked from promos-write unable to even LOOK at wholesale tiers in
-    production, a decision nobody made, while the tested service did something
-    else and the dry-run reported the service's numbers."""
+    Importing it from a TEST is fine — what must never happen is the migration
+    importing application code, which is what keeps it an immutable snapshot.
+    """
+    import importlib.util
     from pathlib import Path
 
-    migration = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
-    source = migration.read_text(encoding="utf-8")
-
-    negative_stmt = source[source.index("Overrides NEGATIVOS") :]
-    negative_stmt = negative_stmt[: negative_stmt.index("def downgrade")]
-
-    assert "concedido = FALSE" in negative_stmt
-    assert "nuevo.codigo = :pxq_escribir" in negative_stmt
-    assert "nuevo.codigo IN :codigos" not in negative_stmt, (
-        "a revocation of promos.escribir must not also strip pxq.ver"
-    )
+    path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
+    spec = importlib.util.spec_from_file_location("pxq_permisos_backfill_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_migration_does_not_attribute_the_backfill_to_the_original_grantor() -> None:
-    """The migration copied `otorgado_por_id` from the promos override; the
-    service leaves it NULL. Whoever granted promos-write did not grant this,
-    and on a money path a falsified audit trail is worse than an empty one."""
-    from pathlib import Path
+def _grant_state(db):
+    """(role grants, user overrides) for the PxQ codes, as comparable sets."""
+    codes = {p.id: p.codigo for p in db.query(Permiso).filter(Permiso.codigo.in_([PXQ_VER_CODE, PXQ_ESCRIBIR_CODE]))}
+    roles = {
+        (g.rol_id, codes[g.permiso_id]) for g in db.query(RolPermisoBase).filter(RolPermisoBase.permiso_id.in_(codes))
+    }
+    overrides = {
+        (o.usuario_id, codes[o.permiso_id], bool(o.concedido))
+        for o in db.query(UsuarioPermisoOverride).filter(UsuarioPermisoOverride.permiso_id.in_(codes))
+    }
+    return roles, overrides
 
-    migration = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
-    source = migration.read_text(encoding="utf-8")
 
-    assert "upo.otorgado_por_id" not in source
+def _seed_promos_state(db, suffix: str):
+    promos_escribir = _make_permiso(db, PROMOS_ESCRIBIR_CODE)
+    rol = _make_role(db, f"PARITY_ROLE_{suffix}")
+    db.add(RolPermisoBase(rol_id=rol.id, permiso_id=promos_escribir.id))
+    granted = _make_user(db, rol, f"parity_granted_{suffix}")
+    revoked = _make_user(db, rol, f"parity_revoked_{suffix}")
+    db.add(UsuarioPermisoOverride(usuario_id=granted.id, permiso_id=promos_escribir.id, concedido=True))
+    db.add(UsuarioPermisoOverride(usuario_id=revoked.id, permiso_id=promos_escribir.id, concedido=False))
+    db.flush()
+    return revoked
+
+
+def test_migration_sql_produces_the_same_grants_as_the_service(db) -> None:
+    """Executes the migration's actual SQL and compares the resulting state to
+    the service's.
+
+    The parity checks used to be `assert "substring" in source`, which is
+    fragile in both directions: renaming a bindparam breaks it for the wrong
+    reason, and swapping `= FALSE` for `IS FALSE` leaves it green while the
+    semantics changed under NULL. What runs on deploy is the SQL, so the SQL is
+    what gets exercised — the dry-run reports the service's numbers, and this
+    is what makes those numbers describe reality."""
+    migration = _load_migration()
+
+    _seed_promos_state(db, "svc")
+    ensure_pxq_permission_catalog(db)
+    backfill_pxq_permissions_from_promos(db, dry_run=False)
+    db.flush()
+    service_roles, service_overrides = _grant_state(db)
+
+    db.rollback()
+
+    revoked = _seed_promos_state(db, "mig")
+    migration.apply_backfill(db.connection())
+    db.flush()
+    migration_roles, migration_overrides = _grant_state(db)
+
+    assert {code for _, code in migration_roles} == {code for _, code in service_roles}
+    assert {(code, granted) for _, code, granted in migration_overrides} == {
+        (code, granted) for _, code, granted in service_overrides
+    }
+
+    # The revocation is about WRITING: it must not strip read access.
+    assert (revoked.id, PXQ_ESCRIBIR_CODE, False) in migration_overrides
+    assert (revoked.id, PXQ_VER_CODE, False) not in migration_overrides
+
+
+def test_migration_sql_does_not_attribute_the_backfill_to_the_original_grantor(db) -> None:
+    """Whoever granted promos-write did not grant this. On a money path a
+    falsified audit trail is worse than an empty one."""
+    migration = _load_migration()
+
+    _seed_promos_state(db, "audit")
+    migration.apply_backfill(db.connection())
+    db.flush()
+
+    codes = {p.id for p in db.query(Permiso).filter(Permiso.codigo.in_([PXQ_VER_CODE, PXQ_ESCRIBIR_CODE]))}
+    rows = db.query(UsuarioPermisoOverride).filter(UsuarioPermisoOverride.permiso_id.in_(codes)).all()
+
+    assert rows, "expected the migration to have written overrides"
+    assert all(row.otorgado_por_id is None for row in rows)
