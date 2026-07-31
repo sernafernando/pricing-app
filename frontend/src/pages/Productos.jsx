@@ -216,6 +216,7 @@ export default function Productos() {
   const mlaExpanded = useExpandedSet();
   const mlasCacheRef = useRef(new Map());
   const promosCacheRef = useRef(new Map());
+  const catalogCompetitionCacheRef = useRef(new Map());
 
   // Sticky L0 (product row) support: refs are created here; the effect that
   // measures the live header height is declared further below, once
@@ -231,6 +232,7 @@ export default function Productos() {
   useEffect(() => {
     mlasCacheRef.current.clear();
     promosCacheRef.current.clear();
+    catalogCompetitionCacheRef.current.clear();
   }, [productIdsKey]);
 
   // Filtrar marcas por búsqueda y por PM seleccionado
@@ -2465,6 +2467,7 @@ export default function Productos() {
                               itemId={p.item_id}
                               mlasCacheRef={mlasCacheRef}
                               promosCacheRef={promosCacheRef}
+                              catalogCompetitionCacheRef={catalogCompetitionCacheRef}
                               promoTipos={filtroPromoTipos}
                               promoEstado={filtroPromoEstado}
                             />

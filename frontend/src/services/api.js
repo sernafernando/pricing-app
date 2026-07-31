@@ -197,6 +197,14 @@ export const promocionesAPI = {
   // publication/tree structure, never writes prices/promos). Returns
   // { ok: boolean }; fail-soft (HTTP 200 even on proxy failure).
   refreshItemPromociones: (mlaId) => api.post(`/promociones/item/${mlaId}/refresh`),
+  // Catalog-competition (promos-catalog-prices-and-official-store, slice C2).
+  // READ is cheap (our own DB, latest snapshot only) — safe to call on
+  // panel open. It NEVER hits the throttled ML proxy itself; only the
+  // explicit refresh below does, and only for the ONE given MLA (no
+  // refresh-all, no per-product refresh — the ML throttle (~6.6 req/s) is
+  // shared with sales-webhook processing).
+  getCompetenciaCatalogo: (mlaId) => api.get(`/promociones/catalogo-competencia/${mlaId}`),
+  refreshCompetenciaCatalogo: (mlaId) => api.post(`/promociones/catalogo-competencia/${mlaId}/refresh`),
 };
 
 export const pricingAPI = {
