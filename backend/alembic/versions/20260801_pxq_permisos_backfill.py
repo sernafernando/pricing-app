@@ -35,6 +35,7 @@ Create Date: 2026-08-01
 
 """
 
+import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -44,77 +45,114 @@ branch_labels = None
 depends_on = None
 
 
+# Estos valores DEBEN coincidir con `_CATALOG` en
+# `app/services/pxq_permissions_backfill.py`. La migración no puede importar
+# ese módulo (ver arriba), así que la equivalencia la fuerza un test:
+# `test_migration_catalog_matches_the_service_catalog`. Si divergen, el
+# dry-run —que corre el servicio— deja de describir lo que escribe la
+# migración, y ese conteo es el gate previo al deploy.
+# La categoría propia y el orden contiguo siguen el precedente de
+# `20260713_add_permisos_promociones.py` ("promos", 44/45).
 PERMISOS = (
     (
         "pxq.ver",
-        "Ver precios mayoristas",
-        "Ver los tramos de precio por cantidad (PxQ) de una publicación",
-        "publicaciones",
-        810,
+        "Ver tiers PxQ ML",
+        "Ver tiers de precio por cantidad (mayorista) ML",
+        "pxq",
+        50,
         "false",
     ),
     (
         "pxq.escribir",
-        "Editar precios mayoristas",
-        "Crear, editar y sincronizar tramos de precio por cantidad (PxQ) con MercadoLibre",
-        "publicaciones",
-        811,
+        "Editar/sincronizar tiers PxQ ML",
+        "Crear/editar/sincronizar tiers de precio por cantidad (mayorista) ML",
+        "pxq",
+        51,
         "true",
     ),
 )
 
-CODIGOS = "'pxq.ver', 'pxq.escribir'"
+CODIGOS = tuple(row[0] for row in PERMISOS)
+PROMOS_ESCRIBIR = "promos.escribir"
 
 
 def upgrade():
+    bind = op.get_bind()
+
+    # Valores parametrizados, nunca interpolados: una descripción con apóstrofo
+    # rompería un f-string, y el patrón es el que la checklist prohíbe aunque
+    # acá los valores sean constantes del módulo.
+    insert_permiso = sa.text("""
+        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
+        VALUES (:codigo, :nombre, :descripcion, :categoria, :orden, :es_critico, NOW())
+        ON CONFLICT (codigo) DO NOTHING
+    """)
     for codigo, nombre, descripcion, categoria, orden, es_critico in PERMISOS:
-        op.execute(f"""
-            INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
-            VALUES ('{codigo}', '{nombre}', '{descripcion}', '{categoria}', {orden}, {es_critico}, NOW())
-            ON CONFLICT (codigo) DO NOTHING;
-        """)
+        bind.execute(
+            insert_permiso,
+            {
+                "codigo": codigo,
+                "nombre": nombre,
+                "descripcion": descripcion,
+                "categoria": categoria,
+                "orden": orden,
+                "es_critico": es_critico == "true",
+            },
+        )
 
     # Grants de rol derivados del estado vivo de promos.escribir.
-    op.execute(f"""
-        INSERT INTO roles_permisos_base (rol_id, permiso_id)
-        SELECT rpb.rol_id, nuevo.id
-        FROM roles_permisos_base rpb
-        JOIN permisos origen ON origen.id = rpb.permiso_id AND origen.codigo = 'promos.escribir'
-        CROSS JOIN permisos nuevo
-        WHERE nuevo.codigo IN ({CODIGOS})
-          AND NOT EXISTS (
-              SELECT 1 FROM roles_permisos_base existente
-              WHERE existente.rol_id = rpb.rol_id AND existente.permiso_id = nuevo.id
-          );
-    """)
+    bind.execute(
+        sa.text("""
+            INSERT INTO roles_permisos_base (rol_id, permiso_id)
+            SELECT rpb.rol_id, nuevo.id
+            FROM roles_permisos_base rpb
+            JOIN permisos origen ON origen.id = rpb.permiso_id AND origen.codigo = :promos
+            CROSS JOIN permisos nuevo
+            WHERE nuevo.codigo IN :codigos
+              AND NOT EXISTS (
+                  SELECT 1 FROM roles_permisos_base existente
+                  WHERE existente.rol_id = rpb.rol_id AND existente.permiso_id = nuevo.id
+              )
+        """).bindparams(sa.bindparam("codigos", expanding=True)),
+        {"promos": PROMOS_ESCRIBIR, "codigos": list(CODIGOS)},
+    )
 
     # Overrides por usuario, incluidos los NEGATIVOS: `concedido` se copia tal
     # cual, así un usuario con promos.escribir revocado explícitamente queda
     # revocado también para PxQ en vez de heredarlo por el grant de su rol.
-    op.execute(f"""
-        INSERT INTO usuarios_permisos_override (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
-        SELECT upo.usuario_id, nuevo.id, upo.concedido, upo.otorgado_por_id,
-               'Backfill PxQ derivado de promos.escribir', NOW()
-        FROM usuarios_permisos_override upo
-        JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = 'promos.escribir'
-        CROSS JOIN permisos nuevo
-        WHERE nuevo.codigo IN ({CODIGOS})
-          AND NOT EXISTS (
-              SELECT 1 FROM usuarios_permisos_override existente
-              WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
-          );
-    """)
+    bind.execute(
+        sa.text("""
+            INSERT INTO usuarios_permisos_override
+                (usuario_id, permiso_id, concedido, otorgado_por_id, motivo, created_at)
+            SELECT upo.usuario_id, nuevo.id, upo.concedido, upo.otorgado_por_id, :motivo, NOW()
+            FROM usuarios_permisos_override upo
+            JOIN permisos origen ON origen.id = upo.permiso_id AND origen.codigo = :promos
+            CROSS JOIN permisos nuevo
+            WHERE nuevo.codigo IN :codigos
+              AND NOT EXISTS (
+                  SELECT 1 FROM usuarios_permisos_override existente
+                  WHERE existente.usuario_id = upo.usuario_id AND existente.permiso_id = nuevo.id
+              )
+        """).bindparams(sa.bindparam("codigos", expanding=True)),
+        {
+            "promos": PROMOS_ESCRIBIR,
+            "codigos": list(CODIGOS),
+            "motivo": "Backfill PxQ derivado de promos.escribir",
+        },
+    )
 
 
 def downgrade():
-    op.execute(f"""
-        DELETE FROM usuarios_permisos_override
-        WHERE permiso_id IN (SELECT id FROM permisos WHERE codigo IN ({CODIGOS}));
-    """)
-    op.execute(f"""
-        DELETE FROM roles_permisos_base
-        WHERE permiso_id IN (SELECT id FROM permisos WHERE codigo IN ({CODIGOS}));
-    """)
-    op.execute(f"""
-        DELETE FROM permisos WHERE codigo IN ({CODIGOS});
-    """)
+    bind = op.get_bind()
+    for table in ("usuarios_permisos_override", "roles_permisos_base"):
+        bind.execute(
+            sa.text(f"""
+                DELETE FROM {table}
+                WHERE permiso_id IN (SELECT id FROM permisos WHERE codigo IN :codigos)
+            """).bindparams(sa.bindparam("codigos", expanding=True)),
+            {"codigos": list(CODIGOS)},
+        )
+    bind.execute(
+        sa.text("DELETE FROM permisos WHERE codigo IN :codigos").bindparams(sa.bindparam("codigos", expanding=True)),
+        {"codigos": list(CODIGOS)},
+    )

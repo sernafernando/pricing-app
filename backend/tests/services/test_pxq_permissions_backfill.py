@@ -206,3 +206,57 @@ def test_dry_run_count_matches_what_a_real_run_writes(db) -> None:
 
     second_pass = backfill_pxq_permissions_from_promos(db, dry_run=True)
     assert second_pass["roles_granted"] == 0
+
+
+def test_migration_catalog_matches_the_service_catalog() -> None:
+    """The migration cannot import the service (a migration is an immutable
+    historical snapshot), so the two carry duplicate literals. The dry-run runs
+    the SERVICE while what actually lands is the MIGRATION — if they drift, the
+    count reported in the PR describes something the migration will not write,
+    which is worse than having no dry-run at all.
+
+    Parsed from the migration source rather than imported, so this keeps
+    holding even if the migration grows imports of its own."""
+    import ast
+    from pathlib import Path
+
+    from app.services.pxq_permissions_backfill import _CATALOG
+
+    migration = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260801_pxq_permisos_backfill.py"
+    tree = ast.parse(migration.read_text(encoding="utf-8"))
+
+    permisos_node = next(
+        node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "PERMISOS" for t in node.targets)
+    )
+    migration_rows = ast.literal_eval(permisos_node)
+
+    # The migration stores es_critico as SQL text ('true'/'false'); everything
+    # else must match the service tuple exactly.
+    normalized = tuple(
+        (codigo, nombre, descripcion, categoria, orden, es_critico == "true")
+        for codigo, nombre, descripcion, categoria, orden, es_critico in migration_rows
+    )
+
+    assert normalized == _CATALOG
+
+
+def test_dry_run_does_not_recount_negative_overrides_already_copied(db) -> None:
+    """The negative-override counter had the same inflation the role counter
+    did: a second look reported work that no longer exists."""
+    ensure_pxq_permission_catalog(db)
+    promos_escribir = _make_permiso(db, PROMOS_ESCRIBIR_CODE)
+    rol = _make_role(db, "NEG_RECOUNT_ROLE")
+    user = _make_user(db, rol, "neg_recount_user")
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=promos_escribir.id, concedido=False))
+    db.flush()
+
+    predicted = backfill_pxq_permissions_from_promos(db, dry_run=True)
+    assert predicted["negative_overrides_copied"] == 1
+
+    backfill_pxq_permissions_from_promos(db, dry_run=False)
+    db.flush()
+
+    second_pass = backfill_pxq_permissions_from_promos(db, dry_run=True)
+    assert second_pass["negative_overrides_copied"] == 0

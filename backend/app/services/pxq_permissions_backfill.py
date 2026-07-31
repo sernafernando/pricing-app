@@ -132,9 +132,8 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
         .all()
     )
     for override in negative_overrides:
-        counts["negative_overrides_copied"] += 1
-        if dry_run:
-            continue
+        # Same rule as the role counter above: count only what would actually
+        # be written, or a re-run reports a number nobody can act on.
         already_present = (
             db.query(UsuarioPermisoOverride)
             .filter(
@@ -143,7 +142,10 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
             )
             .first()
         )
-        if already_present is None:
+        if already_present is not None:
+            continue
+        counts["negative_overrides_copied"] += 1
+        if not dry_run:
             db.add(
                 UsuarioPermisoOverride(
                     usuario_id=override.usuario_id,
