@@ -2470,6 +2470,7 @@ export default function Productos() {
                               catalogCompetitionCacheRef={catalogCompetitionCacheRef}
                               promoTipos={filtroPromoTipos}
                               promoEstado={filtroPromoEstado}
+                              tiendaOficial={filtroTiendaOficial}
                             />
                           </div>
                         </td>

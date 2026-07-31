@@ -26,6 +26,23 @@ function buildPromoFilterParams(promoTipos, promoEstado) {
 }
 
 /**
+ * Adds the list-level official-store filter to the tree params.
+ *
+ * The product list matches a product that has AT LEAST ONE publication in
+ * the selected store, which is correct at the product level: a product sold
+ * in both TP-Link and Gauss legitimately appears under the TP-Link filter.
+ * But without this param the expanded tree returned EVERY MLA of that
+ * product, Gauss included, so the filter looked broken to the user.
+ *
+ * The tree endpoint takes the PLURAL `tiendas_oficiales` (MLA scope,
+ * CSV + `sin_tienda` sentinel), while the list sends the singular
+ * `tienda_oficial` — same value, different parameter name.
+ */
+function buildTiendaOficialParams(tiendaOficial) {
+  return tiendaOficial ? { tiendas_oficiales: String(tiendaOficial) } : {};
+}
+
+/**
  * Level 1 panel: recursive catalog/family publication tree of a product
  * (productos-catalog-family-tree PR3). Lazily fetches
  * `GET /productos/{item_id}/mercadolibre/tree` on first mount (i.e. on first
@@ -47,8 +64,15 @@ function ProductoMLAsPanel({
   catalogCompetitionCacheRef,
   promoTipos,
   promoEstado,
+  tiendaOficial,
 }) {
-  const filterParams = useMemo(() => buildPromoFilterParams(promoTipos, promoEstado), [promoTipos, promoEstado]);
+  // `tiendaOficial` participates in filterParams, and therefore in the cache
+  // key below: without it, switching stores would replay the previous
+  // store's tree from cache and the filter would appear to do nothing.
+  const filterParams = useMemo(
+    () => ({ ...buildPromoFilterParams(promoTipos, promoEstado), ...buildTiendaOficialParams(tiendaOficial) }),
+    [promoTipos, promoEstado, tiendaOficial],
+  );
   const filterActive = isFilterActive(promoTipos, promoEstado);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
