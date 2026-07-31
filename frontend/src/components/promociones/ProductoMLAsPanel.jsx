@@ -40,7 +40,14 @@ function buildPromoFilterParams(promoTipos, promoEstado) {
  * escape hatch counting ALL hidden descendants across the whole tree;
  * `matches_filter` absent/true always shows (fail-open).
  */
-function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, promoEstado }) {
+function ProductoMLAsPanel({
+  itemId,
+  mlasCacheRef,
+  promosCacheRef,
+  catalogCompetitionCacheRef,
+  promoTipos,
+  promoEstado,
+}) {
   const filterParams = useMemo(() => buildPromoFilterParams(promoTipos, promoEstado), [promoTipos, promoEstado]);
   const filterActive = isFilterActive(promoTipos, promoEstado);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
@@ -123,6 +130,7 @@ function ProductoMLAsPanel({ itemId, mlasCacheRef, promosCacheRef, promoTipos, p
               colSpan={L1_COL_SPAN}
               mlasCacheRef={mlasCacheRef}
               promosCacheRef={promosCacheRef}
+              catalogCompetitionCacheRef={catalogCompetitionCacheRef}
               promoTipos={promoTipos}
               promoEstado={promoEstado}
               revealAll={verTodos}

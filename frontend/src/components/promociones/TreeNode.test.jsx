@@ -15,6 +15,17 @@ vi.mock('./MlaPromocionesPanel', () => ({
   ),
 }));
 
+vi.mock('./CatalogCompetitionPanel', () => ({
+  default: (props) => (
+    <div
+      data-testid={`catalog-competition-${props.mla}`}
+      data-has-cache-ref={props.catalogCompetitionCacheRef ? 'yes' : 'no'}
+    >
+      mocked-catalog-competition-for-{props.mla}
+    </div>
+  ),
+}));
+
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     refreshItemPromociones: vi.fn(),
@@ -31,6 +42,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
 function renderNode(node, props = {}) {
   const mlasCacheRef = { current: new Map() };
   const promosCacheRef = { current: new Map() };
+  const catalogCompetitionCacheRef = { current: new Map() };
   return render(
     <table>
       <tbody>
@@ -39,6 +51,7 @@ function renderNode(node, props = {}) {
           colSpan={5}
           mlasCacheRef={mlasCacheRef}
           promosCacheRef={promosCacheRef}
+          catalogCompetitionCacheRef={catalogCompetitionCacheRef}
           promoTipos={[]}
           promoEstado="disponible"
           {...props}
@@ -674,5 +687,42 @@ describe('TreeNode official store badge', () => {
 
     expect(screen.getByText(/familia fam_store/i)).toBeInTheDocument();
     expect(screen.queryByText(/gauss/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('TreeNode — catalogCompetitionCacheRef threading', () => {
+  beforeEach(() => {
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  it('forwards catalogCompetitionCacheRef to children hoisted out of a hidden familia', async () => {
+    // showFamilia is false BY DEFAULT, so this hoisting branch is the common
+    // path, not an edge case. A prop dropped here reaches every MLA under a
+    // familia with an undefined cache ref, and the panel's refresh then dies
+    // on `catalogCompetitionCacheRef.current.delete(mla)`.
+    const user = userEvent.setup();
+    renderNode(buildDeepTree());
+
+    // MLA_CAT is hoisted out of the hidden familia, so it is reached without
+    // ever expanding a familia row — the branch that drops the prop.
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    await user.click(screen.getByRole('button', { name: /^competencia catálogo/i }));
+
+    const panel = screen.getByTestId('catalog-competition-MLA_CAT');
+    expect(panel.getAttribute('data-has-cache-ref')).toBe('yes');
+  });
+
+  it('keeps the catalog competition panel reachable for a view-only user', async () => {
+    // Reading the stored snapshot only needs promos.ver; the panel itself
+    // must stay available even when the refresh inside it is not.
+    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.escribir');
+    const user = userEvent.setup();
+    renderNode(buildDeepTree());
+
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    await user.click(screen.getByRole('button', { name: /^competencia catálogo/i }));
+
+    expect(screen.getByTestId('catalog-competition-MLA_CAT')).toBeInTheDocument();
   });
 });
