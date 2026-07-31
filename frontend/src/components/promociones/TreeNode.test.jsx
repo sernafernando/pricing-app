@@ -758,6 +758,24 @@ describe('TreeNode — global collapse epoch sync', () => {
     expect(screen.queryByRole('button', { name: /^competencia catálogo/i })).not.toBeInTheDocument();
   });
 
+  it('global-close really closes the sub-panels, not just the node that hides them', async () => {
+    // Asserting the sub-panel buttons are absent right after a global-close is
+    // vacuous: `isOpen` alone unmounts the whole section. Reopen the node
+    // manually so the sub-panels render again, and assert they came back
+    // CLOSED — that is the only way to prove the global-close actually reset
+    // promosOpen/catalogCompetitionOpen instead of leaving them stuck open.
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    expect(screen.getByRole('button', { name: /^promociones/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /^competencia catálogo/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('a manual toggle after a global-open survives (does not get overridden back)', async () => {
     renderNode(buildMlaTree());
     const user = userEvent.setup();
