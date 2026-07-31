@@ -63,7 +63,12 @@ def create_pxq_tier(
     # leave six rows. MercadoLibre would then reject the whole array on PR 3's
     # write path. Serializing per publication closes that window; on SQLite
     # (tests) the FOR UPDATE is a harmless no-op.
-    publicacion = db.query(PublicacionML.id).filter(PublicacionML.id == publicacion_ml_id).with_for_update().first()
+    publicacion = (
+        db.query(PublicacionML.id, PublicacionML.mla)
+        .filter(PublicacionML.id == publicacion_ml_id)
+        .with_for_update()
+        .first()
+    )
     if publicacion is None:
         # No row means no lock was taken, so the window above stays open for
         # exactly this case. Failing here also turns what would otherwise be an
@@ -80,6 +85,19 @@ def create_pxq_tier(
             detail=(
                 f"publicacion_ml_id={publicacion_ml_id} already has {existing_count} tiers; "
                 f"max is {MAX_TIERS_PER_PUBLICATION}"
+            ),
+        )
+
+    # `item_id` is the MLA denormalized off the publication, and PR 3 keys the
+    # live-vs-mirror diff on it. A row claiming a different MLA than its own
+    # publication would send that diff at the wrong listing, so it is checked
+    # against the row already in hand rather than trusted.
+    if item_id != publicacion.mla:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"item_id={item_id!r} does not match publicacion_ml_id={publicacion_ml_id} "
+                f"(expected {publicacion.mla!r})"
             ),
         )
 

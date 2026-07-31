@@ -177,3 +177,22 @@ def test_duplicate_cantidad_minima_through_the_service_is_a_clean_422(db, public
 
     assert exc.value.status_code == 422
     assert "5" in str(exc.value.detail)
+
+
+def test_item_id_must_match_its_publication(db, publicacion, pxq_user) -> None:
+    """`item_id` is the MLA denormalized off the publication, and PR 3 keys the
+    live-vs-mirror diff on it. A row claiming a different MLA than its own
+    publication would aim that diff at the wrong listing — so it is checked
+    against the row the service already holds under lock."""
+    with pytest.raises(HTTPException) as exc:
+        create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id="MLA_SOMETHING_ELSE",
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+
+    assert exc.value.status_code == 422
+    assert "MLA_SOMETHING_ELSE" in str(exc.value.detail)
