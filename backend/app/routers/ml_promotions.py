@@ -257,10 +257,10 @@ class CatalogCompetitionSnapshot(BaseModel):
     fecha_consulta: Optional[Any] = None
     our_price: Optional[float] = None
     our_currency_id: Optional[str] = None
+    competitor_count: Optional[int] = None
     """Total raw competitor count from the fetch, INCLUDING different-bucket
     ones that are hidden from `undercutting` — lets the UI say "N
     competitors in other formats, hidden" (product decision #6)."""
-    competitor_count: Optional[int] = None
     undercutting: List[CatalogCompetitorPrice] = []
     error_detail: Optional[str] = None
 
@@ -603,7 +603,7 @@ def obtener_competencia_catalogo(
 
 
 @router.post("/catalogo-competencia/{mla_id}/refresh", response_model=CatalogCompetitionSnapshot)
-async def refrescar_competencia_catalogo_item(
+def refrescar_competencia_catalogo_item(
     mla_id: str,
     current_user: Usuario = Depends(require_promos_write()),
     db: Session = Depends(get_db),
@@ -617,8 +617,16 @@ async def refrescar_competencia_catalogo_item(
     (~6.6 req/s) es global y compartido con el procesamiento de
     sales-webhook.
 
+    Declarado `def`, no `async def`, a propósito: el servicio hace I/O
+    SINCRÓNICO sobre la sesión de `get_db` (`db.add`, `db.commit`,
+    `db.refresh`, y el contexto de pricing) mientras espera al proxy, que
+    con el throttle de 150ms tarda segundos. En un handler async eso
+    bloquearía el event loop durante toda la llamada. FastAPI manda los
+    handlers `def` al threadpool, y `resolve_maybe_async` puentea la parte
+    async del cliente — el mismo patrón que `refrescar_promociones_item`.
+
     Requiere permiso: promos.escribir
     """
-    rows = await refrescar_competencia_catalogo(db, [mla_id])
+    rows = resolve_maybe_async(refrescar_competencia_catalogo(db, [mla_id]))
     row = rows[0] if rows else None
     return _snapshot_to_response(mla_id, row)
