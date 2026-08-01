@@ -17,7 +17,7 @@ from app.models.ml_pxq_tier import (
     ESTADO_LISTO,
     ESTADO_SINCRONIZADO,
 )
-from app.services.pxq_confirm import remap_and_confirm
+from app.services.pxq_confirm import is_priceable, remap_and_confirm
 
 
 class TestPartialConfirmationIsNotSuccess:
@@ -104,34 +104,20 @@ class TestOnlyTiersWithAShippingCostAreEverWritten:
     """The founding rule of this feature: a tier without a resolved
     whole-shipment cost is never priced and never written.
 
-    The filter asked `estado != incompleto` and its docstring claimed that
-    equals "carries costo_envio_total". It does not — nothing recomputes
-    `estado` when a cost is cleared, so a row sitting at `listo` or
-    `desconocido` with a NULL cost went straight into the write."""
+    Priceability reads the DATA, not `estado` — nothing recomputes `estado`
+    when a cost is cleared, so a row sitting at `listo` or `desconocido` with a
+    NULL cost would otherwise go straight into the write."""
 
-    def _row(self, estado, quantity, cost, price_id=None):
-        return SimpleNamespace(
-            estado=estado,
-            cantidad_minima=quantity,
-            precio_unitario=Decimal("500.00"),
-            costo_envio_total=cost,
-            ml_price_id=price_id,
-            cantidad_sincronizada=None,
-            precio_sincronizado=None,
-        )
+    def _row(self, estado, cost):
+        return SimpleNamespace(estado=estado, costo_envio_total=cost)
 
-    def test_a_row_without_a_shipping_cost_is_excluded_whatever_its_estado(self) -> None:
-        from app.services.ml_pxq_write_service import _desired_tiers_from_mirror
+    def test_a_row_without_a_shipping_cost_is_not_priceable_whatever_its_estado(self) -> None:
+        assert is_priceable(self._row(ESTADO_LISTO, None)) is False
+        assert is_priceable(self._row(ESTADO_DESCONOCIDO, None)) is False
+        assert is_priceable(self._row(ESTADO_SINCRONIZADO, None)) is False
 
-        rows = [
-            self._row(ESTADO_LISTO, 10, None),
-            self._row(ESTADO_DESCONOCIDO, 20, None, "ML2"),
-            self._row(ESTADO_LISTO, 30, Decimal("3200.00")),
-        ]
-
-        desired = _desired_tiers_from_mirror(rows)
-
-        assert [d.quantity for d in desired] == [30]
+    def test_a_row_with_a_shipping_cost_is_priceable(self) -> None:
+        assert is_priceable(self._row(ESTADO_LISTO, Decimal("3200.00"))) is True
 
 
 class TestConfirmationMatchesByIdWhenItIsKnown:
