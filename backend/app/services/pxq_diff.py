@@ -80,7 +80,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union, Tuple
 
 # Declared HERE, and imported by `pxq_tier_service`, not the other way round.
 # This module is pure by design — that is the whole reason it was split into
@@ -192,6 +192,10 @@ class PxqDiffResult:
 
     array: Optional[List[Dict[str, Any]]] = None
     refusal: Optional[PxqDiffRefusal] = None
+    # Live ids no desired row references: preserved as keeps, never ours. The
+    # write path claims them before value-matching, so a created tier cannot
+    # adopt a stranger's id when the two happen to share quantity and price.
+    untracked_ids: Tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -262,6 +266,7 @@ def diff_pxq_tiers(
 
     divergences: List[PxqDivergence] = []
     referenced_live_ids: set = set()
+    untracked: List[str] = []
     array: List[Dict[str, Any]] = []
 
     for desired in desired_tiers:
@@ -343,6 +348,7 @@ def diff_pxq_tiers(
     # preserved as keeps. Not reached when we already refused above.
     for live in live_tiers:
         if live.id not in referenced_live_ids:
+            untracked.append(live.id)
             array.append({"id": live.id})
 
-    return PxqDiffResult(array=array)
+    return PxqDiffResult(array=array, untracked_ids=tuple(untracked))
