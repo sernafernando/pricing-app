@@ -82,6 +82,7 @@ from app.routers import (
     ml_promotions,
     prearmado,
     prearmado_stats,
+    pxq,
     rrhh_empleados,
     rrhh_fichaje_mobile,
     rrhh_presentismo,
@@ -358,6 +359,7 @@ app.include_router(etiquetas_zpl_tools.router, prefix="/api", tags=["etiquetas-z
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
 app.include_router(ml_promotions.router, prefix="/api")
+app.include_router(pxq.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
 app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])
 app.include_router(rrhh_presentismo.router, prefix="/api", tags=["rrhh-presentismo"])
