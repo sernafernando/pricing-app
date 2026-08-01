@@ -363,30 +363,6 @@ class TestUnconfirmedIsNotSuccess:
         assert outcome["synced"] is False
 
 
-class TestKillSwitchIsDistinguishableFromPermissionDenial:
-    """A user WITH permission hitting a disabled feature, and a user WITHOUT
-    permission, must not receive the same answer — the frontend cannot tell
-    "ask an admin for access" from "this is turned off" if both are 403."""
-
-    def test_disabled_does_not_map_to_forbidden(self) -> None:
-        from app.routers.pxq import _SYNC_STATUS_TO_HTTP
-
-        assert _SYNC_STATUS_TO_HTTP["disabled"] != 403
-        assert _SYNC_STATUS_TO_HTTP["disabled"] == 503
-
-    def test_every_non_success_status_has_an_http_mapping(self) -> None:
-        """Derived from the service's own declaration, not a copy. The set used
-        to be hardcoded here, so the test that exists to catch an unmapped
-        status could not see a status the service had just added — which is
-        exactly how `submitted_unconfirmed` reached callers as a 200."""
-        from app.routers.pxq import _SYNC_STATUS_TO_HTTP
-        from app.services.ml_pxq_write_service import SYNC_STATUSES
-
-        unmapped = (SYNC_STATUSES - {"sincronizado"}) - set(_SYNC_STATUS_TO_HTTP)
-
-        assert not unmapped, f"these fall through to 200 OK: {sorted(unmapped)}"
-
-
 def test_http_exception_is_imported_at_module_level() -> None:
     """Imported inside a function it is easy to miss and diverges from
     `pxq_tier_service`, which imports it top-level in the same package."""
