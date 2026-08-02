@@ -404,3 +404,20 @@ def test_duplicate_ml_price_id_in_desired_refuses():
 
     assert result.array is None
     assert "duplicate" in result.refusal.reason
+
+
+def test_a_live_tier_whose_local_row_is_not_priceable_is_kept_not_deleted():
+    """A mirror row with no shipping cost is filtered out of `desired`, so its
+    live tier ends up referenced by nothing. It must still be PRESERVED: the
+    untracked-keep rule exists precisely so array-replace never deletes a tier
+    just because this system stopped tracking it.
+
+    Pins the answer to "does filtering a row silently delete its tier in ML?",
+    which is no.
+    """
+    result = diff_pxq_tiers(
+        live_tiers=[LiveTier(id="ORPHAN", quantity=10, amount=Decimal("500.00"))],
+        desired_tiers=[DesiredTier(quantity=20, amount=Decimal("400.00"))],
+    )
+
+    assert {"id": "ORPHAN"} in result.array
