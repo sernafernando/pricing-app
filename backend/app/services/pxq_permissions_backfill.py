@@ -78,6 +78,24 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
     if promos_permiso is None or pxq_ver is None or pxq_escribir is None:
         return counts
 
+    pxq_ids = (pxq_ver.id, pxq_escribir.id)
+
+    # Existing PxQ assignments fetched ONCE into sets. The loops below used to
+    # issue a SELECT per (grant, permission) pair — 2N+1 round-trips where
+    # three queries do the job, and the pitfall AGENTS.md lists by name.
+    existing_role_grants = {
+        (rol_id, permiso_id)
+        for rol_id, permiso_id in db.query(RolPermisoBase.rol_id, RolPermisoBase.permiso_id).filter(
+            RolPermisoBase.permiso_id.in_(pxq_ids)
+        )
+    }
+    existing_user_overrides = {
+        (usuario_id, permiso_id)
+        for usuario_id, permiso_id in db.query(
+            UsuarioPermisoOverride.usuario_id, UsuarioPermisoOverride.permiso_id
+        ).filter(UsuarioPermisoOverride.permiso_id.in_(pxq_ids))
+    }
+
     # Roles that currently grant promos.escribir by default (live query).
     role_grants = db.query(RolPermisoBase).filter(RolPermisoBase.permiso_id == promos_permiso.id).all()
     for grant in role_grants:
@@ -86,14 +104,10 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
         # re-run — and that count is the mandatory pre-deploy gate someone
         # reads to decide whether applying this is safe.
         granted_here = False
-        for target_id in (pxq_ver.id, pxq_escribir.id):
-            already_granted = (
-                db.query(RolPermisoBase)
-                .filter(RolPermisoBase.rol_id == grant.rol_id, RolPermisoBase.permiso_id == target_id)
-                .first()
-            )
-            if already_granted is not None:
+        for target_id in pxq_ids:
+            if (grant.rol_id, target_id) in existing_role_grants:
                 continue
+            existing_role_grants.add((grant.rol_id, target_id))
             granted_here = True
             if not dry_run:
                 db.add(RolPermisoBase(rol_id=grant.rol_id, permiso_id=target_id))
@@ -110,17 +124,10 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
         # Third counter, same rule as the other two: count only what would
         # actually be written, or a second dry-run reports work already done.
         granted_here = False
-        for target_id in (pxq_ver.id, pxq_escribir.id):
-            already_granted = (
-                db.query(UsuarioPermisoOverride)
-                .filter(
-                    UsuarioPermisoOverride.usuario_id == override.usuario_id,
-                    UsuarioPermisoOverride.permiso_id == target_id,
-                )
-                .first()
-            )
-            if already_granted is not None:
+        for target_id in pxq_ids:
+            if (override.usuario_id, target_id) in existing_user_overrides:
                 continue
+            existing_user_overrides.add((override.usuario_id, target_id))
             granted_here = True
             if not dry_run:
                 db.add(
@@ -145,16 +152,9 @@ def backfill_pxq_permissions_from_promos(db: Session, dry_run: bool = False) -> 
     for override in negative_overrides:
         # Same rule as the role counter above: count only what would actually
         # be written, or a re-run reports a number nobody can act on.
-        already_present = (
-            db.query(UsuarioPermisoOverride)
-            .filter(
-                UsuarioPermisoOverride.usuario_id == override.usuario_id,
-                UsuarioPermisoOverride.permiso_id == pxq_escribir.id,
-            )
-            .first()
-        )
-        if already_present is not None:
+        if (override.usuario_id, pxq_escribir.id) in existing_user_overrides:
             continue
+        existing_user_overrides.add((override.usuario_id, pxq_escribir.id))
         counts["negative_overrides_copied"] += 1
         if not dry_run:
             db.add(
