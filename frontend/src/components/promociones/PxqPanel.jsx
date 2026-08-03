@@ -1,7 +1,235 @@
+import { useState } from 'react';
 import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
+
+const MAX_TIERS = 5;
+
+function extractErrorMessage(err) {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && typeof detail.reason === 'string') return detail.reason;
+  return 'No se pudo guardar el tramo.';
+}
+
+// Whole-shipment cost the user reads off ML's wholesale simulator. There is
+// deliberately no default and no per-unit fallback here — that fallback is
+// the exact silent-wrong-price bug the backend's `costo_envio_total`-required
+// rule makes structurally impossible (see design.md). A tier missing it is
+// `incompleto` and is never written to MercadoLibre.
+function isIncomplete(tier) {
+  return tier.costo_envio_total === null || tier.costo_envio_total === undefined;
+}
+
+function emptyForm() {
+  return { cantidad_minima: '', precio_unitario: '', costo_envio_total: '' };
+}
+
+function buildBody(form) {
+  return {
+    cantidad_minima: Number(form.cantidad_minima),
+    precio_unitario: Number(form.precio_unitario),
+    costo_envio_total: form.costo_envio_total === '' ? null : Number(form.costo_envio_total),
+  };
+}
+
+/**
+ * The tier authoring form (PR 4c): create/edit/delete against our own CRUD
+ * endpoints only — no MercadoLibre traffic. Requires `pxq.escribir`; a
+ * `pxq.ver`-only user sees the read columns above with no editing affordance
+ * at all, rather than buttons that would 403.
+ */
+function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
+  const [createForm, setCreateForm] = useState(emptyForm);
+  const [createError, setCreateError] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editError, setEditError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+
+  const atMax = mirrorTiers.length >= MAX_TIERS;
+
+  function startEdit(tier) {
+    setEditingId(tier.id);
+    setEditError(null);
+    setEditForm({
+      cantidad_minima: String(tier.cantidad_minima),
+      precio_unitario: String(tier.precio_unitario),
+      costo_envio_total: tier.costo_envio_total === null || tier.costo_envio_total === undefined ? '' : String(tier.costo_envio_total),
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditError(null);
+  }
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await pxqAPI.createTier(itemId, buildBody(createForm));
+      setCreateForm(emptyForm());
+      await onChanged();
+    } catch (err) {
+      setCreateError(extractErrorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleSaveEdit(tierId) {
+    setSaving(true);
+    setEditError(null);
+    try {
+      await pxqAPI.updateTier(itemId, tierId, buildBody(editForm));
+      setEditingId(null);
+      await onChanged();
+    } catch (err) {
+      setEditError(extractErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleConfirmDelete(tierId) {
+    setDeleteError(null);
+    try {
+      await pxqAPI.deleteTier(itemId, tierId);
+      setDeletingId(null);
+      await onChanged();
+    } catch (err) {
+      setDeleteError(extractErrorMessage(err));
+    }
+  }
+
+  return (
+    <div className={styles.pxqAuthoring}>
+      <div className={styles.pxqColumnTitle}>Editar tramos</div>
+      {mirrorTiers.map((tier) =>
+        editingId === tier.id ? (
+          <form
+            key={tier.id}
+            className={styles.pxqTierEditRow}
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSaveEdit(tier.id);
+            }}
+          >
+            <label htmlFor={`pxq-edit-cantidad-${tier.id}`}>Cantidad mínima</label>
+            <input
+              id={`pxq-edit-cantidad-${tier.id}`}
+              type="number"
+              min="2"
+              value={editForm.cantidad_minima}
+              onChange={(e) => setEditForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
+              required
+            />
+            <label htmlFor={`pxq-edit-precio-${tier.id}`}>Precio unitario</label>
+            <input
+              id={`pxq-edit-precio-${tier.id}`}
+              type="number"
+              min="0"
+              step="0.01"
+              value={editForm.precio_unitario}
+              onChange={(e) => setEditForm((f) => ({ ...f, precio_unitario: e.target.value }))}
+              required
+            />
+            <label htmlFor={`pxq-edit-envio-${tier.id}`}>Costo de envío del bulto</label>
+            <input
+              id={`pxq-edit-envio-${tier.id}`}
+              type="number"
+              min="0"
+              step="0.01"
+              value={editForm.costo_envio_total}
+              onChange={(e) => setEditForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
+            />
+            <button type="submit" className="btn-tesla sm" disabled={saving}>
+              Guardar
+            </button>
+            <button type="button" className="btn-tesla ghost sm" onClick={cancelEdit} disabled={saving}>
+              Cancelar
+            </button>
+            {editError && <span className={styles.feedbackError}>{editError}</span>}
+          </form>
+        ) : (
+          <div key={tier.id} className={styles.pxqTierEditRow}>
+            <span>{tier.cantidad_minima} u.</span>
+            <span>{formatMoney(tier.precio_unitario)}</span>
+            <span>{isIncomplete(tier) ? formatMoney(null) : formatMoney(tier.costo_envio_total)}</span>
+            {isIncomplete(tier) && (
+              <span className={styles.pxqIncompleteBadge}>Incompleto: falta el costo de envío del bulto</span>
+            )}
+            <button type="button" className="btn-tesla ghost sm" onClick={() => startEdit(tier)}>
+              Editar
+            </button>
+            {deletingId === tier.id ? (
+              <span className={styles.applyConfirm}>
+                ¿Eliminar este tramo?
+                <button type="button" className="btn-tesla sm" onClick={() => handleConfirmDelete(tier.id)}>
+                  Confirmar
+                </button>
+                <button type="button" className="btn-tesla ghost sm" onClick={() => setDeletingId(null)}>
+                  Cancelar
+                </button>
+              </span>
+            ) : (
+              <button type="button" className={`btn-tesla ghost sm ${styles.removeBtn}`} onClick={() => setDeletingId(tier.id)}>
+                Eliminar
+              </button>
+            )}
+            {deleteError && deletingId === null && <span className={styles.feedbackError}>{deleteError}</span>}
+          </div>
+        ),
+      )}
+
+      {editingId === null && (
+        <form className={styles.pxqTierEditRow} onSubmit={handleCreate}>
+          <label htmlFor="pxq-new-cantidad">Cantidad mínima</label>
+          <input
+            id="pxq-new-cantidad"
+            type="number"
+            min="2"
+            value={createForm.cantidad_minima}
+            onChange={(e) => setCreateForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
+            required
+          />
+          <label htmlFor="pxq-new-precio">Precio unitario</label>
+          <input
+            id="pxq-new-precio"
+            type="number"
+            min="0"
+            step="0.01"
+            value={createForm.precio_unitario}
+            onChange={(e) => setCreateForm((f) => ({ ...f, precio_unitario: e.target.value }))}
+            required
+          />
+          <label htmlFor="pxq-new-envio">Costo de envío del bulto</label>
+          <input
+            id="pxq-new-envio"
+            type="number"
+            min="0"
+            step="0.01"
+            value={createForm.costo_envio_total}
+            onChange={(e) => setCreateForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
+          />
+          <button type="submit" className="btn-tesla sm" disabled={creating || atMax}>
+            Agregar tramo
+          </button>
+          {atMax && <span className={styles.pxqUnavailable}>Máximo de 5 tramos alcanzado.</span>}
+          {createError && <span className={styles.feedbackError}>{createError}</span>}
+        </form>
+      )}
+    </div>
+  );
+}
 
 // Money is Decimal on the backend and arrives as a number or string here —
 // this only formats it for display, it never computes or re-derives a
@@ -12,26 +240,28 @@ function formatMoney(value) {
 }
 
 /**
- * PxQ (wholesale, price-by-quantity) READ-ONLY panel (PR 4a).
+ * PxQ (wholesale, price-by-quantity) panel.
  *
  * Reads `GET /pxq/{item_id}/live` on open and shows live MercadoLibre state
  * side by side with the local mirror. This is the requirement that drove the
  * whole feature's design: "no me gusta que nada suceda en silencio" — live
- * state is shown ALWAYS, not only on divergence, and it renders ABOVE where
- * PR 4b will add the tier inputs.
+ * state is shown ALWAYS, not only on divergence, and it renders ABOVE the
+ * tier authoring form (PR 4c).
  *
  * `live_tiers: null` (the read failed/is unavailable) and `live_tiers: []`
  * (ML confirmed there genuinely are none) are DIFFERENT claims and must never
  * collapse into the same "0 tramos" rendering — see `live_status` handling
  * below and `backend/app/routers/pxq.py`'s `_unavailable_response` docstring.
  *
- * No tier create/edit/delete, no shipping-cost input, no sync button, no
- * divergence-resolution action — those are PR 4b. Divergences are marked
- * here purely as information.
+ * Divergences are marked here purely as information (read side); nothing
+ * here resolves them. No sync button, no `allow_clear` confirmation flow —
+ * those call MercadoLibre and are out of scope for this local-only form
+ * (PR 4d).
  */
 function PxqPanel({ itemId, pxqCacheRef }) {
   const { tienePermiso } = usePermisos();
   const canRead = tienePermiso('pxq.ver');
+  const canWrite = tienePermiso('pxq.escribir');
 
   // Gated inside the fetcher itself, not just the render: `useLazyResource`
   // fires its effect unconditionally on mount, so a plain early return after
@@ -116,6 +346,9 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           )}
         </div>
       </div>
+      {canWrite && (
+        <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
+      )}
     </div>
   );
 }

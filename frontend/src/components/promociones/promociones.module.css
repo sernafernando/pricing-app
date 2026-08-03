@@ -554,3 +554,49 @@
   background: var(--info-bg, var(--bg-secondary));
   color: var(--info-text, var(--text-primary));
 }
+
+/* PxQ tier authoring form (PR 4c) — own classes, not reused from the read
+   panel above (`.pxqTierRow` etc.) since these rows carry inputs/buttons
+   instead of plain text. */
+.pxqAuthoring {
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+.pxqTierEditRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.pxqTierEditRow label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pxqTierEditRow input[type='number'] {
+  width: 100px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* An incomplete tier (no `costo_envio_total`) is never written to ML — this
+   must look unfinished, not like a normal ready row. Warning tone, distinct
+   from `.pxqTierRowDivergent` (that one means "diverges from ML", a
+   different fact from "not sync-eligible at all"). */
+.pxqIncompleteBadge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning-text, var(--text-primary));
+  background: var(--warning-bg, var(--bg-secondary));
+  border-radius: 6px;
+  padding: 1px 8px;
+}

@@ -266,12 +266,117 @@ without any write path being exercised.
 - Commit: `feat(pxq): add read-only wholesale tiers panel`, `6a1fae45`, on
   `feat/pxq-panel-lectura` (local only, not pushed).
 
-## PR 4b (write path UI) — NOT STARTED (out of scope for this apply run)
+## PR 4b — backend tier CRUD (this slice), FE form NOT STARTED
 
-Next apply run should pick up PR 4b: tier create/edit/delete form (client-side
-max-5 / `min_purchase_unit > 1` mirrors of the backend validation, not a
-replacement), the shipping-cost input, the sync button wired to
-`POST /pxq/{item_id}/sync`, the divergence banner that DISABLES the sync
-action until resolved (no silent local-wins), and the `allow_clear`
-confirmation flow — all rendered BELOW the PR 4a read panel inside the same
-"Precios mayoristas" sub-spoiler, on top of `feat/pxq-panel-lectura`.
+Scope of this apply run was backend-only: create/edit/delete endpoints for
+`MlPxqTier` rows, so PR 4c's authoring UI has something to call. Branch
+`feat/pxq-tier-crud`, off the tracker `feat/ml-wholesale-pxq-pricing` (on top
+of merged backend PR 3b).
+
+- `backend/app/services/pxq_tier_service.py` — added `update_pxq_tier` and
+  `delete_pxq_tier` beside the existing `create_pxq_tier`. `update_pxq_tier`
+  re-enforces `cantidad_minima > 1` and the no-duplicate-`cantidad_minima`
+  check (scoped to the tier's own publication, excluding itself) as clean
+  422s, and deliberately never writes `cantidad_sincronizada` /
+  `precio_sincronizado` — those columns are the ML-confirmed snapshot that
+  makes the write path a three-way merge; only a confirmed write
+  (`pxq_confirm`) may advance them, or the next sync would treat a fresh
+  local edit as "nobody touched anything" and silently overwrite it.
+  Verified this holds by deliberately making an edit advance the snapshot and
+  watching `test_update_tier_never_advances_the_synced_snapshot` fail, then
+  reverting. `delete_pxq_tier` removes the local mirror row only — it does
+  NOT reach MercadoLibre; the array-replace diff (PR 3) simply omits the row
+  on the next sync, so a tier with an `ml_price_id` leaves that sync pending.
+- `backend/app/routers/pxq.py` — three new endpoints: `POST
+  /pxq/{item_id}/tiers` (201), `PATCH /pxq/{item_id}/tiers/{tier_id}`, `DELETE
+  /pxq/{item_id}/tiers/{tier_id}` (204). All gated on `pxq.escribir` via a new
+  `_require_pxq_write` helper (mirrors `_require_pxq_read`'s shape). They use
+  the ordinary `get_current_user` + `Depends(get_db)` — NOT the
+  transient-user/short-session pattern the live endpoint uses — because they
+  only touch our own DB, never MercadoLibre; each endpoint's docstring says so
+  explicitly so the difference isn't read as an oversight later. Update/delete
+  resolve the tier by `tier_id` but also check the path's `item_id` matches
+  the tier's stored `item_id`, treating a mismatch as 404 (same as
+  not-found) rather than silently operating across publications.
+- Tests: 8 new cases in `backend/tests/services/test_pxq_tier_service.py`
+  (update happy path, snapshot-preservation, 404, `cantidad_minima<=1` 422,
+  duplicate 422, decimal-not-float) + new
+  `backend/tests/unit/test_pxq_router_tier_crud.py` (10 cases: create/edit/
+  delete happy paths, unknown-item-id 404, wrong-item-id-on-existing-tier 404,
+  missing-`pxq.escribir` 403 for all three endpoints) calling router functions
+  directly against the real `db` fixture, same style as the existing live-read
+  endpoint tests — no TestClient/full auth stack needed.
+- Full backend suite: `ENVIRONMENT=testing DATABASE_URL=sqlite:///./test.db
+  ./.venv/bin/python -m pytest tests/ -q` → 4071 passed, 16 skipped (baseline
+  4053 passed + 18 new tests, zero regressions). `ruff format`/`ruff check`
+  clean on the two changed `app/` files.
+- Diff: 593 lines across 4 files (+593/-2) — over the 400-line review budget
+  as one unit. Split into two commits that each individually stay under
+  budget: `feat(pxq): add update/delete tier service functions` (236 lines:
+  service + its tests) and `feat(pxq): add tier create/edit/delete endpoints`
+  (359 lines: router + its tests). Both committed locally on
+  `feat/pxq-tier-crud`, NOT pushed, no PR opened.
+- Explicitly NOT built in this slice: any React component/form (PR 4c),
+  changes to the existing `/live` or `/sync` endpoints beyond adding imports.
+
+## PR 4c — tier authoring form (this slice), sync/allow_clear NOT started
+
+Scope of this apply run was the local-only authoring form: create/edit/delete
+tiers against PR 4b's CRUD endpoints, no MercadoLibre traffic. Branch
+`feat/pxq-form-tramos`, stacked on `feat/pxq-tier-crud-endpoints` (PR #1050,
+open, off tracker `feat/ml-wholesale-pxq-pricing`).
+
+- `frontend/src/services/api.js` — added `createTier`/`updateTier`/
+  `deleteTier` to `pxqAPI`, matching `PxqCreateTierRequest`/
+  `PxqUpdateTierRequest`'s field names exactly (`cantidad_minima`,
+  `precio_unitario`, `costo_envio_total`).
+- `frontend/src/components/promociones/PxqPanel.jsx` — new
+  `PxqTierAuthoring` sub-component, rendered below the existing live-vs-mirror
+  columns and gated on `pxq.escribir` (read stays `pxq.ver`; a read-only user
+  sees the panel above with no editing affordance at all, never a button that
+  would 403). Per tier: cantidad mínima, precio unitario, costo de envío del
+  bulto, inline edit-in-place and a two-step delete confirmation. "Agregar
+  tramo" disables at 5 tiers client-side, but a 422 from either endpoint
+  (duplicate quantity, `cantidad_minima<=1`, a race past the 5-tier disable)
+  is still caught and its message shown verbatim — the client mirrors the
+  backend's rules, it does not reimplement or trust them. A tier whose
+  `costo_envio_total` is `null`/`undefined` renders a visible "Incompleto:
+  falta el costo de envío del bulto" badge instead of looking ready — there is
+  no default and no per-unit-shipping fallback anywhere in this form; that
+  fallback is the exact bug PR 2's `resolve_tier_shipping` (no-default,
+  `inspect.signature`-asserted) made structurally impossible on the backend,
+  and reintroducing it here would defeat that. The create form hides itself
+  while a row is mid-edit, avoiding a duplicate-labelled-input ambiguity for
+  both users and tests. `useLazyResource`'s `reload` now returns its promise
+  (was previously fire-and-forget) so a create/edit/delete can `await` the
+  list refresh before clearing its own submitting state.
+- `frontend/src/components/promociones/promociones.module.css` — new
+  `.pxqAuthoring`/`.pxqTierEditRow`/`.pxqIncompleteBadge` classes, not reused
+  from the read panel's `.pxqTierRow` family (those rows are plain text; these
+  carry inputs and buttons).
+- Tests: `frontend/src/components/promociones/PxqPanel.test.jsx` — 8 new
+  cases (RED-first): editing affordances fully hidden for `pxq.ver`-only,
+  incomplete-tier badge, create with exact payload shape + list reload,
+  max-5 disables the button, 422 surfaced on create, edit via PATCH with the
+  changed-fields shape, delete requires explicit confirmation before the
+  DELETE call fires. Verified the incomplete-badge test is load-bearing by
+  forcing `isIncomplete` to always return `false`, watching that one test
+  fail (others stayed green), then reverting.
+- `pnpm run test` (vitest run): 36 files / 554 tests passed (was 36/546 before
+  this slice — net +8, zero regressions).
+- `pnpm run lint` (eslint): clean, zero warnings.
+- Diff: 455 lines across 5 files (+455/-11) — over the 400-line budget as one
+  unit. Not split further: this is a single cohesive TDD cycle (one new
+  sub-component plus its tests plus the three API calls it needs), and
+  breaking it into a test-only/impl-only pair would not have produced two
+  independently reviewable units the way PR 4b's service/router split did.
+  Flagged for the reviewer rather than trimmed scope.
+- Commit: `feat(pxq): add wholesale tier authoring form`, `54a2827e`, on
+  `feat/pxq-form-tramos` (local only, not pushed, no PR opened).
+- Explicitly NOT built in this slice (PR 4d, separate run): the sync button,
+  `POST /sync` call, outcome/status handling for a sync, the
+  divergence-resolution banner, the `allow_clear` confirmation flow.
+
+Next apply run: PR 4d — sync button + `allow_clear` confirmation + divergence
+banner (disables sync until resolved, no silent local-wins) — wires PR 3b's
+`POST /pxq/{item_id}/sync` into this same panel, on top of PR 4c's form.
