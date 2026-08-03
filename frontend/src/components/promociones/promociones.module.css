@@ -373,6 +373,16 @@
   color: var(--bg-primary);
 }
 
+/* Row holding the tree's global expand/collapse controls. Deliberately its own
+   class rather than borrowing .filterMessage: these are not a filter, and
+   sharing that class meant a change to filter styling silently moved unrelated
+   controls. */
+.treeControls {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
 .filterMessage {
   padding: 8px 4px;
   color: var(--text-secondary);
@@ -468,6 +478,47 @@
   color: var(--text-secondary);
 }
 
+/* PxQ (wholesale, price-by-quantity) read panel (PR 4a) — side-by-side live
+   ML state vs local mirror. Its own class, not a reuse of `.filterMessage`
+   (that name means something else and reusing it was a review finding on a
+   sibling PR). */
+.pxqColumns {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 4px;
+}
+
+.pxqColumn {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.pxqColumnTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.pxqTierRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.pxqTierRowDivergent {
+  color: var(--warning-text, var(--text-primary));
+  background: color-mix(in srgb, var(--warning-bg, var(--bg-secondary)) 40%, transparent);
+}
+
+.pxqUnavailable {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
    cosmetic, subtler than the promo summary since it carries no money-path
    meaning. */
@@ -502,4 +553,70 @@
 .badgeStatusUnderReview {
   background: var(--info-bg, var(--bg-secondary));
   color: var(--info-text, var(--text-primary));
+}
+
+/* PxQ tier authoring form (PR 4c) — own classes, not reused from the read
+   panel above (`.pxqTierRow` etc.) since these rows carry inputs/buttons
+   instead of plain text. */
+.pxqAuthoring {
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+.pxqTierEditRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.pxqTierEditRow label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pxqTierEditRow input[type='number'] {
+  width: 100px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* An incomplete tier (no `costo_envio_total`) is never written to ML — this
+   must look unfinished, not like a normal ready row. Warning tone, distinct
+   from `.pxqTierRowDivergent` (that one means "diverges from ML", a
+   different fact from "not sync-eligible at all"). */
+.pxqIncompleteBadge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning-text, var(--text-primary));
+  background: var(--warning-bg, var(--bg-secondary));
+  border-radius: 6px;
+  padding: 1px 8px;
+}
+
+/* Divergence banner (PR 4d) — a refused sync (409) shows both sides so the
+   user can resolve manually by editing tiers; there is deliberately no
+   "force" affordance here. */
+.pxqDivergenceBanner {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--error-bg, var(--border-secondary));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--error-bg, var(--bg-secondary)) 30%, transparent);
+}
+
+.pxqDivergenceItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  padding: 2px 0;
+  color: var(--text-primary);
 }

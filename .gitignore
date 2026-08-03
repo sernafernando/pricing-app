@@ -48,10 +48,12 @@ Thumbs.db
 
 # Version managers (asdf, mise, rtx)
 .tool-versions
+mise.toml
 
 # Environment variables
 .env
 .env.local
+.env.verify
 /backend/.env.example
 backend/uploads/
 
@@ -86,3 +88,13 @@ frontend/public/sounds/
 # Agent tooling caches / local settings
 .atl/
 .pi/
+
+# SDD artifacts under openspec/changes/ ARE tracked by default — they are the
+# shared record of a change and belong in its PR. The paths below are the
+# exception: local scratch from changes that were never opened, listed one by
+# one rather than as a wildcard precisely so the default stays "tracked".
+# Adding a new change? Do nothing; it gets committed like the rest.
+openspec/changes/design-token-consolidation/
+openspec/changes/export-builder/
+openspec/changes/sub-pm-bulk-assignment/
+openspec/changes/ml-bot-resizable-columns/verify-report.md

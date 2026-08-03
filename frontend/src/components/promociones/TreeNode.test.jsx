@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
@@ -26,6 +26,14 @@ vi.mock('./CatalogCompetitionPanel', () => ({
   ),
 }));
 
+vi.mock('./PxqPanel', () => ({
+  default: (props) => (
+    <div data-testid={`pxq-${props.itemId}`} data-has-cache-ref={props.pxqCacheRef ? 'yes' : 'no'}>
+      mocked-pxq-for-{props.itemId}
+    </div>
+  ),
+}));
+
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     refreshItemPromociones: vi.fn(),
@@ -43,6 +51,7 @@ function renderNode(node, props = {}) {
   const mlasCacheRef = { current: new Map() };
   const promosCacheRef = { current: new Map() };
   const catalogCompetitionCacheRef = { current: new Map() };
+  const pxqCacheRef = { current: new Map() };
   return render(
     <table>
       <tbody>
@@ -52,6 +61,7 @@ function renderNode(node, props = {}) {
           mlasCacheRef={mlasCacheRef}
           promosCacheRef={promosCacheRef}
           catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+          pxqCacheRef={pxqCacheRef}
           promoTipos={[]}
           promoEstado="disponible"
           {...props}
@@ -687,6 +697,172 @@ describe('TreeNode official store badge', () => {
 
     expect(screen.getByText(/familia fam_store/i)).toBeInTheDocument();
     expect(screen.queryByText(/gauss/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('TreeNode — global collapse epoch sync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  afterEach(() => {
+    // These tests bump collapseEpoch — reset it so later describe blocks
+    // (which don't touch collapse state) mount TreeNode with epoch 0 (no
+    // sync effect firing on mount).
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaTree() {
+    return {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_CAT',
+      label: 'MLA_CAT',
+      matches_filter: true,
+      children: [
+        { level: 2, kind: 'vinculada', mla: 'MLA_VINC1', label: 'MLA_VINC1', matches_filter: true, children: [] },
+      ],
+    };
+  }
+
+  it('global-open opens every node (including nested promo panel) in one action', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^promociones/i }).length).toBeGreaterThan(0);
+  });
+
+  it('global-close closes every node after being opened', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getAllByRole('button', { name: /^promociones/i }).length).toBeGreaterThan(0);
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^promociones/i })).not.toBeInTheDocument();
+  });
+
+  it('global-open also opens the catalog-competition sub-panel, not just promos', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    const catalogButtons = screen.getAllByRole('button', { name: /^competencia catálogo/i });
+    expect(catalogButtons.length).toBeGreaterThan(0);
+    catalogButtons.forEach((button) => {
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  it('global-close also closes the catalog-competition sub-panel', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^competencia catálogo/i })).not.toBeInTheDocument();
+  });
+
+  it('global-open also opens the PxQ sub-panel — the catalog-competition panel was omitted from this same effect once before, this proves the new one joined it', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    const pxqButtons = screen.getAllByRole('button', { name: /^precios mayoristas/i });
+    expect(pxqButtons.length).toBeGreaterThan(0);
+    pxqButtons.forEach((button) => {
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  it('global-close also closes the PxQ sub-panel', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^precios mayoristas/i })).not.toBeInTheDocument();
+  });
+
+  it('global-close really closes the sub-panels, not just the node that hides them', async () => {
+    // Asserting the sub-panel buttons are absent right after a global-close is
+    // vacuous: `isOpen` alone unmounts the whole section. Reopen the node
+    // manually so the sub-panels render again, and assert they came back
+    // CLOSED — that is the only way to prove the global-close actually reset
+    // promosOpen/catalogCompetitionOpen instead of leaving them stuck open.
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    expect(screen.getByRole('button', { name: /^promociones/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /^competencia catálogo/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('manually reopening a node after a global-open does not re-explode its subtree', async () => {
+    // Children only mount once their parent is open, so "expand all" reaches an
+    // unmounted subtree through the mount cascade. That cascade must stop once
+    // the user takes manual control: otherwise every node the user opens by hand
+    // for the rest of the session force-opens its whole subtree, and a normal
+    // single-level expand becomes impossible.
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    // Two MLA-bearing nodes are mounted again (MLA_CAT and its child
+    // MLA_VINC1). MLA_CAT's own panels stay open — the user never closed
+    // those, they only collapsed and reopened the node, so preserving them is
+    // correct. The child is the one that must come back CLOSED: it remounts,
+    // and without the manual-mode reset the stale 'all-open' would force it and
+    // its whole subtree open again.
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    // A node's own sections only render while that node is open, so the child
+    // coming back closed means exactly ONE promos button is in the document —
+    // MLA_CAT's. Before the manual-mode reset there were TWO, both expanded,
+    // because the remounted child force-opened itself from the stale mode.
+    expect(screen.getAllByRole('button', { name: /^promociones/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^competencia catálogo/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^promociones/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a manual toggle switches collapseMode back to manual', async () => {
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(useTreeViewStore.getState().collapseMode).toBe('all-open');
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+
+    expect(useTreeViewStore.getState().collapseMode).toBe('manual');
+    // The epoch must NOT move: already-mounted nodes keep the state the user gave them.
+    expect(useTreeViewStore.getState().collapseEpoch).toBe(1);
+  });
+
+  it('a manual toggle after a global-open survives (does not get overridden back)', async () => {
+    renderNode(buildMlaTree());
+    const user = userEvent.setup();
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /colapsar mla_cat/i }));
+
+    expect(screen.queryByText('MLA_VINC1')).not.toBeInTheDocument();
   });
 });
 

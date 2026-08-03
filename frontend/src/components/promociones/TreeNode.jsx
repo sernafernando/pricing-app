@@ -3,6 +3,7 @@ import { CheckCircle2, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-rea
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
+import PxqPanel from './PxqPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { getTiendaOficialLabel } from '../../constants/tiendasOficiales';
@@ -71,11 +72,13 @@ const KIND_ROW_CLASS = {
  * publication row.
  *
  * `promoTipos`/`promoEstado`/`mlasCacheRef`/`promosCacheRef`/
- * `catalogCompetitionCacheRef` MUST be forwarded unchanged through every
- * recursive call so the shipped promo filter, per-MLA dynamic-refresh
- * reload timers, and the catalog-competition panel's cache keep working
- * at any depth — dropping them here silently breaks those features deeper
- * in the tree (this is the design's flagged #1 FE risk).
+ * `catalogCompetitionCacheRef`/`pxqCacheRef` MUST be forwarded unchanged
+ * through every recursive call so the shipped promo filter, per-MLA
+ * dynamic-refresh reload timers, and the catalog-competition/PxQ panels'
+ * caches keep working at any depth — dropping them here silently breaks
+ * those features deeper in the tree (this is the design's flagged #1 FE
+ * risk; the catalog-competition panel was previously omitted from the
+ * collapse-epoch sync effect below and had to be fixed once already).
  */
 function TreeNode({
   node,
@@ -83,6 +86,7 @@ function TreeNode({
   mlasCacheRef,
   promosCacheRef,
   catalogCompetitionCacheRef,
+  pxqCacheRef,
   promoTipos,
   promoEstado,
   tiendaOficial,
@@ -91,11 +95,40 @@ function TreeNode({
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
   const [catalogCompetitionOpen, setCatalogCompetitionOpen] = useState(false);
+  const [pxqOpen, setPxqOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [promosReloadKey, setPromosReloadKey] = useState(0);
   const { tienePermiso } = usePermisos();
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
+  const collapseEpoch = useTreeViewStore((state) => state.collapseEpoch);
+  const collapseMode = useTreeViewStore((state) => state.collapseMode);
+  const markManual = useTreeViewStore((state) => state.markManual);
+
+  // Global synchronized collapse toggle (tree-view-collapse, design D6): syncs
+  // this node's local open state from the store when the epoch changes (an
+  // actual global activation) and on mount, never on every render.
+  //
+  // The mount case is load-bearing, not incidental: children only mount once
+  // their parent is open, so "expand all" reaches an unmounted subtree through
+  // the mount cascade. `markManual()` below is what stops that cascade from
+  // outliving the global action — once the user toggles anything by hand the
+  // mode goes back to 'manual' and later mounts stop force-opening. Without it,
+  // every node opened by hand after one "expand all" would re-explode its whole
+  // subtree for the rest of the session.
+  useEffect(() => {
+    if (collapseEpoch === 0 || collapseMode === 'manual') return;
+    const open = collapseMode === 'all-open';
+    setIsOpen(open);
+    setPromosOpen(open);
+    setCatalogCompetitionOpen(open);
+    setPxqOpen(open);
+    // collapseMode is read on purpose without being a dependency: the effect
+    // must fire only on an actual global activation (the epoch), never when
+    // the mode changes on its own, or a manual toggle would be clobbered on
+    // the next render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseEpoch]);
 
   // Guards the async refresh follow-up from setState-ing after the node
   // unmounts (e.g. the tree re-renders on a promo-filter change while a
@@ -135,6 +168,7 @@ function TreeNode({
             mlasCacheRef={mlasCacheRef}
             promosCacheRef={promosCacheRef}
             catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+            pxqCacheRef={pxqCacheRef}
             promoTipos={promoTipos}
             promoEstado={promoEstado}
             tiendaOficial={tiendaOficial}
@@ -222,7 +256,7 @@ function TreeNode({
     <ExpandableRow
       colSpan={colSpan}
       isOpen={isOpen}
-      onToggle={() => setIsOpen((prev) => !prev)}
+      onToggle={() => { markManual(); setIsOpen((prev) => !prev); }}
       ariaLabel={isOpen ? `Colapsar ${displayLabel}` : `Expandir ${displayLabel}`}
       headerRowClassName={KIND_ROW_CLASS[node.kind]}
       header={
@@ -284,7 +318,7 @@ function TreeNode({
           <button
             type="button"
             className="btn-tesla ghost sm"
-            onClick={() => setPromosOpen((prev) => !prev)}
+            onClick={() => { markManual(); setPromosOpen((prev) => !prev); }}
             aria-expanded={promosOpen}
           >
             Promociones {promosOpen ? '▾' : '▸'}
@@ -295,7 +329,7 @@ function TreeNode({
           <button
             type="button"
             className="btn-tesla ghost sm"
-            onClick={() => setCatalogCompetitionOpen((prev) => !prev)}
+            onClick={() => { markManual(); setCatalogCompetitionOpen((prev) => !prev); }}
             aria-expanded={catalogCompetitionOpen}
           >
             Competencia catálogo {catalogCompetitionOpen ? '▾' : '▸'}
@@ -303,6 +337,15 @@ function TreeNode({
           {catalogCompetitionOpen && (
             <CatalogCompetitionPanel mla={node.mla} catalogCompetitionCacheRef={catalogCompetitionCacheRef} />
           )}
+          <button
+            type="button"
+            className="btn-tesla ghost sm"
+            onClick={() => { markManual(); setPxqOpen((prev) => !prev); }}
+            aria-expanded={pxqOpen}
+          >
+            Precios mayoristas {pxqOpen ? '▾' : '▸'}
+          </button>
+          {pxqOpen && <PxqPanel itemId={node.mla} pxqCacheRef={pxqCacheRef} />}
         </div>
       )}
 
@@ -318,6 +361,7 @@ function TreeNode({
                   mlasCacheRef={mlasCacheRef}
                   promosCacheRef={promosCacheRef}
                   catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+                  pxqCacheRef={pxqCacheRef}
                   promoTipos={promoTipos}
                   promoEstado={promoEstado}
                   tiendaOficial={tiendaOficial}

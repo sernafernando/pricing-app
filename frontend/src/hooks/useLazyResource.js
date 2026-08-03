@@ -60,9 +60,7 @@ export function useLazyResource(cacheRef, key, fetcher) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const reload = useCallback(() => {
-    load();
-  }, [load]);
+  const reload = useCallback(() => load(), [load]);
 
   return { data, loading, error, reload };
 }

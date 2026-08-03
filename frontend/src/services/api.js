@@ -207,6 +207,23 @@ export const promocionesAPI = {
   refreshCompetenciaCatalogo: (mlaId) => api.post(`/promociones/catalogo-competencia/${mlaId}/refresh`),
 };
 
+// PxQ (wholesale, price-by-quantity) tiers.
+// `getLive` always re-hits the ML proxy server-side (never server-cached);
+// `live_tiers: null` (vs `[]`) means the live read failed, not "no tiers".
+// The CRUD calls below (PR 4c) only ever touch our own DB — no ML traffic —
+// matching the shapes in `backend/app/routers/pxq.py`'s
+// `PxqCreateTierRequest`/`PxqUpdateTierRequest`.
+export const pxqAPI = {
+  getLive: (itemId) => api.get(`/pxq/${itemId}/live`),
+  createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
+  updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
+  deleteTier: (itemId, tierId) => api.delete(`/pxq/${itemId}/tiers/${tierId}`),
+  // Write path (PR 4d): `allow_clear` must be sent explicitly true to let a
+  // sync wipe every tier from the ML array — matches
+  // `backend/app/routers/pxq.py`'s `PxqSyncRequest` default of False.
+  sync: (itemId, allowClear = false) => api.post(`/pxq/${itemId}/sync`, { allow_clear: allowClear }),
+};
+
 export const pricingAPI = {
   calcularCompleto: (data) => api.post('/precios/calcular-completo', data),
   setearPrecio: (data) => api.post('/precios/set', data),
