@@ -220,7 +220,7 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
             value={createForm.costo_envio_total}
             onChange={(e) => setCreateForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
           />
-          <button type="submit" className="btn-tesla sm" disabled={creating || atMax}>
+          <button type="submit" className="btn-tesla primary sm" disabled={creating || atMax}>
             Agregar tramo
           </button>
           {atMax && <span className={styles.pxqUnavailable}>Máximo de 5 tramos alcanzado.</span>}
@@ -341,7 +341,7 @@ function PxqSyncControl({ itemId, hasTiers, onSynced }) {
           </button>
         </span>
       ) : (
-        <button type="button" className="btn-tesla sm" disabled={syncing} onClick={handleSyncClick}>
+        <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
           Sincronizar con MercadoLibre
         </button>
       )}

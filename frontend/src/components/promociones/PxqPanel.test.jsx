@@ -512,3 +512,33 @@ describe('PxqPanel — sync (PR 4d)', () => {
     await waitFor(() => expect(screen.getByText(/mercadolibre rechazó/i)).toBeInTheDocument());
   });
 });
+
+describe('PxqPanel — primary actions look like buttons', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  it('renders "Agregar tramo" and "Sincronizar" with the primary variant, not the bare base', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [],
+        mirror_tiers: [],
+        fetched_at: '2026-08-03T12:00:00Z',
+      },
+    });
+    renderPanel();
+
+    const agregar = await screen.findByRole('button', { name: /agregar tramo/i });
+    const sincronizar = screen.getByRole('button', { name: /sincronizar con mercadolibre/i });
+
+    // The bare `btn-tesla` base is `background: transparent` with a
+    // transparent border, so on the panel's grey it reads as text. These two
+    // are the primary actions of the panel — one of them writes to ML.
+    for (const button of [agregar, sincronizar]) {
+      expect(button.className).toMatch(/\bprimary\b/);
+    }
+  });
+});
