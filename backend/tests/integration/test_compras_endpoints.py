@@ -351,6 +351,36 @@ class TestPedidosCRUD:
             )
         assert r.status_code == 200, r.text
 
+    def test_listar_pedidos_deposito_no_recibe_datos_financieros(self, client, auth_headers, pedido_borrador, db):
+        """El recorte por estado limita QUÉ pedidos ve; esto limita QUÉ campos.
+
+        `estado=pagado` es un estado de recepción y además cae en
+        _ESTADOS_DIFERENCIAL, así que sin este recorte el usuario de depósito
+        podía pedir el reporte de varianza FX sobre los pedidos que sí ve.
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        pedido_borrador.estado = "pagado"
+        db.commit()
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado", "diferencial_cambio_pendiente": "true"},
+            )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert items, "el pedido pagado debe seguir siendo visible para depósito"
+        for item in items:
+            assert item["saldo_pendiente"] is None
+            assert item["tipo_cambio_ponderado"] is None
+            assert Decimal(str(item["varianza_tc_neta"])) == Decimal("0")
+            assert item["varianza_tc_pendiente"] is False
+
     def test_listar_pedidos_deposito_no_ve_pedidos_fuera_de_recepcion(self, client, auth_headers, pedido_borrador):
         """Depósito sólo puede listar los estados que le tocan recibir.
 

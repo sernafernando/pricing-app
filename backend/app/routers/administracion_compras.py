@@ -346,8 +346,9 @@ def listar_pedidos(
     """
     # Warehouse-only access is scoped to the estados they actually receive.
     # Without this, deposito.recibir_mercaderia would grant read access to the
-    # whole purchasing ledger — montos, saldos and FX variance of every pedido.
-    if not PermisosService(db).tiene_algun_permiso(_user, ["administracion.ver_ordenes_compra"]):
+    # whole purchasing ledger — saldos and FX variance of every pedido.
+    solo_deposito = not PermisosService(db).tiene_algun_permiso(_user, ["administracion.ver_ordenes_compra"])
+    if solo_deposito:
         estados_pedidos = [e.strip() for e in estado.split(",") if e.strip()] if estado else []
         permitidos = [e for e in estados_pedidos if e in _ESTADOS_VISIBLES_DEPOSITO] or (
             [] if estados_pedidos else list(_ESTADOS_VISIBLES_DEPOSITO)
@@ -355,6 +356,8 @@ def listar_pedidos(
         if not permitidos:
             return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
         estado = ",".join(permitidos)
+        # The FX-variance query is a financial report, not reception data.
+        diferencial_cambio_pendiente = None
 
     if diferencial_cambio_pendiente:
         # ── Two-stage filter (design §4.2 / AD-D2) ──────────────────────────
@@ -473,14 +476,17 @@ def listar_pedidos(
     tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
     # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
     varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
+    # Reception work needs numero, proveedor and estado — not the money trail.
+    # `monto` stays: it is required by the response schema and is the pedido's
+    # own face value, not the derived accounting position.
     return PedidoCompraPaginated(
         items=[
             _pedido_response(
                 p,
                 puede_eliminar=puede_map.get(p.id, False),
-                saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
-                tipo_cambio_ponderado=tc_pond_map.get(p.id),
-                varianza_tc_neta=varianza_map.get(p.id),
+                saldo_pendiente=(None if solo_deposito else Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0))),
+                tipo_cambio_ponderado=None if solo_deposito else tc_pond_map.get(p.id),
+                varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
             )
             for p in items
         ],
