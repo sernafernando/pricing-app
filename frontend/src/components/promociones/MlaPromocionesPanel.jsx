@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
+import { usePermisos } from '../../contexts/PermisosContext';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
@@ -74,6 +75,14 @@ function formatDateRange(startDate, finishDate) {
  * first expand — the parent conditionally mounts this component).
  */
 function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
+  // The pull endpoint requires `promos.escribir` — the same permission
+  // TreeNode gates its manual refresh button on. Without this check every
+  // panel open by a `promos.ver`-only user is a 403 swallowed in silence, and
+  // the auto-pull becomes a back door into the path that button closes at the
+  // front. Such a user reads the mirror: degraded, but fully working.
+  const { tienePermiso } = usePermisos();
+  const canPull = tienePermiso('promos.escribir');
+
   // Opening the panel pulls fresh state from MercadoLibre first, then reads
   // the mirror the server just updated.
   //
@@ -116,16 +125,20 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   const { data, loading, error, reload } = useLazyResource(
     promosCacheRef,
     mla,
-    pullOnOpen ? fetchFreshThenRead : readMirror,
+    pullOnOpen && canPull ? fetchFreshThenRead : readMirror,
     { alwaysRefetch: true, reloadFetcher: readMirror },
   );
 
   // The error-state retry pulls, because the user opened this expecting fresh
   // state — re-reading the mirror under a button labelled "Reintentar" would
-  // not retry what actually failed.
+  // not retry what actually failed. A user without `promos.escribir` never had
+  // a pull to retry, so for them the retry is a plain re-read.
   const retry = useCallback(
-    () => Promise.resolve(promocionesAPI.refreshItemPromociones(mla)).catch(() => null).then(() => reload()),
-    [mla, reload],
+    () =>
+      canPull
+        ? Promise.resolve(promocionesAPI.refreshItemPromociones(mla)).catch(() => null).then(() => reload())
+        : reload(),
+    [mla, reload, canPull],
   );
   // After our own enroll/remove write the server refreshes on its own
   // (immediate + a ~60s retry-queue drain), and the panel just re-READS that

@@ -12,10 +12,14 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
+// Permissions default to granted; a test that needs a read-only user pushes
+// the permission it lacks into `denied` (and clears it again afterwards).
+const permisosMock = vi.hoisted(() => ({ denied: [] }));
+
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: () => true,
+    tienePermiso: (permiso) => !permisosMock.denied.includes(permiso),
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -962,5 +966,47 @@ describe('MlaPromocionesPanel — pullOnOpen', () => {
     render(<MlaPromocionesPanel mla="MLA_PULL" promosCacheRef={{ current: new Map() }} />);
 
     await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_PULL'));
+  });
+});
+
+// The pull endpoint (POST /promociones/item/{mla}/refresh) requires
+// `promos.escribir`, the same permission TreeNode gates its manual refresh
+// button on. Without this gate every panel open by a `promos.ver`-only user
+// is a 403 that the .catch() swallows silently.
+describe('MlaPromocionesPanel — read-only user never pulls from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    permisosMock.denied = ['promos.escribir'];
+  });
+
+  afterEach(() => {
+    permisosMock.denied = [];
+  });
+
+  it('reads the mirror on open instead of attempting the pull', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_RO" promosCacheRef={{ current: new Map() }} />);
+
+    // Reading the mirror is the correct degraded behaviour: the panel must
+    // still work fully, it just cannot ask for fresh state.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_RO'));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+  });
+
+  it('retries by re-reading the mirror, without attempting the pull', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockRejectedValueOnce(new Error('boom'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_RO" promosCacheRef={{ current: new Map() }} />);
+
+    const retryButton = await screen.findByRole('button', { name: /reintentar/i });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
   });
 });

@@ -1125,3 +1125,48 @@ describe('TreeNode — who decides whether the promos panel pulls from ML', () =
     expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('true');
   });
 });
+
+// `collapseMode` is global (one store for the whole page), so an "Expandir
+// todo" clicked inside one product's tree is still 'all-open' while another
+// product's tree mounts. That is not a leak of the no-pull decision: the same
+// mode is what force-opens the whole freshly mounted subtree, so the mass
+// expansion and the suppressed pulls always travel together. And the first
+// manual toggle calls markManual(), which restores pulling before the panel
+// re-renders.
+describe('TreeNode — a leftover global expand mode stays self-consistent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 3, collapseMode: 'all-open' });
+  });
+
+  afterEach(() => {
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return { level: 1, kind: 'catalogo', mla: 'MLA_LEFT', label: 'MLA_LEFT', matches_filter: true, children: [] };
+  }
+
+  it('force-opens a newly mounted panel and suppresses its pull together', () => {
+    renderNode(buildMlaNode());
+
+    // Nobody opened this by hand — the leftover mode did, exactly as it does
+    // for the tree the button was clicked in. Pulling here would be the same
+    // N-concurrent-pulls burst the flag exists to prevent.
+    expect(screen.getByTestId('mla-promos-MLA_LEFT').dataset.pullOnOpen).toBe('false');
+  });
+
+  it('pulls again as soon as the user toggles the panel by hand', async () => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+
+    // Close and reopen by hand: markManual() runs on the first click, so the
+    // reopen is a genuine user-opened panel and must pull.
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(useTreeViewStore.getState().collapseMode).toBe('manual');
+    expect(screen.getByTestId('mla-promos-MLA_LEFT').dataset.pullOnOpen).toBe('true');
+  });
+});
