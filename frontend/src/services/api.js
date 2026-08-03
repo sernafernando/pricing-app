@@ -207,6 +207,13 @@ export const promocionesAPI = {
   refreshCompetenciaCatalogo: (mlaId) => api.post(`/promociones/catalogo-competencia/${mlaId}/refresh`),
 };
 
+// PxQ (wholesale, price-by-quantity) tiers — READ ONLY panel (PR 4a).
+// `getLive` always re-hits the ML proxy server-side (never server-cached);
+// `live_tiers: null` (vs `[]`) means the live read failed, not "no tiers".
+export const pxqAPI = {
+  getLive: (itemId) => api.get(`/pxq/${itemId}/live`),
+};
+
 export const pricingAPI = {
   calcularCompleto: (data) => api.post('/precios/calcular-completo', data),
   setearPrecio: (data) => api.post('/precios/set', data),

@@ -478,6 +478,47 @@
   color: var(--text-secondary);
 }
 
+/* PxQ (wholesale, price-by-quantity) read panel (PR 4a) — side-by-side live
+   ML state vs local mirror. Its own class, not a reuse of `.filterMessage`
+   (that name means something else and reusing it was a review finding on a
+   sibling PR). */
+.pxqColumns {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 4px;
+}
+
+.pxqColumn {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.pxqColumnTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.pxqTierRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.pxqTierRowDivergent {
+  color: var(--warning-text, var(--text-primary));
+  background: color-mix(in srgb, var(--warning-bg, var(--bg-secondary)) 40%, transparent);
+}
+
+.pxqUnavailable {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
    cosmetic, subtler than the promo summary since it carries no money-path
    meaning. */

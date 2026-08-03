@@ -196,10 +196,82 @@ on top of merged #1038/#1040/#1041/#1042.
   and heavy inline rationale documentation pattern seen in PR 2; flagged for
   the reviewer, not re-split (PR 3a is already the split-out unit).
 
-## PR 3 (write path proper), 4 — NOT STARTED (out of scope for this apply run)
+## PR 3b (write path) — SHIPPED, MERGED into tracker
 
-Next apply run should pick up PR 3b onward (kill-switch, eligibility gates,
-`ml_pxq_write_service`, live-read + sync endpoints, router wiring), on top of
-this branch (`feat/pxq-array-diff`) once it's reviewed/merged into the
-tracker. Do NOT re-implement the diff function — import `diff_pxq_tiers` /
-`LiveTier` / `DesiredTier` from `app.services.pxq_diff`.
+Status: MERGED into `feat/ml-wholesale-pxq-pricing` (PR #1046
+`feat/pxq-write-service` + PR #1047 `feat/pxq-endpoints`). Kill-switch
+(`PXQ_WRITE_ENABLED=False` default), eligibility gates, `ml_pxq_write_service`,
+`GET /api/pxq/{item_id}/live` (pool-safe) and `POST /api/pxq/{item_id}/sync`
+are all live in `backend/app/routers/pxq.py`. See `sdd/ml-wholesale-pxq-pricing/apply-progress`
+engram observation for the full write-path detail (gate order, snapshot rule,
+runtime `ProductoPricing` boundary assert). This is the API the PR 4a panel
+below consumes.
+
+## PR 4a — read-only live+mirror panel (this slice)
+
+Status: DONE locally, NOT PUSHED (per instructions — commit only, no push/PR).
+Branch `feat/pxq-panel-lectura`, off tracker `feat/ml-wholesale-pxq-pricing`
+(backend PR 3b already merged there).
+
+Scope deliberately excludes tier create/edit/delete forms, the shipping-cost
+input, the sync button, and divergence-resolution actions — those are PR 4b,
+a separate run, so the read panel can ship and be verified in production
+without any write path being exercised.
+
+- `frontend/src/components/promociones/PxqPanel.jsx` (NEW): reads
+  `GET /pxq/{item_id}/live` via a new `pxqAPI.getLive` (in
+  `frontend/src/services/api.js`), through the existing `useLazyResource`
+  cache-ref pattern. Renders live ML tiers and local mirror tiers side by
+  side, ALWAYS (not gated behind a divergence — this is the requirement that
+  drove the whole feature: "no me gusta que nada suceda en silencio").
+  `live_status: "unavailable"` (`live_tiers: null`) renders a distinct
+  "no se pudo leer el estado en vivo" message, never "0 tramos en vivo" —
+  that would falsely claim ML has none when the truth is unknown. A mirror
+  tier whose matched `ml_price_id` disagrees with (or is absent from) the
+  live read is marked "Diverge de ML" informationally only; no
+  resolution/sync action is offered here.
+  Gated on `pxq.ver` via `usePermisos` — invisible (not an error/403) without
+  the permission, matching the gating pattern of the sibling
+  `CatalogCompetitionPanel`. The permission check happens inside the fetcher
+  itself (not just a render-time early return), because `useLazyResource`
+  fires its fetch effect unconditionally on mount.
+- `frontend/src/components/promociones/TreeNode.jsx`: adds a "Precios
+  mayoristas" sub-spoiler beside "Promociones"/"Competencia catálogo", threads
+  a new `pxqCacheRef` prop through every recursive call (including the
+  familia-hidden passthrough branch), and joins `pxqOpen` to the existing
+  `collapseEpoch` sync `useEffect` so "Expandir todo"/"Colapsar todo" include
+  it — the catalog-competition panel was previously omitted from this exact
+  effect and had to be fixed once already; this slice adds a regression test
+  proving the new panel joined it instead of repeating that omission.
+- `frontend/src/components/promociones/ProductoMLAsPanel.jsx` and
+  `frontend/src/pages/Productos.jsx`: thread `pxqCacheRef` (a new
+  `useRef(new Map())` alongside the existing `mlasCacheRef`/`promosCacheRef`/
+  `catalogCompetitionCacheRef`, cleared on the same `productIdsKey` effect)
+  down to `TreeNode`.
+- `frontend/src/components/promociones/promociones.module.css`: new
+  `.pxqColumns`/`.pxqColumn`/`.pxqColumnTitle`/`.pxqTierRow`/
+  `.pxqTierRowDivergent`/`.pxqUnavailable` classes — deliberately not reusing
+  `.filterMessage` (that name means something else; reusing it was a review
+  finding on a sibling PR).
+- Tests: `frontend/src/components/promociones/PxqPanel.test.jsx` (new,
+  RED-first: permission gate invisibility, loading, error+retry,
+  unavailable-vs-empty distinction, side-by-side render, divergence marking
+  with no resolution control offered) and two additions to
+  `TreeNode.test.jsx`'s collapse-epoch describe block (global-open opens the
+  PxQ panel, global-close closes it).
+- `pnpm run test` (vitest run): 36 files / 547 tests passed (was 35/538 —
+  net +9, zero regressions).
+- `pnpm run lint` (eslint): clean, zero warnings/errors.
+- Diff size: 380 lines across 8 files (+375/-5) — under the 400-line budget.
+- Commit: `feat(pxq): add read-only wholesale tiers panel`, `6a1fae45`, on
+  `feat/pxq-panel-lectura` (local only, not pushed).
+
+## PR 4b (write path UI) — NOT STARTED (out of scope for this apply run)
+
+Next apply run should pick up PR 4b: tier create/edit/delete form (client-side
+max-5 / `min_purchase_unit > 1` mirrors of the backend validation, not a
+replacement), the shipping-cost input, the sync button wired to
+`POST /pxq/{item_id}/sync`, the divergence banner that DISABLES the sync
+action until resolved (no silent local-wins), and the `allow_clear`
+confirmation flow — all rendered BELOW the PR 4a read panel inside the same
+"Precios mayoristas" sub-spoiler, on top of `feat/pxq-panel-lectura`.

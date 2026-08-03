@@ -26,6 +26,14 @@ vi.mock('./CatalogCompetitionPanel', () => ({
   ),
 }));
 
+vi.mock('./PxqPanel', () => ({
+  default: (props) => (
+    <div data-testid={`pxq-${props.itemId}`} data-has-cache-ref={props.pxqCacheRef ? 'yes' : 'no'}>
+      mocked-pxq-for-{props.itemId}
+    </div>
+  ),
+}));
+
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     refreshItemPromociones: vi.fn(),
@@ -43,6 +51,7 @@ function renderNode(node, props = {}) {
   const mlasCacheRef = { current: new Map() };
   const promosCacheRef = { current: new Map() };
   const catalogCompetitionCacheRef = { current: new Map() };
+  const pxqCacheRef = { current: new Map() };
   return render(
     <table>
       <tbody>
@@ -52,6 +61,7 @@ function renderNode(node, props = {}) {
           mlasCacheRef={mlasCacheRef}
           promosCacheRef={promosCacheRef}
           catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+          pxqCacheRef={pxqCacheRef}
           promoTipos={[]}
           promoEstado="disponible"
           {...props}
@@ -756,6 +766,27 @@ describe('TreeNode — global collapse epoch sync', () => {
     act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
 
     expect(screen.queryByRole('button', { name: /^competencia catálogo/i })).not.toBeInTheDocument();
+  });
+
+  it('global-open also opens the PxQ sub-panel — the catalog-competition panel was omitted from this same effect once before, this proves the new one joined it', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+
+    const pxqButtons = screen.getAllByRole('button', { name: /^precios mayoristas/i });
+    expect(pxqButtons.length).toBeGreaterThan(0);
+    pxqButtons.forEach((button) => {
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  it('global-close also closes the PxQ sub-panel', () => {
+    renderNode(buildMlaTree());
+
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' })); });
+    act(() => { useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-closed' })); });
+
+    expect(screen.queryByRole('button', { name: /^precios mayoristas/i })).not.toBeInTheDocument();
   });
 
   it('global-close really closes the sub-panels, not just the node that hides them', async () => {
