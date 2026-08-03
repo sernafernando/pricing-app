@@ -1010,3 +1010,71 @@ describe('MlaPromocionesPanel — read-only user never pulls from ML', () => {
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
   });
 });
+
+// The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing
+// route all come back as HTTP 200 with `{ok: false}`, never as a rejection.
+// So `ok` is the ONLY signal the panel has, and without checking it the panel
+// renders a stale mirror as if it had just been refreshed — which is exactly
+// the failure the auto-pull was asked for to prevent.
+describe('MlaPromocionesPanel — says so when the pull did not succeed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('flags the mirror as not-refreshed when the pull resolves with ok:false', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+
+    render(<MlaPromocionesPanel mla="MLA_SOFT" promosCacheRef={{ current: new Map() }} />);
+
+    // The mirror still renders — a working screen with old data beats an
+    // error and nothing — but it must not pass for freshly pulled state.
+    expect(await screen.findByText('Deal promo')).toBeInTheDocument();
+    expect(screen.getByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('flags it on the empty mirror too, where a stale read looks like "no promos"', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_SOFT_EMPTY" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.getByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('flags it when the pull rejects outright', async () => {
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('ML no responde'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_REJECT" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('stays quiet when the pull succeeded', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_OK" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no se pudo actualizar desde mercadolibre/i)).not.toBeInTheDocument();
+  });
+
+  it('stays quiet when no pull was even attempted', async () => {
+    // Nothing failed here: the parent asked for a plain mirror read, so the
+    // panel never promised freshness and must not claim a failure either.
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(
+      <MlaPromocionesPanel mla="MLA_NOPULL2" promosCacheRef={{ current: new Map() }} pullOnOpen={false} />,
+    );
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no se pudo actualizar desde mercadolibre/i)).not.toBeInTheDocument();
+  });
+});
