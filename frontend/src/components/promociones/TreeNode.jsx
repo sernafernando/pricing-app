@@ -236,8 +236,10 @@ function TreeNode({
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
-        // Cache invalidation is safe even if we unmounted — it makes the
-        // NEXT expand fetch fresh data. State updates below are guarded.
+        // Redundant for the panel itself, which refetches on every open now,
+        // but the entry also feeds the promo filter bar's derived types — so
+        // dropping the stale one here keeps that from showing what the server
+        // just replaced. Safe even if we unmounted; state updates are guarded.
         promosCacheRef.current.delete(node.mla);
         if (mountedRef.current && promosOpen) {
           setPromosReloadKey((prev) => prev + 1);

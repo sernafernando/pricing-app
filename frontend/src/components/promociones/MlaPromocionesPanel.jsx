@@ -84,8 +84,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   // open competes for that shared throttle — and it is a deliberate trade,
   // not an oversight.
   //
-  // The cache is invalidated on mount so a collapse/re-expand genuinely
-  // refetches; serving the cached mirror would defeat the whole point.
+  // `alwaysRefetch` makes a collapse/re-expand genuinely refetch instead of
+  // serving the cached mirror, which would defeat the whole point. The cache
+  // is still WRITTEN — the promo filter bar derives its types from those
+  // entries — so bypassing it is not an option, only re-reading it is.
   const fetcher = useCallback(
     (id) =>
       Promise.resolve(promocionesAPI.refreshItemPromociones(id))
@@ -98,13 +100,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     [],
   );
 
-  const invalidatedRef = useRef(false);
-  if (!invalidatedRef.current) {
-    invalidatedRef.current = true;
-    promosCacheRef.current.delete(mla);
-  }
-
-  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
+  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher, {
+    alwaysRefetch: true,
+  });
   // After our own enroll/remove write the server also refreshes (immediate +
   // a ~60s retry-queue drain), and the panel re-reads that mirror at two
   // points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the

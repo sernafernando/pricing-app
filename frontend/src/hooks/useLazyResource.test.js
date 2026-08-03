@@ -123,3 +123,36 @@ describe('useLazyResource', () => {
     consoleError.mockRestore();
   });
 });
+
+describe('useLazyResource — alwaysRefetch', () => {
+  it('refetches on mount even with a warm cache, and still writes to it', async () => {
+    const cacheRef = { current: new Map() };
+    const fetcher = vi.fn().mockResolvedValue('fresco');
+
+    const first = renderHook(() => useLazyResource(cacheRef, 'k1', fetcher, { alwaysRefetch: true }));
+    await waitFor(() => expect(first.result.current.data).toBe('fresco'));
+    first.unmount();
+
+    // The cache is still populated — other consumers read it (the promo filter
+    // bar derives its types from these entries), so refetching must not mean
+    // bypassing it.
+    expect(cacheRef.current.get('k1')).toEqual({ status: 'ok', data: 'fresco' });
+
+    renderHook(() => useLazyResource(cacheRef, 'k1', fetcher, { alwaysRefetch: true }));
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps serving the cache when the option is absent', async () => {
+    const cacheRef = { current: new Map() };
+    const fetcher = vi.fn().mockResolvedValue('cacheado');
+
+    const first = renderHook(() => useLazyResource(cacheRef, 'k2', fetcher));
+    await waitFor(() => expect(first.result.current.data).toBe('cacheado'));
+    first.unmount();
+
+    renderHook(() => useLazyResource(cacheRef, 'k2', fetcher));
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  });
+});
