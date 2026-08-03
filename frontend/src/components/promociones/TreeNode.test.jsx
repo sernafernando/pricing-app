@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
@@ -1101,5 +1101,27 @@ describe('TreeNode — who decides whether the promos panel pulls from ML', () =
     });
 
     expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('false');
+  });
+
+  it('goes back to pulling on a later open after a manual refresh', async () => {
+    // The skip flag is meant to cover exactly one remount — the one the
+    // refresh button causes. Left sticky, a single click on refresh stopped
+    // this node from ever pulling on open again for the rest of its life.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_pull/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('false'),
+    );
+
+    // Close and reopen: this is a fresh open and must pull again.
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('true');
   });
 });

@@ -135,9 +135,18 @@ function TreeNode({
   // refresh is still in flight).
   const mountedRef = useRef(true);
   // Set right before a refresh-triggered remount so the panel skips its own
-  // pull — the refresh handler already did it.
+  // pull — the refresh handler already did it. Cleared once that remount has
+  // committed: it covers exactly ONE mount. Left sticky, a single click on
+  // refresh stopped this node from ever pulling on open again.
   const justRefreshedRef = useRef(false);
   useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // Runs after the refresh-triggered remount has rendered with the flag set,
+  // so the NEXT open pulls again. Clearing it during render would mutate a ref
+  // in a phase React requires to be pure.
+  useEffect(() => {
+    justRefreshedRef.current = false;
+  }, [promosReloadKey]);
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
 
