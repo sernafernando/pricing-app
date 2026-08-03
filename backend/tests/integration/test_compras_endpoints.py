@@ -335,6 +335,88 @@ class TestPedidosCRUD:
         assert r.status_code != 403, r.text
         assert r.status_code != 401, r.text
 
+    def test_listar_pedidos_con_permiso_deposito(self, client, auth_headers):
+        """El tab Depósito lista los pedidos a recibir desde este endpoint, así que
+        deposito.recibir_mercaderia debe bastar SIN exigir ver_ordenes_compra."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado"},
+            )
+        assert r.status_code == 200, r.text
+
+    def test_listar_pedidos_deposito_no_recibe_datos_financieros(self, client, auth_headers, pedido_borrador, db):
+        """El recorte por estado limita QUÉ pedidos ve; esto limita QUÉ campos.
+
+        `estado=pagado` es un estado de recepción y además cae en
+        _ESTADOS_DIFERENCIAL, así que sin este recorte el usuario de depósito
+        podía pedir el reporte de varianza FX sobre los pedidos que sí ve.
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        pedido_borrador.estado = "pagado"
+        db.commit()
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado", "diferencial_cambio_pendiente": "true"},
+            )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert items, "el pedido pagado debe seguir siendo visible para depósito"
+        for item in items:
+            assert item["saldo_pendiente"] is None
+            assert item["tipo_cambio_ponderado"] is None
+            assert Decimal(str(item["varianza_tc_neta"])) == Decimal("0")
+            assert item["varianza_tc_pendiente"] is False
+
+    def test_listar_pedidos_deposito_no_ve_pedidos_fuera_de_recepcion(self, client, auth_headers, pedido_borrador):
+        """Depósito sólo puede listar los estados que le tocan recibir.
+
+        Sin este recorte, deposito.recibir_mercaderia daría acceso de lectura a
+        toda la cuenta de compras (montos, saldos y varianzas de cualquier estado).
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "borrador"},
+            )
+        assert r.status_code == 200, r.text
+        ids = [p["id"] for p in r.json()["items"]]
+        assert pedido_borrador.id not in ids
+
+    def test_listar_pedidos_sin_permiso_relevante_403(self, client, auth_headers):
+        """Sin ver_ordenes_compra ni recibir_mercaderia → 403."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            return_value=False,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "aprobado"},
+            )
+        assert r.status_code == 403, r.text
+
     def test_buscar_proveedores_sin_permiso_relevante_403(self, client, auth_headers):
         """Sin ver_proveedores ni permisos de compras → 403."""
         from unittest.mock import patch  # noqa: PLC0415

@@ -44,6 +44,7 @@ BASE = "/api/administracion/compras"
 def con_permisos():
     with (
         patch("app.services.permisos_service.PermisosService.tiene_permiso", return_value=True),
+        patch("app.services.permisos_service.PermisosService.tiene_algun_permiso", return_value=True),
         patch("app.services.permisos_service.PermisosService.obtener_permisos_usuario", return_value=set()),
     ):
         yield

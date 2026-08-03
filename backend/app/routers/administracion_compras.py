@@ -36,7 +36,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user, require_permiso
+from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
@@ -128,8 +128,10 @@ from app.services import (
     oc_ingresos_service,
     ordenes_pago_service,
     pedidos_service,
+    recepcion_service,
 )
 from app.models.nota_credito_local import NotaCreditoLocal
+from app.services.permisos_service import PermisosService
 from app.services.sale_document_classifier import clasificar_documento_compra
 from app.services.wipe_compras_service import wipe_compras as _wipe_compras
 
@@ -297,6 +299,16 @@ def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoRes
 
 _ESTADOS_DIFERENCIAL: tuple[str, ...] = ("pagado", "pagado_parcial")
 
+# Estados that the Depósito tab works with — the only ones a warehouse-only user
+# may list. Mirrors FILTER_TABS in frontend/src/components/compras/TabRecepcionDeposito.jsx.
+_ESTADOS_VISIBLES_DEPOSITO: tuple[str, ...] = (
+    "pagado",
+    "en_cuenta_corriente",
+    "recibido",
+    "controlado",
+    "con_faltantes",
+)
+
 
 @router.get(
     "/pedidos",
@@ -315,7 +327,12 @@ def listar_pedidos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+    # Warehouse users need this listing to find the pedidos they must receive:
+    # the Depósito tab is built on top of it. The per-pedido recepción endpoints
+    # keep requiring deposito.recibir_mercaderia on their own.
+    _user: Usuario = Depends(
+        require_algun_permiso(["administracion.ver_ordenes_compra", recepcion_service.PERMISO_RECEPCION])
+    ),
 ) -> PedidoCompraPaginated:
     """
     Lista paginada de pedidos. REQ-PED-001, REQ-FX-002, REQ-FX-003, design §9.1.
@@ -327,6 +344,21 @@ def listar_pedidos(
                  total = len(survivors); paginate the id list, load only the page.
     Correct pagination: total reflects the full filtered set, not the current page.
     """
+    # Warehouse-only access is scoped to the estados they actually receive.
+    # Without this, deposito.recibir_mercaderia would grant read access to the
+    # whole purchasing ledger — saldos and FX variance of every pedido.
+    solo_deposito = not PermisosService(db).tiene_algun_permiso(_user, ["administracion.ver_ordenes_compra"])
+    if solo_deposito:
+        estados_pedidos = [e.strip() for e in estado.split(",") if e.strip()] if estado else []
+        permitidos = [e for e in estados_pedidos if e in _ESTADOS_VISIBLES_DEPOSITO] or (
+            [] if estados_pedidos else list(_ESTADOS_VISIBLES_DEPOSITO)
+        )
+        if not permitidos:
+            return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+        estado = ",".join(permitidos)
+        # The FX-variance query is a financial report, not reception data.
+        diferencial_cambio_pendiente = None
+
     if diferencial_cambio_pendiente:
         # ── Two-stage filter (design §4.2 / AD-D2) ──────────────────────────
         # Stage 1: SQL candidate narrowing (cheap, indexed).
@@ -437,21 +469,31 @@ def listar_pedidos(
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items)
-    # Saldo pendiente batch (1 query agregada — sin N+1).
     pedido_ids = [p.id for p in items]
-    saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
-    # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
-    tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
-    # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
-    varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
+    # These three aggregates feed the accounting fields only, so a warehouse-only
+    # listing skips them entirely instead of computing and discarding them.
+    if solo_deposito:
+        saldo_imp_map: dict[int, Decimal] = {}
+        tc_pond_map: dict[int, Decimal] = {}
+        varianza_map: dict[int, Decimal] = {}
+    else:
+        # Saldo pendiente batch (1 query agregada — sin N+1).
+        saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
+        # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
+        tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
+        # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
+        varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
+    # Reception work needs numero, proveedor and estado — not the money trail.
+    # `monto` stays: it is required by the response schema and is the pedido's
+    # own face value, not the derived accounting position.
     return PedidoCompraPaginated(
         items=[
             _pedido_response(
                 p,
                 puede_eliminar=puede_map.get(p.id, False),
-                saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
-                tipo_cambio_ponderado=tc_pond_map.get(p.id),
-                varianza_tc_neta=varianza_map.get(p.id),
+                saldo_pendiente=(None if solo_deposito else Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0))),
+                tipo_cambio_ponderado=None if solo_deposito else tc_pond_map.get(p.id),
+                varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
             )
             for p in items
         ],
@@ -4983,7 +5025,6 @@ from app.schemas.recepcion import (  # noqa: E402
     RegistrarIngresosResponse,
     SaldosResponse,
 )
-from app.services import recepcion_service  # noqa: E402
 
 
 def _obtener_pedido_recepcion_o_404(db: Session, pedido_id: int) -> PedidoCompra:

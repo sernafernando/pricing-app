@@ -14,7 +14,6 @@ que corre en Postgres; reutilizar fixtures del módulo de tests existente.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -37,6 +36,10 @@ def con_todos_los_permisos():
             return_value=True,
         ),
         patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            return_value=True,
+        ),
+        patch(
             "app.services.permisos_service.PermisosService.obtener_permisos_usuario",
             return_value=set(),
         ),
@@ -49,6 +52,10 @@ def sin_permisos():
     with (
         patch(
             "app.services.permisos_service.PermisosService.tiene_permiso",
+            return_value=False,
+        ),
+        patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
             return_value=False,
         ),
         patch(
@@ -97,9 +104,7 @@ def pedido_aprobado(db, empresa, proveedor, active_user) -> PedidoCompra:
         monto=Decimal("500"),
         creado_por_id=active_user.id,
     )
-    pedidos_service.transicionar(
-        db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id
-    )
+    pedidos_service.transicionar(db, pedido_id=p.id, accion="enviar_aprobacion", user_id=active_user.id)
     pedidos_service.transicionar(db, pedido_id=p.id, accion="aprobar", user_id=active_user.id)
     db.flush()
     return p
@@ -188,18 +193,14 @@ class TestListarPapelera:
         assert body["total"] == 0
         assert body["items"] == []
 
-    def test_entidad_tipo_invalido_400(
-        self, client, auth_headers, con_todos_los_permisos
-    ):
+    def test_entidad_tipo_invalido_400(self, client, auth_headers, con_todos_los_permisos):
         r = client.get(
             f"{BASE}/papelera?entidad_tipo=otro",
             headers=auth_headers,
         )
         assert r.status_code == 400
 
-    def test_listar_despues_de_borrar(
-        self, client, auth_headers, pedido_borrador, con_todos_los_permisos
-    ):
+    def test_listar_despues_de_borrar(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         # Borrar
         pedido_id = pedido_borrador.id
         r_del = client.request(
@@ -219,8 +220,7 @@ class TestListarPapelera:
             (
                 it
                 for it in body["items"]
-                if it["entidad_id_original"] == pedido_id
-                and it["entidad_tipo"] == "pedido_compra"
+                if it["entidad_id_original"] == pedido_id and it["entidad_tipo"] == "pedido_compra"
             ),
             None,
         )
@@ -230,9 +230,7 @@ class TestListarPapelera:
         r = client.get(f"{BASE}/papelera/999999", headers=auth_headers)
         assert r.status_code == 404
 
-    def test_obtener_detalle_con_snapshot(
-        self, client, auth_headers, pedido_borrador, con_todos_los_permisos
-    ):
+    def test_obtener_detalle_con_snapshot(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         # Primero borrar
         r_del = client.request(
             "DELETE",
@@ -260,9 +258,7 @@ class TestListarPapelera:
 
 
 class TestPuedeEliminarEnListados:
-    def test_listar_pedidos_incluye_flag(
-        self, client, auth_headers, pedido_borrador, con_todos_los_permisos
-    ):
+    def test_listar_pedidos_incluye_flag(self, client, auth_headers, pedido_borrador, con_todos_los_permisos):
         r = client.get(f"{BASE}/pedidos", headers=auth_headers)
         assert r.status_code == 200
         items = r.json()["items"]
