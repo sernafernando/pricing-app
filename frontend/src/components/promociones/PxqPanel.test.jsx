@@ -316,11 +316,11 @@ describe('PxqPanel — tier authoring (PR 4c)', () => {
 });
 
 describe('PxqPanel — sync (PR 4d)', () => {
-  function mockLive({ mirror_tiers = [], live_tiers = [] } = {}) {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {
       data: {
         item_id: 'MLA001',
-        live_status: 'ok',
+        live_status,
         live_tiers,
         mirror_tiers,
         fetched_at: '2026-08-01T10:00:00Z',
@@ -359,13 +359,21 @@ describe('PxqPanel — sync (PR 4d)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
 
-    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', false));
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001');
     await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
   });
 
-  it('requires an explicit confirmation before syncing an empty tier list (clearing everything on ML)', async () => {
+  // The incident: `hasTiers` was computed from the mirror alone, so an empty
+  // mirror + live tiers fell through to a confirm-clear branch whose only
+  // action was `runSync(true)` -> `allow_clear: true` -> a full wipe of the
+  // live array. Four publications lost their tiers this way. No interaction
+  // reachable from the sync control may produce a clearing call.
+  it('never sends a clearing sync when the mirror is empty but ML holds live tiers', async () => {
     const user = userEvent.setup();
-    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [] }));
+    pxqAPI.getLive.mockResolvedValue(
+      mockLive({ mirror_tiers: [], live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }),
+    );
     pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
 
     renderPanel();
@@ -373,12 +381,44 @@ describe('PxqPanel — sync (PR 4d)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
 
+    // The write path is not reached at all in this state. That is the whole
+    // assertion: the old code answered this exact situation by offering a
+    // wipe, so "did not call sync" is what separates the fix from the bug.
+    // The complementary guarantee — that `pxqAPI.sync` cannot express a clear
+    // even if a caller tried — belongs to the API surface itself and lives in
+    // `src/services/api.pxq.test.js`, where the real module is exercised.
     expect(pxqAPI.sync).not.toHaveBeenCalled();
-    expect(screen.getByText(/todos los tramos mayoristas van a desaparecer de la publicación/i)).toBeInTheDocument();
+    expect(screen.getByText(/importarlos al mirror local todavía no está disponible/i)).toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole('button', { name: /confirmar/i }));
+  it('refuses distinctly when neither side has tiers (nothing to sync)', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: [] }));
 
-    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', true));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    expect(pxqAPI.sync).not.toHaveBeenCalled();
+    expect(screen.getByText(/no hay nada para sincronizar/i)).toBeInTheDocument();
+    expect(screen.queryByText(/importarlos al mirror local/i)).not.toBeInTheDocument();
+  });
+
+  it('refuses distinctly when the mirror is empty and the live state could not be read', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(
+      mockLive({ mirror_tiers: [], live_tiers: null, live_status: 'unavailable' }),
+    );
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    expect(pxqAPI.sync).not.toHaveBeenCalled();
+    expect(screen.getByText(/no se pudo leer el estado en vivo de mercadolibre, así que no se va a tocar nada/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no hay nada para sincronizar/i)).not.toBeInTheDocument();
   });
 
   it('shows the feature-disabled message distinctly from a permissions problem (503 disabled)', async () => {
