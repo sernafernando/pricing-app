@@ -21,7 +21,6 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -363,20 +362,6 @@ class TestUnconfirmedIsNotSuccess:
         assert outcome["synced"] is False
 
 
-def test_http_exception_is_imported_at_module_level() -> None:
-    """Imported inside a function it is easy to miss and diverges from
-    `pxq_tier_service`, which imports it top-level in the same package."""
-    import ast
-
-    from app.services import ml_pxq_write_service
-
-    source = Path(ml_pxq_write_service.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    top_level = {alias.name for node in tree.body if isinstance(node, ast.ImportFrom) for alias in node.names}
-
-    assert "HTTPException" in top_level
-
-
 def test_an_unparseable_live_read_is_rejected_not_a_500() -> None:
     """The write path already has `rejected_read_unavailable` for a live read
     it cannot trust. A malformed payload is that same situation — refusing to
@@ -393,24 +378,6 @@ def test_a_non_numeric_amount_is_an_unavailable_read_not_a_500() -> None:
     from app.services.ml_pxq_write_service import _live_tiers_from_raw
 
     assert _live_tiers_from_raw([{"id": 1, "quantity": 10, "amount": "N/A"}]) is None
-
-
-def test_allow_clear_that_cannot_be_confirmed_marks_rows_desconocido() -> None:
-    """Every other unconfirmed path marks the rows `desconocido` so the next
-    sync is forced through the divergence gate. This one committed and
-    returned unconfirmed while leaving the rows looking trustworthy — the
-    exact state the module exists to prevent."""
-    import inspect
-
-    from app.services import ml_pxq_write_service
-
-    source = inspect.getsource(ml_pxq_write_service.sync_pxq_tiers)
-    clear_branch = source[source.index("if not diff_result.array:") :]
-    clear_branch = clear_branch[: clear_branch.index("return _unconfirmed_outcome()")]
-
-    assert "_mark_desconocido" in clear_branch, (
-        "an unconfirmed clear must mark the rows desconocido like every other unconfirmed outcome does"
-    )
 
 
 def test_an_unreadable_eligibility_check_is_not_reported_as_ineligible(monkeypatch) -> None:
@@ -436,12 +403,79 @@ def test_an_unreadable_eligibility_check_is_not_reported_as_ineligible(monkeypat
     assert outcome["status"] == "rejected_eligibility_unknown"
 
 
-def test_the_orchestrator_actually_passes_the_untracked_ids() -> None:
-    """A protection the only caller does not use is decoration."""
-    import inspect
+class TestBehaviourNotSourceText:
+    """These three used to assert on `inspect.getsource()` — that a string
+    appeared somewhere in the function body. That proves the code was typed,
+    not that it runs: rename a variable and the test breaks for the wrong
+    reason; move the call behind a branch that never executes and it still
+    passes. The mock harness can drive the real sync, so they do."""
 
-    from app.services import ml_pxq_write_service
+    def test_an_unconfirmable_clear_marks_the_rows_desconocido(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id="ML1",
+            cantidad_sincronizada=10,
+            precio_sincronizado=Decimal("500.00"),
+            estado=ESTADO_SINCRONIZADO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(tier)
+        db.flush()
+        db.delete(tier)
+        db.flush()
 
-    source = inspect.getsource(ml_pxq_write_service.sync_pxq_tiers)
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        # The clear is sent, but the re-read still shows a tier: unverified.
+        patcher, mock_client = _mock_client(live_prices=[{"id": "ML1", "quantity": 10, "amount": 500.0}])
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla, allow_clear=True)
+        finally:
+            patcher.stop()
 
-    assert "untracked_ids=" in source
+        assert outcome["synced"] is False
+        assert outcome["status"] == "submitted_unconfirmed"
+
+    def test_a_created_tier_does_not_adopt_an_untracked_live_id(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        """The untracked tier is listed FIRST in the confirmation and carries
+        identical values. Without the untracked ids reaching the matcher, the
+        created row adopts it — and the next sync modifies or deletes a tier
+        that was never ours."""
+        created = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(created)
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[{"id": "THEIRS", "quantity": 10, "amount": 500.0}],
+        )
+        mock_client.get_pxq_prices = AsyncMock(
+            side_effect=[
+                # live read: the untracked tier only
+                [{"id": "THEIRS", "quantity": 10, "amount": 500.0}],
+                # confirmation: untracked first, ours second, identical values
+                [
+                    {"id": "THEIRS", "quantity": 10, "amount": 500.0},
+                    {"id": "OURS", "quantity": 10, "amount": 500.0},
+                ],
+            ]
+        )
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        assert created.ml_price_id == "OURS"

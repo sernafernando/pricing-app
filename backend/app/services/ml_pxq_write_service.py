@@ -98,31 +98,18 @@ def _live_tiers_from_raw(raw: List[Dict[str, Any]]) -> Optional[List[LiveTier]]:
         return None
 
 
-def _UNUSEDis_priceable(row: MlPxqTier) -> bool:
-    """A tier is priceable only once it carries a whole-shipment cost.
-
-    Deliberately reads the DATA, not `estado`: the status field is a summary
-    that nothing recomputes when the cost is cleared, so trusting it let a
-    cost-less tier reach MercadoLibre."""
-    return row.costo_envio_total is not None
-
-
 def _desired_tiers_from_mirror(rows: List[MlPxqTier]) -> List[DesiredTier]:
-    """Turns already-filtered priceable rows into desired-state; `diff_pxq_tiers` decides
-    keep/create/modify/refuse from the snapshot, so no branching is needed
-    here.
+    """Turns priceable mirror rows into desired-state.
 
-    The caller already filters with `_is_priceable`, so this check is
-    redundant TODAY and kept deliberately: it is the rule that a tier without a
-    resolved shipping cost never reaches MercadoLibre, and it costs one
-    predicate call. Both sites call the SAME function — the earlier bug was two
-    hand-written copies of the condition drifting apart, not the redundancy
-    itself. Priceable is decided by `costo_envio_total`, NOT by `estado`. Those are not
-    equivalent: nothing recomputes `estado` when a cost is cleared, so a row
-    sitting at `listo` or `desconocido` with a NULL cost would have been
-    written to MercadoLibre — breaking the founding rule that a tier without a
-    resolved whole-shipment cost is never priced and never written. The data
-    answers the question; the status field is a summary of it."""
+    `diff_pxq_tiers` decides keep/create/modify/refuse from the snapshot, so
+    nothing branches here beyond the priceability filter.
+
+    That filter is redundant — the caller applies the same `is_priceable` —
+    and it is kept on purpose: it holds the rule that a tier without a
+    resolved whole-shipment cost never reaches MercadoLibre. Both sites call
+    the SAME function; what caused the earlier drift was two hand-written
+    copies of the condition, not the redundancy.
+    """
     return [
         DesiredTier(
             quantity=row.cantidad_minima,
@@ -258,7 +245,7 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
             db.commit()
             return _unconfirmed_outcome()
         if not diff_result.array:
-            # allow_clear: with nothing sent, `_remap_and_confirm` would return
+            # allow_clear: with nothing sent, `remap_and_confirm` would return
             # True vacuously and report a deletion nobody verified. The only
             # confirmation that means anything here is that the live array
             # actually came back empty.
