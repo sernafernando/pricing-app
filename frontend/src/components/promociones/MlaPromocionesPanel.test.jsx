@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
@@ -876,5 +876,57 @@ describe('MlaPromocionesPanel — auto-refresh on open', () => {
     // A failed refresh must degrade to the stored mirror, not blank the panel:
     // stale data plus a working screen beats an error and nothing.
     await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_AUTO'));
+  });
+});
+
+describe('MlaPromocionesPanel — reload does not pull from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pulls from ML on open, and the post-apply reloads only re-read the mirror', async () => {
+    vi.useFakeTimers();
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+
+    renderPanel();
+    // The mount path is refresh -> get, so it needs more microtask flushes
+    // than a plain fetch before the panel has rendered its rows.
+    await act(async () => {
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Both post-apply reloads fire.
+    await act(async () => {
+      vi.advanceTimersByTime(5001);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(60001);
+      await Promise.resolve();
+    });
+
+    // They re-read the mirror, and NOT one of them pulls from ML again. If
+    // reload shared the mount fetcher, this would be 3 — two extra pulls per
+    // apply, on a throttle shared with sales-webhook processing.
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+    expect(promocionesAPI.getPromocionesItem.mock.calls.length).toBeGreaterThan(1);
   });
 });

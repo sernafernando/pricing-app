@@ -88,7 +88,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   // serving the cached mirror, which would defeat the whole point. The cache
   // is still WRITTEN — the promo filter bar derives its types from those
   // entries — so bypassing it is not an option, only re-reading it is.
-  const fetcher = useCallback(
+  // Opening the panel pulls fresh state from MercadoLibre first, then reads
+  // the mirror the server just updated.
+  const fetchFreshThenRead = useCallback(
     (id) =>
       Promise.resolve(promocionesAPI.refreshItemPromociones(id))
         // A failed refresh degrades to the stored mirror rather than blanking
@@ -100,13 +102,21 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     [],
   );
 
-  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher, {
+  // `reload()` reads the mirror WITHOUT pulling from ML again. The post-apply
+  // timers and the error-state retry both go through it, and each of those
+  // firing a refresh would have added three more ML calls per apply on a
+  // throttle shared with sales-webhook processing — a cost nobody asked for
+  // and that the "refresh on open" request does not imply.
+  const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
+
+  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetchFreshThenRead, {
     alwaysRefetch: true,
+    reloadFetcher: readMirror,
   });
-  // After our own enroll/remove write the server also refreshes (immediate +
-  // a ~60s retry-queue drain), and the panel re-reads that mirror at two
-  // points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the
-  // server's ~60s retry drains for slower SMART reconciliation).
+  // After our own enroll/remove write the server refreshes on its own
+  // (immediate + a ~60s retry-queue drain), and the panel just re-READS that
+  // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s
+  // (after the server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
   const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const selectedNames = usePromoFilterStore((state) => state.selectedNames);
@@ -205,9 +215,11 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                 onApplied={() => {
                   // Do NOT assert the final state from either reload alone
                   // (eventual consistency — the table stays the source of
-                  // truth). The FE never calls a refresh endpoint itself —
-                  // the server refreshes the mirror (immediate + ~60s retry);
-                  // we just re-read it at ~5s and ~65s. Clear any prior
+                  // truth). After a write the server refreshes the mirror on
+                  // its own (immediate + ~60s retry) and these two reloads
+                  // only RE-READ it — they do not pull from ML. Opening the
+                  // panel does pull, which is a different path on purpose.
+                  // Clear any prior
                   // pending timers before scheduling new ones, and clear on
                   // unmount so we never call reload() after the panel (and
                   // the underlying setState) is gone.

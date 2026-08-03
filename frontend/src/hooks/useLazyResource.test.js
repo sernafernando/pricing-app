@@ -156,3 +156,27 @@ describe('useLazyResource — alwaysRefetch', () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
   });
 });
+
+describe('useLazyResource — reloadFetcher', () => {
+  it('uses the plain fetcher for reload when one is given for mount', async () => {
+    const cacheRef = { current: new Map() };
+    const onMount = vi.fn().mockResolvedValue('mount');
+    const onReload = vi.fn().mockResolvedValue('reload');
+
+    const { result } = renderHook(() =>
+      useLazyResource(cacheRef, 'k3', onMount, { alwaysRefetch: true, reloadFetcher: onReload }),
+    );
+    await waitFor(() => expect(result.current.data).toBe('mount'));
+    expect(onReload).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    // The mount path may be expensive (it pulls from an external API); reload
+    // must not silently repeat that cost.
+    expect(onMount).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(result.current.data).toBe('reload');
+  });
+});
