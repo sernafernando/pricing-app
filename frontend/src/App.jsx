@@ -152,10 +152,22 @@ const protectedRoutes = [
   { path: '/rrhh/reportes', component: RRHHReportes, permiso: 'rrhh.ver' },
   // ── Administración (sector empresa) ────────────
   { path: '/administracion/proveedores', component: AdministracionProveedores, permiso: 'administracion.ver_proveedores' },
-  { path: '/administracion/bancos', component: AdministracionBancos, permiso: 'administracion.ver_proveedores' },
+  { path: '/administracion/bancos', component: AdministracionBancos, permiso: 'administracion.ver_caja' },
   { path: '/administracion/impuestos', component: AdministracionImpuestos, permiso: 'administracion.ver_proveedores' },
   { path: '/administracion/caja', component: AdministracionCaja, permiso: 'administracion.ver_caja' },
-  { path: '/administracion/compras', component: AdministracionCompras, permiso: 'administracion.ver_ordenes_compra' },
+  // The page hosts tabs owned by different areas (compras, tesorería, depósito).
+  // Any tab-level permission grants access to the page; each tab still gates itself.
+  {
+    path: '/administracion/compras',
+    component: AdministracionCompras,
+    permisos: [
+      'administracion.ver_ordenes_compra',
+      'administracion.ver_cuentas_corrientes',
+      'deposito.recibir_mercaderia',
+      'tesoreria.gestionar_cheques',
+      'administracion.eliminar_compras_basura',
+    ],
+  },
   { path: '/tickets', component: Tickets, permiso: 'tickets.ver' },
   { path: '/etiquetas/reescribir-lh', component: ReescribirLH, permiso: 'etiquetas.reescribir_lh' },
   { path: '/tickets/admin', component: TicketsAdmin, permiso: 'tickets.admin' },
