@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import PxqPanel from './PxqPanel';
 import { pxqAPI } from '../../services/api';
 
@@ -14,6 +15,9 @@ vi.mock('../../contexts/PermisosContext', () => ({
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
+    createTier: vi.fn(),
+    updateTier: vi.fn(),
+    deleteTier: vi.fn(),
   },
 }));
 
@@ -92,7 +96,7 @@ describe('PxqPanel', () => {
 
     await waitFor(() => expect(screen.getByText(/no se pudo leer el estado en vivo/i)).toBeInTheDocument());
     expect(screen.queryByText(/0 tramos en vivo/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/5/)).toBeInTheDocument();
+    expect(screen.getAllByText(/5/).length).toBeGreaterThan(0);
   });
 
   it('shows the empty state distinctly when ML really has no tiers ([] not null)', async () => {
@@ -147,5 +151,162 @@ describe('PxqPanel', () => {
 
     await waitFor(() => expect(screen.getByText(/diverge/i)).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /resolver|sincronizar/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('PxqPanel — tier authoring (PR 4c)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [] } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // pxq.ver AND pxq.escribir both granted unless a test overrides.
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('hides every editing affordance for a user with pxq.ver but not pxq.escribir', async () => {
+    mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }] }));
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /agregar tramo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /editar/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /eliminar/i })).not.toBeInTheDocument();
+  });
+
+  it('marks a tier with no shipping cost as incomplete instead of ready', async () => {
+    pxqAPI.getLive.mockResolvedValue(
+      mockLive({ mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: null, estado: 'listo' }] }),
+    );
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/incompleto/i)).toBeInTheDocument());
+  });
+
+  it('creates a tier with the exact backend field shape and reloads the list', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [] }))
+      .mockResolvedValueOnce(
+        mockLive({ mirror_tiers: [{ id: 2, cantidad_minima: 10, precio_unitario: 200, costo_envio_total: 50, ml_price_id: null, estado: 'listo' }] }),
+      );
+    pxqAPI.createTier.mockResolvedValue({ data: { id: 2, cantidad_minima: 10, precio_unitario: 200, costo_envio_total: 50, ml_price_id: null, estado: 'listo' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByLabelText(/cantidad mínima/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/cantidad mínima/i), '10');
+    await user.type(screen.getByLabelText(/precio unitario/i), '200');
+    await user.type(screen.getByLabelText(/costo de envío/i), '50');
+    await user.click(screen.getByRole('button', { name: /agregar tramo/i }));
+
+    await waitFor(() =>
+      expect(pxqAPI.createTier).toHaveBeenCalledWith('MLA001', {
+        cantidad_minima: 10,
+        precio_unitario: 200,
+        costo_envio_total: 50,
+      }),
+    );
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+  });
+
+  it('disables "agregar tramo" once 5 tiers already exist', async () => {
+    const fiveTiers = [1, 2, 3, 4, 5].map((n) => ({
+      id: n,
+      cantidad_minima: n * 2,
+      precio_unitario: 100,
+      costo_envio_total: 10,
+      ml_price_id: null,
+      estado: 'listo',
+    }));
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: fiveTiers }));
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /agregar tramo/i })).toBeDisabled());
+  });
+
+  it('surfaces the backend 422 message on create instead of swallowing it', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [] }));
+    pxqAPI.createTier.mockRejectedValue({
+      response: { status: 422, data: { detail: 'cantidad_minima duplicada' } },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByLabelText(/cantidad mínima/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/cantidad mínima/i), '5');
+    await user.type(screen.getByLabelText(/precio unitario/i), '100');
+    await user.type(screen.getByLabelText(/costo de envío/i), '20');
+    await user.click(screen.getByRole('button', { name: /agregar tramo/i }));
+
+    await waitFor(() => expect(screen.getByText(/cantidad_minima duplicada/i)).toBeInTheDocument());
+  });
+
+  it('edits an existing tier through PATCH with only the changed fields shape', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(
+        mockLive({ mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }] }),
+      )
+      .mockResolvedValueOnce(
+        mockLive({ mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 150, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }] }),
+      );
+    pxqAPI.updateTier.mockResolvedValue({ data: { id: 1, cantidad_minima: 5, precio_unitario: 150, costo_envio_total: 20, ml_price_id: null, estado: 'listo' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^editar$/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /^editar$/i }));
+
+    const precioInput = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precioInput);
+    await user.type(precioInput, '150');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() =>
+      expect(pxqAPI.updateTier).toHaveBeenCalledWith('MLA001', 1, {
+        cantidad_minima: 5,
+        precio_unitario: 150,
+        costo_envio_total: 20,
+      }),
+    );
+  });
+
+  it('deletes a tier only after explicit confirmation', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(
+        mockLive({ mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }] }),
+      )
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [] }));
+    pxqAPI.deleteTier.mockResolvedValue({});
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^eliminar$/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /^eliminar$/i }));
+    expect(pxqAPI.deleteTier).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /confirmar/i }));
+
+    await waitFor(() => expect(pxqAPI.deleteTier).toHaveBeenCalledWith('MLA001', 1));
   });
 });
