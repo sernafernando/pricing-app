@@ -469,13 +469,20 @@ def listar_pedidos(
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items)
-    # Saldo pendiente batch (1 query agregada — sin N+1).
     pedido_ids = [p.id for p in items]
-    saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
-    # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
-    tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
-    # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
-    varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
+    # These three aggregates feed the accounting fields only, so a warehouse-only
+    # listing skips them entirely instead of computing and discarding them.
+    if solo_deposito:
+        saldo_imp_map: dict[int, Decimal] = {}
+        tc_pond_map: dict[int, Decimal] = {}
+        varianza_map: dict[int, Decimal] = {}
+    else:
+        # Saldo pendiente batch (1 query agregada — sin N+1).
+        saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, pedido_ids)
+        # TC ponderado batch (1 query agregada — sin N+1, NFR-001).
+        tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, pedido_ids)
+        # F2 — varianza TC batch (REQ-FX-002): populate varianza fields for all page items.
+        varianza_map = pedidos_service.calcular_varianza_tc_batch(db, pedido_ids)
     # Reception work needs numero, proveedor and estado — not the money trail.
     # `monto` stays: it is required by the response schema and is the pedido's
     # own face value, not the derived accounting position.
