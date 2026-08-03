@@ -9,7 +9,11 @@ import { useTreeViewStore } from '../../store/treeViewStore';
 // what reaches it, without depending on its own fetch/reload internals.
 vi.mock('./MlaPromocionesPanel', () => ({
   default: (props) => (
-    <div data-testid={`mla-promos-${props.mla}`} data-props={JSON.stringify(Object.keys(props).sort())}>
+    <div
+      data-testid={`mla-promos-${props.mla}`}
+      data-props={JSON.stringify(Object.keys(props).sort())}
+      data-pull-on-open={String(props.pullOnOpen)}
+    >
       mocked-promos-for-{props.mla}
     </div>
   ),
@@ -1058,5 +1062,44 @@ describe('TreeNode — sub-spoiler toggles look like buttons', () => {
     await user.click(button);
 
     expect(screen.getByRole('button', { name }).className).toMatch(/toggle-active/);
+  });
+});
+
+
+describe('TreeNode — who decides whether the promos panel pulls from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  afterEach(() => {
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return { level: 1, kind: 'catalogo', mla: 'MLA_PULL', label: 'MLA_PULL', matches_filter: true, children: [] };
+  }
+
+  it('pulls when the user opens the panel themselves', async () => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_pull/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('true');
+  });
+
+  it('does NOT pull when a global expand mounted it', async () => {
+    // One click on "Expandir todo" mounts every MLA panel in the tree. Each
+    // pulling would turn that into N concurrent hits on a throttle shared
+    // with sales-webhook processing.
+    renderNode(buildMlaNode());
+
+    act(() => {
+      useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' }));
+    });
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('false');
   });
 });

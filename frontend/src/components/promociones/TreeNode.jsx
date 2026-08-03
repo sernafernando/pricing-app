@@ -134,6 +134,9 @@ function TreeNode({
   // unmounts (e.g. the tree re-renders on a promo-filter change while a
   // refresh is still in flight).
   const mountedRef = useRef(true);
+  // Set right before a refresh-triggered remount so the panel skips its own
+  // pull — the refresh handler already did it.
+  const justRefreshedRef = useRef(false);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
@@ -236,12 +239,15 @@ function TreeNode({
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
-        // Redundant for the panel itself, which refetches on every open now,
-        // but the entry also feeds the promo filter bar's derived types — so
-        // dropping the stale one here keeps that from showing what the server
-        // just replaced. Safe even if we unmounted; state updates are guarded.
+        // The entry also feeds the promo filter bar's derived types, so
+        // dropping the stale one keeps that from showing what the server just
+        // replaced. Safe even if we unmounted; state updates are guarded.
         promosCacheRef.current.delete(node.mla);
         if (mountedRef.current && promosOpen) {
+          // The remount must NOT pull again: this handler just did. Without
+          // the flag one click on refresh became two pulls, on the throttle
+          // shared with sales-webhook processing.
+          justRefreshedRef.current = true;
           setPromosReloadKey((prev) => prev + 1);
         }
       } else if (mountedRef.current) {
@@ -326,7 +332,12 @@ function TreeNode({
             Promociones {promosOpen ? '▾' : '▸'}
           </button>
           {promosOpen && (
-            <MlaPromocionesPanel key={promosReloadKey} mla={node.mla} promosCacheRef={promosCacheRef} />
+            <MlaPromocionesPanel
+              key={promosReloadKey}
+              mla={node.mla}
+              promosCacheRef={promosCacheRef}
+              pullOnOpen={!justRefreshedRef.current && collapseMode !== 'all-open'}
+            />
           )}
           <button
             type="button"

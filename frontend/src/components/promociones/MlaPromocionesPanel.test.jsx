@@ -3,7 +3,6 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
-import { useTreeViewStore } from '../../store/treeViewStore';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -843,11 +842,12 @@ describe('MlaPromocionesPanel', () => {
 describe('MlaPromocionesPanel — auto-refresh on open', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
   });
 
   it('asks the server for a fresh pull from ML before showing anything', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
     render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
 
@@ -857,7 +857,7 @@ describe('MlaPromocionesPanel — auto-refresh on open', () => {
 
   it('refreshes again on a later open instead of serving the cached mirror', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
     const cacheRef = { current: new Map() };
 
     const first = render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={cacheRef} />);
@@ -871,7 +871,7 @@ describe('MlaPromocionesPanel — auto-refresh on open', () => {
 
   it('still shows the mirror when the refresh itself fails', async () => {
     promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('ML no responde'));
-    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
     render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
 
@@ -933,39 +933,34 @@ describe('MlaPromocionesPanel — reload does not pull from ML', () => {
   });
 });
 
-describe('MlaPromocionesPanel — a global expand must not pull per MLA', () => {
+describe('MlaPromocionesPanel — pullOnOpen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
-    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
   });
 
-  afterEach(() => {
-    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
-  });
-
-  it('reads the mirror without pulling when the panel was opened by "Expandir todo"', async () => {
-    // One click on the global toggle mounts every MLA panel in the tree at
-    // once. If each pulled from ML, a product with 20 publications would turn
-    // that click into 20 concurrent pulls on a throttle shared with
-    // sales-webhook processing. Opening one panel yourself is the interaction
-    // that asked for fresh state; a cascade is not.
-    useTreeViewStore.setState({ collapseEpoch: 1, collapseMode: 'all-open' });
+  it('reads the mirror without pulling when the parent says not to pull', async () => {
+    // The parent decides, because only it knows why this is mounting: a
+    // global "Expandir todo" mounting twenty panels at once, or a remount
+    // right after the refresh button already pulled. Either way, pulling here
+    // would repeat work on a throttle shared with sales-webhook processing.
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
-    render(<MlaPromocionesPanel mla="MLA_CASCADE" promosCacheRef={{ current: new Map() }} />);
+    render(
+      <MlaPromocionesPanel mla="MLA_NOPULL" promosCacheRef={{ current: new Map() }} pullOnOpen={false} />,
+    );
 
-    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_CASCADE'));
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_NOPULL'));
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
   });
 
-  it('still pulls when the user opened this panel themselves', async () => {
+  it('pulls by default, which is the plain user-opens-it case', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
-    render(<MlaPromocionesPanel mla="MLA_MANUAL" promosCacheRef={{ current: new Map() }} />);
+    render(<MlaPromocionesPanel mla="MLA_PULL" promosCacheRef={{ current: new Map() }} />);
 
-    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_MANUAL'));
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_PULL'));
   });
 });

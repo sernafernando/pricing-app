@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
-import { useTreeViewStore } from '../../store/treeViewStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
@@ -74,7 +73,7 @@ function formatDateRange(startDate, finishDate) {
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef }) {
+function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   // Opening the panel pulls fresh state from MercadoLibre first, then reads
   // the mirror the server just updated.
   //
@@ -108,18 +107,25 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   // and that the "refresh on open" request does not imply.
   const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
 
-  // A global "Expandir todo" mounts every MLA panel in the tree at once. If
-  // each one pulled from ML, a product with 20 publications would turn one
-  // click into 20 concurrent pulls on a throttle shared with sales-webhook
-  // processing. Opening a panel yourself is the interaction that asked for
-  // fresh state; a cascade is not, so it reads the mirror like any reload.
-  const openedByGlobalToggle = useTreeViewStore.getState().collapseMode === 'all-open';
-
+  // Whether this mount should pull from ML is the PARENT's call, because only
+  // it knows why the panel is mounting: a user opening it (pull), a global
+  // "Expandir todo" mounting twenty at once (do not — one click must not
+  // become twenty concurrent pulls on a throttle shared with sales-webhook
+  // processing), or a remount right after the refresh button already pulled
+  // (do not — that would pull twice for one click).
   const { data, loading, error, reload } = useLazyResource(
     promosCacheRef,
     mla,
-    openedByGlobalToggle ? readMirror : fetchFreshThenRead,
+    pullOnOpen ? fetchFreshThenRead : readMirror,
     { alwaysRefetch: true, reloadFetcher: readMirror },
+  );
+
+  // The error-state retry pulls, because the user opened this expecting fresh
+  // state — re-reading the mirror under a button labelled "Reintentar" would
+  // not retry what actually failed.
+  const retry = useCallback(
+    () => Promise.resolve(promocionesAPI.refreshItemPromociones(mla)).catch(() => null).then(() => reload()),
+    [mla, reload],
   );
   // After our own enroll/remove write the server refreshes on its own
   // (immediate + a ~60s retry-queue drain), and the panel just re-READS that
@@ -144,7 +150,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     return (
       <div className={styles.panelStateError}>
         Error al cargar promociones.{' '}
-        <button type="button" className="btn-tesla ghost sm" onClick={reload}>
+        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={retry}>
           Reintentar
         </button>
       </div>
