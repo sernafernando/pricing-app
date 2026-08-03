@@ -36,7 +36,8 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user, require_permiso
+from app.api.deps import get_current_user, require_algun_permiso, require_permiso
+from app.services import recepcion_service
 from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
@@ -315,7 +316,12 @@ def listar_pedidos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+    # Warehouse users need this listing to find the pedidos they must receive:
+    # the Depósito tab is built on top of it. The per-pedido recepción endpoints
+    # keep requiring deposito.recibir_mercaderia on their own.
+    _user: Usuario = Depends(
+        require_algun_permiso(["administracion.ver_ordenes_compra", recepcion_service.PERMISO_RECEPCION])
+    ),
 ) -> PedidoCompraPaginated:
     """
     Lista paginada de pedidos. REQ-PED-001, REQ-FX-002, REQ-FX-003, design §9.1.
@@ -4983,7 +4989,6 @@ from app.schemas.recepcion import (  # noqa: E402
     RegistrarIngresosResponse,
     SaldosResponse,
 )
-from app.services import recepcion_service  # noqa: E402
 
 
 def _obtener_pedido_recepcion_o_404(db: Session, pedido_id: int) -> PedidoCompra:

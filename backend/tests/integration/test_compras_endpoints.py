@@ -335,6 +335,38 @@ class TestPedidosCRUD:
         assert r.status_code != 403, r.text
         assert r.status_code != 401, r.text
 
+    def test_listar_pedidos_con_permiso_deposito(self, client, auth_headers):
+        """El tab Depósito lista los pedidos a recibir desde este endpoint, así que
+        deposito.recibir_mercaderia debe bastar SIN exigir ver_ordenes_compra."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _self, _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "aprobado"},
+            )
+        assert r.status_code != 403, r.text
+        assert r.status_code != 401, r.text
+
+    def test_listar_pedidos_sin_permiso_relevante_403(self, client, auth_headers):
+        """Sin ver_ordenes_compra ni recibir_mercaderia → 403."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            return_value=False,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "aprobado"},
+            )
+        assert r.status_code == 403, r.text
+
     def test_buscar_proveedores_sin_permiso_relevante_403(self, client, auth_headers):
         """Sin ver_proveedores ni permisos de compras → 403."""
         from unittest.mock import patch  # noqa: PLC0415
