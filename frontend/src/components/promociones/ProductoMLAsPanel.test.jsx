@@ -12,6 +12,7 @@ vi.mock('../../services/api', () => ({
   },
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promotions: [] } }),
+    refreshItemPromociones: vi.fn().mockResolvedValue({ data: { ok: true } }),
   },
 }));
 
@@ -373,5 +374,32 @@ describe('ProductoMLAsPanel — official store filter reaches the tree', () => {
     await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledTimes(2));
     const [, params] = productosAPI.getProductoTree.mock.calls[1];
     expect(params).toMatchObject({ tiendas_oficiales: '57997' });
+  });
+});
+
+describe('ProductoMLAsPanel — tree controls look like buttons', () => {
+  // Own setup: without it this passed only by inheriting the mock the previous
+  // describe happened to leave behind, and failed the moment it ran alone.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),
+    );
+  });
+
+  it('renders expandir/colapsar with a visible variant, not the invisible ghost one', async () => {
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+    render(
+      <ProductoMLAsPanel itemId="ITEM001" mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />,
+    );
+
+    const expandir = await screen.findByRole('button', { name: /expandir todo/i });
+    const colapsar = screen.getByRole('button', { name: /colapsar todo/i });
+
+    for (const button of [expandir, colapsar]) {
+      expect(button.className).not.toMatch(/\bghost\b/);
+      expect(button.className).toMatch(/outline-subtle-primary/);
+    }
   });
 });

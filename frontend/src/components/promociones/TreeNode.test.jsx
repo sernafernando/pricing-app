@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
@@ -9,7 +9,11 @@ import { useTreeViewStore } from '../../store/treeViewStore';
 // what reaches it, without depending on its own fetch/reload internals.
 vi.mock('./MlaPromocionesPanel', () => ({
   default: (props) => (
-    <div data-testid={`mla-promos-${props.mla}`} data-props={JSON.stringify(Object.keys(props).sort())}>
+    <div
+      data-testid={`mla-promos-${props.mla}`}
+      data-props={JSON.stringify(Object.keys(props).sort())}
+      data-pull-on-open={String(props.pullOnOpen)}
+    >
       mocked-promos-for-{props.mla}
     </div>
   ),
@@ -1010,5 +1014,159 @@ describe('TreeNode — official store filter hides non-matching MLAs', () => {
 
     expect(screen.getByText('MLA_MISMA_TIENDA')).toBeInTheDocument();
     expect(screen.queryByText('MLA_OTRA_TIENDA')).not.toBeInTheDocument();
+  });
+});
+
+describe('TreeNode — sub-spoiler toggles look like buttons', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_BTN',
+      label: 'MLA_BTN',
+      matches_filter: true,
+      children: [],
+    };
+  }
+
+  const TOGGLES = [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i];
+
+  it.each(TOGGLES)('renders %s with a visible button variant, not the invisible ghost one', async (name) => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_btn/i }));
+
+    const button = screen.getByRole('button', { name });
+
+    // `ghost` is transparent background AND transparent border, so on the
+    // panel's own background it reads as loose text. Users reported exactly
+    // that: they could not tell these were buttons.
+    expect(button.className).not.toMatch(/\bghost\b/);
+    expect(button.className).toMatch(/outline-subtle-primary/);
+  });
+
+  it.each(TOGGLES)('marks %s as active while its section is open', async (name) => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_btn/i }));
+
+    const button = screen.getByRole('button', { name });
+    expect(button.className).not.toMatch(/toggle-active/);
+
+    await user.click(button);
+
+    expect(screen.getByRole('button', { name }).className).toMatch(/toggle-active/);
+  });
+});
+
+
+describe('TreeNode — who decides whether the promos panel pulls from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  afterEach(() => {
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return { level: 1, kind: 'catalogo', mla: 'MLA_PULL', label: 'MLA_PULL', matches_filter: true, children: [] };
+  }
+
+  it('pulls when the user opens the panel themselves', async () => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_pull/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('true');
+  });
+
+  it('does NOT pull when a global expand mounted it', async () => {
+    // One click on "Expandir todo" mounts every MLA panel in the tree. Each
+    // pulling would turn that into N concurrent hits on a throttle shared
+    // with sales-webhook processing.
+    renderNode(buildMlaNode());
+
+    act(() => {
+      useTreeViewStore.setState((state) => ({ collapseEpoch: state.collapseEpoch + 1, collapseMode: 'all-open' }));
+    });
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('false');
+  });
+
+  it('goes back to pulling on a later open after a manual refresh', async () => {
+    // The skip flag is meant to cover exactly one remount — the one the
+    // refresh button causes. Left sticky, a single click on refresh stopped
+    // this node from ever pulling on open again for the rest of its life.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_pull/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('false'),
+    );
+
+    // Close and reopen: this is a fresh open and must pull again.
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(screen.getByTestId('mla-promos-MLA_PULL').dataset.pullOnOpen).toBe('true');
+  });
+});
+
+// `collapseMode` is global (one store for the whole page), so an "Expandir
+// todo" clicked inside one product's tree is still 'all-open' while another
+// product's tree mounts. That is not a leak of the no-pull decision: the same
+// mode is what force-opens the whole freshly mounted subtree, so the mass
+// expansion and the suppressed pulls always travel together. And the first
+// manual toggle calls markManual(), which restores pulling before the panel
+// re-renders.
+describe('TreeNode — a leftover global expand mode stays self-consistent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 3, collapseMode: 'all-open' });
+  });
+
+  afterEach(() => {
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return { level: 1, kind: 'catalogo', mla: 'MLA_LEFT', label: 'MLA_LEFT', matches_filter: true, children: [] };
+  }
+
+  it('force-opens a newly mounted panel and suppresses its pull together', () => {
+    renderNode(buildMlaNode());
+
+    // Nobody opened this by hand — the leftover mode did, exactly as it does
+    // for the tree the button was clicked in. Pulling here would be the same
+    // N-concurrent-pulls burst the flag exists to prevent.
+    expect(screen.getByTestId('mla-promos-MLA_LEFT').dataset.pullOnOpen).toBe('false');
+  });
+
+  it('pulls again as soon as the user toggles the panel by hand', async () => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+
+    // Close and reopen by hand: markManual() runs on the first click, so the
+    // reopen is a genuine user-opened panel and must pull.
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+    await user.click(screen.getByRole('button', { name: /^promociones/i }));
+
+    expect(useTreeViewStore.getState().collapseMode).toBe('manual');
+    expect(screen.getByTestId('mla-promos-MLA_LEFT').dataset.pullOnOpen).toBe('true');
   });
 });

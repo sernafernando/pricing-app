@@ -134,7 +134,19 @@ function TreeNode({
   // unmounts (e.g. the tree re-renders on a promo-filter change while a
   // refresh is still in flight).
   const mountedRef = useRef(true);
+  // Set right before a refresh-triggered remount so the panel skips its own
+  // pull — the refresh handler already did it. Cleared once that remount has
+  // committed: it covers exactly ONE mount. Left sticky, a single click on
+  // refresh stopped this node from ever pulling on open again.
+  const justRefreshedRef = useRef(false);
   useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // Runs after the refresh-triggered remount has rendered with the flag set,
+  // so the NEXT open pulls again. Clearing it during render would mutate a ref
+  // in a phase React requires to be pure.
+  useEffect(() => {
+    justRefreshedRef.current = false;
+  }, [promosReloadKey]);
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
 
@@ -236,10 +248,15 @@ function TreeNode({
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
-        // Cache invalidation is safe even if we unmounted — it makes the
-        // NEXT expand fetch fresh data. State updates below are guarded.
+        // The entry also feeds the promo filter bar's derived types, so
+        // dropping the stale one keeps that from showing what the server just
+        // replaced. Safe even if we unmounted; state updates are guarded.
         promosCacheRef.current.delete(node.mla);
         if (mountedRef.current && promosOpen) {
+          // The remount must NOT pull again: this handler just did. Without
+          // the flag one click on refresh became two pulls, on the throttle
+          // shared with sales-webhook processing.
+          justRefreshedRef.current = true;
           setPromosReloadKey((prev) => prev + 1);
         }
       } else if (mountedRef.current) {
@@ -317,18 +334,23 @@ function TreeNode({
         <div className={styles.treeNodePromosSection}>
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${promosOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setPromosOpen((prev) => !prev); }}
             aria-expanded={promosOpen}
           >
             Promociones {promosOpen ? '▾' : '▸'}
           </button>
           {promosOpen && (
-            <MlaPromocionesPanel key={promosReloadKey} mla={node.mla} promosCacheRef={promosCacheRef} />
+            <MlaPromocionesPanel
+              key={promosReloadKey}
+              mla={node.mla}
+              promosCacheRef={promosCacheRef}
+              pullOnOpen={!justRefreshedRef.current && collapseMode !== 'all-open'}
+            />
           )}
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${catalogCompetitionOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setCatalogCompetitionOpen((prev) => !prev); }}
             aria-expanded={catalogCompetitionOpen}
           >
@@ -339,7 +361,7 @@ function TreeNode({
           )}
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${pxqOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setPxqOpen((prev) => !prev); }}
             aria-expanded={pxqOpen}
           >

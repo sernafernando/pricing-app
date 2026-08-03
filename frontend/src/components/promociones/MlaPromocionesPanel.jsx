@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
+import { usePermisos } from '../../contexts/PermisosContext';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
@@ -73,14 +74,85 @@ function formatDateRange(startDate, finishDate) {
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef }) {
-  const fetcher = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
-  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
-  // Server owns all refresh work (immediate + a ~60s retry-queue drain) after
-  // our own enroll/remove write — the panel never calls a refresh endpoint,
-  // it only re-reads the server-freshened mirror at two points: ~5s (fast
-  // SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the server's ~60s
-  // retry drains for slower SMART reconciliation).
+function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
+  // The pull endpoint requires `promos.escribir` — the same permission
+  // TreeNode gates its manual refresh button on. Without this check every
+  // panel open by a `promos.ver`-only user is a 403 swallowed in silence, and
+  // the auto-pull becomes a back door into the path that button closes at the
+  // front. Such a user reads the mirror: degraded, but fully working.
+  const { tienePermiso } = usePermisos();
+  const canPull = tienePermiso('promos.escribir');
+
+  // Opening the panel pulls fresh state from MercadoLibre first, then reads
+  // the mirror the server just updated.
+  //
+  // This REVERSES the earlier product decision that kept refreshes manual
+  // because the ML throttle is shared with sales-webhook processing. The
+  // product owner asked for it explicitly: seeing stale promotions without
+  // knowing they are stale was the worse failure. The cost is real — every
+  // open competes for that shared throttle — and it is a deliberate trade,
+  // not an oversight.
+  //
+  // `alwaysRefetch` makes a collapse/re-expand genuinely refetch instead of
+  // serving the cached mirror, which would defeat the whole point. The cache
+  // is still WRITTEN — the promo filter bar derives its types from those
+  // entries — so bypassing it is not an option, only re-reading it is.
+  //
+  // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing
+  // route all come back as HTTP 200 `{ok: false}`, never as a rejection. So
+  // `.catch` alone would almost never fire and the panel would show the old
+  // mirror as if it had just been refreshed — the very failure this pull
+  // exists to prevent. `ok` is the only honest signal, and both it and the
+  // rejection path feed the same `refreshFailed` flag the panel surfaces.
+  const fetchFreshThenRead = useCallback(
+    (id) =>
+      Promise.resolve(promocionesAPI.refreshItemPromociones(id))
+        .then((r) => r?.data?.ok === true)
+        // A failed refresh degrades to the stored mirror rather than blanking
+        // the panel: stale data on a working screen beats an error and
+        // nothing. The mirror is still whatever the server last confirmed.
+        .catch(() => false)
+        .then((refreshed) =>
+          promocionesAPI.getPromocionesItem(id).then((r) => ({ ...r.data, refreshFailed: !refreshed })),
+        ),
+    [],
+  );
+
+  // `reload()` reads the mirror WITHOUT pulling from ML again. The post-apply
+  // timers and the error-state retry both go through it, and each of those
+  // firing a refresh would have added three more ML calls per apply on a
+  // throttle shared with sales-webhook processing — a cost nobody asked for
+  // and that the "refresh on open" request does not imply.
+  const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
+
+  // Whether this mount should pull from ML is the PARENT's call, because only
+  // it knows why the panel is mounting: a user opening it (pull), a global
+  // "Expandir todo" mounting twenty at once (do not — one click must not
+  // become twenty concurrent pulls on a throttle shared with sales-webhook
+  // processing), or a remount right after the refresh button already pulled
+  // (do not — that would pull twice for one click).
+  const { data, loading, error, reload } = useLazyResource(
+    promosCacheRef,
+    mla,
+    pullOnOpen && canPull ? fetchFreshThenRead : readMirror,
+    { alwaysRefetch: true, reloadFetcher: readMirror },
+  );
+
+  // The error-state retry pulls, because the user opened this expecting fresh
+  // state — re-reading the mirror under a button labelled "Reintentar" would
+  // not retry what actually failed. A user without `promos.escribir` never had
+  // a pull to retry, so for them the retry is a plain re-read.
+  const retry = useCallback(
+    () =>
+      canPull
+        ? Promise.resolve(promocionesAPI.refreshItemPromociones(mla)).catch(() => null).then(() => reload())
+        : reload(),
+    [mla, reload, canPull],
+  );
+  // After our own enroll/remove write the server refreshes on its own
+  // (immediate + a ~60s retry-queue drain), and the panel just re-READS that
+  // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s
+  // (after the server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
   const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const selectedNames = usePromoFilterStore((state) => state.selectedNames);
@@ -100,7 +172,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
     return (
       <div className={styles.panelStateError}>
         Error al cargar promociones.{' '}
-        <button type="button" className="btn-tesla ghost sm" onClick={reload}>
+        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={retry}>
           Reintentar
         </button>
       </div>
@@ -109,8 +181,21 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
 
   const promociones = data?.promotions || [];
 
+  // Only the pull path sets this, so a plain mirror read (read-only user, or a
+  // parent that asked not to pull) never claims a failure it did not have.
+  const staleNotice = data?.refreshFailed ? (
+    <div className={styles.staleNotice}>
+      No se pudo actualizar desde MercadoLibre — mostrando el último estado conocido.
+    </div>
+  ) : null;
+
   if (promociones.length === 0) {
-    return <div className={styles.panelState}>Sin promociones habilitadas.</div>;
+    return (
+      <>
+        {staleNotice}
+        <div className={styles.panelState}>Sin promociones habilitadas.</div>
+      </>
+    );
   }
 
   // Global filter (client-side only): type narrows first, then name narrows
@@ -120,83 +205,93 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   );
 
   if (filteredPromociones.length === 0) {
-    return <div className={styles.filterMessage}>Sin promos del tipo filtrado.</div>;
+    return (
+      <>
+        {staleNotice}
+        <div className={styles.filterMessage}>Sin promos del tipo filtrado.</div>
+      </>
+    );
   }
 
   return (
-    <ul className={styles.promoList}>
-      {filteredPromociones.map((promo) => {
-        const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
-        const sellerPct = formatPercentage(promo.payload?.seller_percentage);
-        const meliPct = formatPercentage(promo.payload?.meli_percentage);
-        // `price` is 0 for candidate promos (not yet applied); fall back to the
-        // suggested discounted price so the row shows the price it WOULD apply
-        // at, not $0. Started promos (SMART/LIGHTNING) carry a real `price`.
-        const effectivePrice = promo.price > 0 ? promo.price : promo.suggested_discounted_price;
-        const dateRange = formatDateRange(promo.start_date, promo.finish_date);
+    <>
+      {staleNotice}
+      <ul className={styles.promoList}>
+        {filteredPromociones.map((promo) => {
+          const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
+          const sellerPct = formatPercentage(promo.payload?.seller_percentage);
+          const meliPct = formatPercentage(promo.payload?.meli_percentage);
+          // `price` is 0 for candidate promos (not yet applied); fall back to the
+          // suggested discounted price so the row shows the price it WOULD apply
+          // at, not $0. Started promos (SMART/LIGHTNING) carry a real `price`.
+          const effectivePrice = promo.price > 0 ? promo.price : promo.suggested_discounted_price;
+          const dateRange = formatDateRange(promo.start_date, promo.finish_date);
 
-        return (
-          <li
-            key={promo.promotion_id}
-            className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
-          >
-            <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
-              {promo.promotion_type || 'N/A'}
-            </span>
-            {promo.application_status === 'active' && (
-              <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
-            )}
-            {promo.application_status === 'programmed' && (
-              <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
-            )}
-            {promo.application_status === 'pending' && (
-              <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
-            )}
-            <span className={styles.promoName}>
-              {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
-            </span>
-            {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
-            <span className={styles.promoPrice}>
-              {formatPrice(effectivePrice)}
-              {promo.original_price != null && promo.original_price !== effectivePrice && (
-                <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
-              )}
-            </span>
-            {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
-              <span className={styles.promoSmartCost}>
-                {sellerPct && `Costo vendedor: ${sellerPct}`}
-                {sellerPct && meliPct && ' · '}
-                {meliPct && `Cofinanciación ML: ${meliPct}`}
+          return (
+            <li
+              key={promo.promotion_id}
+              className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
+            >
+              <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
+                {promo.promotion_type || 'N/A'}
               </span>
-            )}
-            <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
-              Tu markup: {formatMarkup(promo.nuestro_markup)}
-            </span>
-            {applicable && (
-              <PromoApplyControl
-                mla={mla}
-                promotion={promo}
-                onApplied={() => {
-                  // Do NOT assert the final state from either reload alone
-                  // (eventual consistency — the table stays the source of
-                  // truth). The FE never calls a refresh endpoint itself —
-                  // the server refreshes the mirror (immediate + ~60s retry);
-                  // we just re-read it at ~5s and ~65s. Clear any prior
-                  // pending timers before scheduling new ones, and clear on
-                  // unmount so we never call reload() after the panel (and
-                  // the underlying setState) is gone.
-                  clearReloadTimers();
-                  reloadTimersRef.current = [
-                    setTimeout(() => reload(), 5000),
-                    setTimeout(() => reload(), 65000),
-                  ];
-                }}
-              />
-            )}
-          </li>
-        );
-      })}
-    </ul>
+              {promo.application_status === 'active' && (
+                <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
+              )}
+              {promo.application_status === 'programmed' && (
+                <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
+              )}
+              {promo.application_status === 'pending' && (
+                <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
+              )}
+              <span className={styles.promoName}>
+                {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
+              </span>
+              {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+              <span className={styles.promoPrice}>
+                {formatPrice(effectivePrice)}
+                {promo.original_price != null && promo.original_price !== effectivePrice && (
+                  <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
+                )}
+              </span>
+              {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
+                <span className={styles.promoSmartCost}>
+                  {sellerPct && `Costo vendedor: ${sellerPct}`}
+                  {sellerPct && meliPct && ' · '}
+                  {meliPct && `Cofinanciación ML: ${meliPct}`}
+                </span>
+              )}
+              <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
+                Tu markup: {formatMarkup(promo.nuestro_markup)}
+              </span>
+              {applicable && (
+                <PromoApplyControl
+                  mla={mla}
+                  promotion={promo}
+                  onApplied={() => {
+                    // Do NOT assert the final state from either reload alone
+                    // (eventual consistency — the table stays the source of
+                    // truth). After a write the server refreshes the mirror on
+                    // its own (immediate + ~60s retry) and these two reloads
+                    // only RE-READ it — they do not pull from ML. Opening the
+                    // panel does pull, which is a different path on purpose.
+                    //
+                    // Clear any prior pending timers before scheduling new
+                    // ones, and clear on unmount so we never call reload()
+                    // after the panel (and the underlying setState) is gone.
+                    clearReloadTimers();
+                    reloadTimersRef.current = [
+                      setTimeout(() => reload(), 5000),
+                      setTimeout(() => reload(), 65000),
+                    ];
+                  }}
+                />
+              )}
+            </li>
+          );
+          })}
+      </ul>
+    </>
   );
 }
 

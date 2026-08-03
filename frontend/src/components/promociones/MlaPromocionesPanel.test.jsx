@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
@@ -8,13 +8,18 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
+    refreshItemPromociones: vi.fn(),
   },
 }));
+
+// Permissions default to granted; a test that needs a read-only user pushes
+// the permission it lacks into `denied` (and clears it again afterwards).
+const permisosMock = vi.hoisted(() => ({ denied: [] }));
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: () => true,
+    tienePermiso: (permiso) => !permisosMock.denied.includes(permiso),
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -617,7 +622,16 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getByText(/sin promociones/i)).toBeInTheDocument());
   });
 
-  it('does not re-fetch when re-mounted with the same cached mla', async () => {
+  it('DOES re-fetch when re-mounted with the same cached mla', async () => {
+    // This used to assert the opposite. The cache existed so a collapse and
+    // re-expand did not re-hit the API, and refreshes were manual because the
+    // ML throttle is shared with sales-webhook processing.
+    //
+    // The product owner reversed that: seeing stale promotions without knowing
+    // they are stale was the worse failure. So every open pulls fresh state,
+    // and the cache no longer suppresses it. The old expectation is not a
+    // regression here — it is the behaviour that was deliberately dropped.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
     });
@@ -630,7 +644,7 @@ describe('MlaPromocionesPanel', () => {
     render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} />);
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
 
-    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
   });
 
   it('does not call reload/getPromocionesItem again after unmounting before either post-apply reload fires (~5s, ~65s)', async () => {
@@ -677,7 +691,7 @@ describe('MlaPromocionesPanel', () => {
     vi.useRealTimers();
   });
 
-  it('schedules TWO reloads after a state-changing apply: ~5s (fast) and ~65s (slow/retry), and never calls a FE refresh endpoint', async () => {
+  it('schedules TWO reloads after a state-changing apply: ~5s (fast) and ~65s (slow/retry)', async () => {
     vi.useFakeTimers();
 
     promocionesAPI.getPromocionesItem.mockResolvedValue({
@@ -727,12 +741,13 @@ describe('MlaPromocionesPanel', () => {
     });
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(3);
 
-    // The FE never calls a refresh endpoint itself — server owns refresh.
-    expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalledWith(expect.stringContaining('/refresh'));
-    const calledUrls = Object.values(promocionesAPI)
-      .flatMap((fn) => (fn.mock ? fn.mock.calls : []))
-      .flat();
-    expect(calledUrls.some((arg) => typeof arg === 'string' && arg.includes('refresh'))).toBe(false);
+    // This used to also assert the FE never calls a refresh endpoint. It
+    // does now, on open — that is the point of the change — and the assertion
+    // only ever passed because it searched the call ARGUMENTS ('MLA001') for
+    // the string 'refresh', never which function was called. A test that
+    // passes by accident is worse than none: the next reader believes a rule
+    // that no longer holds. What reloads must not do is covered for real by
+    // the `reload does not pull from ML` block below.
 
     vi.useRealTimers();
   });
@@ -825,5 +840,241 @@ describe('MlaPromocionesPanel', () => {
       await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
       expect(screen.queryByText('3x2')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('MlaPromocionesPanel — auto-refresh on open', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('asks the server for a fresh pull from ML before showing anything', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_AUTO'));
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_AUTO'));
+  });
+
+  it('refreshes again on a later open instead of serving the cached mirror', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const cacheRef = { current: new Map() };
+
+    const first = render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={cacheRef} />);
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={cacheRef} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+  });
+
+  it('still shows the mirror when the refresh itself fails', async () => {
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('ML no responde'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
+
+    // A failed refresh must degrade to the stored mirror, not blank the panel:
+    // stale data plus a working screen beats an error and nothing.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_AUTO'));
+  });
+});
+
+describe('MlaPromocionesPanel — reload does not pull from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pulls from ML on open, and the post-apply reloads only re-read the mirror', async () => {
+    vi.useFakeTimers();
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+
+    renderPanel();
+    // The mount path is refresh -> get, so it needs more microtask flushes
+    // than a plain fetch before the panel has rendered its rows.
+    await act(async () => {
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Both post-apply reloads fire.
+    await act(async () => {
+      vi.advanceTimersByTime(5001);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(60001);
+      await Promise.resolve();
+    });
+
+    // They re-read the mirror, and NOT one of them pulls from ML again. If
+    // reload shared the mount fetcher, this would be 3 — two extra pulls per
+    // apply, on a throttle shared with sales-webhook processing.
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+    expect(promocionesAPI.getPromocionesItem.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('MlaPromocionesPanel — pullOnOpen', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('reads the mirror without pulling when the parent says not to pull', async () => {
+    // The parent decides, because only it knows why this is mounting: a
+    // global "Expandir todo" mounting twenty panels at once, or a remount
+    // right after the refresh button already pulled. Either way, pulling here
+    // would repeat work on a throttle shared with sales-webhook processing.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(
+      <MlaPromocionesPanel mla="MLA_NOPULL" promosCacheRef={{ current: new Map() }} pullOnOpen={false} />,
+    );
+
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_NOPULL'));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+  });
+
+  it('pulls by default, which is the plain user-opens-it case', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_PULL" promosCacheRef={{ current: new Map() }} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_PULL'));
+  });
+});
+
+// The pull endpoint (POST /promociones/item/{mla}/refresh) requires
+// `promos.escribir`, the same permission TreeNode gates its manual refresh
+// button on. Without this gate every panel open by a `promos.ver`-only user
+// is a 403 that the .catch() swallows silently.
+describe('MlaPromocionesPanel — read-only user never pulls from ML', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    permisosMock.denied = ['promos.escribir'];
+  });
+
+  afterEach(() => {
+    permisosMock.denied = [];
+  });
+
+  it('reads the mirror on open instead of attempting the pull', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_RO" promosCacheRef={{ current: new Map() }} />);
+
+    // Reading the mirror is the correct degraded behaviour: the panel must
+    // still work fully, it just cannot ask for fresh state.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_RO'));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+  });
+
+  it('retries by re-reading the mirror, without attempting the pull', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockRejectedValueOnce(new Error('boom'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_RO" promosCacheRef={{ current: new Map() }} />);
+
+    const retryButton = await screen.findByRole('button', { name: /reintentar/i });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+  });
+});
+
+// The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing
+// route all come back as HTTP 200 with `{ok: false}`, never as a rejection.
+// So `ok` is the ONLY signal the panel has, and without checking it the panel
+// renders a stale mirror as if it had just been refreshed — which is exactly
+// the failure the auto-pull was asked for to prevent.
+describe('MlaPromocionesPanel — says so when the pull did not succeed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('flags the mirror as not-refreshed when the pull resolves with ok:false', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
+    });
+
+    render(<MlaPromocionesPanel mla="MLA_SOFT" promosCacheRef={{ current: new Map() }} />);
+
+    // The mirror still renders — a working screen with old data beats an
+    // error and nothing — but it must not pass for freshly pulled state.
+    expect(await screen.findByText('Deal promo')).toBeInTheDocument();
+    expect(screen.getByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('flags it on the empty mirror too, where a stale read looks like "no promos"', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_SOFT_EMPTY" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.getByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('flags it when the pull rejects outright', async () => {
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('ML no responde'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_REJECT" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
+  });
+
+  it('stays quiet when the pull succeeded', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_OK" promosCacheRef={{ current: new Map() }} />);
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no se pudo actualizar desde mercadolibre/i)).not.toBeInTheDocument();
+  });
+
+  it('stays quiet when no pull was even attempted', async () => {
+    // Nothing failed here: the parent asked for a plain mirror read, so the
+    // panel never promised freshness and must not claim a failure either.
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(
+      <MlaPromocionesPanel mla="MLA_NOPULL2" promosCacheRef={{ current: new Map() }} pullOnOpen={false} />,
+    );
+
+    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no se pudo actualizar desde mercadolibre/i)).not.toBeInTheDocument();
   });
 });

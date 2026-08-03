@@ -144,6 +144,19 @@
   font-size: 13px;
 }
 
+/* The panel promises freshly pulled state; when the pull did not succeed the
+   mirror still renders, so this is what tells the two apart. Warning tone (not
+   danger) because nothing broke on screen — the data is simply older than it
+   claims to be. Same register as .feedbackWarn elsewhere in this tree. */
+.staleNotice {
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--warning-text, var(--text-primary));
+  background: color-mix(in srgb, var(--warning-bg, var(--bg-secondary)) 40%, transparent);
+}
+
 .promoList {
   list-style: none;
   margin: 0;
