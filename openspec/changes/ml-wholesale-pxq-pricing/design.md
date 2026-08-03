@@ -50,24 +50,51 @@ sync(item_id):
                                                 -> else rejected_not_eligible
   4. LIVE read (fresh, never cached) via ml_webhook_client
        None -> rejected_read_unavailable
-  5. divergence(live, mirror):
-       live id not in mirror | mirror ml_price_id not in live
-       | matched id differs in qty/amount        -> 409 + diff payload, NO write
-  6. desired = tiers with estado='listo' (costo_envio_total NOT NULL)
-       per tier: matched live id with identical qty+amount -> {"id": ml_price_id}   (keep)
-                 otherwise                                  -> {qty, amount} no id  (create)
-       tiers absent from desired are simply omitted                                  (delete)
-       modify == delete old id + create without id (never send a mutated id)
-  7. POST full array; re-read live; re-map ml_price_id by (qty, amount); estado='sincronizado'
+  5. desired = tiers with estado != 'incompleto' (costo_envio_total NOT NULL)
+  6. three-way merge of each desired tier against LIVE and the SNAPSHOT
+     (cantidad_sincronizada/precio_sincronizado -- what ML confirmed at the
+     last successful sync; NULL means never synced):
+       local vs snapshot | live vs snapshot | outcome
+       ------------------|------------------|--------------------------------
+       unchanged         | unchanged        | keep    -> {"id": ml_price_id}
+       CHANGED           | unchanged        | modify  -> delete old id (omit)
+                          |                  |           + create without id
+       unchanged         | CHANGED          | 409 refuse (writing would revert
+                          |                  |   MercadoLibre's own change)
+       CHANGED           | CHANGED          | 409 refuse (genuine concurrent edit)
+       no snapshot, no id | n/a             | create -> {qty, amount}, no id
+       id set, no snapshot | n/a             | 409 refuse (no base to compare
+                          |                  |   against -- see pxq_diff.py)
+       mirror id absent from live entirely   | 409 refuse
+     tiers absent from `desired` are simply omitted from the array (delete);
+     an untracked live tier (no desired row references its id) is preserved
+     as a keep, UNLESS `desired` is empty and `allow_clear=true`, which wipes
+     every live tier including untracked ones via an explicit `[]`.
+  7. POST full array; re-read live; CONFIRM each written/kept tier by
+     matching (quantity, amount) in the re-read, and ONLY THEN write the
+     snapshot (cantidad_sincronizada/precio_sincronizado) from those
+     CONFIRMED values; estado='sincronizado'.
 ```
 
-Invariant: step 6 may only emit ids observed in the step-4 live payload.
+An earlier draft of this algorithm decided step 6 by reading the row's `estado` (`listo` vs
+`sincronizado`) instead of a shared snapshot, and its own step 5/6 wording called any matched-id
+difference a "divergence" while also calling it a "modify" -- literally impossible to satisfy
+together, since a legitimate local price edit and an external ML-side change produced the identical
+symptom (matched id, differing qty/amount) with no way to tell them apart. The snapshot is the shared
+base that resolves the contradiction: local and live are each judged against what ML last confirmed,
+not against each other, so "who moved this" becomes answerable instead of guessed. See
+`pxq_diff.py`'s module docstring for the full case table and the implementation.
+
+Invariant: step 6/7 may only emit ids observed in the step-4 live payload.
 
 **Failure modes.** Timeout/5xx on the POST ⇒ `ambiguous_needs_reconcile`: mirror rows set to
-`desconocido`, `ml_price_id` untouched, next sync necessarily hits the divergence gate (5). Live read
-fails ⇒ refuse. Empty desired set ⇒ refuse unless an explicit `allow_clear=true` flag (deleting all
-tiers must be intentional). Post-write re-read fails ⇒ `submitted` but `unconfirmed`, mirror
-`desconocido`.
+`desconocido`, `ml_price_id` AND the snapshot left untouched (not advanced to the attempted value),
+next sync necessarily hits the divergence gate (6). Live read fails ⇒ refuse. Empty desired set ⇒
+refuse unless an explicit `allow_clear=true` flag (deleting all tiers must be intentional). Post-write
+re-read fails ⇒ `submitted_unconfirmed`, mirror `desconocido`, snapshot left untouched -- the snapshot
+is written ONLY on a write CONFIRMED by the post-write re-read, never on the POST response alone;
+writing it early or on any non-confirmed path is what silently degrades the three-way merge back into
+the blind overwrite this mirror exists to prevent.
 
 ## Live-Read Endpoint (pool-safe)
 
