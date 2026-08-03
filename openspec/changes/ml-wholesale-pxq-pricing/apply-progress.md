@@ -380,3 +380,76 @@ open, off tracker `feat/ml-wholesale-pxq-pricing`).
 Next apply run: PR 4d — sync button + `allow_clear` confirmation + divergence
 banner (disables sync until resolved, no silent local-wins) — wires PR 3b's
 `POST /pxq/{item_id}/sync` into this same panel, on top of PR 4c's form.
+
+## PR 4d — sync action, full outcome handling, divergence banner (SHIPPED locally)
+
+Shipped locally on `feat/pxq-sync-ui`, off tracker
+`feat/ml-wholesale-pxq-pricing`. One commit, not pushed, no PR opened:
+`838fdb4f` (366 lines: component + API call + CSS + tests).
+
+This is the LAST slice of the feature — every remaining out-of-scope item
+from PR 4a/4c is closed.
+
+- `frontend/src/services/api.js` — added `pxqAPI.sync(itemId, allowClear=false)`
+  posting `{ allow_clear }` to `POST /pxq/{item_id}/sync`, matching
+  `PxqSyncRequest` exactly.
+- `frontend/src/components/promociones/PxqPanel.jsx` — new `PxqSyncControl`
+  sub-component, rendered below `PxqTierAuthoring`, gated on `pxq.escribir`
+  (same as the authoring form). `syncOutcomeMessage(httpStatus, detail)` maps
+  every distinct backend `status` from `_SYNC_STATUS_TO_HTTP` to its own
+  Spanish message — collapsing these was explicitly the thing to avoid, since
+  the backend went through review rounds to keep them separate:
+  - 403 → permissions message, textually distinct from `disabled`.
+  - `disabled` (503) → "función apagada", explicitly NOT a permissions message.
+  - `rejected_not_eligible` (422) → permanent, about the account/item.
+  - `rejected_eligibility_unknown` (503) → transient, retry-friendly wording.
+  - `rejected_read_unavailable` (503) → nothing was written, safe to retry.
+  - `rejected_by_proxy` (422) → surfaces `detail.reason` when present.
+  - `submitted_unconfirmed` / `ambiguous_needs_reconcile` (502, same message)
+    → explicitly neither success nor a plain failure: tells the user the
+    outcome is unknown and to re-read live state before retrying. Does NOT
+    call `reload()` on this branch and does NOT render a success or a bare
+    "error" string (both asserted directly in tests).
+  - 409 `divergence` → handled separately from the message map: renders a
+    dedicated banner (`.pxqDivergenceBanner`) listing each `divergences[]`
+    entry's `reason`, `live`, and `desired` side by side. No auto-resolve, no
+    "forzar" button — resolution is manual (edit tiers, sync again).
+  - 200 `sincronizado` → success message, then `await onSynced()` (the
+    panel's existing `reload()`, whose promise PR 4c already made awaitable)
+    so the live column reflects what ML now holds.
+  Clearing all tiers: when `mirrorTiers.length === 0`, clicking sync does NOT
+  call the API directly — it shows an inline confirm (same
+  `.applyConfirm` pattern as the delete-tier confirm, not `window.confirm`)
+  stating every wholesale tier will disappear from the publication, and only
+  sends `allow_clear=true` after that explicit confirmation.
+- `frontend/src/components/promociones/promociones.module.css` — new
+  `.pxqDivergenceBanner`/`.pxqDivergenceItem` classes, own names, design
+  tokens only (no hardcoded colors).
+- Tests: `frontend/src/components/promociones/PxqPanel.test.jsx` — 11 new
+  cases covering the sync button's permission gate, the direct-sync path, the
+  allow_clear confirm gate, all nine distinct outcomes (403, 503×3,
+  422×2, 409 divergence with both sides rendered, 502×2), and that the 502
+  pair never renders a success or bare-error string. One pre-existing PR 4a
+  test (`marks a divergent tier visibly...`) asserted no button matching
+  `/resolver|sincronizar/i` existed at all — that assertion predated this
+  slice's legitimate sync button; narrowed it to `/^resolver$/i` (an inline
+  per-row resolve action, which still correctly does not exist) rather than
+  weakening it further.
+- Mutation check: renamed the `rejected_not_eligible` case label so it could
+  never match, watched exactly the one test asserting that message fail
+  (all 565 others stayed green), reverted.
+- `pnpm run test` (vitest run): 36 files / 566 tests passed (was 36/555 —
+  net +11, zero regressions).
+- `pnpm run lint` (eslint): clean, zero warnings.
+- Diff: 366 lines across 4 files (+366/-6) — within the 400-line budget as
+  one unit; not split (outcome handling and the divergence banner share the
+  same component and message map, so a seam there would not have produced two
+  independently reviewable units).
+- Commit: `feat(ml-wholesale-pxq): sync action with full outcome handling and
+  divergence banner`, `838fdb4f`, on `feat/pxq-sync-ui` (local only, not
+  pushed, no PR opened).
+
+This closes out the ml-wholesale-pxq-pricing feature's frontend slices
+(PR 4a read panel, PR 4c authoring form, PR 4d sync). All local commits are
+independent, unpushed branches stacked on the tracker branch; nothing here
+implies anything is live until each is actually merged.

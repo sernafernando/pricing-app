@@ -231,6 +231,137 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
   );
 }
 
+// Every distinct backend `status` gets its own Spanish message: collapsing
+// these throws away exactly what the backend's review rounds fought to keep
+// separate (see module docstring below and `backend/app/routers/pxq.py`'s
+// `_SYNC_STATUS_TO_HTTP`). `httpStatus` alone is not enough to disambiguate
+// the two 503s or the two 502s, so `status` (from the error detail payload)
+// drives the message, not the HTTP code.
+function syncOutcomeMessage(httpStatus, detail) {
+  const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
+  if (httpStatus === 403) {
+    return { kind: 'error', text: 'No tenés permiso para sincronizar con MercadoLibre.' };
+  }
+  switch (backendStatus) {
+    case 'disabled':
+      return {
+        kind: 'error',
+        text: 'La sincronización con MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
+      };
+    case 'rejected_not_eligible':
+      return {
+        kind: 'error',
+        text: 'Esta publicación o la cuenta no está habilitada para precios mayoristas en MercadoLibre. Esto es permanente, no un problema temporal.',
+      };
+    case 'rejected_eligibility_unknown':
+      return {
+        kind: 'warn',
+        text: 'No se pudo confirmar si esta publicación está habilitada para precios mayoristas. Podés reintentar en unos minutos.',
+      };
+    case 'rejected_read_unavailable':
+      return {
+        kind: 'warn',
+        text: 'No se pudo leer el estado actual en MercadoLibre, así que no se escribió nada. Podés reintentar.',
+      };
+    case 'rejected_by_proxy':
+      return {
+        kind: 'error',
+        text: `MercadoLibre rechazó el envío${detail?.reason ? `: ${detail.reason}` : '.'}`,
+      };
+    case 'submitted_unconfirmed':
+    case 'ambiguous_needs_reconcile':
+      return {
+        kind: 'warn',
+        text: 'No se pudo confirmar el resultado de la sincronización: MercadoLibre puede o no haber aplicado el cambio. Volvé a leer el estado en vivo antes de reintentar.',
+      };
+    default:
+      return { kind: 'error', text: 'No se pudo sincronizar con MercadoLibre.' };
+  }
+}
+
+/**
+ * Sync action + full outcome handling (PR 4d). Every non-200 `status` the
+ * backend can return gets rendered distinctly — see `syncOutcomeMessage` —
+ * plus a dedicated divergence banner (409) and an explicit confirmation
+ * before a sync that would clear every tier on ML (`allow_clear`).
+ */
+function PxqSyncControl({ itemId, hasTiers, onSynced }) {
+  const [syncing, setSyncing] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [feedback, setFeedback] = useState(null); // { kind: 'ok'|'warn'|'error', text }
+  const [divergences, setDivergences] = useState(null);
+
+  async function runSync(allowClear) {
+    setSyncing(true);
+    setFeedback(null);
+    setDivergences(null);
+    try {
+      await pxqAPI.sync(itemId, allowClear);
+      setFeedback({ kind: 'ok', text: 'Sincronizado con MercadoLibre.' });
+      await onSynced();
+    } catch (err) {
+      const httpStatus = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (httpStatus === 409 && detail && typeof detail === 'object' && Array.isArray(detail.divergences)) {
+        setDivergences(detail.divergences);
+        setFeedback({
+          kind: 'error',
+          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a sincronizar.',
+        });
+      } else {
+        setFeedback(syncOutcomeMessage(httpStatus, detail));
+      }
+    } finally {
+      setSyncing(false);
+      setConfirmingClear(false);
+    }
+  }
+
+  function handleSyncClick() {
+    if (!hasTiers) {
+      setConfirmingClear(true);
+      return;
+    }
+    runSync(false);
+  }
+
+  const feedbackClass =
+    feedback?.kind === 'ok' ? styles.feedbackSuccess : feedback?.kind === 'warn' ? styles.feedbackWarn : styles.feedbackError;
+
+  return (
+    <div className={styles.pxqAuthoring}>
+      {confirmingClear ? (
+        <span className={styles.applyConfirm}>
+          Todos los tramos mayoristas van a desaparecer de la publicación en MercadoLibre. ¿Confirmar?
+          <button type="button" className="btn-tesla sm" disabled={syncing} onClick={() => runSync(true)}>
+            Confirmar
+          </button>
+          <button type="button" className="btn-tesla ghost sm" disabled={syncing} onClick={() => setConfirmingClear(false)}>
+            Cancelar
+          </button>
+        </span>
+      ) : (
+        <button type="button" className="btn-tesla sm" disabled={syncing} onClick={handleSyncClick}>
+          Sincronizar con MercadoLibre
+        </button>
+      )}
+      {feedback && <div className={feedbackClass}>{feedback.text}</div>}
+      {divergences && (
+        <div className={styles.pxqDivergenceBanner}>
+          <div className={styles.pxqColumnTitle}>Diferencias que impiden la sincronización</div>
+          {divergences.map((d, idx) => (
+            <div key={d.ml_price_id ?? idx} className={styles.pxqDivergenceItem}>
+              <span>{d.reason}</span>
+              <span>En ML: {JSON.stringify(d.live)}</span>
+              <span>Deseado: {JSON.stringify(d.desired)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Money is Decimal on the backend and arrives as a number or string here —
 // this only formats it for display, it never computes or re-derives a
 // markup (product decision carried over from CatalogCompetitionPanel).
@@ -253,10 +384,10 @@ function formatMoney(value) {
  * collapse into the same "0 tramos" rendering — see `live_status` handling
  * below and `backend/app/routers/pxq.py`'s `_unavailable_response` docstring.
  *
- * Divergences are marked here purely as information (read side); nothing
- * here resolves them. No sync button, no `allow_clear` confirmation flow —
- * those call MercadoLibre and are out of scope for this local-only form
- * (PR 4d).
+ * Divergences on this read-side comparison are marked purely as information;
+ * nothing here resolves them. The sync action itself (`PxqSyncControl`, PR
+ * 4d) lives below the authoring form and owns the `allow_clear` confirmation
+ * and the 409 divergence-resolution banner.
  */
 function PxqPanel({ itemId, pxqCacheRef }) {
   const { tienePermiso } = usePermisos();
@@ -347,7 +478,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
         </div>
       </div>
       {canWrite && (
-        <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
+        <>
+          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
+          <PxqSyncControl itemId={itemId} hasTiers={mirrorTiers.length > 0} onSynced={reload} />
+        </>
       )}
     </div>
   );

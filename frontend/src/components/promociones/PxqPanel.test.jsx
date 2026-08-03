@@ -18,6 +18,7 @@ vi.mock('../../services/api', () => ({
     createTier: vi.fn(),
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
+    sync: vi.fn(),
   },
 }));
 
@@ -150,7 +151,10 @@ describe('PxqPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText(/diverge/i)).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /resolver|sincronizar/i })).not.toBeInTheDocument();
+    // A regular sync action existing elsewhere in the panel is fine (PR 4d) —
+    // what this read-only comparison must never offer is an inline
+    // "resolver"/auto-fix action right next to the divergent row itself.
+    expect(screen.queryByRole('button', { name: /^resolver$/i })).not.toBeInTheDocument();
   });
 });
 
@@ -308,5 +312,203 @@ describe('PxqPanel — tier authoring (PR 4c)', () => {
     await user.click(screen.getByRole('button', { name: /confirmar/i }));
 
     await waitFor(() => expect(pxqAPI.deleteTier).toHaveBeenCalledWith('MLA001', 1));
+  });
+});
+
+describe('PxqPanel — sync (PR 4d)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [] } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  const oneTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('hides the sync button for a user without pxq.escribir', async () => {
+    mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /sincronizar con mercadolibre/i })).not.toBeInTheDocument();
+  });
+
+  it('syncs directly (no confirm) when there are tiers to send, and reloads live state after success', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValueOnce(mockLive({ mirror_tiers: oneTier })).mockResolvedValueOnce(mockLive({ mirror_tiers: oneTier, live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', false));
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+  });
+
+  it('requires an explicit confirmation before syncing an empty tier list (clearing everything on ML)', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [] }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    expect(pxqAPI.sync).not.toHaveBeenCalled();
+    expect(screen.getByText(/todos los tramos mayoristas van a desaparecer de la publicación/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /confirmar/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', true));
+  });
+
+  it('shows the feature-disabled message distinctly from a permissions problem (503 disabled)', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'disabled' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/deshabilitada/i)).toBeInTheDocument());
+    expect(screen.queryByText(/no tenés permiso/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a permissions message on 403, distinct from the feature being disabled', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 403, data: { detail: 'No tienes permiso: pxq.escribir' } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no tenés permiso/i)).toBeInTheDocument());
+  });
+
+  it('shows a permanent not-eligible message on 422 rejected_not_eligible', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 422, data: { detail: { status: 'rejected_not_eligible' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no está habilitada para precios mayoristas/i)).toBeInTheDocument());
+  });
+
+  it('shows a retry-friendly message on 503 rejected_eligibility_unknown (transient, not permanent)', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'rejected_eligibility_unknown' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no se pudo confirmar si esta publicación está habilitada/i)).toBeInTheDocument());
+  });
+
+  it('shows a distinct message when the live read failed so nothing was written (503 rejected_read_unavailable)', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'rejected_read_unavailable' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no se pudo leer el estado actual en mercadolibre/i)).toBeInTheDocument());
+  });
+
+  it('shows the divergence banner with both live and desired sides on 409, and does not auto-resolve or force', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              {
+                ml_price_id: 'PXQ1',
+                reason: 'amount_mismatch',
+                live: { quantity: 5, amount: 150 },
+                desired: { quantity: 5, amount: 100 },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument());
+    expect(screen.getByText(/150/)).toBeInTheDocument();
+    expect(screen.getAllByText(/100/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /forzar/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a not-a-failure-not-a-success message on 502 submitted_unconfirmed and does not claim success', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 502, data: { detail: { status: 'submitted_unconfirmed' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no se pudo confirmar/i)).toBeInTheDocument());
+    expect(screen.queryByText(/sincronizado con éxito/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^error$/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the same unconfirmed message on 502 ambiguous_needs_reconcile', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 502, data: { detail: { status: 'ambiguous_needs_reconcile' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/no se pudo confirmar/i)).toBeInTheDocument());
+  });
+
+  it('shows the MercadoLibre-rejected message on 422 rejected_by_proxy', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockRejectedValue({ response: { status: 422, data: { detail: { status: 'rejected_by_proxy', reason: 'invalid amount' } } } });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/mercadolibre rechazó/i)).toBeInTheDocument());
   });
 });

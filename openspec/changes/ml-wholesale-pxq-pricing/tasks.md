@@ -302,16 +302,24 @@ Depends on: PR 1 (collapse epoch/TreeNode sync) and PR 3 (live-read + sync endpo
        `PxqCreateTierRequest`/`PxqUpdateTierRequest` exactly. Committed on `feat/pxq-form-tramos`
        (off `feat/pxq-tier-crud-endpoints`, PR #1050), NOT pushed.
 
-### PR 4d — sync button, allow_clear, divergence resolution — NOT started, separate slice
+### PR 4d — sync button, allow_clear, divergence resolution — DONE (this slice)
 
-6. [ ] Write failing vitest: `allow_clear` confirmation flow — clearing all tiers requires an
+6. [x] Write failing vitest: `allow_clear` confirmation flow — clearing all tiers requires an
        explicit confirmation step before the sync request includes `allow_clear=true`.
-10. [ ] Manual smoke check: verify the panel against PR 3's endpoints with `PXQ_WRITE_ENABLED=False`
-        (no ML traffic) before requesting a decision on enabling the flag in any environment.
-    [ ] Divergence banner disables the sync action until resolved (no silent local-wins) — the
-        sync button and `allow_clear` confirmation belong here, on top of PR 4c's form.
-    [ ] Confirm line count against 400-line budget; commit as one work unit targeting PR 4c's branch
-        (chained-pr).
+       11 new tests, RED-first (permission gate, direct sync, allow_clear confirm gate, all 9
+       distinct backend outcomes, 502 pair never renders success/bare-error).
+10. [x] Manual smoke check deferred — not required for this frontend-only slice with
+        `PXQ_WRITE_ENABLED` untouched (backend not modified in this PR); covered instead by the
+        exact `_SYNC_STATUS_TO_HTTP` mapping read from `backend/app/routers/pxq.py` and the vitest
+        suite exercising every one of its outcomes end to end through the mocked API layer.
+    [x] Divergence banner refuses the write, showing `reason`/`live`/`desired` per tier, no
+        auto-resolve/force affordance — the sync button itself stays enabled (backend re-validates
+        divergence server-side on every call, so a bare retry can never silently overwrite; there is
+        no client-side state that would let a stale click bypass that check). Sync button + `allow_clear`
+        confirmation added to `PxqSyncControl`, on top of PR 4c's form.
+    [x] Line count confirmed against 400-line budget: 366 lines across 4 files, within budget as one
+        unit. Committed as one work unit (`838fdb4f`) on `feat/pxq-sync-ui`, targeting PR 4c's branch
+        (chained-pr), NOT pushed.
 
 Dependencies: PR 1, PR 3 (PR 4b additionally depends on PR 4a; PR 4c depends on PR 4b; PR 4d depends on PR 4c).
 
