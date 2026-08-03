@@ -8,6 +8,7 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
+    refreshItemPromociones: vi.fn(),
   },
 }));
 
@@ -617,7 +618,16 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getByText(/sin promociones/i)).toBeInTheDocument());
   });
 
-  it('does not re-fetch when re-mounted with the same cached mla', async () => {
+  it('DOES re-fetch when re-mounted with the same cached mla', async () => {
+    // This used to assert the opposite. The cache existed so a collapse and
+    // re-expand did not re-hit the API, and refreshes were manual because the
+    // ML throttle is shared with sales-webhook processing.
+    //
+    // The product owner reversed that: seeing stale promotions without knowing
+    // they are stale was the worse failure. So every open pulls fresh state,
+    // and the cache no longer suppresses it. The old expectation is not a
+    // regression here — it is the behaviour that was deliberately dropped.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80 }] },
     });
@@ -630,7 +640,7 @@ describe('MlaPromocionesPanel', () => {
     render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} />);
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
 
-    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
   });
 
   it('does not call reload/getPromocionesItem again after unmounting before either post-apply reload fires (~5s, ~65s)', async () => {
@@ -825,5 +835,46 @@ describe('MlaPromocionesPanel', () => {
       await waitFor(() => expect(screen.getByText('2x1')).toBeInTheDocument());
       expect(screen.queryByText('3x2')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('MlaPromocionesPanel — auto-refresh on open', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('asks the server for a fresh pull from ML before showing anything', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_AUTO'));
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_AUTO'));
+  });
+
+  it('refreshes again on a later open instead of serving the cached mirror', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+    const cacheRef = { current: new Map() };
+
+    const first = render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={cacheRef} />);
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={cacheRef} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+  });
+
+  it('still shows the mirror when the refresh itself fails', async () => {
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('ML no responde'));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promociones: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_AUTO" promosCacheRef={{ current: new Map() }} />);
+
+    // A failed refresh must degrade to the stored mirror, not blank the panel:
+    // stale data plus a working screen beats an error and nothing.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_AUTO'));
   });
 });

@@ -74,13 +74,41 @@ function formatDateRange(startDate, finishDate) {
  * first expand — the parent conditionally mounts this component).
  */
 function MlaPromocionesPanel({ mla, promosCacheRef }) {
-  const fetcher = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
+  // Opening the panel pulls fresh state from MercadoLibre first, then reads
+  // the mirror the server just updated.
+  //
+  // This REVERSES the earlier product decision that kept refreshes manual
+  // because the ML throttle is shared with sales-webhook processing. The
+  // product owner asked for it explicitly: seeing stale promotions without
+  // knowing they are stale was the worse failure. The cost is real — every
+  // open competes for that shared throttle — and it is a deliberate trade,
+  // not an oversight.
+  //
+  // The cache is invalidated on mount so a collapse/re-expand genuinely
+  // refetches; serving the cached mirror would defeat the whole point.
+  const fetcher = useCallback(
+    (id) =>
+      Promise.resolve(promocionesAPI.refreshItemPromociones(id))
+        // A failed refresh degrades to the stored mirror rather than blanking
+        // the panel: stale data on a working screen beats an error and
+        // nothing. The mirror is still whatever the server last confirmed.
+        .catch(() => null)
+        .then(() => promocionesAPI.getPromocionesItem(id))
+        .then((r) => r.data),
+    [],
+  );
+
+  const invalidatedRef = useRef(false);
+  if (!invalidatedRef.current) {
+    invalidatedRef.current = true;
+    promosCacheRef.current.delete(mla);
+  }
+
   const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetcher);
-  // Server owns all refresh work (immediate + a ~60s retry-queue drain) after
-  // our own enroll/remove write — the panel never calls a refresh endpoint,
-  // it only re-reads the server-freshened mirror at two points: ~5s (fast
-  // SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the server's ~60s
-  // retry drains for slower SMART reconciliation).
+  // After our own enroll/remove write the server also refreshes (immediate +
+  // a ~60s retry-queue drain), and the panel re-reads that mirror at two
+  // points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s (after the
+  // server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
   const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const selectedNames = usePromoFilterStore((state) => state.selectedNames);

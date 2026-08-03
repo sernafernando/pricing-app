@@ -12,6 +12,7 @@ vi.mock('../../services/api', () => ({
   },
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promotions: [] } }),
+    refreshItemPromociones: vi.fn().mockResolvedValue({ data: { ok: true } }),
   },
 }));
 
