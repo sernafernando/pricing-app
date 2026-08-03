@@ -18,7 +18,12 @@ from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
-from app.services.pxq_tier_service import MAX_TIERS_PER_PUBLICATION, create_pxq_tier
+from app.services.pxq_tier_service import (
+    MAX_TIERS_PER_PUBLICATION,
+    create_pxq_tier,
+    delete_pxq_tier,
+    update_pxq_tier,
+)
 
 
 @pytest.fixture()
@@ -196,3 +201,144 @@ def test_item_id_must_match_its_publication(db, publicacion, pxq_user) -> None:
 
     assert exc.value.status_code == 422
     assert "MLA_SOMETHING_ELSE" in str(exc.value.detail)
+
+
+def test_update_tier_changes_price_and_quantity(db, publicacion, pxq_user) -> None:
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    updated = update_pxq_tier(
+        db,
+        tier_id=tier.id,
+        cantidad_minima=8,
+        precio_unitario=Decimal("650.00"),
+    )
+
+    assert updated.cantidad_minima == 8
+    assert updated.precio_unitario == Decimal("650.00")
+
+
+def test_update_tier_never_advances_the_synced_snapshot(db, publicacion, pxq_user) -> None:
+    """`cantidad_sincronizada`/`precio_sincronizado` are what MercadoLibre last
+    confirmed. Only a confirmed write (`pxq_confirm`) may advance them; an
+    edit that touched them would make the next sync see local==synced and
+    silently skip pushing the very change the user just made."""
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    tier.cantidad_sincronizada = 5
+    tier.precio_sincronizado = Decimal("500.00")
+    db.flush()
+
+    updated = update_pxq_tier(
+        db,
+        tier_id=tier.id,
+        cantidad_minima=9,
+        precio_unitario=Decimal("999.00"),
+    )
+
+    assert updated.cantidad_sincronizada == 5
+    assert updated.precio_sincronizado == Decimal("500.00")
+
+
+def test_update_unknown_tier_is_a_clean_404(db) -> None:
+    with pytest.raises(HTTPException) as exc:
+        update_pxq_tier(db, tier_id=999999, cantidad_minima=5)
+
+    assert exc.value.status_code == 404
+
+
+def test_update_rejects_cantidad_minima_of_one(db, publicacion, pxq_user) -> None:
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        update_pxq_tier(db, tier_id=tier.id, cantidad_minima=1)
+
+    assert exc.value.status_code == 422
+
+
+def test_update_rejects_duplicate_cantidad_minima_on_the_same_publication(db, publicacion, pxq_user) -> None:
+    create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    other = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=6,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        update_pxq_tier(db, tier_id=other.id, cantidad_minima=5)
+
+    assert exc.value.status_code == 422
+
+
+def test_update_price_is_stored_as_decimal_not_binary_float(db, publicacion, pxq_user) -> None:
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    updated = update_pxq_tier(db, tier_id=tier.id, precio_unitario=650.10)
+
+    assert isinstance(updated.precio_unitario, Decimal)
+    assert updated.precio_unitario == Decimal("650.10")
+
+
+def test_delete_tier_removes_the_local_row(db, publicacion, pxq_user) -> None:
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+    tier_id = tier.id
+
+    delete_pxq_tier(db, tier_id=tier_id)
+    db.flush()
+
+    assert db.query(MlPxqTier).filter_by(id=tier_id).first() is None
+
+
+def test_delete_unknown_tier_is_a_clean_404(db) -> None:
+    with pytest.raises(HTTPException) as exc:
+        delete_pxq_tier(db, tier_id=999999)
+
+    assert exc.value.status_code == 404
