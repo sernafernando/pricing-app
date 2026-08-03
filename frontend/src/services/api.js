@@ -218,10 +218,14 @@ export const pxqAPI = {
   createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
   updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
   deleteTier: (itemId, tierId) => api.delete(`/pxq/${itemId}/tiers/${tierId}`),
-  // Write path (PR 4d): `allow_clear` must be sent explicitly true to let a
-  // sync wipe every tier from the ML array — matches
-  // `backend/app/routers/pxq.py`'s `PxqSyncRequest` default of False.
-  sync: (itemId, allowClear = false) => api.post(`/pxq/${itemId}/sync`, { allow_clear: allowClear }),
+  // Write path (PR 4d): `sync` pushes the local mirror to ML and can NEVER
+  // clear the live array. The backend still accepts `allow_clear` (see
+  // `backend/app/routers/pxq.py`'s `PxqSyncRequest`), but a full-array wipe is
+  // a destructive operation that needs its own explicitly-labelled verb — not
+  // a default argument on a verb the UI calls "sincronizar". Taking the
+  // parameter away removes the syntactic path that let a caller ask for a
+  // wipe by accident.
+  sync: (itemId) => api.post(`/pxq/${itemId}/sync`, { allow_clear: false }),
 };
 
 export const pricingAPI = {

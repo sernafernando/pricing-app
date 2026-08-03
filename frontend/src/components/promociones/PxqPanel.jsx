@@ -279,24 +279,55 @@ function syncOutcomeMessage(httpStatus, detail) {
   }
 }
 
+// An empty local mirror is NOT an instruction to delete anything on ML. Three
+// different facts produce an empty mirror and they stay distinct here for the
+// same reason `live_tiers: null` never collapses into `[]` in the read columns
+// above: "ML holds tiers we never mirrored" is a different problem from "both
+// sides are genuinely empty" and from "the live read failed". Importing live
+// tiers into the mirror (`adopt-live`, design.md D4) does not exist yet, so
+// the first case has to say so out loud — otherwise the user reaches for
+// deletion as a workaround, which is exactly how live tiers were lost.
+function emptyMirrorRefusal(liveTiers, liveUnavailable) {
+  if (liveUnavailable) {
+    return {
+      kind: 'warn',
+      text: 'No se pudo leer el estado en vivo de MercadoLibre, así que no se va a tocar nada. Se puede reintentar en unos minutos.',
+    };
+  }
+  if (liveTiers && liveTiers.length > 0) {
+    return {
+      kind: 'error',
+      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. La sincronización no los va a modificar, e importarlos al mirror local todavía no está disponible.',
+    };
+  }
+  return {
+    kind: 'ok',
+    text: 'No hay nada para sincronizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
+  };
+}
+
 /**
  * Sync action + full outcome handling (PR 4d). Every non-200 `status` the
  * backend can return gets rendered distinctly — see `syncOutcomeMessage` —
- * plus a dedicated divergence banner (409) and an explicit confirmation
- * before a sync that would clear every tier on ML (`allow_clear`).
+ * plus a dedicated divergence banner (409).
+ *
+ * This control pushes the local mirror to ML and can never clear the live
+ * array: with an empty mirror it refuses and explains why (see
+ * `emptyMirrorRefusal`) instead of offering a wipe. It therefore needs the
+ * live state, not just the mirror — deciding on the mirror alone is what made
+ * "sincronizar" delete live tiers.
  */
-function PxqSyncControl({ itemId, hasTiers, onSynced }) {
+function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced }) {
   const [syncing, setSyncing] = useState(false);
-  const [confirmingClear, setConfirmingClear] = useState(false);
   const [feedback, setFeedback] = useState(null); // { kind: 'ok'|'warn'|'error', text }
   const [divergences, setDivergences] = useState(null);
 
-  async function runSync(allowClear) {
+  async function runSync() {
     setSyncing(true);
     setFeedback(null);
     setDivergences(null);
     try {
-      await pxqAPI.sync(itemId, allowClear);
+      await pxqAPI.sync(itemId);
       setFeedback({ kind: 'ok', text: 'Sincronizado con MercadoLibre.' });
       await onSynced();
     } catch (err) {
@@ -313,16 +344,16 @@ function PxqSyncControl({ itemId, hasTiers, onSynced }) {
       }
     } finally {
       setSyncing(false);
-      setConfirmingClear(false);
     }
   }
 
   function handleSyncClick() {
     if (!hasTiers) {
-      setConfirmingClear(true);
+      setDivergences(null);
+      setFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
       return;
     }
-    runSync(false);
+    runSync();
   }
 
   const feedbackClass =
@@ -330,21 +361,9 @@ function PxqSyncControl({ itemId, hasTiers, onSynced }) {
 
   return (
     <div className={styles.pxqAuthoring}>
-      {confirmingClear ? (
-        <span className={styles.applyConfirm}>
-          Todos los tramos mayoristas van a desaparecer de la publicación en MercadoLibre. ¿Confirmar?
-          <button type="button" className="btn-tesla sm" disabled={syncing} onClick={() => runSync(true)}>
-            Confirmar
-          </button>
-          <button type="button" className="btn-tesla ghost sm" disabled={syncing} onClick={() => setConfirmingClear(false)}>
-            Cancelar
-          </button>
-        </span>
-      ) : (
-        <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
-          Sincronizar con MercadoLibre
-        </button>
-      )}
+      <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
+        Sincronizar con MercadoLibre
+      </button>
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
       {divergences && (
         <div className={styles.pxqDivergenceBanner}>
@@ -386,8 +405,10 @@ function formatMoney(value) {
  *
  * Divergences on this read-side comparison are marked purely as information;
  * nothing here resolves them. The sync action itself (`PxqSyncControl`, PR
- * 4d) lives below the authoring form and owns the `allow_clear` confirmation
- * and the 409 divergence-resolution banner.
+ * 4d) lives below the authoring form and owns the 409 divergence-resolution
+ * banner. It receives the live state too, because "the mirror is empty" alone
+ * cannot tell a safe no-op apart from a publication whose live tiers were
+ * never imported.
  */
 function PxqPanel({ itemId, pxqCacheRef }) {
   const { tienePermiso } = usePermisos();
@@ -480,7 +501,13 @@ function PxqPanel({ itemId, pxqCacheRef }) {
       {canWrite && (
         <>
           <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
-          <PxqSyncControl itemId={itemId} hasTiers={mirrorTiers.length > 0} onSynced={reload} />
+          <PxqSyncControl
+            itemId={itemId}
+            hasTiers={mirrorTiers.length > 0}
+            liveTiers={liveTiers}
+            liveUnavailable={liveUnavailable}
+            onSynced={reload}
+          />
         </>
       )}
     </div>
