@@ -600,3 +600,23 @@
   border-radius: 6px;
   padding: 1px 8px;
 }
+
+/* Divergence banner (PR 4d) — a refused sync (409) shows both sides so the
+   user can resolve manually by editing tiers; there is deliberately no
+   "force" affordance here. */
+.pxqDivergenceBanner {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--error-bg, var(--border-secondary));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--error-bg, var(--bg-secondary)) 30%, transparent);
+}
+
+.pxqDivergenceItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  padding: 2px 0;
+  color: var(--text-primary);
+}

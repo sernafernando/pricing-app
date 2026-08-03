@@ -218,6 +218,10 @@ export const pxqAPI = {
   createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
   updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
   deleteTier: (itemId, tierId) => api.delete(`/pxq/${itemId}/tiers/${tierId}`),
+  // Write path (PR 4d): `allow_clear` must be sent explicitly true to let a
+  // sync wipe every tier from the ML array — matches
+  // `backend/app/routers/pxq.py`'s `PxqSyncRequest` default of False.
+  sync: (itemId, allowClear = false) => api.post(`/pxq/${itemId}/sync`, { allow_clear: allowClear }),
 };
 
 export const pricingAPI = {
