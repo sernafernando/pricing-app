@@ -378,6 +378,15 @@ describe('ProductoMLAsPanel — official store filter reaches the tree', () => {
 });
 
 describe('ProductoMLAsPanel — tree controls look like buttons', () => {
+  // Own setup: without it this passed only by inheriting the mock the previous
+  // describe happened to leave behind, and failed the moment it ran alone.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),
+    );
+  });
+
   it('renders expandir/colapsar with a visible variant, not the invisible ghost one', async () => {
     const mlasCacheRef = { current: new Map() };
     const promosCacheRef = { current: new Map() };

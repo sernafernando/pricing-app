@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
+import { useTreeViewStore } from '../../store/treeViewStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
@@ -107,10 +108,19 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   // and that the "refresh on open" request does not imply.
   const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
 
-  const { data, loading, error, reload } = useLazyResource(promosCacheRef, mla, fetchFreshThenRead, {
-    alwaysRefetch: true,
-    reloadFetcher: readMirror,
-  });
+  // A global "Expandir todo" mounts every MLA panel in the tree at once. If
+  // each one pulled from ML, a product with 20 publications would turn one
+  // click into 20 concurrent pulls on a throttle shared with sales-webhook
+  // processing. Opening a panel yourself is the interaction that asked for
+  // fresh state; a cascade is not, so it reads the mirror like any reload.
+  const openedByGlobalToggle = useTreeViewStore.getState().collapseMode === 'all-open';
+
+  const { data, loading, error, reload } = useLazyResource(
+    promosCacheRef,
+    mla,
+    openedByGlobalToggle ? readMirror : fetchFreshThenRead,
+    { alwaysRefetch: true, reloadFetcher: readMirror },
+  );
   // After our own enroll/remove write the server refreshes on its own
   // (immediate + a ~60s retry-queue drain), and the panel just re-READS that
   // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s

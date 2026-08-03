@@ -3,6 +3,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
+import { useTreeViewStore } from '../../store/treeViewStore';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -929,5 +930,42 @@ describe('MlaPromocionesPanel — reload does not pull from ML', () => {
     // apply, on a throttle shared with sales-webhook processing.
     expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
     expect(promocionesAPI.getPromocionesItem.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('MlaPromocionesPanel — a global expand must not pull per MLA', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  afterEach(() => {
+    useTreeViewStore.setState({ collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  it('reads the mirror without pulling when the panel was opened by "Expandir todo"', async () => {
+    // One click on the global toggle mounts every MLA panel in the tree at
+    // once. If each pulled from ML, a product with 20 publications would turn
+    // that click into 20 concurrent pulls on a throttle shared with
+    // sales-webhook processing. Opening one panel yourself is the interaction
+    // that asked for fresh state; a cascade is not.
+    useTreeViewStore.setState({ collapseEpoch: 1, collapseMode: 'all-open' });
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_CASCADE" promosCacheRef={{ current: new Map() }} />);
+
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA_CASCADE'));
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+  });
+
+  it('still pulls when the user opened this panel themselves', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+
+    render(<MlaPromocionesPanel mla="MLA_MANUAL" promosCacheRef={{ current: new Map() }} />);
+
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_MANUAL'));
   });
 });
