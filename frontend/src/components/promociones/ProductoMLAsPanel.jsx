@@ -45,6 +45,7 @@ function ProductoMLAsPanel({
   mlasCacheRef,
   promosCacheRef,
   catalogCompetitionCacheRef,
+  pxqCacheRef,
   promoTipos,
   promoEstado,
 }) {
@@ -141,6 +142,7 @@ function ProductoMLAsPanel({
               mlasCacheRef={mlasCacheRef}
               promosCacheRef={promosCacheRef}
               catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+              pxqCacheRef={pxqCacheRef}
               promoTipos={promoTipos}
               promoEstado={promoEstado}
               revealAll={verTodos}
