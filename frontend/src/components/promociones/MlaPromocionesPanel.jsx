@@ -88,8 +88,6 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
   // serving the cached mirror, which would defeat the whole point. The cache
   // is still WRITTEN — the promo filter bar derives its types from those
   // entries — so bypassing it is not an option, only re-reading it is.
-  // Opening the panel pulls fresh state from MercadoLibre first, then reads
-  // the mirror the server just updated.
   const fetchFreshThenRead = useCallback(
     (id) =>
       Promise.resolve(promocionesAPI.refreshItemPromociones(id))
@@ -219,10 +217,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef }) {
                   // its own (immediate + ~60s retry) and these two reloads
                   // only RE-READ it — they do not pull from ML. Opening the
                   // panel does pull, which is a different path on purpose.
-                  // Clear any prior
-                  // pending timers before scheduling new ones, and clear on
-                  // unmount so we never call reload() after the panel (and
-                  // the underlying setState) is gone.
+                  //
+                  // Clear any prior pending timers before scheduling new
+                  // ones, and clear on unmount so we never call reload()
+                  // after the panel (and the underlying setState) is gone.
                   clearReloadTimers();
                   reloadTimersRef.current = [
                     setTimeout(() => reload(), 5000),

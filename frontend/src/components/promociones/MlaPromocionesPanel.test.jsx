@@ -687,7 +687,7 @@ describe('MlaPromocionesPanel', () => {
     vi.useRealTimers();
   });
 
-  it('schedules TWO reloads after a state-changing apply: ~5s (fast) and ~65s (slow/retry), and never calls a FE refresh endpoint', async () => {
+  it('schedules TWO reloads after a state-changing apply: ~5s (fast) and ~65s (slow/retry)', async () => {
     vi.useFakeTimers();
 
     promocionesAPI.getPromocionesItem.mockResolvedValue({
@@ -737,12 +737,13 @@ describe('MlaPromocionesPanel', () => {
     });
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(3);
 
-    // The FE never calls a refresh endpoint itself — server owns refresh.
-    expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalledWith(expect.stringContaining('/refresh'));
-    const calledUrls = Object.values(promocionesAPI)
-      .flatMap((fn) => (fn.mock ? fn.mock.calls : []))
-      .flat();
-    expect(calledUrls.some((arg) => typeof arg === 'string' && arg.includes('refresh'))).toBe(false);
+    // This used to also assert the FE never calls a refresh endpoint. It
+    // does now, on open — that is the point of the change — and the assertion
+    // only ever passed because it searched the call ARGUMENTS ('MLA001') for
+    // the string 'refresh', never which function was called. A test that
+    // passes by accident is worse than none: the next reader believes a rule
+    // that no longer holds. What reloads must not do is covered for real by
+    // the `reload does not pull from ML` block below.
 
     vi.useRealTimers();
   });
