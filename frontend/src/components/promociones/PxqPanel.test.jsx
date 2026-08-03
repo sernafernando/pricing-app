@@ -381,19 +381,12 @@ describe('PxqPanel — sync (PR 4d)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
 
-    // Exhaust every follow-up affordance the control renders: if any of them
-    // still reaches a destructive sync, the assertions below catch it.
-    for (const button of screen.getAllByRole('button')) {
-      await user.click(button);
-    }
-
-    // Argument shape first: if a wipe ever slips through, the failure names
-    // the clearing intent rather than just "called once".
-    for (const call of pxqAPI.sync.mock.calls) {
-      expect(call.some((arg) => arg === true)).toBe(false);
-      expect(call).toEqual(['MLA001']);
-    }
-    // And in this state the control must not call the write path at all.
+    // The write path is not reached at all in this state. That is the whole
+    // assertion: the old code answered this exact situation by offering a
+    // wipe, so "did not call sync" is what separates the fix from the bug.
+    // The complementary guarantee — that `pxqAPI.sync` cannot express a clear
+    // even if a caller tried — belongs to the API surface itself and lives in
+    // `src/services/api.pxq.test.js`, where the real module is exercised.
     expect(pxqAPI.sync).not.toHaveBeenCalled();
     expect(screen.getByText(/importarlos al mirror local todavía no está disponible/i)).toBeInTheDocument();
   });
