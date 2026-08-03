@@ -276,20 +276,44 @@ Depends on: PR 1 (collapse epoch/TreeNode sync) and PR 3 (live-read + sync endpo
         Committed as one work unit `6a1fae45` on `feat/pxq-panel-lectura` (off tracker
         `feat/ml-wholesale-pxq-pricing`), NOT pushed.
 
-### PR 4b — write path UI (tier form, sync, allow_clear) — NOT started, separate slice
+### PR 4b — backend tier CRUD — DONE (this slice); write path UI still separate
 
-4. [ ] Write failing vitest: tier form enforces max 5 tiers and `min_purchase_unit > 1` client-side
-       (mirroring backend validation, not replacing it).
+0a. [x] Write failing unit tests + implement `update_pxq_tier`/`delete_pxq_tier` in
+        `pxq_tier_service.py` (max-5 already enforced at create, cantidad_minima>1 and
+        no-duplicate-cantidad_minima re-checked on update, `cantidad_sincronizada`/
+        `precio_sincronizado` never touched by an edit, decimal-not-float on price fields).
+0b. [x] Write failing tests + implement `POST/PATCH/DELETE /pxq/{item_id}/tiers[/{tier_id}]`
+        endpoints gated on `pxq.escribir`, ordinary `get_current_user`+`Depends(get_db)`
+        (no ML call, so no transient-user dance needed). Committed as two work units on
+        `feat/pxq-tier-crud` (off tracker), NOT pushed: 236-line service commit + 359-line
+        router commit (593 total, over the 400-line budget as one unit, so split rather
+        than trimmed scope).
+
+### PR 4c — tier authoring form (create/edit/delete, local-only) — DONE (this slice)
+
+4. [x] Write failing vitest: tier form enforces max 5 tiers and `cantidad_minima > 1` client-side
+       (mirroring backend validation, not replacing it — the 422 path is still handled since two
+       tabs can race). Implemented in `PxqPanel.jsx`'s `PxqTierAuthoring`: disables "Agregar tramo"
+       at 5 tiers, surfaces the backend's 422 message verbatim on create/edit/delete failure.
+       Gated on `pxq.escribir` (read stays `pxq.ver`) — a read-only user sees no editing
+       affordance at all, not buttons that would 403. A tier missing `costo_envio_total` renders
+       a visible "Incompleto" badge (no default/fallback value ever synthesized client-side).
+       Added `createTier`/`updateTier`/`deleteTier` to `pxqAPI` in `services/api.js` matching
+       `PxqCreateTierRequest`/`PxqUpdateTierRequest` exactly. Committed on `feat/pxq-form-tramos`
+       (off `feat/pxq-tier-crud-endpoints`, PR #1050), NOT pushed.
+
+### PR 4d — sync button, allow_clear, divergence resolution — NOT started, separate slice
+
 6. [ ] Write failing vitest: `allow_clear` confirmation flow — clearing all tiers requires an
        explicit confirmation step before the sync request includes `allow_clear=true`.
 10. [ ] Manual smoke check: verify the panel against PR 3's endpoints with `PXQ_WRITE_ENABLED=False`
         (no ML traffic) before requesting a decision on enabling the flag in any environment.
     [ ] Divergence banner disables the sync action until resolved (no silent local-wins) — the
-        create/edit/delete tier form, shipping-cost input, and sync button all belong here.
-    [ ] Confirm line count against 400-line budget; commit as one work unit targeting PR 4a's branch
+        sync button and `allow_clear` confirmation belong here, on top of PR 4c's form.
+    [ ] Confirm line count against 400-line budget; commit as one work unit targeting PR 4c's branch
         (chained-pr).
 
-Dependencies: PR 1, PR 3 (PR 4b additionally depends on PR 4a).
+Dependencies: PR 1, PR 3 (PR 4b additionally depends on PR 4a; PR 4c depends on PR 4b; PR 4d depends on PR 4c).
 
 ---
 
