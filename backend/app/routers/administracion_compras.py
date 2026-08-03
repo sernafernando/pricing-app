@@ -37,7 +37,6 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
-from app.services import recepcion_service
 from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
@@ -129,8 +128,10 @@ from app.services import (
     oc_ingresos_service,
     ordenes_pago_service,
     pedidos_service,
+    recepcion_service,
 )
 from app.models.nota_credito_local import NotaCreditoLocal
+from app.services.permisos_service import PermisosService
 from app.services.sale_document_classifier import clasificar_documento_compra
 from app.services.wipe_compras_service import wipe_compras as _wipe_compras
 
@@ -298,6 +299,16 @@ def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoRes
 
 _ESTADOS_DIFERENCIAL: tuple[str, ...] = ("pagado", "pagado_parcial")
 
+# Estados that the Depósito tab works with — the only ones a warehouse-only user
+# may list. Mirrors FILTER_TABS in frontend/src/components/compras/TabRecepcionDeposito.jsx.
+_ESTADOS_VISIBLES_DEPOSITO: tuple[str, ...] = (
+    "pagado",
+    "en_cuenta_corriente",
+    "recibido",
+    "controlado",
+    "con_faltantes",
+)
+
 
 @router.get(
     "/pedidos",
@@ -333,6 +344,18 @@ def listar_pedidos(
                  total = len(survivors); paginate the id list, load only the page.
     Correct pagination: total reflects the full filtered set, not the current page.
     """
+    # Warehouse-only access is scoped to the estados they actually receive.
+    # Without this, deposito.recibir_mercaderia would grant read access to the
+    # whole purchasing ledger — montos, saldos and FX variance of every pedido.
+    if not PermisosService(db).tiene_algun_permiso(_user, ["administracion.ver_ordenes_compra"]):
+        estados_pedidos = [e.strip() for e in estado.split(",") if e.strip()] if estado else []
+        permitidos = [e for e in estados_pedidos if e in _ESTADOS_VISIBLES_DEPOSITO] or (
+            [] if estados_pedidos else list(_ESTADOS_VISIBLES_DEPOSITO)
+        )
+        if not permitidos:
+            return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+        estado = ",".join(permitidos)
+
     if diferencial_cambio_pendiente:
         # ── Two-stage filter (design §4.2 / AD-D2) ──────────────────────────
         # Stage 1: SQL candidate narrowing (cheap, indexed).

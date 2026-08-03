@@ -342,15 +342,35 @@ class TestPedidosCRUD:
 
         with patch(
             "app.services.permisos_service.PermisosService.tiene_algun_permiso",
-            side_effect=lambda _self, _u, codigos: "deposito.recibir_mercaderia" in codigos,
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
         ):
             r = client.get(
                 "/api/administracion/compras/pedidos",
                 headers=auth_headers,
-                params={"estado": "aprobado"},
+                params={"estado": "pagado"},
             )
-        assert r.status_code != 403, r.text
-        assert r.status_code != 401, r.text
+        assert r.status_code == 200, r.text
+
+    def test_listar_pedidos_deposito_no_ve_pedidos_fuera_de_recepcion(self, client, auth_headers, pedido_borrador):
+        """Depósito sólo puede listar los estados que le tocan recibir.
+
+        Sin este recorte, deposito.recibir_mercaderia daría acceso de lectura a
+        toda la cuenta de compras (montos, saldos y varianzas de cualquier estado).
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "borrador"},
+            )
+        assert r.status_code == 200, r.text
+        ids = [p["id"] for p in r.json()["items"]]
+        assert pedido_borrador.id not in ids
 
     def test_listar_pedidos_sin_permiso_relevante_403(self, client, auth_headers):
         """Sin ver_ordenes_compra ni recibir_mercaderia → 403."""
