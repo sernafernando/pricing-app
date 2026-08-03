@@ -12,9 +12,6 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
-from fastapi import HTTPException
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,22 +89,27 @@ class TestRegistrarMovimiento:
         assert mov.saldo_posterior == Decimal("7000")
         assert banco.saldo_actual == Decimal("7000")
 
-    def test_egreso_insufficient_saldo_raises_422(self) -> None:
+    def test_egreso_beyond_saldo_allows_negative_balance(self) -> None:
+        """Egreso larger than saldo is recorded, leaving the account negative.
+
+        A missing incoming movement is an administrative data-entry gap, not an
+        integrity violation — blocking it would stall unrelated operational work.
+        """
         banco = _make_mock_banco(saldo_actual=Decimal("100"))
         svc = self._make_service(banco)
         from datetime import date  # noqa: PLC0415
 
-        with pytest.raises(HTTPException) as exc_info:
-            svc.registrar_movimiento(
-                banco_id=1,
-                fecha=date.today(),
-                detalle="Pago",
-                tipo="egreso",
-                monto=Decimal("500"),
-                user_id=1,
-            )
-        assert exc_info.value.status_code == 422
-        assert "saldo" in exc_info.value.detail.lower()
+        mov = svc.registrar_movimiento(
+            banco_id=1,
+            fecha=date.today(),
+            detalle="Pago",
+            tipo="egreso",
+            monto=Decimal("500"),
+            user_id=1,
+        )
+
+        assert mov.saldo_posterior == Decimal("-400")
+        assert banco.saldo_actual == Decimal("-400")
 
     def test_uses_select_for_update(self) -> None:
         """SELECT FOR UPDATE must be called to prevent concurrent updates."""

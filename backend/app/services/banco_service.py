@@ -10,6 +10,7 @@ Convención de saldo:
 - saldo_actual en BancoEmpresa = denormalizado, updated transaccionalmente
 """
 
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -20,6 +21,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.banco_empresa import BancoEmpresa
 from app.models.banco_movimiento import BancoMovimiento
+
+logger = logging.getLogger(__name__)
 
 # Sentinel: distinguishes "not passed" from "explicitly passed as None"
 _UNSET = object()
@@ -185,10 +188,17 @@ class BancoService:
             saldo_posterior = saldo_actual + monto_dec
         else:
             saldo_posterior = saldo_actual - monto_dec
+            # A negative balance is allowed on purpose: it usually means incoming
+            # movements have not been loaded yet. Blocking the egreso would stop
+            # unrelated work instead of fixing the data gap, so we record it and
+            # surface the anomaly through the log and the balance itself.
             if saldo_posterior < Decimal("0"):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=(f"Saldo insuficiente. Saldo actual: {saldo_actual}, monto solicitado: {monto_dec}"),
+                logger.warning(
+                    "Cuenta bancaria %s queda con saldo negativo: %s (egreso de %s sobre saldo %s)",
+                    banco_id,
+                    saldo_posterior,
+                    monto_dec,
+                    saldo_actual,
                 )
 
         # Create movement record
