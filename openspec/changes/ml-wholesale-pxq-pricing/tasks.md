@@ -254,30 +254,42 @@ Spec: `ml-wholesale-pxq` — Always-visible live ML read before write, Refuse wr
 divergence; `tree-view-collapse` interplay (panel must respect the global toggle from PR 1).
 Depends on: PR 1 (collapse epoch/TreeNode sync) and PR 3 (live-read + sync endpoints).
 
-1. [ ] Write failing vitest: panel fetches and renders live ML tiers above the tier input on open,
-       with a loading state before the fetch resolves.
-2. [ ] Write failing vitest: live-read failure renders an error band and disables tier
-       create/modify/delete controls (fail-closed — never falls back to stale/assumed data).
-3. [ ] Write failing vitest: divergence between live and local tiers renders a divergence banner and
-       disables the sync action until resolved (no silent local-wins).
+### PR 4a — read-only live+mirror panel (this slice)
+
+1. [x] Write failing vitest: panel fetches and renders live ML tiers side by side with the local
+       mirror on open, with a loading state before the fetch resolves.
+2. [x] Write failing vitest: live-read failure renders an error band with retry (fail-closed —
+       never falls back to stale/assumed data); `live_status: "unavailable"` (`live_tiers: null`)
+       renders distinctly from an empty live list (`[]`), and the mirror still renders.
+3. [x] Write failing vitest: a divergent mirror tier (matched `ml_price_id` disagrees with the live
+       tier, or is absent from the live read) is marked visibly — informational only, no
+       resolution action offered (that is PR 4b).
+5. [x] Write failing vitest: PxQ panel opens/closes in sync with the global collapse toggle from PR 1
+       (nested panel obeys `collapseEpoch`), joining the same sync effect as Promociones/Competencia
+       catálogo so "Expandir todo" does not silently skip it.
+7. [x] Implement `PxqPanel.jsx` (`frontend/src/components/promociones/`) consuming
+       `GET /api/pxq/{item_id}/live` only (no write call in this slice).
+8. [x] Wire the panel into `TreeNode.jsx` per-MLA rendering, subscribing to `collapseEpoch`, gated
+       on `pxq.ver` via `usePermisos` (invisible, not a 403, without the permission).
+9. [x] Run `vitest run` and `pnpm run lint` — confirm all tests GREEN, zero lint warnings.
+11. [x] Confirm line count against 400-line budget: actual diff 380 lines (8 files, +375/-5).
+        Committed as one work unit `6a1fae45` on `feat/pxq-panel-lectura` (off tracker
+        `feat/ml-wholesale-pxq-pricing`), NOT pushed.
+
+### PR 4b — write path UI (tier form, sync, allow_clear) — NOT started, separate slice
+
 4. [ ] Write failing vitest: tier form enforces max 5 tiers and `min_purchase_unit > 1` client-side
        (mirroring backend validation, not replacing it).
-5. [ ] Write failing vitest: PxQ panel opens/closes in sync with the global collapse toggle from PR 1
-       (nested panel obeys `collapseEpoch`), and a manual toggle on the PxQ panel itself sticks
-       after a global toggle.
 6. [ ] Write failing vitest: `allow_clear` confirmation flow — clearing all tiers requires an
        explicit confirmation step before the sync request includes `allow_clear=true`.
-7. [ ] Implement the PxQ tier panel component (new file under
-       `frontend/src/components/promociones/` or a new `pxq/` subfolder) consuming
-       `GET /api/pxq/{item_id}/live` and `POST /api/pxq/{item_id}/sync`.
-8. [ ] Wire the panel into `TreeNode.jsx` per-MLA rendering, subscribing to `collapseEpoch`.
-9. [ ] Run `vitest run` — confirm all tests GREEN.
 10. [ ] Manual smoke check: verify the panel against PR 3's endpoints with `PXQ_WRITE_ENABLED=False`
         (no ML traffic) before requesting a decision on enabling the flag in any environment.
-11. [ ] Confirm line count against 400-line budget (~300-330 est.); commit as one work unit targeting
-        PR 3's branch (chained-pr).
+    [ ] Divergence banner disables the sync action until resolved (no silent local-wins) — the
+        create/edit/delete tier form, shipping-cost input, and sync button all belong here.
+    [ ] Confirm line count against 400-line budget; commit as one work unit targeting PR 4a's branch
+        (chained-pr).
 
-Dependencies: PR 1, PR 3.
+Dependencies: PR 1, PR 3 (PR 4b additionally depends on PR 4a).
 
 ---
 
