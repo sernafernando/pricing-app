@@ -24,11 +24,13 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_current_user_transient
 from app.core.database import get_background_db, get_db
 from app.models.ml_pxq_tier import MlPxqTier
+from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
 from app.services.ml_pxq_write_service import sync_pxq_tiers
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
-from app.services.pxq_permissions_backfill import PXQ_VER_CODE
+from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE, PXQ_VER_CODE
+from app.services.pxq_tier_service import create_pxq_tier, delete_pxq_tier, update_pxq_tier
 
 router = APIRouter(prefix="/pxq", tags=["ML PxQ"])
 
@@ -73,6 +75,25 @@ class PxqLiveStateResponse(BaseModel):
 
 class PxqSyncRequest(BaseModel):
     allow_clear: bool = False
+
+
+class PxqCreateTierRequest(BaseModel):
+    cantidad_minima: int
+    precio_unitario: float
+    costo_envio_total: Optional[float] = None
+
+
+class PxqUpdateTierRequest(BaseModel):
+    """All fields optional: only the ones present are changed.
+
+    Deliberately has NO `cantidad_sincronizada`/`precio_sincronizado` fields --
+    those are the ML-confirmed snapshot and can only advance via a confirmed
+    write (`pxq_confirm`), never through this edit endpoint (see
+    `pxq_tier_service.update_pxq_tier`)."""
+
+    cantidad_minima: Optional[int] = None
+    precio_unitario: Optional[float] = None
+    costo_envio_total: Optional[float] = None
 
 
 class PxqDivergenceItem(BaseModel):
@@ -193,6 +214,108 @@ def _require_pxq_read(current_user: Usuario, db: Session) -> None:
     permisos = PermisosService(db)
     if not permisos.tiene_permiso(bound_user, PXQ_VER_CODE):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"No tienes permiso: {PXQ_VER_CODE}")
+
+
+def _require_pxq_write(current_user: Usuario, db: Session) -> None:
+    """Checks `pxq.escribir` for create/update/delete on tiers."""
+    permisos = PermisosService(db)
+    if not permisos.tiene_permiso(current_user, PXQ_ESCRIBIR_CODE):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"No tienes permiso: {PXQ_ESCRIBIR_CODE}")
+
+
+def _get_publicacion_or_404(db: Session, item_id: str) -> PublicacionML:
+    publicacion = db.query(PublicacionML).filter(PublicacionML.mla == item_id).first()
+    if publicacion is None:
+        raise HTTPException(status_code=404, detail=f"item_id={item_id} does not exist")
+    return publicacion
+
+
+def _get_tier_for_item_or_404(db: Session, item_id: str, tier_id: int) -> MlPxqTier:
+    """Loads a tier and confirms it belongs to `item_id`.
+
+    `tier_id` alone is enough for the service layer to find the row, but the
+    path also carries `item_id` (to match every other endpoint here) -- a
+    mismatch means the caller is aiming at the wrong publication's tier, so it
+    is treated the same as "not found" rather than silently operating on it.
+    """
+    tier = db.get(MlPxqTier, tier_id)
+    if tier is None or tier.item_id != item_id:
+        raise HTTPException(status_code=404, detail=f"tier_id={tier_id} does not exist for item_id={item_id}")
+    return tier
+
+
+@router.post("/{item_id}/tiers", response_model=PxqMirrorTier, status_code=status.HTTP_201_CREATED)
+def crear_tier_pxq(
+    item_id: str,
+    body: PxqCreateTierRequest,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PxqMirrorTier:
+    """Creates a local PxQ tier for `item_id`. This endpoint only touches our
+    own DB (no ML call), so unlike the live-read endpoint it does not need the
+    transient-user/short-session dance -- an ordinary bounded request/response
+    is fine here (see module docstring)."""
+    _require_pxq_write(current_user, db)
+    publicacion = _get_publicacion_or_404(db, item_id)
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=item_id,
+        cantidad_minima=body.cantidad_minima,
+        precio_unitario=body.precio_unitario,
+        usuario_id=current_user.id,
+        costo_envio_total=body.costo_envio_total,
+    )
+    db.commit()
+    db.refresh(tier)
+    return PxqMirrorTier.model_validate(tier)
+
+
+@router.patch("/{item_id}/tiers/{tier_id}", response_model=PxqMirrorTier)
+def editar_tier_pxq(
+    item_id: str,
+    tier_id: int,
+    body: PxqUpdateTierRequest,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PxqMirrorTier:
+    """Edits quantity/price on an existing tier. Same no-ML-call reasoning as
+    `crear_tier_pxq` applies -- ordinary session, no transient-user dance.
+
+    Never advances `cantidad_sincronizada`/`precio_sincronizado`: see
+    `pxq_tier_service.update_pxq_tier`."""
+    _require_pxq_write(current_user, db)
+    _get_tier_for_item_or_404(db, item_id, tier_id)
+    tier = update_pxq_tier(
+        db,
+        tier_id=tier_id,
+        cantidad_minima=body.cantidad_minima,
+        precio_unitario=body.precio_unitario,
+        costo_envio_total=body.costo_envio_total,
+    )
+    db.commit()
+    db.refresh(tier)
+    return PxqMirrorTier.model_validate(tier)
+
+
+@router.delete("/{item_id}/tiers/{tier_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_tier_pxq(
+    item_id: str,
+    tier_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Deletes the local mirror row only. This does NOT remove the tier from
+    MercadoLibre by itself: the array-replace diff (PR 3) reads from this
+    table, so ML still holds the old tier until the next `POST
+    /{item_id}/sync`. If the deleted row had an `ml_price_id`, that sync is
+    still pending after this call returns 204 -- there is nothing left in this
+    endpoint's response to say so, so callers that care must check for a
+    pending sync via the live/mirror comparison on `GET /{item_id}/live`."""
+    _require_pxq_write(current_user, db)
+    _get_tier_for_item_or_404(db, item_id, tier_id)
+    delete_pxq_tier(db, tier_id=tier_id)
+    db.commit()
 
 
 @router.get("/{item_id}/live", response_model=PxqLiveStateResponse)
