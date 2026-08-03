@@ -468,6 +468,77 @@ class MLWebhookClient:
             logger.error(f"Error refrescando promociones del item {mla_id}: {e}")
             return False
 
+    # ── PxQ (wholesale price-by-quantity, PR3) ───────────────────────
+    # Mirrors the promotions read/write shapes above: reads collapse errors
+    # to None, writes always return the structured {ok, status_code,
+    # ambiguous, body} outcome so the orchestrator (ml_pxq_write_service)
+    # can distinguish a definitive rejection from a genuinely ambiguous
+    # timeout/5xx. `POST /items/{item_id}/prices/standard/quantity`
+    # REPLACES the whole array -- see pxq_diff.py.
+
+    async def get_pxq_prices(self, item_id: str) -> Optional[List[Dict]]:
+        """Fresh, never-cached read of an item's live PxQ tiers.
+
+        Returns:
+            The raw `prices` array from ML (each entry carries `id`,
+            `quantity`, `amount`), or None on error/timeout -- the write
+            path treats None as `rejected_read_unavailable`.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/pxq/item/{item_id}")
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo precios PxQ del item {item_id}: {e}")
+            return None
+
+    async def post_pxq_prices(self, item_id: str, prices: List[Dict]) -> Dict:
+        """Replaces the FULL PxQ prices array for an item (single-shot, no
+        retry -- a blind retry on an ambiguous write could double-apply
+        it, same contract as `enroll_item`/`remove_item`).
+
+        Returns:
+            `{ok, status_code, ambiguous, body}` -- see
+            `_classify_write_response`.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(f"{self.base_url}/api/pxq/item/{item_id}", json={"prices": prices})
+        except Exception as e:
+            logger.error(f"Error (ambiguo) escribiendo precios PxQ del item {item_id}: {e}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_write_response(response)
+
+    async def get_pxq_eligibility(self, item_id: str) -> Optional[Dict]:
+        """Fetches the eligibility facts for a PxQ sync: the item's own
+        `tags` (must include `standard_price_by_quantity`) and the
+        seller's `tags` (must include `business`).
+
+        Returns:
+            `{"item_tags": [...], "seller_tags": [...]}`, or None if
+            either the item or the seller could not be read -- the
+            write path treats None as ineligible (fail-closed).
+        """
+        item = await self.get_item_full(item_id)
+        if item is None:
+            return None
+        seller_id = item.get("seller_id")
+        if seller_id is None:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/render", params={"resource": f"/users/{seller_id}", "format": "json"}
+                )
+                response.raise_for_status()
+                seller = response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo vendedor {seller_id} para elegibilidad PxQ de {item_id}: {e}")
+            return None
+        return {"item_tags": item.get("tags") or [], "seller_tags": seller.get("tags") or []}
+
 
 # Instancia global del cliente
 ml_webhook_client = MLWebhookClient()

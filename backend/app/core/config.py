@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # explicitly enabled per environment. Consumed by the write-orchestration
     # service (PR2); the read path never checks this flag.
     PROMOS_WRITE_ENABLED: bool = False
+    # Kill-switch for the ML PxQ (wholesale price-by-quantity) write path.
+    # Default OFF, checked FIRST inside `ml_pxq_write_service.sync_pxq_tiers`
+    # -- before permission, eligibility, or any ML call (design D4/spec
+    # "Eligibility and kill-switch gating").
+    PXQ_WRITE_ENABLED: bool = False
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
