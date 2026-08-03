@@ -134,10 +134,10 @@ function ProductoMLAsPanel({
   return (
     <>
       <div className={styles.treeControls}>
-        <button type="button" className="btn-tesla ghost sm" onClick={expandAll}>
+        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={expandAll}>
           Expandir todo
         </button>
-        <button type="button" className="btn-tesla ghost sm" onClick={collapseAll}>
+        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={collapseAll}>
           Colapsar todo
         </button>
       </div>
@@ -145,7 +145,7 @@ function ProductoMLAsPanel({
         <div className={styles.filterMessage}>
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${showFamilia ? 'toggle-active' : ''}`}
             onClick={toggleFamilia}
             aria-pressed={showFamilia}
             aria-label={showFamilia ? 'Ocultar familias' : 'Ver familias'}

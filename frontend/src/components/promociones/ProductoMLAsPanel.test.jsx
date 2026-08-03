@@ -375,3 +375,21 @@ describe('ProductoMLAsPanel — official store filter reaches the tree', () => {
     expect(params).toMatchObject({ tiendas_oficiales: '57997' });
   });
 });
+
+describe('ProductoMLAsPanel — tree controls look like buttons', () => {
+  it('renders expandir/colapsar with a visible variant, not the invisible ghost one', async () => {
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+    render(
+      <ProductoMLAsPanel itemId="ITEM001" mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />,
+    );
+
+    const expandir = await screen.findByRole('button', { name: /expandir todo/i });
+    const colapsar = screen.getByRole('button', { name: /colapsar todo/i });
+
+    for (const button of [expandir, colapsar]) {
+      expect(button.className).not.toMatch(/\bghost\b/);
+      expect(button.className).toMatch(/outline-subtle-primary/);
+    }
+  });
+});

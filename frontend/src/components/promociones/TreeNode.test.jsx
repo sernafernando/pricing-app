@@ -1012,3 +1012,51 @@ describe('TreeNode — official store filter hides non-matching MLAs', () => {
     expect(screen.queryByText('MLA_OTRA_TIENDA')).not.toBeInTheDocument();
   });
 });
+
+describe('TreeNode — sub-spoiler toggles look like buttons', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  function buildMlaNode() {
+    return {
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_BTN',
+      label: 'MLA_BTN',
+      matches_filter: true,
+      children: [],
+    };
+  }
+
+  const TOGGLES = [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i];
+
+  it.each(TOGGLES)('renders %s with a visible button variant, not the invisible ghost one', async (name) => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_btn/i }));
+
+    const button = screen.getByRole('button', { name });
+
+    // `ghost` is transparent background AND transparent border, so on the
+    // panel's own background it reads as loose text. Users reported exactly
+    // that: they could not tell these were buttons.
+    expect(button.className).not.toMatch(/\bghost\b/);
+    expect(button.className).toMatch(/outline-subtle-primary/);
+  });
+
+  it.each(TOGGLES)('marks %s as active while its section is open', async (name) => {
+    renderNode(buildMlaNode());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_btn/i }));
+
+    const button = screen.getByRole('button', { name });
+    expect(button.className).not.toMatch(/toggle-active/);
+
+    await user.click(button);
+
+    expect(screen.getByRole('button', { name }).className).toMatch(/toggle-active/);
+  });
+});

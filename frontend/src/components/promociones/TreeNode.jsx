@@ -317,7 +317,7 @@ function TreeNode({
         <div className={styles.treeNodePromosSection}>
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${promosOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setPromosOpen((prev) => !prev); }}
             aria-expanded={promosOpen}
           >
@@ -328,7 +328,7 @@ function TreeNode({
           )}
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${catalogCompetitionOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setCatalogCompetitionOpen((prev) => !prev); }}
             aria-expanded={catalogCompetitionOpen}
           >
@@ -339,7 +339,7 @@ function TreeNode({
           )}
           <button
             type="button"
-            className="btn-tesla ghost sm"
+            className={`btn-tesla outline-subtle-primary sm ${pxqOpen ? 'toggle-active' : ''}`}
             onClick={() => { markManual(); setPxqOpen((prev) => !prev); }}
             aria-expanded={pxqOpen}
           >
