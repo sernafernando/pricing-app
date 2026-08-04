@@ -219,8 +219,42 @@ describe('forms-tesla primitive — dark mode', () => {
     // The border must not be the same colour as the fill, or the control
     // disappears entirely against the app background.
     expect(contrastRatio(disabled.borderColor, disabled.background)).toBeGreaterThan(1);
+  });
 
-    // Disabled text must still be legible on the disabled fill.
+  /**
+   * KNOWN DEFECT — disabled text in dark mode is below the bar this suite sets.
+   *
+   * `--cf-text-muted` is `rgba(255, 255, 255, 0.4)` in dark mode and the
+   * disabled fill is `--cf-bg-app` (#000000). Composited, the text actually
+   * reaches the eye as `rgb(102, 102, 102)`, which is **3.66:1** — under the
+   * 4.5:1 this file asserts everywhere else.
+   *
+   * This assertion USED TO PASS, and that was the bug: `contrastRatio()`
+   * discarded the alpha channel and scored the text as opaque white on black,
+   * i.e. 21:1 — the theoretical maximum. So the strongest possible score was
+   * being reported for the weakest colour pair in the theme. Fixing the helper
+   * did not create this defect, it revealed it.
+   *
+   * NOT fixed here, deliberately: the fix is a design-token change
+   * (`--cf-text-muted` in the dark block of `design-tokens.css`) that repaints
+   * every muted/placeholder/disabled surface in the app, so it belongs in its
+   * own change with a designer in the loop — not smuggled in behind a test fix.
+   *
+   * Worth deciding explicitly rather than by accident: WCAG 1.4.3 EXEMPTS
+   * inactive controls, so 3.66:1 is not a formal AA violation. But
+   * `frontend/AGENTS.md`'s QA checklist says "text contrast meets WCAG AA"
+   * with no carve-out, and this file applies 4.5 to every other pair. Either
+   * raise the token or lower this bar on purpose — do not leave the two
+   * disagreeing.
+   *
+   * ponytail: `--cf-text-muted` (dark) is 3.66:1 on `--cf-bg-app`; raise the
+   * token or document the disabled-text exemption, then promote this to `it`.
+   */
+  it.fails('SHOULD: disabled text in dark mode clears 4.5:1 on the disabled fill', () => {
+    setTheme('dark');
+    host = mount(`<input class="${fx.baseInput}" disabled />`);
+    const disabled = boxOf(host.firstElementChild);
+
     expect(contrastRatio(disabled.color, disabled.background)).toBeGreaterThan(4.5);
   });
 

@@ -31,13 +31,25 @@ export default defineConfig({
       },
       {
         extends: true,
+        // Pre-bundled up front. Discovering these mid-run makes Vite reload
+        // the page, which vitest reports as "unexpectedly reloaded a test"
+        // and which would restart assertions against a half-torn-down DOM.
+        //
+        // A VITE-level option, so it belongs on the project entry — NOT inside
+        // `test`, where it used to sit. Vitest does not validate unknown keys
+        // in `test`, so the old placement was silently dead: proven by putting
+        // an unresolvable package in it, which produced no error at all, while
+        // the same bogus entry here fails the run with "Failed to resolve
+        // dependency: …, present in client 'optimizeDeps.include'".
+        //
+        // `test.deps.optimizer` is a different lever (it feeds the node-side
+        // pools), and in Vitest 4 its keys are `client`/`ssr` — `web` was
+        // renamed. Browser mode is served by a real Vite dev server, so Vite's
+        // own `optimizeDeps` is the one that actually pre-bundles here.
+        optimizeDeps: { include: ['axios', 'zustand', 'react/jsx-dev-runtime'] },
         test: {
           name: 'visual',
           include: [VISUAL_TESTS],
-          // Pre-bundled up front. Discovering these mid-run makes Vite reload
-          // the page, which vitest reports as "unexpectedly reloaded a test"
-          // and which would restart assertions against a half-torn-down DOM.
-          optimizeDeps: { include: ['axios', 'zustand', 'react/jsx-dev-runtime'] },
           globals: true,
           setupFiles: './src/test/visual/setup.visual.js',
           // The entire point: real CSS, so `composes:` chains and `var()`

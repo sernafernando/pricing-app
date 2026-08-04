@@ -135,6 +135,22 @@ describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
    * `font-size: 14px` make the CONTENT box taller than the minimum, so the
    * control lays out at 39.5px while the `btn-tesla sm` beside it is exactly
    * 32px. Every PxQ authoring row is misaligned by 7.5px.
+   *
+   * That 39.5px is ARITHMETIC, not a font metric, and the assertions below are
+   * written to show it: 1px border + 10px padding + a 17.5px line box + 10px
+   * padding + 1px border. The line box is 17.5px because the primitive's
+   * `line-height: var(--leading-tight)` is UNITLESS (1.25), and a unitless
+   * line-height resolves to `font-size x factor` without ever consulting the
+   * font's ascent/descent metrics — the same property `pxqPanel.visual.test.jsx`
+   * relies on for its 15px label lines. `line-height: normal` WOULD consult
+   * them, so the tests reject it explicitly rather than assume it is absent.
+   *
+   * Verified across 9 families with deliberately extreme metrics (including
+   * Noto Nastaliq Urdu, monospace and serif): the height is 39.5px in every
+   * one. The literal `39.5` / `7.5` that used to be asserted here have been
+   * replaced by the decomposition anyway — not because they were typeface
+   * dependent, but because a bare literal fails on an unrelated
+   * `--leading-tight` change and says nothing about why 39.5 is the number.
    */
   it('a real PxQ input does NOT line up with the btn-tesla sm beside it', () => {
     host = mount(`
@@ -146,12 +162,34 @@ describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
     const [input, button] = host.firstElementChild.children;
     const inputH = input.getBoundingClientRect().height;
     const buttonH = button.getBoundingClientRect().height;
+    const cs = getComputedStyle(input);
+    const box = boxOf(input);
 
     expect(buttonH).toBe(tokenPx('--btn-height-sm'));
+    // The invariant that matters: the control is TALLER than the button it is
+    // supposed to sit flush with.
     expect(inputH).toBeGreaterThan(buttonH);
-    // Pinned exactly, so any change to the discrepancy is visible in the diff.
-    expect(inputH).toBeCloseTo(39.5, 1);
-    expect(inputH - buttonH).toBeCloseTo(7.5, 1);
+
+    // The typeface-independence guarantee, asserted instead of assumed. If the
+    // cascade ever leaves this control on `normal`, the height genuinely does
+    // become a property of the runner's font stack and this suite must know.
+    expect(cs.lineHeight).not.toBe('normal');
+
+    // The discrepancy, still pinned EXACTLY — but derived from the cascade that
+    // produces it, so the diff shows both the number and its cause.
+    const derivedH =
+      px(cs.borderTopWidth) +
+      px(cs.paddingTop) +
+      px(cs.lineHeight) +
+      px(cs.paddingBottom) +
+      px(cs.borderBottomWidth);
+
+    expect(inputH).toBe(derivedH);
+
+    // …and this is the mechanism: the dense variant DOES ask for 32px, and the
+    // content box simply outgrows it.
+    expect(box.minHeight).toBe(tokenPx('--input-height-sm'));
+    expect(derivedH).toBeGreaterThan(box.minHeight);
   });
 
   it.fails('SHOULD: a real PxQ input is exactly as tall as a btn-tesla sm', () => {

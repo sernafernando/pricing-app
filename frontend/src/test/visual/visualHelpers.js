@@ -86,7 +86,17 @@ export const rgba = (color) => {
   return [Number(r), Number(g), Number(b), Number(a)];
 };
 
-/** WCAG relative luminance. */
+/**
+ * WCAG relative luminance of an OPAQUE colour.
+ *
+ * Takes a 3-channel triple on purpose. It used to be handed the 4-channel
+ * output of `rgba()` and destructured only `[r, g, b]`, which silently threw
+ * the alpha away: `--cf-text-muted` in dark mode is `rgba(255,255,255,0.4)`
+ * and was scored as fully opaque white, i.e. luminance 1.0 against a black
+ * fill — a ratio of 21:1, the theoretical maximum, for text that actually
+ * renders at 3.66:1. Every `> 4.5` assertion downstream passed without
+ * deserving it. Composite first (see `over`), then call this.
+ */
 const luminance = ([r, g, b]) => {
   const channel = (v) => {
     const s = v / 255;
@@ -96,13 +106,45 @@ const luminance = ([r, g, b]) => {
 };
 
 /**
+ * Alpha-composite a colour over an opaque backdrop (simple source-over).
+ *
+ * This is the whole point: a human eye never receives `rgba(255,255,255,0.4)`,
+ * it receives that colour already blended with whatever is behind it —
+ * `rgb(102,102,102)` over black. Contrast is a property of what reaches the
+ * eye, so the blend has to happen BEFORE luminance, not be assumed away.
+ */
+const over = ([r, g, b, a], [br, bg, bb]) => [
+  r * a + br * (1 - a),
+  g * a + bg * (1 - a),
+  b * a + bb * (1 - a),
+];
+
+/**
  * WCAG contrast ratio between two computed colors, 1 (identical) to 21.
  * Used to check a control is actually SEPARABLE from what it sits on, which is
  * a stronger and more honest claim than "the two strings differ".
+ *
+ * `colorA` is the foreground and MAY be translucent — it gets composited over
+ * `colorB` first. `colorB` is the backdrop and must be opaque: a translucent
+ * backdrop has no colour of its own without the entire stack painted beneath
+ * it, and quietly assuming it is opaque is exactly the bug this function used
+ * to have. So it throws instead of inventing an answer — an accessibility
+ * assertion that lies is worse than no assertion.
  */
 export const contrastRatio = (colorA, colorB) => {
-  const la = luminance(rgba(colorA));
-  const lb = luminance(rgba(colorB));
+  const fg = rgba(colorA);
+  const bg = rgba(colorB);
+
+  if (bg[3] < 1) {
+    throw new Error(
+      `contrastRatio() needs an opaque backdrop, got ${colorB}. ` +
+        'Measure against the element that actually paints behind it.',
+    );
+  }
+
+  const backdrop = bg.slice(0, 3);
+  const la = luminance(over(fg, backdrop));
+  const lb = luminance(backdrop);
   const [hi, lo] = la > lb ? [la, lb] : [lb, la];
   return (hi + 0.05) / (lo + 0.05);
 };
