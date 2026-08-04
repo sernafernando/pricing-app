@@ -109,6 +109,12 @@ jobs:
       - name: ESLint
         run: pnpm run lint
 
+      # Ratchet: passes on the tree as it stands (known offenders are
+      # grandfathered in css-guard/allowlist.js) and fails on a NEW hardcoded
+      # color. The companion stale-entry check runs in `frontend-test`.
+      - name: Stylelint (CSS design-token guard)
+        run: pnpm run lint:css
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest

@@ -114,6 +114,30 @@ Then in JSX: `className={styles.input}`, `className={styles.inputDense}`, etc.
 
 **Migration note**: 56 modules still carry their own `.input`. They are being migrated deliberately, not in bulk (jsdom does no layout, so there is no visual regression net). When you touch one of those modules for another reason, migrate its controls to `composes:` as part of that change.
 
+### These two rules are MACHINE-ENFORCED (not just prose)
+
+The rules above used to exist only in this file, so the tree drifted to 56 CSS
+modules each defining their own `.input` — 19 different `padding` values for the
+same control. Two checks now block that in CI:
+
+| Check | Enforces | Run locally |
+|---|---|---|
+| stylelint | No hardcoded colors (hex, named, `rgb()`, `hsl()`) in `src/**/*.css` | `pnpm run lint:css` |
+| vitest `css-guard` | No `padding` / `border-radius` / `background` on an `.input`/`.select`/`.textarea` class in a `*.module.css` outside `src/styles/` | `pnpm test css-guard` |
+
+Both are **ratchets**: files that already violate are grandfathered in
+`css-guard/allowlist.js`, so they pass on the current tree and only fail on NEW
+violations. The allowlist may only SHRINK — a listed file that no longer
+violates fails the test as a stale entry, so cleanup can't be left half-done.
+
+**When it fails: fix the CSS. Do NOT add the file to the allowlist.**
+- Hardcoded color → use a token (`var(--cf-accent-blue)`); for alpha use
+  `rgba(var(--token-rgb), 0.1)`, which is allowed.
+- Control box styling → `composes:` the primitive instead of re-declaring it.
+
+Adding an allowlist entry is a visible line in the diff and will be treated as a
+regression in review.
+
 ### Design Token Preference (CF > legacy)
 
 When writing NEW CSS or refactoring existing CSS, prefer CF tokens over legacy tokens:
