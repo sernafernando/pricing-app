@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Package,
   ChevronRight,
+  Check,
+  Copy,
+  X,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -15,29 +18,74 @@ import styles from './TabRecepcionDeposito.module.css';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+// Single source of truth for the Spanish label of each estado. Both the badge
+// and the clipboard payload read from here — never inline these strings again.
+const ESTADO_LABELS = {
+  pagado: 'Pagado',
+  en_cuenta_corriente: 'En cuenta corriente',
+  con_faltantes: 'Con faltantes',
+  recibido: 'Recibido',
+  controlado: 'Controlado',
+};
+
+const ESTADO_BADGE_CLASS = {
+  pagado: 'badgePagado',
+  en_cuenta_corriente: 'badgePagado',
+  con_faltantes: 'badgeConFaltantes',
+  recibido: 'badgeRecibido',
+  controlado: 'badgeControlado',
+};
+
+// A tab id is NOT a single estado: it is the `estado` query param sent verbatim
+// to the listing endpoint, which splits on comma and filters with IN(...).
+//
+// 'pagado' and 'en_cuenta_corriente' deliberately share ONE tab: how a pedido
+// was paid (cash up front vs. supplier credit) is an accounting concern with no
+// bearing on the warehouse. Both estados mean "awaiting reception", so splitting
+// them only forced the operator to check two tabs to do a single job.
+// The badge still distinguishes them — that information is useful, the filter is not.
 const FILTER_TABS = [
-  { id: 'pagado', label: 'Por recibir' },
-  { id: 'en_cuenta_corriente', label: 'En cuenta corriente' },
+  { id: 'pagado,en_cuenta_corriente', label: 'Por recibir' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
   { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
 ];
 
 function estadoBadge(estado, stylesMap) {
-  switch (estado) {
-    case 'pagado':
-      return <span className={stylesMap.badgePagado}>Pagado</span>;
-    case 'en_cuenta_corriente':
-      return <span className={stylesMap.badgePagado}>En cuenta corriente</span>;
-    case 'con_faltantes':
-      return <span className={stylesMap.badgeConFaltantes}>Con faltantes</span>;
-    case 'recibido':
-      return <span className={stylesMap.badgeRecibido}>Recibido</span>;
-    case 'controlado':
-      return <span className={stylesMap.badgeControlado}>Controlado</span>;
-    default:
-      return <span className={stylesMap.badge}>{estado}</span>;
-  }
+  const badgeClass = ESTADO_BADGE_CLASS[estado];
+  if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
+  return <span className={stylesMap[badgeClass]}>{ESTADO_LABELS[estado]}</span>;
+}
+
+/**
+ * Builds the plain-text clipboard payload for a pedido HEADER.
+ *
+ * Money fields (monto, moneda, saldo_pendiente, tipo_cambio*, varianza*) are
+ * excluded on purpose: warehouse-only listings withhold the money trail, and
+ * the clipboard must not become a side channel around that decision.
+ * Items are excluded too — this is a header summary, not a picking list.
+ *
+ * Lines whose value is null/empty are omitted entirely.
+ *
+ * Kept module-scoped (not exported): `react-refresh/only-export-components`
+ * forbids non-component named exports here. Covered via the copy button.
+ */
+function buildPedidoClipboardText(pedido) {
+  const campos = [
+    ['Proveedor', pedido.proveedor_nombre],
+    ['Estado', ESTADO_LABELS[pedido.estado] ?? pedido.estado],
+    ['Factura', pedido.numero_factura],
+    ['Observaciones', pedido.observaciones],
+  ];
+
+  const lineas = [`Pedido #${pedido.numero}`];
+  campos.forEach(([etiqueta, valor]) => {
+    if (valor == null || String(valor).trim() === '') return;
+    lineas.push(`${etiqueta}: ${valor}`);
+  });
+  if (pedido.requiere_envio) lineas.push('Requiere retiro');
+
+  return lineas.join('\n');
 }
 
 // ── Accordion body — CON OC — arrival panel (estado=pagado) ──────
@@ -540,35 +588,82 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 function PedidoAccordion({ pedido, onRefreshList }) {
   const [open, setOpen] = useState(false);
   const [retiroOpen, setRetiroOpen] = useState(false);
+  // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
+  // from "clicked and failed", which is exactly the state the operator needs.
+  const [copyStatus, setCopyStatus] = useState('idle');
+  const copyResetTimerRef = useRef(null);
+
+  // The copy-feedback flash timer must never outlive the component.
+  useEffect(() => () => clearTimeout(copyResetTimerRef.current), []);
 
   const handleRetiroSuccess = useCallback(() => {
     setRetiroOpen(false);
     onRefreshList();
   }, [onRefreshList]);
 
-  // Prevent accordion toggle when clicking retiro button
-  const handleRetiroClick = (e) => {
-    e.stopPropagation();
-    setRetiroOpen(true);
+  const handleCopiar = async () => {
+    // One timer for both outcomes: scheduling the reset in a single place keeps
+    // copyResetTimerRef the only handle the unmount cleanup has to clear.
+    const flashStatus = (status) => {
+      setCopyStatus(status);
+      clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = setTimeout(() => setCopyStatus('idle'), 1500);
+    };
+
+    // Explicit guard: where the async clipboard API is absent there is nothing
+    // to reject, so relying on the throw would leave the button silently inert.
+    if (typeof navigator.clipboard?.writeText !== 'function') {
+      flashStatus('error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(buildPedidoClipboardText(pedido));
+      flashStatus('copied');
+    } catch {
+      // Realistic path: the clipboard permission is denied by the browser.
+      flashStatus('error');
+    }
   };
+
+  const copiarLabel =
+    copyStatus === 'error'
+      ? `No se pudo copiar el pedido #${pedido.numero}`
+      : `Copiar datos del pedido #${pedido.numero}`;
 
   return (
     <div className={styles.accordion}>
-      <button
-        type="button"
-        className={styles.accordionHeader}
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <ChevronRight
-          size={16}
-          className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`}
-          aria-hidden="true"
-        />
-        <span className={styles.pedidoNumero}>#{pedido.numero}</span>
-        <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
+      {/* The header is a plain container: the toggle and the action buttons are
+          siblings. Nesting them inside one <button> was invalid HTML and forced
+          a stopPropagation hack on every action. */}
+      <div className={styles.accordionHeader}>
+        <button
+          type="button"
+          className={styles.accordionToggle}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronRight
+            size={16}
+            className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`}
+            aria-hidden="true"
+          />
+          <span className={styles.pedidoNumero}>#{pedido.numero}</span>
+          <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
+        </button>
         <div className={styles.headerBadges}>
           {estadoBadge(pedido.estado, styles)}
+          <button
+            type="button"
+            className={`${styles.copyButton} ${copyStatus === 'error' ? styles.copyButtonError : ''}`}
+            onClick={handleCopiar}
+            aria-label={copiarLabel}
+            title={copiarLabel}
+          >
+            {copyStatus === 'copied' && <Check size={12} aria-hidden="true" />}
+            {copyStatus === 'error' && <X size={12} aria-hidden="true" />}
+            {copyStatus === 'idle' && <Copy size={12} aria-hidden="true" />}
+          </button>
           {pedido.requiere_envio && (
             <>
               <span className={styles.tagRetiro}>
@@ -578,16 +673,16 @@ function PedidoAccordion({ pedido, onRefreshList }) {
               <button
                 type="button"
                 className={styles.retiroButton}
-                onClick={handleRetiroClick}
-                aria-label={`Despachar retiro para pedido #${pedido.numero}`}
+                onClick={() => setRetiroOpen(true)}
+                aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
               >
                 <Truck size={12} aria-hidden="true" />
-                Despachar retiro
+                Coordinar retiro
               </button>
             </>
           )}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className={styles.accordionBody}>
@@ -625,7 +720,9 @@ function PedidoAccordion({ pedido, onRefreshList }) {
 // ── Main tab ──────────────────────────────────────────────────────
 
 export default function TabRecepcionDeposito() {
-  const [filtro, setFiltro] = useState('pagado'); // 'pagado' | 'recibido' | 'controlado' | 'con_faltantes'
+  // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
+  // may be a comma-separated list of estados, not a single one.
+  const [filtro, setFiltro] = useState(FILTER_TABS[0].id);
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -635,7 +732,9 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Each tab maps 1:1 to a backend estado value.
+      // Sent verbatim as the `estado` param. The backend splits it on comma and
+      // filters with IN(...), so a tab id may carry several estados at once
+      // (see FILTER_TABS: "Por recibir" = pagado + en_cuenta_corriente).
       const estados = filtro;
 
       const { data } = await api.get('/administracion/compras/pedidos', {

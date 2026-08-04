@@ -351,6 +351,57 @@ class TestPedidosCRUD:
             )
         assert r.status_code == 200, r.text
 
+    def test_listar_pedidos_deposito_estado_multivalor_devuelve_ambos_estados(
+        self, client, auth_headers, db, empresa, proveedor, active_user
+    ):
+        """El tab "Por recibir" manda `estado=pagado,en_cuenta_corriente` textual.
+
+        `test_listar_pedidos_estado_multivalor` ya prueba el split por coma, pero
+        con permisos plenos. El operario de depósito pasa además por el recorte
+        de `_ESTADOS_VISIBLES_DEPOSITO`, que re-arma la lista de estados: si ese
+        camino perdiera un estado, la pestaña por defecto quedaría vacía.
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+
+        def _mk(estado: str) -> PedidoCompra:
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("5000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = estado
+            db.flush()
+            return p
+
+        p_pagado = _mk("pagado")
+        p_cuenta_corriente = _mk("en_cuenta_corriente")
+        p_borrador = _mk("borrador")
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                "/api/administracion/compras/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado,en_cuenta_corriente"},
+            )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        ids = {p["id"] for p in items}
+        assert p_pagado.id in ids
+        assert p_cuenta_corriente.id in ids
+        assert p_borrador.id not in ids
+        assert {p["estado"] for p in items if p["id"] in {p_pagado.id, p_cuenta_corriente.id}} == {
+            "pagado",
+            "en_cuenta_corriente",
+        }
+
     def test_listar_pedidos_deposito_no_recibe_datos_financieros(self, client, auth_headers, pedido_borrador, db):
         """El recorte por estado limita QUÉ pedidos ve; esto limita QUÉ campos.
 

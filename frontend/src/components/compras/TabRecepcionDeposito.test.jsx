@@ -1,0 +1,248 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import api from '../../services/api';
+import TabRecepcionDeposito from './TabRecepcionDeposito';
+
+// NOTE: vite.config.js sets `css: false` for the test run, so CSS Module class
+// names do NOT resolve. Never assert on className — assert on text and roles.
+
+const PEDIDO_PAGADO = {
+  id: 1,
+  numero: 'PC-0001',
+  proveedor_id: 10,
+  proveedor_nombre: 'Proveedor Uno',
+  estado: 'pagado',
+  numero_factura: 'A-0001-00000001',
+  observaciones: 'Entregar en el portón 3',
+  requiere_envio: false,
+  oc_poh_id: null,
+  // Money fields are part of the payload but must never reach the clipboard.
+  monto: '123456.78',
+  moneda: 'ARS',
+};
+
+const PEDIDO_CUENTA_CORRIENTE = {
+  id: 2,
+  numero: 'PC-0002',
+  proveedor_id: 20,
+  proveedor_nombre: 'Proveedor Dos',
+  estado: 'en_cuenta_corriente',
+  numero_factura: null,
+  observaciones: null,
+  requiere_envio: true,
+  oc_poh_id: null,
+  monto: '999999.99',
+  moneda: 'USD',
+};
+
+const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
+
+function mockListado(items) {
+  api.get.mockResolvedValue({
+    data: { items, total: items.length, page: 1, page_size: 200 },
+  });
+}
+
+/**
+ * Renders the tab and waits for the first pedido of the mocked listing to show up,
+ * so the mount fetch is settled before any assertion runs.
+ */
+async function renderTab(items = [PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]) {
+  mockListado(items);
+  const result = render(<TabRecepcionDeposito />);
+  await screen.findByText(`#${items[0].numero}`);
+  return result;
+}
+
+/**
+ * jsdom does not implement navigator.clipboard, and userEvent.setup() installs
+ * its own stub — so this must run AFTER setup() or it gets overwritten.
+ */
+function stubClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+    writable: true,
+  });
+  return writeText;
+}
+
+/**
+ * Renders a single pedido, clicks its copy button and returns the copied string.
+ * The clipboard payload builder is module-private, so it is exercised through
+ * the button that owns it.
+ */
+async function copiarPedido(pedido) {
+  const user = userEvent.setup();
+  const writeText = stubClipboard();
+  await renderTab([pedido]);
+
+  await user.click(
+    screen.getByRole('button', { name: `Copiar datos del pedido #${pedido.numero}` }),
+  );
+
+  expect(writeText).toHaveBeenCalledTimes(1);
+  return writeText.mock.calls[0][0];
+}
+
+afterEach(() => {
+  delete navigator.clipboard;
+});
+
+describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
+  it('requests the listing with both receivable estados on mount', async () => {
+    await renderTab();
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200 },
+    });
+  });
+
+  it('has no "En cuenta corriente" filter tab, but still shows its badge', async () => {
+    await renderTab();
+
+    // The filter tabs are exactly four; payment mode is not a warehouse filter.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Por recibir',
+      'Recibidos sin controlar',
+      'Controlados',
+      'Con faltantes',
+    ]);
+    expect(screen.queryByRole('tab', { name: 'En cuenta corriente' })).not.toBeInTheDocument();
+
+    // The badge stays: it is informative, and it is the only place the payment
+    // mode is still visible. Re-splitting the tabs must break the assertion above.
+    expect(screen.getByText('En cuenta corriente')).toBeInTheDocument();
+  });
+
+  it('lists pagado and en_cuenta_corriente pedidos under the single tab', async () => {
+    await renderTab();
+
+    expect(screen.getByText('#PC-0001')).toBeInTheDocument();
+    expect(screen.getByText('Proveedor Uno')).toBeInTheDocument();
+    expect(screen.getByText('Pagado')).toBeInTheDocument();
+
+    expect(screen.getByText('#PC-0002')).toBeInTheDocument();
+    expect(screen.getByText('Proveedor Dos')).toBeInTheDocument();
+    expect(screen.getByText('En cuenta corriente')).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — copy header data', () => {
+  it('copies numero, proveedor, estado label, factura and observaciones', async () => {
+    const copiado = await copiarPedido(PEDIDO_PAGADO);
+
+    expect(copiado).toBe(
+      [
+        'Pedido #PC-0001',
+        'Proveedor: Proveedor Uno',
+        'Estado: Pagado',
+        'Factura: A-0001-00000001',
+        'Observaciones: Entregar en el portón 3',
+      ].join('\n'),
+    );
+  });
+
+  it('never leaks money fields', async () => {
+    const copiado = await copiarPedido(PEDIDO_PAGADO);
+
+    // Deliberate privacy decision: warehouse listings withhold the money trail,
+    // and the clipboard must not become a side channel around it.
+    expect(copiado).not.toContain('123456.78');
+    expect(copiado).not.toContain('ARS');
+    expect(copiado).not.toMatch(/monto|saldo|tipo de cambio/i);
+  });
+
+  it('omits null factura and observaciones and appends the retiro line', async () => {
+    const copiado = await copiarPedido(PEDIDO_CUENTA_CORRIENTE);
+
+    expect(copiado).toBe(
+      [
+        'Pedido #PC-0002',
+        'Proveedor: Proveedor Dos',
+        'Estado: En cuenta corriente',
+        'Requiere retiro',
+      ].join('\n'),
+    );
+  });
+
+  it('omits blank values and the retiro line when requiere_envio is false', async () => {
+    const copiado = await copiarPedido({
+      ...PEDIDO_PAGADO,
+      numero_factura: '   ',
+      observaciones: '',
+    });
+
+    expect(copiado).toBe(['Pedido #PC-0001', 'Proveedor: Proveedor Uno', 'Estado: Pagado'].join('\n'));
+    expect(copiado).not.toContain('Requiere retiro');
+  });
+
+  it('falls back to the raw estado when it has no known label', async () => {
+    const copiado = await copiarPedido({ ...PEDIDO_PAGADO, estado: 'estado_desconocido' });
+
+    expect(copiado).toContain('Estado: estado_desconocido');
+  });
+
+  it('surfaces a failure label when writeText rejects', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    await renderTab([PEDIDO_PAGADO]);
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
+
+    // A rejected copy must be distinguishable from a click that never happened.
+    expect(
+      await screen.findByRole('button', { name: 'No se pudo copiar el pedido #PC-0001' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Copiar datos del pedido #PC-0001' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failure label when the clipboard API is missing', async () => {
+    const user = userEvent.setup();
+    // userEvent.setup() installs its own clipboard stub, so removing the API
+    // has to happen after it — this is the browser-without-async-clipboard case.
+    delete navigator.clipboard;
+    await renderTab([PEDIDO_PAGADO]);
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'No se pudo copiar el pedido #PC-0001' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not toggle the accordion open', async () => {
+    const user = userEvent.setup();
+    stubClipboard();
+    await renderTab([PEDIDO_PAGADO]);
+
+    const toggle = screen.getByRole('button', { name: /Proveedor Uno/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/no tiene OC vinculada/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — retiro action', () => {
+  it('labels the retiro button "Coordinar retiro"', async () => {
+    await renderTab([PEDIDO_CUENTA_CORRIENTE]);
+
+    expect(
+      screen.getByRole('button', { name: 'Coordinar retiro para pedido #PC-0002' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Coordinar retiro')).toBeInTheDocument();
+    expect(screen.queryByText('Despachar retiro')).not.toBeInTheDocument();
+  });
+});

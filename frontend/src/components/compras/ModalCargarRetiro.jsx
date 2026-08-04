@@ -95,7 +95,7 @@ export default function ModalCargarRetiro({
         <div className={styles.modalHeader}>
           <span className={styles.modalTitle} id="modal-retiro-title">
             <Truck size={18} aria-hidden="true" />
-            Despachar retiro — Pedido #{pedidoNumero}
+            Coordinar retiro — Pedido #{pedidoNumero}
           </span>
           <button
             type="button"
