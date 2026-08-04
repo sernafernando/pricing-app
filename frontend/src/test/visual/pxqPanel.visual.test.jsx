@@ -56,6 +56,21 @@ async function renderPanel() {
 /** The create form is the last one (edit forms only exist while editing). */
 const createForm = (container) => [...container.querySelectorAll('form')].at(-1);
 
+/**
+ * How many line boxes an element's text occupies.
+ *
+ * Split this way on purpose: `.label` sets `line-height: var(--leading-tight)`,
+ * so Chromium resolves ONE line to a fixed 12 x 1.25 = 15px that does not move
+ * with the typeface. The line COUNT does move with it. Keeping the two apart
+ * lets the tests assert the part that is invariant and merely observe the part
+ * that is not.
+ */
+const lineCount = (el) => {
+  const line = px(getComputedStyle(el).lineHeight);
+  if (!Number.isFinite(line) || line <= 0) throw new Error(`no resolved line-height on <${el.tagName}>`);
+  return Math.round(el.getBoundingClientRect().height / line);
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   setTheme('light');
@@ -92,28 +107,52 @@ describe('PxQ authoring form — field grouping by proximity', () => {
     expect(betweenGap / insideGap).toBeGreaterThanOrEqual(2);
   });
 
-  it('every field is the same width and sits on one row', async () => {
+  /**
+   * Equal width is a claim about the flex configuration, not about the text
+   * inside it: the three fields share one `flex: 0 1 9rem`, so they have the
+   * same basis AND the same shrink factor. Whether the row has slack (they all
+   * sit at the 144px basis) or is over-constrained (they all shrink by the same
+   * proportion of the same basis), the three end up identical. That is why this
+   * survives a typeface change, and it is the only width claim that does.
+   *
+   * Deliberately NOT asserted here any more: "all three share one `top`, so the
+   * row did not wrap". That read the geometry wrong twice over. `.pxqTierForm`
+   * is `align-items: flex-end`, so items on a single line share a BOTTOM, not a
+   * top — the moment one label needs two lines, its field is 15px taller and
+   * starts 15px higher while never leaving the row. The old assertion therefore
+   * failed on a wider fallback font for a layout that was behaving exactly as
+   * designed. "Still one row" is really "still one flex line", which is what
+   * the bottom-alignment test below measures.
+   */
+  it('every field is the same width', async () => {
     const container = await renderPanel();
     const form = createForm(container);
     const fields = [...form.children].filter((el) => el.querySelector('label'));
 
-    const rects = fields.map((f) => f.getBoundingClientRect());
-    const widths = new Set(rects.map((r) => Math.round(r.width)));
+    const widths = new Set(fields.map((f) => Math.round(f.getBoundingClientRect().width)));
     expect(widths.size).toBe(1);
-
-    // All three start at the same y — the row did not wrap at 1280px.
-    const tops = new Set(rects.map((r) => Math.round(r.top)));
-    expect(tops.size).toBe(1);
   });
 
   /**
-   * `.pxqTierForm` uses `align-items: flex-end` specifically so a two-line
-   * label cannot knock its own control out of line with the others. Asserted
-   * against the real rendered bottoms, including the submit button.
+   * THE claim `align-items: flex-end` exists to make, stated the way the design
+   * states it: a label that needs two lines must not knock its own control —
+   * or anyone else's — out of alignment.
+   *
+   * So the number of lines each label takes is an INPUT here, not something to
+   * constrain. It is recorded and allowed to vary (it genuinely does: "Costo de
+   * envío del bulto" takes one line under a narrow fallback and two under a
+   * wide one), and the alignment is required to hold either way. Sharing one
+   * bottom edge is also exactly what "these are all still on one flex line"
+   * means, since a wrapped second line would sit at a different y.
    */
-  it('all controls and the submit button are bottom-aligned on one line', async () => {
+  it('every control stays bottom-aligned however many lines its label takes', async () => {
     const container = await renderPanel();
     const form = createForm(container);
+    const fields = [...form.children].filter((el) => el.querySelector('label'));
+
+    // Recorded, not constrained — this is the condition being absorbed.
+    const lineCounts = fields.map((f) => lineCount(f.querySelector('label')));
+    expect(Math.min(...lineCounts)).toBeGreaterThanOrEqual(1);
 
     const controls = [...form.querySelectorAll('input'), form.querySelector('button[type="submit"]')];
     const bottoms = new Set(controls.map((c) => Math.round(c.getBoundingClientRect().bottom)));
@@ -124,39 +163,41 @@ describe('PxQ authoring form — field grouping by proximity', () => {
 
 describe('PxQ authoring form — the long label', () => {
   /**
-   * The maintainer could not check whether "Costo de envío del bulto" wraps.
-   * `.pxqField` is `flex: 0 1 9rem` (144px) and its comment claims it is
-   * "sized to hold the longest label without forcing a wrap".
+   * DELETED, not skipped: "the longest label fits on ONE line inside its 9rem
+   * field".
    *
-   * Measured answer: it does NOT wrap. At `--font-xs` (12px) / `--font-medium`
-   * the string lays out inside 144px and the label box is exactly one line
-   * tall. The comment's claim is accurate.
+   * `.pxqField`'s comment claims 9rem is "sized to hold the longest label
+   * without forcing a wrap", and this test used to verify that by measuring the
+   * label at exactly one 15px line box. It cannot be verified honestly.
+   * "Does this string fit in 144px" is a question about a TYPEFACE, and the
+   * suite loads none: index.css asks for `'Inter', system-ui, …` and gets
+   * whatever the host has. Measured in this Chromium, "Costo de envío del
+   * bulto" at 12px/500 is 129.42px on the stack this machine resolves and
+   * 148.56px in a slightly wider face — one line, then two, for a form that is
+   * behaving identically in both.
    *
-   * Pinned because it is marginal: the label uses ~80-90% of the field width,
-   * so a font-size bump, a heavier weight, or a longer translation flips it to
-   * two lines. That would not break the row (`align-items: flex-end` keeps the
-   * controls aligned — asserted above), but it changes the panel's height, and
-   * this is where that shows up.
+   * It was previously guarded with `it.skipIf(!document.fonts.check('12px
+   * Inter'))`, which does not work and cannot be made to work.
+   * `FontFaceSet.check()` only consults `@font-face` rules registered in the
+   * document; this page registers none (`document.fonts.size === 0`), so it
+   * answers `true` for EVERY family — verified against a deliberately bogus
+   * name, which also returns `true`. The guard never skipped anything anywhere.
+   * It is not fixable either: there is no supported API that reports whether a
+   * *system* font is installed. So the test ran on a runner with no Inter,
+   * measured a wider fallback, and failed while claiming to be font-guarded.
    *
-   * THE ONE FONT-DEPENDENT ASSERTION IN THIS SUITE, and the reason it is
-   * guarded by `skipIf`.
+   * A skip guard that lies about coverage is worse than no test. What survives
+   * below is every part of the original that was never about the typeface: the
+   * label may take as many lines as it needs, but it must take a WHOLE number
+   * of them, must never spill sideways out of its field, and must not have
+   * bought its fit with truncation. Those hold in any environment.
    *
-   * "Does this label wrap" is an inherently typeface-dependent question — there
-   * is no way to ask it that is not. See the long note in `setup.visual.js`:
-   * the test browser loads no webfont, so the label is drawn with whatever the
-   * host has. Measured at 12px/500: 117px with Inter installed (this machine,
-   * and what production serves from the CDN), 129px with the Liberation Sans
-   * fallback. The field is 144px, so the margin drops from 27px to 15px — and a
-   * runner whose `system-ui` resolves to DejaVu Sans (wider again) could land
-   * within a pixel or two of wrapping.
-   *
-   * Rather than gate CI on an unverifiable margin, the test runs ONLY where the
-   * production typeface is actually available and reports SKIPPED elsewhere.
-   * A skipped test that says so is honest; a green one that silently measured
-   * the wrong font is not, and a red one on a runner nobody can reproduce gets
-   * the whole suite disabled.
+   * The consequence the deleted assertion was really guarding — a two-line
+   * label changing the panel's height — is not lost: it is exactly what
+   * `align-items: flex-end` absorbs, and the bottom-alignment test above now
+   * asserts that absorption explicitly, under whatever line counts occur.
    */
-  it.skipIf(!document.fonts.check('12px Inter'))('the longest label fits on ONE line inside its 9rem field', async () => {
+  it('the longest label wraps within its field rather than overflowing or truncating', async () => {
     const container = await renderPanel();
     const form = createForm(container);
     const fields = [...form.children].filter((el) => el.querySelector('label'));
@@ -167,17 +208,21 @@ describe('PxQ authoring form — the long label', () => {
     const labelRect = label.getBoundingClientRect();
     const fieldRect = envioField.getBoundingClientRect();
 
-    // One line: 12px * 1.25 leading = 15px, not 30px.
-    const oneLine = px(cs.fontSize) * px(cs.lineHeight) / px(cs.fontSize);
-    expect(labelRect.height).toBeCloseTo(oneLine, 1);
-    expect(labelRect.height).toBeLessThan(px(cs.fontSize) * 1.5);
+    // A whole number of line boxes. The COUNT is typeface-dependent and left
+    // free; that each one is `--leading-tight` tall is not, and that is the
+    // wiring worth protecting — a label box 22px tall would mean `line-height`
+    // stopped reaching `.label` at all.
+    const lines = lineCount(label);
+    expect(lines).toBeGreaterThanOrEqual(1);
+    expect(labelRect.height).toBeCloseTo(lines * px(cs.lineHeight), 1);
 
-    // It fits rather than overflowing: no horizontal scroll inside the label.
+    // Wrapping means it never spills sideways, whatever the typeface: the text
+    // breaks at the field edge instead of running past it.
     expect(label.scrollWidth).toBeLessThanOrEqual(Math.ceil(labelRect.width));
     expect(labelRect.width).toBeLessThanOrEqual(fieldRect.width + 0.5);
 
-    // Wrapping remains ALLOWED — truncating a Spanish label loses meaning, so
-    // the fit above must not have been bought with `nowrap`/ellipsis.
+    // And the containment above must not have been bought with truncation —
+    // clipping a Spanish label loses meaning, so wrapping stays ALLOWED.
     expect(cs.whiteSpace).not.toBe('nowrap');
     expect(cs.textOverflow).not.toBe('ellipsis');
   });

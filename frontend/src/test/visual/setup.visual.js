@@ -71,34 +71,67 @@ freeze.textContent = `
 document.head.append(freeze);
 
 /**
- * FONTS ARE DELIBERATELY *NOT* PINNED HERE — and that bounds what this suite
- * can honestly claim.
+ * FONTS ARE DELIBERATELY *NOT* PINNED HERE — and NO assertion may depend on
+ * which typeface won.
  *
  * The app loads Inter from the Google Fonts CDN in `index.html`. Browser mode
  * serves its own page and never runs `index.html`, so nothing loads it, and
- * `font-family: 'Inter', system-ui, …` resolves against whatever the machine
- * has. Measured, for the longest PxQ label at 12px/500:
+ * `* { font-family: 'Inter', system-ui, -apple-system, sans-serif }` (index.css)
+ * resolves against whatever the host happens to have. Measured in this very
+ * Chromium, for the longest PxQ label at 12px/500:
  *
- *   this machine (Inter installed system-wide)   117.33px
- *   ubuntu-latest (no Inter -> system-ui)        129.42px
- *   repo's own public/fonts/Inter-Regular.ttf    146.00px
+ *   'Inter'                       117.33px  <- NOT Inter: no machine involved
+ *                                              here has it installed, so this
+ *                                              is just the default `sans-serif`
+ *   system-ui  (= Liberation Sans) 129.42px  <- what the stack ACTUALLY lands on
+ *   the whole app stack            129.42px
  *
- * Pinning to the repo's TTF was tried and REJECTED: that file is a 67 KB subset
- * cut for pdfme's PDF generation, not a web font. Characters outside the subset
- * (the "í" in "envío") fall back mid-string, so it measures wider than real
- * Inter and is the least representative of the three.
+ * An earlier revision of this note claimed 117.33px was "Inter installed
+ * system-wide". It is not — `fc-list | grep -i inter` finds nothing, and a
+ * deliberately bogus family measures the same 117.33px. Do not reintroduce a
+ * per-machine font claim here without measuring it.
  *
- * Consequence, stated plainly: every metric this suite asserts is
- * font-INDEPENDENT except one — whether the longest label fits on a single
- * line. `.label` sets `line-height: var(--leading-tight)`, so a line is always
- * 12 x 1.25 = 15px regardless of typeface; only the 1-line-vs-2 decision moves.
- * Both realistic values (117px here, 129px on CI) fit inside the 144px field,
- * so the assertion holds on both, but its margin is 27px locally and 15px in
- * CI. See `pxqPanel.visual.test.jsx` for that test's own note.
+ * Pinning a font was considered and REJECTED. The repo's own
+ * `public/fonts/Inter-Regular.ttf` is a 67 KB subset cut for pdfme's PDF
+ * generation, not a web font: characters outside the subset (the "í" in
+ * "envío") fall back mid-string, so it measures wider than real Inter. And
+ * pinning would only HIDE typeface sensitivity rather than remove it — a
+ * suite whose assertions hold in any environment is worth more than one that
+ * holds in a environment we froze.
+ *
+ * So the rule for this suite is: assert what the design PROMISES, not what
+ * today's typeface happens to produce. `.label` sets
+ * `line-height: var(--leading-tight)`, so a line box is always 12 x 1.25 = 15px
+ * regardless of typeface — that is assertable. Whether a given string needs one
+ * line box or two is not, and no test may ask.
  *
  * This is also the reason no screenshot baselines are committed: a typeface
  * swap is not antialiasing noise that a pixel tolerance can absorb.
  */
+
+/**
+ * Escape hatch to REPRODUCE a wide-typeface runner locally.
+ *
+ * A wider fallback than the developer's is the single most likely way for this
+ * suite to pass locally and fail in CI, and it has already happened once: two
+ * geometry assertions were written against a label that fits on one line here
+ * and wraps to two on ubuntu-latest. Being able to force that condition is what
+ * turns "I think it is typeface-independent" into something checkable.
+ *
+ *   VITE_WIDE_FONT='Noto Sans Black' pnpm run test:visual
+ *
+ * The value is the family to force on every element, mirroring index.css's own
+ * `*` rule so the override lands the same way the app's does. Pick a family
+ * WIDER than the 144px `.pxqField` for the longest label — the probe above
+ * measures 148.56px for 'Noto Sans Black', enough to force the wrap.
+ * Unset (the default) changes nothing.
+ */
+const wideFont = import.meta.env.VITE_WIDE_FONT;
+if (wideFont) {
+  const override = document.createElement('style');
+  override.textContent = `* { font-family: ${JSON.stringify(wideFont)} !important; }`;
+  document.head.append(override);
+}
 
 // Browser mode reuses one page across test files, so `data-theme` set by one
 // test would leak into the next. Reset to the app's own default: ThemeContext
