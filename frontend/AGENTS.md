@@ -62,7 +62,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 ### Styling
 - ALWAYS: CSS Modules: `import styles from './Component.module.css'`
 - ALWAYS: Design tokens: prefer **CF (Cloudflare) tokens** for new/refactored code (see table below)
-- ALWAYS: Tesla components when available (`buttons-tesla.css`, `modals-tesla.css`, `table-tesla.css`)
+- ALWAYS: Tesla components when available (`buttons-tesla.css`, `forms-tesla.css`, `modals-tesla.css`, `table-tesla.css`)
 - ALWAYS: Use `composes` for composition: `composes: btn-primary from '../../styles/buttons-tesla.css'`
 - ALWAYS: CamelCase class names: `.modalHeader`, `.btnPrimary`
 - NEVER: Inline styles (except dynamic values)
@@ -70,44 +70,49 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 - CSS Modules is the primary convention for component-scoped styles; Tailwind 4 is installed (`@tailwind` directives in `src/index.css`) and used as utility classes in a handful of components/pages (e.g. `Layout.jsx`, `PanelComisiones.jsx`, `Calculos.jsx`, `Tienda.jsx`, `Productos.jsx`) for layout/spacing. When touching one of those files, follow its existing convention; for new components default to CSS Modules unless you're extending an already-Tailwind file
 - NEVER: Introduce Tailwind utilities into a CSS-Modules component just for convenience — pick one convention per file, don't mix
 - NEVER: Deeply nested selectors — keep CSS flat
-- NEVER: Invent global CSS classes like `input-tesla` or `select-tesla` — they don't exist and never did
-- NEVER: Use `className="input-tesla"` or `className="select-tesla"` — these are phantom classes with NO styles
+- NEVER: Use `className="input-tesla"` or `className="select-tesla"` — these are phantom classes with NO styles. Form controls come from `forms-tesla.css` via `composes:`, not from a global class (see below)
 
 ### Form Inputs / Selects / Textareas
 
-There are **NO global CSS classes** for form inputs. Each component defines its own `.input`, `.select`, `.textarea` in its CSS Module, following the **CF token pattern** from `ModalAlertaForm.module.css`:
+**Compose from `styles/forms-tesla.css`. Never redefine the control.**
 
 ```css
-/* Canonical pattern — copy this into your CSS Module */
-.input,
-.select,
-.textarea {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  font-size: var(--font-sm);
-  transition: all var(--duration-200) var(--ease-out);
+/* MyComponent.module.css */
+.input {
+  composes: input from '../../styles/forms-tesla.css';
 }
 
-.input:focus,
-.select:focus,
-.textarea:focus {
-  outline: none;
-  border-color: var(--cf-accent-blue);
-  background: var(--cf-bg-hover);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+.select {
+  composes: select from '../../styles/forms-tesla.css';
 }
 
-.textarea {
-  resize: vertical;
-  min-height: 80px;
+/* Dense inline rows (table cells, tree panels) — compose both */
+.inputDense {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+}
+
+/* A label bound to its control. Use a LARGER gap between field units than
+   the gap inside one, or the pairing is unreadable. */
+.field {
+  composes: field from '../../styles/forms-tesla.css';
+}
+
+.fieldLabel {
+  composes: label from '../../styles/forms-tesla.css';
 }
 ```
 
-Then in JSX: `className={styles.input}`, `className={styles.select}`, `className={styles.textarea}`
+Then in JSX: `className={styles.input}`, `className={styles.inputDense}`, etc.
+
+`forms-tesla.css` provides `.input` / `.select` / `.textarea`, the `Sm` dense variants, `.field` / `.label`, and the `:focus`, `:disabled` and invalid (`.inputError` or `aria-invalid="true"`) states. It is **not** imported globally — it exists only to be composed, so it leaks no global class names.
+
+- NEVER: Hand-write `padding` / `border` / `border-radius` / `background` / `color` / `font-size` on a form control in a CSS Module. That is how the codebase ended up with 56 private `.input` definitions across 19 different `padding` values and 6 different `border-radius` values.
+- NEVER: Copy a block of control styles from another module. Copy-paste is not a distribution mechanism — it guarantees drift.
+- NEVER: Ship a control without a visible focus state. Keyboard users cannot see where they are. Composing from `forms-tesla.css` gives you one; rolling your own usually does not.
+- NEVER: Hardcode the focus ring as `rgba(59, 130, 246, 0.1)`. The token `--cf-accent-blue-light` is exactly that value and has light/dark variants.
+- If the primitive genuinely cannot express what you need, **change `forms-tesla.css`** so every consumer benefits — do not fork it locally.
+
+**Migration note**: 56 modules still carry their own `.input`. They are being migrated deliberately, not in bulk (jsdom does no layout, so there is no visual regression net). When you touch one of those modules for another reason, migrate its controls to `composes:` as part of that change.
 
 ### Design Token Preference (CF > legacy)
 
@@ -378,4 +383,4 @@ cd frontend && pnpm exec eslint src/path/to/changed/files.jsx
 - Zustand: https://zustand-demo.pmnd.rs
 - Frontend skill: [`../skills/pricing-app-frontend/SKILL.md`](../skills/pricing-app-frontend/SKILL.md)
 - Design tokens: `src/styles/design-tokens.css`
-- Tesla components: `src/styles/buttons-tesla.css`, `modals-tesla.css`, `table-tesla.css`
+- Tesla components: `src/styles/buttons-tesla.css`, `forms-tesla.css`, `modals-tesla.css`, `table-tesla.css`

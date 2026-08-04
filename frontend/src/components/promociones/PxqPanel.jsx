@@ -117,40 +117,55 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
         editingId === tier.id ? (
           <form
             key={tier.id}
-            className={styles.pxqTierEditRow}
+            className={styles.pxqTierForm}
             onSubmit={(event) => {
               event.preventDefault();
               handleSaveEdit(tier.id);
             }}
           >
-            <label htmlFor={`pxq-edit-cantidad-${tier.id}`}>Cantidad mínima</label>
-            <input
-              id={`pxq-edit-cantidad-${tier.id}`}
-              type="number"
-              min="2"
-              value={editForm.cantidad_minima}
-              onChange={(e) => setEditForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
-              required
-            />
-            <label htmlFor={`pxq-edit-precio-${tier.id}`}>Precio unitario</label>
-            <input
-              id={`pxq-edit-precio-${tier.id}`}
-              type="number"
-              min="0"
-              step="0.01"
-              value={editForm.precio_unitario}
-              onChange={(e) => setEditForm((f) => ({ ...f, precio_unitario: e.target.value }))}
-              required
-            />
-            <label htmlFor={`pxq-edit-envio-${tier.id}`}>Costo de envío del bulto</label>
-            <input
-              id={`pxq-edit-envio-${tier.id}`}
-              type="number"
-              min="0"
-              step="0.01"
-              value={editForm.costo_envio_total}
-              onChange={(e) => setEditForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
-            />
+            <div className={styles.pxqField}>
+              <label className={styles.pxqFieldLabel} htmlFor={`pxq-edit-cantidad-${tier.id}`}>
+                Cantidad mínima
+              </label>
+              <input
+                id={`pxq-edit-cantidad-${tier.id}`}
+                className={styles.pxqInput}
+                type="number"
+                min="2"
+                value={editForm.cantidad_minima}
+                onChange={(e) => setEditForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
+                required
+              />
+            </div>
+            <div className={styles.pxqField}>
+              <label className={styles.pxqFieldLabel} htmlFor={`pxq-edit-precio-${tier.id}`}>
+                Precio unitario
+              </label>
+              <input
+                id={`pxq-edit-precio-${tier.id}`}
+                className={styles.pxqInput}
+                type="number"
+                min="0"
+                step="0.01"
+                value={editForm.precio_unitario}
+                onChange={(e) => setEditForm((f) => ({ ...f, precio_unitario: e.target.value }))}
+                required
+              />
+            </div>
+            <div className={styles.pxqField}>
+              <label className={styles.pxqFieldLabel} htmlFor={`pxq-edit-envio-${tier.id}`}>
+                Costo de envío del bulto
+              </label>
+              <input
+                id={`pxq-edit-envio-${tier.id}`}
+                className={styles.pxqInput}
+                type="number"
+                min="0"
+                step="0.01"
+                value={editForm.costo_envio_total}
+                onChange={(e) => setEditForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
+              />
+            </div>
             <button type="submit" className="btn-tesla sm" disabled={saving}>
               Guardar
             </button>
@@ -191,35 +206,50 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
       )}
 
       {editingId === null && (
-        <form className={styles.pxqTierEditRow} onSubmit={handleCreate}>
-          <label htmlFor="pxq-new-cantidad">Cantidad mínima</label>
-          <input
-            id="pxq-new-cantidad"
-            type="number"
-            min="2"
-            value={createForm.cantidad_minima}
-            onChange={(e) => setCreateForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
-            required
-          />
-          <label htmlFor="pxq-new-precio">Precio unitario</label>
-          <input
-            id="pxq-new-precio"
-            type="number"
-            min="0"
-            step="0.01"
-            value={createForm.precio_unitario}
-            onChange={(e) => setCreateForm((f) => ({ ...f, precio_unitario: e.target.value }))}
-            required
-          />
-          <label htmlFor="pxq-new-envio">Costo de envío del bulto</label>
-          <input
-            id="pxq-new-envio"
-            type="number"
-            min="0"
-            step="0.01"
-            value={createForm.costo_envio_total}
-            onChange={(e) => setCreateForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
-          />
+        <form className={styles.pxqTierForm} onSubmit={handleCreate}>
+          <div className={styles.pxqField}>
+            <label className={styles.pxqFieldLabel} htmlFor="pxq-new-cantidad">
+              Cantidad mínima
+            </label>
+            <input
+              id="pxq-new-cantidad"
+              className={styles.pxqInput}
+              type="number"
+              min="2"
+              value={createForm.cantidad_minima}
+              onChange={(e) => setCreateForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
+              required
+            />
+          </div>
+          <div className={styles.pxqField}>
+            <label className={styles.pxqFieldLabel} htmlFor="pxq-new-precio">
+              Precio unitario
+            </label>
+            <input
+              id="pxq-new-precio"
+              className={styles.pxqInput}
+              type="number"
+              min="0"
+              step="0.01"
+              value={createForm.precio_unitario}
+              onChange={(e) => setCreateForm((f) => ({ ...f, precio_unitario: e.target.value }))}
+              required
+            />
+          </div>
+          <div className={styles.pxqField}>
+            <label className={styles.pxqFieldLabel} htmlFor="pxq-new-envio">
+              Costo de envío del bulto
+            </label>
+            <input
+              id="pxq-new-envio"
+              className={styles.pxqInput}
+              type="number"
+              min="0"
+              step="0.01"
+              value={createForm.costo_envio_total}
+              onChange={(e) => setCreateForm((f) => ({ ...f, costo_envio_total: e.target.value }))}
+            />
+          </div>
           <button type="submit" className="btn-tesla primary sm" disabled={creating || atMax}>
             Agregar tramo
           </button>
