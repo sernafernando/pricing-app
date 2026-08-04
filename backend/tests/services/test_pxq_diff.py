@@ -5,8 +5,14 @@ array -- every assertion here checks the exact emitted array, not just
 counts, because the payload itself is what MercadoLibre acts on.
 """
 
+import ast
+from dataclasses import FrozenInstanceError
 from decimal import Decimal
+from pathlib import Path
 
+import pytest
+
+from app.services import pxq_diff
 from app.services.pxq_diff import (
     DesiredTier,
     LiveTier,
@@ -421,3 +427,231 @@ def test_a_live_tier_whose_local_row_is_not_priceable_is_kept_not_deleted():
     )
 
     assert {"id": "ORPHAN"} in result.array
+
+
+class TestDiffCountsClassifyEveryOutcome:
+    """The emitted array cannot be classified by looking at it.
+
+    `keep` emits `{"id": ...}`; `create` AND `modify` both emit
+    `{quantity, amount}` with no id. Anything downstream that asks "was this a
+    create or a modify?" of the array itself gets the wrong answer — which is
+    exactly what the sync log did, reporting a price replacement of an existing
+    tier as a brand-new tier. The diff knows all four outcomes at emit time, so
+    it is the diff that must say so.
+
+    `deletes` counts LIVE tiers that will no longer be represented in the
+    emitted array. A modify necessarily contributes one (array-replace
+    implements it as omit-the-old-id + create-a-new-entry, module docstring
+    "modify"), so `deletes` is not disjoint from `modifies` — it answers "which
+    live tiers stop existing", which is the question the incident needed.
+    """
+
+    def test_a_pure_keep_counts_only_a_keep(self):
+        result = diff_pxq_tiers(
+            live_tiers=[LiveTier(id="ML1", quantity=10, amount=Decimal("500.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("500.00"),
+                    ml_price_id="ML1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+
+        assert result.array == [{"id": "ML1"}]
+        assert (result.counts.keeps, result.counts.creates, result.counts.modifies, result.counts.deletes) == (
+            1,
+            0,
+            0,
+            0,
+        )
+
+    def test_a_pure_create_counts_only_a_create(self):
+        result = diff_pxq_tiers(
+            live_tiers=[],
+            desired_tiers=[DesiredTier(quantity=5, amount=Decimal("300.00"), ml_price_id=None)],
+        )
+
+        assert result.array == [{"quantity": 5, "amount": 300.0}]
+        assert (result.counts.keeps, result.counts.creates, result.counts.modifies, result.counts.deletes) == (
+            0,
+            1,
+            0,
+            0,
+        )
+
+    def test_a_modify_counts_a_modify_not_a_create(self):
+        """THE case the sync log got wrong: an existing tier's price replaced
+        (500 -> 550) was reported as `creates=1`."""
+        result = diff_pxq_tiers(
+            live_tiers=[LiveTier(id="ML1", quantity=10, amount=Decimal("500.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("550.00"),
+                    ml_price_id="ML1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+
+        assert result.array == [{"quantity": 10, "amount": 550.0}]
+        assert result.counts.modifies == 1
+        assert result.counts.creates == 0
+        assert result.counts.keeps == 0
+        # The old id "ML1" is omitted, so that live tier does disappear.
+        assert result.counts.deletes == 1
+
+    def test_an_explicit_clear_counts_every_live_tier_as_a_delete(self):
+        result = diff_pxq_tiers(
+            live_tiers=[
+                LiveTier(id="ML1", quantity=10, amount=Decimal("500.00")),
+                LiveTier(id="ML2", quantity=20, amount=Decimal("900.00")),
+            ],
+            desired_tiers=[],
+            allow_clear=True,
+        )
+
+        assert result.array == []
+        assert (result.counts.keeps, result.counts.creates, result.counts.modifies, result.counts.deletes) == (
+            0,
+            0,
+            0,
+            2,
+        )
+
+    def test_an_untracked_live_tier_preserved_as_keep_counts_as_a_keep(self):
+        result = diff_pxq_tiers(
+            live_tiers=[LiveTier(id="ML_UNKNOWN", quantity=20, amount=Decimal("900.00"))],
+            desired_tiers=[DesiredTier(quantity=5, amount=Decimal("100.00"), ml_price_id=None)],
+        )
+
+        assert result.counts.keeps == 1
+        assert result.counts.creates == 1
+        assert result.counts.deletes == 0
+
+    def test_a_mixed_array_reports_all_four_counts_simultaneously(self):
+        result = diff_pxq_tiers(
+            live_tiers=[
+                LiveTier(id="ML_KEEP", quantity=5, amount=Decimal("100.00")),
+                LiveTier(id="ML_MOD", quantity=10, amount=Decimal("500.00")),
+            ],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=5,
+                    amount=Decimal("100.00"),
+                    ml_price_id="ML_KEEP",
+                    synced_quantity=5,
+                    synced_amount=Decimal("100.00"),
+                ),
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("550.00"),
+                    ml_price_id="ML_MOD",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                ),
+                DesiredTier(quantity=20, amount=Decimal("400.00"), ml_price_id=None),
+            ],
+        )
+
+        assert result.ok
+        assert result.array == [
+            {"id": "ML_KEEP"},
+            {"quantity": 10, "amount": 550.0},
+            {"quantity": 20, "amount": 400.0},
+        ]
+        assert result.counts.keeps == 1
+        assert result.counts.creates == 1
+        assert result.counts.modifies == 1
+        # Only ML_MOD's old id vanishes; ML_KEEP is echoed back.
+        assert result.counts.deletes == 1
+
+    def test_a_refusal_carries_zero_counts_because_no_array_was_built(self):
+        result = diff_pxq_tiers(
+            live_tiers=[LiveTier(id="ML1", quantity=10, amount=Decimal("470.00"))],
+            desired_tiers=[
+                DesiredTier(
+                    quantity=10,
+                    amount=Decimal("500.00"),
+                    ml_price_id="ML1",
+                    synced_quantity=10,
+                    synced_amount=Decimal("500.00"),
+                )
+            ],
+        )
+
+        assert not result.ok
+        assert result.array is None
+        assert (result.counts.keeps, result.counts.creates, result.counts.modifies, result.counts.deletes) == (
+            0,
+            0,
+            0,
+            0,
+        )
+
+    def test_counts_are_frozen_like_the_result_that_carries_them(self):
+        result = diff_pxq_tiers(
+            live_tiers=[],
+            desired_tiers=[DesiredTier(quantity=5, amount=Decimal("300.00"))],
+        )
+
+        with pytest.raises(FrozenInstanceError):
+            result.counts.creates = 99
+
+
+class TestPxqDiffModuleStaysPure:
+    """`pxq_diff` is the array-replace decision, and array-replace is the
+    single highest-risk behavior in this feature (module docstring). It stays
+    testable in isolation only while it has no framework, no session, no HTTP
+    and no logging behind it.
+
+    Counts are plain data and do NOT violate this: nothing here forbids the
+    module from describing what it decided, only from reaching outside itself
+    to do it.
+    """
+
+    _FORBIDDEN_ROOTS = {"fastapi", "sqlalchemy", "app", "logging", "requests", "httpx"}
+
+    def _imported_roots(self) -> set:
+        source_path = Path(pxq_diff.__file__)
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+
+        roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    roots.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:  # relative import: reaches into the app package
+                    roots.add("app")
+                elif node.module:
+                    roots.add(node.module.split(".")[0])
+        return roots
+
+    def test_pxq_diff_imports_nothing_impure(self):
+        offenders = self._imported_roots() & self._FORBIDDEN_ROOTS
+
+        assert offenders == set(), f"pxq_diff must stay pure; forbidden imports found: {sorted(offenders)}"
+
+    def test_the_scan_would_actually_catch_an_impure_import(self):
+        """Keeps the guard above from going vacuously green if the AST walk
+        ever stops seeing imports."""
+        tree = ast.parse("import logging\nfrom sqlalchemy.orm import Session\n")
+        roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                roots.add(node.module.split(".")[0])
+
+        assert roots & self._FORBIDDEN_ROOTS == {"logging", "sqlalchemy"}
+
+    def test_pxq_diff_never_touches_a_logger(self):
+        source = Path(pxq_diff.__file__).read_text(encoding="utf-8")
+
+        assert "getLogger" not in source
+        assert "logger." not in source
