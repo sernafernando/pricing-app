@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Package,
   ChevronRight,
+  Check,
+  Copy,
+  X,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -15,29 +18,94 @@ import styles from './TabRecepcionDeposito.module.css';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+// Single source of truth for the Spanish label of each estado. Both the badge
+// and the clipboard payload read from here — never inline these strings again.
+const ESTADO_LABELS = {
+  pagado: 'Pagado',
+  en_cuenta_corriente: 'En cuenta corriente',
+  con_faltantes: 'Con faltantes',
+  recibido: 'Recibido',
+  controlado: 'Controlado',
+};
+
+// `pagado` and `en_cuenta_corriente` deliberately share ONE badge tone.
+// They are the same fact to a warehouse operator — "awaiting reception" — and how
+// the pedido was paid is an accounting concern that must not read as a different
+// logistics state. The badge TEXT still names the estado for whoever needs it, so
+// nothing is hidden; only the colour, which is the channel that would otherwise
+// imply "handle these two differently", is shared. Giving them separate tones
+// would reintroduce visually the very split the merged "Por recibir" tab removed.
+const ESTADO_BADGE_CLASS = {
+  pagado: 'badgePagado',
+  en_cuenta_corriente: 'badgePagado',
+  con_faltantes: 'badgeConFaltantes',
+  recibido: 'badgeRecibido',
+  controlado: 'badgeControlado',
+};
+
+// A tab id is NOT a single estado: it is the `estado` query param sent verbatim
+// to the listing endpoint, which splits on comma and filters with IN(...).
+//
+// 'pagado' and 'en_cuenta_corriente' deliberately share ONE tab: how a pedido
+// was paid (cash up front vs. supplier credit) is an accounting concern with no
+// bearing on the warehouse. Both estados mean "awaiting reception", so splitting
+// them only forced the operator to check two tabs to do a single job.
+// The badge still distinguishes them — that information is useful, the filter is not.
 const FILTER_TABS = [
-  { id: 'pagado', label: 'Por recibir' },
-  { id: 'en_cuenta_corriente', label: 'En cuenta corriente' },
+  { id: 'pagado,en_cuenta_corriente', label: 'Por recibir' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
   { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
 ];
 
+// Outcome text announced by the SINGLE list-level copy live region, keyed by
+// copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
+// the region is mounted from the first render and only its TEXT may change.
+const COPY_STATUS_MESSAGE = {
+  copied: (numero) => `Datos del pedido #${numero} copiados`,
+  error: (numero) => `No se pudo copiar el pedido #${numero}`,
+};
+
+// How long a copy outcome stays visible/announced. Shared by the two timers that
+// legitimately exist — the row's icon flash and the list's announcement — so the
+// visual and the spoken feedback can never drift apart.
+const COPY_FLASH_MS = 1500;
+
 function estadoBadge(estado, stylesMap) {
-  switch (estado) {
-    case 'pagado':
-      return <span className={stylesMap.badgePagado}>Pagado</span>;
-    case 'en_cuenta_corriente':
-      return <span className={stylesMap.badgePagado}>En cuenta corriente</span>;
-    case 'con_faltantes':
-      return <span className={stylesMap.badgeConFaltantes}>Con faltantes</span>;
-    case 'recibido':
-      return <span className={stylesMap.badgeRecibido}>Recibido</span>;
-    case 'controlado':
-      return <span className={stylesMap.badgeControlado}>Controlado</span>;
-    default:
-      return <span className={stylesMap.badge}>{estado}</span>;
-  }
+  const badgeClass = ESTADO_BADGE_CLASS[estado];
+  if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
+  return <span className={stylesMap[badgeClass]}>{ESTADO_LABELS[estado]}</span>;
+}
+
+/**
+ * Builds the plain-text clipboard payload for a pedido HEADER.
+ *
+ * Money fields (monto, moneda, saldo_pendiente, tipo_cambio*, varianza*) are
+ * excluded on purpose: warehouse-only listings withhold the money trail, and
+ * the clipboard must not become a side channel around that decision.
+ * Items are excluded too — this is a header summary, not a picking list.
+ *
+ * Lines whose value is null/empty are omitted entirely.
+ *
+ * Kept module-scoped (not exported): `react-refresh/only-export-components`
+ * forbids non-component named exports here. Covered via the copy button.
+ */
+function buildPedidoClipboardText(pedido) {
+  const campos = [
+    ['Proveedor', pedido.proveedor_nombre],
+    ['Estado', ESTADO_LABELS[pedido.estado] ?? pedido.estado],
+    ['Factura', pedido.numero_factura],
+    ['Observaciones', pedido.observaciones],
+  ];
+
+  const lineas = [`Pedido #${pedido.numero}`];
+  campos.forEach(([etiqueta, valor]) => {
+    if (valor == null || String(valor).trim() === '') return;
+    lineas.push(`${etiqueta}: ${valor}`);
+  });
+  if (pedido.requiere_envio) lineas.push('Requiere retiro');
+
+  return lineas.join('\n');
 }
 
 // ── Accordion body — CON OC — arrival panel (estado=pagado) ──────
@@ -537,38 +605,96 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 
 // ── Single accordion card ─────────────────────────────────────────
 
-function PedidoAccordion({ pedido, onRefreshList }) {
+function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
   const [open, setOpen] = useState(false);
   const [retiroOpen, setRetiroOpen] = useState(false);
+  // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
+  // from "clicked and failed", which is exactly the state the operator needs.
+  // This state is VISUAL only (icon swap + .copyButtonError); the announcement
+  // lives in the tab's single live region, reached through onCopyOutcome.
+  const [copyStatus, setCopyStatus] = useState('idle');
+  const copyResetTimerRef = useRef(null);
+
+  // The copy-feedback flash timer must never outlive the component.
+  useEffect(() => () => clearTimeout(copyResetTimerRef.current), []);
 
   const handleRetiroSuccess = useCallback(() => {
     setRetiroOpen(false);
     onRefreshList();
   }, [onRefreshList]);
 
-  // Prevent accordion toggle when clicking retiro button
-  const handleRetiroClick = (e) => {
-    e.stopPropagation();
-    setRetiroOpen(true);
+  const handleCopiar = async () => {
+    // One timer for both outcomes: scheduling the reset in a single place keeps
+    // copyResetTimerRef the only handle the unmount cleanup has to clear. The
+    // ANNOUNCEMENT is not flashed here — it is handed to the tab, which owns the
+    // one live region shared by every row and schedules its own reset.
+    const flashStatus = (status) => {
+      setCopyStatus(status);
+      clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = setTimeout(() => setCopyStatus('idle'), COPY_FLASH_MS);
+      onCopyOutcome(status, pedido.numero);
+    };
+
+    // Explicit guard: where the async clipboard API is absent there is nothing
+    // to reject, so relying on the throw would leave the button silently inert.
+    if (typeof navigator.clipboard?.writeText !== 'function') {
+      flashStatus('error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(buildPedidoClipboardText(pedido));
+      flashStatus('copied');
+    } catch {
+      // Realistic path: the clipboard permission is denied by the browser.
+      flashStatus('error');
+    }
   };
+
+  // The accessible name describes the ACTION and never the outcome. It used to
+  // swap to "No se pudo copiar…" on failure, which was wrong twice over: the
+  // name then lied about what the control still does, and screen readers do not
+  // reliably re-read the name of the element that already holds focus — which is
+  // precisely the element the operator just clicked. Both outcomes now travel
+  // through the tab's role="status" region, the one channel that fires on a text
+  // change alone. Keeping both would risk announcing the failure twice.
+  // `title` mirrors it for the same reason: tooltip and accessible name are both
+  // "what this button does" affordances, not a status channel.
+  const copiarLabel = `Copiar datos del pedido #${pedido.numero}`;
 
   return (
     <div className={styles.accordion}>
-      <button
-        type="button"
-        className={styles.accordionHeader}
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <ChevronRight
-          size={16}
-          className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`}
-          aria-hidden="true"
-        />
-        <span className={styles.pedidoNumero}>#{pedido.numero}</span>
-        <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
+      {/* The header is a plain container: the toggle and the action buttons are
+          siblings. Nesting them inside one <button> was invalid HTML and forced
+          a stopPropagation hack on every action. */}
+      <div className={styles.accordionHeader}>
+        <button
+          type="button"
+          className={styles.accordionToggle}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronRight
+            size={16}
+            className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`}
+            aria-hidden="true"
+          />
+          <span className={styles.pedidoNumero}>#{pedido.numero}</span>
+          <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
+        </button>
         <div className={styles.headerBadges}>
           {estadoBadge(pedido.estado, styles)}
+          <button
+            type="button"
+            className={`${styles.copyButton} ${copyStatus === 'error' ? styles.copyButtonError : ''}`}
+            onClick={handleCopiar}
+            aria-label={copiarLabel}
+            title={copiarLabel}
+          >
+            {copyStatus === 'copied' && <Check size={12} aria-hidden="true" />}
+            {copyStatus === 'error' && <X size={12} aria-hidden="true" />}
+            {copyStatus === 'idle' && <Copy size={12} aria-hidden="true" />}
+          </button>
           {pedido.requiere_envio && (
             <>
               <span className={styles.tagRetiro}>
@@ -578,16 +704,16 @@ function PedidoAccordion({ pedido, onRefreshList }) {
               <button
                 type="button"
                 className={styles.retiroButton}
-                onClick={handleRetiroClick}
-                aria-label={`Despachar retiro para pedido #${pedido.numero}`}
+                onClick={() => setRetiroOpen(true)}
+                aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
               >
                 <Truck size={12} aria-hidden="true" />
-                Despachar retiro
+                Coordinar retiro
               </button>
             </>
           )}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className={styles.accordionBody}>
@@ -625,17 +751,39 @@ function PedidoAccordion({ pedido, onRefreshList }) {
 // ── Main tab ──────────────────────────────────────────────────────
 
 export default function TabRecepcionDeposito() {
-  const [filtro, setFiltro] = useState('pagado'); // 'pagado' | 'recibido' | 'controlado' | 'con_faltantes'
+  // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
+  // may be a comma-separated list of estados, not a single one.
+  const [filtro, setFiltro] = useState(FILTER_TABS[0].id);
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // ONE live-region text for the whole list. Hoisted out of PedidoAccordion
+  // because at most one row can ever carry an outcome, while a full page mounted
+  // up to 200 concurrent live regions to say so.
+  const [copyStatusMessage, setCopyStatusMessage] = useState('');
+  const copyMessageTimerRef = useRef(null);
+
+  // The shared announcement timer must never outlive the tab.
+  useEffect(() => () => clearTimeout(copyMessageTimerRef.current), []);
+
+  // Single place where the announcement is set AND reset, so there is exactly one
+  // timer here no matter how many rows report an outcome. Rows send the outcome,
+  // not the text: COPY_STATUS_MESSAGE stays the only source of the wording.
+  const handleCopyOutcome = useCallback((status, numero) => {
+    setCopyStatusMessage(COPY_STATUS_MESSAGE[status]?.(numero) ?? '');
+    clearTimeout(copyMessageTimerRef.current);
+    copyMessageTimerRef.current = setTimeout(() => setCopyStatusMessage(''), COPY_FLASH_MS);
+  }, []);
+
   const fetchPedidos = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Each tab maps 1:1 to a backend estado value.
+      // Sent verbatim as the `estado` param. The backend splits it on comma and
+      // filters with IN(...), so a tab id may carry several estados at once
+      // (see FILTER_TABS: "Por recibir" = pagado + en_cuenta_corriente).
       const estados = filtro;
 
       const { data } = await api.get('/administracion/compras/pedidos', {
@@ -666,6 +814,19 @@ export default function TabRecepcionDeposito() {
       <div className={styles.pageHeader}>
         <Package size={20} aria-hidden="true" />
         Recepción de Depósito
+      </div>
+
+      {/* Copy outcome for assistive technology — ONE region for the whole list.
+          Mounted unconditionally and empty on purpose: a live region inserted at
+          the same instant its text appears is routinely missed, so only the text
+          may change. It sits ABOVE the loading/error/empty branches so it also
+          survives every render state of the tab, and it is shared by every row
+          because at most one copy outcome exists at a time. The visual channel
+          (icon swap + .copyButtonError) stays per-row, inside PedidoAccordion.
+          `sr-only` is the global utility this file already uses for the qty
+          label — reused rather than duplicated as a module class. */}
+      <div role="status" className="sr-only">
+        {copyStatusMessage}
       </div>
 
       {/* Filter tabs */}
@@ -713,6 +874,7 @@ export default function TabRecepcionDeposito() {
               key={p.id}
               pedido={p}
               onRefreshList={handleRefreshList}
+              onCopyOutcome={handleCopyOutcome}
             />
           ))}
         </div>
