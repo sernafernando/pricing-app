@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useNCsLocales from '../../hooks/useNCsLocales';
+import { formatMoneda, formatMonedaErp, monedaDeCurrId } from './_shared/formatMoneda';
 import styles from './ModalVincularFacturaNC.module.css';
 
 const formatDate = (isoStr) => {
@@ -23,15 +24,6 @@ const formatDate = (isoStr) => {
   } catch {
     return isoStr;
   }
-};
-
-const formatCurrency = (value, moneda = 'ARS') => {
-  const num = Number(value) || 0;
-  const prefix = moneda === 'USD' ? 'US$' : '$';
-  return `${prefix}${num.toLocaleString('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 };
 
 /**
@@ -66,7 +58,33 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
   const montoNC = Number(nc?.monto) || 0;
   const montoERP = Number(seleccionada?.ct_total) || 0;
   const diferencia = montoERP - montoNC;
-  const hayDiferencia = Math.abs(diferencia) >= 0.01;
+
+  // The ERP NC carries its OWN currency in `curr_id_transaction` and it does not
+  // have to match the local NC's. Subtracting a USD total from an ARS amount is
+  // meaningless, and `hayDiferencia` gates the adjustment flow — so a currency
+  // mismatch must collapse both: no numeric difference, no adjustment offered.
+  //
+  // Converting is not impossible here, only unimplemented. The ERP document has
+  // no rate of its own, but the LOCAL NC does carry `tipo_cambio`
+  // (nota_credito_local.py:65, exposed through the schema), so this modal could
+  // compare in ARS the same way ModalVincularFactura already does for pedidos.
+  // Doing so requires splitting display-comparability from write-eligibility
+  // first: the adjustment rewrites the amount in the local NC's own currency,
+  // so it must keep depending on NATIVE currency equality, never on an
+  // ARS-derived comparison. Until that split exists here, refusing to compare
+  // is the safe behaviour — but do not read this as "there is no rate".
+  const monedaNC = nc?.moneda ?? null;
+  const monedaERP = monedaDeCurrId(seleccionada?.curr_id_transaction);
+  const montosComparables =
+    !!seleccionada && monedaERP !== null && monedaERP === monedaNC;
+  const monedasNoComparables = !!seleccionada && !montosComparables;
+  const hayDiferencia = montosComparables && Math.abs(diferencia) >= 0.01;
+
+  // `ajustar` is user state that survives changing the selected NC, so it must
+  // never be trusted on its own: without this a user could tick the checkbox on
+  // a matching NC, switch to a mismatched one and still submit ajustar_monto=true.
+  const puedeAjustar = hayDiferencia && canAdjust;
+  const ajustarEfectivo = ajustar && puedeAjustar;
 
   const fetchCandidatas = useCallback(async () => {
     if (!nc?.id) return;
@@ -92,7 +110,7 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
 
   const handleVincular = async () => {
     if (!seleccionada) return;
-    if (ajustar && !motivo.trim()) {
+    if (ajustarEfectivo && !motivo.trim()) {
       setError('Indicá un motivo para el ajuste de monto.');
       return;
     }
@@ -101,9 +119,9 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
     try {
       const body = {
         ct_transaction: seleccionada.ct_transaction,
-        ajustar_monto: !!ajustar,
+        ajustar_monto: ajustarEfectivo,
       };
-      if (ajustar) {
+      if (ajustarEfectivo) {
         body.nuevo_monto = String(seleccionada.ct_total);
         body.motivo_ajuste = motivo.trim();
       }
@@ -121,7 +139,7 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
   };
 
   const puedeConfirmar =
-    !!seleccionada && !submitting && (!ajustar || motivo.trim().length > 0);
+    !!seleccionada && !submitting && (!ajustarEfectivo || motivo.trim().length > 0);
 
   return (
     <div className={styles.modalOverlay}>
@@ -193,7 +211,7 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
                       <td className={styles.tdMono}>{c.ct_docnumber}</td>
                       <td>{formatDate(c.ct_date)}</td>
                       <td className={styles.tdRight}>
-                        {formatCurrency(c.ct_total, nc?.moneda)}
+                        {formatMonedaErp(c.ct_total, c.curr_id_transaction)}
                       </td>
                     </tr>
                   ))}
@@ -206,42 +224,55 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
                 <div className={styles.compRow}>
                   <span className={styles.compLabel}>Monto de la NC local</span>
                   <strong className={styles.compValue}>
-                    {formatCurrency(nc?.monto, nc?.moneda)}
+                    {formatMoneda(nc?.monto, nc?.moneda)}
                   </strong>
                 </div>
                 <div className={styles.compRow}>
                   <span className={styles.compLabel}>Monto de la NC ERP</span>
                   <strong className={styles.compValue}>
-                    {formatCurrency(seleccionada.ct_total, nc?.moneda)}
-                  </strong>
-                </div>
-                <div
-                  className={`${styles.compRow} ${
-                    hayDiferencia ? styles.diffBad : styles.diffOk
-                  }`}
-                >
-                  <span className={styles.compLabel}>
-                    {hayDiferencia ? (
-                      <>
-                        <AlertTriangle size={14} /> Diferencia
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={14} /> Coinciden
-                      </>
+                    {formatMonedaErp(
+                      seleccionada.ct_total,
+                      seleccionada.curr_id_transaction
                     )}
-                  </span>
-                  <strong className={styles.compValue}>
-                    {hayDiferencia
-                      ? `${diferencia > 0 ? '+' : ''}${formatCurrency(
-                          diferencia,
-                          nc?.moneda
-                        )}`
-                      : '—'}
                   </strong>
                 </div>
+                {monedasNoComparables ? (
+                  <div className={styles.monedaMismatch} role="status">
+                    <AlertTriangle size={14} /> La NC local está en{' '}
+                    {monedaNC || 'moneda desconocida'} y la NC del ERP en{' '}
+                    {monedaERP || 'moneda desconocida'}. Los montos no son
+                    comparables: no se puede calcular la diferencia ni ajustar el
+                    monto de la NC local.
+                  </div>
+                ) : (
+                  <div
+                    className={`${styles.compRow} ${
+                      hayDiferencia ? styles.diffBad : styles.diffOk
+                    }`}
+                  >
+                    <span className={styles.compLabel}>
+                      {hayDiferencia ? (
+                        <>
+                          <AlertTriangle size={14} /> Diferencia
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={14} /> Coinciden
+                        </>
+                      )}
+                    </span>
+                    <strong className={styles.compValue}>
+                      {hayDiferencia
+                        ? `${diferencia > 0 ? '+' : ''}${formatMoneda(
+                            diferencia,
+                            monedaNC
+                          )}`
+                        : '—'}
+                    </strong>
+                  </div>
+                )}
 
-                {hayDiferencia && canAdjust && (
+                {puedeAjustar && (
                   <div className={styles.ajusteBlock}>
                     <label className={styles.checkboxRow}>
                       <input
@@ -296,7 +327,7 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
           >
             {submitting ? (
               <Loader2 size={14} className={styles.spin} />
-            ) : ajustar ? (
+            ) : ajustarEfectivo ? (
               'Vincular y ajustar'
             ) : (
               'Vincular'

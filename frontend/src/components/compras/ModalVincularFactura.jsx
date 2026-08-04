@@ -6,10 +6,37 @@ import {
   AlertTriangle,
   CheckCircle,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import api from '../../services/api';
+import {
+  equivalenteEnArs,
+  formatMoneda,
+  formatMonedaErp,
+  formatTC,
+  monedaDeCurrId,
+} from './_shared/formatMoneda';
 import styles from './ModalVincularFactura.module.css';
+
+/**
+ * Expresses an amount in ARS, the module's functional currency (see the
+ * convention documented in `_shared/formatMoneda.js`).
+ *
+ * ARS → itself. USD → `monto * tc`, but ONLY with a usable TC. Anything else
+ * (unknown currency, USD without a TC) → `null`, meaning "no ARS equivalent
+ * exists", which callers must treat as NOT comparable. Never invent a rate:
+ * today's rate is not the rate this document was priced at.
+ *
+ * @param {number} monto
+ * @param {'ARS'|'USD'|null} moneda
+ * @param {number|string|null|undefined} tc
+ * @returns {number|null}
+ */
+const montoEnArs = (monto, moneda, tc) => {
+  if (moneda === 'ARS') return monto;
+  return equivalenteEnArs(monto, moneda, tc);
+};
 
 const formatDate = (isoStr) => {
   if (!isoStr) return '—';
@@ -23,15 +50,6 @@ const formatDate = (isoStr) => {
   } catch {
     return isoStr;
   }
-};
-
-const formatCurrency = (value, moneda = 'ARS') => {
-  const num = Number(value) || 0;
-  const prefix = moneda === 'USD' ? 'US$' : '$';
-  return `${prefix}${num.toLocaleString('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 };
 
 /**
@@ -62,8 +80,62 @@ export default function ModalVincularFactura({ pedido, onClose }) {
 
   const montoPedido = Number(pedido?.monto) || 0;
   const montoFactura = Number(seleccionada?.ct_total) || 0;
-  const diferencia = montoFactura - montoPedido;
-  const hayDiferencia = Math.abs(diferencia) >= 0.01;
+
+  // The ERP invoice carries its OWN currency; it does not have to match the
+  // pedido's (cross-currency linking is supported by the backend).
+  const monedaPedido = pedido?.moneda ?? null;
+  const monedaFactura = monedaDeCurrId(seleccionada?.curr_id_transaction);
+  const tcPedido = pedido?.tipo_cambio ?? null;
+
+  // Both sides expressed in ARS. A USD pedido carries its own `tipo_cambio`;
+  // an ERP document never does, so a USD invoice has no ARS equivalent here —
+  // hence the explicit null TC. No fallback, no "rate of the day".
+  const montoPedidoArs = montoEnArs(montoPedido, monedaPedido, tcPedido);
+  const montoFacturaArs = montoEnArs(montoFactura, monedaFactura, null);
+
+  const monedasNativasCoinciden =
+    monedaFactura !== null && monedaPedido !== null && monedaFactura === monedaPedido;
+
+  // Cross-currency, but both sides land on ARS (in practice: pedido USD with TC
+  // vs. the ARS invoice, which is 100% of the ERP purchase documents).
+  const comparaEnArs =
+    !monedasNativasCoinciden && montoPedidoArs !== null && montoFacturaArs !== null;
+
+  const montosComparables =
+    !!seleccionada && (monedasNativasCoinciden || comparaEnArs);
+  const monedasNoComparables = !!seleccionada && !montosComparables;
+
+  const monedaDiferencia = comparaEnArs ? 'ARS' : monedaPedido;
+  const diferencia = comparaEnArs
+    ? montoFacturaArs - montoPedidoArs
+    : montoFactura - montoPedido;
+
+  // ── TWO INDEPENDENT CONCEPTS. Do not fuse them again. ──────────────────
+  //
+  // 1) `hayDiferencia` — DISPLAY ONLY. We can show a meaningful difference,
+  //    which now includes the cross-currency case resolved through the pedido's
+  //    own TC.
+  //
+  // 2) `ajusteHabilitadoPorMoneda` — WRITE. The adjustment rewrites
+  //    `pedido.monto` in the PEDIDO's own currency, so the backend requires the
+  //    invoice to be in that same currency (`_validar_moneda_factura_coincide`,
+  //    pedidos_service.py). It therefore depends on NATIVE currency equality and
+  //    must NEVER be derived from the ARS-based comparability above: a pedido
+  //    USD + factura ARS shows its difference and still offers no adjustment.
+  //    Fusing these two is how pedido P-02-2026-00001 ended up with a 46M USD
+  //    monto after being adjusted against an ARS invoice.
+  const hayDiferencia = montosComparables && Math.abs(diferencia) >= 0.01;
+  const ajusteHabilitadoPorMoneda = monedasNativasCoinciden;
+
+  // `ajustar` is user state that survives changing the selected invoice, so it
+  // must never be trusted on its own — a mismatched selection would otherwise
+  // still POST ajustar_monto=true (which the backend rejects with a 400).
+  const puedeAjustar = ajusteHabilitadoPorMoneda && hayDiferencia && canAdjust;
+  const ajustarEfectivo = ajustar && puedeAjustar;
+
+  // Module convention: a USD pedido is shown ARS-first with its native amount
+  // as muted secondary, and the TC is always stated alongside it.
+  const mostrarPedidoEnArs = monedaPedido === 'USD' && montoPedidoArs !== null;
 
   const fetchCandidatas = useCallback(async () => {
     if (!pedido?.id) return;
@@ -87,7 +159,7 @@ export default function ModalVincularFactura({ pedido, onClose }) {
 
   const handleVincular = async () => {
     if (!seleccionada) return;
-    if (ajustar && !motivo.trim()) {
+    if (ajustarEfectivo && !motivo.trim()) {
       setError('Indicá un motivo para el ajuste de monto.');
       return;
     }
@@ -96,9 +168,9 @@ export default function ModalVincularFactura({ pedido, onClose }) {
     try {
       const body = {
         ct_transaction: seleccionada.ct_transaction,
-        ajustar_monto: !!ajustar,
+        ajustar_monto: ajustarEfectivo,
       };
-      if (ajustar) {
+      if (ajustarEfectivo) {
         body.nuevo_monto = String(seleccionada.ct_total);
         body.motivo_ajuste = motivo.trim();
       }
@@ -115,7 +187,7 @@ export default function ModalVincularFactura({ pedido, onClose }) {
   };
 
   const puedeConfirmar =
-    !!seleccionada && !submitting && (!ajustar || motivo.trim().length > 0);
+    !!seleccionada && !submitting && (!ajustarEfectivo || motivo.trim().length > 0);
 
   return (
     <div className={styles.modalOverlay}>
@@ -187,7 +259,7 @@ export default function ModalVincularFactura({ pedido, onClose }) {
                       <td className={styles.tdMono}>{c.ct_docnumber}</td>
                       <td>{formatDate(c.ct_date)}</td>
                       <td className={styles.tdRight}>
-                        {formatCurrency(c.ct_total, pedido?.moneda)}
+                        {formatMonedaErp(c.ct_total, c.curr_id_transaction)}
                       </td>
                     </tr>
                   ))}
@@ -199,43 +271,78 @@ export default function ModalVincularFactura({ pedido, onClose }) {
               <div className={styles.comparisonBlock}>
                 <div className={styles.compRow}>
                   <span className={styles.compLabel}>Monto del pedido</span>
-                  <strong className={styles.compValue}>
-                    {formatCurrency(pedido?.monto, pedido?.moneda)}
-                  </strong>
+                  {mostrarPedidoEnArs ? (
+                    <span className={styles.compValueStack}>
+                      <strong className={styles.compValue}>
+                        {formatMoneda(montoPedidoArs, 'ARS')}
+                      </strong>
+                      <span className={styles.compValueNativo}>
+                        {formatMoneda(pedido?.monto, monedaPedido)} @ TC{' '}
+                        {formatTC(tcPedido)}
+                      </span>
+                    </span>
+                  ) : (
+                    <strong className={styles.compValue}>
+                      {formatMoneda(pedido?.monto, pedido?.moneda)}
+                    </strong>
+                  )}
                 </div>
                 <div className={styles.compRow}>
                   <span className={styles.compLabel}>Monto de la factura</span>
                   <strong className={styles.compValue}>
-                    {formatCurrency(seleccionada.ct_total, pedido?.moneda)}
-                  </strong>
-                </div>
-                <div
-                  className={`${styles.compRow} ${
-                    hayDiferencia ? styles.diffBad : styles.diffOk
-                  }`}
-                >
-                  <span className={styles.compLabel}>
-                    {hayDiferencia ? (
-                      <>
-                        <AlertTriangle size={14} /> Diferencia
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={14} /> Coinciden
-                      </>
+                    {formatMonedaErp(
+                      seleccionada.ct_total,
+                      seleccionada.curr_id_transaction
                     )}
-                  </span>
-                  <strong className={styles.compValue}>
-                    {hayDiferencia
-                      ? `${diferencia > 0 ? '+' : ''}${formatCurrency(
-                          diferencia,
-                          pedido?.moneda
-                        )}`
-                      : '—'}
                   </strong>
                 </div>
+                {monedasNoComparables ? (
+                  <div className={styles.monedaMismatch} role="status">
+                    <AlertTriangle size={14} /> El pedido está en{' '}
+                    {monedaPedido || 'moneda desconocida'} y la factura en{' '}
+                    {monedaFactura || 'moneda desconocida'}. Los montos no son
+                    comparables: no se puede calcular la diferencia ni ajustar el
+                    monto del pedido.
+                  </div>
+                ) : (
+                  <div
+                    className={`${styles.compRow} ${
+                      hayDiferencia ? styles.diffBad : styles.diffOk
+                    }`}
+                  >
+                    <span className={styles.compLabel}>
+                      {hayDiferencia ? (
+                        <>
+                          <AlertTriangle size={14} /> Diferencia
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={14} /> Coinciden
+                        </>
+                      )}
+                    </span>
+                    <strong className={styles.compValue}>
+                      {hayDiferencia
+                        ? `${diferencia > 0 ? '+' : ''}${formatMoneda(
+                            diferencia,
+                            monedaDiferencia
+                          )}`
+                        : '—'}
+                    </strong>
+                  </div>
+                )}
 
-                {hayDiferencia && canAdjust && (
+                {comparaEnArs && (
+                  <div className={styles.equivalenciaNota}>
+                    <Info size={14} /> El pedido está en {monedaPedido} y la
+                    factura en {monedaFactura}. La diferencia se calcula en ARS
+                    convirtiendo el pedido al TC {formatTC(tcPedido)}. Por ser
+                    monedas distintas, no se puede ajustar el monto del pedido
+                    contra esta factura.
+                  </div>
+                )}
+
+                {puedeAjustar && (
                   <div className={styles.ajusteBlock}>
                     <label className={styles.checkboxRow}>
                       <input
@@ -264,7 +371,7 @@ export default function ModalVincularFactura({ pedido, onClose }) {
                   </div>
                 )}
 
-                {hayDiferencia && !canAdjust && (
+                {hayDiferencia && ajusteHabilitadoPorMoneda && !canAdjust && (
                   <div className={styles.noPermisoHint}>
                     El monto difiere, pero no tenés permiso para ajustarlo.
                     Contactá al administrador si corresponde hacerlo.
@@ -292,7 +399,7 @@ export default function ModalVincularFactura({ pedido, onClose }) {
           >
             {submitting ? (
               <Loader2 size={14} className={styles.spin} />
-            ) : ajustar ? (
+            ) : ajustarEfectivo ? (
               'Vincular y ajustar'
             ) : (
               'Vincular'
