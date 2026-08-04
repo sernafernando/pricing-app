@@ -65,6 +65,13 @@ write semantics" / "Refuse write on local/live divergence"):
     including untracked ones; that is the one case where untracked live tiers
     are NOT preserved, because the caller asked for exactly that.
 
+  * The result also carries `counts` (`PxqDiffCounts`): how many tiers fell
+    into keep / create / modify / delete. Those four are NOT recoverable from
+    the emitted array -- create and modify are byte-identical there, both
+    `{quantity, amount}` with no id -- so the classification is recorded at
+    the branch that decides it. See `PxqDiffCounts` for what `deletes` counts
+    and why it overlaps `modifies`.
+
   * Invariant: this function never emits an `id` that was not present in
     `live_tiers`. Ids only ever come from `live_tiers` entries (either
     directly, for untracked keeps, or via a desired tier's `ml_price_id`
@@ -187,6 +194,37 @@ class PxqDiffRefusal:
 
 
 @dataclass(frozen=True)
+class PxqDiffCounts:
+    """How many tiers landed in each of the four outcomes above.
+
+    The emitted array CANNOT be classified after the fact: a keep emits
+    `{"id": ...}`, but a create and a modify BOTH emit `{quantity, amount}`
+    with no id. Anything downstream that infers the breakdown from the array
+    ("has an id" vs "has no id") reports a price replacement of an existing
+    tier as a brand-new tier -- which is what the sync log did, in a change
+    whose entire purpose was making the next incident reconstructable. Only
+    this module knows the answer, at emit time, so it says so here.
+
+    `deletes` counts LIVE tiers that will no longer be represented in the
+    emitted array, i.e. what stops existing on MercadoLibre's side. It is NOT
+    disjoint from `modifies`: array-replace implements a modify as omit-the-
+    old-id + create-a-new-entry, so every modify makes its live tier vanish
+    and contributes one delete. The other -- and only other -- source is an
+    explicit `allow_clear=True` wipe, where every live tier is dropped. An
+    untracked live tier is preserved as a keep, so merely dropping a mirror
+    row never registers as a delete; that is the whole point of the
+    untracked-keep rule.
+
+    Plain data: counting what was decided does not make this module impure.
+    """
+
+    keeps: int = 0
+    creates: int = 0
+    modifies: int = 0
+    deletes: int = 0
+
+
+@dataclass(frozen=True)
 class PxqDiffResult:
     """Either an `array` ready to POST, or a `refusal` -- never both."""
 
@@ -196,6 +234,9 @@ class PxqDiffResult:
     # write path claims them before value-matching, so a created tier cannot
     # adopt a stranger's id when the two happen to share quantity and price.
     untracked_ids: Tuple[str, ...] = ()
+    # Defaulted so a refusal (which builds no array) reports all zeros without
+    # every construction site having to say so.
+    counts: PxqDiffCounts = PxqDiffCounts()
 
     @property
     def ok(self) -> bool:
@@ -204,6 +245,19 @@ class PxqDiffResult:
 
 def _tier_entry(quantity: Money, amount: Money) -> Dict[str, Any]:
     return {"quantity": int(quantity), "amount": float(_to_decimal(amount))}
+
+
+def _count_vanishing_live_tiers(live_tiers: Sequence[LiveTier], array: List[Dict[str, Any]]) -> int:
+    """How many live tiers the emitted array will make disappear.
+
+    Read off the finished array on purpose: under array-replace, "will this
+    live tier still exist afterwards?" is answered by exactly one thing --
+    whether its id is echoed back. That is directly knowable here, and it is
+    the only one of the four counts that is a property of the whole array
+    rather than of a single desired row.
+    """
+    emitted_ids = {entry["id"] for entry in array if "id" in entry}
+    return sum(1 for live in live_tiers if live.id not in emitted_ids)
 
 
 def diff_pxq_tiers(
@@ -260,7 +314,7 @@ def diff_pxq_tiers(
             )
         # Explicit, intentional full wipe: every live tier (tracked or not)
         # is dropped. The empty array itself carries that intent to ML.
-        return PxqDiffResult(array=[])
+        return PxqDiffResult(array=[], counts=PxqDiffCounts(deletes=len(live_tiers)))
 
     live_by_id: Dict[str, LiveTier] = {tier.id: tier for tier in live_tiers}
 
@@ -268,11 +322,17 @@ def diff_pxq_tiers(
     referenced_live_ids: set = set()
     untracked: List[str] = []
     array: List[Dict[str, Any]] = []
+    # Counted at the branch that DECIDES the outcome, never re-derived from the
+    # finished array -- the array cannot tell a create from a modify.
+    keeps = 0
+    creates = 0
+    modifies = 0
 
     for desired in desired_tiers:
         if desired.ml_price_id is None:
             # create: never synced before.
             array.append(_tier_entry(desired.quantity, desired.amount))
+            creates += 1
             continue
 
         live = live_by_id.get(desired.ml_price_id)
@@ -315,6 +375,7 @@ def diff_pxq_tiers(
             # keep: only the id is echoed back, never invented, always the
             # exact id observed in `live_tiers`.
             array.append({"id": desired.ml_price_id})
+            keeps += 1
             continue
 
         if desired.live_changed(live):
@@ -340,6 +401,7 @@ def diff_pxq_tiers(
         # Delete-old (simply omitted) + create-new (no id) -- the mutated id
         # is never sent back.
         array.append(_tier_entry(desired.quantity, desired.amount))
+        modifies += 1
 
     if divergences:
         return PxqDiffResult(refusal=PxqDiffRefusal(reason="divergence", divergences=divergences))
@@ -350,5 +412,15 @@ def diff_pxq_tiers(
         if live.id not in referenced_live_ids:
             untracked.append(live.id)
             array.append({"id": live.id})
+            keeps += 1
 
-    return PxqDiffResult(array=array, untracked_ids=tuple(untracked))
+    return PxqDiffResult(
+        array=array,
+        untracked_ids=tuple(untracked),
+        counts=PxqDiffCounts(
+            keeps=keeps,
+            creates=creates,
+            modifies=modifies,
+            deletes=_count_vanishing_live_tiers(live_tiers, array),
+        ),
+    )
