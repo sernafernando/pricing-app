@@ -28,6 +28,13 @@ const ESTADO_LABELS = {
   controlado: 'Controlado',
 };
 
+// `pagado` and `en_cuenta_corriente` deliberately share ONE badge tone.
+// They are the same fact to a warehouse operator — "awaiting reception" — and how
+// the pedido was paid is an accounting concern that must not read as a different
+// logistics state. The badge TEXT still names the estado for whoever needs it, so
+// nothing is hidden; only the colour, which is the channel that would otherwise
+// imply "handle these two differently", is shared. Giving them separate tones
+// would reintroduce visually the very split the merged "Por recibir" tab removed.
 const ESTADO_BADGE_CLASS = {
   pagado: 'badgePagado',
   en_cuenta_corriente: 'badgePagado',
@@ -51,13 +58,18 @@ const FILTER_TABS = [
   { id: 'con_faltantes', label: 'Con faltantes' },
 ];
 
-// Outcome text announced by the copy live region, keyed by copyStatus.
-// 'idle' is deliberately absent: it maps to an empty string, because the region
-// is mounted from the first render and only its TEXT may change.
+// Outcome text announced by the SINGLE list-level copy live region, keyed by
+// copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
+// the region is mounted from the first render and only its TEXT may change.
 const COPY_STATUS_MESSAGE = {
   copied: (numero) => `Datos del pedido #${numero} copiados`,
   error: (numero) => `No se pudo copiar el pedido #${numero}`,
 };
+
+// How long a copy outcome stays visible/announced. Shared by the two timers that
+// legitimately exist — the row's icon flash and the list's announcement — so the
+// visual and the spoken feedback can never drift apart.
+const COPY_FLASH_MS = 1500;
 
 function estadoBadge(estado, stylesMap) {
   const badgeClass = ESTADO_BADGE_CLASS[estado];
@@ -593,11 +605,13 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 
 // ── Single accordion card ─────────────────────────────────────────
 
-function PedidoAccordion({ pedido, onRefreshList }) {
+function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
   const [open, setOpen] = useState(false);
   const [retiroOpen, setRetiroOpen] = useState(false);
   // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
   // from "clicked and failed", which is exactly the state the operator needs.
+  // This state is VISUAL only (icon swap + .copyButtonError); the announcement
+  // lives in the tab's single live region, reached through onCopyOutcome.
   const [copyStatus, setCopyStatus] = useState('idle');
   const copyResetTimerRef = useRef(null);
 
@@ -611,11 +625,14 @@ function PedidoAccordion({ pedido, onRefreshList }) {
 
   const handleCopiar = async () => {
     // One timer for both outcomes: scheduling the reset in a single place keeps
-    // copyResetTimerRef the only handle the unmount cleanup has to clear.
+    // copyResetTimerRef the only handle the unmount cleanup has to clear. The
+    // ANNOUNCEMENT is not flashed here — it is handed to the tab, which owns the
+    // one live region shared by every row and schedules its own reset.
     const flashStatus = (status) => {
       setCopyStatus(status);
       clearTimeout(copyResetTimerRef.current);
-      copyResetTimerRef.current = setTimeout(() => setCopyStatus('idle'), 1500);
+      copyResetTimerRef.current = setTimeout(() => setCopyStatus('idle'), COPY_FLASH_MS);
+      onCopyOutcome(status, pedido.numero);
     };
 
     // Explicit guard: where the async clipboard API is absent there is nothing
@@ -639,12 +656,11 @@ function PedidoAccordion({ pedido, onRefreshList }) {
   // name then lied about what the control still does, and screen readers do not
   // reliably re-read the name of the element that already holds focus — which is
   // precisely the element the operator just clicked. Both outcomes now travel
-  // through the role="status" region below, the one channel that fires on a text
+  // through the tab's role="status" region, the one channel that fires on a text
   // change alone. Keeping both would risk announcing the failure twice.
   // `title` mirrors it for the same reason: tooltip and accessible name are both
   // "what this button does" affordances, not a status channel.
   const copiarLabel = `Copiar datos del pedido #${pedido.numero}`;
-  const copyStatusMessage = COPY_STATUS_MESSAGE[copyStatus]?.(pedido.numero) ?? '';
 
   return (
     <div className={styles.accordion}>
@@ -699,16 +715,6 @@ function PedidoAccordion({ pedido, onRefreshList }) {
         </div>
       </div>
 
-      {/* Copy outcome for assistive technology. Mounted unconditionally and empty
-          while idle on purpose: a live region inserted at the same instant its
-          text appears is routinely missed, so only the text may change. The
-          visual channel (icon swap + .copyButtonError) is unaffected.
-          `sr-only` is the global utility this file already uses for the qty
-          label above — reused rather than duplicated as a module class. */}
-      <div role="status" className="sr-only">
-        {copyStatusMessage}
-      </div>
-
       {open && (
         <div className={styles.accordionBody}>
           {/* La lista (PedidoCompraResponse) expone oc_poh_id, no tiene_oc:
@@ -753,6 +759,24 @@ export default function TabRecepcionDeposito() {
   const [error, setError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // ONE live-region text for the whole list. Hoisted out of PedidoAccordion
+  // because at most one row can ever carry an outcome, while a full page mounted
+  // up to 200 concurrent live regions to say so.
+  const [copyStatusMessage, setCopyStatusMessage] = useState('');
+  const copyMessageTimerRef = useRef(null);
+
+  // The shared announcement timer must never outlive the tab.
+  useEffect(() => () => clearTimeout(copyMessageTimerRef.current), []);
+
+  // Single place where the announcement is set AND reset, so there is exactly one
+  // timer here no matter how many rows report an outcome. Rows send the outcome,
+  // not the text: COPY_STATUS_MESSAGE stays the only source of the wording.
+  const handleCopyOutcome = useCallback((status, numero) => {
+    setCopyStatusMessage(COPY_STATUS_MESSAGE[status]?.(numero) ?? '');
+    clearTimeout(copyMessageTimerRef.current);
+    copyMessageTimerRef.current = setTimeout(() => setCopyStatusMessage(''), COPY_FLASH_MS);
+  }, []);
+
   const fetchPedidos = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -790,6 +814,19 @@ export default function TabRecepcionDeposito() {
       <div className={styles.pageHeader}>
         <Package size={20} aria-hidden="true" />
         Recepción de Depósito
+      </div>
+
+      {/* Copy outcome for assistive technology — ONE region for the whole list.
+          Mounted unconditionally and empty on purpose: a live region inserted at
+          the same instant its text appears is routinely missed, so only the text
+          may change. It sits ABOVE the loading/error/empty branches so it also
+          survives every render state of the tab, and it is shared by every row
+          because at most one copy outcome exists at a time. The visual channel
+          (icon swap + .copyButtonError) stays per-row, inside PedidoAccordion.
+          `sr-only` is the global utility this file already uses for the qty
+          label — reused rather than duplicated as a module class. */}
+      <div role="status" className="sr-only">
+        {copyStatusMessage}
       </div>
 
       {/* Filter tabs */}
@@ -837,6 +874,7 @@ export default function TabRecepcionDeposito() {
               key={p.id}
               pedido={p}
               onRefreshList={handleRefreshList}
+              onCopyOutcome={handleCopyOutcome}
             />
           ))}
         </div>

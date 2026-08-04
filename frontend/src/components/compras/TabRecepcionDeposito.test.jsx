@@ -70,6 +70,20 @@ function stubClipboard() {
 }
 
 /**
+ * The tab renders exactly ONE copy live region, however many pedidos are listed:
+ * at most one copy outcome can exist at a time, so one region per row meant a
+ * full page mounted up to 200 of them.
+ *
+ * The count is asserted HERE rather than only in the dedicated guard test, so
+ * every live-region test breaks the moment a per-row region comes back.
+ */
+function copyLiveRegion() {
+  const regions = screen.getAllByRole('status');
+  expect(regions).toHaveLength(1);
+  return regions[0];
+}
+
+/**
  * Renders a single pedido, clicks its copy button and returns the copied string.
  * The clipboard payload builder is module-private, so it is exercised through
  * the button that owns it.
@@ -185,26 +199,55 @@ describe('TabRecepcionDeposito — copy header data', () => {
     expect(copiado).toContain('Estado: estado_desconocido');
   });
 
+  it('renders exactly ONE live region for a list of two pedidos', async () => {
+    stubClipboard();
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
+
+    // Regression guard for the per-row region this replaced. Both pedido rows
+    // are collapsed, so the only role="status" in the tree is the list-level one:
+    // reinstating one region per PedidoAccordion makes this count 2 and fail.
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByText('#PC-0001')).toBeInTheDocument();
+    expect(screen.getByText('#PC-0002')).toBeInTheDocument();
+  });
+
   it('mounts the copy live region empty, before any interaction', async () => {
     stubClipboard();
-    await renderTab([PEDIDO_PAGADO]);
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
 
     // The region must exist from the very first render: a live region inserted
     // at the same moment its text appears is routinely missed by screen readers.
-    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(copyLiveRegion()).toBeEmptyDOMElement();
   });
 
   it('announces a successful copy through the live region', async () => {
     const user = userEvent.setup();
     stubClipboard();
-    await renderTab([PEDIDO_PAGADO]);
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
 
     await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
 
     // Success used to be signalled only by an aria-hidden <Check> icon, so
     // assistive technology got a failure message but never a confirmation.
     await screen.findByText('Datos del pedido #PC-0001 copiados');
-    expect(screen.getByRole('status')).toHaveTextContent('Datos del pedido #PC-0001 copiados');
+    expect(copyLiveRegion()).toHaveTextContent('Datos del pedido #PC-0001 copiados');
+  });
+
+  it('reuses the shared live region for the next pedido copied', async () => {
+    const user = userEvent.setup();
+    stubClipboard();
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
+    await screen.findByText('Datos del pedido #PC-0001 copiados');
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0002' }));
+
+    // The one region now names the pedido that was JUST copied. A stale message
+    // here would tell the operator the wrong pedido made it to the clipboard.
+    await screen.findByText('Datos del pedido #PC-0002 copiados');
+    expect(copyLiveRegion()).toHaveTextContent('Datos del pedido #PC-0002 copiados');
+    expect(screen.queryByText('Datos del pedido #PC-0001 copiados')).not.toBeInTheDocument();
   });
 
   it('announces a rejected copy through the live region, keeping the button name stable', async () => {
@@ -215,13 +258,13 @@ describe('TabRecepcionDeposito — copy header data', () => {
       configurable: true,
       writable: true,
     });
-    await renderTab([PEDIDO_PAGADO]);
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
 
     await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
 
     // A rejected copy must be distinguishable from a click that never happened.
     await screen.findByText('No se pudo copiar el pedido #PC-0001');
-    expect(screen.getByRole('status')).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
+    expect(copyLiveRegion()).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
 
     // The accessible name describes the action, not the last outcome. Mutating
     // it is not reliably re-announced for the already-focused element, and it
@@ -237,12 +280,12 @@ describe('TabRecepcionDeposito — copy header data', () => {
     // userEvent.setup() installs its own clipboard stub, so removing the API
     // has to happen after it — this is the browser-without-async-clipboard case.
     delete navigator.clipboard;
-    await renderTab([PEDIDO_PAGADO]);
+    await renderTab([PEDIDO_PAGADO, PEDIDO_CUENTA_CORRIENTE]);
 
     await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
 
     await screen.findByText('No se pudo copiar el pedido #PC-0001');
-    expect(screen.getByRole('status')).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
+    expect(copyLiveRegion()).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
   });
 
   it('does not toggle the accordion open', async () => {
