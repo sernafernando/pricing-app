@@ -166,3 +166,59 @@ jobs:
 
       - name: Run tests (vitest)
         run: pnpm test
+
+  frontend-visual:
+    name: Frontend Visual Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    # Separate job, not a step in `frontend-test`: this one needs a ~170 MB
+    # browser download plus apt system libraries, and the 610-test jsdom suite
+    # must stay runnable (and fast) without any of that. `pnpm test` is
+    # `--project=unit` and `pnpm run test:visual` is `--project=visual`, so the
+    # two never pull each other in.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Keyed on the exact Playwright version rather than the lockfile hash:
+      # the browser build is tied to Playwright's version and nothing else, so
+      # this keeps hitting cache across unrelated dependency changes.
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Chromium and system libraries
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The browser binary is cached, but the apt libraries it links against are
+      # installed system-wide and are NOT restored by actions/cache. They have
+      # to be reinstalled on every run or Chromium fails to start.
+      - name: Install system libraries (browser restored from cache)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run visual tests (real Chromium)
+        run: pnpm run test:visual
