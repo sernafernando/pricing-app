@@ -1,13 +1,62 @@
-import { defineConfig } from 'vite'
+import { defineConfig, configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { playwright } from '@vitest/browser-playwright'
+
+// Visual tests live in their own folder AND carry their own suffix. The suffix
+// alone is not enough: `foo.visual.test.jsx` also matches vitest's default
+// include glob, so without the explicit `exclude` below the jsdom project would
+// pick these up and run layout assertions in an environment that has no layout.
+const VISUAL_TESTS = 'src/test/visual/**/*.visual.test.jsx'
 
 export default defineConfig({
+  // TWO projects, never one. The jsdom suite is the repo's existing safety net
+  // and must keep running byte-identically; the browser suite is additive.
+  // They are selected by name from package.json scripts (`--project=unit` /
+  // `--project=visual`) so neither can accidentally drag in the other:
+  // running `pnpm test` must NOT require Playwright's browser binaries.
   test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: './src/test/setup.js',
-    css: false,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          environment: 'jsdom',
+          globals: true,
+          setupFiles: './src/test/setup.js',
+          // jsdom computes no layout, so parsing CSS buys nothing but time.
+          css: false,
+          exclude: [...configDefaults.exclude, VISUAL_TESTS],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'visual',
+          include: [VISUAL_TESTS],
+          // Pre-bundled up front. Discovering these mid-run makes Vite reload
+          // the page, which vitest reports as "unexpectedly reloaded a test"
+          // and which would restart assertions against a half-torn-down DOM.
+          optimizeDeps: { include: ['axios', 'zustand', 'react/jsx-dev-runtime'] },
+          globals: true,
+          setupFiles: './src/test/visual/setup.visual.js',
+          // The entire point: real CSS, so `composes:` chains and `var()`
+          // tokens resolve the way they do in the browser.
+          css: true,
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            // Fixed viewport: geometry assertions and screenshots are only
+            // comparable if every run lays out at the same width.
+            instances: [{ browser: 'chromium', viewport: { width: 1280, height: 800 } }],
+            // A failing computed-style assertion is already fully diagnosed by
+            // its message; an auto-captured PNG per failure is just noise.
+            screenshotFailures: false,
+          },
+        },
+      },
+    ],
   },
   plugins: [
     react(),

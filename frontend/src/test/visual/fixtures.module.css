@@ -1,0 +1,47 @@
+/**
+ * Test-only consumer of the `forms-tesla.css` primitive.
+ *
+ * WHY THIS EXISTS
+ * `promociones.module.css` is currently the ONLY module in the codebase that
+ * composes from `forms-tesla.css`, and it composes the DENSE pair
+ * (`input inputSm`). That leaves the base `.input` / `.select` / `.textarea`
+ * contract — the one `frontend/AGENTS.md` instructs every future migration to
+ * use — with zero consumers and therefore zero coverage.
+ *
+ * This module is that missing consumer. It is written EXACTLY as AGENTS.md
+ * documents the pattern, so if the documented usage ever stops producing the
+ * documented result, this fails before a real component adopts it.
+ *
+ * It is a fixture, not app code: nothing in `src/components` or `src/pages`
+ * imports it.
+ */
+
+.baseInput {
+  composes: input from '../../styles/forms-tesla.css';
+}
+
+.baseSelect {
+  composes: select from '../../styles/forms-tesla.css';
+}
+
+.baseTextarea {
+  composes: textarea from '../../styles/forms-tesla.css';
+}
+
+.denseInput {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+}
+
+.baseField {
+  composes: field from '../../styles/forms-tesla.css';
+}
+
+.baseLabel {
+  composes: label from '../../styles/forms-tesla.css';
+}
+
+/* A control that declares an error state, to check the invalid rule survives
+   composition and still wins over `:focus` (source order in the primitive). */
+.errorInput {
+  composes: input inputError from '../../styles/forms-tesla.css';
+}
