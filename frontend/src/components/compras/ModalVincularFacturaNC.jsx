@@ -63,8 +63,16 @@ export default function ModalVincularFacturaNC({ nc, onClose }) {
   // have to match the local NC's. Subtracting a USD total from an ARS amount is
   // meaningless, and `hayDiferencia` gates the adjustment flow — so a currency
   // mismatch must collapse both: no numeric difference, no adjustment offered.
-  // There is no exchange rate available for ERP documents, so converting is not
-  // an option; we say so instead of guessing.
+  //
+  // Converting is not impossible here, only unimplemented. The ERP document has
+  // no rate of its own, but the LOCAL NC does carry `tipo_cambio`
+  // (nota_credito_local.py:65, exposed through the schema), so this modal could
+  // compare in ARS the same way ModalVincularFactura already does for pedidos.
+  // Doing so requires splitting display-comparability from write-eligibility
+  // first: the adjustment rewrites the amount in the local NC's own currency,
+  // so it must keep depending on NATIVE currency equality, never on an
+  // ARS-derived comparison. Until that split exists here, refusing to compare
+  // is the safe behaviour — but do not read this as "there is no rate".
   const monedaNC = nc?.moneda ?? null;
   const monedaERP = monedaDeCurrId(seleccionada?.curr_id_transaction);
   const montosComparables =
