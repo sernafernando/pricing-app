@@ -2,16 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Loader2, AlertCircle, CreditCard } from 'lucide-react';
 import api from '../../services/api';
 import useNCsLocales from '../../hooks/useNCsLocales';
+import { formatMoneda, formatMonedaErp } from './_shared/formatMoneda';
 import styles from './ModalAplicarNC.module.css';
-
-const formatCurrency = (value, moneda = 'ARS') => {
-  const num = Number(value) || 0;
-  const prefix = moneda === 'USD' ? 'US$' : '$';
-  return `${prefix}${num.toLocaleString('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-};
 
 const formatDate = (isoStr) => {
   if (!isoStr) return '';
@@ -164,7 +156,7 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
     const m = parseFloat(monto);
     if (!Number.isFinite(m) || m <= 0) return 'El monto debe ser mayor a 0.';
     if (m > saldoNC + 0.001) {
-      return `El monto excede el saldo pendiente de la NC (${formatCurrency(
+      return `El monto excede el saldo pendiente de la NC (${formatMoneda(
         saldoNC,
         nc?.moneda
       )}).`;
@@ -174,7 +166,7 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
       if (pedidoSeleccionado) {
         const saldoPedido = Number(pedidoSeleccionado.saldo_pendiente) || 0;
         if (m > saldoPedido + 0.001) {
-          return `El monto excede el saldo pendiente del pedido (${formatCurrency(
+          return `El monto excede el saldo pendiente del pedido (${formatMoneda(
             saldoPedido,
             nc?.moneda
           )}).`;
@@ -240,7 +232,7 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
         <div className={styles.saldoBox}>
           <span className={styles.saldoLabel}>Saldo disponible de la NC</span>
           <strong className={styles.saldoValue}>
-            {formatCurrency(saldoNC, nc?.moneda)}
+            {formatMoneda(saldoNC, nc?.moneda)}
           </strong>
         </div>
 
@@ -326,7 +318,7 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
                 {pedidos.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.numero} — {p.estado} — saldo{' '}
-                    {formatCurrency(p.saldo_pendiente, p.moneda)}
+                    {formatMoneda(p.saldo_pendiente, p.moneda)}
                   </option>
                 ))}
               </select>
@@ -358,7 +350,7 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
                 {facturas.map((f) => (
                   <option key={f.ct_transaction} value={f.ct_transaction}>
                     {f.ct_docnumber} — {formatDate(f.ct_date)} —{' '}
-                    {formatCurrency(f.ct_total, nc?.moneda)}
+                    {formatMonedaErp(f.ct_total, f.curr_id_transaction)}
                   </option>
                 ))}
               </select>
@@ -381,16 +373,16 @@ export default function ModalAplicarNC({ nc, onClose, pedidoDestinoId = null }) 
             required
           />
           <div className={styles.labelHint}>
-            Máximo: {formatCurrency(saldoNC, nc?.moneda)} (saldo de la NC)
+            Máximo: {formatMoneda(saldoNC, nc?.moneda)} (saldo de la NC)
             {pedidoSeleccionado &&
-              `, y ${formatCurrency(
+              `, y ${formatMoneda(
                 pedidoSeleccionado.saldo_pendiente,
                 pedidoSeleccionado.moneda
               )} (saldo del pedido).`}
             {facturaSeleccionada &&
-              ` Total factura: ${formatCurrency(
+              ` Total factura: ${formatMonedaErp(
                 facturaSeleccionada.ct_total,
-                nc?.moneda
+                facturaSeleccionada.curr_id_transaction
               )}. La validación de saldo contable corre server-side.`}
           </div>
         </div>

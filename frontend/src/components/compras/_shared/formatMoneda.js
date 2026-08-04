@@ -44,6 +44,60 @@ export const equivalenteEnArs = (monto, moneda, tc) => {
 };
 
 /**
+ * ERP `curr_id_transaction` → módulo-compras currency code.
+ *
+ * Mirrors the backend authority `_curr_id_a_moneda`
+ * (backend/app/services/pedidos_service.py) 1:1, including its behaviour for
+ * unknown ids: ERP convention is 1=ARS, 2=USD, anything else maps to nothing.
+ *
+ * Returns `null` — NEVER a default currency — on unknown/null input. An ERP
+ * document whose currency we cannot identify must not be rendered with a
+ * confident symbol: silently defaulting to ARS is exactly how a 1.500.000 ARS
+ * invoice ended up displayed as "US$1.500.000,00".
+ *
+ * @param {number|string|null|undefined} currId - `curr_id_transaction` del ERP
+ * @returns {'ARS'|'USD'|null} null = unknown, caller MUST handle it explicitly
+ */
+export const monedaDeCurrId = (currId) => {
+  if (currId === null || currId === undefined || currId === '') return null;
+  const id = Number(currId);
+  if (id === 1) return 'ARS';
+  if (id === 2) return 'USD';
+  return null;
+};
+
+/**
+ * Formatea el monto de un documento del ERP usando SU PROPIA moneda.
+ *
+ * Use this — not `formatMoneda(value, entidadLocal.moneda)` — for any amount
+ * coming from an ERP document (factura / NC). The ERP document carries its own
+ * currency in `curr_id_transaction` and it does NOT have to match the currency
+ * of the local pedido or NC it is being linked to: cross-currency linking is a
+ * supported, backend-tested business case.
+ *
+ * When the currency cannot be identified the amount is rendered WITHOUT any
+ * currency symbol plus an explicit marker, so the reader can tell the currency
+ * is unknown instead of being shown a wrong-but-confident "$" or "US$".
+ *
+ * @param {number|string|null|undefined} value
+ * @param {number|string|null|undefined} currId - `curr_id_transaction` del ERP
+ * @returns {string} ej: "$1.500.000,00" / "US$1.000,00" /
+ *                   "1.500.000,00 (moneda desconocida)"
+ */
+export const formatMonedaErp = (value, currId) => {
+  const moneda = monedaDeCurrId(currId);
+  if (moneda === null) {
+    const num = Number(value) || 0;
+    const monto = num.toLocaleString('es-AR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${monto} (moneda desconocida)`;
+  }
+  return formatMoneda(value, moneda);
+};
+
+/**
  * Formatea un TC como número con coma decimal.
  *
  * @param {number|string|null|undefined} tc
