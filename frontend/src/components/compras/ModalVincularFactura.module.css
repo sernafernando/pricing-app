@@ -257,6 +257,26 @@
   border: 1px dashed var(--cf-border-default);
 }
 
+/* Pedido y factura del ERP en monedas distintas: los montos no se pueden
+   restar, así que en vez de la fila "Diferencia" se muestra este aviso. */
+.monedaMismatch {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  color: var(--cf-accent-orange);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-accent-orange);
+}
+
+.monedaMismatch svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 /* ── Botones ─────────────────────────────────────────────── */
 .formActions {
   display: flex;
