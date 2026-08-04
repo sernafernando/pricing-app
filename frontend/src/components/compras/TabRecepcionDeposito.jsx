@@ -51,6 +51,14 @@ const FILTER_TABS = [
   { id: 'con_faltantes', label: 'Con faltantes' },
 ];
 
+// Outcome text announced by the copy live region, keyed by copyStatus.
+// 'idle' is deliberately absent: it maps to an empty string, because the region
+// is mounted from the first render and only its TEXT may change.
+const COPY_STATUS_MESSAGE = {
+  copied: (numero) => `Datos del pedido #${numero} copiados`,
+  error: (numero) => `No se pudo copiar el pedido #${numero}`,
+};
+
 function estadoBadge(estado, stylesMap) {
   const badgeClass = ESTADO_BADGE_CLASS[estado];
   if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
@@ -626,10 +634,17 @@ function PedidoAccordion({ pedido, onRefreshList }) {
     }
   };
 
-  const copiarLabel =
-    copyStatus === 'error'
-      ? `No se pudo copiar el pedido #${pedido.numero}`
-      : `Copiar datos del pedido #${pedido.numero}`;
+  // The accessible name describes the ACTION and never the outcome. It used to
+  // swap to "No se pudo copiar…" on failure, which was wrong twice over: the
+  // name then lied about what the control still does, and screen readers do not
+  // reliably re-read the name of the element that already holds focus — which is
+  // precisely the element the operator just clicked. Both outcomes now travel
+  // through the role="status" region below, the one channel that fires on a text
+  // change alone. Keeping both would risk announcing the failure twice.
+  // `title` mirrors it for the same reason: tooltip and accessible name are both
+  // "what this button does" affordances, not a status channel.
+  const copiarLabel = `Copiar datos del pedido #${pedido.numero}`;
+  const copyStatusMessage = COPY_STATUS_MESSAGE[copyStatus]?.(pedido.numero) ?? '';
 
   return (
     <div className={styles.accordion}>
@@ -682,6 +697,16 @@ function PedidoAccordion({ pedido, onRefreshList }) {
             </>
           )}
         </div>
+      </div>
+
+      {/* Copy outcome for assistive technology. Mounted unconditionally and empty
+          while idle on purpose: a live region inserted at the same instant its
+          text appears is routinely missed, so only the text may change. The
+          visual channel (icon swap + .copyButtonError) is unaffected.
+          `sr-only` is the global utility this file already uses for the qty
+          label above — reused rather than duplicated as a module class. */}
+      <div role="status" className="sr-only">
+        {copyStatusMessage}
       </div>
 
       {open && (

@@ -185,7 +185,29 @@ describe('TabRecepcionDeposito — copy header data', () => {
     expect(copiado).toContain('Estado: estado_desconocido');
   });
 
-  it('surfaces a failure label when writeText rejects', async () => {
+  it('mounts the copy live region empty, before any interaction', async () => {
+    stubClipboard();
+    await renderTab([PEDIDO_PAGADO]);
+
+    // The region must exist from the very first render: a live region inserted
+    // at the same moment its text appears is routinely missed by screen readers.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('announces a successful copy through the live region', async () => {
+    const user = userEvent.setup();
+    stubClipboard();
+    await renderTab([PEDIDO_PAGADO]);
+
+    await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
+
+    // Success used to be signalled only by an aria-hidden <Check> icon, so
+    // assistive technology got a failure message but never a confirmation.
+    await screen.findByText('Datos del pedido #PC-0001 copiados');
+    expect(screen.getByRole('status')).toHaveTextContent('Datos del pedido #PC-0001 copiados');
+  });
+
+  it('announces a rejected copy through the live region, keeping the button name stable', async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
     Object.defineProperty(navigator, 'clipboard', {
@@ -198,15 +220,19 @@ describe('TabRecepcionDeposito — copy header data', () => {
     await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
 
     // A rejected copy must be distinguishable from a click that never happened.
+    await screen.findByText('No se pudo copiar el pedido #PC-0001');
+    expect(screen.getByRole('status')).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
+
+    // The accessible name describes the action, not the last outcome. Mutating
+    // it is not reliably re-announced for the already-focused element, and it
+    // would double up with the live region.
     expect(
-      await screen.findByRole('button', { name: 'No se pudo copiar el pedido #PC-0001' }),
+      screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Copiar datos del pedido #PC-0001' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /No se pudo copiar/ })).not.toBeInTheDocument();
   });
 
-  it('surfaces a failure label when the clipboard API is missing', async () => {
+  it('announces the failure through the live region when the clipboard API is missing', async () => {
     const user = userEvent.setup();
     // userEvent.setup() installs its own clipboard stub, so removing the API
     // has to happen after it — this is the browser-without-async-clipboard case.
@@ -215,9 +241,8 @@ describe('TabRecepcionDeposito — copy header data', () => {
 
     await user.click(screen.getByRole('button', { name: 'Copiar datos del pedido #PC-0001' }));
 
-    expect(
-      await screen.findByRole('button', { name: 'No se pudo copiar el pedido #PC-0001' }),
-    ).toBeInTheDocument();
+    await screen.findByText('No se pudo copiar el pedido #PC-0001');
+    expect(screen.getByRole('status')).toHaveTextContent('No se pudo copiar el pedido #PC-0001');
   });
 
   it('does not toggle the accordion open', async () => {
