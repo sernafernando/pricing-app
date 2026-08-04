@@ -1,0 +1,198 @@
+/**
+ * FORMS TESLA - Sistema de Campos de Formulario Estandarizado
+ *
+ * Sibling of `buttons-tesla.css`: the single OWNED definition of the
+ * `.input` / `.select` / `.textarea` visual primitive.
+ *
+ * WHY THIS FILE EXISTS
+ * Until now every CSS Module re-declared its own `.input` by copy-paste.
+ * 56 copies had already drifted into 19 different `padding` values and 6
+ * different `border-radius` values for the same control, so "fix the form"
+ * meant fixing one copy while 55 stayed wrong. Copy-paste is not a
+ * distribution mechanism. Compose from here instead:
+ *
+ *   .myInput {
+ *     composes: input from '../../styles/forms-tesla.css';
+ *   }
+ *
+ * Then in JSX: className={styles.myInput}
+ *
+ * NOT IMPORTED GLOBALLY
+ * Unlike `buttons-tesla.css`, this file is consumed exclusively through
+ * `composes:`, so it never leaks global class names such as `.input`.
+ * Do not add it to `App.jsx`.
+ *
+ * RULES FOR EDITING THIS FILE
+ * - Tokens only: no literal colors, and no literal px/rem for anything the
+ *   token scale covers (spacing, radius, type, motion, border widths).
+ * - Every color token used here MUST have a light AND a dark variant in
+ *   `design-tokens.css`. Verify before adding one.
+ * - The focus state is an accessibility requirement, not decoration. Do not
+ *   remove `outline` without providing an equivalent visible replacement.
+ *
+ * WHAT IS DEFINED HERE
+ * - `.input` / `.select` / `.textarea`          base controls
+ * - `.inputSm` / `.selectSm` / `.textareaSm`    dense inline rows
+ * - `.inputError` / `.selectError` / `.textareaError` and
+ *   `[aria-invalid="true"]`                     invalid state
+ * - `.field` / `.label`                         label+control pairing unit
+ */
+
+/* ============================================
+   BASE CONTROLS - Estilos compartidos
+   ============================================ */
+
+.input,
+.select,
+.textarea {
+  /* Layout */
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--input-height-base);
+
+  /* Sizing */
+  padding: var(--spacing-sm) var(--spacing-md);
+
+  /* Typography */
+  font-family: inherit;
+  font-size: var(--font-sm);
+  line-height: var(--leading-tight);
+
+  /* Visual */
+  border: var(--border-1) solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+
+  /* Motion: enumerated, not `all` — `all` animates layout properties the
+     consumer sets (width, flex-basis) and makes rows visibly reflow. */
+  transition:
+    border-color var(--duration-200) var(--ease-out),
+    background-color var(--duration-200) var(--ease-out),
+    box-shadow var(--duration-200) var(--ease-out);
+}
+
+.select {
+  cursor: pointer;
+}
+
+.textarea {
+  min-height: calc(var(--input-height-base) * 2);
+  resize: vertical;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--cf-text-muted);
+  opacity: 1;
+}
+
+/* ============================================
+   TAMAÑOS - Dense variant
+   ============================================ */
+
+/* For inline rows embedded in dense surfaces (tree panels, table cells)
+   where a full-size control would dominate the row. Compose alongside the
+   base class: `composes: input inputSm from '...'`.
+   Only the box metrics change — colors, radius, focus and error states are
+   inherited, so a dense control cannot drift from a normal one. */
+.inputSm,
+.selectSm,
+.textareaSm {
+  min-height: var(--input-height-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+/* ============================================
+   ESTADO: FOCUS - Requisito de accesibilidad
+   ============================================ */
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 var(--border-2) var(--cf-accent-blue-light);
+}
+
+/* Forced-colors / high-contrast modes drop `box-shadow` entirely, which
+   would leave the control with no focus indicator at all. Restore a real
+   outline using a system color keyword (not a token — the OS owns these). */
+@media (forced-colors: active) {
+  .input:focus,
+  .select:focus,
+  .textarea:focus {
+    outline: var(--border-2) solid Highlight;
+    outline-offset: var(--border-1);
+  }
+}
+
+/* ============================================
+   ESTADO: DISABLED
+   ============================================ */
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  border-color: var(--cf-border-subtle);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-muted);
+  cursor: not-allowed;
+}
+
+/* ============================================
+   ESTADO: INVALID / ERROR
+   ============================================ */
+
+/* `aria-invalid` is supported alongside the explicit classes so the visual
+   state and the state announced to assistive tech cannot diverge — setting
+   only the class would style an error no screen reader ever hears about.
+   These rules come AFTER `:focus` on purpose: equal specificity, later
+   source order, so an invalid control keeps its red edge while focused. */
+.inputError,
+.selectError,
+.textareaError,
+.input[aria-invalid='true'],
+.select[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: var(--cf-accent-red);
+}
+
+.inputError:focus,
+.selectError:focus,
+.textareaError:focus,
+.input[aria-invalid='true']:focus,
+.select[aria-invalid='true']:focus,
+.textarea[aria-invalid='true']:focus {
+  border-color: var(--cf-accent-red);
+  box-shadow: 0 0 0 var(--border-2) color-mix(in srgb, var(--cf-accent-red) 20%, transparent);
+}
+
+/* ============================================
+   FIELD - Unidad label + control
+   ============================================ */
+
+/* A label separated from its control by the same gap that separates two
+   unrelated controls is not readable as a pair. `.field` binds them: the
+   inner gap is one step on the spacing scale, and the caller is expected to
+   use a LARGER gap between field units so proximity does the grouping.
+   `min-width: 0` lets the unit shrink inside a flex row instead of
+   overflowing it. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+/* Deliberately wrappable: truncating a Spanish label loses meaning. A row
+   using `align-items: flex-end` keeps every control aligned even when one
+   label takes two lines. */
+.label {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-tight);
+}
