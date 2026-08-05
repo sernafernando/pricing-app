@@ -6,6 +6,18 @@ import styles from './promociones.module.css';
 
 const MAX_TIERS = 5;
 
+// `err.response.data.detail` reaches this file in ONE OF TWO SHAPES, and every
+// reader below accepts both:
+//   - a STRING, for every ordinary error — the response interceptor in
+//     `services/api.js` flattens validation arrays and untyped dicts into one;
+//   - the backend's TYPED error OBJECT, passed through untouched because it
+//     carries fields a string cannot express (`status`, `conflicts`,
+//     `divergences`).
+// See `normalizeErrorDetail` in `services/api.js` for the predicate that tells
+// them apart, and for the `http_exception_handler` quirk that puts the typed
+// object at the ROOT of the response body instead of under `detail`. That
+// interceptor used to flatten the typed shape too, which is why the
+// `adopt_conflict` and `divergence` branches below shipped unreachable.
 function extractErrorMessage(err) {
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
@@ -602,6 +614,21 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // See the control's docstring. Declared above the early returns so the hook
   // order stays fixed whatever branch renders.
   const [adoptFeedback, setAdoptFeedback] = useState(null);
+
+  // Outliving the control is not the same as outliving the PUBLICATION. The
+  // message survives `reload()` deliberately (above); it must NOT survive a
+  // change of `itemId`, because `useLazyResource` re-keys on the new id without
+  // unmounting this component — so "Se importaron 2 tramos" would go on sitting
+  // under a publication it never described, indefinitely.
+  //
+  // Reset during render, not in an effect: an effect runs after commit, so the
+  // stale message would still paint once under the new item. Same thing the
+  // operator would misread, one frame later.
+  const [feedbackItemId, setFeedbackItemId] = useState(itemId);
+  if (feedbackItemId !== itemId) {
+    setFeedbackItemId(itemId);
+    setAdoptFeedback(null);
+  }
 
   // Invisible rather than an error/403 for a user without the permission —
   // same treatment PromoApplyControl/refresh buttons use elsewhere in this

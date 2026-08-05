@@ -12,6 +12,20 @@ vi.mock('../../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+// READ THIS BEFORE ASSERTING ON AN ERROR PAYLOAD HERE.
+//
+// This replaces the WHOLE `services/api` module, so the axios response
+// interceptor in it NEVER RUNS in this file. Every `detail` below is handed to
+// the component by hand. That is fine for testing what the component does with
+// a payload — but it proves NOTHING about the payload the component actually
+// receives in production, and it is exactly how the `adopt_conflict` and
+// `divergence` branches shipped dead: the interceptor was flattening every
+// object `detail` to a string, and no test here could see it.
+//
+// The shape of an error payload — flattened, passed through, or lifted out of
+// the response root — is covered in `src/services/api.pxq.test.js`, which
+// unmocks this module and drives the real interceptor. Assertions about SHAPE
+// belong there; assertions about what the component RENDERS belong here.
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
@@ -806,6 +820,31 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     // remounts the subtree, so `button` above is a detached node by now.
     expect(await screen.findByText(/se importó 1 tramo/i)).toBeInTheDocument();
     expect(screen.getByRole('button', IMPORT_BUTTON)).not.toBeDisabled();
+  });
+
+  // The outcome message deliberately outlives `reload()` (the reload unmounts
+  // the control, so local state would take the message with it — see the
+  // control's docstring). It must NOT also outlive the publication: the panel
+  // is re-keyed on a new `itemId` WITHOUT unmounting, so an uncleared message
+  // would go on describing an import that happened somewhere else.
+  it('clears the import outcome when the panel moves to another publication', async () => {
+    const user = userEvent.setup();
+    const pxqCacheRef = { current: new Map() };
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+
+    const { rerender } = render(<PxqPanel itemId="MLA001" pxqCacheRef={pxqCacheRef} />);
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    rerender(<PxqPanel itemId="MLA002" pxqCacheRef={pxqCacheRef} />);
+
+    // Asserted AFTER the new publication has finished loading, not during the
+    // loading branch: the loading branch hides everything, so checking there
+    // would pass even with the message still held in state.
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenLastCalledWith('MLA002'));
+    await screen.findByText(/mirror local/i);
+    expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument();
   });
 
   // The label is the whole point of the control existing separately: it says
