@@ -31,6 +31,20 @@ from app.core.database import SessionLocal
 from app.tickets.models.historial_ticket import HistorialTicket
 from app.tickets.models.workflow import EstadoTicket, TransicionEstado
 
+# Several ticket models declare relationships by STRING (e.g.
+# `relationship("Usuario")` in adjunto_ticket.py, asignacion_ticket.py,
+# comentario_ticket.py, historial_ticket.py, sector_usuario.py). SQLAlchemy
+# resolves those names against a global mapper registry that is only
+# populated for classes that were actually imported somewhere in the
+# process. Inside FastAPI, `app/main.py` imports every model, so the
+# registry is always complete; run as a standalone script, it is not,
+# and `configure_mappers()` fails with `InvalidRequestError: ... failed to
+# locate a name ('Usuario')`. `alembic/env.py:6` hits the exact same issue
+# and fixes it the exact same way — do NOT "clean up" these as unused
+# imports; removing them breaks standalone execution.
+from app.models import *  # noqa: F401,F403
+from app.tickets.models import *  # noqa: F401,F403
+
 
 def find_unconfigured_transitions(db: Session) -> list[dict[str, Any]]:
     """Group `estado_changed` historial rows by `(estado_anterior_id,
