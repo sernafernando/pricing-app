@@ -99,8 +99,18 @@ def adopt_live_pxq_tiers(
             least one local row. Nothing is written.
         HTTPException(422): propagated from `create_pxq_tier` when a live
             entry cannot be a valid tier (e.g. `quantity <= 1`, or two entries
-            sharing a quantity). Nothing is COMMITTED, so nothing is
-            persisted -- the request's session is closed without a commit.
+            sharing a quantity). These fire INSIDE the import loop, AFTER
+            earlier rows were already `db.add`-ed and flushed -- so rows do
+            exist, pending, when this raises. Nothing is COMMITTED, so nothing
+            is persisted: the request's session is closed without a commit.
+
+            No explicit `db.rollback()` here, deliberately. This service does
+            not own the session it was handed -- `get_db` opens it, never
+            commits it, and discards it in its `finally` -- so unwinding it
+            would be deciding the fate of a transaction that may enclose work
+            this service knows nothing about. The guarantee is structural, not
+            something a rollback call would strengthen. Guarded by
+            `test_a_422_raised_mid_loop_persists_nothing`.
     """
     usuario_id = getattr(usuario, "id", None)
     logger.info(
