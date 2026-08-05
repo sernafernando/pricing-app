@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import CheckConstraint, Column, Index, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -36,11 +36,26 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(255), nullable=False)
     descripcion = Column(Text, nullable=True)
+    # ponytail: prioridad kept for backward compat, deprecated in the UI in
+    # favor of severidad/urgencia below — do NOT derive it from them, and do
+    # NOT derive severidad/urgencia from it. Deriving either direction would
+    # silently overwrite values a human set by hand.
     prioridad = Column(
         SQLEnum(PrioridadTicket, values_callable=lambda e: [x.value for x in e]),
         default=PrioridadTicket.MEDIA,
         nullable=False,
     )
+
+    # AI triage fields (tickets-ai-triage). All nullable: NULL means
+    # "unclassified" — nothing writes these until a proposal is confirmed
+    # (see tickets_propuestas_ia, a later slice). Never a Postgres ENUM type:
+    # you cannot drop an enum value, so a migration downgrade() would be a
+    # lie — see `prioridad` above, which already made that mistake.
+    severidad = Column(String(12), nullable=True)
+    urgencia = Column(String(12), nullable=True)
+    severidad_origen = Column(String(14), nullable=True)
+    urgencia_origen = Column(String(14), nullable=True)
+    texto_original = Column(Text, nullable=True)
 
     # Referencias
     sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False, index=True)
@@ -78,6 +93,28 @@ class Ticket(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     closed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "severidad IN ('trivial','menor','mayor','critica')",
+            name="ck_tickets_severidad",
+        ),
+        CheckConstraint(
+            "urgencia IN ('baja','normal','alta','inmediata')",
+            name="ck_tickets_urgencia",
+        ),
+        CheckConstraint(
+            "severidad_origen IN ('humano','ia_confirmada','ia_auto')",
+            name="ck_tickets_severidad_origen",
+        ),
+        CheckConstraint(
+            "urgencia_origen IN ('humano','ia_confirmada','ia_auto')",
+            name="ck_tickets_urgencia_origen",
+        ),
+        Index("ix_tickets_severidad", "severidad"),
+        Index("ix_tickets_urgencia", "urgencia"),
+        Index("ix_tickets_estado_urgencia_created", "estado_id", "urgencia", "created_at"),
+    )
 
     # Relaciones
     sector = relationship("Sector", back_populates="tickets")

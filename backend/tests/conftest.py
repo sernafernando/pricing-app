@@ -317,6 +317,60 @@ def pg_db(pg_engine):
     connection.close()
 
 
+@pytest.fixture(scope="session")
+def pg_tickets_engine():
+    """Session-scoped PostgreSQL engine with only the tables the tickets
+    severidad/urgencia CHECK constraints (tickets-ai-triage PR 2a) need:
+    roles, usuarios, tickets_sectores, tickets_workflows, tickets_estados,
+    tickets_tipos, tickets.
+
+    Not the full `Base.metadata` — same rationale as `pg_engine` above: that
+    would also create pgvector-backed tables whose extension isn't installed
+    on the CI postgres service.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.rol import Rol as _Rol
+    from app.tickets.models.sector import Sector as _Sector
+    from app.tickets.models.tipo_ticket import TipoTicket as _TipoTicket
+    from app.tickets.models.ticket import Ticket as _Ticket
+    from app.tickets.models.workflow import EstadoTicket as _EstadoTicket, Workflow as _Workflow
+
+    tables = [
+        _Rol.__table__,
+        Usuario.__table__,
+        _Sector.__table__,
+        _Workflow.__table__,
+        _EstadoTicket.__table__,
+        _TipoTicket.__table__,
+        _Ticket.__table__,
+    ]
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    Base.metadata.create_all(bind=eng, tables=tables)
+    yield eng
+    Base.metadata.drop_all(bind=eng, tables=tables)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_tickets_db(pg_tickets_engine):
+    """Transactional PostgreSQL session (tickets tables), rolled back after each test."""
+    connection = pg_tickets_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """
