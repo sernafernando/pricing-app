@@ -67,11 +67,11 @@ describe('forms-tesla primitive — composition', () => {
   });
 
   /**
-   * Only the metrics the primitive still actually controls are asserted here.
-   * `background` and `border` are deliberately NOT in this list: global
-   * `!important` rules in `theme.css` take them away from every `select` and
-   * `textarea` in the app. That is a real defect, and it is pinned as such in
-   * `globalOverrides.visual.test.jsx` rather than quietly weakened here.
+   * `paddingRight` is the one metric excluded, and only for the `select`:
+   * `design-tokens.css` draws a custom chevron on every `select:not([multiple])`
+   * and reserves room for it with `padding-right: 36px !important`, which the
+   * primitive cannot outrank. That deviation is pinned on its own in
+   * `globalOverrides.visual.test.jsx` rather than quietly absorbed here.
    */
   it('select and textarea share the input box metrics (one primitive, not three)', () => {
     host = mount(`
@@ -83,9 +83,17 @@ describe('forms-tesla primitive — composition', () => {
 
     for (const other of [select, textarea]) {
       expect(other.paddingTop).toBe(input.paddingTop);
+      expect(other.paddingBottom).toBe(input.paddingBottom);
       expect(other.paddingLeft).toBe(input.paddingLeft);
       expect(other.borderRadius).toBe(input.borderRadius);
+      expect(other.background).toBe(input.background);
+      expect(other.color).toBe(input.color);
+      expect(other.borderColor).toBe(input.borderColor);
     }
+
+    // The textarea is the only one free of the chevron rule, so it must match
+    // on all four sides.
+    expect(textarea.paddingRight).toBe(input.paddingRight);
 
     // The textarea is deliberately two lines tall; everything else matches.
     expect(textarea.minHeight).toBe(input.minHeight * 2);

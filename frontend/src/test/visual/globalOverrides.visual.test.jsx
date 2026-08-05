@@ -1,38 +1,31 @@
 /**
- * DEFECTS THE BROWSER FOUND — global legacy CSS defeats the forms-tesla primitive.
+ * theme.css's global form rules as a ZERO-SPECIFICITY BASELINE.
  *
  * `forms-tesla.css` is correct in isolation (see `formsPrimitive.visual.test.jsx`,
  * where a bare `<input>` computes exactly what the primitive declares). But the
- * app never renders a bare `<input>`. It renders `type="number"`, `type="text"`,
- * `<select>` and `<textarea>`, and for those there are older global rules that
- * win:
+ * app never renders a bare `<input>`: it renders `type="number"`, `type="text"`,
+ * `<select>` and `<textarea>`, and theme.css has rules for all of those. This
+ * file measures the CASCADE between the two — the part neither file can verify
+ * about itself.
  *
- *   theme.css:197  select, option { background/color/border: … !important }
- *   theme.css:207  input[type="text"|"number"|"email"|"password"], textarea {
- *                    background/color/border: … !important;
- *                    border-radius: 4px; padding: 10px 14px; font-size: 14px }
- *   theme.css:230  …:focus { border-color: … !important;
- *                            box-shadow: 0 0 0 3px rgba(92,140,255,.1) }
+ * The two mechanisms that used to make the global rules win, and what replaced
+ * them:
  *
- * `input[type="number"]` has specificity (0,1,1) and beats the primitive's
- * single class (0,1,0) — and the `!important` declarations beat it outright.
- * The net effect is that on a REAL control the primitive contributes almost
- * nothing: padding, radius, font-size, colours and the focus ring all come from
- * `theme.css`, and the `inputSm` dense variant is entirely inert.
+ *   1. `!important` on `background` / `color` / `border`. Removed — nothing in
+ *      that section carries it any more.
+ *   2. `input[type="number"]` is specificity (0,1,1), which beats a CSS-Modules
+ *      class like `.pxqInput` at (0,1,0). Every selector in that section is now
+ *      wrapped in `:where()`, which contributes ZERO specificity, so they all
+ *      compute (0,0,0) and any single class wins.
  *
- * WHY `it.fails()`
- * Each `it.fails` below states the invariant that SHOULD hold and records that
- * it currently does not. It executes for real: the day someone deletes those
- * global rules, the assertion starts passing, `it.fails` turns RED, and whoever
- * fixed it is told to promote the test. That is the opposite of a skipped test,
- * which would rot silently.
+ * The rules still EXIST, deliberately: ~55 modules have not migrated to
+ * `composes:` yet and some declare only part of the control box, so deleting
+ * them would drop those controls to browser defaults. The last test in this file
+ * is the guard for that half — it pins that an unmigrated control with no
+ * competing class is still painted.
  *
- * These are NOT fixed here on purpose — this change adds verification, it does
- * not change what is verified. Fixing them means deleting global form rules
- * that ~56 unmigrated modules currently depend on, which is its own change.
- *
- * ponytail: remove the `.fails` markers here once theme.css's global form
- * control rules are retired; tracked as the forms-tesla adoption follow-up.
+ * The values in theme.css were left untouched, which is why that guard can be
+ * an equality assertion rather than a range.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -47,7 +40,7 @@ afterEach(() => {
   host = undefined;
 });
 
-describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
+describe('theme.css global form rules are a zero-specificity baseline', () => {
   it('a bare input gets the primitive, so the primitive itself is fine', () => {
     host = mount(`<input class="${fx.baseInput}" />`);
     const box = boxOf(host.firstElementChild);
@@ -59,55 +52,100 @@ describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
 
   /**
    * The control the PxQ panel actually renders. Same class list as above, one
-   * extra attribute, completely different result.
+   * extra attribute — and now the same result, which is the whole point.
+   *
+   * Asserted two ways on purpose. Equality against the bare control is the
+   * cascade claim (`type=` no longer changes who wins); equality against the
+   * TOKENS is the value claim (both are the primitive's box, not both wrong in
+   * the same way). Either alone would pass if theme.css started painting the
+   * bare control too.
    */
-  it('adding type="number" silently replaces the primitive box (the defect, asserted)', () => {
+  it('a type attribute no longer replaces the primitive box', () => {
     host = mount(`
       <input class="${fx.baseInput}" />
       <input class="${fx.baseInput}" type="number" />
+      <input class="${fx.baseInput}" type="text" />
+      <input class="${fx.baseInput}" type="date" />
     `);
-    const [bare, typed] = [...host.children].map(boxOf);
+    const [bare, ...typed] = [...host.children].map(boxOf);
 
-    // Identical class list…
-    expect(host.children[0].className).toBe(host.children[1].className);
-    // …different computed box.
-    expect(typed.paddingLeft).not.toBe(bare.paddingLeft);
-    expect(typed.borderRadius).not.toBe(bare.borderRadius);
-    expect(typed.borderColor).not.toBe(bare.borderColor);
+    for (const control of typed) {
+      expect(control.paddingTop).toBe(bare.paddingTop);
+      expect(control.paddingLeft).toBe(bare.paddingLeft);
+      expect(control.borderRadius).toBe(bare.borderRadius);
+      expect(control.borderColor).toBe(bare.borderColor);
+      expect(control.background).toBe(bare.background);
+      expect(control.color).toBe(bare.color);
+      expect(control.fontSize).toBe(bare.fontSize);
 
-    // Exactly what theme.css:207 declares.
-    expect(typed.paddingTop).toBe(10);
-    expect(typed.paddingLeft).toBe(14);
-    expect(px(typed.borderRadius)).toBe(4);
-  });
-
-  it.fails('SHOULD: a type="number" control keeps the primitive padding', () => {
-    host = mount(`<input class="${fx.baseInput}" type="number" />`);
-    expect(boxOf(host.firstElementChild).paddingLeft).toBe(tokenPx('--spacing-md'));
-  });
-
-  it.fails('SHOULD: a type="number" control keeps the primitive radius', () => {
-    host = mount(`<input class="${fx.baseInput}" type="number" />`);
-    expect(px(boxOf(host.firstElementChild).borderRadius)).toBe(tokenPx('--radius-md'));
-  });
-
-  it.fails('SHOULD: a select keeps the primitive border colour', () => {
-    host = mount(`<select class="${fx.baseSelect}"></select>`);
-    expect(boxOf(host.firstElementChild).borderColor).toBe(tokenColor('--cf-border-default'));
-  });
-
-  it.fails('SHOULD: a textarea keeps the primitive border colour', () => {
-    host = mount(`<textarea class="${fx.baseTextarea}"></textarea>`);
-    expect(boxOf(host.firstElementChild).borderColor).toBe(tokenColor('--cf-border-default'));
+      // …and the shared value is the primitive's, not theme.css's 10/14 box
+      // with its 4px radius.
+      expect(control.paddingTop).toBe(tokenPx('--spacing-sm'));
+      expect(control.paddingLeft).toBe(tokenPx('--spacing-md'));
+      expect(px(control.borderRadius)).toBe(tokenPx('--radius-md'));
+      expect(control.borderColor).toBe(tokenColor('--cf-border-default'));
+      expect(control.background).toBe(tokenColor('--cf-bg-card'));
+      expect(control.color).toBe(tokenColor('--cf-text-primary'));
+    }
   });
 
   /**
-   * The dense variant is the whole reason `.pxqInput` composes `inputSm`. On
-   * the real control it changes nothing that is visible: padding and font-size
-   * are both taken over by theme.css, and only `min-height` (which theme.css
-   * does not set) survives — and min-height loses to the taller content box.
+   * `select` and `textarea` were never a specificity problem — those selectors
+   * are (0,0,1) and always lost to a class. It was purely the `!important` on
+   * `background` / `color` / `border` that took these three properties away, so
+   * those three are exactly what is asserted.
    */
-  it('inputSm is inert on a real PxQ control — padding and font-size are overridden', () => {
+  it('a select keeps the primitive background, colour and border', () => {
+    host = mount(`<select class="${fx.baseSelect}"></select>`);
+    const box = boxOf(host.firstElementChild);
+
+    expect(box.borderColor).toBe(tokenColor('--cf-border-default'));
+    expect(box.background).toBe(tokenColor('--cf-bg-card'));
+    expect(box.color).toBe(tokenColor('--cf-text-primary'));
+  });
+
+  /**
+   * NOT part of the `:where()` change and NOT theme.css's doing.
+   * `design-tokens.css` draws a custom chevron on every `select:not([multiple])`
+   * and reserves room for it with `padding-right: 36px !important`, at (0,1,1).
+   * `!important` beats specificity whatever the selector looks like, so it also
+   * beats the primitive — which asks for `--spacing-md` on all four sides.
+   *
+   * Deliberately NOT fixed here: dropping that `!important` would let the
+   * primitive's 16px win and run the select's text under the chevron, which is
+   * worse than the inconsistency. The real fix belongs in `forms-tesla.css`
+   * (reserve chevron space in `.select` itself), and this change is forbidden
+   * from touching that file.
+   *
+   * ponytail: `.select` cannot control its own `padding-right` — the global
+   * chevron rule in design-tokens.css holds it at 36px with `!important`. Give
+   * `forms-tesla.css`'s `.select` the chevron affordance, then drop the
+   * `!important` and promote this to `it`.
+   */
+  it.fails('SHOULD: a select keeps the primitive padding on all four sides', () => {
+    host = mount(`<select class="${fx.baseSelect}"></select>`);
+    expect(boxOf(host.firstElementChild).paddingRight).toBe(tokenPx('--spacing-md'));
+  });
+
+  it('a textarea keeps the primitive background, colour and border', () => {
+    host = mount(`<textarea class="${fx.baseTextarea}"></textarea>`);
+    const box = boxOf(host.firstElementChild);
+
+    expect(box.borderColor).toBe(tokenColor('--cf-border-default'));
+    expect(box.background).toBe(tokenColor('--cf-bg-card'));
+    expect(box.color).toBe(tokenColor('--cf-text-primary'));
+  });
+
+  /**
+   * The dense variant is the whole reason `.pxqInput` composes `inputSm`.
+   * It used to contribute nothing visible: `padding` and `font-size` were both
+   * taken over by theme.css, leaving only `min-height`, which then lost to a
+   * content box that had grown taller than it.
+   *
+   * Both halves are asserted: the dense box really is smaller than the base
+   * one, and it is smaller by the exact amounts the variant declares.
+   */
+  it('the dense variant actually applies on a real PxQ control', () => {
     host = mount(`
       <input class="${promo.pxqInput}" type="number" />
       <input class="${fx.baseInput}" type="number" />
@@ -116,43 +154,44 @@ describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
 
     // The dense class IS in the class list…
     expect(promo.pxqInput.split(/\s+/).length).toBeGreaterThanOrEqual(3);
-    // …and changes nothing about the painted box.
-    expect(dense.paddingTop).toBe(base.paddingTop);
-    expect(dense.paddingLeft).toBe(base.paddingLeft);
-    expect(dense.fontSize).toBe(base.fontSize);
-  });
 
-  it.fails('SHOULD: a dense PxQ control computes the dense padding', () => {
-    host = mount(`<input class="${promo.pxqInput}" type="number" />`);
-    expect(boxOf(host.firstElementChild).paddingTop).toBe(tokenPx('--spacing-xs'));
+    // …and it now changes the painted box.
+    expect(dense.paddingTop).toBeLessThan(base.paddingTop);
+    expect(dense.paddingLeft).toBeLessThan(base.paddingLeft);
+    expect(dense.fontSize).toBeLessThan(base.fontSize);
+
+    expect(dense.paddingTop).toBe(tokenPx('--spacing-xs'));
+    expect(dense.paddingLeft).toBe(tokenPx('--spacing-sm'));
+    expect(dense.fontSize).toBe(tokenPx('--font-xs'));
+    expect(dense.minHeight).toBe(tokenPx('--input-height-sm'));
+
+    // Only box metrics change — the dense control cannot drift away from the
+    // normal one on colour or radius.
+    expect(dense.borderRadius).toBe(base.borderRadius);
+    expect(dense.borderColor).toBe(base.borderColor);
+    expect(dense.background).toBe(base.background);
   });
 
   /**
    * The maintainer asked directly whether the 32px input height is right in a
-   * dense panel. The browser's answer: the panel never gets 32px.
+   * dense panel. The browser's answer used to be that the panel never GOT 32px:
+   * `min-height: 32px` survived, but theme.css's `padding: 10px 14px` plus
+   * `font-size: 14px` made the content box 39.5px, so every authoring row sat
+   * 7.5px out of line with the `btn-tesla sm` beside it.
    *
-   * `min-height: 32px` survives, but theme.css's `padding: 10px 14px` plus
-   * `font-size: 14px` make the CONTENT box taller than the minimum, so the
-   * control lays out at 39.5px while the `btn-tesla sm` beside it is exactly
-   * 32px. Every PxQ authoring row is misaligned by 7.5px.
+   * The height is asserted three ways because equality alone is weak here — two
+   * controls can match by both being wrong. So: it equals the button, it equals
+   * the token both of them are supposed to come from, AND it is the sum of the
+   * box the cascade actually produced, which is what makes the number
+   * explainable rather than merely observed.
    *
-   * That 39.5px is ARITHMETIC, not a font metric, and the assertions below are
-   * written to show it: 1px border + 10px padding + a 17.5px line box + 10px
-   * padding + 1px border. The line box is 17.5px because the primitive's
-   * `line-height: var(--leading-tight)` is UNITLESS (1.25), and a unitless
-   * line-height resolves to `font-size x factor` without ever consulting the
-   * font's ascent/descent metrics — the same property `pxqPanel.visual.test.jsx`
-   * relies on for its 15px label lines. `line-height: normal` WOULD consult
-   * them, so the tests reject it explicitly rather than assume it is absent.
-   *
-   * Verified across 9 families with deliberately extreme metrics (including
-   * Noto Nastaliq Urdu, monospace and serif): the height is 39.5px in every
-   * one. The literal `39.5` / `7.5` that used to be asserted here have been
-   * replaced by the decomposition anyway — not because they were typeface
-   * dependent, but because a bare literal fails on an unrelated
-   * `--leading-tight` change and says nothing about why 39.5 is the number.
+   * That last decomposition also depends on `line-height` being UNITLESS
+   * (`--leading-tight` = 1.25), which resolves to `font-size x factor` without
+   * consulting the font's ascent/descent metrics. `line-height: normal` WOULD
+   * consult them, so it is rejected explicitly rather than assumed absent —
+   * otherwise this assertion would quietly become typeface-dependent.
    */
-  it('a real PxQ input does NOT line up with the btn-tesla sm beside it', () => {
+  it('a real PxQ input is exactly as tall as the btn-tesla sm beside it', () => {
     host = mount(`
       <div style="display:flex; align-items:flex-end">
         <input class="${promo.pxqInput}" type="number" />
@@ -163,73 +202,123 @@ describe('KNOWN DEFECT — theme.css global rules outrank forms-tesla', () => {
     const inputH = input.getBoundingClientRect().height;
     const buttonH = button.getBoundingClientRect().height;
     const cs = getComputedStyle(input);
-    const box = boxOf(input);
 
     expect(buttonH).toBe(tokenPx('--btn-height-sm'));
-    // The invariant that matters: the control is TALLER than the button it is
-    // supposed to sit flush with.
-    expect(inputH).toBeGreaterThan(buttonH);
+    expect(inputH).toBe(buttonH);
+    expect(inputH).toBe(tokenPx('--input-height-sm'));
 
-    // The typeface-independence guarantee, asserted instead of assumed. If the
-    // cascade ever leaves this control on `normal`, the height genuinely does
-    // become a property of the runner's font stack and this suite must know.
     expect(cs.lineHeight).not.toBe('normal');
 
-    // The discrepancy, still pinned EXACTLY — but derived from the cascade that
-    // produces it, so the diff shows both the number and its cause.
-    const derivedH =
+    // Derived from the cascade that produces it, so a future regression shows
+    // both the number and its cause. The content box now fits INSIDE the
+    // minimum instead of outgrowing it, so `min-height` is what decides.
+    const contentH =
       px(cs.borderTopWidth) +
       px(cs.paddingTop) +
       px(cs.lineHeight) +
       px(cs.paddingBottom) +
       px(cs.borderBottomWidth);
 
-    expect(inputH).toBe(derivedH);
-
-    // …and this is the mechanism: the dense variant DOES ask for 32px, and the
-    // content box simply outgrows it.
-    expect(box.minHeight).toBe(tokenPx('--input-height-sm'));
-    expect(derivedH).toBeGreaterThan(box.minHeight);
-  });
-
-  it.fails('SHOULD: a real PxQ input is exactly as tall as a btn-tesla sm', () => {
-    host = mount(`
-      <div style="display:flex; align-items:flex-end">
-        <input class="${promo.pxqInput}" type="number" />
-        <button type="button" class="btn-tesla sm">Guardar</button>
-      </div>
-    `);
-    const [input, button] = host.firstElementChild.children;
-    expect(input.getBoundingClientRect().height).toBe(button.getBoundingClientRect().height);
+    expect(contentH).toBeLessThanOrEqual(boxOf(input).minHeight);
+    expect(inputH).toBe(boxOf(input).minHeight);
   });
 
   /**
-   * The primitive's focus ring is 2px of `--cf-accent-blue-light` with a
-   * `--cf-accent-blue` border. On a typed control you get theme.css's 3px
-   * hardcoded `rgba(92,140,255,.1)` ring and a `--brand-primary` border.
+   * The primitive's focus ring is `--border-2` of `--cf-accent-blue-light` with
+   * a `--cf-accent-blue` border. A typed control used to get theme.css's 3px
+   * hardcoded `rgba(92,140,255,.1)` ring and a `--brand-primary` border
+   * instead, because the `:focus` rules sat at (0,2,1) with `!important` on
+   * `border-color`.
    *
-   * A focus ring still EXISTS, which is what matters for accessibility — so
-   * this is a consistency defect, not an a11y one. Asserted separately from the
-   * "focus is visible at all" test so the two cannot be confused.
+   * The resting state is measured first: `boxShadow: none` before focus is what
+   * makes "a ring appeared" mean something rather than "a ring exists".
    */
-  it('a typed control focuses with theme.css ring, not the primitive ring', () => {
+  it('a typed control focuses with the primitive accent ring', () => {
     host = mount(`<input class="${fx.baseInput}" type="number" />`);
     const el = host.firstElementChild;
 
+    const resting = boxOf(el);
+    expect(resting.boxShadow).toBe('none');
+
     el.focus();
+    expect(document.activeElement).toBe(el);
     const focused = boxOf(el);
 
-    // Still visible — the accessibility floor holds.
+    // A ring exists at all — the accessibility floor.
     expect(focused.boxShadow).not.toBe('none');
-    // But it is the legacy ring: 3px spread, hardcoded colour.
-    expect(focused.boxShadow).toContain('3px');
-    expect(focused.boxShadow).not.toContain(tokenColor('--cf-accent-blue-light'));
-    expect(focused.borderColor).not.toBe(tokenColor('--cf-accent-blue'));
+    // …and it is the primitive's, at the primitive's width.
+    expect(focused.boxShadow).toContain(tokenColor('--cf-accent-blue-light'));
+    expect(focused.boxShadow).toContain(`${tokenPx('--border-2')}px`);
+    expect(focused.borderColor).toBe(tokenColor('--cf-accent-blue'));
+    expect(focused.borderColor).not.toBe(resting.borderColor);
   });
 
-  it.fails('SHOULD: a typed control focuses with the primitive accent ring', () => {
-    host = mount(`<input class="${fx.baseInput}" type="number" />`);
-    host.firstElementChild.focus();
-    expect(boxOf(host.firstElementChild).boxShadow).toContain(tokenColor('--cf-accent-blue-light'));
+  /**
+   * THE OTHER HALF, and the riskier one.
+   *
+   * De-specifying was chosen over deleting precisely so that the ~55 modules
+   * which have not migrated keep their controls painted. If someone later
+   * deletes these rules — or "cleans up" the `:where()` in a way that drops
+   * them — those controls silently fall back to browser defaults, which is a
+   * far wider regression than the bug this file used to pin.
+   *
+   * So the baseline values are asserted as LITERALS on purpose. They are not
+   * tokens on the design scale and must not be migrated onto it: they are
+   * frozen legacy values whose only job is to stay exactly what they were while
+   * the migration finishes. A UA default here would be ~1px/2px padding, 0
+   * radius and no border colour of its own, so these numbers separate "the
+   * baseline still applies" from "nobody is styling this".
+   */
+  it('an unmigrated control with no competing class still gets the baseline', () => {
+    host = mount(`
+      <input type="number" />
+      <input type="text" />
+      <input type="date" />
+      <textarea></textarea>
+      <select></select>
+    `);
+    const [number, text, date, textarea, select] = [...host.children].map(boxOf);
+
+    for (const control of [number, text, date, textarea]) {
+      expect(control.paddingTop).toBe(10);
+      expect(control.paddingLeft).toBe(14);
+      expect(px(control.borderRadius)).toBe(4);
+      expect(control.fontSize).toBe(14);
+      expect(control.borderWidth).toBe(1);
+    }
+
+    // `select` has always had its own tighter box in that section.
+    expect(select.paddingTop).toBe(8);
+    expect(select.paddingLeft).toBe(12);
+    expect(px(select.borderRadius)).toBe(4);
+
+    // Not the user-agent default. Pinned explicitly so a fallback is loud.
+    for (const control of [number, text, date, textarea, select]) {
+      expect(control.paddingTop).toBeGreaterThan(2);
+      expect(px(control.borderRadius)).toBeGreaterThan(0);
+      expect(control.borderColor).toBe(tokenColor('--border-secondary'));
+      expect(control.background).toBe(tokenColor('--bg-primary'));
+      expect(control.color).toBe(tokenColor('--text-primary'));
+    }
+  });
+
+  /**
+   * The baseline's focus state, same reasoning: it is the only focus indicator
+   * an unmigrated control has, and `outline: none` is set right beside it. Lose
+   * the ring and keyboard users on ~55 modules get nothing at all.
+   */
+  it('an unmigrated control still gets the baseline focus ring', () => {
+    host = mount('<input type="number" /><input type="date" />');
+
+    for (const el of host.children) {
+      expect(boxOf(el).boxShadow).toBe('none');
+      el.focus();
+      const focused = boxOf(el);
+
+      expect(focused.boxShadow).not.toBe('none');
+      expect(focused.boxShadow).toContain('3px');
+      expect(focused.borderColor).toBe(tokenColor('--brand-primary'));
+      el.blur();
+    }
   });
 });

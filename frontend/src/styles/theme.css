@@ -193,32 +193,65 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Formularios con estilo Tesla */
-select,
-option {
-  background: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
-  border: 1px solid var(--border-secondary) !important;
+/* ============================================
+   FORMULARIOS - BASELINE DE ESPECIFICIDAD CERO
+   ============================================
+
+   Read this before "simplifying" the `:where()` away.
+
+   WHAT THESE RULES ARE FOR
+   The owned `.input` / `.select` / `.textarea` primitive lives in
+   `forms-tesla.css` and is consumed through `composes:`. Only a handful of
+   modules have migrated; 103 others still declare their own control classes
+   (453 rule blocks, measured), and some declare only SOME of the box
+   properties. The rules below are the fallback that keeps every one of those
+   controls from dropping to browser defaults, so they cannot be deleted until
+   the migration finishes.
+
+   WHY `:where()`
+   They used to be plain element/attribute selectors carrying `!important`,
+   which defeated the primitive through two independent mechanisms:
+
+     1. `!important` won `background`, `color` and `border` outright.
+     2. `input[type="number"]` is specificity (0,1,1); a CSS-Modules class such
+        as `.pxqInput` is (0,1,0), so the attribute selector ALSO won
+        `border-radius`, `padding` and `font-size`.
+
+   The measured result was that a control which composed the primitive got
+   almost nothing from it: the dense `inputSm` variant was completely inert, and
+   `:disabled` was not painted at all in either theme — every one of its
+   declarations lost to `!important`, leaving `cursor: not-allowed` as the only
+   surviving signal, which keyboard and touch users never receive.
+
+   `:where()` contributes ZERO specificity, so every selector below computes
+   (0,0,0): it still styles a control that has nothing competing with it, and
+   ANY single class now beats it. The declared VALUES are deliberately
+   unchanged — this change is about who wins the cascade, not about how an
+   unmigrated control looks.
+
+   DO NOT reintroduce `!important` in this section. `!important` beats
+   specificity regardless of `:where()`, so a single one undoes all of it.
+
+   `@layer` was considered instead and rejected: it is supported by strictly
+   fewer of this project's browserslist targets than `:where()`, and it would
+   have to wrap the whole file to be meaningful. */
+
+:where(select, option) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-secondary);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 14px;
 }
 
-input[type="text"],
-input[type="number"],
-input[type="email"],
-input[type="password"],
-textarea {
-  background: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
-  border: 1px solid var(--border-secondary) !important;
-  border-radius: 4px;
-  padding: 10px 14px;
-  font-size: 14px;
-}
-
-/* Date inputs - Sin !important para permitir que el navegador controle los íconos nativos */
-input[type="date"] {
+:where(
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  textarea
+) {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border-secondary);
@@ -227,17 +260,33 @@ input[type="date"] {
   font-size: 14px;
 }
 
-input[type="text"]:focus,
-input[type="number"]:focus,
-input[type="email"]:focus,
-input[type="password"]:focus,
-textarea:focus {
-  border-color: var(--brand-primary) !important;
+/* Date inputs se listan aparte porque el navegador dibuja controles nativos
+   dentro de ellos; los pseudo-elementos siguen más abajo. */
+:where(input[type="date"]) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+/* El estado de foco va en el baseline igual que el estado de reposo. Dejarlo a
+   una especificidad mayor haría que el anillo de foco del primitivo quedara
+   muerto mientras el resto funciona: media corrección, más confusa que el bug. */
+:where(
+  input[type="text"]:focus,
+  input[type="number"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  textarea:focus
+) {
+  border-color: var(--brand-primary);
   outline: none;
   box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);
 }
 
-input[type="date"]:focus {
+:where(input[type="date"]:focus) {
   border-color: var(--brand-primary);
   outline: none;
   box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);

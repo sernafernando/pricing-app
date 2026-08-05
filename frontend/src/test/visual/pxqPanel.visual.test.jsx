@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { tokenPx, px, setTheme, verticalGapBetween } from './visualHelpers';
+import { tokenPx, tokenColor, px, setTheme, verticalGapBetween } from './visualHelpers';
 import PxqPanel from '../../components/promociones/PxqPanel';
 import { pxqAPI } from '../../services/api';
 
@@ -256,22 +256,23 @@ describe('PxQ authoring form — dark mode', () => {
   });
 
   /**
-   * KNOWN DEFECT — the disabled-in-dark-mode case the maintainer flagged.
+   * The disabled-in-dark-mode case the maintainer flagged, on the REAL control.
    *
-   * The answer is worse than "hard to see in dark mode": on a real PxQ control
-   * the disabled state is not PAINTED AT ALL. `forms-tesla.css` defines
-   * `:disabled { background: --cf-bg-app; border-color: --cf-border-subtle;
-   * color: --cf-text-muted }`, but theme.css sets background, colour and border
-   * with `!important` on `input[type="number"]` and has no `:disabled` variant,
-   * so all three of the primitive's disabled declarations are discarded.
+   * `forms-tesla.css` defines `:disabled { background: --cf-bg-app;
+   * border-color: --cf-border-subtle; color: --cf-text-muted }`. Until the
+   * global form rules in theme.css became a zero-specificity baseline, all
+   * three of those declarations lost to `!important` on `input[type="number"]`,
+   * which has no `:disabled` variant — so the state was not painted at all and
+   * the only thing left was `cursor: not-allowed`, a pointer affordance that
+   * keyboard and touch users never receive.
    *
-   * What survives is `cursor: not-allowed` — a pointer affordance only. A
-   * keyboard or touch user gets no signal whatsoever, in EITHER theme.
-   *
-   * Reported, not fixed: the fix is deleting theme.css's global form rules,
-   * which ~56 unmigrated modules still rely on.
+   * Checked in BOTH themes because the two are painted from different sides of
+   * the token scale: in light mode the disabled fill is lighter than the card
+   * and recedes, in dark mode it is DARKER than the card. Only one of those can
+   * be verified by eye at a time, and a token edit can easily fix one and break
+   * the other.
    */
-  it('a disabled PxQ control is visually IDENTICAL to an enabled one (defect)', async () => {
+  it('a disabled PxQ control is visibly distinct from an enabled one, in both themes', async () => {
     const container = await renderPanel();
     const form = createForm(container);
     const enabled = form.querySelector('input');
@@ -284,28 +285,27 @@ describe('PxQ authoring form — dark mode', () => {
       const d = getComputedStyle(probe);
       const e = getComputedStyle(enabled);
 
-      expect(d.backgroundColor).toBe(e.backgroundColor);
-      expect(d.color).toBe(e.color);
-      expect(d.borderTopColor).toBe(e.borderTopColor);
+      // Three independent visual channels, not one — a single differing
+      // property would be a weaker claim than "this reads as disabled".
+      expect(d.backgroundColor).not.toBe(e.backgroundColor);
+      expect(d.borderTopColor).not.toBe(e.borderTopColor);
+      expect(d.color).not.toBe(e.color);
+
+      // The exact declarations the primitive asks for, so a control cannot pass
+      // by being differently wrong.
+      expect(d.backgroundColor).toBe(tokenColor('--cf-bg-app'));
+      expect(d.borderTopColor).toBe(tokenColor('--cf-border-subtle'));
+      expect(d.color).toBe(tokenColor('--cf-text-muted'));
+
+      // Never bought with `opacity`, which would dim the label too.
       expect(d.opacity).toBe(e.opacity);
 
-      // The only difference the primitive still manages to deliver.
+      // The pointer affordance is still there, it is just no longer the ONLY
+      // thing there.
       expect(d.cursor).toBe('not-allowed');
       expect(e.cursor).not.toBe('not-allowed');
     }
 
     probe.remove();
-  });
-
-  it.fails('SHOULD: a disabled PxQ control has a different background from an enabled one', async () => {
-    const container = await renderPanel();
-    setTheme('dark');
-    const form = createForm(container);
-    const enabled = form.querySelector('input');
-    const probe = enabled.cloneNode();
-    probe.disabled = true;
-    form.append(probe);
-
-    expect(getComputedStyle(probe).backgroundColor).not.toBe(getComputedStyle(enabled).backgroundColor);
   });
 });
