@@ -3,9 +3,8 @@
 Adds five nullable columns to `tickets` for AI-assisted triage:
   - severidad / urgencia: the two axes of triage, VARCHAR + CHECK against a
     closed vocabulary — NOT a Postgres ENUM type. You cannot drop a value
-    from a PG enum, so downgrade() would be a lie. `prioridad` already made
-    that mistake with SQLEnum (ticket.py:39-43 before this change); this
-    migration does not repeat it.
+    from a PG enum, so downgrade() would be a lie. `Ticket.prioridad` already
+    made that mistake with SQLEnum; this migration does not repeat it.
   - severidad_origen / urgencia_origen: who/what set the value
     (humano | ia_confirmada | ia_auto), same VARCHAR + CHECK approach.
   - texto_original: the reporter's verbatim intake text.
@@ -14,9 +13,10 @@ NULL in severidad/urgencia means "unclassified" — this migration writes no
 data, it only adds the columns. Nothing yet writes to them; a later slice
 (triage service + confirmation lifecycle) does.
 
-`prioridad` is unchanged: NOT NULL, present in 5 schemas + 2 endpoints, kept
-for backward compat and deprecated in the UI, never derived from/to the
-columns added here (see the `# ponytail:` marker on the model).
+`Ticket.prioridad` is unchanged: NOT NULL, present in 5 schemas + 2
+endpoints, kept for backward compat and deprecated in the UI, never
+derived from/to the columns added here (see the `# ponytail:` marker on
+the model).
 
 Revision ID: 20260805_ticket_sev_urg_cols
 Revises: 20260801_pxq_tier_snapshot

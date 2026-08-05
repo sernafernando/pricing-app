@@ -133,9 +133,13 @@ class TestSeveridadUrgenciaCheckConstraint:
         )
         db.add(ticket)
 
+        # No explicit db.rollback() here — the fixture's own
+        # `transaction.rollback()` teardown handles cleanup. Calling
+        # session.rollback() from inside the test would roll back the
+        # fixture's outer connection-level transaction instead of just this
+        # session's pending work, making the fixture's teardown a no-op.
         with pytest.raises(IntegrityError):
             db.flush()
-        db.rollback()
 
     @pytest.mark.postgres
     def test_invalid_urgencia_rejected(self, pg_tickets_db):
@@ -161,6 +165,7 @@ class TestSeveridadUrgenciaCheckConstraint:
         )
         db.add(ticket)
 
+        # See the comment in test_invalid_severidad_rejected above — no
+        # explicit db.rollback() here on purpose.
         with pytest.raises(IntegrityError):
             db.flush()
-        db.rollback()
