@@ -203,6 +203,99 @@ def test_item_id_must_match_its_publication(db, publicacion, pxq_user) -> None:
     assert "MLA_SOMETHING_ELSE" in str(exc.value.detail)
 
 
+def test_create_tier_without_snapshot_kwargs_leaves_both_columns_null(db, publicacion, pxq_user) -> None:
+    """Existing-caller regression guard.
+
+    The one production caller, `routers/pxq.py::crear_tier_pxq`, supplies
+    neither snapshot kwarg and must keep producing byte-identically the row it
+    produced before those kwargs existed. A manually created tier has never
+    been confirmed by MercadoLibre, so NULL/NULL is the honest "never synced"
+    answer that `pxq_diff.DesiredTier.has_snapshot` reads.
+    """
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    assert tier.cantidad_sincronizada is None
+    assert tier.precio_sincronizado is None
+
+
+def test_create_tier_with_snapshot_kwargs_sets_both_columns(db, publicacion, pxq_user) -> None:
+    """The import path (`adopt-live`) creates a row whose snapshot IS the value
+    MercadoLibre just reported, in the same operation.
+
+    `precio_sincronizado` must go through the same `Decimal(str(...))`
+    discipline as `precio_unitario`: a direct `Decimal(float)` bakes in binary
+    noise, and the snapshot is compared for EQUALITY against a live value on
+    every later sync, so noise there produces a false "differs" verdict.
+    """
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=500.10,
+        usuario_id=pxq_user.id,
+        cantidad_sincronizada=5,
+        precio_sincronizado=500.10,
+    )
+    db.flush()
+
+    assert tier.cantidad_sincronizada == 5
+    assert isinstance(tier.precio_sincronizado, Decimal)
+    assert tier.precio_sincronizado == Decimal("500.10")
+    # `Decimal(500.10)` is 500.1000000000000227...; asserting the exact Decimal
+    # above only proves the coercion happened if the float-built value is
+    # distinguishable, so pin that it is.
+    assert tier.precio_sincronizado != Decimal(500.10)
+
+
+@pytest.mark.parametrize(
+    ("snapshot_kwargs", "missing"),
+    [
+        ({"cantidad_sincronizada": 5}, "precio_sincronizado"),
+        ({"precio_sincronizado": Decimal("500.00")}, "cantidad_sincronizada"),
+    ],
+    ids=["only-cantidad", "only-precio"],
+)
+def test_create_tier_with_half_a_snapshot_is_a_clean_422(db, publicacion, pxq_user, snapshot_kwargs, missing) -> None:
+    """Both-or-neither: supplying exactly one of the pair is refused.
+
+    `pxq_diff.DesiredTier.has_snapshot` is `synced_quantity is not None AND
+    synced_amount is not None`, so a half-written snapshot reads as NO
+    snapshot — and that is not merely inert. `local_changed` then returns True
+    unconditionally and `live_changed` returns False unconditionally, so every
+    later sync classifies the row as "we edited it, MercadoLibre did not" and
+    pushes the local value over whatever ML holds. Permanently.
+
+    That is the same silent-overwrite failure the three-way merge exists to
+    prevent, so the half-written row is refused at the service boundary
+    instead of being persisted for a later sync to act on.
+    """
+    with pytest.raises(HTTPException) as exc:
+        create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+            **snapshot_kwargs,
+        )
+
+    assert exc.value.status_code == 422
+    # The message must name the column the caller forgot, not just complain.
+    assert missing in str(exc.value.detail)
+    # Nothing may survive the refusal.
+    assert db.query(MlPxqTier).filter_by(publicacion_ml_id=publicacion.id).count() == 0
+
+
 def test_update_tier_changes_price_and_quantity(db, publicacion, pxq_user) -> None:
     tier = create_pxq_tier(
         db,
