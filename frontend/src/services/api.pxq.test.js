@@ -60,3 +60,47 @@ describe('pxqAPI.sync cannot ask ML to clear the live tier array', () => {
     }
   });
 });
+
+describe('pxqAPI.adoptLive imports live tiers and can express nothing else', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockGet.mockReset();
+    mockPost.mockReset();
+  });
+
+  it('posts to the adopt-live path for the given item', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.adoptLive('MLA001');
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/adopt-live');
+  });
+
+  // The backend endpoint takes NO request body. Sending one would be the first
+  // step of the drift that gave `sync` an `allow_clear` argument: a body is a
+  // place to put an option, and an import verb has no option worth having.
+  it('sends no request body at all', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.adoptLive('MLA001');
+    expect(mockPost.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('ignores anything a caller tries to pass beyond the item id', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.adoptLive('MLA001', { overwrite: true });
+    pxqAPI.adoptLive('MLA002', true);
+
+    expect(mockPost).toHaveBeenCalledTimes(2);
+    for (const call of mockPost.mock.calls) {
+      expect(call).toHaveLength(1);
+    }
+  });
+
+  // Import-only means import-only: no path through this verb may reach the
+  // sync endpoint, which is the one that replaces the whole live array.
+  it('never touches the sync endpoint', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.adoptLive('MLA001');
+    for (const [url] of mockPost.mock.calls) {
+      expect(url).not.toMatch(/\/sync$/);
+    }
+  });
+});

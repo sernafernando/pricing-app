@@ -226,6 +226,17 @@ export const pxqAPI = {
   // parameter away removes the syntactic path that let a caller ask for a
   // wipe by accident.
   sync: (itemId) => api.post(`/pxq/${itemId}/sync`, { allow_clear: false }),
+  // Import path (PR 4e): pulls ML's LIVE tiers into an EMPTY local mirror.
+  // The opposite direction from `sync` and the only non-destructive way out of
+  // "ML holds tiers we never mirrored".
+  //
+  // Takes the item id and NOTHING else, for the same reason `sync` no longer
+  // takes `allow_clear`: `POST /pxq/{item_id}/adopt-live` accepts no request
+  // body at all (see `backend/app/routers/pxq.py`), so there is no option to
+  // express here. An optional flag on an import verb is exactly the shape that
+  // let "sincronizar" be asked to wipe four publications — the parameter that
+  // does not exist cannot be passed by accident.
+  adoptLive: (itemId) => api.post(`/pxq/${itemId}/adopt-live`),
 };
 
 export const pricingAPI = {
