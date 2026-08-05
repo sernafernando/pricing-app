@@ -102,9 +102,11 @@ class TestTicketSchemaColumns:
 class TestSeveridadUrgenciaCheckConstraint:
     """2a.4: real PostgreSQL CHECK constraints reject out-of-vocabulary values.
 
-    VARCHAR + CHECK (not a PG ENUM — see the migration docstring for why),
-    so this must run against real PostgreSQL: SQLite would silently accept
-    the same DDL without enforcing it the same way psycopg2 surfaces it here.
+    VARCHAR + CHECK (not a PG ENUM — see the migration docstring for why).
+    Marked `@pytest.mark.postgres` per the tasks doc so it proves the exact
+    DDL the migration installs and the exact IntegrityError/psycopg2 error
+    shape production sees — not because SQLite fails to enforce CHECK
+    constraints (it does).
     """
 
     @pytest.mark.postgres
