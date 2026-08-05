@@ -14,8 +14,14 @@ Run:
     cd backend && source venv/bin/activate && pytest tests/tickets/test_audit_transiciones.py -v
 """
 
+import subprocess
+import sys
 from datetime import datetime, UTC, timedelta
+from pathlib import Path
 
+from sqlalchemy import create_engine
+
+from app.core.database import Base
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.core.security import get_password_hash
 from app.tickets.models.historial_ticket import HistorialTicket
@@ -24,6 +30,11 @@ from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, TransicionEstado, Workflow
 from scripts.audit_transiciones_tickets import find_unconfigured_transitions
+
+# `backend/` directory — the script's own docstring says to run it as
+# `cd backend && ... -m scripts.audit_transiciones_tickets`, so the
+# subprocess test below must replicate that cwd exactly.
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 _seq = [0]
@@ -166,3 +177,67 @@ class TestFindUnconfiguredTransitions:
 
         assert len(db.new) == 0
         assert len(db.dirty) == 0
+
+
+class TestStandaloneScriptExecution:
+    """Guards that the script actually runs as a STANDALONE script — i.e. run
+    exactly like a real operator would run it, in a fresh interpreter that
+    has NOT already imported the whole FastAPI app.
+
+    `conftest.py` imports `app.main`, which imports every model in the
+    codebase and fully populates SQLAlchemy's mapper registry before any
+    test in this file runs. That means the other tests above run the audit
+    function inside an environment that can never reproduce the standalone
+    failure mode: `relationship("Usuario")` (declared by string in several
+    ticket models — see adjunto_ticket.py, asignacion_ticket.py,
+    comentario_ticket.py, historial_ticket.py, sector_usuario.py) can only
+    be resolved if `Usuario` was imported somewhere. Inside pytest, it
+    always was; running the script alone via
+    `python -m scripts.audit_transiciones_tickets`, it was not.
+
+    This test launches a brand-new subprocess instead, with an explicit,
+    minimal environment (deliberately NOT inheriting `os.environ` — see
+    below) so a regression here fails for the right reason instead of being
+    masked by the outer test process's already-populated mapper registry.
+    """
+
+    def test_runs_standalone_in_fresh_interpreter(self, tmp_path, engine):
+        # Build the sqlite schema for a throwaway file-backed DB. This uses
+        # THIS process's already-populated `Base.metadata` (safe here — we
+        # are only provisioning tables, not proving mapper resolution) so the
+        # subprocess has real tables to query against. The `engine` fixture
+        # (conftest.py) is requested purely for its side effect: it patches
+        # Postgres-only column types (JSONB, UUID, Vector) to SQLite
+        # equivalents in-place on `Base.metadata` before we call
+        # `create_all` on our own tmp-file engine below. Named `tmp_engine`
+        # (not `engine`) so it doesn't shadow the fixture parameter above.
+        db_path = tmp_path / "audit_standalone.db"
+        db_url = f"sqlite:///{db_path}"
+        tmp_engine = create_engine(db_url)
+        Base.metadata.create_all(bind=tmp_engine)
+        tmp_engine.dispose()
+
+        # Explicit env — NEVER `{**os.environ, ...}`. Inheriting the parent
+        # process's environment would carry over whatever already-imported
+        # state exists there and could mask the very failure this test
+        # exists to catch. Only the settings `app.core.config.Settings`
+        # actually requires without a default (per .github/workflows/ci.yml):
+        # ENVIRONMENT, DATABASE_URL, SECRET_KEY, ERP_BASE_URL.
+        env = {
+            "ENVIRONMENT": "testing",
+            "DATABASE_URL": db_url,
+            "SECRET_KEY": "ci-test-secret-key-minimum-32-bytes!",
+            "ERP_BASE_URL": "http://localhost:9999",
+        }
+
+        result = subprocess.run(
+            [sys.executable, "-m", "scripts.audit_transiciones_tickets"],
+            cwd=BACKEND_DIR,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        assert result.returncode == 0, f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        assert "Ticket workflow transition audit" in result.stdout
