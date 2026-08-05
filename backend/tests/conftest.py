@@ -320,9 +320,18 @@ def pg_db(pg_engine):
 @pytest.fixture(scope="session")
 def pg_tickets_engine():
     """Session-scoped PostgreSQL engine with only the tables the tickets
-    severidad/urgencia CHECK constraints (tickets-ai-triage PR 2a) need:
-    roles, usuarios, tickets_sectores, tickets_workflows, tickets_estados,
-    tickets_tipos, tickets.
+    severidad/urgencia CHECK constraints (tickets-ai-triage PR 2a) and the
+    `tickets_propuestas_ia` side table (PR 2b) need: roles, usuarios,
+    tickets_sectores, tickets_workflows, tickets_estados, tickets_tipos,
+    tickets, tickets_propuestas_ia.
+
+    Deliberately ONE session-scoped engine for every tickets-related
+    Postgres-only table, not one engine per PR slice: `tickets_propuestas_ia`
+    has an FK to `tickets`, and two independent session-scoped engines each
+    creating/dropping their own copy of `tickets` against the same physical
+    `POSTGRES_TEST_URL` database race on teardown order — whichever engine
+    drops `tickets` first fails with `DependentObjectsStillExist` if the
+    other engine's FK-dependent table is still there.
 
     Not the full `Base.metadata` — same rationale as `pg_engine` above: that
     would also create pgvector-backed tables whose extension isn't installed
@@ -336,6 +345,7 @@ def pg_tickets_engine():
         )
 
     from app.models.rol import Rol as _Rol
+    from app.tickets.models.propuesta_ia import PropuestaIA as _PropuestaIA
     from app.tickets.models.sector import Sector as _Sector
     from app.tickets.models.tipo_ticket import TipoTicket as _TipoTicket
     from app.tickets.models.ticket import Ticket as _Ticket
@@ -349,6 +359,7 @@ def pg_tickets_engine():
         _EstadoTicket.__table__,
         _TipoTicket.__table__,
         _Ticket.__table__,
+        _PropuestaIA.__table__,
     ]
 
     eng = create_engine(POSTGRES_TEST_URL)
@@ -360,7 +371,7 @@ def pg_tickets_engine():
 
 @pytest.fixture()
 def pg_tickets_db(pg_tickets_engine):
-    """Transactional PostgreSQL session (tickets tables), rolled back after each test."""
+    """Transactional PostgreSQL session (tickets + propuestas_ia tables), rolled back after each test."""
     connection = pg_tickets_engine.connect()
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
