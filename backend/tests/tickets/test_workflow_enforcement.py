@@ -17,6 +17,7 @@ from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.rol import Rol
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.core.security import get_password_hash, create_access_token
+from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
 from app.tickets.models.historial_ticket import HistorialTicket
 from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
@@ -95,6 +96,50 @@ def _make_workflow(
             )
         )
         db.flush()
+
+    tipo = TipoTicket(sector_id=sector.id, codigo="consulta", nombre="Consulta", workflow_id=wf.id)
+    db.add(tipo)
+    db.flush()
+
+    return wf, tipo, estado_a, estado_b
+
+
+def _make_workflow_with_rules(
+    db,
+    sector: Sector,
+    *,
+    requiere_permiso: str | None = None,
+    solo_asignado: bool = False,
+    solo_creador: bool = False,
+) -> tuple[Workflow, TipoTicket, EstadoTicket, EstadoTicket]:
+    """Build a 2-state workflow with a configured edge that carries one of the
+    authorization rules (`requiere_permiso` / `solo_asignado` / `solo_creador`)
+    checked inside `WorkflowService.can_transition`."""
+    wf = Workflow(sector_id=sector.id, nombre="WF Enforcement Rules Test", es_default=True, activo=True)
+    db.add(wf)
+    db.flush()
+
+    estado_a = EstadoTicket(
+        workflow_id=wf.id, codigo="abierto", nombre="Abierto", orden=1, es_inicial=True, es_final=False
+    )
+    estado_b = EstadoTicket(
+        workflow_id=wf.id, codigo="cerrado", nombre="Cerrado", orden=2, es_inicial=False, es_final=True
+    )
+    db.add_all([estado_a, estado_b])
+    db.flush()
+
+    db.add(
+        TransicionEstado(
+            workflow_id=wf.id,
+            estado_origen_id=estado_a.id,
+            estado_destino_id=estado_b.id,
+            nombre="Cerrar",
+            requiere_permiso=requiere_permiso,
+            solo_asignado=solo_asignado,
+            solo_creador=solo_creador,
+        )
+    )
+    db.flush()
 
     tipo = TipoTicket(sector_id=sector.id, codigo="consulta", nombre="Consulta", workflow_id=wf.id)
     db.add(tipo)
@@ -214,3 +259,175 @@ class TestEnforcementFlagOff:
         assert resp.status_code == 200
         db.refresh(ticket)
         assert ticket.estado_id == estado_b.id
+
+
+class TestEnforcementFlagOffNeverBypassesAuthorization:
+    """SC: TICKETS_WORKFLOW_ENFORCE=False must NOT bypass `requiere_permiso`,
+    `solo_asignado`, or `solo_creador`. Regression for the fail-open defect where
+    the flag was keyed on a single boolean, collapsing every rejection reason
+    from `can_transition` into one bit — bypassing authorization along with the
+    missing-edge tolerance it was actually meant for."""
+
+    def test_flag_off_still_rejects_missing_permission(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", False)
+
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, requiere_permiso="tickets.aprobar_especial")
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Requiere permiso: tickets.aprobar_especial"
+        db.refresh(ticket)
+        assert ticket.estado_id == estado_a.id
+
+    def test_flag_off_still_rejects_solo_asignado(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", False)
+
+        user = _make_user(db, rol_ventas)
+        otro = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, solo_asignado=True)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+        db.add(AsignacionTicket(ticket_id=ticket.id, asignado_a_id=otro.id, tipo=TipoAsignacion.MANUAL))
+        db.flush()
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Solo el usuario asignado puede realizar esta acción"
+        db.refresh(ticket)
+        assert ticket.estado_id == estado_a.id
+
+    def test_flag_off_still_rejects_solo_creador(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", False)
+
+        creador = _make_user(db, rol_ventas)
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, solo_creador=True)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=creador)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Solo el creador del ticket puede realizar esta acción"
+        db.refresh(ticket)
+        assert ticket.estado_id == estado_a.id
+
+
+class TestEnforcementFlagOnRejectsEachReasonWithSpanishDetail:
+    """SC: flag True (default) + each rejection reason -> 409 with the correct
+    Spanish `detail`. Regression guard: the `detail` message shape must not
+    change when `can_transition`'s return type becomes typed."""
+
+    def test_flag_on_missing_edge(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", True)
+
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow(db, sector, with_transicion=False)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert "transición permitida" in resp.json()["error"]["message"]
+
+    def test_flag_on_same_state(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", True)
+
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, _ = _make_workflow(db, sector, with_transicion=True)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_a.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "El ticket ya está en ese estado"
+
+    def test_flag_on_missing_permission(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", True)
+
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, requiere_permiso="tickets.aprobar_especial")
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Requiere permiso: tickets.aprobar_especial"
+
+    def test_flag_on_solo_asignado(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", True)
+
+        user = _make_user(db, rol_ventas)
+        otro = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, solo_asignado=True)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=user)
+        db.add(AsignacionTicket(ticket_id=ticket.id, asignado_a_id=otro.id, tipo=TipoAsignacion.MANUAL))
+        db.flush()
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Solo el usuario asignado puede realizar esta acción"
+
+    def test_flag_on_solo_creador(self, client, db, rol_ventas, monkeypatch):
+        monkeypatch.setattr(settings, "TICKETS_WORKFLOW_ENFORCE", True)
+
+        creador = _make_user(db, rol_ventas)
+        user = _make_user(db, rol_ventas)
+        _give_permiso(db, user, "tickets.gestionar")
+        sector = _make_sector(db)
+        _, tipo, estado_a, estado_b = _make_workflow_with_rules(db, sector, solo_creador=True)
+        ticket = _make_ticket(db, sector=sector, tipo=tipo, estado=estado_a, creador=creador)
+
+        resp = client.post(
+            TRANSICION_ENDPOINT.format(id=ticket.id),
+            json={"nuevo_estado_id": estado_b.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Solo el creador del ticket puede realizar esta acción"

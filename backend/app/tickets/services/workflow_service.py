@@ -9,6 +9,8 @@ Implementa una state machine configurable que:
 """
 
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Tuple, Dict, Any
 from datetime import UTC, datetime
 from sqlalchemy.orm import Session
@@ -34,6 +36,40 @@ class ValidacionFallidaException(Exception):
     pass
 
 
+class MotivoRechazoTransicion(str, Enum):
+    """
+    Clasifica POR QUÉ `can_transition` rechazó una transición.
+
+    Esta distinción existe porque `TICKETS_WORKFLOW_ENFORCE=False` (el flag de
+    rollback) sólo debe tolerar `SIN_ARISTA` — un hueco de datos en el grafo de
+    transiciones configurado. Las demás razones son chequeos de autorización o
+    de idempotencia y NUNCA deben ser bypasseadas, tenga el flag el valor que
+    tenga.
+    """
+
+    SIN_ARISTA = "sin_arista"
+    PERMISO_DENEGADO = "permiso_denegado"
+    NO_ASIGNADO = "no_asignado"
+    NO_CREADOR = "no_creador"
+    MISMO_ESTADO = "mismo_estado"
+    VALIDACION_FALLIDA = "validacion_fallida"
+
+
+@dataclass(frozen=True)
+class ResultadoValidacionTransicion:
+    """Resultado tipado de `can_transition`.
+
+    `motivo` es `None` cuando `permitida=True`. Reemplaza el antiguo
+    `Tuple[bool, str]`: un booleano no puede distinguir "no hay arista
+    configurada" (tolerable bajo el flag de rollback) de "permiso denegado"
+    (jamás tolerable).
+    """
+
+    permitida: bool
+    mensaje: str
+    motivo: Optional[MotivoRechazoTransicion] = None
+
+
 class WorkflowService:
     """
     Servicio para manejar transiciones de estado en tickets.
@@ -50,7 +86,7 @@ class WorkflowService:
     def __init__(self, db: Session):
         self.db = db
 
-    def can_transition(self, ticket: Ticket, nuevo_estado_id: int, usuario: Usuario) -> Tuple[bool, str]:
+    def can_transition(self, ticket: Ticket, nuevo_estado_id: int, usuario: Usuario) -> ResultadoValidacionTransicion:
         """
         Valida si el usuario puede hacer esta transición.
 
@@ -60,19 +96,25 @@ class WorkflowService:
             usuario: Usuario que intenta hacer la transición
 
         Returns:
-            Tupla (puede_transicionar, mensaje)
+            `ResultadoValidacionTransicion` con `permitida`, `mensaje` (Spanish,
+            usado como `detail` en la API) y `motivo` tipado. Sólo
+            `MotivoRechazoTransicion.SIN_ARISTA` es candidato a bypass bajo
+            `TICKETS_WORKFLOW_ENFORCE=False` — ver el enum para el porqué.
         """
         # Si ya está en ese estado, no hacer nada
         if ticket.estado_id == nuevo_estado_id:
-            return False, "El ticket ya está en ese estado"
+            return ResultadoValidacionTransicion(
+                False, "El ticket ya está en ese estado", MotivoRechazoTransicion.MISMO_ESTADO
+            )
 
         # Buscar la transición configurada
         transicion = self._get_transicion(ticket.estado_id, nuevo_estado_id)
 
         if not transicion:
-            return (
+            return ResultadoValidacionTransicion(
                 False,
                 f"No existe una transición permitida de '{ticket.estado.nombre}' a '{self._get_estado(nuevo_estado_id).nombre}'",
+                MotivoRechazoTransicion.SIN_ARISTA,
             )
 
         # Validar permiso si está configurado
@@ -81,25 +123,37 @@ class WorkflowService:
 
             svc = PermisosService(self.db)
             if not svc.tiene_permiso(usuario, transicion.requiere_permiso):
-                return False, f"Requiere permiso: {transicion.requiere_permiso}"
+                return ResultadoValidacionTransicion(
+                    False,
+                    f"Requiere permiso: {transicion.requiere_permiso}",
+                    MotivoRechazoTransicion.PERMISO_DENEGADO,
+                )
 
         # Validar si solo el asignado puede hacer esta transición
         if transicion.solo_asignado:
             if not ticket.asignado_a or ticket.asignado_a.id != usuario.id:
-                return False, "Solo el usuario asignado puede realizar esta acción"
+                return ResultadoValidacionTransicion(
+                    False,
+                    "Solo el usuario asignado puede realizar esta acción",
+                    MotivoRechazoTransicion.NO_ASIGNADO,
+                )
 
         # Validar si solo el creador puede hacer esta transición
         if transicion.solo_creador:
             if ticket.creador_id != usuario.id:
-                return False, "Solo el creador del ticket puede realizar esta acción"
+                return ResultadoValidacionTransicion(
+                    False,
+                    "Solo el creador del ticket puede realizar esta acción",
+                    MotivoRechazoTransicion.NO_CREADOR,
+                )
 
         # Ejecutar validaciones custom configuradas
         for validacion in transicion.validaciones or []:
             valido, mensaje = self._ejecutar_validacion(validacion, ticket, usuario)
             if not valido:
-                return False, mensaje
+                return ResultadoValidacionTransicion(False, mensaje, MotivoRechazoTransicion.VALIDACION_FALLIDA)
 
-        return True, "OK"
+        return ResultadoValidacionTransicion(True, "OK")
 
     def transition(
         self,
@@ -126,9 +180,9 @@ class WorkflowService:
             TransicionNoPermitidaException: Si la transición no está permitida
         """
         # Validar que se pueda hacer la transición
-        valido, mensaje = self.can_transition(ticket, nuevo_estado_id, usuario)
-        if not valido:
-            raise TransicionNoPermitidaException(mensaje)
+        resultado = self.can_transition(ticket, nuevo_estado_id, usuario)
+        if not resultado.permitida:
+            raise TransicionNoPermitidaException(resultado.mensaje)
 
         estado_anterior = ticket.estado
         transicion = self._get_transicion(ticket.estado_id, nuevo_estado_id)
