@@ -24,7 +24,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
-from app.tickets.services.workflow_service import WorkflowService
+from app.tickets.services.workflow_service import MotivoRechazoTransicion, WorkflowService
 from app.tickets.schemas.ticket_schemas import (
     AdjuntoResponse,
     AsignarTicketRequest,
@@ -645,16 +645,22 @@ async def cambiar_estado_ticket(
         raise HTTPException(status_code=400, detail="El nuevo estado no pertenece al workflow del ticket")
 
     workflow_service = WorkflowService(db)
-    puede_transicionar, mensaje = workflow_service.can_transition(ticket, nuevo_estado.id, current_user)
+    resultado = workflow_service.can_transition(ticket, nuevo_estado.id, current_user)
 
-    if not puede_transicionar:
-        if settings.TICKETS_WORKFLOW_ENFORCE:
-            raise HTTPException(status_code=409, detail=mensaje)
-        logger.warning(
-            f"Transición no permitida para ticket #{ticket.id} "
-            f"({ticket.estado.nombre} -> {nuevo_estado.nombre}) permitida igual: "
-            f"TICKETS_WORKFLOW_ENFORCE=False (motivo: {mensaje})"
-        )
+    if not resultado.permitida:
+        # TICKETS_WORKFLOW_ENFORCE=False is a rollback lever for the missing-edge
+        # case ONLY — a data gap in the configured transition graph. It must
+        # NEVER bypass authorization (requiere_permiso/solo_asignado/solo_creador)
+        # or the same-state idempotency guard: those reject regardless of the flag.
+        es_bypasseable = resultado.motivo == MotivoRechazoTransicion.SIN_ARISTA
+        if not settings.TICKETS_WORKFLOW_ENFORCE and es_bypasseable:
+            logger.warning(
+                f"Transición no permitida para ticket #{ticket.id} "
+                f"({ticket.estado.nombre} -> {nuevo_estado.nombre}) permitida igual: "
+                f"TICKETS_WORKFLOW_ENFORCE=False (motivo: {resultado.mensaje})"
+            )
+        else:
+            raise HTTPException(status_code=409, detail=resultado.mensaje)
 
     estado_anterior = ticket.estado
     ticket.estado_id = nuevo_estado.id
