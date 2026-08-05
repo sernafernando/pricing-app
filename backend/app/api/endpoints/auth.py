@@ -86,6 +86,14 @@ def login(
     if not usuario.activo:
         raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
 
+    # password_hash is nullable (OAuth-only / service users, usuario.py:33).
+    # verify_password() would call None.encode(...) and raise an unhandled
+    # 500 here, leaking that the account exists but has no password (versus
+    # the 401 a nonexistent username gets) — a user-enumeration issue on top
+    # of the crash. Same error shape as a wrong password, on purpose.
+    if not usuario.password_hash:
+        raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
+
     if not verify_password(credentials.password, usuario.password_hash):
         raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
 

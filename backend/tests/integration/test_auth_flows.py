@@ -92,6 +92,46 @@ class TestLoginFailure:
 
 
 # ---------------------------------------------------------------------------
+# Pre-existing bug: NULL password_hash -> unhandled 500 instead of 401
+#
+# `password_hash` is nullable ("Nullable para OAuth", usuario.py:33) and an
+# active user can legitimately have it NULL (e.g. an OAuth-only or
+# service-user row). Before this guard, `verify_password(pwd, None)` called
+# `None.encode("utf-8")` inside `security.py`, raising an unhandled
+# AttributeError -> 500. A 500 here leaks which usernames exist versus which
+# don't (401), which is a user-enumeration issue, not just a crash.
+# ---------------------------------------------------------------------------
+
+
+class TestLoginNullPasswordHash:
+    """Active user with password_hash=NULL must get 401, never an unhandled 500."""
+
+    def test_null_password_hash_returns_401_not_500(self, client, db, rol_ventas):
+        from app.models.usuario import Usuario, RolUsuario, AuthProvider
+
+        user = Usuario(
+            username="oauth_only_user",
+            email="oauth_only@test.com",
+            nombre="OAuth Only User",
+            password_hash=None,
+            rol=RolUsuario.VENTAS,
+            rol_id=rol_ventas.id,
+            auth_provider=AuthProvider.GOOGLE,
+            activo=True,
+        )
+        db.add(user)
+        db.flush()
+
+        response = client.post(
+            "/api/auth/login",
+            json={"username": "oauth_only_user", "password": "anything-at-all"},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["error"]["message"] == "Usuario o contraseña incorrectos"
+
+
+# ---------------------------------------------------------------------------
 # JWT-03: Access token on protected endpoint
 # ---------------------------------------------------------------------------
 
