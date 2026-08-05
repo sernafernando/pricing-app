@@ -26,6 +26,7 @@ from app.core.database import get_background_db, get_db
 from app.models.ml_pxq_tier import MlPxqTier
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
+from app.services.ml_pxq_adopt_service import adopt_live_pxq_tiers
 from app.services.ml_pxq_write_service import sync_pxq_tiers
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
@@ -111,6 +112,20 @@ class PxqSyncResult(BaseModel):
     divergences: Optional[List[PxqDivergenceItem]] = None
     array: Optional[List[Dict[str, Any]]] = None
     status_code: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PxqAdoptResult(BaseModel):
+    """Result of `POST /pxq/{item_id}/adopt-live`.
+
+    `imported` reuses `PxqMirrorTier` rather than declaring a parallel shape:
+    these ARE mirror rows, and a second shape for the same table is how the
+    panel's rendering and the import's response drift apart."""
+
+    item_id: str
+    count: int
+    imported: List[PxqMirrorTier]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -367,3 +382,56 @@ def sincronizar_pxq(
     if http_status is not None:
         raise HTTPException(status_code=http_status, detail=_error_detail_from_outcome(outcome))
     return PxqSyncResult(**outcome)
+
+
+@router.post("/{item_id}/adopt-live", response_model=PxqAdoptResult)
+def adoptar_tramos_live_pxq(
+    item_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PxqAdoptResult:
+    """Imports MercadoLibre's LIVE PxQ tiers into an EMPTY local mirror, via
+    `ml_pxq_adopt_service.adopt_live_pxq_tiers`. Import-only: no ML write
+    endpoint is called on any path, and it is deliberately NOT gated by
+    `PXQ_WRITE_ENABLED` -- that switch scopes the irreversible outbound
+    array-replace POST, while this writes only local, reversible rows.
+
+    No request body: there is no option to express here, and an optional flag
+    on an import verb is exactly how `sync` acquired `allow_clear`.
+
+    Declared `def` (not `async def`) for the same reason as `sincronizar_pxq`:
+    the service performs synchronous DB writes and bridges the async client
+    with `resolve_maybe_async`.
+
+    Dependencies are `get_current_user` + `Depends(get_db)`, NOT the
+    transient/short-session pair `GET /{item_id}/live` uses. Two reasons, and
+    the second is decisive: (a) the QueuePool rule is about endpoints whose
+    session stays pinned for an UNBOUNDED response lifetime (SSE, WebSocket),
+    not about "a proxy call happens" -- `POST /{item_id}/sync` already makes
+    up to four proxy calls while holding `Depends(get_db)`, and this path makes
+    one READ; (b) `get_current_user_transient` returns a DETACHED user, and
+    unlike `_require_pxq_read` (whose docstring records why it must)
+    `_require_pxq_write` does not re-bind it -- handing it a detached user
+    would raise DetachedInstanceError on the permission walk, on the one
+    control guarding a write.
+
+    Refusals raised by the service (409 `adopt_conflict`, 503
+    `adopt_read_unavailable`) propagate untouched: their `detail` dicts carry
+    the conflicting quantities and tier ids the operator needs, and flattening
+    them to a status string leaves a refusal with nothing to act on.
+    """
+    # Defence in depth: `adopt_live_pxq_tiers` checks `pxq.escribir` again.
+    # That duplication is DELIBERATE -- do not "de-duplicate" it. It mirrors
+    # the three CRUD routes above, and it is what guarantees the permission
+    # refuses before any ML traffic regardless of how the service is reordered
+    # or who else calls it later.
+    _require_pxq_write(current_user, db)
+    publicacion = _get_publicacion_or_404(db, item_id)
+    # The service commits exactly once, and that commit is what releases the
+    # publication row lock -- so the router must NOT commit as well.
+    rows = adopt_live_pxq_tiers(db, current_user, item_id, publicacion_ml_id=publicacion.id)
+    return PxqAdoptResult(
+        item_id=item_id,
+        count=len(rows),
+        imported=[PxqMirrorTier.model_validate(row) for row in rows],
+    )
