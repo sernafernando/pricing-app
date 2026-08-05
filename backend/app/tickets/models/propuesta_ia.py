@@ -24,7 +24,12 @@ class PropuestaIA(Base):
 
     __tablename__ = "tickets_propuestas_ia"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # No index=True here: the primary key already gets a unique index from
+    # Postgres for free. Adding index=True would make the model expect an
+    # extra `ix_tickets_propuestas_ia_id` that the migration never creates,
+    # which is exactly the kind of model/migration drift `alembic revision
+    # --autogenerate` would flag later.
+    id = Column(Integer, primary_key=True)
     ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=False, index=True)
 
     campo = Column(String(50), nullable=False)
@@ -51,6 +56,12 @@ class PropuestaIA(Base):
         # the same pair without violating uniqueness — a plain unique
         # constraint would wrongly block that. Postgres-only (`WHERE`
         # clause on a unique index); see @pytest.mark.postgres tests.
+        # SQLite silently ignores `postgresql_where` and creates a FULL
+        # unique index on (ticket_id, campo) instead — a test using the
+        # SQLite-backed `db` fixture to write a second, non-pending
+        # proposal for the same pair would fail for a reason that does not
+        # exist in production. Exercise that scenario only via the
+        # Postgres-backed `pg_tickets_db` fixture.
         Index(
             "uq_tickets_propuestas_ia_ticket_campo_pendiente",
             "ticket_id",
