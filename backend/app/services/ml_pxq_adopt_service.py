@@ -55,9 +55,10 @@ logger = logging.getLogger(__name__)
 def _read_unavailable(reason: str) -> HTTPException:
     """The single shape for "we have no trustworthy view of live state".
 
-    Raised both when the read fails outright and when the payload cannot be
-    parsed: from here the two are the same situation, and importing under
-    either would invent the very data this path exists to recover.
+    Raised when the read fails outright, when the payload cannot be parsed,
+    and when it carries more tiers than MercadoLibre itself can hold: from
+    here all three are the same situation, and importing under any of them
+    would invent the very data this path exists to recover.
     """
     return HTTPException(status_code=503, detail={"status": "adopt_read_unavailable", "reason": reason})
 
@@ -89,11 +90,13 @@ def adopt_live_pxq_tiers(
 
     Raises:
         HTTPException(403): missing `pxq.escribir`.
-        HTTPException(503): `adopt_read_unavailable` -- the live read failed or
-            its payload could not be parsed. Nothing is written.
-        HTTPException(409): `adopt_too_many_live_tiers` (more than `MAX_TIERS`
-            live entries) or `adopt_conflict` (the publication already has at
-            least one local row). Nothing is written.
+        HTTPException(503): `adopt_read_unavailable` -- the live read failed,
+            its payload could not be parsed, or it returned more than
+            `MAX_TIERS` entries, which is MercadoLibre's own platform limit and
+            therefore an impossible state rather than an operator-resolvable
+            one. Nothing is written.
+        HTTPException(409): `adopt_conflict` -- the publication already has at
+            least one local row. Nothing is written.
         HTTPException(422): propagated from `create_pxq_tier` when a live
             entry cannot be a valid tier (e.g. `quantity <= 1`, or two entries
             sharing a quantity). Nothing is COMMITTED, so nothing is
@@ -148,16 +151,34 @@ def adopt_live_pxq_tiers(
         return []
 
     if len(live_raw) > MAX_TIERS:
-        logger.warning(
-            "PxQ adopt-live refused: live holds %s tiers, max is %s item_id=%s usuario_id=%s",
+        # `MAX_TIERS` is MercadoLibre's OWN platform limit (see the constant in
+        # `pxq_diff`), not a rule of ours, so this branch is an IMPOSSIBLE
+        # state: either ML changed that limit, the proxy returned garbage, or
+        # we read the wrong item. All three say the same thing -- the live read
+        # is not trustworthy -- which is exactly `_read_unavailable`, NOT a
+        # conflict. A 409 would hand the operator an action they cannot take:
+        # they cannot go to MercadoLibre and delete tiers it would never have
+        # let them create.
+        #
+        # `create_pxq_tier` keeps a 422 for the SAME ceiling on purpose. There
+        # the operator DID send a tier that does not fit and can send another
+        # one; here nobody sent anything, the number came off the wire. The
+        # asymmetry is "your input does not fit" vs "our view of ML is broken".
+        #
+        # ERROR, where every other refusal in this module is WARNING: this one
+        # is an invariant violation and somebody has to see it.
+        logger.error(
+            "PxQ adopt-live refused: live read returned %s tiers, above MercadoLibre's platform limit of %s "
+            "item_id=%s publicacion_ml_id=%s usuario_id=%s",
             len(live_raw),
             MAX_TIERS,
             item_id,
+            publicacion_ml_id,
             usuario_id,
         )
-        raise HTTPException(
-            status_code=409,
-            detail={"status": "adopt_too_many_live_tiers", "live_count": len(live_raw), "max": MAX_TIERS},
+        raise _read_unavailable(
+            f"Live read returned {len(live_raw)} tiers, above MercadoLibre's platform limit of {MAX_TIERS}; "
+            "the read cannot be trusted and nothing was imported"
         )
 
     try:

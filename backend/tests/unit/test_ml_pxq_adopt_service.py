@@ -17,6 +17,7 @@ All `ml_webhook_client` calls are mocked. No live-prod calls ever.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -185,23 +186,47 @@ def test_any_pre_existing_local_row_refuses_naming_quantities_and_tier_ids(db, p
     assert _tier_count(db, publicacion) == 2
 
 
-def test_more_live_tiers_than_max_refuses_before_importing_any(db, publicacion, pxq_user) -> None:
-    """Truncating silently drops money data and the choice of which 5 is
-    arbitrary; letting `create_pxq_tier` 422 on the 6th reports OUR ceiling as
-    a fact about ML's payload."""
-    patcher, _ = _mock_client([_live(f"ML{n}", n, 100.0 * n) for n in range(2, 2 + MAX_TIERS + 1)])
+def test_more_live_tiers_than_max_refuses_before_importing_any(db, publicacion, pxq_user, caplog) -> None:
+    """`MAX_TIERS` is MercadoLibre's OWN platform limit, so more than
+    `MAX_TIERS` live entries is an IMPOSSIBLE state — the read is
+    untrustworthy (ML changed the limit, the proxy returned garbage, or we
+    read the wrong item), not a conflict an operator can resolve: they cannot
+    delete tiers ML would never have let them create.
+
+    So it must degrade to the SAME read-unavailable refusal as a failed read,
+    and must be logged at ERROR — louder than every other refusal here —
+    because an invariant broke and somebody has to see it. Truncating instead
+    would silently drop money data with an arbitrary choice of which 5 to
+    keep, and letting `create_pxq_tier` 422 on the 6th would report OUR local
+    ceiling as a fact about ML's payload."""
+    commit_spy = MagicMock(wraps=db.commit)
+    live_count = MAX_TIERS + 1
+    patcher, _ = _mock_client([_live(f"ML{n}", n, 100.0 * n) for n in range(2, 2 + live_count)])
     try:
-        with pytest.raises(HTTPException) as exc_info:
-            _adopt(db, pxq_user, publicacion)
+        with patch.object(db, "commit", commit_spy):
+            with caplog.at_level(logging.DEBUG, logger="app.services.ml_pxq_adopt_service"):
+                with pytest.raises(HTTPException) as exc_info:
+                    _adopt(db, pxq_user, publicacion)
     finally:
         patcher.stop()
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 503
     detail = exc_info.value.detail
-    assert detail["status"] == "adopt_too_many_live_tiers"
-    assert detail["live_count"] == MAX_TIERS + 1
-    assert detail["max"] == MAX_TIERS
+    assert detail["status"] == "adopt_read_unavailable"
+    assert str(live_count) in detail["reason"], detail["reason"]
+    assert str(MAX_TIERS) in detail["reason"], detail["reason"]
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) == 1, (
+        f"expected exactly one ERROR log line, got: {[(r.levelname, r.getMessage()) for r in caplog.records]}"
+    )
+    message = error_records[0].getMessage()
+    assert str(live_count) in message, message
+    assert str(MAX_TIERS) in message, message
+    assert publicacion.mla in message, message
+
     assert _tier_count(db, publicacion) == 0
+    commit_spy.assert_not_called()
 
 
 @pytest.mark.parametrize(

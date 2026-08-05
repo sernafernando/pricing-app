@@ -93,6 +93,19 @@ from typing import Any, Dict, List, Optional, Sequence, Union, Tuple
 # This module is pure by design — that is the whole reason it was split into
 # its own slice — and importing the service would drag FastAPI and SQLAlchemy
 # in behind it. Dependencies point from the service to the primitive.
+#
+# WHY 5: it is MercadoLibre's PLATFORM limit for PxQ tiers, established when
+# this module was built — not a policy of ours we could relax. Consequence: a
+# LIVE read returning more than 5 is an impossible state, so it means the read
+# is untrustworthy (ML moved the limit, the proxy returned garbage, or we read
+# the wrong item) and must degrade to a read-unavailable refusal, never to a
+# conflict the operator is told to resolve — they cannot delete tiers ML would
+# never have let them create. A ceiling breach on data the operator SENT is a
+# different thing and stays a 422 (`pxq_tier_service.create_pxq_tier`).
+#
+# ponytail: `frontend/src/components/promociones/PxqPanel.jsx:7` declares a
+# second copy (`const MAX_TIERS = 5`) — two copies of a platform limit drift
+# silently. Unify when slice 5 of `pxq-adopt-live` touches that panel.
 MAX_TIERS = 5
 
 Money = Union[int, float, Decimal]
