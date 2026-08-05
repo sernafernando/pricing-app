@@ -21,6 +21,14 @@ value; (2) a local `ml_pxq_tier` mirror that is the sole source of truth for the
 | D5 | Dedicated permissions `pxq.ver` / `pxq.escribir`, backfilled from the *actual* live grants of `promos.escribir` (roles **and** user overrides, including negative ones) | Reuse `promos.escribir`; hardcode role list | Money-path transparency; a hardcoded role list would drift from production. Copying `concedido=false` overrides prevents a user explicitly revoked from promo writes silently gaining PxQ writes. |
 | D6 | Collapse epoch counter + tri-state in the store, **not persisted**; nodes sync in `useEffect([epoch])` | Store per-node open map; persist the mode | Manual per-node toggles never touch the store, so the epoch does not change and the global state cannot fight them. Not persisting avoids a reload forcing every node open. |
 
+> **D4 follow-up — now implemented.** D4's `adopt-live` half was specified here but never sliced
+> into a task in this change, so it shipped nowhere. Four live publications lost their mirrored
+> tiers as a direct result. It was delivered separately as change `pxq-adopt-live`:
+> `POST /pxq/{item_id}/adopt-live` (`app/routers/pxq.py::adoptar_tramos_live_pxq`) over
+> `app/services/ml_pxq_adopt_service.adopt_live_pxq_tiers` — import-only, requires
+> `pxq.escribir`, refuses with 409 on any pre-existing local row. See the closed open question
+> below.
+
 ## Data Model
 
 `ml_pxq_tier` (Alembic `20260801_add_ml_pxq_tier.py`, explicit types, FKs indexed):
@@ -161,4 +169,16 @@ the pure diff function + its tests into PR 3a.
 ## Open Questions
 
 - [ ] `allow_clear` UX for deleting every tier — confirm the explicit-confirmation shape in PR 4.
-- [ ] Whether `adopt-live` should require `pxq.escribir` (it writes only local rows) — proposed: yes.
+- [x] Whether `adopt-live` should require `pxq.escribir` (it writes only local rows) — YES.
+      Settled by direct code precedent, not by proposal: all three local-only-write CRUD
+      endpoints in `backend/app/routers/pxq.py` — `crear_tier_pxq`, `editar_tier_pxq`,
+      `eliminar_tier_pxq` (named, not line-cited: line numbers in this document have already
+      gone stale once) — gate on `_require_pxq_write` / `pxq.escribir` and none of them calls
+      MercadoLibre. The
+      permission split is keyed on "does it mutate our DB", not "does it call ML".
+      `adopt-live` is deliberately NOT gated by `PXQ_WRITE_ENABLED`: that switch scopes the
+      irreversible outbound array-replace POST, while `adopt-live` writes only local,
+      reversible rows and never calls an ML write endpoint. Implemented by change
+      `pxq-adopt-live` as `POST /pxq/{item_id}/adopt-live`
+      (`app/services/ml_pxq_adopt_service.adopt_live_pxq_tiers`), import-only, which checks
+      `pxq.escribir` in the router AND again in the service.
