@@ -15,6 +15,7 @@ Run:
 """
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.security import get_password_hash
@@ -174,6 +175,25 @@ class TestPartialUniqueIndexPendienteOnly:
 
 class TestValorPropuestoJSONBRoundTrip:
     """2b.5: `valor_propuesto` JSONB round-trips a dict identically."""
+
+    @pytest.mark.postgres
+    def test_column_is_genuinely_jsonb_not_json(self, pg_tickets_db):
+        """Regression guard: `pg_tickets_engine` shares Column objects with
+        the SQLite `db` fixture, which patches JSONB → JSON in place for
+        SQLite compatibility. If a test using `db` runs earlier in the same
+        session, this table could silently get built with plain `json`
+        instead of `jsonb` — a dict still round-trips through either type,
+        so the round-trip test below would stay green while quietly no
+        longer proving anything about JSONB, and no longer matching what
+        the real migration creates in production.
+        """
+        row = pg_tickets_db.execute(
+            text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = 'tickets_propuestas_ia' AND column_name = 'valor_propuesto'"
+            )
+        ).one()
+        assert row.data_type == "jsonb"
 
     @pytest.mark.postgres
     def test_valor_propuesto_round_trips(self, pg_tickets_db):

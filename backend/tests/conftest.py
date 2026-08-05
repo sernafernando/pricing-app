@@ -86,6 +86,40 @@ _PG_TYPE_MAP = {
     Vector: lambda: JSON(none_as_null=True),
 }
 
+# Snapshot of the real PostgreSQL column types, captured at import time —
+# i.e. before any fixture (including the SQLite `engine` fixture below) has
+# a chance to mutate `Base.metadata` in place via `_patch_pg_types_for_sqlite`.
+# `Column` objects override `__eq__` to build SQL expressions, not booleans,
+# but dict/set membership still works correctly here: CPython's dict lookup
+# short-circuits on `is` (identity) before ever calling `__eq__`, and every
+# key here is the exact same Column object being looked up later.
+#
+# Postgres-only session fixtures (`pg_tickets_engine`, ...) call
+# `_restore_pristine_pg_types()` on their own tables right before building
+# DDL, so the DDL they create always matches production — regardless of
+# whether the SQLite fixture already patched the same shared Column objects
+# earlier in this test session. Without this, a full-suite run and an
+# isolated single-file run of the same `@pytest.mark.postgres` test can see
+# two different column types (e.g. JSONB vs plain JSON) depending on
+# fixture execution order — a real bug caught in tickets-ai-triage PR 2b's
+# `valor_propuesto` JSONB round-trip test.
+_PRISTINE_PG_COLUMN_TYPES = {
+    column: column.type
+    for table in Base.metadata.tables.values()
+    for column in table.columns
+    if isinstance(column.type, tuple(_PG_TYPE_MAP.keys()))
+}
+
+
+def _restore_pristine_pg_types(tables) -> None:
+    """Force real PostgreSQL types back onto `tables`' columns before a
+    Postgres-only fixture builds DDL from them, undoing
+    `_patch_pg_types_for_sqlite()` for just those columns."""
+    for table in tables:
+        for column in table.columns:
+            if column in _PRISTINE_PG_COLUMN_TYPES:
+                column.type = _PRISTINE_PG_COLUMN_TYPES[column]
+
 
 def _patch_pg_types_for_sqlite() -> None:
     """Replace PostgreSQL-only column types with SQLite equivalents in metadata.
@@ -362,8 +396,20 @@ def pg_tickets_engine():
         _PropuestaIA.__table__,
     ]
 
+    # `Ticket.campos_metadata` (JSONB) and `PropuestaIA.valor_propuesto`
+    # (JSONB) / `.run_id` (UUID) are shared Column objects with the ORM
+    # models used by the SQLite-backed `db` fixture. If that fixture's
+    # `engine()` already ran in this test session, `_patch_pg_types_for_sqlite`
+    # already rewrote those types to plain JSON/String for SQLite — restore
+    # the real Postgres types just for building this engine's DDL, so this
+    # fixture reproduces production's actual schema regardless of test
+    # execution order.
+    _restore_pristine_pg_types(tables)
     eng = create_engine(POSTGRES_TEST_URL)
     Base.metadata.create_all(bind=eng, tables=tables)
+    # Leave the shared Column objects patched for SQLite again, in case the
+    # `db` fixture is used by a later test in this same session.
+    _patch_pg_types_for_sqlite()
     yield eng
     Base.metadata.drop_all(bind=eng, tables=tables)
     eng.dispose()
