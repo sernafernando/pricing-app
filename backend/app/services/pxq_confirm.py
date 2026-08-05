@@ -17,6 +17,8 @@ reports whether every one of them was confirmed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence
 
 from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, ESTADO_SINCRONIZADO, MlPxqTier
@@ -59,9 +61,26 @@ def remap_and_confirm(
     A create or a modify has no surviving id -- a modify is emitted as
     delete-old plus create-new -- so those match by value, but only against ids
     nobody else owns: `untracked_ids` are claimed up front precisely so a
-    created row cannot adopt a stranger's tier. This is the
-    only place in the whole service allowed to advance
-    `cantidad_sincronizada`/`precio_sincronizado`.
+    created row cannot adopt a stranger's tier.
+
+    Exactly TWO code paths may advance
+    `cantidad_sincronizada`/`precio_sincronizado`, and both write values
+    MercadoLibre itself reported:
+
+      * this function -- POST-WRITE CONFIRMATION. The values come from the
+        re-read that proves the POST landed, never from what we merely
+        attempted to send.
+      * `live_entry_to_tier_fields` -- IMPORT (`ml_pxq_adopt_service`). The
+        values come from the same live read that produced the row's
+        `cantidad_minima`/`precio_unitario`, in the same operation, for a row
+        that did not exist before. There is no prior value to overwrite and
+        no third party's edit to lose.
+
+    Nothing else may, and in particular `update_pxq_tier` must not: advancing
+    the snapshot on an edit makes a local change look, to the next sync,
+    exactly like nobody changed anything, and that sync then silently
+    overwrites whatever MercadoLibre holds. The rule is not "only one
+    writer" -- it is "only from a value ML reported".
 
     PRECONDITION: every row passed here has already survived `diff_pxq_tiers`,
     which refuses a row carrying an `ml_price_id` with no snapshot ("no
@@ -132,3 +151,63 @@ def remap_and_confirm(
         row.estado = ESTADO_SINCRONIZADO
 
     return all_confirmed
+
+
+@dataclass(frozen=True)
+class ImportedTierFields:
+    """The fields needed to construct one `MlPxqTier` from a live ML entry.
+
+    `cantidad_sincronizada`/`precio_sincronizado` equal
+    `cantidad_minima`/`precio_unitario` BY CONSTRUCTION, and that is the whole
+    point: on an import the local value IS the value MercadoLibre reported, in
+    the same operation, so the snapshot is already correct and there is
+    nothing to have diverged from. Carrying them as separate fields rather
+    than letting the caller re-derive them is what stops a caller from
+    forgetting the snapshot and leaving behind a row that every future sync
+    refuses with "no snapshot to compare against" (`pxq_diff`) -- a row that
+    is permanently un-syncable, which is the very damage this import exists to
+    repair.
+    """
+
+    cantidad_minima: int
+    precio_unitario: Decimal
+    ml_price_id: str
+    cantidad_sincronizada: int
+    precio_sincronizado: Decimal
+
+
+def live_entry_to_tier_fields(entry: Dict[str, Any]) -> ImportedTierFields:
+    """Maps ONE raw live PxQ entry to the fields of a new mirror row.
+
+    Pure: no DB session, no HTTP -- the same discipline as the rest of this
+    module. It builds values; it does not decide what to do with them.
+
+    `id` is coerced with `str()` because MercadoLibre may return it as a
+    NUMBER; `ml_price_id` is `String(64)` and every other reader in this
+    feature (`_parse_live_tiers`, `_live_tiers_from_raw`, `remap_and_confirm`)
+    already does `str(entry["id"])`.
+
+    `amount` goes through `_to_decimal`, i.e. `Decimal(str(value))`, NEVER
+    `Decimal(float)` -- a direct float construction bakes in binary noise and
+    produces false "differs" verdicts against the DB-sourced `Decimal` on the
+    very next sync.
+
+    Raises:
+        KeyError, TypeError, ValueError or ArithmeticError on a malformed
+        entry. Deliberately NOT swallowed here: this module is pure and has no
+        outcome vocabulary, so inventing one would mean guessing what the
+        caller wants. The orchestrator catches exactly that tuple and answers
+        `adopt_read_unavailable`. `ArithmeticError` is in it because
+        `decimal.InvalidOperation` is NOT a `ValueError` -- the bug
+        `_live_tiers_from_raw` was already fixed for, after it escaped as a
+        raw 500.
+    """
+    quantity = int(entry["quantity"])
+    amount = _to_decimal(entry["amount"])
+    return ImportedTierFields(
+        cantidad_minima=quantity,
+        precio_unitario=amount,
+        ml_price_id=str(entry["id"]),
+        cantidad_sincronizada=quantity,
+        precio_sincronizado=amount,
+    )
