@@ -483,7 +483,7 @@ export const ticketsAPI = {
 
   // Badge count
   badgeCount: () => api.get('/tickets/tickets/mis-pendientes/count'),
-  marcarRevisado: (id) => api.post(`/tickets/marcar-revisado/${id}`),
+  marcarRevisado: (id) => api.post(`/tickets/tickets/marcar-revisado/${id}`),
 
   // Transiciones & asignación
   transicion: (id, data) => api.post(`/tickets/tickets/${id}/transicion`, data),
