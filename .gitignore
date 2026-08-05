@@ -88,6 +88,7 @@ frontend/public/sounds/
 # Agent tooling caches / local settings
 .atl/
 .pi/
+.codegraph/
 
 # SDD artifacts under openspec/changes/ ARE tracked by default — they are the
 # shared record of a change and belong in its PR. The paths below are the
