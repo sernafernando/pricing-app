@@ -32,6 +32,14 @@ from app.services.pxq_diff import MAX_TIERS as MAX_TIERS_PER_PUBLICATION
 Money = Union[Decimal, float, int, str]
 
 
+# NOT consolidated with `pxq_diff._to_decimal`, deliberately. The two bodies
+# are behaviourally identical, but their declared input domains are not: this
+# module's `Money` admits `str` (see the comment above) and `pxq_diff.Money`
+# does not. Importing that one and feeding it a `str` would trade a visible
+# duplicate for an invisible type-contract violation — a worse drift class
+# than the one being removed. The honest fix is to widen `pxq_diff.Money`
+# first, and `pxq_diff` is out of scope for this change.
+# ponytail: consolidate onto pxq_diff._to_decimal once pxq_diff.Money admits str
 def _to_decimal(value: Money) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
@@ -45,17 +53,47 @@ def create_pxq_tier(
     usuario_id: int,
     costo_envio_total: Optional[Money] = None,
     ml_price_id: Optional[str] = None,
+    cantidad_sincronizada: Optional[int] = None,
+    precio_sincronizado: Optional[Money] = None,
 ) -> MlPxqTier:
     """Creates a `MlPxqTier` row after service-layer validation.
 
+    `cantidad_sincronizada`/`precio_sincronizado` are the ML-confirmed
+    SNAPSHOT and both default to `None`, which is what every manually created
+    tier gets: it has never been confirmed by MercadoLibre, so there is
+    nothing to have diverged from. They exist for the IMPORT path
+    (`adopt-live`), where the row's values ARE the values MercadoLibre just
+    reported, in the same operation — so the snapshot is correct by
+    construction and there is no prior value to overwrite. An ordinary edit
+    must never advance them; see `update_pxq_tier`.
+
     Raises:
-        HTTPException(422): `cantidad_minima <= 1`, or the publication
-            already has `MAX_TIERS_PER_PUBLICATION` tiers.
+        HTTPException(422): `cantidad_minima <= 1`; exactly one half of the
+            snapshot pair supplied; the publication does not exist or already
+            has `MAX_TIERS_PER_PUBLICATION` tiers; `item_id` does not match
+            the publication; duplicate `cantidad_minima`.
     """
     if cantidad_minima <= 1:
         raise HTTPException(
             status_code=422,
             detail=f"cantidad_minima must be > 1 (got {cantidad_minima})",
+        )
+
+    # Both-or-neither. `pxq_diff.DesiredTier.has_snapshot` requires BOTH
+    # columns to be non-NULL, so a row carrying only one half reads as "never
+    # synced" — and that is not inert: `local_changed` is then unconditionally
+    # True and `live_changed` unconditionally False, so every later sync
+    # classifies the row as "we edited it, ML did not" and pushes the local
+    # value over whatever MercadoLibre holds, permanently. Checked here, ahead
+    # of the lock, because it is a caller bug that needs no DB state to detect.
+    if (cantidad_sincronizada is None) != (precio_sincronizado is None):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "cantidad_sincronizada and precio_sincronizado must be supplied together "
+                "or not at all; half a snapshot reads as no snapshot and would make this "
+                "tier silently overwrite MercadoLibre on every later sync"
+            ),
         )
 
     # Lock the publication row before counting. The five-tier ceiling is a
@@ -128,6 +166,8 @@ def create_pxq_tier(
         precio_unitario=_to_decimal(precio_unitario),
         costo_envio_total=(None if costo_envio_total is None else _to_decimal(costo_envio_total)),
         ml_price_id=ml_price_id,
+        cantidad_sincronizada=cantidad_sincronizada,
+        precio_sincronizado=(None if precio_sincronizado is None else _to_decimal(precio_sincronizado)),
         estado=ESTADO_INCOMPLETO,
         usuario_id=usuario_id,
     )
