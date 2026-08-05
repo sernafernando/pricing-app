@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import uuid
@@ -23,6 +24,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
+from app.tickets.services.workflow_service import WorkflowService
 from app.tickets.schemas.ticket_schemas import (
     AdjuntoResponse,
     AsignarTicketRequest,
@@ -38,6 +40,7 @@ from app.tickets.schemas.ticket_schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Allowed MIME types for ticket attachments
 ALLOWED_MIME_TYPES = {
@@ -641,6 +644,18 @@ async def cambiar_estado_ticket(
     if ticket.estado.workflow_id != nuevo_estado.workflow_id:
         raise HTTPException(status_code=400, detail="El nuevo estado no pertenece al workflow del ticket")
 
+    workflow_service = WorkflowService(db)
+    puede_transicionar, mensaje = workflow_service.can_transition(ticket, nuevo_estado.id, current_user)
+
+    if not puede_transicionar:
+        if settings.TICKETS_WORKFLOW_ENFORCE:
+            raise HTTPException(status_code=409, detail=mensaje)
+        logger.warning(
+            f"Transición no permitida para ticket #{ticket.id} "
+            f"({ticket.estado.nombre} -> {nuevo_estado.nombre}) permitida igual: "
+            f"TICKETS_WORKFLOW_ENFORCE=False (motivo: {mensaje})"
+        )
+
     estado_anterior = ticket.estado
     ticket.estado_id = nuevo_estado.id
 
@@ -661,6 +676,8 @@ async def cambiar_estado_ticket(
     )
     db.add(historial_entry)
 
+    # The comment is only attached after validation passes, so a rejected
+    # transition never leaves a comment attached to a rolled-back session.
     if transicion_data.comentario:
         comentario = ComentarioTicket(
             ticket_id=ticket.id,

@@ -9,7 +9,7 @@ from app.tickets.strategies.asignacion.base import AsignacionStrategy
 from app.tickets.strategies.asignacion.carga_balanceada import CargaBalanceadaStrategy
 from app.tickets.models.ticket import Ticket
 from app.tickets.models.sector import Sector
-from app.tickets.models.marca_pm import MarcaPM
+from app.models.marca_pm import MarcaPM
 from app.models.usuario import Usuario
 
 

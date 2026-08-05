@@ -156,6 +156,13 @@ class Settings(BaseSettings):
     # Tickets — Adjuntos
     TICKETS_UPLOADS_DIR: str = "uploads/tickets"
     TICKETS_MAX_FILE_SIZE_MB: int = 5
+    # Kill-switch for server-side transition-graph enforcement (WorkflowService
+    # wired into POST /tickets/{id}/transicion). Default ON. When False, an
+    # invalid transition is logged as a warning and still allowed through —
+    # unblocks production without a deploy if the pre-merge audit
+    # (scripts/audit_transiciones_tickets.py) missed a legitimate historical
+    # transition pair.
+    TICKETS_WORKFLOW_ENFORCE: bool = True
 
     # Compras — Adjuntos (pedidos de compra + órdenes de pago)
     # Los archivos se guardan como:
