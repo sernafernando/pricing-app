@@ -375,31 +375,43 @@ function emptyMirrorRefusal(liveTiers, liveUnavailable) {
  * looking when he was in fact writing. The button now names the write:
  * "Actualizar precios en MercadoLibre". The identifiers below still say `sync`
  * because they track the backend endpoint, which is unchanged.
+ *
+ * `feedback` and `divergences` are CONTROLLED by the panel, same shape and same
+ * reason as `PxqAdoptControl`: the success path calls `onSynced()` ->
+ * `useLazyResource.reload()`, which sets `loading`, so `PxqPanel` returns its
+ * loading branch and unmounts this subtree. Held locally, the success message
+ * was destroyed by the very refresh that proved it true and was never once
+ * visible; only the failure paths, which do not reload, ever painted.
+ *
+ * BOTH are lifted, not just the message. They are one result: a banner left
+ * behind by a remount would leave "Resolvé las diferencias" on screen with no
+ * differences under it to resolve.
+ *
+ * `syncing` stays local on purpose — it is this button's in-flight state, not
+ * an outcome, and it has nothing to survive.
  */
-function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced }) {
+function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
   const [syncing, setSyncing] = useState(false);
-  const [feedback, setFeedback] = useState(null); // { kind: 'ok'|'warn'|'error', text }
-  const [divergences, setDivergences] = useState(null);
 
   async function runSync() {
     setSyncing(true);
-    setFeedback(null);
-    setDivergences(null);
+    onFeedback(null);
+    onDivergences(null);
     try {
       await pxqAPI.sync(itemId);
-      setFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
+      onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
       await onSynced();
     } catch (err) {
       const httpStatus = err?.response?.status;
       const detail = err?.response?.data?.detail;
       if (httpStatus === 409 && detail && typeof detail === 'object' && Array.isArray(detail.divergences)) {
-        setDivergences(detail.divergences);
-        setFeedback({
+        onDivergences(detail.divergences);
+        onFeedback({
           kind: 'error',
           text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a actualizar los precios.',
         });
       } else {
-        setFeedback(syncOutcomeMessage(httpStatus, detail));
+        onFeedback(syncOutcomeMessage(httpStatus, detail));
       }
     } finally {
       setSyncing(false);
@@ -408,8 +420,8 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
 
   function handleSyncClick() {
     if (!hasTiers) {
-      setDivergences(null);
-      setFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
+      onDivergences(null);
+      onFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
       return;
     }
     runSync();
@@ -514,9 +526,9 @@ function adoptOutcomeMessage(httpStatus, detail) {
  * `loading` — so `PxqPanel` returns its loading branch and this whole subtree
  * unmounts. Local state would take the outcome with it, and the operator would
  * never read the count or the "still needs a shipping cost" next step: the one
- * message this control exists to deliver. (`PxqSyncControl` has the same shape
- * and therefore the same hole in its success message; fixing that is a separate
- * change, not something to smuggle in here.)
+ * message this control exists to deliver. (`PxqSyncControl` had the same shape
+ * and therefore the same hole in its success message; it is controlled by the
+ * panel now for exactly this reason.)
  */
 function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted }) {
   const [adopting, setAdopting] = useState(false);
@@ -653,8 +665,13 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // order stays fixed whatever branch renders.
   const [adoptFeedback, setAdoptFeedback] = useState(null);
 
+  // Same story for the price-update outcome, and for the divergence rows that
+  // are part of that same outcome. See `PxqSyncControl`'s docstring.
+  const [syncFeedback, setSyncFeedback] = useState(null);
+  const [syncDivergences, setSyncDivergences] = useState(null);
+
   // Outliving the control is not the same as outliving the PUBLICATION. The
-  // message survives `reload()` deliberately (above); it must NOT survive a
+  // messages survive `reload()` deliberately (above); they must NOT survive a
   // change of `itemId`, because `useLazyResource` re-keys on the new id without
   // unmounting this component — so "Se importaron 2 tramos" would go on sitting
   // under a publication it never described, indefinitely.
@@ -666,6 +683,27 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   if (feedbackItemId !== itemId) {
     setFeedbackItemId(itemId);
     setAdoptFeedback(null);
+    setSyncFeedback(null);
+    setSyncDivergences(null);
+  }
+
+  // A feedback message describes the RESULT of an action taken against a state.
+  // The moment the operator MUTATES that state, the message stops describing
+  // what is on screen — so authoring a tier clears BOTH outcomes:
+  //   - import: "cargá el costo de envío del bulto" is false as soon as he does;
+  //   - price update: "Precios actualizados en MercadoLibre" is false as soon as
+  //     he edits a tier, because the mirror is no longer what was sent.
+  //
+  // Tied to the AUTHORING callback, never to `reload()` itself. The reload the
+  // import triggers, and the one the price update triggers, are precisely the
+  // ones that must PRESERVE their message — that is the whole reason this state
+  // lives up here. Clearing inside `reload()` would look like a simplification
+  // and would silently restore the bug this file just fixed.
+  async function handleAuthoringChanged() {
+    setAdoptFeedback(null);
+    setSyncFeedback(null);
+    setSyncDivergences(null);
+    await reload();
   }
 
   // Invisible rather than an error/403 for a user without the permission —
@@ -751,7 +789,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
       </div>
       {canWrite && (
         <>
-          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
+          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={handleAuthoringChanged} />
           {/* The IMPORT ACTION is offered in exactly one state. An empty
               `liveTiers` means there is nothing on ML to import; a failed live
               read means we do not know what is there; a non-empty mirror means
@@ -774,6 +812,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
             hasTiers={mirrorTiers.length > 0}
             liveTiers={liveTiers}
             liveUnavailable={liveUnavailable}
+            feedback={syncFeedback}
+            onFeedback={setSyncFeedback}
+            divergences={syncDivergences}
+            onDivergences={setSyncDivergences}
             onSynced={reload}
           />
         </>

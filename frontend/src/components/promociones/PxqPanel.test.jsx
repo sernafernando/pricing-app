@@ -938,6 +938,205 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
   });
 });
 
+// An outcome message has to outlive the reload IT triggered — the reload is
+// what makes the outcome visible in the columns above, and it unmounts the
+// control that produced the message. It must NOT outlive its own truth: the
+// moment the operator edits the mirror the message describes, the message stops
+// describing what is on screen.
+//
+// Both halves are asserted here because they pull in opposite directions, and a
+// "simplification" that clears feedback inside `reload()` satisfies the second
+// while silently destroying the first.
+describe('PxqPanel — outcome messages outlive their reload, not their truth', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok', item_id = 'MLA001' } = {}) {
+    return {
+      data: { item_id, live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-06T10:00:00Z' },
+    };
+  }
+
+  const readyTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+  const importedTier = [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' }];
+  const liveTiers = [{ id: 'PXQ1', quantity: 5, amount: 100 }];
+
+  const UPDATE_BUTTON = { name: /actualizar precios en mercadolibre/i };
+  const IMPORT_BUTTON = { name: /^importar de mercadolibre$/i };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  // THE bug this block exists for. The success path calls `reload()`, which
+  // flips `loading` and makes the panel return its loading branch, unmounting
+  // the control — so a message held in the control's own state was destroyed
+  // by the very refresh that proved it true. It was never once visible.
+  it('shows the price-update success message after the reload that success triggers', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: readyTier }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: readyTier, live_tiers: liveTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+
+    // Asserted AFTER the reload has landed, not before: checking mid-flight
+    // would pass on a message that the very next commit throws away.
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/precios actualizados en mercadolibre/i)).toBeInTheDocument();
+  });
+
+  // The failure paths never reloaded, so they were never broken — which is
+  // exactly why they need a guard: lifting the state out of the control is the
+  // kind of change that can drop them on the floor without anyone noticing.
+  it('keeps the price-update error message and the 409 divergence rows after the state moves to the panel', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: readyTier }));
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              { ml_price_id: 'PXQ1', reason: 'amount_mismatch', live: { quantity: 5, amount: 150 }, desired: { quantity: 5, amount: 100 } },
+            ],
+          },
+        },
+      },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+
+    expect(await screen.findByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+    // The message and the rows are ONE result. Splitting their lifetimes would
+    // leave the operator reading "resolvé las diferencias" with no differences
+    // on screen to resolve.
+    expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument();
+    expect(screen.getByText(/150/)).toBeInTheDocument();
+    expect(pxqAPI.getLive).toHaveBeenCalledTimes(1);
+  });
+
+  // The guardrail for the clearing rule. The import's OWN reload is the reason
+  // this state was lifted to the panel in the first place; anyone who
+  // "simplifies" by clearing feedback inside `reload()` breaks this.
+  it('does not clear the import message on the reload the import itself triggers', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+  });
+
+  // "Cargá el costo de envío del bulto" stops being true the instant he does.
+  it('clears the import message once the operator edits a tier', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }))
+      .mockResolvedValue(
+        mockLive({
+          mirror_tiers: [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 30, ml_price_id: 'PXQ1', estado: 'listo' }],
+          live_tiers: liveTiers,
+        }),
+      );
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+    pxqAPI.updateTier.mockResolvedValue({ data: {} });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    // The exact next step the message named: load the shipping cost.
+    await user.click(await screen.findByRole('button', { name: /^editar$/i }));
+    await user.type(screen.getByLabelText(/costo de envío/i), '30');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.updateTier).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument());
+  });
+
+  // Symmetric to the import case: "Precios actualizados en MercadoLibre" stops
+  // being true the instant the mirror stops being what was sent.
+  it('clears the price-update success message once the operator edits a tier', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: readyTier, live_tiers: liveTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+    pxqAPI.updateTier.mockResolvedValue({ data: {} });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+    expect(await screen.findByText(/precios actualizados en mercadolibre/i)).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /^editar$/i }));
+    const precio = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precio);
+    await user.type(precio, '150');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.updateTier).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/precios actualizados en mercadolibre/i)).not.toBeInTheDocument());
+  });
+
+  // A message may outlive its control, never its PUBLICATION. The cache for the
+  // second item is warmed on purpose so the move does NOT pass through the
+  // loading branch: an unmount would hide a stale message by accident, and this
+  // test has to prove the reset itself.
+  it('clears both the import and the price-update outcome when the panel moves to another publication', async () => {
+    const user = userEvent.setup();
+    const pxqCacheRef = { current: new Map() };
+    pxqCacheRef.current.set('MLA002', {
+      status: 'ok',
+      data: { item_id: 'MLA002', live_status: 'ok', live_tiers: [], mirror_tiers: [], fetched_at: '2026-08-06T10:00:00Z' },
+    });
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              { ml_price_id: 'PXQ1', reason: 'amount_mismatch', live: { quantity: 5, amount: 150 }, desired: { quantity: 5, amount: 100 } },
+            ],
+          },
+        },
+      },
+    });
+
+    const { rerender } = render(<PxqPanel itemId="MLA001" pxqCacheRef={pxqCacheRef} />);
+
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    // A 409 does not reload, so the import message is still standing when the
+    // price-update message joins it. Both are live at the same time here.
+    await user.click(screen.getByRole('button', UPDATE_BUTTON));
+    expect(await screen.findByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+
+    rerender(<PxqPanel itemId="MLA002" pxqCacheRef={pxqCacheRef} />);
+
+    await waitFor(() => expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument());
+    expect(screen.queryByText(/mercadolibre y el mirror local no coinciden/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/amount_mismatch/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('PxqPanel — primary actions look like buttons', () => {
   beforeEach(() => {
     vi.clearAllMocks();
