@@ -261,33 +261,43 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
     run_id = str(uuid.uuid4())
     modelo = getattr(provider, "model", None)
 
-    with get_background_db() as db:
-        for campo, valor, confianza in (
-            ("severidad", propuesta.severidad, propuesta.confianza_severidad),
-            ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia),
-        ):
-            if valor is None or not pasa_umbral_confianza(confianza):
-                logger.info(
-                    "tickets triage: campo '%s' gateado para ticket #%s (confianza=%s)",
-                    campo,
-                    ticket_id,
-                    confianza,
+    try:
+        with get_background_db() as db:
+            for campo, valor, confianza in (
+                ("severidad", propuesta.severidad, propuesta.confianza_severidad),
+                ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia),
+            ):
+                if valor is None or not pasa_umbral_confianza(confianza):
+                    logger.info(
+                        "tickets triage: campo '%s' gateado para ticket #%s (confianza=%s)",
+                        campo,
+                        ticket_id,
+                        confianza,
+                    )
+                    continue
+                if _ya_tiene_propuesta_activa(db, ticket_id, campo):
+                    logger.info(
+                        "tickets triage: ya existe una propuesta activa para ticket #%s campo '%s', se omite",
+                        ticket_id,
+                        campo,
+                    )
+                    continue
+                db.add(
+                    PropuestaIA(
+                        ticket_id=ticket_id,
+                        campo=campo,
+                        valor_propuesto={"valor": valor},
+                        confianza=confianza,
+                        modelo=modelo,
+                        run_id=run_id,
+                    )
                 )
-                continue
-            if _ya_tiene_propuesta_activa(db, ticket_id, campo):
-                logger.info(
-                    "tickets triage: ya existe una propuesta activa para ticket #%s campo '%s', se omite",
-                    ticket_id,
-                    campo,
-                )
-                continue
-            db.add(
-                PropuestaIA(
-                    ticket_id=ticket_id,
-                    campo=campo,
-                    valor_propuesto={"valor": valor},
-                    confianza=confianza,
-                    modelo=modelo,
-                    run_id=run_id,
-                )
-            )
+    except Exception:
+        # Real review finding: `_ya_tiene_propuesta_activa` shrinks the
+        # race window but does not close it — a true concurrent run can
+        # still trip the partial unique index at commit time, inside
+        # `get_background_db()`'s own `__exit__`. That IntegrityError (or
+        # any other write-phase failure) must degrade the same way as
+        # every other failure mode here, never escape to the
+        # BackgroundTasks runner.
+        logger.warning("tickets triage: failed to write proposals for ticket #%s", ticket_id, exc_info=True)

@@ -242,11 +242,16 @@ class TestTriageMinConfianzaBounds:
     confianza value would ever reach it) — must fail loudly at startup."""
 
     def test_out_of_range_value_raises_at_construction(self) -> None:
-        with pytest.raises(ValidationError):
+        """Matches the field name in the error, not just `ValidationError`
+        broadly — the test environment already has required Settings
+        fields (SECRET_KEY/DATABASE_URL/ERP_BASE_URL) set via env vars, so
+        an unrelated missing-field error would also raise ValidationError
+        and pass this test for the wrong reason (obs #1350's lesson)."""
+        with pytest.raises(ValidationError, match="TICKETS_TRIAGE_MIN_CONFIANZA"):
             Settings(TICKETS_TRIAGE_MIN_CONFIANZA=6)
 
     def test_negative_value_raises_at_construction(self) -> None:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="TICKETS_TRIAGE_MIN_CONFIANZA"):
             Settings(TICKETS_TRIAGE_MIN_CONFIANZA=-0.1)
 
 
@@ -360,6 +365,38 @@ class TestSessionNotHeldAcrossNetworkCall:
             asyncio.run(run_triage(ticket.id, provider))
 
         assert events == ["enter", "exit", "network_call", "enter", "exit"]
+
+
+class TestWriteRaceDegradesGracefully:
+    """Real pre-push review finding: `_ya_tiene_propuesta_activa` shrinks
+    the race window but does not close it — a genuine unique-index
+    conflict at commit time (the documented last-resort backstop for a
+    true race) must degrade like every other failure, never raise out of
+    `run_triage`. SQLite's test-only FULL unique index on
+    (ticket_id, campo) — stricter than Postgres's WHERE-pendiente partial
+    index — gives a deterministic way to trigger a write-phase
+    IntegrityError without needing real concurrency."""
+
+    def test_unique_index_conflict_at_commit_does_not_raise(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "race")
+        # estado='descartada': the app-level check only looks at
+        # pendiente/confirmada, so it does NOT skip this field — but
+        # SQLite's full unique index still rejects a second row for the
+        # same (ticket_id, campo) regardless of estado.
+        db.add(
+            PropuestaIA(
+                ticket_id=ticket.id,
+                campo="severidad",
+                valor_propuesto={"valor": "trivial"},
+                estado="descartada",
+            )
+        )
+        db.flush()
+
+        provider = FakeProvider(response=json.dumps(_valid_payload()))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))  # must not raise
 
 
 class TestDegradationNotConfigured:
