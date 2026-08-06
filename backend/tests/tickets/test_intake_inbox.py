@@ -157,6 +157,33 @@ class TestMinimalTextoCreatesTicketWithInboxDefaults:
         assert ticket.texto_original == texto
 
 
+class TestTituloOnlyLeavesTextoOriginalNull:
+    """SC (coverage gap flagged by review): a caller that sends only
+    `titulo` (no `texto` at all — the legacy/advanced shape every existing
+    API consumer used before this slice) MUST still create successfully,
+    with `texto_original` staying NULL rather than ever being backfilled
+    from `titulo`. `texto_original` is meant to be the reporter's verbatim
+    free text; a title is not that, and must never masquerade as it."""
+
+    def test_titulo_only_creates_ticket_with_null_texto_original(self, client, db, rol_ventas):
+        user = _make_user(db, rol_ventas)
+        _seed_inbox(db)
+
+        resp = client.post(
+            TICKETS_ENDPOINT,
+            json={"titulo": "Solicitud de acceso a reportes"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["titulo"] == "Solicitud de acceso a reportes"
+        assert body["sector"]["codigo"] == INBOX_SECTOR_CODIGO
+
+        ticket = db.query(Ticket).filter(Ticket.id == body["id"]).first()
+        assert ticket.texto_original is None
+
+
 class TestExplicitSectorAndTipoStillHonored:
     """SC: advanced path still honors explicit values over Inbox defaults."""
 
