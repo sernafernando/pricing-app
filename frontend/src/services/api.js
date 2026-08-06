@@ -58,6 +58,28 @@ function isTypedAppError(value) {
 }
 
 /**
+ * El ENVELOPE ESTÁNDAR de error: `{error: {code, message}}`, la forma que
+ * `backend/app/core/exceptions.py` (`http_exception_handler`) le pone al body
+ * cuando el `detail` es un string, o un dict que trae `code`. Es el camino que
+ * toma la enorme mayoría de los errores de la API.
+ *
+ * Lo contrario de `isTypedAppError`: acá el payload NO se lee por campos, es
+ * un mensaje para mostrarle a la persona. Por eso se desenvuelve a string.
+ *
+ * El predicado exige `error.message` STRING y no solo la presencia de `error`.
+ * Hay bodies que usan esa clave para otra cosa (`{error: "texto plano"}`), y
+ * confiar en la clave sola terminaría poniendo un número o un objeto donde el
+ * contrato con los componentes es "string o nada".
+ */
+function isStandardErrorEnvelope(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { error } = value;
+  return (
+    !!error && typeof error === 'object' && !Array.isArray(error) && typeof error.message === 'string'
+  );
+}
+
+/**
  * Deja `response.data.detail` en un estado que los componentes puedan usar:
  * un string renderizable, o el payload tipado INTACTO.
  *
@@ -95,6 +117,26 @@ function normalizeErrorDetail(response) {
     // referencia circular y rompería cualquier `JSON.stringify` del payload.
     // La copia conserva el `detail` original como `detail.detail`.
     data.detail = { ...data };
+    return;
+  }
+
+  // El envelope estándar NO trae `detail`: `http_exception_handler` mueve el
+  // mensaje a `error.message` y nunca escribe esa clave. Como los 287
+  // `data.detail || 'fallback'` repartidos en 106 archivos leen justamente
+  // `detail`, todos tomaban SIEMPRE el fallback genérico y el mensaje real del
+  // backend no llegaba a ninguna de esas pantallas. Dieciocho archivos ya se
+  // habían comido el bug y lo esquivaban a mano con
+  // `data?.error?.message || data?.detail || '...'`.
+  //
+  // Se AGREGA `detail` como string; `data.error` queda intacto, así que esos
+  // dieciocho siguen andando igual. String y no el objeto `error`, porque el
+  // destino es `<div>{data.detail || 'fallback'}</div>`: un objeto ahí es
+  // React #31, que es la razón de existir de todo este normalizador.
+  //
+  // Va DESPUÉS de la rama tipada a propósito: un payload que sea las dos cosas
+  // se lee por campos, y aplanarlo dejaría `detail.status` en `undefined`.
+  if (data.detail === undefined && isStandardErrorEnvelope(data)) {
+    data.detail = data.error.message;
     return;
   }
 

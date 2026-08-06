@@ -345,16 +345,24 @@ describe('response interceptor — typed error contracts vs. renderable strings'
   // --- the lift stays narrow ------------------------------------------------
 
   // The standard error envelope (`core/exceptions.py`, string details and any
-  // dict carrying `code`) is NOT a typed application error. Inventing a
-  // `detail` for it would change what a hundred-odd unrelated components
-  // display, which is a separate change from this one.
-  it('invents no detail for the standard {error: {code, message}} envelope', async () => {
+  // dict carrying `code`) is NOT a typed application error: it is a message to
+  // show, so it gets unwrapped to a STRING and never to an object — the same
+  // React #31 guarantee the 422 array branch above carries.
+  //
+  // This used to assert `detail` stayed `undefined`, deferring the blast
+  // radius to its own change. That change is this one: the envelope carries
+  // the real backend message, and the 287 `data.detail || 'fallback'` call
+  // sites across 106 files were reading `undefined` and showing the generic
+  // fallback every single time. See `api.errors.test.js` for the full
+  // contract, including what the unwrap deliberately refuses to touch.
+  it('unwraps the standard {error: {code, message}} envelope to its message', async () => {
     const data = await throughInterceptor({
       status: 403,
       data: { error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'No tienes permiso: pxq.ver' } },
     });
 
-    expect(data.detail).toBeUndefined();
+    expect(data.detail).toBe('No tienes permiso: pxq.ver');
+    expect(typeof data.detail).toBe('string');
   });
 
   it.each([
