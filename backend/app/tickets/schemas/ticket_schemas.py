@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
 
@@ -303,3 +303,26 @@ class TicketListPaginatedResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+class PropuestaResponse(BaseModel):
+    """Schema de respuesta para una propuesta de IA (tickets-ai-triage PR 4b)"""
+
+    id: int
+    ticket_id: int
+    campo: str
+    valor_propuesto: Dict[str, Any]
+    confianza: Optional[float] = None
+    modelo: Optional[str] = None
+    estado: str
+    confirmado_por_id: Optional[int] = None
+    confirmado_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmarBatchRequest(BaseModel):
+    """Schema para confirmar múltiples propuestas de IA en un solo request"""
+
+    propuesta_ids: List[int] = Field(..., min_length=1, description="IDs de propuestas pendientes a confirmar")

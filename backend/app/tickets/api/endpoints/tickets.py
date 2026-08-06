@@ -357,6 +357,11 @@ async def marcar_revisado(
 # ── CRUD de tickets ──────────────────────────────────────────────
 
 
+# ponytail: tickets.crear stays unenforced here on purpose — enforcing it
+# would lock out exactly the non-technical reporters this change exists to
+# serve (seeded at migration 20260316t1:26-32, checked by no endpoint today).
+# The correct fix is to seed the permission to every role FIRST, then
+# enforce — a separate change with its own blast radius, not this one.
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 async def crear_ticket(
     ticket_data: TicketCreate,
