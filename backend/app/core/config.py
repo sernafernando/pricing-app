@@ -200,6 +200,16 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
+    # Tickets AI triage (tickets-ai-triage PR 4a) — deliberately its OWN key,
+    # not shared with the ml-bot roster (obs #1299: Groq rate limits apply
+    # at the ORG level, so a separate key does not isolate quota, but a
+    # separate config row means changing the triage model can never change
+    # the ml-bot's model by accident). Reuses GROQ_BASE_URL — same vendor.
+    GROQ_TICKETS_KEY: Optional[str] = None
+    # Per-field gate (design §9a): below this, or null, writes zero proposal
+    # rows for that field — never a low-confidence guess presented as fact.
+    TICKETS_TRIAGE_MIN_CONFIANZA: float = 0.6
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000

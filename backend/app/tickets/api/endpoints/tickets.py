@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.tickets.api.deps import get_triage_provider
 from app.tickets.models.adjunto_ticket import AdjuntoTicket
 from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
@@ -24,6 +25,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
+from app.tickets.services.triage_service import LlmProvider, run_triage
 from app.tickets.services.workflow_service import MotivoRechazoTransicion, WorkflowService
 from app.tickets.schemas.ticket_schemas import (
     AdjuntoResponse,
@@ -358,8 +360,10 @@ async def marcar_revisado(
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 async def crear_ticket(
     ticket_data: TicketCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    triage_provider: LlmProvider = Depends(get_triage_provider),
 ) -> TicketResponse:
     """
     Crea un nuevo ticket.
@@ -480,6 +484,11 @@ async def crear_ticket(
 
     db.commit()
     db.refresh(nuevo_ticket)
+
+    # AI triage (tickets-ai-triage PR 4a): scheduled AFTER commit, never
+    # awaited — the request's `db` session is closed by the time
+    # BackgroundTasks runs, so `run_triage` opens its own (design §6).
+    background_tasks.add_task(run_triage, nuevo_ticket.id, triage_provider)
 
     await sse_publish("tickets:changed", {"hint": "reload"})
     await sse_publish("tickets:badge", {"hint": "reload"})
