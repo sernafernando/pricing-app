@@ -166,6 +166,19 @@ class AgrupacionBoard(str, enum.Enum):
     URGENCIA = "urgencia"
 
 
+class UrgenciaFiltro(str, enum.Enum):
+    """Query enum for `listar_tickets`'s `urgencia` filter — same
+    injection-boundary pattern as `TicketOrderBy`/`AgrupacionBoard`. Added
+    in PR 5b: the board groups by urgencia, but GET /tickets had no matching
+    filter for its "load more" to reuse (gap found, closed here)."""
+
+    BAJA = "baja"
+    NORMAL = "normal"
+    ALTA = "alta"
+    INMEDIATA = "inmediata"
+    SIN_CLASIFICAR = "sin_clasificar"
+
+
 def _aplicar_orden(query, order_by: TicketOrderBy, order_dir: TicketOrderDir):
     """Applies ORDER BY, using `_rank_case()` for severidad/urgencia."""
     columnas = {
@@ -782,6 +795,9 @@ def listar_tickets(
     asignado_a_id: Optional[int] = Query(None, description="Filtrar por usuario asignado"),
     creador_id: Optional[int] = Query(None, description="Filtrar por creador"),
     prioridad: Optional[PrioridadTicket] = Query(None, description="Filtrar por prioridad"),
+    urgencia: Optional[UrgenciaFiltro] = Query(
+        None, description="Filtrar por urgencia (usado por el 'load more' del tablero)"
+    ),
     esta_cerrado: Optional[bool] = Query(None, description="Filtrar por cerrado/abierto"),
     busqueda: Optional[str] = Query(None, description="Buscar en título"),
     order_by: TicketOrderBy = Query(TicketOrderBy.CREATED_AT, description="Campo de orden"),
@@ -834,6 +850,12 @@ def listar_tickets(
 
     if prioridad:
         query = query.filter(Ticket.prioridad == prioridad)
+
+    if urgencia:
+        if urgencia == UrgenciaFiltro.SIN_CLASIFICAR:
+            query = query.filter(Ticket.urgencia.is_(None))
+        else:
+            query = query.filter(Ticket.urgencia == urgencia.value)
 
     if creador_id:
         query = query.filter(Ticket.creador_id == creador_id)

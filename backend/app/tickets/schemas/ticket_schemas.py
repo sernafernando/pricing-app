@@ -202,6 +202,16 @@ class TicketListResponse(BaseModel):
     esta_cerrado: bool
     created_at: datetime
 
+    # tickets-ai-triage PR 5b: gap found while wiring the board's "load
+    # more" (GET /tickets) — TicketCard needs these to render the same as a
+    # board card, and they were only ever serialized on TicketResponse
+    # (PR 4c). Free from the ORM: same columns, no query change.
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    resumen: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
