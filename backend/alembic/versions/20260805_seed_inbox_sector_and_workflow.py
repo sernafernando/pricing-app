@@ -45,14 +45,33 @@ ESTADO_FINAL_CODIGO = "cerrado"
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # Idempotency guard: a retried/partial migration run (or a pre-existing
-    # sector with this codigo) must not crash on a unique-violation — if the
-    # Inbox sector is already there, assume this migration already ran.
-    existing = bind.execute(
+    # Idempotency guard: a retried migration run must not crash on a
+    # unique-violation. Checks the FULL seed shape (sector + default
+    # workflow + tipo), not just the sector — a sector with this codigo but
+    # a missing workflow/tipo means someone created it by hand, and this
+    # migration must not silently pass while leaving crear_ticket's Inbox
+    # defaults dead at runtime (400 with no signal, per obs #1305/#1334).
+    existing_sector_id = bind.execute(
         sa.text("SELECT id FROM tickets_sectores WHERE codigo = :codigo"), {"codigo": SECTOR_CODIGO}
     ).scalar_one_or_none()
-    if existing is not None:
-        return
+    if existing_sector_id is not None:
+        has_default_workflow = bind.execute(
+            sa.text("SELECT 1 FROM tickets_workflows WHERE sector_id = :sid AND es_default = true AND activo = true"),
+            {"sid": existing_sector_id},
+        ).scalar_one_or_none()
+        has_tipo = bind.execute(
+            sa.text("SELECT 1 FROM tickets_tipos WHERE sector_id = :sid AND codigo = :codigo"),
+            {"sid": existing_sector_id, "codigo": TIPO_CODIGO},
+        ).scalar_one_or_none()
+        if has_default_workflow and has_tipo:
+            return  # Full seed already present — this migration already ran.
+        raise RuntimeError(
+            f"Cannot seed Inbox: a sector with codigo='{SECTOR_CODIGO}' already exists "
+            f"(id={existing_sector_id}) but is missing its default workflow and/or "
+            f"'{TIPO_CODIGO}' tipo. Resolve the conflict by hand before re-running this "
+            f"migration — completing it silently could leave crear_ticket's Inbox "
+            f"defaults in an inconsistent state."
+        )
 
     sectores = sa.table(
         "tickets_sectores",
