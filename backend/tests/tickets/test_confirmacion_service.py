@@ -125,6 +125,21 @@ def _headers(user: Usuario) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _reload(db, ticket: Ticket) -> Ticket:
+    """Real gotcha (matches obs #1350's pattern): `setattr(obj, "unmapped_attr", ...)`
+    on a SQLAlchemy model silently creates a plain Python instance attribute
+    when the column doesn't exist on the model — no error. `db.refresh()`
+    only reloads MAPPED columns, so it does NOT clear that phantom
+    attribute; a test asserting on it via `db.refresh(ticket)` would pass
+    even if the column were never added to the model or migration.
+    `db.expunge()` + a fresh query bypasses the session's identity map,
+    forcing a genuine reconstruction from the DB row — the only way to
+    prove the value was actually persisted to a real column."""
+    ticket_id = ticket.id
+    db.expunge(ticket)
+    return db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+
 class _FakeBackgroundDb:
     """Mirrors test_triage_service.py's own fixture — reuses the test's
     transactional `db` session instead of a real second connection."""
@@ -214,6 +229,60 @@ class TestConfirmarWritesValueProvenanceHistory:
         # Confirming urgencia must never touch severidad.
         assert ticket.severidad is None
 
+    def test_confirmar_titulo_writes_ticket_column_and_origen(self, db, rol_ventas):
+        """Decision #1371 — closes the gap PR 4b explicitly left open: the
+        generic setattr pattern extends to titulo with zero special-casing."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Arreglar login roto")
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "confirmada"
+        ticket = _reload(db, ticket)
+        assert ticket.titulo == "Arreglar login roto"
+        assert ticket.titulo_origen == "ia_confirmada"
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_confirmada")
+            .all()
+        )
+        assert len(historial) == 1
+        assert historial[0].cambios["campo"] == "titulo"
+
+    def test_confirmar_resumen_writes_ticket_column_and_origen_without_overwriting_descripcion(self, db, rol_ventas):
+        """Decision #1 (obs #1371): `resumen` is a DEDICATED column — it
+        must never overwrite `descripcion`, which carries the raw intake
+        text and would leave the detail view with LESS information than
+        the board card if clobbered."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.descripcion = "Texto completo original del reporte, más largo que cualquier resumen."
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="resumen", valor="El usuario no puede loguearse desde ayer")
+
+        confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.resumen == "El usuario no puede loguearse desde ayer"
+        assert ticket.resumen_origen == "ia_confirmada"
+        assert ticket.descripcion == "Texto completo original del reporte, más largo que cualquier resumen."
+
+    def test_confirmar_titulo_does_not_touch_texto_original(self, db, rol_ventas):
+        """Regression: `texto_original` is the reporter's receipt (design
+        §7) and must survive a title/summary confirmation untouched."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.texto_original = "El login no funciona desde ayer a la tarde"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Arreglar login roto")
+
+        confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.texto_original == "El login no funciona desde ayer a la tarde"
+
 
 class TestConfirmarServiceErrors:
     def test_confirmar_unknown_id_raises_not_found(self, db, rol_ventas):
@@ -289,6 +358,28 @@ class TestConfirmarEndpointPermission:
         body = resp.json()
         assert {p["estado"] for p in body} == {"confirmada"}
 
+    def test_confirmar_titulo_endpoint_succeeds_over_http(self, client, db, rol_ventas):
+        """HTTP-level regression guard (obs #1350's pattern): proves the
+        full request/response path — auth, permission check, service call,
+        `PropuestaResponse` serialization — works when `campo='titulo'`,
+        not just the service function called directly."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Arreglar login roto")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["campo"] == "titulo"
+        assert resp.json()["estado"] == "confirmada"
+        ticket = _reload(db, ticket)
+        assert ticket.titulo == "Arreglar login roto"
+        assert ticket.titulo_origen == "ia_confirmada"
+
 
 class TestDescartarNeverResurfaces:
     """SC: Human rejection never re-surfaces."""
@@ -336,6 +427,38 @@ class TestDescartarNeverResurfaces:
             .filter(
                 PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "severidad", PropuestaIA.id != propuesta.id
             )
+            .all()
+        )
+        assert len(nuevas) == 1
+        assert nuevas[0].estado == "pendiente"
+
+    @pytest.mark.postgres
+    def test_discarded_titulo_stays_discarded_when_new_triage_run_proposes_again(self, pg_tickets_db):
+        """SCOPE: 'a discarded title proposal never resurfaces' — same
+        invariant as severidad above, proven for the new `titulo` campo."""
+        db = pg_tickets_db
+        rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
+        db.add(rol)
+        db.flush()
+        ticket = _make_ticket(db, rol)
+        usuario = _make_usuario(db, rol)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo viejo descartado")
+        confirmacion_service.descartar(db, propuesta.id, usuario)
+        assert propuesta.estado == "descartada"
+
+        ticket.texto_original = "Sigue fallando, ahora con más detalle"
+        db.commit()
+
+        fake_provider = FakeProvider(json.dumps(_valid_triage_payload(confianza_global=0.9)))
+        with patch("app.tickets.services.triage_service.get_background_db", return_value=_FakeBackgroundDb(db)):
+            asyncio.run(run_triage(ticket.id, fake_provider))
+
+        db.refresh(propuesta)
+        assert propuesta.estado == "descartada"  # HARD INVARIANT: never flips back
+
+        nuevas = (
+            db.query(PropuestaIA)
+            .filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "titulo", PropuestaIA.id != propuesta.id)
             .all()
         )
         assert len(nuevas) == 1

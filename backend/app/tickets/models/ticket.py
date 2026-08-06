@@ -57,6 +57,14 @@ class Ticket(Base):
     urgencia_origen = Column(String(14), nullable=True)
     texto_original = Column(Text, nullable=True)
 
+    # AI-curated title/summary (PR 06, obs #1371). `resumen` is a DEDICATED
+    # board-facing column — it must never overwrite `descripcion`, which
+    # carries the raw intake text (PR 3a). No index: the board groups/sorts
+    # by estado/urgencia, never by summary text.
+    resumen = Column(String(180), nullable=True)
+    titulo_origen = Column(String(14), nullable=True)
+    resumen_origen = Column(String(14), nullable=True)
+
     # Referencias
     sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False, index=True)
     tipo_ticket_id = Column(Integer, ForeignKey("tickets_tipos.id"), nullable=False)
@@ -110,6 +118,14 @@ class Ticket(Base):
         CheckConstraint(
             "urgencia_origen IN ('humano','ia_confirmada','ia_auto')",
             name="ck_tickets_urgencia_origen",
+        ),
+        CheckConstraint(
+            "titulo_origen IN ('humano','ia_confirmada','ia_auto')",
+            name="ck_tickets_titulo_origen",
+        ),
+        CheckConstraint(
+            "resumen_origen IN ('humano','ia_confirmada','ia_auto')",
+            name="ck_tickets_resumen_origen",
         ),
         Index("ix_tickets_severidad", "severidad"),
         Index("ix_tickets_urgencia", "urgencia"),

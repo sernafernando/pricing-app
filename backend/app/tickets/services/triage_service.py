@@ -266,6 +266,11 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
             for campo, valor, confianza in (
                 ("severidad", propuesta.severidad, propuesta.confianza_severidad),
                 ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia),
+                # titulo/resumen have no per-field confidence of their own
+                # in the LLM contract — both gate on confianza_global
+                # (decision #1371, resolving the blocker PR 4b reported).
+                ("titulo", propuesta.titulo, propuesta.confianza_global),
+                ("resumen", propuesta.resumen, propuesta.confianza_global),
             ):
                 if valor is None or not pasa_umbral_confianza(confianza):
                     logger.info(
