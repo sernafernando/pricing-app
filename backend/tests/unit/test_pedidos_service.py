@@ -25,6 +25,7 @@ from app.models.compra_evento import CompraEvento
 from app.models.empresa import Empresa
 from app.models.imputacion import Imputacion
 from app.models.proveedor import OrigenProveedor, Proveedor
+from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.services import pedidos_service
 
 
@@ -1423,3 +1424,66 @@ class TestCalcularTCPonderadoPedidoBatch:
         # (1500*500 + 1600*300) / (500+300) = 1230000 / 800 = 1537.5000
         for pid in pedido_ids:
             assert result[pid] == Decimal("1537.5000")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# calcular_oc_totales_batch (D3 — compras-recepcion-visibilidad-items)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _mk_pod(
+    db,
+    *,
+    comp_id: int,
+    bra_id: int,
+    poh_id: int,
+    pod_id: int,
+    stor_id: int = 1,
+    item_id: int = 201,
+    qty: Decimal,
+) -> PurchaseOrderDetail:
+    d = PurchaseOrderDetail(
+        comp_id=comp_id,
+        bra_id=bra_id,
+        poh_id=poh_id,
+        pod_id=pod_id,
+        stor_id=stor_id,
+        item_id=item_id,
+        pod_qty=qty,
+    )
+    db.add(d)
+    db.flush()
+    return d
+
+
+class TestCalcularOcTotalesBatch:
+    """D3: batch aggregate over tb_purchase_order_detail (ERP, read-only)."""
+
+    def test_empty_dict_returns_empty_dict(self, db) -> None:
+        assert pedidos_service.calcular_oc_totales_batch(db, {}) == {}
+
+    def test_batch_returns_correct_tuple_per_pedido(self, db) -> None:
+        """N pedidos linked to different OCs → correct (lineas, unidades) per pedido_id."""
+        _mk_pod(db, comp_id=1, bra_id=1, poh_id=9001, pod_id=1, qty=Decimal("10"))
+        _mk_pod(db, comp_id=1, bra_id=1, poh_id=9001, pod_id=2, qty=Decimal("5"))
+        _mk_pod(db, comp_id=1, bra_id=1, poh_id=9002, pod_id=1, qty=Decimal("3"))
+
+        result = pedidos_service.calcular_oc_totales_batch(db, {101: (1, 1, 9001), 102: (1, 1, 9002)})
+
+        assert result[101] == (2, Decimal("15"))
+        assert result[102] == (1, Decimal("3"))
+
+    def test_split_destination_lines_count_as_two(self, db) -> None:
+        """One item_id shipped to two stor_id under one OC → lineas=2, not 1."""
+        _mk_pod(db, comp_id=1, bra_id=1, poh_id=9003, pod_id=1, stor_id=1, item_id=301, qty=Decimal("4"))
+        _mk_pod(db, comp_id=1, bra_id=1, poh_id=9003, pod_id=2, stor_id=2, item_id=301, qty=Decimal("6"))
+
+        result = pedidos_service.calcular_oc_totales_batch(db, {201: (1, 1, 9003)})
+
+        assert result[201] == (2, Decimal("10"))
+
+    def test_oc_without_erp_detail_rows_is_absent_from_result(self, db) -> None:
+        """A linked OC with no detail rows in the ERP → key absent, not (0, 0)."""
+        result = pedidos_service.calcular_oc_totales_batch(db, {301: (1, 1, 99999)})
+
+        assert 301 not in result
