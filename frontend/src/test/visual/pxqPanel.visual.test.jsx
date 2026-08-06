@@ -26,6 +26,7 @@ vi.mock('../../services/api', () => ({
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
     sync: vi.fn(),
+    adoptLive: vi.fn(),
   },
 }));
 
@@ -225,6 +226,101 @@ describe('PxQ authoring form — the long label', () => {
     // clipping a Spanish label loses meaning, so wrapping stays ALLOWED.
     expect(cs.whiteSpace).not.toBe('nowrap');
     expect(cs.textOverflow).not.toBe('ellipsis');
+  });
+});
+
+/**
+ * The adopt-live import control's outcome tones.
+ *
+ * Judged worth a browser test for one reason, and it is not "the new control
+ * should look nice". The control's entire contract is that its outcomes are
+ * DISTINGUISHABLE — a 409 you must act on, a 503 you should just retry, and a
+ * success that still owes you a shipping cost. In the DOM that distinction is
+ * carried by nothing but which of three CSS-module classes is applied, and the
+ * jsdom suite can only prove the class NAMES differ.
+ *
+ * They are declared as `color: var(--success, var(--text-primary))` and
+ * friends. That fallback chain is a silent collapse waiting to happen: drop
+ * `--success` / `--warning` / `--danger` from `theme.css` and all three tones
+ * resolve to the same `--text-primary`, the "warn tone, not error tone" unit
+ * assertion keeps passing on the class name, and the operator gets three
+ * identically-painted messages on the money path.
+ *
+ * Typeface-independent by construction — it measures resolved colours, exactly
+ * like the disabled-state test above, and asserts nothing about text metrics.
+ */
+describe('PxQ adopt-live control — outcome tones are actually distinguishable', () => {
+  const IMPORTABLE = {
+    data: {
+      item_id: 'MLA001',
+      live_status: 'ok',
+      live_tiers: [{ id: 'p1', quantity: 3, amount: 900 }],
+      // Empty mirror + live tiers is the one state that offers the import.
+      mirror_tiers: [],
+    },
+  };
+
+  /** Mount the panel in the importable state, click Import, return the message node. */
+  async function messageAfterImport(adoptResult, expectedClass) {
+    pxqAPI.getLive.mockResolvedValue(IMPORTABLE);
+    adoptResult();
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    const button = await vi.waitFor(() => {
+      const found = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Importar de MercadoLibre');
+      if (!found) throw new Error('import button not rendered yet');
+      return found;
+    });
+    button.click();
+
+    // Querying BY the expected class is deliberate: it proves the branch chose
+    // that class, and hands back the node whose paint we then measure.
+    return vi.waitFor(() => {
+      const node = container.querySelector(`[class*="${expectedClass}"]`);
+      if (!node) throw new Error(`no ${expectedClass} message rendered yet`);
+      return node;
+    });
+  }
+
+  it('paints success, warn and error in three different colours, in both themes', async () => {
+    const ok = await messageAfterImport(
+      () => pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } }),
+      'feedbackSuccess',
+    );
+    const warn = await messageAfterImport(
+      () =>
+        pxqAPI.adoptLive.mockRejectedValue({
+          response: { status: 503, data: { detail: { status: 'adopt_read_unavailable', reason: 'read failed' } } },
+        }),
+      'feedbackWarn',
+    );
+    const error = await messageAfterImport(
+      () =>
+        pxqAPI.adoptLive.mockRejectedValue({
+          response: {
+            status: 409,
+            data: { detail: { status: 'adopt_conflict', conflicts: [{ tier_id: 3, cantidad_minima: 12 }] } },
+          },
+        }),
+      'feedbackError',
+    );
+
+    // Both themes: the three tones come off `theme.css`'s light and dark
+    // blocks independently, so one can be repaired while the other collapses.
+    for (const theme of ['light', 'dark']) {
+      setTheme(theme);
+      const tones = [ok, warn, error].map((el) => getComputedStyle(el).color);
+
+      expect(new Set(tones).size).toBe(3);
+
+      // The exact collapse mode the fallback chain allows: every tone silently
+      // becoming the ordinary body colour. Three-distinct alone would not
+      // catch a partial collapse, so each is checked against it by name.
+      const plain = tokenColor('--text-primary');
+      for (const tone of tones) {
+        expect(tone).not.toBe(plain);
+      }
+    }
   });
 });
 
