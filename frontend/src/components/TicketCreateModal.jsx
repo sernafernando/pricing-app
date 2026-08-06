@@ -167,9 +167,27 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
   const [createdTicket, setCreatedTicket] = useState(null);
   const [failedUploads, setFailedUploads] = useState([]);
 
-  // Load sectores on mount (advanced path only)
+  // Reset on open + load sectores. This modal is normally unmounted and
+  // remounted fresh by the parent (`{createModalOpen && <TicketCreateModal
+  // .../>}` in Tickets.jsx), which already gives clean state on every open —
+  // this reset is defensive, protecting a future caller that instead keeps
+  // the component alive and just toggles `isOpen`.
   useEffect(() => {
     if (!isOpen) return;
+    setTexto('');
+    setSectorId('');
+    setTipoTicketId('');
+    setTitulo('');
+    setDescripcion('');
+    setPrioridad('media');
+    setMetadata({});
+    setDroppedFields(null);
+    setFiles([]);
+    setShowAdvanced(false);
+    setError(null);
+    setCreatedTicket(null);
+    setFailedUploads([]);
+
     const fetchSectores = async () => {
       try {
         const { data } = await sectoresAPI.listar();
@@ -181,12 +199,13 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
     fetchSectores();
   }, [isOpen]);
 
-  // Load tipos_ticket when sector changes
+  // Fetch tipos_ticket whenever sector changes. Clearing tipoTicketId/
+  // metadata for the new sector is handleSectorChange's job (imperative,
+  // same drop-preserving logic as handleTipoChange) — this effect only
+  // fetches.
   useEffect(() => {
     if (!sectorId) {
       setTiposTicket([]);
-      setTipoTicketId('');
-      setMetadata({});
       return;
     }
 
@@ -202,8 +221,6 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
       }
     };
     fetchTipos();
-    setTipoTicketId('');
-    setMetadata({});
   }, [sectorId]);
 
   const selectedTipo = tiposTicket.find((t) => String(t.id) === String(tipoTicketId));
@@ -214,15 +231,11 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
     setMetadata((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Changing tipo keeps metadata keys that exist in the new schema and drops
-  // the rest, listing what was dropped inline instead of a confirm() modal.
-  // Computed from the current `metadata`/`schemaCampos` in scope (not inside
-  // a setState updater, which must stay pure) — this handler isn't called
-  // rapidly enough in succession for a stale-closure read to matter.
-  const handleTipoChange = (newTipoId) => {
-    const nuevoTipo = tiposTicket.find((t) => String(t.id) === String(newTipoId));
-    const nuevoSchema = nuevoTipo?.schema_campos || {};
-
+  // Keeps metadata keys present in `nuevoSchema`, drops the rest, and shows
+  // an inline notice listing what was dropped — instead of a confirm()
+  // modal (banned by AGENTS.md). Shared by both handleSectorChange and
+  // handleTipoChange so metadata loss is never silent on EITHER path.
+  const aplicarMetadataParaSchema = (nuevoSchema) => {
     const conservados = {};
     const perdidos = [];
     for (const [key, value] of Object.entries(metadata)) {
@@ -232,9 +245,23 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
         perdidos.push(schemaCampos[key]?.label || key);
       }
     }
-
     setDroppedFields(perdidos.length > 0 ? perdidos : null);
     setMetadata(conservados);
+  };
+
+  // Changing sector invalidates the current tipo entirely — treat it as a
+  // drop against an empty schema so any metadata gets the same
+  // preserve/notify treatment as a tipo change (previously this wiped
+  // metadata unconditionally and silently, the exact bug this slice fixes).
+  const handleSectorChange = (newSectorId) => {
+    aplicarMetadataParaSchema({});
+    setTipoTicketId('');
+    setSectorId(newSectorId);
+  };
+
+  const handleTipoChange = (newTipoId) => {
+    const nuevoTipo = tiposTicket.find((t) => String(t.id) === String(newTipoId));
+    aplicarMetadataParaSchema(nuevoTipo?.schema_campos || {});
     setTipoTicketId(newTipoId);
   };
 
@@ -402,7 +429,7 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
                 <select
                   className={styles.select}
                   value={sectorId}
-                  onChange={(e) => setSectorId(e.target.value)}
+                  onChange={(e) => handleSectorChange(e.target.value)}
                 >
                   <option value="">Bandeja de entrada (automático)</option>
                   {sectores.map((s) => (

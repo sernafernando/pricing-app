@@ -33,6 +33,7 @@ vi.mock('../services/api', () => ({
 }));
 
 const SECTOR = { id: 1, nombre: 'Soporte' };
+const SECTOR_2 = { id: 2, nombre: 'Ventas' };
 const TIPO_BUG = {
   id: 10,
   nombre: 'Bug',
@@ -49,7 +50,7 @@ const TIPO_CONSULTA = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sectoresAPI.listar.mockResolvedValue({ data: [SECTOR] });
+  sectoresAPI.listar.mockResolvedValue({ data: [SECTOR, SECTOR_2] });
   sectoresAPI.listarTiposTicket.mockResolvedValue({ data: [TIPO_BUG, TIPO_CONSULTA] });
 });
 
@@ -146,5 +147,27 @@ describe('TicketCreateModal — type change preserves overlapping metadata', () 
 
     // "motivo" is in both schemas — preserved with its value intact.
     expect(screen.getByPlaceholderText('motivo-field')).toHaveValue('no anda');
+  });
+
+  it('also drops metadata (with notice) when the sector changes, never silently', async () => {
+    const user = userEvent.setup();
+    render(<TicketCreateModal isOpen onClose={vi.fn()} onCreated={vi.fn()} />);
+    await fillTexto();
+
+    await user.click(screen.getByRole('button', { name: /Opciones avanzadas/i }));
+    const [sectorSelect] = screen.getAllByRole('combobox');
+    await user.selectOptions(sectorSelect, String(SECTOR.id));
+    await screen.findByText(TIPO_BUG.nombre);
+    await user.selectOptions(screen.getAllByRole('combobox')[1], String(TIPO_BUG.id));
+
+    const motivoInput = await screen.findByPlaceholderText('motivo-field');
+    fireEvent.change(motivoInput, { target: { value: 'no anda' } });
+
+    // Changing sector — this used to wipe metadata unconditionally and
+    // silently (TicketCreateModal.jsx:182-184, the bug this slice fixes).
+    await user.selectOptions(sectorSelect, String(SECTOR_2.id));
+
+    await screen.findByText(/Motivo/);
+    expect(screen.queryByPlaceholderText('motivo-field')).not.toBeInTheDocument();
   });
 });
