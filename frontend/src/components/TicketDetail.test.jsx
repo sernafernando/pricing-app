@@ -25,10 +25,16 @@ vi.mock('../services/api', () => ({
     listarComentarios: vi.fn().mockResolvedValue({ data: [] }),
     obtenerHistorial: vi.fn().mockResolvedValue({ data: [] }),
     listarAdjuntos: vi.fn().mockResolvedValue({ data: [] }),
+    listarPropuestas: vi.fn().mockResolvedValue({ data: [] }),
   },
   sectoresAPI: {
     listarWorkflows: vi.fn().mockResolvedValue({ data: [] }),
     listarUsuarios: vi.fn().mockResolvedValue({ data: [] }),
+  },
+  propuestasAPI: {
+    confirmar: vi.fn(),
+    descartar: vi.fn(),
+    confirmarBatch: vi.fn(),
   },
 }));
 
@@ -90,5 +96,25 @@ describe('TicketDetail — marcarRevisado non-blocking catch', () => {
     // never block or fail the ticket detail view.
     await waitFor(() => expect(screen.getByText('No puedo facturar desde ayer')).toBeInTheDocument());
     expect(screen.queryByText('Error al cargar el ticket')).not.toBeInTheDocument();
+  });
+});
+
+describe('TicketDetail — AI triage provenance (tickets-ai-triage PR 4c)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows a provenance badge for an AI-confirmed severidad and fetches pending proposals for the ticket', async () => {
+    ticketsAPI.obtener.mockResolvedValue({
+      data: baseTicket({ severidad: 'mayor', severidad_origen: 'ia_confirmada' }),
+    });
+    ticketsAPI.marcarRevisado.mockResolvedValue({ data: { ok: true } });
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [] });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('mayor')).toBeInTheDocument());
+    expect(screen.getByText('IA confirmada')).toBeInTheDocument();
+    expect(ticketsAPI.listarPropuestas).toHaveBeenCalledWith(42);
   });
 });

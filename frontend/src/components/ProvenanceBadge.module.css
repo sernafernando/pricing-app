@@ -1,0 +1,27 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.humano {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.iaConfirmada {
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+}
+
+.iaAuto {
+  background: var(--cf-accent-purple-light);
+  color: var(--cf-accent-purple);
+}
